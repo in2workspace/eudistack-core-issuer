@@ -12,23 +12,16 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Configuration
-@ConditionalOnMissingBean(SigningProvider.class)
 @ConditionalOnProperty(prefix = "issuer.signing.runtime", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class SigningProviderConfig {
 
-    /**
-     * Fallback only for CORE standalone runs.
-     * Enterprise should provide its own SigningProvider bean.
-     */
     @Bean
-    public SigningProvider signingProvider(
-            RuntimeSigningConfig runtimeSigningConfig,
-            InMemorySigningProvider inMemorySigningProvider
-    ) {
+    @ConditionalOnMissingBean(SigningProvider.class)
+    public SigningProvider signingProvider(RuntimeSigningConfig runtimeSigningConfig) {
+
         Map<String, SigningProvider> map = new HashMap<>();
-        map.put("in-memory", inMemorySigningProvider);
+        map.put("in-memory", new InMemorySigningProvider());
 
         return new DelegatingSigningProvider(runtimeSigningConfig, map);
     }
 }
-
