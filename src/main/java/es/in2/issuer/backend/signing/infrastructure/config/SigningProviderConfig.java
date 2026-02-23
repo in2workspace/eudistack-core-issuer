@@ -1,61 +1,34 @@
 package es.in2.issuer.backend.signing.infrastructure.config;
 
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
-import es.in2.issuer.backend.signing.infrastructure.adapter.CscSignDocSigningProvider;
-import es.in2.issuer.backend.signing.infrastructure.adapter.CscSignHashSigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.InMemorySigningProvider;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-@Slf4j
+import java.util.HashMap;
+import java.util.Map;
+
 @Configuration
-@RequiredArgsConstructor
+@ConditionalOnMissingBean(SigningProvider.class)
+@ConditionalOnProperty(prefix = "issuer.signing.runtime", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class SigningProviderConfig {
 
     /**
-     * Allowed values:
-     * - in-memory
-     * - csc-sign-doc
-     * - csc-sign-hash
+     * Fallback only for CORE standalone runs.
+     * Enterprise should provide its own SigningProvider bean.
      */
-
-    @Value("${issuer.signing.provider:csc-sign-doc}")
-    private String provider;
-
-    private final InMemorySigningProvider inMemorySigningProvider;
-    private final CscSignDocSigningProvider cscSignDocSigningProvider;
-    private final CscSignHashSigningProvider cscSignHashSigningProvider;
-
     @Bean
-    public SigningProvider signingProvider() {
-        String normalized = normalize(provider);
+    public SigningProvider signingProvider(
+            RuntimeSigningConfig runtimeSigningConfig,
+            InMemorySigningProvider inMemorySigningProvider
+    ) {
+        Map<String, SigningProvider> map = new HashMap<>();
+        map.put("in-memory", inMemorySigningProvider);
 
-        return switch (normalized) {
-            case "in-memory" -> {
-                log.info("SigningProvider selected: in-memory");
-                yield inMemorySigningProvider;
-            }
-            case "csc-sign-doc" -> {
-                log.info("SigningProvider selected: csc-sign-doc");
-                yield cscSignDocSigningProvider;
-            }
-            case "csc-sign-hash" -> {
-                log.info("SigningProvider selected: csc-sign-hash");
-                yield cscSignHashSigningProvider;
-            }
-
-            default -> throw new IllegalStateException(
-                    "Unknown signing provider '" + provider + "'. " +
-                            "Supported providers (core-only): in-memory, csc-sign-doc, csc-sign-hash"
-            );
-        };
-    }
-
-    private static String normalize(String value) {
-        return value == null ? "" : value.trim().toLowerCase();
+        return new DelegatingSigningProvider(runtimeSigningConfig, map);
     }
 }
 
