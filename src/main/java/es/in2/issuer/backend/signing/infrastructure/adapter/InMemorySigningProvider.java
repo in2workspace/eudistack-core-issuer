@@ -14,7 +14,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
 @Slf4j
-@Service
 @RequiredArgsConstructor
 public class InMemorySigningProvider implements SigningProvider {
 

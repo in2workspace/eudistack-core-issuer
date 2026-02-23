@@ -26,7 +26,6 @@ import java.util.Map;
 import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
 
 @Slf4j
-@Service
 @RequiredArgsConstructor
 public class CscSignHashSigningProvider implements SigningProvider {
 
