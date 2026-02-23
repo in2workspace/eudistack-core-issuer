@@ -38,7 +38,7 @@ public class InMemorySigningProvider implements SigningProvider {
      * This is intended for local/dev/testing only.
      */
     private String fakeJws(String payloadJson) {
-        String headerJson = "{\"alg\":\"none\",\"typ\":\"JWT\"}";
+        String headerJson = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}";
 
         String header = Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(headerJson.getBytes(StandardCharsets.UTF_8));
@@ -46,7 +46,10 @@ public class InMemorySigningProvider implements SigningProvider {
         String payload = Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(payloadJson.getBytes(StandardCharsets.UTF_8));
 
-        return header + "." + payload + ".";
+        String signature = Base64.getUrlEncoder().withoutPadding()
+                .encodeToString("dummy-signature".getBytes(StandardCharsets.UTF_8));
+
+        return header + "." + payload + "." + signature;
     }
 
     /**
