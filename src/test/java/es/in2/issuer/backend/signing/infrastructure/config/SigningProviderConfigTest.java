@@ -1,8 +1,6 @@
 package es.in2.issuer.backend.signing.infrastructure.config;
 
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
-import es.in2.issuer.backend.signing.infrastructure.adapter.CscSignDocSigningProvider;
-import es.in2.issuer.backend.signing.infrastructure.adapter.CscSignHashSigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.InMemorySigningProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -10,9 +8,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
-
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class SigningProviderConfigTest {
@@ -21,60 +19,40 @@ class SigningProviderConfigTest {
     private InMemorySigningProvider inMemorySigningProvider;
 
     @Mock
-    private CscSignDocSigningProvider cscSignDocSigningProvider;
-
-    @Mock
-    private CscSignHashSigningProvider cscSignHashSigningProvider;
+    private RuntimeSigningConfig runtimeSigningConfig;
 
     @InjectMocks
     private SigningProviderConfig config;
 
     @BeforeEach
-    void setup() {
-        config = new SigningProviderConfig(inMemorySigningProvider, cscSignDocSigningProvider, cscSignHashSigningProvider);
+    void setUp() {
+        when(runtimeSigningConfig.getProvider()).thenReturn("in-memory");
     }
 
     @Test
-    void signingProvider_returnsInMemory_whenProviderIsInMemory() {
-        ReflectionTestUtils.setField(config, "provider", "in-memory");
-        SigningProvider provider = config.signingProvider();
-        assertEquals(inMemorySigningProvider, provider);
+    void signingProvider_returnsDelegatingSigningProviderWithInMemory() {
+        SigningProvider provider = config.signingProvider(runtimeSigningConfig, inMemorySigningProvider);
+        assertNotNull(provider);
+        assertInstanceOf(es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider.class, provider);
     }
 
     @Test
-    void signingProvider_returnsCscSignDoc_whenProviderIsCscSignDoc() {
-        ReflectionTestUtils.setField(config, "provider", "csc-sign-doc");
-        SigningProvider provider = config.signingProvider();
-        assertEquals(cscSignDocSigningProvider, provider);
+    void signingProvider_delegatesToInMemoryProvider() {
+        SigningProvider provider = config.signingProvider(runtimeSigningConfig, inMemorySigningProvider);
+        Object map = org.springframework.test.util.ReflectionTestUtils.getField(provider, "providersByKey");
+        assertNotNull(map);
+        assertTrue(((java.util.Map<?,?>)map).containsKey("in-memory"));
+        assertEquals(inMemorySigningProvider, ((java.util.Map<?,?>)map).get("in-memory"));
     }
 
     @Test
-    void signingProvider_throwsOnUnknownProvider() {
-        ReflectionTestUtils.setField(config, "provider", "unknown");
-
-        IllegalStateException ex = assertThrows(
-                IllegalStateException.class,
-                () -> config.signingProvider()
-        );
-
-        assertTrue(ex.getMessage().contains("Unknown signing provider"));
+    void signingProvider_delegatesToNullProviderThrows() {
+        when(runtimeSigningConfig.getProvider()).thenReturn("unknown");
+        SigningProvider provider = config.signingProvider(runtimeSigningConfig, inMemorySigningProvider);
+        es.in2.issuer.backend.signing.domain.model.dto.SigningRequest request = mock(es.in2.issuer.backend.signing.domain.model.dto.SigningRequest.class);
+        reactor.test.StepVerifier.create(provider.sign(request))
+            .expectErrorMatches(e -> e instanceof es.in2.issuer.backend.signing.domain.exception.SigningException && e.getMessage().contains("No SigningProvider registered for key"))
+            .verify();
     }
 
-    @Test
-    void normalize_trimsAndLowercases() {
-        String normalized = ReflectionTestUtils.invokeMethod(
-                SigningProviderConfig.class,
-                "normalize",
-                new Object[]{"  CSC-SIGN-DOC  "}
-        );
-
-        String normalizedNull = ReflectionTestUtils.invokeMethod(
-                SigningProviderConfig.class,
-                "normalize",
-                new Object[]{null}
-        );
-
-        assertEquals("csc-sign-doc", normalized);
-        assertEquals("", normalizedNull);
-    }
 }
