@@ -55,8 +55,7 @@ public class SecurityConfig {
                         OAUTH_TOKEN_PATH,
                         OID4VCI_CREDENTIAL_PATH,
                         OID4VCI_DEFERRED_CREDENTIAL_PATH,
-                        OID4VCI_NOTIFICATION_PATH,
-                        SIGNING_PROVIDERS_PATH)
+                        OID4VCI_NOTIFICATION_PATH)
         );
 
         authenticationWebFilter.setServerAuthenticationConverter(new DualTokenServerAuthenticationConverter());
