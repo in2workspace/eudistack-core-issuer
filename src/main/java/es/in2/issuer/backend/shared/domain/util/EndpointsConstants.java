@@ -50,7 +50,7 @@ public class EndpointsConstants {
     public static final String STATUS_LIST_PATH = STATUS_LIST_BASE + "/**";
 
     //signing internal Endpoints
-    public static final String SIGNING_BASE_PATH = "/internal/signing";
+    public static final String SIGNING_BASE_PATH = "/internal/signing/**";
     public static final String SIGNING_PATH = SIGNING_BASE_PATH + "/provider";
 
     // todo: remove these constants if not needed

@@ -150,7 +150,7 @@ public class SecurityConfig {
                         HEALTH_PATH,
                         PROMETHEUS_PATH,
                         SPRINGDOC_PATH,
-                        SIGNING_PATH
+                        SIGNING_BASE_PATH
                 ))
                 .cors(cors -> cors.configurationSource(internalCORSConfig.defaultCorsConfigurationSource()))
                 .authorizeExchange(exchange -> exchange
