@@ -105,12 +105,19 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                                 );
                             }
                             case LEAR_CREDENTIAL_MACHINE_TYPE -> {
-                                //todo cnf also with LEARCredentialMachine?
+                                Mono<Map<String, Object>> cnfMono =
+                                        Mono.fromCallable(() -> parseCnfJson(credentialProcedure.getCnf()));
+
                                 LEARCredentialMachine learCredentialMachine = learCredentialMachineFactory
                                         .mapStringToLEARCredentialMachine(credentialProcedure.getCredentialDecoded());
-                                yield learCredentialMachineFactory.buildLEARCredentialMachineJwtPayload(learCredentialMachine)
-                                        .flatMap(learCredentialMachineFactory::convertLEARCredentialMachineJwtPayloadInToString)
-                                        .flatMap(unsignedCredential -> signCredentialOnRequestedFormat(unsignedCredential, format, token, procedureId, updatedBy));
+
+                                yield cnfMono.flatMap(cnfMap ->
+                                        learCredentialMachineFactory.buildLEARCredentialMachineJwtPayload(learCredentialMachine, cnfMap)
+                                                .flatMap(learCredentialMachineFactory::convertLEARCredentialMachineJwtPayloadInToString)
+                                                .flatMap(unsignedCredential ->
+                                                        signCredentialOnRequestedFormat(unsignedCredential, format, token, procedureId, updatedBy)
+                                                )
+                                );
                             }
                             default -> {
                                 log.error("Unsupported credential type: {}", credentialType);
@@ -165,7 +172,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
 
     private java.util.Map<String, Object> parseCnfJson(String cnfJson) throws ParseCredentialJsonException{
         if (cnfJson == null || cnfJson.isBlank()) {
-            throw new IllegalStateException("Missing cnf in CredentialProcedure");
+            throw new ParseCredentialJsonException("Missing cnf in CredentialProcedure");
         }
         try {
             return objectMapper.readValue(cnfJson, new TypeReference<Map<String, Object>>() {});

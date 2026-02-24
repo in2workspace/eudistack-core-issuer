@@ -203,7 +203,7 @@ class LEARCredentialMachineFactoryTest {
                 .build();
 
         // Act
-        Mono<LEARCredentialMachineJwtPayload> mono = learCredentialMachineFactory.buildLEARCredentialMachineJwtPayload(machine);
+        Mono<LEARCredentialMachineJwtPayload> mono = learCredentialMachineFactory.buildLEARCredentialMachineJwtPayload(machine, any());
 
         // Assert
         StepVerifier.create(mono)
