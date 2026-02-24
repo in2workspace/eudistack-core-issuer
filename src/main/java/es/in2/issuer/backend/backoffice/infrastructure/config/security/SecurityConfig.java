@@ -161,6 +161,7 @@ public class SecurityConfig {
                         ).permitAll()
                         .pathMatchers(HttpMethod.GET, STATUS_LIST_PATH).permitAll()
                         .pathMatchers(HttpMethod.GET, SIGNING_PROVIDERS_PATH).permitAll()
+                        .pathMatchers(HttpMethod.PUT, SIGNING_PROVIDERS_PATH).permitAll()
                         .pathMatchers(HttpMethod.POST, STATUS_LIST_PATH).authenticated()
                         .pathMatchers(HttpMethod.GET, BACKOFFICE_STATUS_CREDENTIALS).permitAll()
                         .pathMatchers(HttpMethod.GET, BACKOFFICE_PATH).authenticated()
