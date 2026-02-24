@@ -1,10 +1,9 @@
-package es.in2.issuer.backend.signing.infrastructure.qtsp.signHash;
+package es.in2.issuer.backend.signing.infrastructure.qtsp.signhash;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.domain.util.HttpUtils;
 import es.in2.issuer.backend.signing.infrastructure.config.RemoteSignatureConfig;
-import es.in2.issuer.backend.signing.infrastructure.qtsp.signhash.QtspSignHashClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,10 +15,6 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.nio.charset.StandardCharsets;
-import java.util.List;
-import java.util.Map;
-
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.BEARER_PREFIX;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
