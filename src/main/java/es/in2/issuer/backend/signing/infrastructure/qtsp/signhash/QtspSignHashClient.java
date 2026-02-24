@@ -64,9 +64,13 @@ public class QtspSignHashClient {
 
         return httpUtils.postRequest(endpoint, headers, json)
                 .flatMap(respJson -> Mono.fromCallable(() -> objectMapper.readValue(respJson, CscAuthorizeResponse.class)))
-                .map(CscAuthorizeResponse::SAD)
-                .switchIfEmpty(Mono.error(new RemoteSignatureException("Empty authorize response (missing SAD)")))
-                .onErrorResume(WebClientResponseException.class, ex -> {
+                .flatMap(resp -> {
+                    String sadValue = resp.SAD();
+                    if (sadValue == null || sadValue.isBlank()) {
+                        return Mono.error(new RemoteSignatureException("Empty authorize response (missing SAD)"));
+                    }
+                    return Mono.just(sadValue);
+                }).onErrorResume(WebClientResponseException.class, ex -> {
                     if (ex.getStatusCode() == HttpStatus.UNAUTHORIZED) {
                         return Mono.error(new RemoteSignatureException("Unauthorized on authorize(signHash)"));
                     }
