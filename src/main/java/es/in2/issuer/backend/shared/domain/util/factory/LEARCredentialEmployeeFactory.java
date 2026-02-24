@@ -96,7 +96,7 @@ public class LEARCredentialEmployeeFactory {
                 });
                 employee = objectMapper.readValue(learCredentialEmployee.toString(), LEARCredentialEmployee.class);
             } else if(learCredential.contains(CREDENTIALS_EUDISTACK_LEAR_CREDENTIAL_EMPLOYEE_CONTEXT)){
-                                employee = objectMapper.readValue(learCredential, LEARCredentialEmployee.class);
+                employee = objectMapper.readValue(learCredential, LEARCredentialEmployee.class);
             } else {
                 throw new InvalidCredentialFormatException("Invalid credential format");
             }
@@ -129,15 +129,15 @@ public class LEARCredentialEmployeeFactory {
         String credentialId = "urn:uuid:" + UUID.randomUUID();
 
         return Mono.just(LEARCredentialEmployee.builder()
-                        .context(LEAR_CREDENTIAL_EMPLOYEE_CONTEXT)
-                        .id(credentialId)
-                        .type(List.of(LEAR_CREDENTIAL_EMPLOYEE, VERIFIABLE_CREDENTIAL))
-                        .description(LEAR_CREDENTIAL_EMPLOYEE_DESCRIPTION)
-                        .credentialSubject(credentialSubject)
-                        .validFrom(validFrom)
-                        .validUntil(validUntil)
-                        .credentialStatus(credentialStatus)
-                        .build());
+                .context(LEAR_CREDENTIAL_EMPLOYEE_CONTEXT)
+                .id(credentialId)
+                .type(List.of(LEAR_CREDENTIAL_EMPLOYEE, VERIFIABLE_CREDENTIAL))
+                .description(LEAR_CREDENTIAL_EMPLOYEE_DESCRIPTION)
+                .credentialSubject(credentialSubject)
+                .validFrom(validFrom)
+                .validUntil(validUntil)
+                .credentialStatus(credentialStatus)
+                .build());
     }
 
     private List<Power> createPopulatedPowers(
@@ -180,14 +180,14 @@ public class LEARCredentialEmployeeFactory {
                 .build();
     }
 
-    public Mono<LEARCredentialEmployeeJwtPayload> buildLEARCredentialEmployeeJwtPayload(LEARCredentialEmployee learCredentialEmployee) {
+    public Mono<LEARCredentialEmployeeJwtPayload> buildLEARCredentialEmployeeJwtPayload(LEARCredentialEmployee learCredentialEmployee, Map<String, Object> cnf) {
         return Mono.fromCallable(() -> {
-            String subjectDid = learCredentialEmployee.credentialSubject().id();
-            if (subjectDid == null || subjectDid.isBlank()) {
-                throw new IllegalStateException("Missing credentialSubject.id (cryptographic binding DID)");
+
+            if (cnf == null || cnf.isEmpty()) {
+                throw new IllegalStateException("Missing cnf (expected kid/jwk/x5c)");
             }
 
-            Map<String, Object> cnf = Map.of("kid", subjectDid);
+            validateCnfShape(cnf);
 
             return LEARCredentialEmployeeJwtPayload.builder()
                     .JwtId(UUID.randomUUID().toString())
@@ -196,10 +196,21 @@ public class LEARCredentialEmployeeFactory {
                     .issuedAt(parseDateToUnixTime(learCredentialEmployee.validFrom()))
                     .notValidBefore(parseDateToUnixTime(learCredentialEmployee.validFrom()))
                     .issuer(learCredentialEmployee.issuer().getId())
-                    .subject(subjectDid)
+                    .subject(learCredentialEmployee.credentialSubject().id())
                     .cnf(cnf)
                     .build();
         });
+    }
+
+    private void validateCnfShape(java.util.Map<String, Object> cnf) {
+        boolean hasKid = cnf.containsKey("kid");
+        boolean hasJwk = cnf.containsKey("jwk");
+        boolean hasX5c = cnf.containsKey("x5c");
+
+        int count = (hasKid ? 1 : 0) + (hasJwk ? 1 : 0) + (hasX5c ? 1 : 0);
+        if (count != 1) {
+            throw new IllegalStateException("Invalid cnf (expected exactly one of kid/jwk/x5c)");
+        }
     }
 
 
@@ -271,19 +282,19 @@ public class LEARCredentialEmployeeFactory {
         String mandatorOrgId = credentialDecoded.credentialSubject().mandate().mandator().organizationIdentifier();
 
         return Mono.just(
-            CredentialProcedureCreationRequest.builder()
-                    .procedureId(procedureId)
-                    .organizationIdentifier(mandatorOrgId)
-                    .credentialDecoded(decodedCredential)
-                    .credentialType(CredentialType.LEAR_CREDENTIAL_EMPLOYEE)
-                    .subject(credentialDecoded.credentialSubject().mandate().mandatee().firstName() +
-                            " " +
-                            credentialDecoded.credentialSubject().mandate().mandatee().lastName())
-                    .validUntil(parseEpochSecondIntoTimestamp(parseDateToUnixTime(credentialDecoded.validUntil())))
-                    .operationMode(operationMode)
-                    .email(email)
-                    .build()
-            );
+                CredentialProcedureCreationRequest.builder()
+                        .procedureId(procedureId)
+                        .organizationIdentifier(mandatorOrgId)
+                        .credentialDecoded(decodedCredential)
+                        .credentialType(CredentialType.LEAR_CREDENTIAL_EMPLOYEE)
+                        .subject(credentialDecoded.credentialSubject().mandate().mandatee().firstName() +
+                                " " +
+                                credentialDecoded.credentialSubject().mandate().mandatee().lastName())
+                        .validUntil(parseEpochSecondIntoTimestamp(parseDateToUnixTime(credentialDecoded.validUntil())))
+                        .operationMode(operationMode)
+                        .email(email)
+                        .build()
+        );
     }
 
     private Timestamp parseEpochSecondIntoTimestamp(Long unixEpochSeconds) {

@@ -2,6 +2,9 @@ package es.in2.issuer.backend.shared.application.workflow.impl;
 
 
 import es.in2.issuer.backend.shared.domain.service.*;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -40,6 +43,7 @@ import reactor.core.scheduler.Schedulers;
 import java.io.ByteArrayOutputStream;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
@@ -86,18 +90,34 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                                         .flatMap(unsignedCredential -> signCredentialOnRequestedFormat(unsignedCredential, format, token, procedureId, updatedBy));
                             }
                             case LEAR_CREDENTIAL_EMPLOYEE_TYPE -> {
+                                Mono<java.util.Map<String, Object>> cnfMono =
+                                        Mono.fromCallable(() -> parseCnfJson(credentialProcedure.getCnf()));
+
                                 LEARCredentialEmployee learCredentialEmployee = learCredentialEmployeeFactory
                                         .mapStringToLEARCredentialEmployee(credentialProcedure.getCredentialDecoded());
-                                yield learCredentialEmployeeFactory.buildLEARCredentialEmployeeJwtPayload(learCredentialEmployee)
-                                        .flatMap(learCredentialEmployeeFactory::convertLEARCredentialEmployeeJwtPayloadInToString)
-                                        .flatMap(unsignedCredential -> signCredentialOnRequestedFormat(unsignedCredential, format, token, procedureId, updatedBy));
+
+                                yield cnfMono.flatMap(cnfMap ->
+                                        learCredentialEmployeeFactory.buildLEARCredentialEmployeeJwtPayload(learCredentialEmployee, cnfMap)
+                                                .flatMap(learCredentialEmployeeFactory::convertLEARCredentialEmployeeJwtPayloadInToString)
+                                                .flatMap(unsignedCredential ->
+                                                        signCredentialOnRequestedFormat(unsignedCredential, format, token, procedureId, updatedBy)
+                                                )
+                                );
                             }
                             case LEAR_CREDENTIAL_MACHINE_TYPE -> {
+                                Mono<Map<String, Object>> cnfMono =
+                                        Mono.fromCallable(() -> parseCnfJson(credentialProcedure.getCnf()));
+
                                 LEARCredentialMachine learCredentialMachine = learCredentialMachineFactory
                                         .mapStringToLEARCredentialMachine(credentialProcedure.getCredentialDecoded());
-                                yield learCredentialMachineFactory.buildLEARCredentialMachineJwtPayload(learCredentialMachine)
-                                        .flatMap(learCredentialMachineFactory::convertLEARCredentialMachineJwtPayloadInToString)
-                                        .flatMap(unsignedCredential -> signCredentialOnRequestedFormat(unsignedCredential, format, token, procedureId, updatedBy));
+
+                                yield cnfMono.flatMap(cnfMap ->
+                                        learCredentialMachineFactory.buildLEARCredentialMachineJwtPayload(learCredentialMachine, cnfMap)
+                                                .flatMap(learCredentialMachineFactory::convertLEARCredentialMachineJwtPayloadInToString)
+                                                .flatMap(unsignedCredential ->
+                                                        signCredentialOnRequestedFormat(unsignedCredential, format, token, procedureId, updatedBy)
+                                                )
+                                );
                             }
                             default -> {
                                 log.error("Unsupported credential type: {}", credentialType);
@@ -148,6 +168,17 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                 return Mono.error(new IllegalArgumentException("Unsupported credential format: " + format));
             }
         });
+    }
+
+    private java.util.Map<String, Object> parseCnfJson(String cnfJson) throws ParseCredentialJsonException{
+        if (cnfJson == null || cnfJson.isBlank()) {
+            throw new ParseCredentialJsonException("Missing cnf in CredentialProcedure");
+        }
+        try {
+            return objectMapper.readValue(cnfJson, new TypeReference<Map<String, Object>>() {});
+        } catch (JsonProcessingException _) {
+            throw new ParseCredentialJsonException("Invalid cnf JSON");
+        }
     }
 
     private Mono<String> setSubIfCredentialSubjectIdPresent(String unsignedCredential) {

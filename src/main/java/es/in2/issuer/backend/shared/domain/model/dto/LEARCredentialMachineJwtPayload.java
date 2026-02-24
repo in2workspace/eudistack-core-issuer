@@ -25,6 +25,9 @@ public record LEARCredentialMachineJwtPayload(
         LEARCredentialMachine learCredentialMachine,
 
         @JsonProperty("jti")
-        String JwtId
+        String JwtId,
+
+        @JsonProperty("cnf")
+        Object cnf
 ) {
 }
