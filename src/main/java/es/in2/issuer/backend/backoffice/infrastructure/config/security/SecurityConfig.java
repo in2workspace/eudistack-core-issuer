@@ -105,8 +105,7 @@ public class SecurityConfig {
                         CORS_OID4VCI_PATH,
                         VCI_PATH,
                         WELL_KNOWN_PATH,
-                        OAUTH_PATH,
-                        SIGNING_PATH
+                        OAUTH_PATH
                 ))
                 .cors(cors -> cors.configurationSource(publicCORSConfig.publicCorsConfigurationSource()))
                 .authorizeExchange(exchange -> exchange
@@ -120,8 +119,7 @@ public class SecurityConfig {
                                 VCI_ISSUANCES_PATH,
                                 OID4VCI_CREDENTIAL_PATH,
                                 OID4VCI_DEFERRED_CREDENTIAL_PATH,
-                                OID4VCI_NOTIFICATION_PATH,
-                                SIGNING_PROVIDERS_PATH
+                                OID4VCI_NOTIFICATION_PATH
                         ).authenticated()
                         .anyExchange().denyAll()
                 )
