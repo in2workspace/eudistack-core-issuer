@@ -58,6 +58,7 @@ public class PublicCORSConfig {
         source.registerCorsConfiguration(OID4VCI_CREDENTIAL_OFFER_PATH, oid4vciConfig);
         source.registerCorsConfiguration(OAUTH_TOKEN_PATH, oid4vciConfig);
         source.registerCorsConfiguration(OID4VCI_CREDENTIAL_PATH, oid4vciConfig);
+        source.registerCorsConfiguration(SIGNING_PROVIDERS_PATH, oid4vciConfig);
 
         return source;
     }
