@@ -93,16 +93,6 @@ public class SecurityConfig {
     }
 
     @Bean
-    @Order(0)
-    public SecurityWebFilterChain signingFilterChain(ServerHttpSecurity http) {
-        return http
-                .securityMatcher(ServerWebExchangeMatchers.pathMatchers(SIGNING_BASE_PATH))
-                .authorizeExchange(ex -> ex.anyExchange().permitAll())
-                .csrf(ServerHttpSecurity.CsrfSpec::disable)
-                .build();
-    }
-
-    @Bean
     @Order(1)
     public SecurityWebFilterChain publicFilterChain(
             ServerHttpSecurity http,
