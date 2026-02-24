@@ -51,7 +51,6 @@ public class EndpointsConstants {
 
     //signing internal Endpoints
     public static final String SIGNING_BASE_PATH = "/internal/signing/**";
-    public static final String SIGNING_PATH = "/internal/signing/provider";
 
     // todo: remove these constants if not needed
     public static final String TRUST_FRAMEWORK_ISSUER = "/issuer";
