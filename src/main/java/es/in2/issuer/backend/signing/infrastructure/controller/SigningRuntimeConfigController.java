@@ -10,8 +10,7 @@ import java.util.Map;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/internal/signing")
-@ConditionalOnProperty(prefix = "issuer.signing.runtime", name = "controller-enabled", havingValue = "true", matchIfMissing = true)
+@RequestMapping("/backoffice/v1/credentials/signing")
 public class SigningRuntimeConfigController {
 
     private final RuntimeSigningConfig runtimeSigningConfig;
