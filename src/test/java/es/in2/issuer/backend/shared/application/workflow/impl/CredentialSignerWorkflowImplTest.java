@@ -1,15 +1,11 @@
 package es.in2.issuer.backend.shared.application.workflow.impl;
 
 import es.in2.issuer.backend.shared.domain.service.*;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import es.in2.issuer.backend.backoffice.application.workflow.policies.BackofficePdpService;
 import es.in2.issuer.backend.shared.application.workflow.DeferredCredentialWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.CredentialProcedureInvalidStatusException;
 import es.in2.issuer.backend.shared.domain.exception.CredentialProcedureNotFoundException;
-import es.in2.issuer.backend.shared.domain.model.dto.LEARCredentialEmployeeJwtPayload;
-import es.in2.issuer.backend.shared.domain.model.dto.SignedCredentials;
 import es.in2.issuer.backend.shared.domain.model.dto.VerifierOauth2AccessToken;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
@@ -20,13 +16,9 @@ import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialMachineFac
 import es.in2.issuer.backend.shared.domain.util.factory.LabelCredentialFactory;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import es.in2.issuer.backend.shared.infrastructure.repository.CredentialProcedureRepository;
-import es.in2.issuer.backend.signing.domain.model.SigningRequest;
-import es.in2.issuer.backend.signing.domain.model.SigningResult;
-import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -44,7 +36,6 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 
 //todo restore and fix tests

@@ -274,7 +274,7 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
             final String cnfJson;
             try {
                 cnfJson = objectMapper.writeValueAsString(cnf);
-            } catch (JsonProcessingException e) {
+            } catch (JsonProcessingException _) {
                 return Mono.error(new ParseCredentialJsonException("Error serializing cnf to JSON"));
             }
 

@@ -1,10 +1,10 @@
 package es.in2.issuer.backend.shared.application.workflow.impl;
 
 
+import es.in2.issuer.backend.shared.domain.service.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
-import es.in2.issuer.backend.shared.domain.service.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -176,7 +176,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
         }
         try {
             return objectMapper.readValue(cnfJson, new TypeReference<Map<String, Object>>() {});
-        } catch (JsonProcessingException e) {
+        } catch (JsonProcessingException _) {
             throw new ParseCredentialJsonException("Invalid cnf JSON");
         }
     }
