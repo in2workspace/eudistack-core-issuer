@@ -207,10 +207,6 @@ remote-signature:
   # The credential password used for remote signature (REQUIRED)
   credential-password:
 
-signing:
-  runtime:
-    enabled: true
-    controller-enabled: true
 cors:
   # The allowed origins for CORS requests coming from the frontend issuer (REQUIRED)
   default-allowed-origins:

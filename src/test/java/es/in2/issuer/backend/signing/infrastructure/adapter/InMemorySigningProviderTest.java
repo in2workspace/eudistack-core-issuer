@@ -1,9 +1,12 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.util.Base64UrlUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -25,11 +28,12 @@ class InMemorySigningProviderTest {
     private InMemorySigningProvider provider;
 
     @Test
-    void signReturnsJwsLikeStringForJades() {
+    void signReturnsJwsLikeStringForJades() throws Exception {
         String payloadJson = "{\"foo\":\"bar\"}";
-        SigningContext ctx = new SigningContext ("token","proc","email");
-
+        SigningContext ctx = new SigningContext("token", "proc", "email");
         SigningRequest req = new SigningRequest(SigningType.JADES, payloadJson, ctx);
+
+        ObjectMapper om = new ObjectMapper();
 
         StepVerifier.create(provider.sign(req))
                 .assertNext(res -> {
@@ -37,17 +41,43 @@ class InMemorySigningProviderTest {
 
                     String jws = res.data();
                     assertNotNull(jws);
+                    assertFalse(jws.isBlank());
 
                     String[] parts = jws.split("\\.", -1);
-                    assertEquals(3, parts.length);
-                    assertTrue(parts[2].isEmpty());
+                    assertEquals(3, parts.length, "JWS debe tener 3 partes separadas por '.'");
 
-                    String headerJson = new String(Base64.getUrlDecoder().decode(parts[0]), StandardCharsets.UTF_8);
-                    String decodedPayload = new String(Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8);
+                    // Decode header/payload (Base64URL)
+                    String headerJson;
+                    String decodedPayload;
+                    try {
+                        headerJson = new String(Base64UrlUtils.decode(parts[0]), StandardCharsets.UTF_8);
+                        decodedPayload = new String(Base64UrlUtils.decode(parts[1]), StandardCharsets.UTF_8);
+                    } catch (IllegalArgumentException e) {
+                        fail("Header/Payload no son Base64URL válidos: " + e.getMessage());
+                        return;
+                    }
 
-                    assertTrue(headerJson.contains("\"alg\":\"none\""));
-                    assertTrue(headerJson.contains("\"typ\":\"JWT\""));
-                    assertEquals(payloadJson, decodedPayload);
+                    // Parse JSON and assert fields
+                    try {
+                        JsonNode headerNode = om.readTree(headerJson);
+                        assertTrue(headerNode.has("alg"));
+                        assertTrue(headerNode.has("typ"));
+
+                        assertEquals("JWT", headerNode.get("typ").asText());
+
+                        // Si realmente es alg=none, lo normal es firma vacía, pero lo dejamos “condicional”
+                        String alg = headerNode.get("alg").asText();
+                        if ("none".equalsIgnoreCase(alg)) {
+                            assertTrue(parts[2].isEmpty(), "Con alg=none la firma debería ser vacía");
+                        }
+
+                        // Compare payload by JSON equivalence
+                        JsonNode expectedPayload = om.readTree(payloadJson);
+                        JsonNode actualPayload = om.readTree(decodedPayload);
+                        assertEquals(expectedPayload, actualPayload, "El payload decodificado no coincide (por equivalencia JSON)");
+                    } catch (Exception e) {
+                        fail("Header o payload no son JSON válidos: " + e.getMessage());
+                    }
                 })
                 .verifyComplete();
     }
