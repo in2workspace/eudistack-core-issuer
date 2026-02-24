@@ -7,11 +7,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.SIGNING_BASE_PATH;
-
 @RestController
 @RequiredArgsConstructor
-@RequestMapping(SIGNING_BASE_PATH)
+@RequestMapping("/internal/signing")
 public class SigningRuntimeConfigController {
 
     private final RuntimeSigningConfig runtimeSigningConfig;
