@@ -12,7 +12,6 @@ public class EndpointsConstants {
     public static final String SPRINGDOC_BASE_PATH = "/springdoc";
     public static final String SPRINGDOC_PATH = SPRINGDOC_BASE_PATH+"/**";
     public static final String BACKOFFICE_BASE_PATH = "/backoffice/v1";
-    public static final String SIGNING_BASE_PATH = "/internal/signing";
     public static final String OID4VCI_BASE_PATH = "/oid4vci/v1";
     public static final String WELL_KNOWN_BASE_PATH ="/.well-known";
     public static final String VCI_BASE_PATH = "/vci/v1";
@@ -49,6 +48,10 @@ public class EndpointsConstants {
     //status list Endpoints
     public static final String STATUS_LIST_BASE = "/w3c/v1/credentials/status";
     public static final String STATUS_LIST_PATH = STATUS_LIST_BASE + "/**";
+
+    //signing internal Endpoints
+    public static final String SIGNING_BASE_PATH = "/internal/signing";
+    public static final String SIGNING_PATH = SIGNING_BASE_PATH + "/provider";
 
     // todo: remove these constants if not needed
     public static final String TRUST_FRAMEWORK_ISSUER = "/issuer";

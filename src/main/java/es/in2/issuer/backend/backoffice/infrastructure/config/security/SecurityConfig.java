@@ -150,7 +150,7 @@ public class SecurityConfig {
                         HEALTH_PATH,
                         PROMETHEUS_PATH,
                         SPRINGDOC_PATH,
-                        SIGNING_BASE_PATH
+                        SIGNING_PATH
                 ))
                 .cors(cors -> cors.configurationSource(internalCORSConfig.defaultCorsConfigurationSource()))
                 .authorizeExchange(exchange -> exchange
@@ -160,8 +160,8 @@ public class SecurityConfig {
                                 SPRINGDOC_PATH
                         ).permitAll()
                         .pathMatchers(HttpMethod.GET, STATUS_LIST_PATH).permitAll()
-                        .pathMatchers(HttpMethod.GET, SIGNING_BASE_PATH).permitAll()
-                        .pathMatchers(HttpMethod.PUT, SIGNING_BASE_PATH).permitAll()
+                        .pathMatchers(HttpMethod.GET, SIGNING_PATH).permitAll()
+                        .pathMatchers(HttpMethod.PUT, SIGNING_PATH).permitAll()
                         .pathMatchers(HttpMethod.POST, STATUS_LIST_PATH).authenticated()
                         .pathMatchers(HttpMethod.GET, BACKOFFICE_STATUS_CREDENTIALS).permitAll()
                         .pathMatchers(HttpMethod.GET, BACKOFFICE_PATH).authenticated()
