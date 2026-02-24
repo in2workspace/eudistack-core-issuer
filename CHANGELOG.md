@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v2.2.18](https://github.com/in2workspace/in2-issuer-api/releases/tag/v2.2.18)
 ### Changed
 - Add cnf to the credential.
-- Add CORS public permissions for OAuth token endpoint
+- Add CORS public permissions for vci issuances paths.
 
 ## [v2.2.17](https://github.com/in2workspace/in2-issuer-api/releases/tag/v2.2.17)
 ### Added
