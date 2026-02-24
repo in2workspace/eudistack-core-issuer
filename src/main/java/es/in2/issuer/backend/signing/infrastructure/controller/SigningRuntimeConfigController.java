@@ -2,7 +2,6 @@ package es.in2.issuer.backend.signing.infrastructure.controller;
 
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import lombok.RequiredArgsConstructor;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -10,7 +9,7 @@ import java.util.Map;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/backoffice/v1/credentials/signing")
+@RequestMapping("/internal/signing")
 public class SigningRuntimeConfigController {
 
     private final RuntimeSigningConfig runtimeSigningConfig;
