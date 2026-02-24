@@ -40,6 +40,8 @@ public interface CredentialProcedureService {
 
     Mono<String> updatedEncodedCredentialByCredentialProcedureId(String encodedCredential, String credentialProcedureId);
 
+    Mono<Void> updateCnf(String procedureId, Object cnf);
+
     Mono<CredentialProcedure> getCredentialProcedureById(String procedureId);
     Mono<CredentialProcedure> getCredentialProcedureByNotificationId(String notificationId);
     Mono<JsonNode> getCredentialNode(CredentialProcedure credentialProcedure);
