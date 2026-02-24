@@ -24,6 +24,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
@@ -153,22 +154,43 @@ public class LEARCredentialMachineFactory {
                 .build());
     }
 
-    public Mono<LEARCredentialMachineJwtPayload> buildLEARCredentialMachineJwtPayload(LEARCredentialMachine learCredentialMachine) {
-        String subject = learCredentialMachine.credentialSubject().id() != null
-                ? learCredentialMachine.credentialSubject().id()
-                : learCredentialMachine.credentialSubject().mandate().mandatee().id();
+    public Mono<LEARCredentialMachineJwtPayload> buildLEARCredentialMachineJwtPayload(
+            LEARCredentialMachine learCredentialMachine,
+            Map<String, Object> cnf
+    ) {
+        return Mono.fromCallable(() -> {
+            if (cnf == null || cnf.isEmpty()) {
+                throw new IllegalStateException("Missing cnf (expected kid/jwk/x5c)");
+            }
 
-        return Mono.just(
-                LEARCredentialMachineJwtPayload.builder()
-                        .JwtId(UUID.randomUUID().toString())
-                        .learCredentialMachine(learCredentialMachine)
-                        .expirationTime(parseDateToUnixTime(learCredentialMachine.validUntil()))
-                        .issuedAt(parseDateToUnixTime(learCredentialMachine.validFrom()))
-                        .notValidBefore(parseDateToUnixTime(learCredentialMachine.validFrom()))
-                        .issuer(learCredentialMachine.issuer().getId())
-                        .subject(subject)
-                        .build()
-        );
+            validateCnfShape(cnf);
+
+            String subject = learCredentialMachine.credentialSubject().id() != null
+                    ? learCredentialMachine.credentialSubject().id()
+                    : learCredentialMachine.credentialSubject().mandate().mandatee().id();
+
+            return LEARCredentialMachineJwtPayload.builder()
+                    .JwtId(UUID.randomUUID().toString())
+                    .learCredentialMachine(learCredentialMachine)
+                    .expirationTime(parseDateToUnixTime(learCredentialMachine.validUntil()))
+                    .issuedAt(parseDateToUnixTime(learCredentialMachine.validFrom()))
+                    .notValidBefore(parseDateToUnixTime(learCredentialMachine.validFrom()))
+                    .issuer(learCredentialMachine.issuer().getId())
+                    .subject(subject)
+                    .cnf(cnf)
+                    .build();
+        });
+    }
+
+    private void validateCnfShape(Map<String, Object> cnf) {
+        boolean hasKid = cnf.containsKey("kid");
+        boolean hasJwk = cnf.containsKey("jwk");
+        boolean hasX5c = cnf.containsKey("x5c");
+
+        int count = (hasKid ? 1 : 0) + (hasJwk ? 1 : 0) + (hasX5c ? 1 : 0);
+        if (count != 1) {
+            throw new IllegalStateException("Invalid cnf (expected exactly one of kid/jwk/x5c)");
+        }
     }
 
     public Mono<String> convertLEARCredentialMachineJwtPayloadInToString(LEARCredentialMachineJwtPayload credential) {
