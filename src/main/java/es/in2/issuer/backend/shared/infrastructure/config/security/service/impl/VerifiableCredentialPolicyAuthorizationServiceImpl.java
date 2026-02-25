@@ -47,9 +47,12 @@ public class VerifiableCredentialPolicyAuthorizationServiceImpl implements Verif
         return Mono.fromCallable(() -> jwtService.parseJWT(token))
                 .flatMap(signedJWT -> {
                     String payloadStr = signedJWT.getPayload().toString();
+                    System.out.println("El payload: " + payloadStr);
                     if (!payloadStr.contains(ROLE)) {
+                        System.out.println("NO ROLE");
                         return checkPolicies(token, schema, payload, idToken);
                     }else{
+                        System.out.println("Sí ROLE");
                         String roleClaim = jwtService.getClaimFromPayload(signedJWT.getPayload(), ROLE);
                         return authorizeByRole(roleClaim, token, schema, payload, idToken);
                     }
