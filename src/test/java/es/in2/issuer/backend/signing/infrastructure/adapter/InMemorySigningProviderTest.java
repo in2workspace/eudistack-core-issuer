@@ -16,7 +16,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.test.StepVerifier;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -28,7 +27,7 @@ class InMemorySigningProviderTest {
     private InMemorySigningProvider provider;
 
     @Test
-    void signReturnsJwsLikeStringForJades() throws Exception {
+    void signReturnsJwsLikeStringForJades() {
         String payloadJson = "{\"foo\":\"bar\"}";
         SigningContext ctx = new SigningContext("token", "proc", "email");
         SigningRequest req = new SigningRequest(SigningType.JADES, payloadJson, ctx);

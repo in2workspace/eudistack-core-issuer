@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter;
 
+
+import org.mockito.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.JadesProfile;
@@ -15,15 +17,14 @@ import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
 
 @ExtendWith(MockitoExtension.class)
 class CscSignHashSigningProviderTest {
@@ -59,7 +60,7 @@ class CscSignHashSigningProviderTest {
 
         when(cscSigningProperties.signatureProfile()).thenReturn(JadesProfile.JADES_B_T);
 
-        when(qtspAuthClient.requestAccessToken(eq(request), eq(SIGNATURE_REMOTE_SCOPE_CREDENTIAL), eq(false)))
+        when(qtspAuthClient.requestAccessToken(request, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, false))
                 .thenReturn(Mono.just("access-token"));
 
         when(qtspIssuerService.getCredentialId()).thenReturn("cred-123");
@@ -70,9 +71,9 @@ class CscSignHashSigningProviderTest {
                 .thenReturn("{\"alg\":\"ES256\",\"typ\":\"JWT\"}");
 
         when(jwsSignHashService.signJwtWithSignHash(
-                eq("access-token"),
-                eq("{\"alg\":\"ES256\",\"typ\":\"JWT\"}"),
-                eq(request.data())
+                "access-token",
+               "{\"alg\":\"ES256\",\"typ\":\"JWT\"}",
+                request.data()
         )).thenReturn(Mono.just("hdr.payload.sig"));
 
         // when + then
@@ -91,7 +92,9 @@ class CscSignHashSigningProviderTest {
         var request = new SigningRequest(SigningType.JADES, "{\"vc\":\"unsigned\"}", context);
 
         when(cscSigningProperties.signatureProfile()).thenReturn(JadesProfile.JADES_B_T);
-        when(qtspAuthClient.requestAccessToken(eq(request), eq(SIGNATURE_REMOTE_SCOPE_CREDENTIAL), eq(false)))
+        when(qtspAuthClient.requestAccessToken(request,
+                SIGNATURE_REMOTE_SCOPE_CREDENTIAL,
+                false))
                 .thenReturn(Mono.just("access-token"));
         when(qtspIssuerService.getCredentialId()).thenReturn("cred-123");
 
@@ -117,7 +120,7 @@ class CscSignHashSigningProviderTest {
 
         when(cscSigningProperties.signatureProfile()).thenReturn(JadesProfile.JADES_B_T);
 
-        when(qtspAuthClient.requestAccessToken(eq(request), eq(SIGNATURE_REMOTE_SCOPE_CREDENTIAL), eq(false)))
+        when(qtspAuthClient.requestAccessToken(request, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, false))
                 .thenReturn(Mono.error(new SigningException("boom")));
 
         // when + then

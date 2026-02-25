@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.util.Map;
@@ -30,7 +31,7 @@ class SigningRuntimeConfigControllerTest {
     void getProviderReturnsProviderFromConfig() {
         when(runtimeSigningConfig.getProvider()).thenReturn("test-provider");
         ResponseEntity<Map<String, String>> response = controller.getProvider();
-        assertEquals(200, response.getStatusCodeValue());
+        assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("test-provider", response.getBody().get("provider"));
     }
 
@@ -40,7 +41,7 @@ class SigningRuntimeConfigControllerTest {
         Map<String, String> body = Map.of("provider", "new-provider");
         ResponseEntity<Map<String, String>> response = controller.setProvider(body);
         verify(runtimeSigningConfig).setProvider("new-provider");
-        assertEquals(200, response.getStatusCodeValue());
+        assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("new-provider", response.getBody().get("provider"));
     }
 
@@ -48,7 +49,7 @@ class SigningRuntimeConfigControllerTest {
     void setProviderReturnsBadRequestIfProviderMissing() {
         Map<String, String> body = Map.of();
         ResponseEntity<Map<String, String>> response = controller.setProvider(body);
-        assertEquals(400, response.getStatusCodeValue());
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertEquals("Missing field 'provider'", response.getBody().get("error"));
     }
 
@@ -56,7 +57,7 @@ class SigningRuntimeConfigControllerTest {
     void setProviderReturnsBadRequestIfProviderBlank() {
         Map<String, String> body = Map.of("provider", "   ");
         ResponseEntity<Map<String, String>> response = controller.setProvider(body);
-        assertEquals(400, response.getStatusCodeValue());
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertEquals("Missing field 'provider'", response.getBody().get("error"));
     }
 }

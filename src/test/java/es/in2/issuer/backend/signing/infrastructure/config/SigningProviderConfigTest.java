@@ -1,58 +1,127 @@
 package es.in2.issuer.backend.signing.infrastructure.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.shared.domain.service.SigningRecoveryService;
+import es.in2.issuer.backend.signing.domain.service.JadesHeaderBuilderService;
+import es.in2.issuer.backend.signing.domain.service.JwsSignHashService;
+import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
+import es.in2.issuer.backend.signing.domain.service.RemoteSignatureService;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.CscSignDocSigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.CscSignHashSigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.InMemorySigningProvider;
-import org.junit.jupiter.api.BeforeEach;
+import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningProperties;
+import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.util.Map;
+
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class SigningProviderConfigTest {
 
-    @Mock
-    private InMemorySigningProvider inMemorySigningProvider;
+    @Mock private RuntimeSigningConfig runtimeSigningConfig;
 
-    @Mock
-    private RuntimeSigningConfig runtimeSigningConfig;
+    @Mock private RemoteSignatureService remoteSignatureService;
+    @Mock private SigningRecoveryService signingRecoveryService;
 
-    @InjectMocks
-    private SigningProviderConfig config;
-/*
-    @BeforeEach
-    void setUp() {
-        when(runtimeSigningConfig.getProvider()).thenReturn("in-memory");
-    }
+    @Mock private QtspAuthClient qtspAuthClient;
+    @Mock private QtspIssuerService qtspIssuerService;
+    @Mock private JwsSignHashService jwsSignHashService;
+    @Mock private JadesHeaderBuilderService jadesHeaderBuilder;
+    @Mock private CscSigningProperties cscSigningProperties;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    void signingProvider_returnsDelegatingSigningProviderWithInMemory() {
-        SigningProvider provider = config.signingProvider(runtimeSigningConfig, inMemorySigningProvider);
+    void signingProvider_createsDelegatingProviderWithExpectedKeysAndTypes() {
+        SigningProviderConfig config = new SigningProviderConfig();
+
+        SigningProvider provider = config.signingProvider(
+                runtimeSigningConfig,
+                remoteSignatureService,
+                signingRecoveryService,
+                qtspAuthClient,
+                qtspIssuerService,
+                jwsSignHashService,
+                jadesHeaderBuilder,
+                cscSigningProperties,
+                objectMapper
+        );
+
         assertNotNull(provider);
-        assertInstanceOf(es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider.class, provider);
+        assertTrue(provider instanceof DelegatingSigningProvider);
+
+        Map<String, SigningProvider> providersByKey =
+                (Map<String, SigningProvider>) ReflectionTestUtils.getField(provider, "providersByKey");
+
+        assertNotNull(providersByKey);
+        assertEquals(3, providersByKey.size());
+        assertTrue(providersByKey.containsKey("in-memory"));
+        assertTrue(providersByKey.containsKey("csc-sign-doc"));
+        assertTrue(providersByKey.containsKey("csc-sign-hash"));
+
+        assertTrue(providersByKey.get("in-memory") instanceof InMemorySigningProvider);
+        assertTrue(providersByKey.get("csc-sign-doc") instanceof CscSignDocSigningProvider);
+        assertTrue(providersByKey.get("csc-sign-hash") instanceof CscSignHashSigningProvider);
     }
 
     @Test
-    void signingProvider_delegatesToInMemoryProvider() {
-        SigningProvider provider = config.signingProvider(runtimeSigningConfig, inMemorySigningProvider);
-        Object map = org.springframework.test.util.ReflectionTestUtils.getField(provider, "providersByKey");
-        assertNotNull(map);
-        assertTrue(((java.util.Map<?,?>)map).containsKey("in-memory"));
-        assertEquals(inMemorySigningProvider, ((java.util.Map<?,?>)map).get("in-memory"));
+    void signingProvider_wiresDependenciesIntoCscProviders() {
+        SigningProviderConfig config = new SigningProviderConfig();
+
+        SigningProvider provider = config.signingProvider(
+                runtimeSigningConfig,
+                remoteSignatureService,
+                signingRecoveryService,
+                qtspAuthClient,
+                qtspIssuerService,
+                jwsSignHashService,
+                jadesHeaderBuilder,
+                cscSigningProperties,
+                objectMapper
+        );
+
+        Map<String, SigningProvider> providersByKey =
+                (Map<String, SigningProvider>) ReflectionTestUtils.getField(provider, "providersByKey");
+
+        // csc-sign-doc wiring
+        Object cscDoc = providersByKey.get("csc-sign-doc");
+        assertSame(remoteSignatureService, ReflectionTestUtils.getField(cscDoc, "remoteSignatureService"));
+        assertSame(signingRecoveryService, ReflectionTestUtils.getField(cscDoc, "signingRecoveryService"));
+
+        // csc-sign-hash wiring
+        Object cscHash = providersByKey.get("csc-sign-hash");
+        assertSame(qtspAuthClient, ReflectionTestUtils.getField(cscHash, "qtspAuthClient"));
+        assertSame(qtspIssuerService, ReflectionTestUtils.getField(cscHash, "qtspIssuerService"));
+        assertSame(jwsSignHashService, ReflectionTestUtils.getField(cscHash, "jwsSignHashService"));
+        assertSame(jadesHeaderBuilder, ReflectionTestUtils.getField(cscHash, "jadesHeaderBuilder"));
+        assertSame(cscSigningProperties, ReflectionTestUtils.getField(cscHash, "cscSigningProperties"));
+        assertSame(objectMapper, ReflectionTestUtils.getField(cscHash, "objectMapper"));
     }
 
     @Test
-    void signingProvider_delegatesToNullProviderThrows() {
-        when(runtimeSigningConfig.getProvider()).thenReturn("unknown");
-        SigningProvider provider = config.signingProvider(runtimeSigningConfig, inMemorySigningProvider);
-        es.in2.issuer.backend.signing.domain.model.dto.SigningRequest request = mock(es.in2.issuer.backend.signing.domain.model.dto.SigningRequest.class);
-        reactor.test.StepVerifier.create(provider.sign(request))
-            .expectErrorMatches(e -> e instanceof es.in2.issuer.backend.signing.domain.exception.SigningException && e.getMessage().contains("No SigningProvider registered for key"))
-            .verify();
+    void signingProvider_setsRuntimeSigningConfigIntoDelegatingProvider() {
+        SigningProviderConfig config = new SigningProviderConfig();
+
+        SigningProvider provider = config.signingProvider(
+                runtimeSigningConfig,
+                remoteSignatureService,
+                signingRecoveryService,
+                qtspAuthClient,
+                qtspIssuerService,
+                jwsSignHashService,
+                jadesHeaderBuilder,
+                cscSigningProperties,
+                objectMapper
+        );
+
+        assertSame(runtimeSigningConfig, ReflectionTestUtils.getField(provider, "runtimeSigningConfig"));
     }
-*/
 }

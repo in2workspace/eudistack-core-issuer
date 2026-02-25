@@ -1,23 +1,24 @@
 package es.in2.issuer.backend.signing.domain.service.impl;
 
+import org.mockito.*;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.signing.domain.service.HashGeneratorService;
 import es.in2.issuer.backend.signing.domain.util.Base64UrlUtils;
 import es.in2.issuer.backend.signing.infrastructure.qtsp.signhash.QtspSignHashClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.nio.charset.StandardCharsets;
 
-import static es.in2.issuer.backend.signing.domain.service.impl.JwsSignHashServiceImpl.HASH_ALGO_OID_SHA256;
-import static es.in2.issuer.backend.signing.domain.service.impl.JwsSignHashServiceImpl.SIGN_ALGO_OID_ES256;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static es.in2.issuer.backend.signing.domain.service.impl.JwsSignHashServiceImpl.HASH_ALGO_OID_SHA256;
+import static es.in2.issuer.backend.signing.domain.service.impl.JwsSignHashServiceImpl.SIGN_ALGO_OID_ES256;
+
 
 @ExtendWith(MockitoExtension.class)
 class JwsSignHashServiceImplTest {
@@ -43,17 +44,17 @@ class JwsSignHashServiceImplTest {
         byte[] digest = new byte[] {1, 2, 3}; // deterministic fake digest
         String expectedHashB64Url = Base64UrlUtils.encode(digest);
 
-        when(hashGeneratorService.sha256Digest(eq(signingInputBytes))).thenReturn(digest);
+        when(hashGeneratorService.sha256Digest(signingInputBytes)).thenReturn(digest);
 
-        when(qtspSignHashClient.authorizeForHash(eq(accessToken), eq(expectedHashB64Url), eq(HASH_ALGO_OID_SHA256)))
+        when(qtspSignHashClient.authorizeForHash(accessToken, expectedHashB64Url, HASH_ALGO_OID_SHA256))
                 .thenReturn(Mono.just("sad-1"));
 
         when(qtspSignHashClient.signHash(
-                eq(accessToken),
-                eq("sad-1"),
-                eq(expectedHashB64Url),
-                eq(HASH_ALGO_OID_SHA256),
-                eq(SIGN_ALGO_OID_ES256)
+                accessToken,
+                "sad-1",
+                expectedHashB64Url,
+                HASH_ALGO_OID_SHA256,
+                SIGN_ALGO_OID_ES256
         )).thenReturn(Mono.just("sigB64Url"));
 
         // when + then
