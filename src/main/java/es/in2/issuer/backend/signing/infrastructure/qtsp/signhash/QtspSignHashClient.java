@@ -19,14 +19,13 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import reactor.core.publisher.Mono;
 
 import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
+import static es.in2.issuer.backend.signing.domain.util.PathConstants.AUTHORIZE_PATH;
+import static es.in2.issuer.backend.signing.domain.util.PathConstants.SIGN_HASH_PATH;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class QtspSignHashClient {
-
-    private static final String AUTHORIZE_PATH = "/csc/v2/credentials/authorize"; //TODO: check
-    private static final String SIGN_HASH_PATH = "/csc/v2/signatures/signHash";
 
     private final ObjectMapper objectMapper;
     private final RuntimeSigningConfig runtimeSigningConfig;

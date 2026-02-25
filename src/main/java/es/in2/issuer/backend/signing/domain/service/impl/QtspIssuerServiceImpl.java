@@ -38,6 +38,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
+import static es.in2.issuer.backend.signing.domain.util.PathConstants.INFO_PATH;
+import static es.in2.issuer.backend.signing.domain.util.PathConstants.LIST_PATH;
 
 @Slf4j
 @Service
@@ -60,8 +62,7 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
     private static final String CLIENT_DATA = "clientData";
     private static final String CREDENTIAL_IDS =  "credentialIDs";
     private static final String SERIALIZING_ERROR = "Error serializing request body to JSON";
-    private static final String INFO_PATH = "/csc/v2/credentials/info";
-    private static final String LIST_PATH  = "/csc/v2/credentials/list";
+
 
     private RemoteSignatureDto remoteCfgRequired() {
         RemoteSignatureDto cfg = runtimeSigningConfig.getRemoteSignature();

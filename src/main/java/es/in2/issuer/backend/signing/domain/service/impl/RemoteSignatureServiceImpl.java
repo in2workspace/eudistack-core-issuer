@@ -31,6 +31,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
+import static es.in2.issuer.backend.signing.domain.util.PathConstants.AUTHORIZE_PATH;
+import static es.in2.issuer.backend.signing.domain.util.PathConstants.SIGN_DOC_PATH;
 
 @Slf4j
 @Service
@@ -231,7 +233,7 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
         int numSignatures = 1;
         String authDataId = "password";
         String authDataValue = cfg.credentialPassword();
-        String signatureGetSadEndpoint = cfg.url() + "/csc/v2/credentials/authorize";
+        String signatureGetSadEndpoint = cfg.url() + AUTHORIZE_PATH;
 
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put(CREDENTIAL_ID, credentialID);
@@ -274,7 +276,7 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
     private Mono<String> sendSigningRequest(SigningRequest signingRequest, String accessToken, String sad) {
         RemoteSignatureDto cfg = remoteCfgRequired();
         String credentialID = cfg.credentialId();
-        String signatureRemoteServerEndpoint = cfg.url() + "/csc/v2/signatures/signDoc";
+        String signatureRemoteServerEndpoint = cfg.url() + SIGN_DOC_PATH;
         String signatureQualifier = "eu_eidas_aesealqc";
         String signatureFormat = "J";
         String conformanceLevel = "Ades-B";
