@@ -43,8 +43,6 @@ public class JadesHeaderBuilderServiceImpl implements JadesHeaderBuilderService 
 
     private void applyProfileSpecificFields(Map<String, Object> header, JadesProfile profile) {
         switch (profile) {
-            case JADES_B_B -> {
-            }
             case JADES_B_T -> {
                 header.put("sigT", Instant.now().toString());
             }

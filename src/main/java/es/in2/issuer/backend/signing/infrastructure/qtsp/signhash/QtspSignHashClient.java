@@ -25,7 +25,7 @@ import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
 @RequiredArgsConstructor
 public class QtspSignHashClient {
 
-    private static final String AUTHORIZE_PATH = "/csc/v2/credentials/authorize";
+    private static final String AUTHORIZE_PATH = "/csc/v2/credentials/authorize"; //TODO: check
     private static final String SIGN_HASH_PATH = "/csc/v2/signatures/signHash";
 
     private final ObjectMapper objectMapper;
