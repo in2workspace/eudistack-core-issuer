@@ -105,7 +105,7 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
                             Instant expiresAt = Instant.now().plus(certificateInfoCacheTtl());
                             certificateInfoCache.put(credentialID, new CacheEntry(body, expiresAt));
                         })
-                        .doFinally(_ -> certificateInfoInFlight.remove(credentialID))
+                        .doFinally(ignored -> certificateInfoInFlight.remove(credentialID))
                         .cache();
 
         Mono<String> winner = certificateInfoInFlight.putIfAbsent(credentialID, refreshMono);
