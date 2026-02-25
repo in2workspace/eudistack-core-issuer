@@ -7,7 +7,8 @@ import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.domain.util.HttpUtils;
 import es.in2.issuer.backend.signing.domain.model.dto.CscAuthorizeResponse;
 import es.in2.issuer.backend.signing.domain.model.dto.CscSignHashResponse;
-import es.in2.issuer.backend.signing.infrastructure.config.RemoteSignatureConfig;
+import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
+import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -28,17 +29,26 @@ public class QtspSignHashClient {
     private static final String SIGN_HASH_PATH = "/csc/v2/signatures/signHash";
 
     private final ObjectMapper objectMapper;
-    private final RemoteSignatureConfig remoteSignatureConfig;
+    private final RuntimeSigningConfig runtimeSigningConfig;
     private final HttpUtils httpUtils;
+
+    private RemoteSignatureDto remoteCfgRequired() {
+        RemoteSignatureDto cfg = runtimeSigningConfig.getRemoteSignature();
+        if (cfg == null) {
+            throw new IllegalStateException("Remote signature config not pushed (runtimeSigningConfig.remoteSignature is null)");
+        }
+        return cfg;
+    }
 
     /**
      * CSC v2: credentials/authorize for signHash.
      */
     public Mono<String> authorizeForHash(String accessToken, String hashB64Url, String hashAlgoOid) {
-        String endpoint = remoteSignatureConfig.getRemoteSignatureDomain() + AUTHORIZE_PATH;
+        RemoteSignatureDto cfg = remoteCfgRequired();
+        String endpoint = cfg.url() + AUTHORIZE_PATH;
 
         Map<String, Object> body = new HashMap<>();
-        body.put(CREDENTIAL_ID, remoteSignatureConfig.getRemoteSignatureCredentialId());
+        body.put(CREDENTIAL_ID, cfg.credentialId());
         body.put(NUM_SIGNATURES, 1);
 
         body.put("hash", List.of(hashB64Url));
@@ -46,7 +56,7 @@ public class QtspSignHashClient {
 
         Map<String, String> authEntry = new HashMap<>();
         authEntry.put(AUTH_DATA_ID, "password");
-        authEntry.put(AUTH_DATA_VALUE, remoteSignatureConfig.getRemoteSignatureCredentialPassword());
+        authEntry.put(AUTH_DATA_VALUE, cfg.credentialPassword());
         body.put(AUTH_DATA, List.of(authEntry));
 
         String json;
@@ -82,10 +92,11 @@ public class QtspSignHashClient {
      * Returns raw signature (first element of 'signatures').
      */
     public Mono<String> signHash(String accessToken, String sad, String hashB64Url, String hashAlgoOid, String signAlgoOid) {
-        String endpoint = remoteSignatureConfig.getRemoteSignatureDomain() + SIGN_HASH_PATH;
+        RemoteSignatureDto cfg = remoteCfgRequired();
+        String endpoint = cfg.url() + SIGN_HASH_PATH;
 
         Map<String, Object> body = new HashMap<>();
-        body.put(CREDENTIAL_ID, remoteSignatureConfig.getRemoteSignatureCredentialId());
+        body.put(CREDENTIAL_ID, cfg.credentialId());
         body.put("SAD", sad);
         body.put("hash", List.of(hashB64Url));
         body.put("hashAlgo", hashAlgoOid);

@@ -1,10 +1,11 @@
 package es.in2.issuer.backend.signing.infrastructure.qtsp.signhash;
 
+import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
+import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import org.mockito.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.domain.util.HttpUtils;
-import es.in2.issuer.backend.signing.infrastructure.config.RemoteSignatureConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,6 +16,8 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.nio.charset.StandardCharsets;
+
+import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_REMOTE_TYPE_SERVER;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -22,8 +25,7 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class QtspSignHashClientTest {
 
-    @Mock
-    private RemoteSignatureConfig remoteSignatureConfig;
+    @Mock private RuntimeSigningConfig runtimeSigningConfig;
 
     @Mock
     private HttpUtils httpUtils;
@@ -34,14 +36,23 @@ class QtspSignHashClientTest {
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
-        client = new QtspSignHashClient(objectMapper, remoteSignatureConfig, httpUtils);
+        client = new QtspSignHashClient(objectMapper, runtimeSigningConfig, httpUtils);
     }
 
     @Test
     void authorizeForHash_success_returnsSad() {
-        when(remoteSignatureConfig.getRemoteSignatureDomain()).thenReturn("https://qtsp.test");
-        when(remoteSignatureConfig.getRemoteSignatureCredentialId()).thenReturn("cred-123");
-        when(remoteSignatureConfig.getRemoteSignatureCredentialPassword()).thenReturn("pwd");
+        RemoteSignatureDto cfg = new RemoteSignatureDto(
+                SIGNATURE_REMOTE_TYPE_SERVER,
+                "https://qtsp.test",
+                "/sign",
+                "clientId", "clientSecret",
+                "cred-123", "pwd",
+                "PT10M"
+        );
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
+        when(cfg.url()).thenReturn("https://qtsp.test");
+        when(cfg.credentialId()).thenReturn("cred-123");
+        when(cfg.credentialPassword()).thenReturn("pwd");
 
         when(httpUtils.postRequest(
                 eq("https://qtsp.test/csc/v2/credentials/authorize"),
@@ -90,9 +101,17 @@ class QtspSignHashClientTest {
 
     @Test
     void signHash_success_returnsFirstSignature() {
-        // config necesaria para construir endpoint y body
-        when(remoteSignatureConfig.getRemoteSignatureDomain()).thenReturn("https://qtsp.test");
-        when(remoteSignatureConfig.getRemoteSignatureCredentialId()).thenReturn("cred-123");
+        RemoteSignatureDto cfg = new RemoteSignatureDto(
+                SIGNATURE_REMOTE_TYPE_SERVER,
+                "https://qtsp.test",
+                "/sign",
+                "clientId", "clientSecret",
+                "cred-123", "pwd",
+                "PT10M"
+        );
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
+        when(cfg.url()).thenReturn("https://qtsp.test");
+        when(cfg.credentialId()).thenReturn("cred-123");
 
         when(httpUtils.postRequest(
                 eq("https://qtsp.test/csc/v2/signatures/signHash"),

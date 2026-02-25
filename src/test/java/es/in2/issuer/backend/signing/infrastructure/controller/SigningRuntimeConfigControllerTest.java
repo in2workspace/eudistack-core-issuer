@@ -1,11 +1,13 @@
 package es.in2.issuer.backend.signing.infrastructure.controller;
 
+import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
+import es.in2.issuer.backend.signing.domain.model.dto.SigningConfigPushRequest;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -14,6 +16,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+@ExtendWith(MockitoExtension.class)
 class SigningRuntimeConfigControllerTest {
 
     @Mock
@@ -22,42 +25,68 @@ class SigningRuntimeConfigControllerTest {
     @InjectMocks
     private SigningRuntimeConfigController controller;
 
-    @BeforeEach
-    void setUp() {
-        MockitoAnnotations.openMocks(this);
-    }
-
     @Test
     void getProviderReturnsProviderFromConfig() {
         when(runtimeSigningConfig.getProvider()).thenReturn("test-provider");
+
         ResponseEntity<Map<String, String>> response = controller.getProvider();
+
         assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
         assertEquals("test-provider", response.getBody().get("provider"));
     }
 
     @Test
-    void setProviderUpdatesProviderAndReturnsIt() {
-        when(runtimeSigningConfig.getProvider()).thenReturn("new-provider");
-        Map<String, String> body = Map.of("provider", "new-provider");
-        ResponseEntity<Map<String, String>> response = controller.setProvider(body);
-        verify(runtimeSigningConfig).setProvider("new-provider");
+    void pushSigningConfig_updatesProviderAndRemoteSignature_andReturnsOk() {
+
+        // Given
+        RemoteSignatureDto remote = new RemoteSignatureDto(
+                "cloud",
+                "https://api.external.com",
+                "/sign",
+                "clientId",
+                "clientSecret",
+                "cred-id",
+                "pwd",
+                "PT10M"
+        );
+
+        SigningConfigPushRequest request = new SigningConfigPushRequest("csc-sign-hash", remote);
+
+        when(runtimeSigningConfig.getProvider()).thenReturn("csc-sign-hash");
+
+        // When
+        ResponseEntity<Map<String, String>> response = controller.pushSigningConfig(request);
+
+        // Then
+        verify(runtimeSigningConfig).setProvider("csc-sign-hash");
+        verify(runtimeSigningConfig).setRemoteSignature(remote);
+
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals("new-provider", response.getBody().get("provider"));
+        assertNotNull(response.getBody());
+        assertEquals("csc-sign-hash", response.getBody().get("provider"));
+        assertEquals("updated", response.getBody().get("status"));
     }
 
     @Test
-    void setProviderReturnsBadRequestIfProviderMissing() {
-        Map<String, String> body = Map.of();
-        ResponseEntity<Map<String, String>> response = controller.setProvider(body);
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Missing field 'provider'", response.getBody().get("error"));
-    }
+    void pushSigningConfig_returnsBadRequest_whenProviderBlank() {
 
-    @Test
-    void setProviderReturnsBadRequestIfProviderBlank() {
-        Map<String, String> body = Map.of("provider", "   ");
-        ResponseEntity<Map<String, String>> response = controller.setProvider(body);
+        RemoteSignatureDto remote = new RemoteSignatureDto(
+                "cloud",
+                "https://api.external.com",
+                "/sign",
+                "clientId",
+                "clientSecret",
+                "cred-id",
+                "pwd",
+                "PT10M"
+        );
+
+        SigningConfigPushRequest request = new SigningConfigPushRequest("   ", remote);
+        ResponseEntity<Map<String, String>> response = controller.pushSigningConfig(request);
+
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Missing field 'provider'", response.getBody().get("error"));
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().get("error").contains("provider"));
     }
 }

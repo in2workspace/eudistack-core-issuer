@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.signing.domain.service.impl;
 
+import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
+import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import org.mockito.*;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
@@ -12,7 +14,6 @@ import es.in2.issuer.backend.signing.domain.exception.SignatureProcessingExcepti
 import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
 import es.in2.issuer.backend.shared.domain.util.HttpUtils;
 import es.in2.issuer.backend.shared.domain.util.JwtUtils;
-import es.in2.issuer.backend.signing.infrastructure.config.RemoteSignatureConfig;
 import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,7 +43,7 @@ class RemoteSignatureServiceImplTest {
     @Mock private QtspAuthClient qtspAuthClient;
     @Mock private HttpUtils httpUtils;
     @Mock private JwtUtils jwtUtils;
-    @Mock private RemoteSignatureConfig remoteSignatureConfig;
+    @Mock private RuntimeSigningConfig runtimeSigningConfig;
     @Mock private DeferredCredentialMetadataService deferredCredentialMetadataService;
 
     @InjectMocks
@@ -50,9 +51,19 @@ class RemoteSignatureServiceImplTest {
 
     @Test
     void signIssuedCredential_serverMode_success() throws Exception {
-        when(remoteSignatureConfig.getRemoteSignatureType()).thenReturn(SIGNATURE_REMOTE_TYPE_SERVER);
-        when(remoteSignatureConfig.getRemoteSignatureDomain()).thenReturn("http://remote-signature-dss.com");
-        when(remoteSignatureConfig.getRemoteSignatureSignPath()).thenReturn("/sign");
+        RemoteSignatureDto cfg = new RemoteSignatureDto(
+                SIGNATURE_REMOTE_TYPE_SERVER,
+                "http://remote-signature-dss.com",
+                "/sign",
+                "clientId", "clientSecret",
+                "cred-id", "pwd",
+                "PT10M"
+        );
+
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
+        when(cfg.type()).thenReturn(SIGNATURE_REMOTE_TYPE_SERVER);
+        when(cfg.url()).thenReturn("http://remote-signature-dss.com");
+        when(cfg.signPath()).thenReturn("/sign");
 
         SigningContext context = new SigningContext("token", "proc", "email");
 
@@ -81,10 +92,20 @@ class RemoteSignatureServiceImplTest {
 
     @Test
     void signSystemCredential_cloudMode_success() throws Exception {
-        when(remoteSignatureConfig.getRemoteSignatureType()).thenReturn(SIGNATURE_REMOTE_TYPE_CLOUD);
-        when(remoteSignatureConfig.getRemoteSignatureDomain()).thenReturn("https://api.external.com");
-        when(remoteSignatureConfig.getRemoteSignatureCredentialId()).thenReturn("cred-id");
-        when(remoteSignatureConfig.getRemoteSignatureCredentialPassword()).thenReturn("pwd");
+        RemoteSignatureDto cfg = new RemoteSignatureDto(
+                SIGNATURE_REMOTE_TYPE_SERVER,
+                "http://remote-signature-dss.com",
+                "/sign",
+                "clientId", "clientSecret",
+                "cred-id", "pwd",
+                "PT10M"
+        );
+
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
+        when(cfg.type()).thenReturn(SIGNATURE_REMOTE_TYPE_CLOUD);
+        when(cfg.url()).thenReturn("https://api.external.com");
+        when(cfg.credentialId()).thenReturn("cred-id");
+        when(cfg.credentialPassword()).thenReturn("pwd");
 
         SigningContext context = new SigningContext("token", "proc", "email");
 
@@ -130,9 +151,19 @@ class RemoteSignatureServiceImplTest {
 
     @Test
     void getSignedDocumentExternal_sadMissing_shouldFailWithSadException() throws Exception {
-        when(remoteSignatureConfig.getRemoteSignatureDomain()).thenReturn("https://api.external.com");
-        when(remoteSignatureConfig.getRemoteSignatureCredentialId()).thenReturn("cred-id");
-        when(remoteSignatureConfig.getRemoteSignatureCredentialPassword()).thenReturn("pwd");
+        RemoteSignatureDto cfg = new RemoteSignatureDto(
+                SIGNATURE_REMOTE_TYPE_SERVER,
+                "http://remote-signature-dss.com",
+                "/sign",
+                "clientId", "clientSecret",
+                "cred-id", "pwd",
+                "PT10M"
+        );
+
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
+        when(cfg.url()).thenReturn("https://api.external.com");
+        when(cfg.credentialId()).thenReturn("cred-id");
+        when(cfg.credentialPassword()).thenReturn("pwd");
 
         SigningContext context = new SigningContext("token", "proc", "email");
 
@@ -212,10 +243,20 @@ class RemoteSignatureServiceImplTest {
 
     @Test
     void signIssuedCredential_cloudMode_retries_thenSucceeds() throws Exception {
-        when(remoteSignatureConfig.getRemoteSignatureType()).thenReturn(SIGNATURE_REMOTE_TYPE_CLOUD);
-        when(remoteSignatureConfig.getRemoteSignatureDomain()).thenReturn("https://api.external.com");
-        when(remoteSignatureConfig.getRemoteSignatureCredentialId()).thenReturn("cred-id");
-        when(remoteSignatureConfig.getRemoteSignatureCredentialPassword()).thenReturn("pwd");
+        RemoteSignatureDto cfg = new RemoteSignatureDto(
+                SIGNATURE_REMOTE_TYPE_SERVER,
+                "http://remote-signature-dss.com",
+                "/sign",
+                "clientId", "clientSecret",
+                "cred-id", "pwd",
+                "PT10M"
+        );
+
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
+        when(cfg.type()).thenReturn(SIGNATURE_REMOTE_TYPE_CLOUD);
+        when(cfg.url()).thenReturn("https://api.external.com");
+        when(cfg.credentialId()).thenReturn("cred-id");
+        when(cfg.credentialPassword()).thenReturn("pwd");
         SigningContext context = new SigningContext("token", "proc", "email");
 
         SigningRequest req = new SigningRequest(

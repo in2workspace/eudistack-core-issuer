@@ -2,10 +2,11 @@ package es.in2.issuer.backend.signing.infrastructure.qtsp.auth;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
+import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.service.HashGeneratorService;
-import es.in2.issuer.backend.signing.infrastructure.config.RemoteSignatureConfig;
 import es.in2.issuer.backend.shared.domain.util.HttpUtils;
+import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,6 +24,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
+import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_REMOTE_TYPE_SERVER;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -32,7 +34,7 @@ import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_R
 @ExtendWith(MockitoExtension.class)
 class QtspAuthClientTest {
 
-    @Mock private RemoteSignatureConfig remoteSignatureConfig;
+    @Mock private RuntimeSigningConfig runtimeSigningConfig;
     @Mock private HashGeneratorService hashGeneratorService;
     @Mock private HttpUtils httpUtils;
 
@@ -41,11 +43,20 @@ class QtspAuthClientTest {
     @BeforeEach
     void setUp() {
         ObjectMapper objectMapper = new ObjectMapper();
-        client = new QtspAuthClient(objectMapper, remoteSignatureConfig, hashGeneratorService, httpUtils);
+        client = new QtspAuthClient(objectMapper, runtimeSigningConfig, hashGeneratorService, httpUtils);
+        RemoteSignatureDto cfg = new RemoteSignatureDto(
+                SIGNATURE_REMOTE_TYPE_SERVER,
+                "http://remote-signature-dss.com",
+                "/sign",
+                "clientId", "clientSecret",
+                "cred-id", "pwd",
+                "PT10M"
+        );
 
-        when(remoteSignatureConfig.getRemoteSignatureDomain()).thenReturn("https://qtsp");
-        when(remoteSignatureConfig.getRemoteSignatureClientId()).thenReturn("clientId");
-        when(remoteSignatureConfig.getRemoteSignatureClientSecret()).thenReturn("clientSecret");
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
+        when(cfg.url()).thenReturn("https://qtsp");
+        when(cfg.clientId()).thenReturn("clientId");
+        when(cfg.clientSecret()).thenReturn("clientSecret");
     }
 
     @Test

@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.signing.domain.service.impl;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import es.in2.issuer.backend.shared.domain.exception.*;
@@ -11,9 +12,10 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.util.HttpUtils;
 import es.in2.issuer.backend.signing.domain.exception.OrganizationIdentifierNotFoundException;
 import es.in2.issuer.backend.signing.domain.model.dto.CacheEntry;
+import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
-import es.in2.issuer.backend.signing.infrastructure.config.RemoteSignatureConfig;
+import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,7 +46,7 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
 
     private final ObjectMapper objectMapper;
     private final QtspAuthClient qtspAuthClient;
-    private final RemoteSignatureConfig remoteSignatureConfig;
+    private final RuntimeSigningConfig runtimeSigningConfig;
     private final ConcurrentMap<String, CacheEntry> certificateInfoCache= new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Mono<String>> certificateInfoInFlight = new ConcurrentHashMap<>();
     private final HttpUtils httpUtils;
@@ -61,6 +63,21 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
     private static final String INFO_PATH = "/csc/v2/credentials/info";
     private static final String LIST_PATH  = "/csc/v2/credentials/list";
 
+    private RemoteSignatureDto remoteCfgRequired() {
+        RemoteSignatureDto cfg = runtimeSigningConfig.getRemoteSignature();
+        if (cfg == null) {
+            throw new IllegalStateException("Remote signature config not pushed (runtimeSigningConfig.remoteSignature is null)");
+        }
+        return cfg;
+    }
+
+    private Duration certificateInfoCacheTtl() {
+        RemoteSignatureDto cfg = remoteCfgRequired();
+        if (cfg.certificateInfoCacheTtl() == null || cfg.certificateInfoCacheTtl().isBlank()) {
+            return Duration.ofMinutes(10);
+        }
+        return Duration.parse(cfg.certificateInfoCacheTtl()); // ISO-8601: PT10M
+    }
 
     @Override
     public Mono<Boolean> validateCredentials() {
@@ -84,7 +101,7 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
         Mono<String> refreshMono =
                 fetchCertificateInfoFromQtsp(accessToken, credentialID)
                         .doOnNext(body -> {
-                            Instant expiresAt = Instant.now().plus(remoteSignatureConfig.getCertificateInfoCacheTtl());
+                            Instant expiresAt = Instant.now().plus(certificateInfoCacheTtl());
                             certificateInfoCache.put(credentialID, new CacheEntry(body, expiresAt));
                         })
                         .doFinally(_ -> certificateInfoInFlight.remove(credentialID))
@@ -95,7 +112,8 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
     }
 
     private Mono<String> fetchCertificateInfoFromQtsp(String accessToken, String credentialID) {
-        String credentialsInfoEndpoint = remoteSignatureConfig.getRemoteSignatureDomain() + INFO_PATH;
+        RemoteSignatureDto cfg = remoteCfgRequired();
+        String credentialsInfoEndpoint = cfg.url() + INFO_PATH;
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put(CREDENTIAL_ID, credentialID);
         requestBody.put(CERTIFICATES, "chain");
@@ -174,7 +192,8 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
 
     @Override
     public boolean isServerMode() {
-        return SIGNATURE_REMOTE_TYPE_SERVER.equals(remoteSignatureConfig.getRemoteSignatureType());
+        RemoteSignatureDto cfg = remoteCfgRequired();
+        return SIGNATURE_REMOTE_TYPE_SERVER.equals(cfg.type());
     }
 
     @Override
@@ -184,22 +203,21 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
                     if (Boolean.FALSE.equals(valid)) {
                         return Mono.error(new RemoteSignatureException("Credentials mismatch."));
                     }
-
                     return qtspAuthClient.requestAccessToken(null, SIGNATURE_REMOTE_SCOPE_SERVICE)
-                            .flatMap(token -> requestCertificateInfo(token, remoteSignatureConfig.getRemoteSignatureCredentialId()))
+                            .flatMap(token -> requestCertificateInfo(token, getCredentialId()))
                             .flatMap(this::extractIssuerFromCertificateInfo);
-
                 });
     }
 
     @Override
     public String getCredentialId() {
-        return remoteSignatureConfig.getRemoteSignatureCredentialId();
+        return remoteCfgRequired().credentialId();
     }
 
     private Mono<Boolean> validateCertificate(String accessToken) {
-        String credentialID = remoteSignatureConfig.getRemoteSignatureCredentialId();
-        String credentialListEndpoint = remoteSignatureConfig.getRemoteSignatureDomain() + LIST_PATH;
+        RemoteSignatureDto cfg = remoteCfgRequired();
+        String credentialID = cfg.credentialId();
+        String credentialListEndpoint = cfg.url() + LIST_PATH;
 
         List<Map.Entry<String, String>> headers = new ArrayList<>();
         headers.add(new AbstractMap.SimpleEntry<>(HttpHeaders.AUTHORIZATION, BEARER_PREFIX + accessToken));
