@@ -80,6 +80,7 @@ class QtspIssuerServiceImplTest {
     void requestCertificateInfo_serializationError_returnsError() throws Exception {
         ObjectMapper failingMapper = mock(ObjectMapper.class);
 
+
         QtspIssuerServiceImpl service = new QtspIssuerServiceImpl(
                 failingMapper, qtspAuthClient, remoteSignatureConfig, httpUtils
         );

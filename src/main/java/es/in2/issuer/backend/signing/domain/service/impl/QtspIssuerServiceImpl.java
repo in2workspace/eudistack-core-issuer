@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.signing.domain.service.impl;
 
+import java.time.Instant;
 import java.util.*;
 import es.in2.issuer.backend.shared.domain.exception.*;
 
@@ -9,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.util.HttpUtils;
 import es.in2.issuer.backend.signing.domain.exception.OrganizationIdentifierNotFoundException;
+import es.in2.issuer.backend.signing.domain.model.dto.CacheEntry;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
 import es.in2.issuer.backend.signing.infrastructure.config.RemoteSignatureConfig;
@@ -28,6 +30,8 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -41,6 +45,8 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
     private final ObjectMapper objectMapper;
     private final QtspAuthClient qtspAuthClient;
     private final RemoteSignatureConfig remoteSignatureConfig;
+    private final ConcurrentMap<String, CacheEntry> certificateInfoCache= new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Mono<String>> certificateInfoInFlight = new ConcurrentHashMap<>();
     private final HttpUtils httpUtils;
 
     private static final String CERTIFICATES = "certificates";
@@ -65,6 +71,30 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
 
     @Override
     public Mono<String> requestCertificateInfo(String accessToken, String credentialID) {
+        CacheEntry cached = certificateInfoCache.get(credentialID);
+        if (cached != null && cached.expiresAt().isAfter(Instant.now())) {
+            return Mono.just(cached.value());
+        }
+
+        Mono<String> existing = certificateInfoInFlight.get(credentialID);
+        if (existing != null) {
+            return existing;
+        }
+
+        Mono<String> refreshMono =
+                fetchCertificateInfoFromQtsp(accessToken, credentialID)
+                        .doOnNext(body -> {
+                            Instant expiresAt = Instant.now().plus(remoteSignatureConfig.getCertificateInfoCacheTtl());
+                            certificateInfoCache.put(credentialID, new CacheEntry(body, expiresAt));
+                        })
+                        .doFinally(_ -> certificateInfoInFlight.remove(credentialID))
+                        .cache();
+
+        Mono<String> winner = certificateInfoInFlight.putIfAbsent(credentialID, refreshMono);
+        return winner != null ? winner : refreshMono;
+    }
+
+    private Mono<String> fetchCertificateInfoFromQtsp(String accessToken, String credentialID) {
         String credentialsInfoEndpoint = remoteSignatureConfig.getRemoteSignatureDomain() + INFO_PATH;
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put(CREDENTIAL_ID, credentialID);

@@ -18,11 +18,12 @@ public record RemoteSignatureProperties(
         @NotBlank String clientId,
         @NotBlank String clientSecret,
         @NotBlank String credentialId,
-        @NotBlank String credentialPassword
+        @NotBlank String credentialPassword,
+        String certificateInfoCacheTtl
 ) {
 
     @ConstructorBinding
-    public RemoteSignatureProperties(String type, String url, Paths paths, String clientId, String clientSecret, String credentialId, String credentialPassword) {
+    public RemoteSignatureProperties(String type, String url, Paths paths, String clientId, String clientSecret, String credentialId, String credentialPassword,String certificateInfoCacheTtl) {
         this.url = url;
         this.paths = Optional.ofNullable(paths).orElse(new Paths(""));
         this.clientId = clientId;
@@ -30,6 +31,7 @@ public record RemoteSignatureProperties(
         this.credentialId = credentialId;
         this.credentialPassword = credentialPassword;
         this.type = type;
+        this.certificateInfoCacheTtl = Optional.ofNullable(certificateInfoCacheTtl).orElse("PT10M");
     }
 
     @Validated

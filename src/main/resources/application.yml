@@ -192,6 +192,7 @@ issuer-identity:
     private-key:
 
 remote-signature:
+  certificate-info-cache-ttl: PT10M
   # The type of the remote signature service (REQUIRED)
   type:
   # The URL of the remote signature service (REQUIRED)
