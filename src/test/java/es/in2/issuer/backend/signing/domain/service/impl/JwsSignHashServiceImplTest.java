@@ -92,6 +92,30 @@ class JwsSignHashServiceImplTest {
     }
 
     @Test
+    void signJwtWithSignHash_whenHeaderPayloadEncodingFails_returnsRemoteSignatureException() {
+        String accessToken = "access-token";
+        String headerJson = "{\"alg\":\"ES256\"}";
+        String payloadJson = "{\"vc\":\"unsigned\"}";
+
+        try (MockedStatic<Base64UrlUtils> mocked = Mockito.mockStatic(Base64UrlUtils.class)) {
+            mocked.when(() -> Base64UrlUtils.encodeUtf8(anyString()))
+                    .thenThrow(new RuntimeException("b64 fail"));
+
+            StepVerifier.create(sut.signJwtWithSignHash(accessToken, headerJson, payloadJson))
+                    .expectErrorSatisfies(ex -> {
+                        assertTrue(ex instanceof RemoteSignatureException);
+                        assertTrue(ex.getMessage().contains("Failed to build JWS header/payload"));
+                        assertNotNull(ex.getCause());
+                        assertEquals("b64 fail", ex.getCause().getMessage());
+                    })
+                    .verify();
+
+            verifyNoInteractions(hashGeneratorService);
+            verifyNoInteractions(qtspSignHashClient);
+        }
+    }
+
+    @Test
     void signJwtWithSignHash_whenAuthorizeFails_propagatesError() throws Exception {
         // given
         String accessToken = "access-token";
