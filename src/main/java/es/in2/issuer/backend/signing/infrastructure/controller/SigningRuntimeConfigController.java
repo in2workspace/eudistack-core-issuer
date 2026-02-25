@@ -1,9 +1,9 @@
 package es.in2.issuer.backend.signing.infrastructure.controller;
 
+import org.springframework.web.bind.annotation.*;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningConfigPushRequest;
 import jakarta.validation.Valid;
-import org.springframework.web.bind.annotation.*;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;

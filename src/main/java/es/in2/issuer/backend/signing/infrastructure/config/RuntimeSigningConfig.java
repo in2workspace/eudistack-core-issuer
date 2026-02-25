@@ -12,7 +12,7 @@ public class RuntimeSigningConfig {
 
     private final AtomicReference<String> provider = new AtomicReference<>("in-memory");
     @Getter @Setter
-    private volatile RemoteSignatureDto remoteSignature;
+    private RemoteSignatureDto remoteSignature;
 
     public String getProvider() {
         return provider.get();

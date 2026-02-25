@@ -2,7 +2,6 @@ package es.in2.issuer.backend.signing.domain.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import es.in2.issuer.backend.signing.domain.exception.OrganizationIdentifierNotFoundException;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
