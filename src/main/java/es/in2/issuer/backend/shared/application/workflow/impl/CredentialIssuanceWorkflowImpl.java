@@ -112,7 +112,9 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
 
         return switch (schema) {
             case LEAR_CREDENTIAL_EMPLOYEE -> {
+                System.out.println("Payload for LEAR_CREDENTIAL_EMPLOYEE: " + payload.toPrettyString());
                 String email = payload.get(MANDATEE).get(EMAIL).asText();
+                System.out.println("Extracted email for LEAR_CREDENTIAL_EMPLOYEE: " + email);
                 String org = payload.get(MANDATOR).get(ORGANIZATION).asText();
                 yield new CredentialOfferEmailNotificationInfo(email, org);
             }
