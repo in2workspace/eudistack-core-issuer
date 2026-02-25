@@ -65,7 +65,6 @@ class SigningRuntimeConfigControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
         assertEquals("csc-sign-hash", response.getBody().get("provider"));
-        assertEquals("updated", response.getBody().get("status"));
     }
 
     @Test

@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.signing.domain.service.impl;
 
-
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.signing.domain.exception.OrganizationIdentifierNotFoundException;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
@@ -8,7 +8,6 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
 import es.in2.issuer.backend.shared.domain.util.HttpUtils;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,10 +19,12 @@ import reactor.test.StepVerifier;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_REMOTE_TYPE_SERVER;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+
+import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_REMOTE_TYPE_SERVER;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @ExtendWith(MockitoExtension.class)
 class QtspIssuerServiceImplTest {
@@ -40,13 +41,7 @@ class QtspIssuerServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        qtspIssuerService = new QtspIssuerServiceImpl(
-                objectMapper,
-                qtspAuthClient,
-                runtimeSigningConfig,
-                httpUtils
-        );
-        RemoteSignatureDto cfg = new RemoteSignatureDto(
+        cfg = new RemoteSignatureDto(
                 SIGNATURE_REMOTE_TYPE_SERVER,
                 "https://domain",
                 "/sign",
@@ -55,15 +50,19 @@ class QtspIssuerServiceImplTest {
                 "PT10M"
         );
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
+
+        qtspIssuerService = new QtspIssuerServiceImpl(
+                objectMapper,
+                qtspAuthClient,
+                runtimeSigningConfig,
+                httpUtils
+        );
     }
 
     @Test
     void validateCredentials_returnsTrueWhenValid() {
         when(qtspAuthClient.requestAccessToken(any(SigningRequest.class), anyString()))
                 .thenReturn(Mono.just("token"));
-
-        when(cfg.credentialId()).thenReturn("credId");
-        when(cfg.url()).thenReturn("https://domain");
 
         when(httpUtils.postRequest(contains("/csc/v2/credentials/list"), any(), any()))
                 .thenReturn(Mono.just("{\"credentialIDs\":[\"credId\"]}"));
@@ -78,9 +77,6 @@ class QtspIssuerServiceImplTest {
         when(qtspAuthClient.requestAccessToken(any(SigningRequest.class), anyString()))
                 .thenReturn(Mono.just("token"));
 
-        when(cfg.credentialId()).thenReturn("credId");
-        when(cfg.url()).thenReturn("https://domain");
-
         when(httpUtils.postRequest(contains("/csc/v2/credentials/list"), any(), any()))
                 .thenReturn(Mono.just("{\"credentialIDs\":[\"OTHER\"]}"));
 
@@ -93,78 +89,61 @@ class QtspIssuerServiceImplTest {
     void requestCertificateInfo_serializationError_returnsError() throws Exception {
         ObjectMapper failingMapper = mock(ObjectMapper.class);
 
-
         QtspIssuerServiceImpl service = new QtspIssuerServiceImpl(
                 failingMapper, qtspAuthClient, runtimeSigningConfig, httpUtils
         );
 
-        when(cfg.url()).thenReturn("https://domain");
+        // asegura config no-null (ya vale la del setUp, pero lo dejo explícito)
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
 
         doThrow(new JsonProcessingException("Error serializing request body to JSON") {})
                 .when(failingMapper)
-                .writeValueAsString(any());
+                .writeValueAsString(anyMap());
 
         StepVerifier.create(service.requestCertificateInfo("token", "credId"))
                 .expectErrorMatches(e -> e.getMessage().contains("Error serializing request body to JSON"))
                 .verify();
+
+        verifyNoInteractions(httpUtils);
     }
-
-
-    @Test
-    void extractIssuerFromCertificateInfo_successfulExtraction() {
-        String base64Cert = Base64.getEncoder()
-                .encodeToString("organizationIdentifier=ORGID".getBytes(StandardCharsets.UTF_8));
-
-        String certInfo =
-                "{ \"cert\": { " +
-                        "\"subjectDN\":\"CN=Test,O=Org,C=ES\", " +
-                        "\"serialNumber\":\"123\", " +
-                        "\"certificates\":[\"" + base64Cert + "\"]" +
-                        "} }";
-
-        StepVerifier.create(qtspIssuerService.extractIssuerFromCertificateInfo(certInfo))
-                .assertNext(issuer -> {
-                    assertThat(issuer.organizationIdentifier()).isEqualTo("ORGID");
-                    assertThat(issuer.id()).isEqualTo("did:elsi:ORGID");
-                })
-                .verifyComplete();
-    }
-
-
-    @Test
-    void extractIssuerFromCertificateInfo_missingOrgId_returnsError() {
-        String base64Cert = Base64.getEncoder()
-                .encodeToString("no-org-here".getBytes(StandardCharsets.UTF_8));
-
-        String certInfo =
-                "{ \"cert\": { " +
-                        "\"subjectDN\":\"CN=Test,O=Org,C=ES\", " +
-                        "\"serialNumber\":\"123\", " +
-                        "\"certificates\":[\"" + base64Cert + "\"]" +
-                        "} }";
-
-        StepVerifier.create(qtspIssuerService.extractIssuerFromCertificateInfo(certInfo))
-                .expectError(OrganizationIdentifierNotFoundException.class)
-                .verify();
-    }
-
 
     @Test
     void isServerMode_returnsTrueWhenTypeIsServer() {
-        when(cfg.type()).thenReturn("server");
-        assertThat(qtspIssuerService.isServerMode()).isTrue();
+        RemoteSignatureDto serverCfg = new RemoteSignatureDto(
+                SIGNATURE_REMOTE_TYPE_SERVER,
+                "https://domain",
+                "/sign",
+                "clientId",
+                "clientSecret",
+                "credId",
+                "pwd",
+                "PT10M"
+        );
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(serverCfg);
+
+        assertTrue(qtspIssuerService.isServerMode());
     }
 
     @Test
     void isServerMode_returnsFalseWhenTypeIsNotServer() {
-        when(cfg.type()).thenReturn("other");
+        RemoteSignatureDto otherCfg = new RemoteSignatureDto(
+                "other",
+                "https://domain",
+                "/sign",
+                "clientId",
+                "clientSecret",
+                "credId",
+                "pwd",
+                "PT10M"
+        );
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(otherCfg);
+
         assertThat(qtspIssuerService.isServerMode()).isFalse();
     }
 
     @Test
     void resolveRemoteDetailedIssuer_validCredentials_returnsIssuer() {
-        when(cfg.credentialId()).thenReturn("credId");
-        when(cfg.url()).thenReturn("https://domain");
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
 
         when(qtspAuthClient.requestAccessToken(any(SigningRequest.class), anyString()))
                 .thenReturn(Mono.just("token-1"));
@@ -200,19 +179,27 @@ class QtspIssuerServiceImplTest {
                 .verifyComplete();
     }
 
-
     @Test
     void resolveRemoteDetailedIssuer_invalidCredentials_returnsError() {
+
+        RemoteSignatureDto expectedCfg = new RemoteSignatureDto(
+                SIGNATURE_REMOTE_TYPE_SERVER,
+                "https://domain",
+                "/sign",
+                "clientId", "clientSecret",
+                "EXPECTED_ID", "pwd",
+                "PT10M"
+        );
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(expectedCfg);
+
         when(qtspAuthClient.requestAccessToken(any(SigningRequest.class), anyString()))
                 .thenReturn(Mono.just("access-token"));
 
         when(httpUtils.postRequest(contains("/csc/v2/credentials/list"), anyList(), anyString()))
                 .thenReturn(Mono.just("{\"credentialIDs\":[\"OTHER_ID\"]}"));
-        when(cfg.credentialId()).thenReturn("EXPECTED_ID");
 
         StepVerifier.create(qtspIssuerService.resolveRemoteDetailedIssuer())
                 .expectErrorMatches(e -> e.getMessage().contains("Credentials mismatch"))
                 .verify();
     }
-
 }

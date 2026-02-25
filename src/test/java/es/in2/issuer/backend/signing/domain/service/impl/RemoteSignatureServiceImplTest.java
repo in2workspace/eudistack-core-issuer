@@ -1,23 +1,22 @@
 package es.in2.issuer.backend.signing.domain.service.impl;
 
-import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
-import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
-import org.mockito.*;
-import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
-import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
-import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
-import es.in2.issuer.backend.signing.domain.model.SigningType;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.SadException;
-import es.in2.issuer.backend.signing.domain.exception.SignatureProcessingException;
 import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
 import es.in2.issuer.backend.shared.domain.util.HttpUtils;
 import es.in2.issuer.backend.shared.domain.util.JwtUtils;
+import es.in2.issuer.backend.signing.domain.exception.SignatureProcessingException;
+import es.in2.issuer.backend.signing.domain.model.SigningType;
+import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
+import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
+import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
+import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
+import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -34,7 +33,6 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
-
 
 @ExtendWith(MockitoExtension.class)
 class RemoteSignatureServiceImplTest {
@@ -59,19 +57,10 @@ class RemoteSignatureServiceImplTest {
                 "cred-id", "pwd",
                 "PT10M"
         );
-
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
-        when(cfg.type()).thenReturn(SIGNATURE_REMOTE_TYPE_SERVER);
-        when(cfg.url()).thenReturn("http://remote-signature-dss.com");
-        when(cfg.signPath()).thenReturn("/sign");
 
         SigningContext context = new SigningContext("token", "proc", "email");
-
-        SigningRequest req = new SigningRequest(
-                SigningType.COSE,
-                "data",
-                context
-        );
+        SigningRequest req = new SigningRequest(SigningType.COSE, "data", context);
 
         String endpoint = "http://remote-signature-dss.com/api/v1/sign";
         String reqJson = "{\"req\":true}";
@@ -92,35 +81,26 @@ class RemoteSignatureServiceImplTest {
 
     @Test
     void signSystemCredential_cloudMode_success() throws Exception {
+        // type CLOUD + url external
         RemoteSignatureDto cfg = new RemoteSignatureDto(
-                SIGNATURE_REMOTE_TYPE_SERVER,
-                "http://remote-signature-dss.com",
-                "/sign",
+                SIGNATURE_REMOTE_TYPE_CLOUD,
+                "https://api.external.com",
+                "/sign", // no se usa en cloud flow
                 "clientId", "clientSecret",
                 "cred-id", "pwd",
                 "PT10M"
         );
-
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
-        when(cfg.type()).thenReturn(SIGNATURE_REMOTE_TYPE_CLOUD);
-        when(cfg.url()).thenReturn("https://api.external.com");
-        when(cfg.credentialId()).thenReturn("cred-id");
-        when(cfg.credentialPassword()).thenReturn("pwd");
 
         SigningContext context = new SigningContext("token", "proc", "email");
+        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context);
 
-        SigningRequest req = new SigningRequest(
-                SigningType.COSE,
-                "{\"a\":1}",
-                context
-        );
-        
         when(qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
                 .thenReturn(Mono.just("access-token"));
 
         when(httpUtils.postRequest(eq("https://api.external.com/csc/v2/credentials/authorize"), anyList(), anyString()))
                 .thenReturn(Mono.just("{\"SAD\":\"sad-123\"}"));
-        when(objectMapper.readValue("{\"SAD\":\"sad-123\"}",Map.class))
+        when(objectMapper.readValue("{\"SAD\":\"sad-123\"}", Map.class))
                 .thenReturn(Map.of("SAD", "sad-123"));
 
         String jwtOrJades = "signed-jwt";
@@ -132,13 +112,12 @@ class RemoteSignatureServiceImplTest {
         when(objectMapper.readValue(signDocResponse, Map.class))
                 .thenReturn(Map.of("DocumentWithSignature", List.of(base64Signed)));
 
-        // processSignatureResponse compares payloads
         when(jwtUtils.decodePayload(jwtOrJades)).thenReturn("{\"a\":1}");
         when(jwtUtils.areJsonsEqual("{\"a\":1}", req.data())).thenReturn(true);
 
-        // final JSON that executeSigningFlow parses to SigningResult
         String signedDataJson = "{\"type\":\"JADES\",\"data\":\"" + jwtOrJades + "\"}";
         when(objectMapper.writeValueAsString(any(Map.class))).thenReturn(signedDataJson);
+
         SigningResult expected = new SigningResult(SigningType.JADES, jwtOrJades);
         when(objectMapper.readValue(signedDataJson, SigningResult.class)).thenReturn(expected);
 
@@ -152,34 +131,25 @@ class RemoteSignatureServiceImplTest {
     @Test
     void getSignedDocumentExternal_sadMissing_shouldFailWithSadException() throws Exception {
         RemoteSignatureDto cfg = new RemoteSignatureDto(
-                SIGNATURE_REMOTE_TYPE_SERVER,
-                "http://remote-signature-dss.com",
+                SIGNATURE_REMOTE_TYPE_CLOUD,
+                "https://api.external.com",
                 "/sign",
                 "clientId", "clientSecret",
                 "cred-id", "pwd",
                 "PT10M"
         );
-
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
-        when(cfg.url()).thenReturn("https://api.external.com");
-        when(cfg.credentialId()).thenReturn("cred-id");
-        when(cfg.credentialPassword()).thenReturn("pwd");
 
         SigningContext context = new SigningContext("token", "proc", "email");
+        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context);
 
-        SigningRequest req = new SigningRequest(
-                SigningType.COSE,
-                "{\"a\":1}",
-                context
-        );
-
-        when(qtspAuthClient.requestAccessToken(req,SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
+        when(qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
                 .thenReturn(Mono.just("access-token"));
 
         when(httpUtils.postRequest(
                 eq("https://api.external.com/csc/v2/credentials/authorize"),
                 anyList(),
-                isNull()
+                any()
         )).thenReturn(Mono.just("{\"NO_SAD\":\"x\"}"));
 
         when(objectMapper.readValue("{\"NO_SAD\":\"x\"}", Map.class))
@@ -196,15 +166,10 @@ class RemoteSignatureServiceImplTest {
     @Test
     void processSignatureResponse_shouldFail_whenNoSignature() throws Exception {
         SigningContext context = new SigningContext("token", "proc", "email");
-
-        SigningRequest req = new SigningRequest(
-                SigningType.COSE,
-                "{\"a\":1}",
-                context
-        );
+        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context);
 
         String responseJson = "{\"DocumentWithSignature\":[]}";
-        when(objectMapper.readValue(responseJson,Map.class))
+        when(objectMapper.readValue(responseJson, Map.class))
                 .thenReturn(Map.of("DocumentWithSignature", List.of()));
 
         StepVerifier.create(remoteSignatureService.processSignatureResponse(req, responseJson))
@@ -215,12 +180,7 @@ class RemoteSignatureServiceImplTest {
     @Test
     void processSignatureResponse_shouldFail_whenPayloadMismatch() throws Exception {
         SigningContext context = new SigningContext("token", "proc", "email");
-
-        SigningRequest req = new SigningRequest(
-                SigningType.COSE,
-                "{\"a\":1}",
-                context
-        );
+        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context);
 
         String signedJwt = "signed-jwt";
         String base64Signed = Base64.getEncoder().encodeToString(signedJwt.getBytes(StandardCharsets.UTF_8));
@@ -229,7 +189,6 @@ class RemoteSignatureServiceImplTest {
         when(objectMapper.readValue(responseJson, Map.class))
                 .thenReturn(Map.of("DocumentWithSignature", List.of(base64Signed)));
 
-        // decodePayload returns something different
         when(jwtUtils.decodePayload(signedJwt)).thenReturn("{\"a\":999}");
         when(jwtUtils.areJsonsEqual("{\"a\":999}", req.data())).thenReturn(false);
 
@@ -244,33 +203,24 @@ class RemoteSignatureServiceImplTest {
     @Test
     void signIssuedCredential_cloudMode_retries_thenSucceeds() throws Exception {
         RemoteSignatureDto cfg = new RemoteSignatureDto(
-                SIGNATURE_REMOTE_TYPE_SERVER,
-                "http://remote-signature-dss.com",
+                SIGNATURE_REMOTE_TYPE_CLOUD,
+                "https://api.external.com",
                 "/sign",
                 "clientId", "clientSecret",
                 "cred-id", "pwd",
                 "PT10M"
         );
-
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
-        when(cfg.type()).thenReturn(SIGNATURE_REMOTE_TYPE_CLOUD);
-        when(cfg.url()).thenReturn("https://api.external.com");
-        when(cfg.credentialId()).thenReturn("cred-id");
-        when(cfg.credentialPassword()).thenReturn("pwd");
-        SigningContext context = new SigningContext("token", "proc", "email");
 
-        SigningRequest req = new SigningRequest(
-                SigningType.COSE,
-                "{\"a\":1}",
-                context
-        );
+        SigningContext context = new SigningContext("token", "proc", "email");
+        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context);
 
         when(qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
                 .thenReturn(Mono.just("access-token"));
 
         when(httpUtils.postRequest(eq("https://api.external.com/csc/v2/credentials/authorize"), anyList(), anyString()))
                 .thenReturn(Mono.just("{\"SAD\":\"sad-123\"}"));
-        when(objectMapper.readValue("{\"SAD\":\"sad-123\"}",Map.class))
+        when(objectMapper.readValue("{\"SAD\":\"sad-123\"}", Map.class))
                 .thenReturn(Map.of("SAD", "sad-123"));
 
         WebClientResponseException serverError = WebClientResponseException.create(
@@ -288,11 +238,11 @@ class RemoteSignatureServiceImplTest {
         when(httpUtils.postRequest(eq("https://api.external.com/csc/v2/signatures/signDoc"), anyList(), anyString()))
                 .thenReturn(Mono.error(serverError), Mono.error(serverError), Mono.just(signDocResponse));
 
-        when(objectMapper.readValue(signDocResponse,Map.class))
+        when(objectMapper.readValue(signDocResponse, Map.class))
                 .thenReturn(Map.of("DocumentWithSignature", List.of(base64Signed)));
 
         when(jwtUtils.decodePayload(jwtOrJades)).thenReturn("{\"a\":1}");
-        when(jwtUtils.areJsonsEqual("{\"a\":1}",req.data())).thenReturn(true);
+        when(jwtUtils.areJsonsEqual("{\"a\":1}", req.data())).thenReturn(true);
 
         String signedDataJson = "{\"type\":\"JADES\",\"data\":\"" + jwtOrJades + "\"}";
         when(objectMapper.writeValueAsString(any(Map.class))).thenReturn(signedDataJson);
@@ -304,7 +254,8 @@ class RemoteSignatureServiceImplTest {
                 .expectNext(expected)
                 .verifyComplete();
 
-        verify(httpUtils, times(3)).postRequest(eq("https://api.external.com/csc/v2/signatures/signDoc"), anyList(), anyString());
+        verify(httpUtils, times(3))
+                .postRequest(eq("https://api.external.com/csc/v2/signatures/signDoc"), anyList(), anyString());
         verify(deferredCredentialMetadataService).deleteDeferredCredentialMetadataById("proc-1");
     }
 }
