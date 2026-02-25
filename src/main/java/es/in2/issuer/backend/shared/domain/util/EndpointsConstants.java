@@ -18,7 +18,7 @@ public class EndpointsConstants {
 
     // Signing Endpoints
     public static final String SIGNING_PROVIDERS_PATH = "/internal/signing/provider";
-
+    public static final String SIGNING_CONFIG_PATH = "/internal/signing/config";
 
     // VCI API Endpoints
     public static final String VCI_PATH = VCI_BASE_PATH+"/**";

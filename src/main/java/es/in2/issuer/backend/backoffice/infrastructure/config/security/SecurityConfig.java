@@ -148,6 +148,7 @@ public class SecurityConfig {
                         BACKOFFICE_PATH,
                         STATUS_LIST_PATH,
                         SIGNING_PROVIDERS_PATH,
+                        SIGNING_CONFIG_PATH,
                         HEALTH_PATH,
                         PROMETHEUS_PATH,
                         SPRINGDOC_PATH
@@ -161,7 +162,7 @@ public class SecurityConfig {
                         ).permitAll()
                         .pathMatchers(HttpMethod.GET, STATUS_LIST_PATH).permitAll()
                         .pathMatchers(HttpMethod.GET, SIGNING_PROVIDERS_PATH).permitAll()
-                        .pathMatchers(HttpMethod.PUT, SIGNING_PROVIDERS_PATH).permitAll()
+                        .pathMatchers(HttpMethod.PUT, SIGNING_CONFIG_PATH).permitAll()
                         .pathMatchers(HttpMethod.POST, STATUS_LIST_PATH).authenticated()
                         .pathMatchers(HttpMethod.GET, BACKOFFICE_STATUS_CREDENTIALS).permitAll()
                         .pathMatchers(HttpMethod.GET, BACKOFFICE_PATH).authenticated()
