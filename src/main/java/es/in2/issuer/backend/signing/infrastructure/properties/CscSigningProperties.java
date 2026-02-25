@@ -4,7 +4,7 @@ import es.in2.issuer.backend.signing.domain.model.JadesProfile;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
-@ConfigurationProperties(prefix = "issuer.signing.csc") //TODO: add config
+@ConfigurationProperties(prefix = "issuer.signing.csc") //TODO: add config sign hash
 @Validated
 public record CscSigningProperties(
         JadesProfile signatureProfile

@@ -194,6 +194,9 @@ signing:
   runtime:
     enabled: true
     controller-enabled: true
+  in-memory:
+    key-path:
+    cert-chain-path:
 cors:
   # The allowed origins for CORS requests coming from the frontend issuer (REQUIRED)
   default-allowed-origins:

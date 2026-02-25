@@ -7,10 +7,7 @@ import es.in2.issuer.backend.signing.domain.service.JwsSignHashService;
 import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
 import es.in2.issuer.backend.signing.domain.service.RemoteSignatureService;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
-import es.in2.issuer.backend.signing.infrastructure.adapter.CscSignDocSigningProvider;
-import es.in2.issuer.backend.signing.infrastructure.adapter.CscSignHashSigningProvider;
-import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
-import es.in2.issuer.backend.signing.infrastructure.adapter.InMemorySigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.*;
 import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningProperties;
 import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
 import org.junit.jupiter.api.Test;
@@ -36,6 +33,7 @@ class SigningProviderConfigTest {
     @Mock private JwsSignHashService jwsSignHashService;
     @Mock private JadesHeaderBuilderService jadesHeaderBuilder;
     @Mock private CscSigningProperties cscSigningProperties;
+    @Mock private InMemoryKeyMaterialLoader.KeyMaterial inMemoryKeyMaterialOrNull;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -52,7 +50,8 @@ class SigningProviderConfigTest {
                 jwsSignHashService,
                 jadesHeaderBuilder,
                 cscSigningProperties,
-                objectMapper
+                objectMapper,
+                inMemoryKeyMaterialOrNull
         );
 
         assertNotNull(provider);
@@ -85,7 +84,8 @@ class SigningProviderConfigTest {
                 jwsSignHashService,
                 jadesHeaderBuilder,
                 cscSigningProperties,
-                objectMapper
+                objectMapper,
+                inMemoryKeyMaterialOrNull
         );
 
         Map<String, SigningProvider> providersByKey =
@@ -119,7 +119,8 @@ class SigningProviderConfigTest {
                 jwsSignHashService,
                 jadesHeaderBuilder,
                 cscSigningProperties,
-                objectMapper
+                objectMapper,
+                inMemoryKeyMaterialOrNull
         );
 
         assertSame(runtimeSigningConfig, ReflectionTestUtils.getField(provider, "runtimeSigningConfig"));
