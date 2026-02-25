@@ -45,15 +45,9 @@ public class JadesHeaderBuilderServiceImpl implements JadesHeaderBuilderService 
 
     private void applyProfileSpecificFields(Map<String, Object> header, JadesProfile profile) {
         switch (profile) {
-            case JADES_B_T -> {
-                header.put("sigT", Instant.now().toString());
-            }
-            case JADES_B_LT, JADES_B_LTA -> {
-                throw new IllegalStateException(profile + " not yet supported");
-            }
-            default -> {
-                log.info("No additional header fields needed for profile {}", profile);
-            }
+            case JADES_B_T -> header.put("sigT", Instant.now().toString());
+            case JADES_B_LT, JADES_B_LTA -> throw new IllegalStateException(profile + " not yet supported");
+            default -> log.info("No additional header fields needed for profile {}", profile);
         }
     }
 
