@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter;
 
-
 import java.security.*;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;

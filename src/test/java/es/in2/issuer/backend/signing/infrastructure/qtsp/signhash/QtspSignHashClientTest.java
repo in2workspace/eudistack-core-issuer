@@ -1,14 +1,14 @@
 package es.in2.issuer.backend.signing.infrastructure.qtsp.signhash;
 
-import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
-import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
-import org.mockito.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.domain.util.HttpUtils;
+import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
+import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -18,30 +18,27 @@ import reactor.test.StepVerifier;
 import java.nio.charset.StandardCharsets;
 
 import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_REMOTE_TYPE_SERVER;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class QtspSignHashClientTest {
 
     @Mock private RuntimeSigningConfig runtimeSigningConfig;
-
-    @Mock
-    private HttpUtils httpUtils;
+    @Mock private HttpUtils httpUtils;
 
     private ObjectMapper objectMapper;
     private QtspSignHashClient client;
+
+    private RemoteSignatureDto cfg;
 
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
         client = new QtspSignHashClient(objectMapper, runtimeSigningConfig, httpUtils);
-    }
 
-    @Test
-    void authorizeForHash_success_returnsSad() {
-        RemoteSignatureDto cfg = new RemoteSignatureDto(
+        cfg = new RemoteSignatureDto(
                 SIGNATURE_REMOTE_TYPE_SERVER,
                 "https://qtsp.test",
                 "/sign",
@@ -50,10 +47,10 @@ class QtspSignHashClientTest {
                 "PT10M"
         );
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
-        when(cfg.url()).thenReturn("https://qtsp.test");
-        when(cfg.credentialId()).thenReturn("cred-123");
-        when(cfg.credentialPassword()).thenReturn("pwd");
+    }
 
+    @Test
+    void authorizeForHash_success_returnsSad() {
         when(httpUtils.postRequest(
                 eq("https://qtsp.test/csc/v2/credentials/authorize"),
                 anyList(),
@@ -101,18 +98,6 @@ class QtspSignHashClientTest {
 
     @Test
     void signHash_success_returnsFirstSignature() {
-        RemoteSignatureDto cfg = new RemoteSignatureDto(
-                SIGNATURE_REMOTE_TYPE_SERVER,
-                "https://qtsp.test",
-                "/sign",
-                "clientId", "clientSecret",
-                "cred-123", "pwd",
-                "PT10M"
-        );
-        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
-        when(cfg.url()).thenReturn("https://qtsp.test");
-        when(cfg.credentialId()).thenReturn("cred-123");
-
         when(httpUtils.postRequest(
                 eq("https://qtsp.test/csc/v2/signatures/signHash"),
                 anyList(),
@@ -135,9 +120,11 @@ class QtspSignHashClientTest {
         when(httpUtils.postRequest(anyString(), anyList(), anyString()))
                 .thenReturn(Mono.just("{\"signatures\":[]}"));
 
-        StepVerifier.create(client.signHash("access-token", "sad-1", "hashB64Url",
+        StepVerifier.create(client.signHash(
+                        "access-token", "sad-1", "hashB64Url",
                         "2.16.840.1.101.3.4.2.1",
-                        "1.2.840.10045.4.3.2"))
+                        "1.2.840.10045.4.3.2"
+                ))
                 .expectErrorSatisfies(ex -> {
                     assertTrue(ex instanceof RemoteSignatureException);
                     assertTrue(ex.getMessage().contains("signHash response missing signatures[0]"));
@@ -158,9 +145,11 @@ class QtspSignHashClientTest {
         when(httpUtils.postRequest(anyString(), anyList(), anyString()))
                 .thenReturn(Mono.error(unauthorized));
 
-        StepVerifier.create(client.signHash("access-token", "sad-1", "hashB64Url",
+        StepVerifier.create(client.signHash(
+                        "access-token", "sad-1", "hashB64Url",
                         "2.16.840.1.101.3.4.2.1",
-                        "1.2.840.10045.4.3.2"))
+                        "1.2.840.10045.4.3.2"
+                ))
                 .expectErrorSatisfies(ex -> {
                     assertTrue(ex instanceof RemoteSignatureException);
                     assertTrue(ex.getMessage().contains("Unauthorized on signHash"));
