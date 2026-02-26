@@ -51,24 +51,29 @@ Its technical document is at `docs/fikua-lab-dt.md`. Key differences from this r
 
 ## Local Development
 
+### Setup (one time)
+
+```bash
+cd docker && cp .env.example .env   # add RESEND_API_KEY
+```
+
 ### Option 1: IDE + Docker (fastest iteration)
 
 ```bash
-cd docker
-docker compose up -d postgres mailhog    # DB + email catcher only
-# Then run backend from IDE with profile: local
-# (SPRING_PROFILES_ACTIVE=local or --spring.profiles.active=local)
+cd docker && docker compose up -d postgres   # DB only
+# Backend from IDE: SPRING_PROFILES_ACTIVE=local, RESEND_API_KEY=re_...
 # Angular frontend:
-cd ../../in2-eudistack-issuer-core-ui && npm start
+cd ../in2-eudistack-issuer-core-ui && make deploy-local
 ```
 
 ### Option 2: Full Docker stack
 
 ```bash
 cd docker
-docker compose up -d                       # DB + backend + mailhog
-docker compose --profile ui up -d          # + Angular frontend
-docker compose up -d --build backend       # rebuild after code changes
+docker compose up -d                   # DB + backend
+docker compose up -d --build backend   # rebuild after code changes
+# Angular frontend:
+cd ../in2-eudistack-issuer-core-ui && make deploy-local
 ```
 
 ### Option 3: Build only
@@ -86,8 +91,21 @@ docker compose up -d --build backend       # rebuild after code changes
 | Backend | http://localhost:8080 | Issuer API |
 | Frontend | http://localhost:4200 | Angular Issuer Portal |
 | PostgreSQL | localhost:5432 | Database (issuer/issuer/issuer) |
-| MailHog UI | http://localhost:8025 | Email viewer (captures all mail) |
 | Swagger UI | http://localhost:8080/springdoc/swagger-ui.html | API docs |
+
+### Angular Makefile (in2-eudistack-issuer-core-ui)
+
+```bash
+make deploy-local    # Start backend infra + ng serve --open
+make backend-up      # Only start Docker infra
+make backend-down    # Stop Docker infra
+make backend-rebuild # Rebuild backend container
+make backend-logs    # Tail backend logs
+make backend-db-reset # Reset DB (drop volume)
+make build           # Production build
+make test            # Jest tests
+make lint            # ESLint
+```
 
 ## Critical Paths (do not break)
 

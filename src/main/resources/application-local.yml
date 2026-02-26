@@ -4,7 +4,8 @@
 # Activate:  ./gradlew bootRun --args='--spring.profiles.active=local'
 #            or set SPRING_PROFILES_ACTIVE=local in IntelliJ run config
 #
-# Requires:  cd docker && docker compose up -d postgres mailhog
+# Requires:  cd docker && docker compose up -d postgres
+# Mail:      Uses Resend SMTP. Set RESEND_API_KEY env var.
 # ---------------------------------------------------------------------------
 
 spring:
@@ -16,14 +17,15 @@ spring:
     url: jdbc:postgresql://localhost:5432/issuer
     default-schema: issuer
   mail:
-    host: localhost
-    port: 1025
-    username: ""
-    password: ""
+    host: smtp.resend.com
+    port: 465
+    username: resend
+    password: ${RESEND_API_KEY}
     properties.mail.smtp:
-      auth: false
+      auth: true
       starttls.enable: false
-      ssl.trust: ""
+      ssl.enable: true
+      ssl.trust: smtp.resend.com
 
 logging:
   level:
