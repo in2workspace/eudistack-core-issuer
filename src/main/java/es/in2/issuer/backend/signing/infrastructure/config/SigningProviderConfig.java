@@ -1,62 +1,63 @@
 package es.in2.issuer.backend.signing.infrastructure.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.shared.domain.service.SigningRecoveryService;
+import es.in2.issuer.backend.signing.domain.service.JadesHeaderBuilderService;
+import es.in2.issuer.backend.signing.domain.service.JwsSignHashService;
+import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
+import es.in2.issuer.backend.signing.domain.service.RemoteSignatureService;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.CscSignDocSigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.CscSignHashSigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.InMemorySigningProvider;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningProperties;
+import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-@Slf4j
+import java.util.HashMap;
+import java.util.Map;
+
 @Configuration
-@RequiredArgsConstructor
+@ConditionalOnProperty(prefix = "issuer.signing.runtime", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class SigningProviderConfig {
 
-    /**
-     * Allowed values (core-only PR2):
-     * - in-memory
-     * - csc-sign-doc
-     *
-     * Values reserved for future Enterprise implementations:
-     * - csc-sign-hash
-     */
-    @Value("${issuer.signing.provider:csc-sign-doc}")
-    private String provider;
-
-    private final InMemorySigningProvider inMemorySigningProvider;
-    private final CscSignDocSigningProvider cscSignDocSigningProvider;
-
     @Bean
-    public SigningProvider signingProvider() {
-        String normalized = normalize(provider);
+    @ConditionalOnMissingBean(SigningProvider.class)
+    public SigningProvider signingProvider(
+            RuntimeSigningConfig runtimeSigningConfig,
 
-        return switch (normalized) {
-            case "in-memory" -> {
-                log.info("SigningProvider selected: in-memory");
-                yield inMemorySigningProvider;
-            }
-            case "csc-sign-doc" -> {
-                log.info("SigningProvider selected: csc-sign-doc");
-                yield cscSignDocSigningProvider;
-            }
+            RemoteSignatureService remoteSignatureService,
+            SigningRecoveryService signingRecoveryService,
 
-            //TODO: Remove when csc-sign-hash provider is implemented.
-            case "csc-sign-hash" -> throw new IllegalStateException(
-                    "Signing provider '" + provider + "' must be provided by Enterprise module. " +
-                            "Core-only build supports: in-memory, csc-sign-doc"
-            );
+            QtspAuthClient qtspAuthClient,
+            QtspIssuerService qtspIssuerService,
+            JwsSignHashService jwsSignHashService,
+            JadesHeaderBuilderService jadesHeaderBuilder,
+            CscSigningProperties cscSigningProperties,
+            ObjectMapper objectMapper
+    ) {
+        Map<String, SigningProvider> map = new HashMap<>();
 
-            default -> throw new IllegalStateException(
-                    "Unknown signing provider '" + provider + "'. " +
-                            "Supported providers (core-only): in-memory, csc-sign-doc"
-            );
-        };
-    }
+        map.put("in-memory", new InMemorySigningProvider());
 
-    private static String normalize(String value) {
-        return value == null ? "" : value.trim().toLowerCase();
+        map.put("csc-sign-doc", new CscSignDocSigningProvider(
+                remoteSignatureService,
+                signingRecoveryService
+        ));
+
+        map.put("csc-sign-hash", new CscSignHashSigningProvider(
+                qtspAuthClient,
+                qtspIssuerService,
+                jwsSignHashService,
+                jadesHeaderBuilder,
+                cscSigningProperties,
+                objectMapper
+        ));
+
+        return new DelegatingSigningProvider(runtimeSigningConfig, map);
     }
 }
-

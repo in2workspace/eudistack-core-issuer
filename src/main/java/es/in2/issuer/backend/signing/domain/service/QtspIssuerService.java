@@ -9,5 +9,5 @@ public interface QtspIssuerService {
     Mono<DetailedIssuer> extractIssuerFromCertificateInfo(String certificateInfo);
     boolean isServerMode();
     Mono<DetailedIssuer> resolveRemoteDetailedIssuer();
-
+    String getCredentialId();
 }

@@ -2,19 +2,17 @@ package es.in2.issuer.backend.signing.infrastructure.adapter;
 
 import es.in2.issuer.backend.shared.domain.service.SigningRecoveryService;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
-import es.in2.issuer.backend.signing.domain.model.SigningContext;
-import es.in2.issuer.backend.signing.domain.model.SigningRequest;
-import es.in2.issuer.backend.signing.domain.model.SigningResult;
+import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
+import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
+import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.service.RemoteSignatureService;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.domain.spi.SigningRequestValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 @Slf4j
-@Service
 @RequiredArgsConstructor
 public class CscSignDocSigningProvider implements SigningProvider {
 

@@ -9,11 +9,12 @@ import es.in2.issuer.backend.shared.domain.util.HttpUtils;
 import es.in2.issuer.backend.shared.domain.util.JwtUtils;
 import es.in2.issuer.backend.signing.domain.exception.SignatureProcessingException;
 import es.in2.issuer.backend.signing.domain.exception.SigningResultParsingException;
-import es.in2.issuer.backend.signing.domain.model.SigningRequest;
-import es.in2.issuer.backend.signing.domain.model.SigningResult;
+import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
+import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
+import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.service.RemoteSignatureService;
 import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
-import es.in2.issuer.backend.signing.infrastructure.config.RemoteSignatureConfig;
+import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
+import static es.in2.issuer.backend.signing.domain.util.PathConstants.AUTHORIZE_PATH;
+import static es.in2.issuer.backend.signing.domain.util.PathConstants.SIGN_DOC_PATH;
 
 @Slf4j
 @Service
@@ -40,10 +43,18 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
     private final QtspAuthClient qtspAuthClient;
     private final HttpUtils httpUtils;
     private final JwtUtils jwtUtils;
-    private final RemoteSignatureConfig remoteSignatureConfig;
+    private final RuntimeSigningConfig runtimeSigningConfig;
     private static final String SAD_NAME = "SAD";
     private static final String SERIALIZING_ERROR = "Error serializing request body to JSON";
     private final DeferredCredentialMetadataService deferredCredentialMetadataService;
+
+    private RemoteSignatureDto remoteCfgRequired() {
+        RemoteSignatureDto cfg = runtimeSigningConfig.getRemoteSignature();
+        if (cfg == null) {
+            throw new IllegalStateException("Remote signature config not pushed (runtimeSigningConfig.remoteSignature is null)");
+        }
+        return cfg;
+    }
 
     /**
      * Signs an ISSUED credential (user-related credential).
@@ -180,7 +191,8 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
 
 
     public Mono<String> getSignedSignature(SigningRequest signingRequest, String token) {
-        return switch (remoteSignatureConfig.getRemoteSignatureType()) {
+        RemoteSignatureDto cfg = remoteCfgRequired();
+        return switch (cfg.type()) {
             case SIGNATURE_REMOTE_TYPE_SERVER -> getSignedDocumentDSS(signingRequest, token);
             case SIGNATURE_REMOTE_TYPE_CLOUD -> getSignedDocumentExternal(signingRequest);
             default -> Mono.error(new RemoteSignatureException("Remote signature service not available"));
@@ -188,8 +200,9 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
     }
 
     private Mono<String> getSignedDocumentDSS(SigningRequest signingRequest, String token) {
-        String signatureRemoteServerEndpoint = remoteSignatureConfig.getRemoteSignatureDomain() + "/api/v1"
-                + remoteSignatureConfig.getRemoteSignatureSignPath();
+        RemoteSignatureDto cfg = remoteCfgRequired();
+        String signatureRemoteServerEndpoint = cfg.url() + "/api/v1"
+                + cfg.signPath();
         String signingRequestJSON;
 
         log.info("Requesting signature to DSS service");
@@ -215,11 +228,12 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
     }
 
     public Mono<String> requestSad(String accessToken) {
-        String credentialID = remoteSignatureConfig.getRemoteSignatureCredentialId();
+        RemoteSignatureDto cfg = remoteCfgRequired();
+        String credentialID = cfg.credentialId();
         int numSignatures = 1;
         String authDataId = "password";
-        String authDataValue = remoteSignatureConfig.getRemoteSignatureCredentialPassword();
-        String signatureGetSadEndpoint = remoteSignatureConfig.getRemoteSignatureDomain() + "/csc/v2/credentials/authorize";
+        String authDataValue = cfg.credentialPassword();
+        String signatureGetSadEndpoint = cfg.url() + AUTHORIZE_PATH;
 
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put(CREDENTIAL_ID, credentialID);
@@ -260,8 +274,9 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
     }
 
     private Mono<String> sendSigningRequest(SigningRequest signingRequest, String accessToken, String sad) {
-        String credentialID = remoteSignatureConfig.getRemoteSignatureCredentialId();
-        String signatureRemoteServerEndpoint = remoteSignatureConfig.getRemoteSignatureDomain() + "/csc/v2/signatures/signDoc";
+        RemoteSignatureDto cfg = remoteCfgRequired();
+        String credentialID = cfg.credentialId();
+        String signatureRemoteServerEndpoint = cfg.url() + SIGN_DOC_PATH;
         String signatureQualifier = "eu_eidas_aesealqc";
         String signatureFormat = "J";
         String conformanceLevel = "Ades-B";

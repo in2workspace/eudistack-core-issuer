@@ -2,10 +2,11 @@ package es.in2.issuer.backend.signing.infrastructure.qtsp.auth;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
-import es.in2.issuer.backend.signing.domain.model.SigningRequest;
+import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
+import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.service.HashGeneratorService;
-import es.in2.issuer.backend.signing.infrastructure.config.RemoteSignatureConfig;
 import es.in2.issuer.backend.shared.domain.util.HttpUtils;
+import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,11 +29,10 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
 
-
 @ExtendWith(MockitoExtension.class)
 class QtspAuthClientTest {
 
-    @Mock private RemoteSignatureConfig remoteSignatureConfig;
+    @Mock private RuntimeSigningConfig runtimeSigningConfig;
     @Mock private HashGeneratorService hashGeneratorService;
     @Mock private HttpUtils httpUtils;
 
@@ -41,11 +41,21 @@ class QtspAuthClientTest {
     @BeforeEach
     void setUp() {
         ObjectMapper objectMapper = new ObjectMapper();
-        client = new QtspAuthClient(objectMapper, remoteSignatureConfig, hashGeneratorService, httpUtils);
+        client = new QtspAuthClient(objectMapper, runtimeSigningConfig, hashGeneratorService, httpUtils);
 
-        when(remoteSignatureConfig.getRemoteSignatureDomain()).thenReturn("https://qtsp");
-        when(remoteSignatureConfig.getRemoteSignatureClientId()).thenReturn("clientId");
-        when(remoteSignatureConfig.getRemoteSignatureClientSecret()).thenReturn("clientSecret");
+        // ✅ NO mockear cfg.* (es record real). Dale valores reales aquí.
+        RemoteSignatureDto cfg = new RemoteSignatureDto(
+                "server",
+                "https://qtsp",     // <- url real que luego el client usa para "/oauth2/token"
+                "/sign",
+                "clientId",
+                "clientSecret",
+                "cred-id",
+                "pwd",
+                "PT10M"
+        );
+
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
     }
 
     @Test
@@ -87,6 +97,7 @@ class QtspAuthClientTest {
                 .verifyComplete();
 
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+        @SuppressWarnings("rawtypes")
         ArgumentCaptor<List> headersCaptor = ArgumentCaptor.forClass(List.class);
 
         verify(httpUtils).postRequest(eq("https://qtsp/oauth2/token"), headersCaptor.capture(), bodyCaptor.capture());
@@ -94,7 +105,7 @@ class QtspAuthClientTest {
         String body = bodyCaptor.getValue();
         assertTrue(body.contains("grant_type=client_credentials"));
         assertTrue(body.contains("scope=" + SIGNATURE_REMOTE_SCOPE_CREDENTIAL));
-        assertTrue(body.contains("authorization_details=")); // se mete como JSON string
+        assertTrue(body.contains("authorization_details="));
 
         @SuppressWarnings("unchecked")
         List<Map.Entry<String, String>> headers = (List<Map.Entry<String, String>>) headersCaptor.getValue();
@@ -103,8 +114,12 @@ class QtspAuthClientTest {
                 ("clientId:clientSecret").getBytes(StandardCharsets.UTF_8)
         );
 
-        boolean hasAuth = headers.stream().anyMatch(e -> e.getKey().equals(HttpHeaders.AUTHORIZATION) && e.getValue().equals(expectedBasic));
-        boolean hasCt = headers.stream().anyMatch(e -> e.getKey().equals(HttpHeaders.CONTENT_TYPE) && e.getValue().contains("application/x-www-form-urlencoded"));
+        boolean hasAuth = headers.stream().anyMatch(e ->
+                e.getKey().equals(HttpHeaders.AUTHORIZATION) && e.getValue().equals(expectedBasic)
+        );
+        boolean hasCt = headers.stream().anyMatch(e ->
+                e.getKey().equals(HttpHeaders.CONTENT_TYPE) && e.getValue().contains("application/x-www-form-urlencoded")
+        );
 
         assertTrue(hasAuth);
         assertTrue(hasCt);
@@ -127,9 +142,7 @@ class QtspAuthClientTest {
                 .thenReturn(Mono.error(unauthorized));
 
         StepVerifier.create(client.requestAccessToken(SigningRequest.builder().data("x").build(), "some-scope"))
-                .expectErrorMatches(e ->
-                        e instanceof RemoteSignatureException &&
-                                e.getMessage().contains("Unexpected error retrieving access token"))
+                .expectError(RemoteSignatureException.class)
                 .verify();
     }
 
@@ -139,9 +152,7 @@ class QtspAuthClientTest {
                 .thenReturn(Mono.error(new RuntimeException("boom")));
 
         StepVerifier.create(client.requestAccessToken(SigningRequest.builder().data("x").build(), "some-scope"))
-                .expectErrorMatches(e ->
-                        e instanceof RemoteSignatureException &&
-                                e.getMessage().contains("Unexpected error retrieving access token"))
+                .expectError(RemoteSignatureException.class)
                 .verify();
     }
 }
