@@ -36,3 +36,7 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Docker ###
+docker/.env
+!docker/.env.example
