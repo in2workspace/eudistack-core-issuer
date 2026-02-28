@@ -1,6 +1,15 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.*;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.security.interfaces.RSAPrivateKey;
+
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
@@ -11,28 +20,49 @@ import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
 import java.security.interfaces.ECPrivateKey;
-import java.security.interfaces.ECPublicKey;
 import java.security.spec.ECGenParameterSpec;
+import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
 
 @Slf4j
 public class InMemorySigningProvider implements SigningProvider {
 
-    private final ECPrivateKey privateKey;
+    private final ECPrivateKey ecPrivateKey;
+    private final RSAPrivateKey rsaPrivateKey;
+    private final String x5cBase64;
 
-    //TODO: This is a simple in-memory implementation for development/testing. It generates a new ephemeral EC P-256 keypair on startup.
+    /**
+     * Default constructor: ephemeral EC P-256 keypair, no certificate (dev fallback).
+     */
     public InMemorySigningProvider() {
         try {
             KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC");
             kpg.initialize(new ECGenParameterSpec("secp256r1"));
             KeyPair kp = kpg.generateKeyPair();
 
-            ECPublicKey publicKey = (ECPublicKey) kp.getPublic();
-            this.privateKey = (ECPrivateKey) kp.getPrivate();
+            this.ecPrivateKey = (ECPrivateKey) kp.getPrivate();
+            this.rsaPrivateKey = null;
+            this.x5cBase64 = null;
 
-            log.info("InMemorySigningProvider initialized with ephemeral EC P-256 keypair.");
+            log.info("InMemorySigningProvider initialized with ephemeral EC P-256 keypair (no x5c).");
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("Unable to initialize InMemorySigningProvider (EC P-256)", e);
+        }
+    }
+
+    /**
+     * Certificate-backed constructor: loads RSA private key + x509 cert from PEM files.
+     * Signs with RS256 and includes x5c header with the certificate.
+     */
+    public InMemorySigningProvider(String certPath, String keyPath) {
+        try {
+            this.ecPrivateKey = null;
+            this.rsaPrivateKey = loadRsaPrivateKey(keyPath);
+            this.x5cBase64 = loadCertificateAsBase64(certPath);
+
+            log.info("InMemorySigningProvider initialized with RSA key + x509 certificate from: {}", certPath);
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to initialize InMemorySigningProvider with certificate", e);
         }
     }
 
@@ -42,11 +72,45 @@ public class InMemorySigningProvider implements SigningProvider {
             SigningRequestValidator.validate(request);
 
             return switch (request.type()) {
-                case JADES -> Mono.just(new SigningResult(SigningType.JADES, signAsJwsEs256(request.data())));
+                case JADES -> {
+                    if (rsaPrivateKey != null && x5cBase64 != null) {
+                        yield Mono.just(new SigningResult(SigningType.JADES, signAsJwsRs256(request.data())));
+                    }
+                    yield Mono.just(new SigningResult(SigningType.JADES, signAsJwsEs256(request.data())));
+                }
                 case COSE -> Mono.just(new SigningResult(SigningType.COSE, normalizeBase64(request.data())));
             };
         });
     }
+
+    // ── RS256 signing (with x5c certificate) ─────────────────────────────────
+
+    private String signAsJwsRs256(String payloadJson) {
+        String headerJson = "{\"alg\":\"RS256\",\"typ\":\"JWT\",\"x5c\":[\"" + x5cBase64 + "\"]}";
+
+        String headerB64u = base64Url(headerJson.getBytes(StandardCharsets.UTF_8));
+        String payloadB64u = base64Url(payloadJson.getBytes(StandardCharsets.UTF_8));
+
+        String signingInput = headerB64u + "." + payloadB64u;
+
+        byte[] signature = rsaSign(signingInput.getBytes(StandardCharsets.US_ASCII));
+        String sigB64u = base64Url(signature);
+
+        return signingInput + "." + sigB64u;
+    }
+
+    private byte[] rsaSign(byte[] signingInput) {
+        try {
+            Signature sig = Signature.getInstance("SHA256withRSA");
+            sig.initSign(rsaPrivateKey);
+            sig.update(signingInput);
+            return sig.sign();
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("Failed to sign with RSA key", e);
+        }
+    }
+
+    // ── ES256 signing (ephemeral, no certificate) ────────────────────────────
 
     /**
      * Creates a real JWS Compact Serialization using ES256:
@@ -73,7 +137,7 @@ public class InMemorySigningProvider implements SigningProvider {
     private byte[] ecdsaSignDer(byte[] signingInput) {
         try {
             Signature sig = Signature.getInstance("SHA256withECDSA");
-            sig.initSign(privateKey);
+            sig.initSign(ecPrivateKey);
             sig.update(signingInput);
             return sig.sign();
         } catch (GeneralSecurityException e) {
@@ -151,12 +215,14 @@ public class InMemorySigningProvider implements SigningProvider {
         System.arraycopy(src, start, dest, destOff + pad, srcLen);
     }
 
+    // ── Shared utilities ─────────────────────────────────────────────────────
+
     private static String base64Url(byte[] bytes) {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
     /**
-     * For COSE in this project’s current SPI shape:
+     * For COSE in this project's current SPI shape:
      * - keep returning "Base64 of bytes" so downstream can decode/compress/base45.
      * - This is NOT a real COSE_Sign1 signature.
      */
@@ -171,4 +237,26 @@ public class InMemorySigningProvider implements SigningProvider {
         return Base64.getEncoder().encodeToString(bytes);
     }
 
+    // ── PEM file loaders ─────────────────────────────────────────────────────
+
+    private static RSAPrivateKey loadRsaPrivateKey(String keyPath) throws IOException, GeneralSecurityException {
+        String pem = Files.readString(Path.of(keyPath));
+        String base64Key = pem
+                .replace("-----BEGIN PRIVATE KEY-----", "")
+                .replace("-----END PRIVATE KEY-----", "")
+                .replace("-----BEGIN RSA PRIVATE KEY-----", "")
+                .replace("-----END RSA PRIVATE KEY-----", "")
+                .replaceAll("\\s", "");
+        byte[] keyBytes = Base64.getDecoder().decode(base64Key);
+        PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(keyBytes);
+        KeyFactory kf = KeyFactory.getInstance("RSA");
+        return (RSAPrivateKey) kf.generatePrivate(spec);
+    }
+
+    private static String loadCertificateAsBase64(String certPath) throws IOException, CertificateException {
+        byte[] certPem = Files.readAllBytes(Path.of(certPath));
+        CertificateFactory cf = CertificateFactory.getInstance("X.509");
+        X509Certificate cert = (X509Certificate) cf.generateCertificate(new ByteArrayInputStream(certPem));
+        return Base64.getEncoder().encodeToString(cert.getEncoded());
+    }
 }

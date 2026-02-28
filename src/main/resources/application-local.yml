@@ -77,9 +77,3 @@ signing:
 cors:
   default-allowed-origins: http://localhost:4200
   external-allowed-origins: http://localhost:4200
-
-vault:
-  hashicorp:
-    url: ""
-    token: ""
-    secretsMount: ""

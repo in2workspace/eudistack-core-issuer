@@ -35,7 +35,6 @@ services:
   backend:
     build:
       context: ../
-      dockerfile: docker/Dockerfile
       args:
         SKIP_TESTS: "true"
     container_name: issuer-backend
@@ -104,10 +103,6 @@ services:
       CORS_DEFAULT_ALLOWED_ORIGINS: http://localhost:4200
       CORS_EXTERNAL_ALLOWED_ORIGINS: http://localhost:4200
 
-      # --- Vault (disabled for local dev) ------------------------------------
-      VAULT_HASHICORP_URL: ""
-      VAULT_HASHICORP_TOKEN: ""
-      VAULT_HASHICORP_SECRETSMOUNT: ""
 
       # --- Logging -----------------------------------------------------------
       LOGGING_LEVEL_ES_IN2_ISSUER: DEBUG

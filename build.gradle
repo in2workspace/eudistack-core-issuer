@@ -77,7 +77,6 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
     implementation 'org.springframework.boot:spring-boot-starter-mail'
     implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
-    implementation 'org.springframework.vault:spring-vault-core:3.1.2'
 
     // JSON
     implementation 'com.fasterxml.jackson.core:jackson-databind'

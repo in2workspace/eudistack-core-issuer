@@ -194,14 +194,14 @@ signing:
   runtime:
     enabled: true
     controller-enabled: true
+  certificate:
+    # Path to the x509 certificate PEM file (eSeal) for signing credentials with x5c + RS256.
+    # When both cert-path and key-path are set, the in-memory provider uses RSA instead of EC.
+    cert-path:
+    # Path to the RSA private key PEM file (PKCS8).
+    key-path:
 cors:
   # The allowed origins for CORS requests coming from the frontend issuer (REQUIRED)
   default-allowed-origins:
   # The allowed origins for CORS requests coming from the external services (REQUIRED)
   external-allowed-origins:
-
-vault:
-  hashicorp:
-    url:
-    token:
-    secretsMount:

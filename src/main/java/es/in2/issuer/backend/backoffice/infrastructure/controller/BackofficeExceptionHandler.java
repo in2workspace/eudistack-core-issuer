@@ -97,19 +97,5 @@ public class BackofficeExceptionHandler {
         );
     }
 
-    @ExceptionHandler(InvalidSignatureConfigurationException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Mono<GlobalErrorMessage> handleInvalidSignatureConfigurationException(
-            InvalidSignatureConfigurationException ex,
-            ServerHttpRequest request
-    ) {
-        return errors.handleWith(
-                ex, request,
-                BackofficeErrorTypes.INVALID_SIGNATURE_CONFIGURATION.getCode(),
-                "Bad Request",
-                HttpStatus.BAD_REQUEST,
-                "Invalid signature configuration"
-        );
-    }
 
 }
