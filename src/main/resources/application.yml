@@ -1,105 +1,79 @@
-# Spring Configuration
+# =============================================================================
+# Issuer Core Backend — application.yml
+#
+# All values are injectable via environment variables (Spring relaxed binding).
+# Defaults are set for local development (localhost, Resend SMTP, etc.).
+# In production, override via Docker Compose env, Kubernetes ConfigMap, or .env.
+# =============================================================================
+
 spring:
   application:
-    # Defines the name of the Spring application
     name: in2-issuer-backend
   main:
-    # Specifies that this is a reactive application (Spring WebFlux)
     web-application-type: reactive
   r2dbc:
-    # The database connection URL for R2DBC (REQUIRED)
-    url:
-    # The database username for R2DBC connections (REQUIRED)
-    username:
-    # The database password for R2DBC connections (REQUIRED)
-    password:
+    url: ${SPRING_R2DBC_URL:r2dbc:postgresql://localhost:5432/issuer}
+    username: ${SPRING_R2DBC_USERNAME:issuer}
+    password: ${SPRING_R2DBC_PASSWORD:issuer}
   flyway:
-    # The JDBC URL used by Flyway for database schema migrations (REQUIRED)
-    url:
-    # Defines the path where Flyway should look for SQL migration scripts
+    url: ${SPRING_FLYWAY_URL:jdbc:postgresql://localhost:5432/issuer}
     locations: classpath:db/migration
-    # Specifies the default schema in which Flyway should apply migrations (REQUIRED)
-    default-schema:
+    default-schema: ${SPRING_FLYWAY_DEFAULT_SCHEMA:issuer}
   mail:
-    # The mail server host (REQUIRED)
-    host:
-    # The mail server port (REQUIRED)
-    port:
-    # The mail server username (REQUIRED)
-    username:
-    # The mail server password (REQUIRED)
-    password:
+    host: ${SPRING_MAIL_HOST:smtp.resend.com}
+    port: ${SPRING_MAIL_PORT:465}
+    username: ${SPRING_MAIL_USERNAME:resend}
+    password: ${SPRING_MAIL_PASSWORD:${RESEND_API_KEY:}}
     properties.mail.smtp:
-      # Specifies if the mail server requires authentication before sending emails (OPTIONAL) by default is true
-      auth: true
-      # Specifies if the mail server requires a secure connection TLS (OPTIONAL) by default is true
-      starttls.enable: true
-      # Specifies the trusted mail server that will be used to send the emails (REQUIRED)
-      ssl.trust:
+      auth: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH:true}
+      starttls.enable: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE:false}
+      ssl.enable: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE:true}
+      ssl.trust: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_TRUST:smtp.resend.com}
   messages:
     basename: messages/messages
 
-# Spring Logging Configuration
+# Logging
 logging:
   pattern:
     level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
   level:
-    # Sets logging level for the custom package "org.springframework.security" (OPTIONAL)
-    org.springframework.security: INFO
-    # Sets logging level for the custom package "es.in2.issuer" (OPTIONAL)
-    es.in2.issuer: INFO
-    # Para ver en detalle el DispatcherServlet
-    org.springframework.web.servlet.DispatcherServlet: TRACE
-    # Para rastrear el mapeo de URLs a métodos @RequestMapping
-    org.springframework.web.servlet.handler.RequestMappingHandlerMapping: TRACE
+    org.springframework.security: ${LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY:INFO}
+    es.in2.issuer: ${LOGGING_LEVEL_ES_IN2_ISSUER:DEBUG}
 
-# Spring Management Configuration - Actuator
+# Actuator
 management:
   endpoints:
-    # Disables all management endpoints by default
     enabled-by-default: false
     web:
       exposure:
-        # Specifies the enabled management endpoints
         include: health, prometheus
-      # Sets the base path for management endpoints
       base-path: /
       path-mapping:
-        # Maps the health endpoint to /health
         health: health
-        # Maps the Prometheus metrics endpoint to /prometheus
         prometheus: prometheus
   endpoint:
     health:
-      # Enables the health endpoint
       enabled: true
-      # Always show detailed health information
       show-details: always
     prometheus:
-      # Enables the Prometheus metrics endpoint
       enabled: true
 
+# OpenAPI / Swagger
 springdoc:
   api-docs:
-    # Configures the endpoint where the OpenAPI JSON documentation is available
     path: /springdoc/api-docs
   swagger-ui:
-    # Configures the path to access the Swagger UI web interface
     path: /springdoc/swagger-ui.html
-    # Specifies how tags are sorted in the UI
     tags-sorter: alpha
-    # Specifies how operations are sorted within each tag in the UI
     operations-sorter: method
 
 server:
-  # Defines the port on which the application will run
-  port: 8080
+  port: ${SERVER_PORT:8080}
 
-# Application Configuration
 openapi:
   server:
-    url: "https://localhost:8080"
-    description: "Server Description"
+    url: ${OPENAPI_SERVER_URL:https://localhost:8080}
+    description: ${OPENAPI_SERVER_DESCRIPTION:Server Description}
   info:
     title: "Issuer API"
     version: "0.0.1-SNAPSHOT"
@@ -113,70 +87,53 @@ openapi:
       name: "Test Name"
       url: "https://example.com"
 
+# Application
 app:
-  # The base URL for the API (REQUIRED)
-  url:
-  # The URL of the issuer frontend (REQUIRED)
-  issuer-frontend-url:
-  # The URL of the trust framework (REQUIRED
-  trust-framework-url:
+  url: ${APP_URL:http://localhost:8080}
+  issuer-frontend-url: ${APP_ISSUER_FRONTEND_URL:http://localhost:4200}
+  trust-framework-url: ${APP_TRUST_FRAMEWORK_URL:https://trust-framework.example.com}
   knowledge-base:
-    # The URL of the upload certification guide (REQUIRED)
-    upload-certification-guide-url:
-    # The URL of the wallet guide (REQUIRED)
-    wallet-guide-url:
-  # The URL of the verifier service used for external services (REQUIRED)
-  verifier-url:
-  # The configuration source for the application (OPTIONAL) by default is yaml
-  config-source:  yaml
-  # The URL of the wallet service (REQUIRED)
-  wallet-url:
-  # Default language for visible texts (OPTIONAL)
-  default-lang: en
-  # The identifier of the admin organization (REQUIRED)
-  admin-organization-id:
-  # The system tenant name
-  sys-tenant:
+    upload-certification-guide-url: ${APP_KNOWLEDGE_BASE_UPLOAD_CERTIFICATION_GUIDE_URL:https://example.com/guide}
+    wallet-guide-url: ${APP_KNOWLEDGE_BASE_WALLET_GUIDE_URL:https://example.com/wallet}
+  verifier-url: ${APP_VERIFIER_URL:https://verifier.example.com}
+  wallet-url: ${APP_WALLET_URL:https://wallet.example.com}
+  config-source: ${APP_CONFIG_SOURCE:yaml}
+  default-lang: ${APP_DEFAULT_LANG:en}
+  admin-organization-id: ${APP_ADMIN_ORGANIZATION_ID:VATES-B60645900}
+  sys-tenant: ${APP_SYS_TENANT:SYSTEM}
 
+# Azure (only used when config-source=azure)
 azure:
-  endpoint: "https://myappconfig.azconfig.io"
+  endpoint: ${AZURE_ENDPOINT:https://myappconfig.azconfig.io}
   label:
-    global: "in2-issuer-backend"
+    global: ${AZURE_LABEL_GLOBAL:in2-issuer-backend}
 
+# Default Signer
 default-signer:
-  # The common name of the default signer certificate (REQUIRED)
-  common-name:
-  # The country of the default signer certificate (REQUIRED)
-  country:
-  # The email of the default signer certificate (REQUIRED)
-  email:
-  # The organization identifier of the default signer certificate (REQUIRED)
-  organization-identifier:
-  # The organization of the default signer certificate (REQUIRED)
-  organization:
-  # The serial number of the default signer certificate (REQUIRED)
-  serial-number:
+  common-name: ${DEFAULT_SIGNER_COMMON_NAME:Local Dev Issuer}
+  country: ${DEFAULT_SIGNER_COUNTRY:ES}
+  email: ${DEFAULT_SIGNER_EMAIL:dev@example.com}
+  organization-identifier: ${DEFAULT_SIGNER_ORGANIZATION_IDENTIFIER:VATES-B60645900}
+  organization: ${DEFAULT_SIGNER_ORGANIZATION:Dev Organization}
+  serial-number: ${DEFAULT_SIGNER_SERIAL_NUMBER:B60645900}
 
+# Issuer Identity
 issuer-identity:
-  # The did:key from the credential subject (REQUIRED)
-  credential-subject-did-key:
-  # The jwt credential (REQUIRED)
-  jwt-credential:
+  credential-subject-did-key: ${ISSUER_IDENTITY_CREDENTIAL_SUBJECT_DID_KEY:did:key:z6MkqmaCT2JqdUtLeKah7tEVfNXtDXtQyj4yxEgV11Y5CqUa}
+  jwt-credential: ${ISSUER_IDENTITY_JWT_CREDENTIAL:}
   crypto:
-    # The private key that refers to the did:key (REQUIRED)
-    private-key:
+    private-key: ${ISSUER_IDENTITY_CRYPTO_PRIVATE_KEY:}
+
+# Signing
 signing:
   runtime:
-    enabled: true
-    controller-enabled: true
+    enabled: ${SIGNING_RUNTIME_ENABLED:true}
+    controller-enabled: ${SIGNING_RUNTIME_CONTROLLER_ENABLED:true}
   certificate:
-    # Path to the x509 certificate PEM file (eSeal) for signing credentials with x5c + RS256.
-    # When both cert-path and key-path are set, the in-memory provider uses RSA instead of EC.
-    cert-path:
-    # Path to the RSA private key PEM file (PKCS8).
-    key-path:
+    cert-path: ${SIGNING_CERTIFICATE_CERT_PATH:}
+    key-path: ${SIGNING_CERTIFICATE_KEY_PATH:}
+
+# CORS
 cors:
-  # The allowed origins for CORS requests coming from the frontend issuer (REQUIRED)
-  default-allowed-origins:
-  # The allowed origins for CORS requests coming from the external services (REQUIRED)
-  external-allowed-origins:
+  default-allowed-origins: ${CORS_DEFAULT_ALLOWED_ORIGINS:http://localhost:4200}
+  external-allowed-origins: ${CORS_EXTERNAL_ALLOWED_ORIGINS:http://localhost:4200}
