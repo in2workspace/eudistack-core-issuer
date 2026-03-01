@@ -28,16 +28,16 @@ Each context follows: `domain/` (model, service, exception, util) → `applicati
 
 ## Documentation Index
 
-All design & implementation documents are in `.claude/docs/`:
+All design & implementation documents are in `.claude/docs/issuer/`:
 
-- [current-architecture.md](docs/current-architecture.md) - Complete codebase audit
-- [gap-analysis.md](docs/gap-analysis.md) - Current state vs OID4VCI 1.0 Final target
-- [keycloak-removal.md](docs/keycloak-removal.md) - Plan to eliminate Keycloak dependency
-- [policy-restructuring.md](docs/policy-restructuring.md) - PDP consolidation plan
-- [credential-json-schema.md](docs/credential-json-schema.md) - JSON Schema-driven credentials
-- [sd-jwt-implementation.md](docs/sd-jwt-implementation.md) - SD-JWT format implementation
-- [auth-code-flow.md](docs/auth-code-flow.md) - Authorization Code + Issuer-Initiated flow
-- [implementation-roadmap.md](docs/implementation-roadmap.md) - Execution order & dependencies
+- [current-architecture.md](docs/issuer/current-architecture.md) - Complete codebase audit
+- [gap-analysis.md](docs/issuer/gap-analysis.md) - Current state vs OID4VCI 1.0 Final target
+- [keycloak-removal.md](docs/issuer/keycloak-removal.md) - Plan to eliminate Keycloak dependency
+- [policy-restructuring.md](docs/issuer/policy-restructuring.md) - PDP consolidation plan
+- [credential-json-schema.md](docs/issuer/credential-json-schema.md) - JSON Schema-driven credentials
+- [sd-jwt-implementation.md](docs/issuer/sd-jwt-implementation.md) - SD-JWT format implementation
+- [auth-code-flow.md](docs/issuer/auth-code-flow.md) - Authorization Code + Issuer-Initiated flow
+- [implementation-roadmap.md](docs/issuer/implementation-roadmap.md) - Execution order & dependencies
 
 ## Reference: fikua-lab
 
