@@ -1,82 +1,61 @@
-# Plan: JSON Schema-Driven Credential Definitions
+# JSON Schema-Driven Credential Definitions
 
-## Current State: Hardcoded Factories
+> **Status**: Implemented (Block A complete)
 
-Credentials are defined as Java records with factory classes:
+## Overview
 
-```
-CredentialFactory (dispatcher)
-├── LEARCredentialEmployeeFactory  → LEARCredentialEmployee record
-├── LEARCredentialMachineFactory   → LEARCredentialMachine record
-└── LabelCredentialFactory         → LabelCredential record
-```
+Credentials are defined by **JSON profile files** stored in the classpath. Each profile is the **single source of truth** for:
 
-### Problems
+1. **Building** W3C VCDM credentials (context, types, validity, subject extraction)
+2. **Generating** `/.well-known/openid-credential-issuer` metadata (OID4VCI 1.0 Final format)
+3. **SD-JWT** selective disclosure configuration (Block B prep)
 
-1. **Adding a new credential type requires**:
-   - New Java record (e.g., `StudentIdCredential.java`)
-   - New Factory class (e.g., `StudentIdCredentialFactory.java`)
-   - New `else if` branch in `CredentialFactory.mapCredentialIntoACredentialProcedureRequest()`
-   - New `case` in `CredentialFactory.bindCryptographicCredentialSubjectId()`
-   - New `case` in `CredentialFactory.mapCredentialBindIssuerAndUpdateDB()`
-   - Recompilation and redeployment
+Adding a new credential type requires **only a new JSON file** — no Java code changes, no recompilation.
 
-2. **Context URL parsing is fragile** (from `LEARCredentialEmployeeFactory.java:82-108`):
-   ```java
-   if (learCredential.contains("https://trust-framework.dome-marketplace.eu/...")) {
-       // parse as v1
-   } else if (learCredential.contains("https://www.dome-marketplace.eu/2025/...")) {
-       // parse as v2 (with TMF field removal)
-   } else if (learCredential.contains(EUDISTACK_CONTEXT)) {
-       // parse as v3
-   } else {
-       throw new InvalidCredentialFormatException("Invalid credential format");
-   }
-   ```
-
-3. **Metadata is disconnected from credential definitions**:
-   - `CredentialIssuerMetadata` builds `credential_configurations_supported` separately from the factories
-   - Uses draft format (`credential_definition.type[]`) instead of OID4VCI 1.0 Final (`credential_metadata.claims[].path[]`)
-
-## Target State: JSON Schema-Driven
-
-### Credential Profile JSON File
-
-Each credential type is defined by a JSON file:
+## Architecture
 
 ```
 src/main/resources/credentials/profiles/
 ├── lear-credential-employee.json
 ├── lear-credential-machine.json
-├── label-credential.json
-└── student-id.json              # New types = new file, no code changes
+└── label-credential.json
 ```
 
-### Profile Schema
+```
+                    JSON Profile File
+                         │
+              ┌──────────┼──────────┐
+              ▼          ▼          ▼
+     CredentialProfileRegistry
+     (loads all at startup)
+              │
+    ┌─────────┼─────────────┐
+    ▼                       ▼
+GenericCredentialBuilder   CredentialIssuerMetadataServiceImpl
+(build, bind, sign)       (auto-generate OID4VCI metadata)
+```
+
+## How to Add a New Credential Type
+
+### Step 1: Create the JSON profile
+
+Create a new file in `src/main/resources/credentials/profiles/`, e.g. `student-id.json`:
 
 ```json
 {
-  "credential_configuration_id": "eu.europa.ec.eudi.lear-employee_jwt_vc_json",
+  "credential_configuration_id": "StudentIdCredential",
   "format": "jwt_vc_json",
-  "scope": "eu.europa.ec.eudi.lear-employee",
+  "scope": "student_id",
 
   "credential_definition": {
     "context": [
       "https://www.w3.org/ns/credentials/v2",
-      "https://credentials.eudistack.eu/.well-known/credentials/lear_credential_employee/w3c/v3"
+      "https://example.edu/.well-known/credentials/student-id/v1"
     ],
-    "type": ["VerifiableCredential", "LEARCredentialEmployee"]
+    "type": ["VerifiableCredential", "StudentIdCredential"]
   },
 
-  "display": [
-    {
-      "name": "LEAR Credential Employee",
-      "locale": "en",
-      "description": "Legal Entity Appointed Representative Credential for an employee"
-    }
-  ],
-
-  "cryptographic_binding_methods_supported": ["jwk"],
+  "cryptographic_binding_methods_supported": ["did:key"],
   "credential_signing_alg_values_supported": ["ES256"],
   "proof_types_supported": {
     "jwt": {
@@ -84,244 +63,199 @@ src/main/resources/credentials/profiles/
     }
   },
 
-  "claims": [
-    {
-      "path": ["credentialSubject", "mandate", "mandatee", "firstName"],
-      "display": [{ "name": "First Name", "locale": "en" }],
-      "mandatory": true,
-      "source_field": "mandatee.firstName",
-      "selective_disclosure": true
-    },
-    {
-      "path": ["credentialSubject", "mandate", "mandatee", "lastName"],
-      "display": [{ "name": "Last Name", "locale": "en" }],
-      "mandatory": true,
-      "source_field": "mandatee.lastName",
-      "selective_disclosure": true
-    },
-    {
-      "path": ["credentialSubject", "mandate", "mandatee", "email"],
-      "display": [{ "name": "Email", "locale": "en" }],
-      "mandatory": true,
-      "source_field": "mandatee.email",
-      "selective_disclosure": true
-    },
-    {
-      "path": ["credentialSubject", "mandate", "mandator", "organizationIdentifier"],
-      "display": [{ "name": "Organization", "locale": "en" }],
-      "mandatory": true,
-      "source_field": "mandator.organizationIdentifier",
-      "selective_disclosure": false
-    },
-    {
-      "path": ["credentialSubject", "mandate", "power"],
-      "display": [{ "name": "Powers", "locale": "en" }],
-      "mandatory": true,
-      "source_field": "power",
-      "selective_disclosure": false
-    }
-  ],
+  "credential_metadata": {
+    "display": [
+      {
+        "name": "Student ID Credential",
+        "locale": "en",
+        "description": "University student identification credential"
+      }
+    ],
+    "claims": [
+      {
+        "path": ["credentialSubject", "mandate", "mandatee", "studentName"],
+        "display": [{ "name": "Student Name", "locale": "en" }]
+      },
+      {
+        "path": ["credentialSubject", "mandate", "mandatee", "studentId"],
+        "display": [{ "name": "Student ID", "locale": "en" }]
+      },
+      {
+        "path": ["credentialSubject", "mandate", "mandator", "organizationIdentifier"],
+        "display": [{ "name": "University", "locale": "en" }]
+      }
+    ]
+  },
 
   "validity_days": 365,
+  "issuer_type": "DETAILED",
+  "cnf_required": true,
+  "description": "University student identification credential",
 
-  "sd_jwt": {
-    "vct": "urn:eu.europa.ec.eudi:lear-employee:1",
-    "sd_claims": ["credentialSubject.mandate.mandatee.firstName",
-                   "credentialSubject.mandate.mandatee.lastName",
-                   "credentialSubject.mandate.mandatee.email"]
+  "subject_extraction": {
+    "strategy": "concat",
+    "fields": ["mandate.mandatee.studentName"],
+    "separator": " "
+  },
+  "organization_extraction": {
+    "strategy": "field",
+    "field": "mandate.mandator.organizationIdentifier"
   }
 }
 ```
 
-### Additional Format Configuration
+### Step 2: Add enum to `CredentialType`
 
-When the same credential type should be offered in multiple formats:
+Add the new type to `CredentialType.java`:
 
+```java
+public enum CredentialType {
+    LEAR_CREDENTIAL_EMPLOYEE("LEARCredentialEmployee"),
+    LEAR_CREDENTIAL_MACHINE("LEARCredentialMachine"),
+    LABEL_CREDENTIAL("gx:LabelCredential"),
+    STUDENT_ID("StudentIdCredential");  // NEW
+    // ...
+}
 ```
-credentials/profiles/
-├── lear-credential-employee.json              # Base definition (jwt_vc_json)
-└── lear-credential-employee.sd-jwt.json       # SD-JWT variant
-```
 
-The SD-JWT variant:
+The `typeId` must match `credential_configuration_id` in the JSON profile. This enables the `byEnumName` lookup used by `CredentialSignerWorkflowImpl`.
+
+### Step 3: Done
+
+The application will:
+- Load the profile at startup via `CredentialProfileRegistry`
+- Build credentials via `GenericCredentialBuilder`
+- Expose metadata via `/.well-known/openid-credential-issuer`
+
+No factory classes, no dispatcher changes, no metadata builder changes.
+
+## Profile Field Reference
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `credential_configuration_id` | `string` | Yes | Unique identifier. Must match `CredentialType.getTypeId()` |
+| `format` | `string` | Yes | `"jwt_vc_json"` (or `"dc+sd-jwt"` in Block B) |
+| `scope` | `string` | No | OAuth scope for this credential |
+| `credential_definition.context` | `string[]` | Yes | JSON-LD `@context` URLs |
+| `credential_definition.type` | `string[]` | Yes | VC types (first non-"VerifiableCredential" = credential type name) |
+| `cryptographic_binding_methods_supported` | `string[]` | No | e.g. `["did:key"]`, `[]` for no binding |
+| `credential_signing_alg_values_supported` | `string[]` | No | e.g. `["ES256"]` |
+| `proof_types_supported` | `map` | No | Proof type configs. `{}` for no proof required |
+| `credential_metadata.display` | `object[]` | No | OID4VCI display info (name, locale, description) |
+| `credential_metadata.claims` | `object[]` | No | OID4VCI claim paths + display |
+| `validity_days` | `int` | Yes | Auto-calculated validity. `0` = use payload dates |
+| `issuer_type` | `enum` | Yes | `"DETAILED"` (object issuer) or `"SIMPLE"` (string issuer) |
+| `cnf_required` | `boolean` | Yes | Whether JWT payload must include `cnf` |
+| `description` | `string` | No | Included in VC body if set |
+| `subject_extraction` | `object` | No | How to derive the "subject" display name |
+| `organization_extraction` | `object` | No | How to derive the organization identifier |
+| `sd_jwt` | `object` | No | SD-JWT config (Block B) |
+
+### `subject_extraction`
+
+| Field | Description |
+|-------|-------------|
+| `strategy` | `"concat"` (join fields) or `"field"` (first field) |
+| `fields` | Dot-path list relative to payload (e.g. `"mandate.mandatee.firstName"`) |
+| `separator` | Join separator for `concat` strategy (default: `" "`) |
+
+### `organization_extraction`
+
+| Field | Description |
+|-------|-------------|
+| `strategy` | `"field"` (from payload) or `"session"` (from `AccessTokenService`) |
+| `field` | Dot-path for `field` strategy (e.g. `"mandate.mandator.organizationIdentifier"`) |
+
+### `sd_jwt` (Block B prep)
+
+| Field | Description |
+|-------|-------------|
+| `vct` | Verifiable Credential Type URI |
+| `sd_alg` | Hash algorithm for SD-JWT (e.g. `"sha-256"`) |
+| `sd_claims` | Dot-paths of claims to make selectively disclosable |
+
+## Java Components
+
+### `CredentialProfile` (record)
+
+**Location**: `shared/domain/model/dto/credential/profile/CredentialProfile.java`
+
+Jackson-annotated record loaded from JSON. Contains nested records:
+- `CredentialDefinition` (context, type)
+- `ProofTypeConfig` (signing algs)
+- `CredentialMetadata` (display, claims) — maps 1:1 to OID4VCI metadata output
+- `SubjectExtraction`, `OrganizationExtraction`
+- `SdJwtConfig`
+- `IssuerType` enum (DETAILED, SIMPLE)
+
+The `credentialType()` method derives the VC type name from `credential_definition.type`, skipping "VerifiableCredential".
+
+### `CredentialProfileRegistry` (component)
+
+**Location**: `shared/infrastructure/config/CredentialProfileRegistry.java`
+
+Loads all `classpath:credentials/profiles/*.json` at startup. Provides three lookup maps:
+
+| Method | Key | Example |
+|--------|-----|---------|
+| `getByConfigurationId(id)` | `credential_configuration_id` | `"LEARCredentialEmployee"` |
+| `getByCredentialType(type)` | Derived type name | `"LEARCredentialEmployee"` |
+| `getByEnumName(name)` | `CredentialType` enum name | `"LEAR_CREDENTIAL_EMPLOYEE"` |
+| `getAllProfiles()` | All, keyed by config ID | — |
+
+Fail-fast: throws `IllegalStateException` on duplicate IDs, types, or missing config IDs.
+
+### `GenericCredentialBuilder` (component)
+
+**Location**: `shared/domain/util/factory/GenericCredentialBuilder.java`
+
+Profile-driven credential operations:
+
+| Method | Purpose | Replaces |
+|--------|---------|----------|
+| `buildCredential(profile, procedureId, payload, status, opMode, email)` | Build W3C VC as JSON | `mapAndBuild*()` methods |
+| `bindSubjectId(json, subjectDid)` | Set `credentialSubject.id` | `bindCryptographicCredentialSubjectId()` |
+| `bindIssuer(profile, json, procedureId, email)` | Bind DetailedIssuer or SimpleIssuer | `mapCredentialAndBindIssuer*()` |
+| `buildJwtPayload(profile, json, cnf)` | Build JWT `{jti, iss, sub, iat, exp, nbf, vc, cnf?}` | `build*JwtPayload()` |
+
+## OID4VCI 1.0 Final Metadata
+
+The `credential_metadata` section in each profile maps **directly** to the OID4VCI 1.0 Final format. `CredentialIssuerMetadataServiceImpl` auto-generates from the registry:
 
 ```json
 {
-  "credential_configuration_id": "eu.europa.ec.eudi.lear-employee_dc+sd-jwt",
-  "format": "dc+sd-jwt",
-  "extends": "lear-credential-employee",
-  "sd_jwt": {
-    "vct": "urn:eu.europa.ec.eudi:lear-employee:1",
-    "sd_alg": "sha-256"
+  "credential_issuer": "https://issuer.example.com",
+  "credential_endpoint": "https://issuer.example.com/oid4vci/v1/credential",
+  "credential_configurations_supported": {
+    "LEARCredentialEmployee": {
+      "format": "jwt_vc_json",
+      "scope": "lear_credential_employee",
+      "cryptographic_binding_methods_supported": ["did:key"],
+      "credential_signing_alg_values_supported": ["ES256"],
+      "proof_types_supported": {
+        "jwt": { "proof_signing_alg_values_supported": ["ES256"] }
+      },
+      "credential_metadata": {
+        "display": [{
+          "name": "LEAR Credential Employee",
+          "locale": "en",
+          "description": "Verifiable Credential for employees of an organization"
+        }],
+        "claims": [
+          { "path": ["credentialSubject", "mandate", "mandatee", "firstName"],
+            "display": [{"name": "First Name", "locale": "en"}] }
+        ]
+      }
+    }
   }
 }
 ```
 
-## New Java Components
+## Migration Status
 
-### CredentialProfile (value object)
+The old factories (`LEARCredentialEmployeeFactory`, `LEARCredentialMachineFactory`, `LabelCredentialFactory`) are kept as **fallbacks** in `CredentialFactory` and `CredentialSignerWorkflowImpl`. The generic path is tried first; if a profile is found, the old factory is bypassed.
 
-```java
-public record CredentialProfile(
-    String credentialConfigurationId,
-    String format,                          // "jwt_vc_json" or "dc+sd-jwt"
-    String scope,
-    CredentialDefinition credentialDefinition,
-    List<DisplayInfo> display,
-    Set<String> cryptographicBindingMethodsSupported,
-    Set<String> credentialSigningAlgValuesSupported,
-    Map<String, ProofTypeConfig> proofTypesSupported,
-    List<ClaimDefinition> claims,
-    int validityDays,
-    SdJwtConfig sdJwt                       // null for jwt_vc_json format
-) {
-    public record CredentialDefinition(List<String> context, List<String> type) {}
-    public record DisplayInfo(String name, String locale, String description) {}
-    public record ClaimDefinition(
-        List<String> path,
-        List<DisplayInfo> display,
-        boolean mandatory,
-        String sourceField,
-        boolean selectiveDisclosure
-    ) {}
-    public record SdJwtConfig(String vct, String sdAlg, List<String> sdClaims) {}
-    public record ProofTypeConfig(Set<String> proofSigningAlgValuesSupported) {}
-}
-```
-
-### CredentialProfileRegistry
-
-```java
-@Component
-public class CredentialProfileRegistry {
-
-    private final Map<String, CredentialProfile> profiles;  // keyed by credential_configuration_id
-
-    public CredentialProfileRegistry(ObjectMapper objectMapper, ResourcePatternResolver resolver) {
-        // Load all JSON files from classpath:credentials/profiles/*.json at startup
-        this.profiles = loadProfiles(objectMapper, resolver);
-    }
-
-    public CredentialProfile getProfile(String credentialConfigurationId) { ... }
-    public Map<String, CredentialProfile> getAllProfiles() { ... }
-    public List<CredentialProfile> getProfilesByType(String credentialType) { ... }
-}
-```
-
-### GenericCredentialBuilder
-
-```java
-@Component
-@RequiredArgsConstructor
-public class GenericCredentialBuilder {
-
-    private final CredentialProfileRegistry registry;
-    private final ObjectMapper objectMapper;
-
-    /**
-     * Builds a credential JSON from a profile + subject data.
-     * Replaces LEARCredentialEmployeeFactory, LEARCredentialMachineFactory, LabelCredentialFactory.
-     */
-    public Mono<String> buildCredential(
-            String credentialConfigurationId,
-            JsonNode subjectData,
-            CredentialStatus credentialStatus,
-            Issuer issuer,
-            String subjectDid,
-            Map<String, Object> cnf) {
-
-        CredentialProfile profile = registry.getProfile(credentialConfigurationId);
-
-        return switch (profile.format()) {
-            case "jwt_vc_json" -> buildW3cVcdm(profile, subjectData, credentialStatus, issuer, subjectDid, cnf);
-            case "dc+sd-jwt"  -> buildSdJwt(profile, subjectData, issuer, subjectDid, cnf);
-            default -> Mono.error(new UnsupportedOperationException("Format: " + profile.format()));
-        };
-    }
-
-    private Mono<String> buildW3cVcdm(CredentialProfile profile, JsonNode subjectData, ...) {
-        // Builds the same JSON structure as current factories
-        // Uses profile.credentialDefinition().context() and .type()
-        // Maps subjectData using profile.claims()[].sourceField → path
-    }
-
-    private Mono<String> buildSdJwt(CredentialProfile profile, JsonNode subjectData, ...) {
-        // See sd-jwt-implementation.md
-    }
-}
-```
-
-### Updated Metadata Generation
-
-```java
-@Component
-@RequiredArgsConstructor
-public class CredentialIssuerMetadataServiceImpl implements CredentialIssuerMetadataService {
-
-    private final CredentialProfileRegistry registry;
-    private final AppConfig appConfig;
-
-    @Override
-    public Mono<CredentialIssuerMetadata> generateMetadata() {
-        // Auto-generate from registry — no more manual metadata building
-        Map<String, CredentialConfiguration> configs = registry.getAllProfiles().entrySet().stream()
-            .collect(Collectors.toMap(
-                Map.Entry::getKey,
-                e -> mapProfileToConfiguration(e.getValue())
-            ));
-
-        return Mono.just(CredentialIssuerMetadata.builder()
-            .credentialIssuer(appConfig.getIssuerBackendUrl())
-            .credentialEndpoint(appConfig.getIssuerBackendUrl() + "/oid4vci/v1/credential")
-            // ... other endpoints ...
-            .credentialConfigurationsSupported(configs)
-            .build());
-    }
-}
-```
-
-## Migration Strategy
-
-### Step 1: Create infrastructure (no behavior change)
-- Create `CredentialProfile` record
-- Create `CredentialProfileRegistry` that loads from JSON
-- Create JSON profiles for existing 3 credential types
-- Write tests that validate JSON profiles match current factory output
-
-### Step 2: Create GenericCredentialBuilder for jwt_vc_json
-- Implement `buildW3cVcdm()` method
-- **Regression test**: For each credential type, compare output of old Factory vs new GenericCredentialBuilder
-- The outputs MUST be byte-for-byte identical (same JSON structure, same field order)
-
-### Step 3: Wire GenericCredentialBuilder into existing flow
-- Update `CredentialFactory` to delegate to `GenericCredentialBuilder` when a profile exists
-- Keep old factories as fallback (feature flag or config)
-- Run full test suite
-
-### Step 4: Update metadata generation
-- Update `CredentialIssuerMetadata` model to include OID4VCI 1.0 Final fields
-- Generate metadata from `CredentialProfileRegistry`
-- Backwards compatible: existing fields still present
-
-### Step 5: Remove old factories (when stable)
-- Delete `LEARCredentialEmployeeFactory`, `LEARCredentialMachineFactory`, `LabelCredentialFactory`
-- Delete `CredentialFactory` dispatcher
-- Update tests
-
-## Retrocompatibility
-
-| Concern | Strategy |
-|---------|----------|
-| Existing credentials in DB | `credential_decoded` JSON unchanged — same structure |
-| Wallets expecting `jwt_vc_json` | Same JWT structure produced |
-| Metadata consumers | Existing fields preserved, new fields added |
-| Backoffice issuance API | `PreSubmittedCredentialDataRequest.schema()` maps to `credentialConfigurationId` |
-| Tests | Byte-for-byte comparison between old and new output |
-
-## Benefits
-
-1. **New credential type = new JSON file** — no Java code changes, no recompilation
-2. **Metadata auto-generated** from credential profiles — always consistent
-3. **SD-JWT support built-in** — profile declares which claims are selectively disclosable
-4. **Multi-format per type** — same credential offered as `jwt_vc_json` and `dc+sd-jwt`
-5. **Validation from schema** — can validate incoming credential data against profile claims
+To remove the old factories (separate PR):
+1. Delete `LEARCredentialEmployeeFactory`, `LEARCredentialMachineFactory`, `LabelCredentialFactory`
+2. Delete associated JWT payload records
+3. Remove fallback `if/else` and `switch` blocks from `CredentialFactory` and `CredentialSignerWorkflowImpl`

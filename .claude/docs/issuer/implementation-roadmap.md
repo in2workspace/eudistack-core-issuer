@@ -6,7 +6,7 @@
 |-------|------|-----------|--------------------|-----------------------|
 | **F** | Eliminate Keycloak | Medium | 0 | ~8 (delete 3) |
 | **G** | Restructure PDP Policies | Medium | ~8 | ~6 |
-| **A** | JSON Schema Credentials | Medium-High | ~8-10 | ~12-15 |
+| **A** | JSON Schema Credentials ✅ | Medium-High | 6 new | 9 modified |
 | **B** | SD-JWT Format | High | ~6-8 | ~5-8 |
 | **C** | Authorization Code Flow + Issuer-Initiated | Very High | ~15-20 | ~10-12 |
 | **D** | DPoP + PKCE + WIA | High | ~6-8 | ~5-6 |
@@ -64,11 +64,13 @@ D: DPoP + PKCE + WIA              E: Metadata Update
 
 **Track 2: A → B** (Credential formats)
 
-3. **A - JSON Schema Credentials**
+3. **A - JSON Schema Credentials** ✅ COMPLETED
    - Prereq: None
-   - Change: Create `CredentialProfile`, `CredentialProfileRegistry`, `GenericCredentialBuilder`
-   - Migrate: 3 existing credential types to JSON profile files
-   - Risk: Low — regression tested byte-for-byte against current factories
+   - Change: Created `CredentialProfile`, `CredentialProfileRegistry`, `GenericCredentialBuilder`
+   - Migrated: 3 credential types to JSON profile files (`src/main/resources/credentials/profiles/`)
+   - Also: Updated `CredentialIssuerMetadata` to OID4VCI 1.0 Final format (was originally planned for Block E)
+   - Old factories kept as fallback in `CredentialFactory` and `CredentialSignerWorkflowImpl`
+   - All 881+ tests pass, including new `CredentialProfileRegistryTest` and `GenericCredentialBuilderTest`
    - See: [credential-json-schema.md](credential-json-schema.md)
 
 4. **B - SD-JWT Format**
@@ -94,10 +96,10 @@ D: DPoP + PKCE + WIA              E: Metadata Update
 
 ### Phase 3: Finalization
 
-7. **E - Metadata Update**
+7. **E - Metadata Update** (partially done in Block A)
    - Prereq: A + C completed
-   - Change: Update `CredentialIssuerMetadata` and `AuthorizationServerMetadata` models
-   - Auto-generate from `CredentialProfileRegistry`
+   - Done: `CredentialIssuerMetadata` updated to OID4VCI 1.0 Final, auto-generated from `CredentialProfileRegistry`
+   - Remaining: Update `AuthorizationServerMetadata` (depends on Block C auth code flow endpoints)
    - Risk: Low — additive fields only
    - See: [gap-analysis.md](gap-analysis.md) (Metadata section)
 
@@ -183,14 +185,14 @@ auth-server:
 - [ ] Authorization code flow (plain profile)
 - [ ] Authorization code flow (HAIP profile with DPoP + PKCE + WIA)
 - [ ] Issuer-initiated with authorization_code
-- [ ] Credential Issuer Metadata (1.0 Final format)
+- [x] Credential Issuer Metadata (1.0 Final format) — done in Block A
 - [ ] Authorization Server Metadata (complete)
 - [ ] Nonce endpoint
 - [ ] `dc+sd-jwt` format
 - [ ] `jwt_vc_json` format (maintained)
 
 ### Code Quality
-- [ ] Credential types defined by JSON files, not Java code
+- [x] Credential types defined by JSON files, not Java code — done in Block A
 - [ ] Single PDP framework with composable rules
 - [ ] No Keycloak dependency
 - [ ] All endpoints documented in OpenAPI

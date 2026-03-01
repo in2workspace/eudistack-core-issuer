@@ -14,9 +14,11 @@ import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.domain.service.impl.JWTServiceImpl;
 import es.in2.issuer.backend.shared.domain.util.factory.CredentialFactory;
+import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialMachineFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LabelCredentialFactory;
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import es.in2.issuer.backend.shared.infrastructure.crypto.CryptoComponent;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,6 +61,10 @@ class IssuancePdpServiceImplIntegrationTest {
     @Mock
     private LEARCredentialMachineFactory learCredentialMachineFactory;
     @Mock
+    private GenericCredentialBuilder genericCredentialBuilder;
+    @Mock
+    private CredentialProfileRegistry credentialProfileRegistry;
+    @Mock
     private CredentialProcedureService credentialProcedureService;
     @Mock
     private DeferredCredentialMetadataService deferredCredentialMetadataService;
@@ -73,6 +79,8 @@ class IssuancePdpServiceImplIntegrationTest {
                 learCredentialEmployeeFactory,
                 learCredentialMachineFactory,
                 labelCredentialFactory,
+                genericCredentialBuilder,
+                credentialProfileRegistry,
                 credentialProcedureService,
                 deferredCredentialMetadataService
         );

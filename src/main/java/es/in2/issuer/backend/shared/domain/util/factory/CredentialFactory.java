@@ -5,8 +5,10 @@ import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedEx
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureCreationRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
 import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -22,24 +24,36 @@ public class CredentialFactory {
     public final LEARCredentialEmployeeFactory learCredentialEmployeeFactory;
     public final LEARCredentialMachineFactory learCredentialMachineFactory;
     public final LabelCredentialFactory labelCredentialFactory;
+    private final GenericCredentialBuilder genericCredentialBuilder;
+    private final CredentialProfileRegistry credentialProfileRegistry;
     private final CredentialProcedureService credentialProcedureService;
     private final DeferredCredentialMetadataService deferredCredentialMetadataService;
 
     public Mono<CredentialProcedureCreationRequest> mapCredentialIntoACredentialProcedureRequest(String processId, String procedureId, PreSubmittedCredentialDataRequest preSubmittedCredentialRequest, CredentialStatus credentialStatus, String email) {
-        log.info("mapCredentialIntoACredentialProcedureRequest - preSubmittedCredentialRequest:{} - credentialStatus:{}", preSubmittedCredentialRequest, credentialStatus );
+        log.info("mapCredentialIntoACredentialProcedureRequest - preSubmittedCredentialRequest:{} - credentialStatus:{}", preSubmittedCredentialRequest, credentialStatus);
+        String schema = preSubmittedCredentialRequest.schema();
         JsonNode credential = preSubmittedCredentialRequest.payload();
         String operationMode = preSubmittedCredentialRequest.operationMode();
-        if (preSubmittedCredentialRequest.schema().equals(LEAR_CREDENTIAL_EMPLOYEE)) {
+
+        // Try profile-based generic path
+        CredentialProfile profile = credentialProfileRegistry.getByCredentialType(schema);
+        if (profile != null) {
+            return genericCredentialBuilder.buildCredential(profile, procedureId, credential, credentialStatus, operationMode, email)
+                    .doOnSuccess(result -> log.info("ProcessID: {} - Credential mapped via profile: {}", processId, schema));
+        }
+
+        // Fallback to old factories
+        if (schema.equals(LEAR_CREDENTIAL_EMPLOYEE)) {
             return learCredentialEmployeeFactory.mapAndBuildLEARCredentialEmployee(procedureId, credential, credentialStatus, operationMode, email)
                     .doOnSuccess(learCredentialEmployee -> log.info("ProcessID: {} - LEARCredentialEmployee mapped: {}", processId, credential));
-        } else if (preSubmittedCredentialRequest.schema().equals(LABEL_CREDENTIAL)) {
+        } else if (schema.equals(LABEL_CREDENTIAL)) {
             return labelCredentialFactory.mapAndBuildLabelCredential(procedureId, credential, credentialStatus, operationMode, email)
                     .doOnSuccess(verifiableCertification -> log.info("ProcessID: {} - Label Credential mapped: {}", processId, credential));
-        } else if(preSubmittedCredentialRequest.schema().equals(LEAR_CREDENTIAL_MACHINE)) {
+        } else if (schema.equals(LEAR_CREDENTIAL_MACHINE)) {
             return learCredentialMachineFactory.mapAndBuildLEARCredentialMachine(procedureId, credential, credentialStatus, operationMode, email)
                     .doOnSuccess(learCredentialMachine -> log.info("ProcessID: {} - LEARCredentialMachine mapped: {}", processId, credential));
         }
-        return Mono.error(new CredentialTypeUnsupportedException(preSubmittedCredentialRequest.schema()));
+        return Mono.error(new CredentialTypeUnsupportedException(schema));
     }
 
     public Mono<String> bindCryptographicCredentialSubjectId(
@@ -48,6 +62,15 @@ public class CredentialFactory {
             String decodedCredential,
             String subjectDid) {
 
+        // Try profile-based generic path
+        CredentialProfile profile = credentialProfileRegistry.getByCredentialType(credentialType);
+        if (profile != null) {
+            return genericCredentialBuilder.bindSubjectId(decodedCredential, subjectDid)
+                    .doOnSuccess(bound ->
+                            log.info("ProcessID: {} - Credential bound to subject via profile: {}", processId, credentialType));
+        }
+
+        // Fallback to old factories
         if (credentialType.equals(LEAR_CREDENTIAL_EMPLOYEE)) {
             return learCredentialEmployeeFactory
                     .bindCryptographicCredentialSubjectId(decodedCredential, subjectDid)
@@ -73,19 +96,29 @@ public class CredentialFactory {
             String authServerNonce,
             String email) {
 
-        Mono<String> bindMono = switch (credentialType) {
-            case LEAR_CREDENTIAL_EMPLOYEE ->
-                    learCredentialEmployeeFactory
-                            .mapCredentialAndBindIssuerInToTheCredential(decodedCredential, procedureId, email);
-            case LABEL_CREDENTIAL ->
-                    labelCredentialFactory
-                            .mapCredentialAndBindIssuerInToTheCredential(decodedCredential, procedureId, email);
-            case LEAR_CREDENTIAL_MACHINE ->
-                learCredentialMachineFactory
-                        .mapCredentialAndBindIssuerInToTheCredential(decodedCredential, procedureId, email);
-            default ->
-                    Mono.error(new CredentialTypeUnsupportedException(credentialType));
-        };
+        // Try profile-based generic path
+        CredentialProfile profile = credentialProfileRegistry.getByCredentialType(credentialType);
+        Mono<String> bindMono;
+
+        if (profile != null) {
+            bindMono = genericCredentialBuilder.bindIssuer(profile, decodedCredential, procedureId, email);
+        } else {
+            // Fallback to old factories
+            bindMono = switch (credentialType) {
+                case LEAR_CREDENTIAL_EMPLOYEE ->
+                        learCredentialEmployeeFactory
+                                .mapCredentialAndBindIssuerInToTheCredential(decodedCredential, procedureId, email);
+                case LABEL_CREDENTIAL ->
+                        labelCredentialFactory
+                                .mapCredentialAndBindIssuerInToTheCredential(decodedCredential, procedureId, email);
+                case LEAR_CREDENTIAL_MACHINE ->
+                        learCredentialMachineFactory
+                                .mapCredentialAndBindIssuerInToTheCredential(decodedCredential, procedureId, email);
+                default ->
+                        Mono.error(new CredentialTypeUnsupportedException(credentialType));
+            };
+        }
+
         return bindMono
                 .flatMap(boundCredential -> {
                     log.info("ProcessID: {} - Credential mapped and bind to the issuer: {}", processId, boundCredential);

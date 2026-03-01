@@ -21,10 +21,13 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.LabelCredential;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.employee.LEARCredentialEmployee;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.machine.LEARCredentialMachine;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
+import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.domain.util.factory.IssuerFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialMachineFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LabelCredentialFactory;
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.repository.CredentialProcedureRepository;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
@@ -69,6 +72,8 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
     private final CredentialDeliveryService credentialDeliveryService;
     private final DeferredCredentialMetadataService deferredCredentialMetadataService;
     private final IssuerFactory issuerFactory;
+    private final GenericCredentialBuilder genericCredentialBuilder;
+    private final CredentialProfileRegistry credentialProfileRegistry;
 
 
     @Override
@@ -81,6 +86,26 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                         String credentialType = credentialProcedure.getCredentialType();
                         String updatedBy = credentialProcedure.getUpdatedBy();
                         log.info("Building JWT payload for credential signing for credential with type: {}", credentialType);
+
+                        // Try profile-based generic path
+                        CredentialProfile profile = credentialProfileRegistry.getByEnumName(credentialType);
+                        if (profile != null) {
+                            Mono<Map<String, Object>> cnfMono = profile.cnfRequired()
+                                    ? Mono.fromCallable(() -> parseCnfJson(credentialProcedure.getCnf()))
+                                    : Mono.just(Map.of());
+
+                            return cnfMono.flatMap(cnfMap ->
+                                    genericCredentialBuilder.buildJwtPayload(
+                                                    profile,
+                                                    credentialProcedure.getCredentialDecoded(),
+                                                    profile.cnfRequired() ? cnfMap : null)
+                                            .flatMap(unsignedCredential ->
+                                                    signCredentialOnRequestedFormat(unsignedCredential, format, token, procedureId, updatedBy)
+                                            )
+                            );
+                        }
+
+                        // Fallback to old factories
                         return switch (credentialType) {
                             case LABEL_CREDENTIAL_TYPE -> {
                                 LabelCredential labelCredential = labelCredentialFactory

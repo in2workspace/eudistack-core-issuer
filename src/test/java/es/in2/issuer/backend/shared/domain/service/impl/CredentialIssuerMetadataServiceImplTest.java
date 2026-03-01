@@ -1,8 +1,10 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.util.Constants;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -11,9 +13,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.test.StepVerifier;
 
 import java.util.Map;
+import java.util.Set;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
-import static es.in2.issuer.backend.shared.domain.util.Constants.VERIFIABLE_CREDENTIAL;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.OID4VCI_CREDENTIAL_PATH;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.OID4VCI_DEFERRED_CREDENTIAL_PATH;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,6 +30,9 @@ class CredentialIssuerMetadataServiceImplTest {
     @Mock
     private AppConfig appConfig;
 
+    @Mock
+    private CredentialProfileRegistry credentialProfileRegistry;
+
     @InjectMocks
     private CredentialIssuerMetadataServiceImpl credentialIssuerMetadataService;
 
@@ -35,8 +40,23 @@ class CredentialIssuerMetadataServiceImplTest {
     void shouldGetCredentialIssuerMetadataSuccessfully() {
         // Arrange
         when(appConfig.getIssuerBackendUrl()).thenReturn(ISSUER_URL);
+
+        CredentialProfile learProfile = CredentialProfile.builder()
+                .credentialConfigurationId(LEAR_CREDENTIAL_EMPLOYEE)
+                .format(Constants.JWT_VC_JSON)
+                .scope("lear_credential_employee")
+                .cryptographicBindingMethodsSupported(Set.of("did:key"))
+                .credentialSigningAlgValuesSupported(Set.of("ES256"))
+                .proofTypesSupported(Map.of("jwt", CredentialProfile.ProofTypeConfig.builder()
+                        .proofSigningAlgValuesSupported(Set.of("ES256"))
+                        .build()))
+                .build();
+
+        when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of(LEAR_CREDENTIAL_EMPLOYEE, learProfile));
+
         // Act
         var resultMono = credentialIssuerMetadataService.getCredentialIssuerMetadata(PROCESS_ID);
+
         // Assert
         StepVerifier.create(resultMono)
                 .assertNext(metadata -> {
@@ -53,11 +73,7 @@ class CredentialIssuerMetadataServiceImplTest {
                     assertThat(learCredentialEmployeeConfig.cryptographicBindingMethodsSupported()).containsExactly("did:key");
                     assertThat(learCredentialEmployeeConfig.credentialSigningAlgValuesSupported()).containsExactly("ES256");
 
-                    CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition definition = learCredentialEmployeeConfig.credentialDefinition();
-                    assertThat(definition).isNotNull();
-                    assertThat(definition.type()).containsExactlyInAnyOrder(VERIFIABLE_CREDENTIAL, LEAR_CREDENTIAL_EMPLOYEE);
-
-                    Map<String, CredentialIssuerMetadata.CredentialConfiguration.ProofSigninAlgValuesSupported> proofTypes = learCredentialEmployeeConfig.proofTypesSupported();
+                    Map<String, CredentialProfile.ProofTypeConfig> proofTypes = learCredentialEmployeeConfig.proofTypesSupported();
                     assertThat(proofTypes).containsKey("jwt");
                     assertThat(proofTypes.get("jwt").proofSigningAlgValuesSupported()).containsExactly("ES256");
                 })

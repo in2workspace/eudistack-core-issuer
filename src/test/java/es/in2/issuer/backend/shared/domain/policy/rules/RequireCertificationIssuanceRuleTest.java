@@ -14,9 +14,11 @@ import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataSer
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.domain.util.factory.CredentialFactory;
+import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialMachineFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LabelCredentialFactory;
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -49,6 +51,10 @@ class RequireCertificationIssuanceRuleTest {
     @Mock
     private LabelCredentialFactory labelCredentialFactory;
     @Mock
+    private GenericCredentialBuilder genericCredentialBuilder;
+    @Mock
+    private CredentialProfileRegistry credentialProfileRegistry;
+    @Mock
     private CredentialProcedureService credentialProcedureService;
     @Mock
     private DeferredCredentialMetadataService deferredCredentialMetadataService;
@@ -61,6 +67,8 @@ class RequireCertificationIssuanceRuleTest {
                 learCredentialEmployeeFactory,
                 learCredentialMachineFactory,
                 labelCredentialFactory,
+                genericCredentialBuilder,
+                credentialProfileRegistry,
                 credentialProcedureService,
                 deferredCredentialMetadataService
         );

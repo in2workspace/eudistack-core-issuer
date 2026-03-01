@@ -93,6 +93,7 @@ class ArchUnitTest {
                 .stream()
                 .filter(javaClass -> !CONSTANTS_CLASSES.contains(javaClass.getName()))
                 .filter(this::isNotTestClass)
+                .filter(this::isNotAnonymousClass)
                 .collect(Collectors.toSet());
 
         Set<JavaClass> backofficeClasses = filterClassesByPackage(classes, ".backoffice");
@@ -126,5 +127,10 @@ class ArchUnitTest {
     private boolean isNotTestClass(JavaClass javaClass) {
         return !javaClass.getSimpleName().endsWith("Test")
                 && !javaClass.getSimpleName().endsWith("IT");
+    }
+
+    private boolean isNotAnonymousClass(JavaClass javaClass) {
+        String simpleName = javaClass.getSimpleName();
+        return !simpleName.isEmpty() && !Character.isDigit(simpleName.charAt(0));
     }
 }

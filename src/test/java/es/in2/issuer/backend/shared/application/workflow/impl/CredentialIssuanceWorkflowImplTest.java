@@ -6,19 +6,17 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidOrMissingProofException;
 import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
-import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Mandator;
-import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.employee.LEARCredentialEmployee;
 import es.in2.issuer.backend.shared.domain.model.entities.BindingInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import es.in2.issuer.backend.shared.domain.service.*;
-import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import es.in2.issuer.backend.shared.infrastructure.config.WebClientConfig;
 import es.in2.issuer.backend.shared.infrastructure.config.security.service.IssuancePdpService;
@@ -37,7 +35,6 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.DID_ELSI;
 import static es.in2.issuer.backend.backoffice.domain.util.Constants.MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.JWT_VC_JSON;
 import static es.in2.issuer.backend.shared.domain.util.Constants.LABEL_CREDENTIAL;
@@ -75,12 +72,6 @@ class CredentialIssuanceWorkflowImplTest {
 
     @Mock
     private IssuancePdpService issuancePdpService;
-
-    @Mock
-    private TrustFrameworkService trustFrameworkService;
-
-    @Mock
-    private LEARCredentialEmployeeFactory credentialEmployeeFactory;
 
     @Mock
     private M2MTokenService m2MTokenService;
@@ -617,15 +608,12 @@ class CredentialIssuanceWorkflowImplTest {
         // metadata no proof
         CredentialIssuerMetadata metadata = mock(CredentialIssuerMetadata.class);
         CredentialIssuerMetadata.CredentialConfiguration cfg = mock(CredentialIssuerMetadata.CredentialConfiguration.class);
-        CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition def = mock(CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition.class);
 
         String typeId = CredentialType.LEAR_CREDENTIAL_MACHINE.getTypeId();
-        when(cfg.credentialDefinition()).thenReturn(def);
-        when(def.type()).thenReturn(Set.of(typeId));
         when(cfg.cryptographicBindingMethodsSupported()).thenReturn(Collections.emptySet());
 
         Map<String, CredentialIssuerMetadata.CredentialConfiguration> map = new HashMap<>();
-        map.put("cfg1", cfg);
+        map.put(typeId, cfg);
         when(metadata.credentialConfigurationsSupported()).thenReturn(map);
 
         CredentialProcedure proc = mock(CredentialProcedure.class);
@@ -696,15 +684,12 @@ class CredentialIssuanceWorkflowImplTest {
         // metadata no proof
         CredentialIssuerMetadata metadata = mock(CredentialIssuerMetadata.class);
         CredentialIssuerMetadata.CredentialConfiguration cfg = mock(CredentialIssuerMetadata.CredentialConfiguration.class);
-        CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition def = mock(CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition.class);
 
         String typeId = CredentialType.LEAR_CREDENTIAL_MACHINE.getTypeId();
-        when(cfg.credentialDefinition()).thenReturn(def);
-        when(def.type()).thenReturn(Set.of(typeId));
         when(cfg.cryptographicBindingMethodsSupported()).thenReturn(Collections.emptySet());
 
         Map<String, CredentialIssuerMetadata.CredentialConfiguration> map = new HashMap<>();
-        map.put("cfg1", cfg);
+        map.put(typeId, cfg);
         when(metadata.credentialConfigurationsSupported()).thenReturn(map);
 
         when(credentialProcedureService.getCredentialProcedureById(procedureId)).thenReturn(Mono.just(proc));
@@ -1003,107 +988,6 @@ class CredentialIssuanceWorkflowImplTest {
     }
 
     @Test
-    void getMandatorOrganizationIdentifier_whenOrgIdValid_andDidValid_registersDid() throws Exception {
-        String processId = "p-1";
-        String decodedCredential = "{\"vc\":\"decoded\"}";
-        String orgId = "VATES-B26246436";
-        String did = DID_ELSI + orgId;
-
-        // mock LEARCredentialEmployee -> mandate -> mandator -> organizationIdentifier
-        var mandator = Mandator.builder().organizationIdentifier(orgId).build();
-        var mandate = LEARCredentialEmployee.CredentialSubject.Mandate.builder().mandator(mandator).build();
-        var subject = LEARCredentialEmployee.CredentialSubject.builder().mandate(mandate).build();
-        var employee = LEARCredentialEmployee.builder().credentialSubject(subject).build();
-
-        when(credentialEmployeeFactory.mapStringToLEARCredentialEmployee(decodedCredential))
-                .thenReturn(employee);
-
-        when(trustFrameworkService.validateDidFormat(processId, did))
-                .thenReturn(Mono.just(true));
-
-        when(trustFrameworkService.registerDid(processId, did))
-                .thenReturn(Mono.empty());
-
-        Mono<Object> mono = invokePrivateMono(
-                verifiableCredentialIssuanceWorkflow,
-                "getMandatorOrganizationIdentifier",
-                new Class<?>[]{String.class, String.class},
-                processId,
-                decodedCredential
-        );
-
-        StepVerifier.create(mono)
-                .verifyComplete();
-
-        verify(trustFrameworkService).validateDidFormat(processId, did);
-        verify(trustFrameworkService).registerDid(processId, did);
-    }
-
-    @Test
-    void getMandatorOrganizationIdentifier_whenDidInvalid_doesNotRegister() throws Exception {
-        String processId = "p-2";
-        String decodedCredential = "{\"vc\":\"decoded\"}";
-        String orgId = "VATES-B26246436";
-        String did = DID_ELSI + orgId;
-
-        var mandator = Mandator.builder().organizationIdentifier(orgId).build();
-        var mandate = LEARCredentialEmployee.CredentialSubject.Mandate.builder().mandator(mandator).build();
-        var subject = LEARCredentialEmployee.CredentialSubject.builder().mandate(mandate).build();
-        var employee = LEARCredentialEmployee.builder().credentialSubject(subject).build();
-
-        when(credentialEmployeeFactory.mapStringToLEARCredentialEmployee(decodedCredential))
-                .thenReturn(employee);
-
-        when(trustFrameworkService.validateDidFormat(processId, did))
-                .thenReturn(Mono.just(false));
-
-        Mono<Object> mono = invokePrivateMono(
-                verifiableCredentialIssuanceWorkflow,
-                "getMandatorOrganizationIdentifier",
-                new Class<?>[]{String.class, String.class},
-                processId,
-                decodedCredential
-        );
-
-        StepVerifier.create(mono)
-                .verifyComplete();
-
-        verify(trustFrameworkService).validateDidFormat(processId, did);
-        verify(trustFrameworkService, never()).registerDid(anyString(), anyString());
-    }
-
-    @Test
-    void getMandatorOrganizationIdentifier_whenOrgIdBlank_emitsIllegalArgumentException() throws Exception {
-        String processId = "p-3";
-        String decodedCredential = "{\"vc\":\"decoded\"}";
-
-        var mandator = Mandator.builder().organizationIdentifier("   ").build();
-        var mandate = LEARCredentialEmployee.CredentialSubject.Mandate.builder().mandator(mandator).build();
-        var subject = LEARCredentialEmployee.CredentialSubject.builder().mandate(mandate).build();
-        var employee = LEARCredentialEmployee.builder().credentialSubject(subject).build();
-
-        when(credentialEmployeeFactory.mapStringToLEARCredentialEmployee(decodedCredential))
-                .thenReturn(employee);
-
-        Mono<Object> mono = invokePrivateMono(
-                verifiableCredentialIssuanceWorkflow,
-                "getMandatorOrganizationIdentifier",
-                new Class<?>[]{String.class, String.class},
-                processId,
-                decodedCredential
-        );
-
-        StepVerifier.create(mono)
-                .expectErrorSatisfies(ex -> {
-                    Assertions.assertInstanceOf(IllegalArgumentException.class, ex);
-                    Assertions.assertEquals("Organization Identifier not valid", ex.getMessage());
-                })
-                .verify();
-
-        verifyNoInteractions(trustFrameworkService);
-    }
-
-    @Test
     void validateAndDetermineBindingInfo_whenProofSigningAlgsMissing_throwsConfigurationException() {
         // given
         CredentialProcedure proc = mock(CredentialProcedure.class);
@@ -1112,10 +996,6 @@ class CredentialIssuanceWorkflowImplTest {
         CredentialIssuerMetadata md = mock(CredentialIssuerMetadata.class);
 
         var cfg = mock(CredentialIssuerMetadata.CredentialConfiguration.class);
-        var def = mock(CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition.class);
-
-        when(def.type()).thenReturn(Set.of(CredentialType.LEAR_CREDENTIAL_MACHINE.getTypeId()));
-        when(cfg.credentialDefinition()).thenReturn(def);
 
         // needsProof = true
         when(cfg.cryptographicBindingMethodsSupported()).thenReturn(Set.of("did"));
@@ -1123,7 +1003,7 @@ class CredentialIssuanceWorkflowImplTest {
         // proofTypesSupported jwt present but NO algs
         when(cfg.proofTypesSupported()).thenReturn(Map.of("jwt", jwtProofCfg(Collections.emptySet())));
 
-        when(md.credentialConfigurationsSupported()).thenReturn(Map.of("cfg1", cfg));
+        when(md.credentialConfigurationsSupported()).thenReturn(Map.of(CredentialType.LEAR_CREDENTIAL_MACHINE.getTypeId(), cfg));
 
         CredentialRequest req = CredentialRequest.builder()
                 .proof(Proof.builder().jwt(buildDummyJwtProofWithKid("did:key:z123#k1")).build())
@@ -1152,10 +1032,6 @@ class CredentialIssuanceWorkflowImplTest {
         CredentialIssuerMetadata md = mock(CredentialIssuerMetadata.class);
 
         var cfg = mock(CredentialIssuerMetadata.CredentialConfiguration.class);
-        var def = mock(CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition.class);
-
-        when(def.type()).thenReturn(Set.of(CredentialType.LEAR_CREDENTIAL_MACHINE.getTypeId()));
-        when(cfg.credentialDefinition()).thenReturn(def);
 
         // needsProof = true
         when(cfg.cryptographicBindingMethodsSupported()).thenReturn(Set.of("did"));
@@ -1164,7 +1040,7 @@ class CredentialIssuanceWorkflowImplTest {
                 Map.of("jwt", jwtProofCfg(Set.of("ES256")))
         );
 
-        when(md.credentialConfigurationsSupported()).thenReturn(Map.of("cfg1", cfg));
+        when(md.credentialConfigurationsSupported()).thenReturn(Map.of(CredentialType.LEAR_CREDENTIAL_MACHINE.getTypeId(), cfg));
 
         CredentialRequest req = CredentialRequest.builder()
                 .proof(null)
@@ -1201,16 +1077,11 @@ class CredentialIssuanceWorkflowImplTest {
 
         CredentialIssuerMetadata.CredentialConfiguration cfg =
                 mock(CredentialIssuerMetadata.CredentialConfiguration.class);
-        CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition def =
-                mock(CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition.class);
-
-        when(def.type()).thenReturn(Set.of(CredentialType.LEAR_CREDENTIAL_MACHINE.getTypeId()));
-        when(cfg.credentialDefinition()).thenReturn(def);
 
         when(cfg.cryptographicBindingMethodsSupported()).thenReturn(Set.of("did"));
         when(cfg.proofTypesSupported()).thenReturn(Map.of("jwt", jwtProofCfg(Set.of("ES256"))));
 
-        when(md.credentialConfigurationsSupported()).thenReturn(Map.of("cfg1", cfg));
+        when(md.credentialConfigurationsSupported()).thenReturn(Map.of(CredentialType.LEAR_CREDENTIAL_MACHINE.getTypeId(), cfg));
 
         String jwtProof = buildDummyJwtProofWithKid("did:key:z123#k1");
         CredentialRequest req = CredentialRequest.builder()
@@ -1245,16 +1116,11 @@ class CredentialIssuanceWorkflowImplTest {
 
         CredentialIssuerMetadata.CredentialConfiguration cfg =
                 mock(CredentialIssuerMetadata.CredentialConfiguration.class);
-        CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition def =
-                mock(CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition.class);
-
-        when(def.type()).thenReturn(Set.of(CredentialType.LEAR_CREDENTIAL_MACHINE.getTypeId()));
-        when(cfg.credentialDefinition()).thenReturn(def);
 
         when(cfg.cryptographicBindingMethodsSupported()).thenReturn(Set.of("did"));
         when(cfg.proofTypesSupported()).thenReturn(Map.of("jwt", jwtProofCfg(Set.of("ES256"))));
 
-        when(md.credentialConfigurationsSupported()).thenReturn(Map.of("cfg1", cfg));
+        when(md.credentialConfigurationsSupported()).thenReturn(Map.of(CredentialType.LEAR_CREDENTIAL_MACHINE.getTypeId(), cfg));
 
         String kid = "did:key:zDnaeiLt1XYBTBZkvfYQ5AABYFqouxpv63LYKkiw2xad9rReK#key-1";
         String jwtProof = buildDummyJwtProofWithKid(kid);
@@ -1304,8 +1170,10 @@ class CredentialIssuanceWorkflowImplTest {
             throw new RuntimeException(e);
         }
     }
-    private static CredentialIssuerMetadata.CredentialConfiguration.ProofSigninAlgValuesSupported jwtProofCfg(Set<String> algs) {
-        return new CredentialIssuerMetadata.CredentialConfiguration.ProofSigninAlgValuesSupported(algs);
+    private static CredentialProfile.ProofTypeConfig jwtProofCfg(Set<String> algs) {
+        return CredentialProfile.ProofTypeConfig.builder()
+                .proofSigningAlgValuesSupported(algs)
+                .build();
     }
 
 

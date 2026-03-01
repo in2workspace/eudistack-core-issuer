@@ -5,14 +5,12 @@ import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.shared.application.workflow.CredentialIssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.*;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
-import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.employee.LEARCredentialEmployee;
 import es.in2.issuer.backend.shared.domain.model.entities.BindingInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.entities.DeferredCredentialMetadata;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import es.in2.issuer.backend.shared.domain.service.*;
 import es.in2.issuer.backend.shared.domain.util.JwtUtils;
-import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import es.in2.issuer.backend.shared.infrastructure.config.security.service.IssuancePdpService;
 import lombok.RequiredArgsConstructor;
@@ -43,8 +41,6 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
     private final CredentialProcedureService credentialProcedureService;
     private final DeferredCredentialMetadataService deferredCredentialMetadataService;
     private final IssuancePdpService issuancePdpService;
-    private final TrustFrameworkService trustFrameworkService;
-    private final LEARCredentialEmployeeFactory credentialEmployeeFactory;
     private final CredentialIssuerMetadataService credentialIssuerMetadataService;
     private final M2MTokenService m2mTokenService;
     private final CredentialDeliveryService credentialDeliveryService;
@@ -250,11 +246,7 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
 
     private Mono<CredentialIssuerMetadata.CredentialConfiguration> findIssuerConfig(CredentialIssuerMetadata metadata, CredentialType typeEnum) {
         return Mono.justOrEmpty(
-                        metadata.credentialConfigurationsSupported()
-                                .values()
-                                .stream()
-                                .filter(cfg -> cfg.credentialDefinition().type().contains(typeEnum.getTypeId()))
-                                .findFirst()
+                        metadata.credentialConfigurationsSupported().get(typeEnum.getTypeId())
                 )
                 .switchIfEmpty(Mono.error(new FormatUnsupportedException(
                         "No configuration for typeId: " + typeEnum.getTypeId()
@@ -378,13 +370,6 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
                                 String decoded = tuple.getT1();
                                 CredentialProcedure updatedCredentialProcedure = tuple.getT2();
 
-                                CredentialType typeEnum = CredentialType.valueOf(credentialProcedure.getCredentialType());
-                                if (typeEnum == CredentialType.LEAR_CREDENTIAL_EMPLOYEE) {
-                                    log.info("[{}] SYNC: LEAR_CREDENTIAL_EMPLOYEE -> running TrustFramework registration check", processId);
-
-                                    return getMandatorOrganizationIdentifier(processId, decoded);
-                                }
-
                                 if (deferred.getResponseUri() != null && !deferred.getResponseUri().isBlank()) {
                                     String encodedCredential = updatedCredentialProcedure.getCredentialEncoded();
                                     if (encodedCredential == null || encodedCredential.isBlank()) {
@@ -498,33 +483,4 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
     }
 
 
-    private Mono<Void> getMandatorOrganizationIdentifier(String processId, String decodedCredential) {
-
-        LEARCredentialEmployee learCredentialEmployee = credentialEmployeeFactory.mapStringToLEARCredentialEmployee(decodedCredential);
-
-        String mandatorOrgIdentifier = learCredentialEmployee.credentialSubject().mandate().mandator().organizationIdentifier();
-        if (mandatorOrgIdentifier == null || mandatorOrgIdentifier.isBlank()) {
-            log.error("ProcessID: {} Mandator Organization Identifier cannot be null or empty", processId);
-            return Mono.error(new IllegalArgumentException("Organization Identifier not valid"));
-        }
-
-        return saveToTrustFramework(processId, mandatorOrgIdentifier);
-    }
-
-    private Mono<Void> saveToTrustFramework(String processId, String mandatorOrgIdentifier) {
-
-        String mandatorDid = DID_ELSI + mandatorOrgIdentifier;
-
-        return trustFrameworkService.validateDidFormat(processId, mandatorDid)
-                .flatMap(isValid -> registerDidIfValid(processId, mandatorDid, isValid));
-    }
-
-    private Mono<Void> registerDidIfValid(String processId, String did, boolean isValid) {
-        if (isValid) {
-            return trustFrameworkService.registerDid(processId, did);
-        } else {
-            log.error("ProcessID: {} Did not registered because is invalid", processId);
-            return Mono.empty();
-        }
-    }
 }

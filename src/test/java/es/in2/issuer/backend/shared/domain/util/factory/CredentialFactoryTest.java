@@ -8,6 +8,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
 import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -34,6 +35,12 @@ class CredentialFactoryTest {
 
     @Mock
     private LabelCredentialFactory labelCredentialFactory;
+
+    @Mock
+    private GenericCredentialBuilder genericCredentialBuilder;
+
+    @Mock
+    private CredentialProfileRegistry credentialProfileRegistry;
 
     @Mock
     private CredentialProcedureService credentialProcedureService;

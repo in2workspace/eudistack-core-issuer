@@ -11,9 +11,11 @@ import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
 import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.util.factory.CredentialFactory;
+import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialMachineFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LabelCredentialFactory;
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,6 +53,12 @@ class PolicyContextFactoryTest {
     private LabelCredentialFactory labelCredentialFactory;
 
     @Mock
+    private GenericCredentialBuilder genericCredentialBuilder;
+
+    @Mock
+    private CredentialProfileRegistry credentialProfileRegistry;
+
+    @Mock
     private CredentialProcedureService credentialProcedureService;
 
     @Mock
@@ -65,6 +73,8 @@ class PolicyContextFactoryTest {
                 learCredentialEmployeeFactory,
                 learCredentialMachineFactory,
                 labelCredentialFactory,
+                genericCredentialBuilder,
+                credentialProfileRegistry,
                 credentialProcedureService,
                 deferredCredentialMetadataService
         );

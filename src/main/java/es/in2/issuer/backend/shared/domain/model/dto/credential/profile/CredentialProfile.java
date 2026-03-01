@@ -1,0 +1,106 @@
+package es.in2.issuer.backend.shared.domain.model.dto.credential.profile;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Builder;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+@Builder
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public record CredentialProfile(
+        @JsonProperty("credential_configuration_id") String credentialConfigurationId,
+        @JsonProperty("format") String format,
+        @JsonProperty("scope") String scope,
+        @JsonProperty("credential_definition") CredentialDefinition credentialDefinition,
+        @JsonProperty("cryptographic_binding_methods_supported") Set<String> cryptographicBindingMethodsSupported,
+        @JsonProperty("credential_signing_alg_values_supported") Set<String> credentialSigningAlgValuesSupported,
+        @JsonProperty("proof_types_supported") Map<String, ProofTypeConfig> proofTypesSupported,
+        @JsonProperty("credential_metadata") CredentialMetadata credentialMetadata,
+        @JsonProperty("validity_days") int validityDays,
+        @JsonProperty("issuer_type") IssuerType issuerType,
+        @JsonProperty("cnf_required") boolean cnfRequired,
+        @JsonProperty("description") String description,
+        @JsonProperty("subject_extraction") SubjectExtraction subjectExtraction,
+        @JsonProperty("organization_extraction") OrganizationExtraction organizationExtraction,
+        @JsonProperty("sd_jwt") SdJwtConfig sdJwt
+) {
+
+    @Builder
+    public record CredentialDefinition(
+            @JsonProperty("context") List<String> context,
+            @JsonProperty("type") List<String> type
+    ) {}
+
+    @Builder
+    public record ProofTypeConfig(
+            @JsonProperty("proof_signing_alg_values_supported") Set<String> proofSigningAlgValuesSupported
+    ) {}
+
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record CredentialMetadata(
+            @JsonProperty("display") List<DisplayInfo> display,
+            @JsonProperty("claims") List<ClaimDefinition> claims
+    ) {}
+
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record DisplayInfo(
+            @JsonProperty("name") String name,
+            @JsonProperty("locale") String locale,
+            @JsonProperty("description") String description
+    ) {}
+
+    @Builder
+    public record ClaimDefinition(
+            @JsonProperty("path") List<String> path,
+            @JsonProperty("display") List<DisplayInfo> display
+    ) {}
+
+    public enum IssuerType {
+        @JsonProperty("DETAILED") DETAILED,
+        @JsonProperty("SIMPLE") SIMPLE
+    }
+
+    @Builder
+    public record SubjectExtraction(
+            @JsonProperty("strategy") String strategy,
+            @JsonProperty("fields") List<String> fields,
+            @JsonProperty("separator") String separator
+    ) {}
+
+    @Builder
+    public record OrganizationExtraction(
+            @JsonProperty("strategy") String strategy,
+            @JsonProperty("field") String field
+    ) {}
+
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record SdJwtConfig(
+            @JsonProperty("vct") String vct,
+            @JsonProperty("sd_alg") String sdAlg,
+            @JsonProperty("sd_claims") List<String> sdClaims
+    ) {}
+
+    /**
+     * Returns the credential type name (e.g., "LEARCredentialEmployee").
+     * Derived from the second element in credential_definition.type,
+     * or the first element if only one type is defined.
+     */
+    public String credentialType() {
+        if (credentialDefinition == null || credentialDefinition.type() == null || credentialDefinition.type().isEmpty()) {
+            return credentialConfigurationId;
+        }
+        List<String> types = credentialDefinition.type();
+        for (String type : types) {
+            if (!"VerifiableCredential".equals(type)) {
+                return type;
+            }
+        }
+        return types.getFirst();
+    }
+}
