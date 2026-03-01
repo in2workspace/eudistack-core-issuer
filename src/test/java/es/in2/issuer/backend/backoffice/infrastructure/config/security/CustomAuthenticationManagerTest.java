@@ -115,7 +115,7 @@ class CustomAuthenticationManagerTest {
     }
 
     @Test
-    void authenticate_withMissingVcClaim_throwsBadCredentialsException() {
+    void authenticate_withVerifierToken_missingVcClaim_returnsAuthentication() {
         String headerJson = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
         String payloadJson = "{\"iss\":\"http://verifier.local\",\"iat\":1633036800,\"exp\":1633040400}";
         String token = buildToken(headerJson, payloadJson);
@@ -128,13 +128,15 @@ class CustomAuthenticationManagerTest {
         Mono<Authentication> result = authenticationManager.authenticate(authentication);
 
         StepVerifier.create(result)
-                .expectErrorMatches(e -> e instanceof BadCredentialsException &&
-                        "The 'vc' claim is required but not present.".equals(e.getMessage()))
-                .verify();
+                .assertNext(auth -> {
+                    assertTrue(auth instanceof JwtAuthenticationToken);
+                    assertEquals("principal@example.com", auth.getName());
+                })
+                .verifyComplete();
     }
 
     @Test
-    void authenticate_withInvalidVcType_throwsBadCredentialsException() {
+    void authenticate_withVerifierToken_invalidVcType_returnsAuthentication() {
         String headerJson = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
         String payloadJson = "{\"iss\":\"http://verifier.local\",\"iat\":1633036800,\"exp\":1633040400," +
                 "\"vc\":{\"type\":[\"SomeOtherType\"]}}";
@@ -148,9 +150,11 @@ class CustomAuthenticationManagerTest {
         Mono<Authentication> result = authenticationManager.authenticate(authentication);
 
         StepVerifier.create(result)
-                .expectErrorMatches(e -> e instanceof BadCredentialsException &&
-                        "Credential type required: LEARCredentialMachine.".equals(e.getMessage()))
-                .verify();
+                .assertNext(auth -> {
+                    assertTrue(auth instanceof JwtAuthenticationToken);
+                    assertEquals("principal@example.com", auth.getName());
+                })
+                .verifyComplete();
     }
 
     @Test
@@ -197,7 +201,7 @@ class CustomAuthenticationManagerTest {
     }
 
     @Test
-    void authenticate_withValidKeycloakToken_returnsAuthentication() {
+    void authenticate_withValidInternalIssuerToken_returnsAuthentication() {
         String token = buildAccessTokenFromIssuer("http://issuer.local", true);
 
         when(appConfig.getIssuerBackendUrl()).thenReturn("http://issuer.local");
@@ -218,7 +222,7 @@ class CustomAuthenticationManagerTest {
     }
 
     @Test
-    void authenticate_withKeycloakToken_missingVcClaim_returnsAuthentication() {
+    void authenticate_withInternalIssuerToken_missingVcClaim_returnsAuthentication() {
         String token = buildAccessTokenFromIssuer("http://issuer.local", false);
 
         when(appConfig.getIssuerBackendUrl()).thenReturn("http://issuer.local");
@@ -237,7 +241,7 @@ class CustomAuthenticationManagerTest {
     }
 
     @Test
-    void authenticate_withKeycloakToken_invalidVcType_returnsAuthentication() {
+    void authenticate_withInternalIssuerToken_invalidVcType_returnsAuthentication() {
         String headerJson = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
         long now = Instant.now().getEpochSecond();
         String payloadJson = "{\"iss\":\"http://issuer.local\",\"iat\":" + now + ",\"exp\":" +
@@ -260,7 +264,7 @@ class CustomAuthenticationManagerTest {
     }
 
     @Test
-    void authenticate_withKeycloakToken_invalidSignature_throwsBadCredentialsException() {
+    void authenticate_withInternalIssuerToken_invalidSignature_throwsBadCredentialsException() {
         String token = buildAccessTokenFromIssuer("http://issuer.local", false);
 
         when(appConfig.getIssuerBackendUrl()).thenReturn("http://issuer.local");

@@ -1,17 +1,18 @@
 package es.in2.issuer.backend.backoffice.infrastructure.config.security;
 
-import es.in2.issuer.backend.shared.domain.service.JWTService;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.authentication.AbstractAuthenticationToken;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.WebFilterChainProxy;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
@@ -22,9 +23,10 @@ import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.util.Collections;
 import java.util.Map;
 
-import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.STATUS_LIST_BASE;
+import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -34,11 +36,8 @@ class SecurityConfigTest {
 
     @Mock private CustomAuthenticationManager customAuthenticationManager;
     @Mock private InternalCORSConfig internalCORSConfig;
-    @Mock private PublicCORSConfig publicCORSConfig;
-    @Mock private ReactiveJwtDecoder internalJwtDecoder;
     @Mock private ProblemAuthenticationEntryPoint entryPoint;
     @Mock private ProblemAccessDeniedHandler deniedHandler;
-    @Mock private JWTService jwtService;
 
     private WebFilterChainProxy securityProxy;
 
@@ -46,83 +45,42 @@ class SecurityConfigTest {
     void setUp() {
         SecurityConfig securityConfig = new SecurityConfig(
                 customAuthenticationManager,
-                internalCORSConfig,
-                publicCORSConfig,
-                internalJwtDecoder
+                internalCORSConfig
         );
 
         when(internalCORSConfig.defaultCorsConfigurationSource()).thenReturn(minimalCorsSource());
 
-        Converter<Jwt, Mono<AbstractAuthenticationToken>> jwtConverter =
-                securityConfig.jwtAuthenticationConverter(jwtService);
-
-        SecurityWebFilterChain chain = securityConfig.internalFilterChain(
+        SecurityWebFilterChain chain = securityConfig.unifiedFilterChain(
                 ServerHttpSecurity.http(),
                 entryPoint,
-                deniedHandler,
-                jwtConverter
+                deniedHandler
         );
 
         securityProxy = new WebFilterChainProxy(chain);
     }
 
+    // ── helpers ──────────────────────────────────────────────────────────
 
-    @Test
-    void statusList_post_shouldReturn401_whenNoAuth() {
+    private void stubEntryPointTo401() {
         doAnswer(inv -> {
             var exchange = inv.getArgument(0, org.springframework.web.server.ServerWebExchange.class);
             exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
             return exchange.getResponse().setComplete();
         }).when(entryPoint).commence(any(), any());
-
-        MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.post(STATUS_LIST_BASE).build()
-        );
-
-        securityProxy.filter(exchange, ex -> {
-            ex.getResponse().setStatusCode(HttpStatus.OK);
-            return ex.getResponse().setComplete();
-        }).block();
-
-        assertEquals(HttpStatus.UNAUTHORIZED, exchange.getResponse().getStatusCode());
     }
 
-
-    @Test
-    void statusList_post_shouldReturn200_whenAuthenticated() {
+    private void stubAuthManagerSuccess() {
         Jwt jwt = buildJwt(Map.of("scope", "any"), "subject-123");
-
-        when(jwtService.resolvePrincipal(any(Jwt.class))).thenReturn("subject-123");
-        when(internalJwtDecoder.decode("good-token")).thenReturn(Mono.just(jwt));
-
-        MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.post(STATUS_LIST_BASE)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer good-token")
-                        .build()
-        );
-
-        securityProxy.filter(exchange, ex -> {
-            ex.getResponse().setStatusCode(HttpStatus.OK);
-            return ex.getResponse().setComplete();
-        }).block();
-
-        assertEquals(HttpStatus.OK, exchange.getResponse().getStatusCode());
-        verify(internalJwtDecoder).decode("good-token");
-        verify(jwtService).resolvePrincipal(any(Jwt.class));
+        Authentication auth = new JwtAuthenticationToken(jwt, Collections.emptyList(), "subject-123");
+        when(customAuthenticationManager.authenticate(any())).thenReturn(Mono.just(auth));
     }
 
-    @Test
-    void statusList_get_shouldBePermitAll() {
-        MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get(STATUS_LIST_BASE).build()
-        );
-
+    private HttpStatusCode executeFilter(MockServerWebExchange exchange) {
         securityProxy.filter(exchange, ex -> {
             ex.getResponse().setStatusCode(HttpStatus.OK);
             return ex.getResponse().setComplete();
         }).block();
-
-        assertEquals(HttpStatus.OK, exchange.getResponse().getStatusCode());
+        return exchange.getResponse().getStatusCode();
     }
 
     private UrlBasedCorsConfigurationSource minimalCorsSource() {
@@ -146,5 +104,256 @@ class SecurityConfigTest {
             builder.subject(subject);
         }
         return builder.build();
+    }
+
+    // ── Public GET endpoints (permitAll) ────────────────────────────────
+
+    @Nested
+    @DisplayName("Public GET endpoints — should be accessible without authentication")
+    class PublicGetEndpoints {
+
+        @Test
+        void credentialIssuerMetadata_get_shouldReturn200_withoutAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.get(CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_PATH).build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+        }
+
+        @Test
+        void authorizationServerMetadata_get_shouldReturn200_withoutAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.get(AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH).build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+        }
+
+        @Test
+        void credentialOffer_get_shouldReturn200_withoutAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.get(OID4VCI_BASE_PATH + "/credential-offer/abc123").build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+        }
+
+        @Test
+        void health_get_shouldReturn200_withoutAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.get(HEALTH_PATH).build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+        }
+
+        @Test
+        void signingProviders_get_shouldReturn200_withoutAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.get(SIGNING_PROVIDERS_PATH).build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+        }
+
+        @Test
+        void statusList_get_shouldReturn200_withoutAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.get(STATUS_LIST_BASE).build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+        }
+
+        @Test
+        void backofficeCredentialsStatus_get_shouldReturn200_withoutAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.get(BACKOFFICE_BASE_PATH + "/credentials/status/list").build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+        }
+
+        @Test
+        void prometheus_get_shouldReturn200_withoutAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.get(PROMETHEUS_PATH).build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+        }
+    }
+
+    // ── Public POST/PUT endpoints (permitAll) ───────────────────────────
+
+    @Nested
+    @DisplayName("Public POST/PUT endpoints — should be accessible without authentication")
+    class PublicPostPutEndpoints {
+
+        @Test
+        void oauthToken_post_shouldReturn200_withoutAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(OAUTH_TOKEN_PATH).build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+        }
+
+        @Test
+        void signingConfig_put_shouldReturn200_withoutAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.put(SIGNING_CONFIG_PATH).build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+        }
+    }
+
+    // ── Authenticated endpoints — 401 without auth ──────────────────────
+
+    @Nested
+    @DisplayName("Authenticated endpoints — should return 401 without credentials")
+    class AuthenticatedEndpointsNoAuth {
+
+        @BeforeEach
+        void stubEntryPoint() {
+            stubEntryPointTo401();
+        }
+
+        @Test
+        void statusList_post_shouldReturn401_whenNoAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(STATUS_LIST_BASE).build()
+            );
+            assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
+        }
+
+        @Test
+        void oid4vciCredential_post_shouldReturn401_whenNoAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(OID4VCI_CREDENTIAL_PATH).build()
+            );
+            assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
+        }
+
+        @Test
+        void oid4vciDeferredCredential_post_shouldReturn401_whenNoAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(OID4VCI_DEFERRED_CREDENTIAL_PATH).build()
+            );
+            assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
+        }
+
+        @Test
+        void oid4vciNotification_post_shouldReturn401_whenNoAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(OID4VCI_NOTIFICATION_PATH).build()
+            );
+            assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
+        }
+
+        @Test
+        void vciIssuances_post_shouldReturn401_whenNoAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(VCI_ISSUANCES_PATH).build()
+            );
+            assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
+        }
+
+        @Test
+        void backofficeIssuance_post_shouldReturn401_whenNoAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(BACKOFFICE_ISSUANCE).build()
+            );
+            assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
+        }
+
+        @Test
+        void backofficeDeferredCredentials_post_shouldReturn401_whenNoAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(BACKOFFICE_DEFERRED_CREDENTIALS).build()
+            );
+            assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
+        }
+    }
+
+    // ── Authenticated endpoints — 200 with valid Bearer token ───────────
+
+    @Nested
+    @DisplayName("Authenticated endpoints — should return 200 with valid Bearer token")
+    class AuthenticatedEndpointsWithAuth {
+
+        @BeforeEach
+        void stubAuth() {
+            stubAuthManagerSuccess();
+        }
+
+        @Test
+        void statusList_post_shouldReturn200_whenAuthenticated() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(STATUS_LIST_BASE)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer good-token")
+                            .build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+            verify(customAuthenticationManager).authenticate(any());
+        }
+
+        @Test
+        void oid4vciCredential_post_shouldReturn200_whenAuthenticated() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(OID4VCI_CREDENTIAL_PATH)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer good-token")
+                            .build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+            verify(customAuthenticationManager).authenticate(any());
+        }
+
+        @Test
+        void oid4vciDeferredCredential_post_shouldReturn200_whenAuthenticated() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(OID4VCI_DEFERRED_CREDENTIAL_PATH)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer good-token")
+                            .build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+            verify(customAuthenticationManager).authenticate(any());
+        }
+
+        @Test
+        void oid4vciNotification_post_shouldReturn200_whenAuthenticated() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(OID4VCI_NOTIFICATION_PATH)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer good-token")
+                            .build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+            verify(customAuthenticationManager).authenticate(any());
+        }
+
+        @Test
+        void vciIssuances_post_shouldReturn200_whenAuthenticated() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(VCI_ISSUANCES_PATH)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer good-token")
+                            .build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+            verify(customAuthenticationManager).authenticate(any());
+        }
+
+        @Test
+        void backofficeIssuance_post_shouldReturn200_whenAuthenticated() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(BACKOFFICE_ISSUANCE)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer good-token")
+                            .build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+            verify(customAuthenticationManager).authenticate(any());
+        }
+
+        @Test
+        void backofficeDeferredCredentials_post_shouldReturn200_whenAuthenticated() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(BACKOFFICE_DEFERRED_CREDENTIALS)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer good-token")
+                            .build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+            verify(customAuthenticationManager).authenticate(any());
+        }
     }
 }
