@@ -143,31 +143,6 @@ azure:
   label:
     global: "in2-issuer-backend"
 
-auth-server:
-  # The provider for the authentication server (OPTIONAL) by default is keycloak
-  provider: keycloak
-  # The external URL of the authentication server (REQUIRED)
-  external-url:
-  # The internal URL of the authentication server (REQUIRED)
-  internal-url:
-  # The realm name used for the authentication (REQUIRED)
-  realm:
-  paths:
-    issuer-did: "did:key:z6MkqmaCT2JqdUtLeKah7tEVfNXtDXtQyj4yxEgV11Y5CqUa"
-    jwt-decoder-path: "/realms/${auth-server.realm}/protocol/openid-connect/certs"
-    jwt-decoder-local-path: "/realms/${auth-server.realm}"
-    jwt-validator-path: "/realms/${auth-server.realm}"
-    pre-authorized-code-path: "/realms/${auth-server.realm}/verifiable-credential/${auth-server.paths.issuer-did}/credential-offer"
-    token-path: "/realms/${auth-server.realm}/protocol/openid-connect/token"
-    nonce-validation-path: "/realms/${auth-server.realm}/verifiable-credential/nonce-valid"
-  client:
-    # The client ID used for authentication (REQUIRED)
-    client-id:
-    # The username used for authentication (REQUIRED)
-    username:
-    # The password used for authentication (REQUIRED)
-    password:
-
 default-signer:
   # The common name of the default signer certificate (REQUIRED)
   common-name:

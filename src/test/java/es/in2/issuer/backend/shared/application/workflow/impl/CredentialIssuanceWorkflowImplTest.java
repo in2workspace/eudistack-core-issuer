@@ -68,9 +68,6 @@ class CredentialIssuanceWorkflowImplTest {
     @Mock
     private DeferredCredentialMetadataService deferredCredentialMetadataService;
     @Mock
-    private IssuerApiClientTokenService issuerApiClientTokenService;
-
-    @Mock
     private CredentialSignerWorkflow credentialSignerWorkflow;
 
     @Mock
@@ -341,7 +338,6 @@ class CredentialIssuanceWorkflowImplTest {
     //
     //        when(verifiableCredentialPolicyAuthorizationService.authorize(token, type, jsonNode, idToken)).thenReturn(Mono.empty());
     //        when(verifiableCredentialService.generateVc(processId, preSubmittedCredentialRequest.schema(),preSubmittedCredentialRequest)).thenReturn(Mono.just(procedureId));
-    //        when(issuerApiClientTokenService.getClientToken()).thenReturn(Mono.just("internalToken"));
     //        when(credentialProcedureService.updateCredentialProcedureCredentialStatusToValidByProcedureId(procedureId)).thenReturn(Mono.empty());
     //        when(m2MTokenService.getM2MToken()).thenReturn(Mono.just(new VerifierOauth2AccessToken("", "", "")));
     //        when(credentialSignerWorkflow.signAndUpdateCredentialByProcedureId(BEARER_PREFIX + "internalToken", procedureId, JWT_VC_JSON)).thenReturn(Mono.just("signedCredential"));

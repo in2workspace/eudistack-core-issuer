@@ -52,7 +52,9 @@ class SigningProviderConfigTest {
                 jwsSignHashService,
                 jadesHeaderBuilder,
                 cscSigningProperties,
-                objectMapper
+                objectMapper,
+                "",
+                ""
         );
 
         assertNotNull(provider);
@@ -85,7 +87,9 @@ class SigningProviderConfigTest {
                 jwsSignHashService,
                 jadesHeaderBuilder,
                 cscSigningProperties,
-                objectMapper
+                objectMapper,
+                "",
+                ""
         );
 
         Map<String, SigningProvider> providersByKey =
@@ -119,7 +123,9 @@ class SigningProviderConfigTest {
                 jwsSignHashService,
                 jadesHeaderBuilder,
                 cscSigningProperties,
-                objectMapper
+                objectMapper,
+                "",
+                ""
         );
 
         assertSame(runtimeSigningConfig, ReflectionTestUtils.getField(provider, "runtimeSigningConfig"));

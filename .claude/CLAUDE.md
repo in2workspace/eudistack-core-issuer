@@ -23,7 +23,7 @@ Each context follows: `domain/` (model, service, exception, util) → `applicati
 - **Signing SPI**: `SigningProvider` interface with runtime provider selection via `DelegatingSigningProvider`
 - **Credential format**: Currently only `jwt_vc_json` (W3C VCDM v2.0)
 - **Grant type**: Currently only `pre-authorized_code` (+ `refresh_token`)
-- **Authentication**: Dual filter chain — OID4VCI via `CustomAuthenticationManager` (Verifier tokens), Backoffice via Keycloak JWT decoder
+- **Authentication**: Unified filter chain — all endpoints via `CustomAuthenticationManager` (Verifier tokens + internal tokens)
 - **Credential definitions**: Hardcoded in Java Factory classes (LEARCredentialEmployee, LEARCredentialMachine, LabelCredential)
 
 ## Documentation Index

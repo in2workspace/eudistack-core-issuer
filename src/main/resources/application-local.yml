@@ -45,16 +45,6 @@ app:
   admin-organization-id: VATES-B60645900
   sys-tenant: SYSTEM
 
-auth-server:
-  provider: keycloak
-  external-url: http://localhost:8081
-  internal-url: http://localhost:8081
-  realm: CredentialIssuer
-  client:
-    client-id: oidc4vci-wallet-client
-    username: user
-    password: user
-
 default-signer:
   common-name: "Local Dev Issuer"
   country: "ES"

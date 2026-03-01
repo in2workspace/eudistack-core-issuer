@@ -1,28 +1,20 @@
 package es.in2.issuer.backend.backoffice.infrastructure.config.security;
 
-import es.in2.issuer.backend.shared.domain.service.JWTService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.annotation.Order;
-import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.SecurityWebFiltersOrder;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
-import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
-import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.authentication.AuthenticationWebFilter;
 import org.springframework.security.web.server.authentication.ServerAuthenticationEntryPointFailureHandler;
 import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers;
-import reactor.core.publisher.Mono;
 
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.*;
 
@@ -34,8 +26,6 @@ public class SecurityConfig {
 
     private final CustomAuthenticationManager customAuthenticationManager;
     private final InternalCORSConfig internalCORSConfig;
-    private final PublicCORSConfig publicCORSConfig;
-    private final ReactiveJwtDecoder internalJwtDecoder;
 
     @Bean
     @Primary
@@ -46,16 +36,21 @@ public class SecurityConfig {
     @Bean
     public AuthenticationWebFilter customAuthenticationWebFilter(ProblemAuthenticationEntryPoint entryPoint) {
         AuthenticationWebFilter authenticationWebFilter = new AuthenticationWebFilter(customAuthenticationManager);
-        // Set the path for which the filter will be applied
         log.debug("customAuthenticationWebFilter - inside");
 
         authenticationWebFilter.setRequiresAuthenticationMatcher(
                 ServerWebExchangeMatchers.pathMatchers(
+                        // OID4VCI / VCI paths
                         VCI_ISSUANCES_PATH,
                         OAUTH_TOKEN_PATH,
                         OID4VCI_CREDENTIAL_PATH,
                         OID4VCI_DEFERRED_CREDENTIAL_PATH,
-                        OID4VCI_NOTIFICATION_PATH)
+                        OID4VCI_NOTIFICATION_PATH,
+                        // Backoffice paths (migrated from internalFilterChain)
+                        BACKOFFICE_PATH,
+                        STATUS_LIST_PATH,
+                        SIGNING_PROVIDERS_PATH,
+                        SIGNING_CONFIG_PATH)
         );
 
         authenticationWebFilter.setServerAuthenticationConverter(new DualTokenServerAuthenticationConverter());
@@ -63,88 +58,23 @@ public class SecurityConfig {
         return authenticationWebFilter;
     }
 
-
-    @Bean
-    public Converter<Jwt, Mono<AbstractAuthenticationToken>> jwtAuthenticationConverter(
-            JWTService jwtService
-    ) {
-        return new JwtToAuthConverter(jwtService);
-    }
-
-    static final class JwtToAuthConverter implements Converter<Jwt, Mono<AbstractAuthenticationToken>> {
-
-        private final JwtGrantedAuthoritiesConverter authoritiesConverter = new JwtGrantedAuthoritiesConverter();
-        private final JWTService jwtService;
-
-        JwtToAuthConverter(JWTService jwtService) {
-            this.jwtService = jwtService;
-        }
-
-        @Override
-        @SuppressWarnings("java:S2638") // Suppressed: Spring's @Nullable conflicts with package @NonNullApi, but method never returns null
-        public Mono<AbstractAuthenticationToken> convert(Jwt jwt) {
-            // Resolve principal (prefer mandatee email; fallback to sub)
-            String principal = jwtService.resolvePrincipal(jwt);
-            log.info("SecurityConfig - JwtToAuthCoverter - convert: extracted principal: {}", principal);
-            var authorities = authoritiesConverter.convert(jwt);
-            return Mono.just(new JwtAuthenticationToken(jwt, authorities, principal));
-        }
-    }
-
     @Bean
     @Order(1)
-    public SecurityWebFilterChain publicFilterChain(
+    public SecurityWebFilterChain unifiedFilterChain(
             ServerHttpSecurity http,
             ProblemAuthenticationEntryPoint entryPoint,
             ProblemAccessDeniedHandler deniedH
     ) {
-        log.debug("publicFilterChain - inside");
+        log.debug("unifiedFilterChain - inside");
 
         http
                 .securityMatcher(ServerWebExchangeMatchers.pathMatchers(
+                        // Public OID4VCI paths
                         CORS_OID4VCI_PATH,
                         VCI_PATH,
                         WELL_KNOWN_PATH,
-                        OAUTH_PATH
-                ))
-                .cors(cors -> cors.configurationSource(publicCORSConfig.publicCorsConfigurationSource()))
-                .authorizeExchange(exchange -> exchange
-                        .pathMatchers(HttpMethod.GET,
-                                CORS_CREDENTIAL_OFFER_PATH,
-                                CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_PATH,
-                                AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH
-                        ).permitAll()
-                        .pathMatchers(HttpMethod.POST, OAUTH_TOKEN_PATH).permitAll()
-                        .pathMatchers(HttpMethod.POST,
-                                VCI_ISSUANCES_PATH,
-                                OID4VCI_CREDENTIAL_PATH,
-                                OID4VCI_DEFERRED_CREDENTIAL_PATH,
-                                OID4VCI_NOTIFICATION_PATH
-                        ).authenticated()
-                        .anyExchange().denyAll()
-                )
-                .csrf(ServerHttpSecurity.CsrfSpec::disable)
-                .addFilterAt(customAuthenticationWebFilter(entryPoint), SecurityWebFiltersOrder.AUTHENTICATION)
-                .exceptionHandling(e -> e
-                        .authenticationEntryPoint(entryPoint)
-                        .accessDeniedHandler(deniedH)
-                );
-        log.debug("publicFilterChain - build");
-        return http.build();
-    }
-
-    @Bean
-    @Order(2)
-    public SecurityWebFilterChain internalFilterChain(
-            ServerHttpSecurity http,
-            ProblemAuthenticationEntryPoint entryPoint,
-            ProblemAccessDeniedHandler deniedH,
-            Converter<Jwt, Mono<AbstractAuthenticationToken>> jwtAuthenticationConverter) {
-
-        log.debug("internalFilterChain - inside");
-
-        http
-                .securityMatcher(ServerWebExchangeMatchers.pathMatchers(
+                        OAUTH_PATH,
+                        // Backoffice paths (migrated from internalFilterChain)
                         BACKOFFICE_PATH,
                         STATUS_LIST_PATH,
                         SIGNING_PROVIDERS_PATH,
@@ -155,35 +85,30 @@ public class SecurityConfig {
                 ))
                 .cors(cors -> cors.configurationSource(internalCORSConfig.defaultCorsConfigurationSource()))
                 .authorizeExchange(exchange -> exchange
+                        // Public endpoints (no auth)
                         .pathMatchers(HttpMethod.GET,
+                                CORS_CREDENTIAL_OFFER_PATH,
+                                CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_PATH,
+                                AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH,
                                 HEALTH_PATH,
                                 PROMETHEUS_PATH,
-                                SPRINGDOC_PATH
+                                SPRINGDOC_PATH,
+                                STATUS_LIST_PATH,
+                                SIGNING_PROVIDERS_PATH,
+                                BACKOFFICE_STATUS_CREDENTIALS
                         ).permitAll()
-                        .pathMatchers(HttpMethod.GET, STATUS_LIST_PATH).permitAll()
-                        .pathMatchers(HttpMethod.GET, SIGNING_PROVIDERS_PATH).permitAll()
+                        .pathMatchers(HttpMethod.POST, OAUTH_TOKEN_PATH).permitAll()
                         .pathMatchers(HttpMethod.PUT, SIGNING_CONFIG_PATH).permitAll()
-                        .pathMatchers(HttpMethod.POST, STATUS_LIST_PATH).authenticated()
-                        .pathMatchers(HttpMethod.GET, BACKOFFICE_STATUS_CREDENTIALS).permitAll()
-                        .pathMatchers(HttpMethod.GET, BACKOFFICE_PATH).authenticated()
-                        .pathMatchers(HttpMethod.POST, BACKOFFICE_PATH ).authenticated()
-                        .pathMatchers(HttpMethod.PUT, BACKOFFICE_PATH).authenticated()
-                        .pathMatchers(HttpMethod.DELETE, BACKOFFICE_PATH).authenticated()
-                        .anyExchange().denyAll()
+                        // Authenticated endpoints (all go through CustomAuthenticationManager)
+                        .anyExchange().authenticated()
                 )
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
-                .oauth2ResourceServer(oauth2 -> oauth2
-                        .authenticationEntryPoint(entryPoint)
-                        .jwt(jwt -> jwt
-                                .jwtDecoder(internalJwtDecoder)
-                                .jwtAuthenticationConverter(jwtAuthenticationConverter)
-                        )
-                )
+                .addFilterAt(customAuthenticationWebFilter(entryPoint), SecurityWebFiltersOrder.AUTHENTICATION)
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(deniedH)
                 );
-        log.debug("backofficeFilterChain - build");
+        log.debug("unifiedFilterChain - build");
         return http.build();
     }
 

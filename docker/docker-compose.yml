@@ -73,15 +73,6 @@ services:
       APP_ADMIN_ORGANIZATION_ID: VATES-B60645900
       APP_SYS_TENANT: SYSTEM
 
-      # --- Auth Server (Keycloak - minimal for now) -------------------------
-      AUTH_SERVER_PROVIDER: keycloak
-      AUTH_SERVER_EXTERNAL_URL: http://localhost:8081
-      AUTH_SERVER_INTERNAL_URL: http://localhost:8081
-      AUTH_SERVER_REALM: CredentialIssuer
-      AUTH_SERVER_CLIENT_CLIENT_ID: oidc4vci-wallet-client
-      AUTH_SERVER_CLIENT_USERNAME: user
-      AUTH_SERVER_CLIENT_PASSWORD: user
-
       # --- Issuer Identity ---------------------------------------------------
       ISSUER_IDENTITY_CREDENTIAL_SUBJECT_DID_KEY: "did:key:z6MkqmaCT2JqdUtLeKah7tEVfNXtDXtQyj4yxEgV11Y5CqUa"
       ISSUER_IDENTITY_JWT_CREDENTIAL: ""

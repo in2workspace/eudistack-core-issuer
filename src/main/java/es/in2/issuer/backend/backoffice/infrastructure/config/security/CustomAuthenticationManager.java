@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.StreamSupport;
 
 @Configuration
@@ -139,7 +140,7 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
 
     private Mono<Jwt> handleVerifierToken(String token) {
         return verifierService.verifyToken(token)
-                .then(parseAndValidateJwt(token, Boolean.TRUE));
+                .then(parseAndValidateJwt(token, Boolean.FALSE));
     }
 
     private Mono<Jwt> handleIssuerBackendToken(String token) {
@@ -185,6 +186,11 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
         });
     }
 
+    private static final Set<String> ACCEPTED_VC_TYPES = Set.of(
+            "LEARCredentialMachine",
+            "LEARCredentialEmployee"
+    );
+
     private void validateVcClaim(Map<String, Object> claims) {
         Object vcObj = claims.get("vc");
         log.debug("✅ validateVcClaim");
@@ -212,9 +218,9 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
         }
         JsonNode typeNode = vcNode.get("type");
         if (typeNode == null || !typeNode.isArray() || StreamSupport.stream(typeNode.spliterator(), false)
-                .noneMatch(node -> "LEARCredentialMachine".equals(node.asText()))) {
-            log.error("❌Credential type required: LEARCredentialMachine.");
-            throw new BadCredentialsException("Credential type required: LEARCredentialMachine.");
+                .noneMatch(node -> ACCEPTED_VC_TYPES.contains(node.asText()))) {
+            log.error("❌ Credential type required: one of {}.", ACCEPTED_VC_TYPES);
+            throw new BadCredentialsException("Credential type required: one of " + ACCEPTED_VC_TYPES);
         }
     }
 }

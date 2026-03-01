@@ -57,11 +57,6 @@ public class CertificateServiceImpl implements CertificateService {
                 });
     }
 
-    private Mono<String> validateCertWithAuthServer (X509Certificate cert){
-        // call to keycloak to get a token
-        return Mono.just("test");
-    }
-
     private Mono<String> extractOrganizationIdFromCert(X509Certificate cert) {
         return Mono.fromCallable(() -> {
             X500Principal principal = cert.getSubjectX500Principal();

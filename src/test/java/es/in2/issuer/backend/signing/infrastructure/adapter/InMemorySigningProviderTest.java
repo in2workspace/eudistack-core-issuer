@@ -23,8 +23,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(MockitoExtension.class)
 class InMemorySigningProviderTest {
 
-    @InjectMocks
-    private InMemorySigningProvider provider;
+    private final InMemorySigningProvider provider = new InMemorySigningProvider();
 
     @Test
     void signReturnsJwsLikeStringForJades() {
