@@ -24,8 +24,9 @@ public class CredentialProcedureController {
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
     public Mono<CredentialProcedures> getAllCredentialProcedures(@RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader) {
-        return accessTokenService.getOrganizationId(authorizationHeader)
-                .flatMap(credentialProcedureService::getAllProceduresVisibleFor)
+        return accessTokenService.getOrganizationContext(authorizationHeader)
+                .flatMap(ctx -> credentialProcedureService.getAllProceduresVisibleFor(
+                        ctx.organizationIdentifier(), ctx.sysAdmin()))
                 .doOnNext(result -> log.info("CredentialManagementController - getAllProcedures()"));
     }
 
@@ -34,8 +35,9 @@ public class CredentialProcedureController {
     @ResponseStatus(HttpStatus.OK)
     public Mono<CredentialDetails> getCredentialByProcedureId(@RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
                                                               @PathVariable("procedure_id") String procedureId) {
-        return accessTokenService.getOrganizationId(authorizationHeader)
-                .flatMap(organizationId -> credentialProcedureService.getProcedureDetailByProcedureIdAndOrganizationId(organizationId, procedureId))
+        return accessTokenService.getOrganizationContext(authorizationHeader)
+                .flatMap(ctx -> credentialProcedureService.getProcedureDetailByProcedureIdAndOrganizationId(
+                        ctx.organizationIdentifier(), procedureId, ctx.sysAdmin()))
                 .doOnNext(result -> log.info("CredentialManagementController - getProcedure()"));
     }
 

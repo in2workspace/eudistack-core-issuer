@@ -28,11 +28,11 @@ public interface CredentialProcedureService {
 
     Flux<String> getAllIssuedCredentialByOrganizationIdentifier(String organizationIdentifier);
 
-    Mono<CredentialProcedures> getAllProceduresVisibleFor(String organizationIdentifier);
+    Mono<CredentialProcedures> getAllProceduresVisibleFor(String organizationIdentifier, boolean sysAdmin);
 
     Mono<CredentialProcedures> getAllProceduresBasicInfoByOrganizationId(String organizationIdentifier);
 
-    Mono<CredentialDetails> getProcedureDetailByProcedureIdAndOrganizationId(String organizationIdentifier, String procedureId);
+    Mono<CredentialDetails> getProcedureDetailByProcedureIdAndOrganizationId(String organizationIdentifier, String procedureId, boolean sysAdmin);
 
     Mono<Void> updateCredentialProcedureCredentialStatusToValidByProcedureId(String procedureId);
 

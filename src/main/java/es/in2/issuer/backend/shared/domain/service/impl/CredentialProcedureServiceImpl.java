@@ -199,13 +199,13 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
     }
 
     @Override
-    public Mono<CredentialDetails> getProcedureDetailByProcedureIdAndOrganizationId(String organizationIdentifier, String procedureId) {
+    public Mono<CredentialDetails> getProcedureDetailByProcedureIdAndOrganizationId(String organizationIdentifier, String procedureId, boolean sysAdmin) {
         Mono<CredentialProcedure> credentialProcedureMono;
         log.info("getProcedureDetailByProcedureIdAndOrganizationId");
-        if(appConfig.getAdminOrganizationId().equals(organizationIdentifier)){
+        if (sysAdmin) {
             log.info("User is admin.");
             credentialProcedureMono = credentialProcedureRepository.findByProcedureId(UUID.fromString(procedureId));
-        }else{
+        } else {
             credentialProcedureMono = credentialProcedureRepository.findByProcedureIdAndOrganizationIdentifier(UUID.fromString(procedureId), organizationIdentifier);
         }
         return credentialProcedureMono
@@ -311,8 +311,8 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
     }
 
     @Override
-    public Mono<CredentialProcedures> getAllProceduresVisibleFor(String organizationIdentifier) {
-        if (appConfig.getAdminOrganizationId().equals(organizationIdentifier)) {
+    public Mono<CredentialProcedures> getAllProceduresVisibleFor(String organizationIdentifier, boolean sysAdmin) {
+        if (sysAdmin) {
             return getAllProceduresBasicInfoForAllOrganizations();
         }
         return getAllProceduresBasicInfoByOrganizationId(organizationIdentifier);

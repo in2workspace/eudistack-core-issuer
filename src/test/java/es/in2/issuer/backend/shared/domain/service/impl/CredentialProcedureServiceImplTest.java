@@ -355,7 +355,7 @@ class CredentialProcedureServiceImplTest {
                 .verifyComplete();
     }
 
-    // ---------- Admin bypass tests updated to use AppConfig ----------
+    // ---------- Admin bypass tests use boolean sysAdmin parameter ----------
 
     @Test
     void getProcedureDetailByProcedureIdAndOrganizationId_shouldReturnCredentialDetails_forRegularOrg() throws Exception {
@@ -386,7 +386,7 @@ class CredentialProcedureServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = credentialProcedureService
-                .getProcedureDetailByProcedureIdAndOrganizationId(organizationIdentifier, procedureId);
+                .getProcedureDetailByProcedureIdAndOrganizationId(organizationIdentifier, procedureId, false);
 
         // Then
         StepVerifier.create(result)
@@ -407,9 +407,9 @@ class CredentialProcedureServiceImplTest {
 
     @Test
     void getProcedureDetailByProcedureIdAndOrganizationId_shouldReturnCredentialDetails_forAdminOrg() throws Exception {
-        // Given (admin organization -> bypass)
+        // Given (admin organization -> bypass via sysAdmin=true)
         String procedureId = UUID.randomUUID().toString();
-        String organizationIdentifier = ADMIN_ORG_ID; // use admin org id
+        String organizationIdentifier = ADMIN_ORG_ID;
         String credentialDecoded = "{\"vc\":{\"type\":[\"TestCredentialType\"]}}";
         UUID expectedProcedureId = UUID.fromString(procedureId);
         String operationMode = "remote";
@@ -433,7 +433,7 @@ class CredentialProcedureServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = credentialProcedureService
-                .getProcedureDetailByProcedureIdAndOrganizationId(organizationIdentifier, procedureId);
+                .getProcedureDetailByProcedureIdAndOrganizationId(organizationIdentifier, procedureId, true);
 
         // Then
         StepVerifier.create(result)
@@ -462,7 +462,7 @@ class CredentialProcedureServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = credentialProcedureService
-                .getProcedureDetailByProcedureIdAndOrganizationId(organizationIdentifier, procedureId);
+                .getProcedureDetailByProcedureIdAndOrganizationId(organizationIdentifier, procedureId, false);
 
         // Then
         StepVerifier.create(result)
@@ -477,14 +477,14 @@ class CredentialProcedureServiceImplTest {
     void getProcedureDetailByProcedureIdAndOrganizationId_shouldErrorWhenNotFound_forAdminOrg() {
         // Given
         String procedureId = UUID.randomUUID().toString();
-        String organizationIdentifier = ADMIN_ORG_ID; // admin path
+        String organizationIdentifier = ADMIN_ORG_ID;
 
         when(credentialProcedureRepository.findByProcedureId(any(UUID.class)))
                 .thenReturn(Mono.empty());
 
         // When
         Mono<CredentialDetails> result = credentialProcedureService
-                .getProcedureDetailByProcedureIdAndOrganizationId(organizationIdentifier, procedureId);
+                .getProcedureDetailByProcedureIdAndOrganizationId(organizationIdentifier, procedureId, true);
 
         // Then
         StepVerifier.create(result)
@@ -511,7 +511,7 @@ class CredentialProcedureServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = credentialProcedureService
-                .getProcedureDetailByProcedureIdAndOrganizationId(organizationIdentifier, procedureId);
+                .getProcedureDetailByProcedureIdAndOrganizationId(organizationIdentifier, procedureId, false);
 
         // Then
         StepVerifier.create(result)
@@ -603,7 +603,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(Flux.fromIterable(List.of(cp2, cp1)));
 
         // When
-        Mono<CredentialProcedures> mono = credentialProcedureService.getAllProceduresVisibleFor(adminOrg);
+        Mono<CredentialProcedures> mono = credentialProcedureService.getAllProceduresVisibleFor(adminOrg, true);
 
         // Then
         StepVerifier.create(mono)
@@ -668,7 +668,7 @@ class CredentialProcedureServiceImplTest {
                 .when(spyService).getAllProceduresBasicInfoByOrganizationId(orgId);
 
         // When
-        Mono<CredentialProcedures> mono = spyService.getAllProceduresVisibleFor(orgId);
+        Mono<CredentialProcedures> mono = spyService.getAllProceduresVisibleFor(orgId, false);
 
         // Then
         StepVerifier.create(mono)
@@ -693,7 +693,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(Flux.empty());
 
         // When
-        Mono<CredentialProcedures> mono = credentialProcedureService.getAllProceduresVisibleFor(ADMIN_ORG_ID);
+        Mono<CredentialProcedures> mono = credentialProcedureService.getAllProceduresVisibleFor(ADMIN_ORG_ID, true);
 
         // Then
         StepVerifier.create(mono)

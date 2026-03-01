@@ -14,7 +14,7 @@ import es.in2.issuer.backend.shared.domain.service.*;
 import es.in2.issuer.backend.shared.domain.util.JwtUtils;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
-import es.in2.issuer.backend.shared.infrastructure.config.security.service.VerifiableCredentialPolicyAuthorizationService;
+import es.in2.issuer.backend.shared.infrastructure.config.security.service.IssuancePdpService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -42,7 +42,7 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
     private final EmailService emailService;
     private final CredentialProcedureService credentialProcedureService;
     private final DeferredCredentialMetadataService deferredCredentialMetadataService;
-    private final VerifiableCredentialPolicyAuthorizationService verifiableCredentialPolicyAuthorizationService;
+    private final IssuancePdpService issuancePdpService;
     private final TrustFrameworkService trustFrameworkService;
     private final LEARCredentialEmployeeFactory credentialEmployeeFactory;
     private final CredentialIssuerMetadataService credentialIssuerMetadataService;
@@ -73,7 +73,7 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
                 extractCredentialOfferEmailInfo(preSubmittedCredentialDataRequest);
 
         // Validate user policy before proceeding
-        return verifiableCredentialPolicyAuthorizationService.authorize(token, preSubmittedCredentialDataRequest.schema(), preSubmittedCredentialDataRequest.payload(), idToken)
+        return issuancePdpService.authorize(token, preSubmittedCredentialDataRequest.schema(), preSubmittedCredentialDataRequest.payload(), idToken)
                 .then(verifiableCredentialService.generateVc(processId, preSubmittedCredentialDataRequest, emailInfo.email(), token)
                         .flatMap(transactionCode -> sendCredentialOfferEmail(transactionCode, emailInfo))
                 );

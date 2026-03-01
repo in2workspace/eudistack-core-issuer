@@ -7,6 +7,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.employee.LEARCredentialEmployee;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
 import es.in2.issuer.backend.shared.domain.policy.PolicyEnforcer;
+import es.in2.issuer.backend.shared.domain.policy.rules.RequireCertificationIssuanceRule;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
 import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
@@ -34,7 +35,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class VerifiableCredentialPolicyAuthorizationServiceImplIntegrationTest {
+class IssuancePdpServiceImplIntegrationTest {
 
     private static final String ADMIN_ORG_ID = "IN2_ADMIN_ORG_ID_FOR_TEST";
 
@@ -62,7 +63,7 @@ class VerifiableCredentialPolicyAuthorizationServiceImplIntegrationTest {
     @Mock
     private DeferredCredentialMetadataService deferredCredentialMetadataService;
 
-    private VerifiableCredentialPolicyAuthorizationServiceImpl policyAuthorizationService;
+    private IssuancePdpServiceImpl issuancePdpService;
 
     @BeforeEach
     void setUp() {
@@ -80,7 +81,6 @@ class VerifiableCredentialPolicyAuthorizationServiceImplIntegrationTest {
                 .when(appConfig.getAdminOrganizationId())
                 .thenReturn(ADMIN_ORG_ID);
 
-        // Build a real PolicyContextFactory with real JWTService and ObjectMapper
         PolicyContextFactory policyContextFactory = new PolicyContextFactory(
                 jwtService,
                 objectMapper,
@@ -91,13 +91,14 @@ class VerifiableCredentialPolicyAuthorizationServiceImplIntegrationTest {
 
         PolicyEnforcer policyEnforcer = new PolicyEnforcer();
 
-        policyAuthorizationService = new VerifiableCredentialPolicyAuthorizationServiceImpl(
+        RequireCertificationIssuanceRule certificationRule = new RequireCertificationIssuanceRule(
+                verifierService, jwtService, objectMapper, credentialFactory);
+
+        issuancePdpService = new IssuancePdpServiceImpl(
                 policyContextFactory,
                 policyEnforcer,
                 objectMapper,
-                jwtService,
-                credentialFactory,
-                verifierService
+                certificationRule
         );
     }
 
@@ -142,7 +143,7 @@ class VerifiableCredentialPolicyAuthorizationServiceImplIntegrationTest {
         LEARCredentialEmployee learCredential = getLEARCredentialEmployee();
         when(learCredentialEmployeeFactory.mapStringToLEARCredentialEmployee(any())).thenReturn(learCredential);
 
-        Mono<Void> result = policyAuthorizationService.authorize(token, LEAR_CREDENTIAL_EMPLOYEE, jsonNode, "dummy-id-token");
+        Mono<Void> result = issuancePdpService.authorize(token, LEAR_CREDENTIAL_EMPLOYEE, jsonNode, "dummy-id-token");
 
         StepVerifier.create(result).verifyComplete();
     }

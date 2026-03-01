@@ -2,6 +2,7 @@ package es.in2.issuer.backend.backoffice.infrastructure.controller;
 
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialDetails;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedures;
+import es.in2.issuer.backend.shared.domain.model.dto.OrgContext;
 import es.in2.issuer.backend.shared.domain.model.dto.ProcedureBasicInfo;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
@@ -37,6 +38,8 @@ class CredentialProcedureControllerTest {
     void getAllCredentialProcedures() {
         // Arrange
         String organizationId = "testOrganizationId";
+        OrgContext orgContext = new OrgContext(organizationId, false);
+
         ProcedureBasicInfo procedureBasicInfo = ProcedureBasicInfo.builder()
                 .procedureId(UUID.randomUUID())
                 .subject("testFullName")
@@ -52,11 +55,10 @@ class CredentialProcedureControllerTest {
                 .credentialProcedures(List.of(credentialProcedure))
                 .build();
 
-        when(accessTokenService.getOrganizationId(anyString()))
-                .thenReturn(Mono.just(organizationId));
+        when(accessTokenService.getOrganizationContext(anyString()))
+                .thenReturn(Mono.just(orgContext));
 
-        // IMPORTANT: controller calls getAllProceduresVisibleFor(...)
-        when(credentialProcedureService.getAllProceduresVisibleFor(organizationId))
+        when(credentialProcedureService.getAllProceduresVisibleFor(organizationId, false))
                 .thenReturn(Mono.just(credentialProcedures));
 
         // Act
@@ -74,6 +76,7 @@ class CredentialProcedureControllerTest {
         // Arrange
         String organizationId = "testOrganizationId";
         String procedureId = "testProcedureId";
+        OrgContext orgContext = new OrgContext(organizationId, false);
 
         CredentialDetails credentialDetails = CredentialDetails.builder()
                 .procedureId(UUID.randomUUID())
@@ -81,10 +84,10 @@ class CredentialProcedureControllerTest {
                 .credential(null)
                 .build();
 
-        when(accessTokenService.getOrganizationId(anyString()))
-                .thenReturn(Mono.just(organizationId));
+        when(accessTokenService.getOrganizationContext(anyString()))
+                .thenReturn(Mono.just(orgContext));
 
-        when(credentialProcedureService.getProcedureDetailByProcedureIdAndOrganizationId(organizationId, procedureId))
+        when(credentialProcedureService.getProcedureDetailByProcedureIdAndOrganizationId(organizationId, procedureId, false))
                 .thenReturn(Mono.just(credentialDetails));
 
         // Act

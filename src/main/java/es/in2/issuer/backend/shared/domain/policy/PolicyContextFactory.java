@@ -3,9 +3,7 @@ package es.in2.issuer.backend.shared.domain.policy;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
-import es.in2.issuer.backend.shared.domain.exception.JWTParsingException;
 import es.in2.issuer.backend.shared.domain.exception.ParseErrorException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.LEARCredential;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
@@ -18,7 +16,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
-import java.text.ParseException;
 import java.util.List;
 import java.util.stream.StreamSupport;
 
@@ -41,20 +38,11 @@ public class PolicyContextFactory {
 
     /**
      * Creates a PolicyContext from a JWT token for Backoffice and StatusList PDPs.
-     * These PDPs always expect a LEARCredentialEmployee in the VC claim
-     * and extract the role from the JWT claims set.
+     * These PDPs always expect a LEARCredentialEmployee in the VC claim.
      */
-    public Mono<PolicyContext> fromTokenSimple(String token) {
+    public Mono<PolicyContext> fromTokenSimple(String token, String tenantDomain) {
         return Mono.fromCallable(() -> jwtService.parseJWT(token))
                 .flatMap(signedJWT -> {
-                    String role;
-                    try {
-                        role = (String) signedJWT.getJWTClaimsSet().getClaim(ROLE);
-                        log.info("Extracted role: {}", role);
-                    } catch (ParseException e) {
-                        return Mono.error(new JWTParsingException(e.getMessage()));
-                    }
-
                     String vcClaim = jwtService.getClaimFromPayload(signedJWT.getPayload(), VC);
                     log.debug("VC claim: {}", vcClaim);
 
@@ -74,42 +62,30 @@ public class PolicyContextFactory {
                             .mandate()
                             .power();
 
-                    boolean isSysAdmin = orgId.equals(appConfig.getAdminOrganizationId());
+                    boolean isSysAdmin = orgId.equals(appConfig.getAdminOrganizationId())
+                            && hasOnboardingExecutePower(powers);
 
                     return Mono.just(new PolicyContext(
-                            role,
                             orgId,
                             powers,
                             learCredentialEmployee,
                             LEAR_CREDENTIAL_EMPLOYEE,
-                            isSysAdmin
+                            isSysAdmin,
+                            tenantDomain
                     ));
                 });
     }
 
     /**
-     * Creates a PolicyContext from a JWT token for VerifiableCredentialPolicyAuthorizationService.
-     * This handles the complex case where:
-     * - The token may or may not have a role claim
+     * Creates a PolicyContext from a JWT token for IssuancePdpService.
+     * This handles the case where:
      * - The VC may be Employee or Machine type
      * - The allowed credential type depends on the schema being issued
      */
-    public Mono<PolicyContext> fromTokenForIssuance(String token, String schema) {
+    public Mono<PolicyContext> fromTokenForIssuance(String token, String schema, String tenantDomain) {
         return Mono.fromCallable(() -> jwtService.parseJWT(token))
                 .flatMap(signedJWT -> {
-                    String payloadStr = signedJWT.getPayload().toString();
-                    String role = null;
-                    if (payloadStr.contains(ROLE)) {
-                        String roleClaim = jwtService.getClaimFromPayload(signedJWT.getPayload(), ROLE);
-                        // Use empty string when role key exists but value is null,
-                        // to distinguish from "no role key at all" (null).
-                        // This preserves the original behavior where having a null role
-                        // triggers the authorizeByRole path -> "Role is empty" error.
-                        role = (roleClaim != null) ? roleClaim.replace("\"", "") : "";
-                    }
-
                     String vcClaim = jwtService.getClaimFromPayload(signedJWT.getPayload(), VC);
-                    String finalRole = role;
 
                     return checkIfCredentialTypeIsAllowedToIssue(vcClaim, schema)
                             .flatMap(credentialType -> mapVcToLEARCredential(vcClaim, credentialType)
@@ -117,15 +93,16 @@ public class PolicyContextFactory {
                                         String orgId = resolveOrganizationIdentifier(credential);
                                         List<Power> powers = extractPowers(credential);
                                         boolean isSysAdmin = orgId != null
-                                                && orgId.equals(appConfig.getAdminOrganizationId());
+                                                && orgId.equals(appConfig.getAdminOrganizationId())
+                                                && hasOnboardingExecutePower(powers);
 
                                         return new PolicyContext(
-                                                finalRole,
                                                 orgId,
                                                 powers,
                                                 credential,
                                                 credentialType,
-                                                isSysAdmin
+                                                isSysAdmin,
+                                                tenantDomain
                                         );
                                     }));
                 });
@@ -185,6 +162,11 @@ public class PolicyContextFactory {
                 throw new InsufficientPermissionException("Invalid format for credential type.");
             }
         });
+    }
+
+    private boolean hasOnboardingExecutePower(List<Power> powers) {
+        return powers.stream().anyMatch(p ->
+                "Onboarding".equals(p.function()) && PolicyContext.hasAction(p, "Execute"));
     }
 
     private Mono<String> determineAllowedCredentialType(List<String> types, String schema) {

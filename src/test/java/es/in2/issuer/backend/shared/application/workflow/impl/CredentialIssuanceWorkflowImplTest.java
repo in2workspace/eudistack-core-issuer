@@ -21,7 +21,7 @@ import es.in2.issuer.backend.shared.domain.service.*;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import es.in2.issuer.backend.shared.infrastructure.config.WebClientConfig;
-import es.in2.issuer.backend.shared.infrastructure.config.security.service.VerifiableCredentialPolicyAuthorizationService;
+import es.in2.issuer.backend.shared.infrastructure.config.security.service.IssuancePdpService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -74,7 +74,7 @@ class CredentialIssuanceWorkflowImplTest {
     private WebClientConfig webClientConfig;
 
     @Mock
-    private VerifiableCredentialPolicyAuthorizationService verifiableCredentialPolicyAuthorizationService;
+    private IssuancePdpService issuancePdpService;
 
     @Mock
     private TrustFrameworkService trustFrameworkService;
@@ -184,7 +184,7 @@ class CredentialIssuanceWorkflowImplTest {
         PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest = PreSubmittedCredentialDataRequest.builder().payload(jsonNode).schema("LEARCredentialEmployee").format(JWT_VC_JSON).operationMode("S").build();
         String transactionCode = "4321";
 
-        when(verifiableCredentialPolicyAuthorizationService.authorize(token, type, jsonNode, idToken)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(token, type, jsonNode, idToken)).thenReturn(Mono.empty());
         when(verifiableCredentialService.generateVc(processId, preSubmittedCredentialDataRequest, expectedEmail, token))
                 .thenReturn(Mono.just(transactionCode));
         when(appConfig.getIssuerFrontendUrl()).thenReturn(issuerUiExternalDomain);
@@ -264,7 +264,7 @@ class CredentialIssuanceWorkflowImplTest {
                 .build();
         String transactionCode = "4321";
 
-        when(verifiableCredentialPolicyAuthorizationService.authorize(token, type, jsonNode, null)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(token, type, jsonNode, null)).thenReturn(Mono.empty());
         when(verifiableCredentialService.generateVc(processId, preSubmittedCredentialDataRequest, expectedEmail, token))
                 .thenReturn(Mono.just(transactionCode));
         when(appConfig.getIssuerFrontendUrl()).thenReturn(issuerUiExternalDomain);
@@ -336,7 +336,7 @@ class CredentialIssuanceWorkflowImplTest {
     //        PreSubmittedCredentialRequest preSubmittedCredentialRequest = PreSubmittedCredentialRequest.builder().payload(jsonNode).schema("VerifiableCertification").format(JWT_VC_JSON).responseUri("https://example.com/1234").operationMode("S").build();
     //
     //
-    //        when(verifiableCredentialPolicyAuthorizationService.authorize(token, type, jsonNode, idToken)).thenReturn(Mono.empty());
+    //        when(issuancePdpService.authorize(token, type, jsonNode, idToken)).thenReturn(Mono.empty());
     //        when(verifiableCredentialService.generateVc(processId, preSubmittedCredentialRequest.schema(),preSubmittedCredentialRequest)).thenReturn(Mono.just(procedureId));
     //        when(credentialProcedureService.updateCredentialProcedureCredentialStatusToValidByProcedureId(procedureId)).thenReturn(Mono.empty());
     //        when(m2MTokenService.getM2MToken()).thenReturn(Mono.just(new VerifierOauth2AccessToken("", "", "")));
@@ -570,7 +570,7 @@ class CredentialIssuanceWorkflowImplTest {
                         .email(email) // <- important for the test
                         .build();
 
-        when(verifiableCredentialPolicyAuthorizationService.authorize(token, schema, payload, idToken))
+        when(issuancePdpService.authorize(token, schema, payload, idToken))
                 .thenReturn(Mono.empty());
 
         when(verifiableCredentialService.generateVc(processId, req, email, token))
@@ -814,7 +814,7 @@ class CredentialIssuanceWorkflowImplTest {
         String transactionCode = "tx-9876";
 
         // arrange
-        when(verifiableCredentialPolicyAuthorizationService.authorize(token, type, jsonNode, idToken))
+        when(issuancePdpService.authorize(token, type, jsonNode, idToken))
                 .thenReturn(Mono.empty());
 
         when(verifiableCredentialService.generateVc(processId, preSubmittedCredentialDataRequest, expectedEmail, token))
@@ -862,7 +862,7 @@ class CredentialIssuanceWorkflowImplTest {
                 .build();
 
         // when
-        when(verifiableCredentialPolicyAuthorizationService.authorize(token, LABEL_CREDENTIAL, payload, idToken))
+        when(issuancePdpService.authorize(token, LABEL_CREDENTIAL, payload, idToken))
                 .thenReturn(Mono.empty());
         when(verifiableCredentialService.generateVc(processId, req, ownerEmail, token))
                 .thenReturn(Mono.just(tx));
