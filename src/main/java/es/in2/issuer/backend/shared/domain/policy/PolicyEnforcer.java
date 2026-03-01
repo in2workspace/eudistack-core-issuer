@@ -2,7 +2,6 @@ package es.in2.issuer.backend.shared.domain.policy;
 
 import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
 import es.in2.issuer.backend.shared.domain.policy.rules.RequireOrganizationRule;
-import es.in2.issuer.backend.shared.domain.policy.rules.RequireRoleRule;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -39,13 +38,6 @@ public class PolicyEnforcer {
                 .flatMap(anyPassed -> anyPassed
                         ? Mono.<Void>empty()
                         : Mono.error(new InsufficientPermissionException(failureMessage)));
-    }
-
-    /**
-     * Convenience: checks that the context has the required role.
-     */
-    public Mono<Void> enforceRole(PolicyContext context, String requiredRole) {
-        return RequireRoleRule.of(requiredRole).evaluate(context, null);
     }
 
     /**

@@ -20,8 +20,6 @@ public class Constants {
     public static final String MANDATEE = "mandatee";
     public static final String ORGANIZATION = "organization";
     public static final String ORGANIZATION_IDENTIFIER = "organizationIdentifier";
-    public static final String LER = "LER";
-    public static final String SYS_ADMIN = "SYSADMIN";
     public static final String TYPE = "type";
     public static final String CREDENTIAL_STATUS = "credentialStatus";
     public static final String STATUS_LIST_CREDENTIAL = "statusListCredential";

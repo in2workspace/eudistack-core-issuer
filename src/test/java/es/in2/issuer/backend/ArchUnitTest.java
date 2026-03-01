@@ -26,7 +26,8 @@ class ArchUnitTest {
     private static final Set<String> CONSTANTS_CLASSES =
             Set.of(
                     BASE_PACKAGE + ".shared.domain.util.Constants",
-                    BASE_PACKAGE + ".shared.infrastructure.config.SwaggerConfig");
+                    BASE_PACKAGE + ".shared.infrastructure.config.SwaggerConfig",
+                    BASE_PACKAGE + ".shared.infrastructure.config.TenantDomainWebFilter");
 
 //todo
 //    @ArchTest

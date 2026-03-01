@@ -5,7 +5,7 @@ import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
 import es.in2.issuer.backend.shared.domain.policy.rules.RequireOrganizationRule;
-import es.in2.issuer.backend.shared.domain.policy.rules.RequireRoleRule;
+import es.in2.issuer.backend.shared.domain.policy.rules.RequirePowerRule;
 import es.in2.issuer.backend.statuslist.application.policies.StatusListPdpService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,7 +13,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import static es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum.VALID;
-import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR;
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 @Slf4j
 @Service
@@ -27,16 +27,17 @@ public class StatusListPdpServiceImpl implements StatusListPdpService {
                                                String token,
                                                CredentialProcedure procedure) {
 
-        return Mono.defer(() -> {
+        return Mono.deferContextual(reactorCtx -> {
+            String tenantDomain = reactorCtx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null);
             log.info("Process ID: {} - Validating 'revoke' action...", processId);
             return validateStatus(procedure.getCredentialStatus())
-                    .then(Mono.defer(() -> policyContextFactory.fromTokenSimple(token)))
-                    .flatMap(ctx -> {
-                        RequireRoleRule<Void> roleRule = RequireRoleRule.of(LEAR);
-                        return roleRule.evaluate(ctx, null)
-                                .then(new RequireOrganizationRule()
-                                        .evaluate(ctx, procedure.getOrganizationIdentifier()));
-                    });
+                    .then(Mono.defer(() -> policyContextFactory.fromTokenSimple(token, tenantDomain)))
+                    .flatMap(ctx ->
+                            RequirePowerRule.<Void>of("Onboarding", "Execute")
+                                    .evaluate(ctx, null)
+                                    .then(new RequireOrganizationRule()
+                                            .evaluate(ctx, procedure.getOrganizationIdentifier()))
+                    );
         });
     }
 

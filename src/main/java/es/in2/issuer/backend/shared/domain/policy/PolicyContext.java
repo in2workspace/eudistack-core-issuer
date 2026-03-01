@@ -10,12 +10,12 @@ import java.util.List;
  * Created once per request by PolicyContextFactory.
  */
 public record PolicyContext(
-        String role,
         String organizationIdentifier,
         List<Power> powers,
         LEARCredential credential,
         String credentialType,
-        boolean sysAdmin
+        boolean sysAdmin,
+        String tenantDomain
 ) {
 
     /**
@@ -28,12 +28,14 @@ public record PolicyContext(
     }
 
     /**
-     * Checks if the user has any power with the given function and action (separate anyMatch calls).
-     * This preserves the original behavior where function and action were checked independently.
+     * Checks if the user has a power matching the required function, action, and domain.
      */
-    public boolean hasPowerFunctionAndAction(String function, String action) {
-        return powers.stream().anyMatch(p -> function.equals(p.function()))
-                && powers.stream().anyMatch(p -> hasAction(p, action));
+    public boolean hasPowerWithDomain(String function, String action, String domain) {
+        return powers.stream().anyMatch(p ->
+                function.equals(p.function())
+                        && hasAction(p, action)
+                        && domain.equals(p.domain())
+        );
     }
 
     /**

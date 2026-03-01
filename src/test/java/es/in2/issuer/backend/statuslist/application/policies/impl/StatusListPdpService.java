@@ -19,8 +19,9 @@ import reactor.test.StepVerifier;
 import java.util.Collections;
 
 import static es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum.VALID;
-import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR;
 import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -36,15 +37,19 @@ class StatusListPdpServiceImplTest {
         service = new StatusListPdpServiceImpl(policyContextFactory);
     }
 
-    private PolicyContext buildContext(String role, String orgId, boolean sysAdmin) {
+    private PolicyContext buildContext(String orgId, boolean sysAdmin, String tenantDomain) {
         return new PolicyContext(
-                role,
                 orgId,
-                Collections.singletonList(Power.builder().function("Onboarding").action("Execute").build()),
+                Collections.singletonList(Power.builder().function("Onboarding").action("Execute").domain(tenantDomain).build()),
                 null,
                 LEAR_CREDENTIAL_EMPLOYEE,
-                sysAdmin
+                sysAdmin,
+                tenantDomain
         );
+    }
+
+    private PolicyContext buildContextNoPowers(String orgId, boolean sysAdmin, String tenantDomain) {
+        return new PolicyContext(orgId, Collections.emptyList(), null, LEAR_CREDENTIAL_EMPLOYEE, sysAdmin, tenantDomain);
     }
 
     @Test
@@ -59,14 +64,14 @@ class StatusListPdpServiceImplTest {
         when(procedure.getCredentialStatus()).thenReturn(VALID);
         when(procedure.getOrganizationIdentifier()).thenReturn(procedureOrg);
 
-        PolicyContext ctx = buildContext(LEAR, userOrg, false);
-        when(policyContextFactory.fromTokenSimple(token)).thenReturn(Mono.just(ctx));
+        PolicyContext ctx = buildContext(userOrg, false, "DOME");
+        when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
         // Act + Assert
         StepVerifier.create(service.validateRevokeCredential(processId, token, procedure))
                 .verifyComplete();
 
-        verify(policyContextFactory).fromTokenSimple(token);
+        verify(policyContextFactory).fromTokenSimple(eq(token), any());
     }
 
     @Test
@@ -81,8 +86,8 @@ class StatusListPdpServiceImplTest {
         when(procedure.getCredentialStatus()).thenReturn(VALID);
         when(procedure.getOrganizationIdentifier()).thenReturn(procedureOrg);
 
-        PolicyContext ctx = buildContext(LEAR, adminOrg, true);
-        when(policyContextFactory.fromTokenSimple(token)).thenReturn(Mono.just(ctx));
+        PolicyContext ctx = buildContext(adminOrg, true, "DOME");
+        when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
         // Act + Assert
         StepVerifier.create(service.validateRevokeCredential(processId, token, procedure))
@@ -104,22 +109,22 @@ class StatusListPdpServiceImplTest {
     }
 
     @Test
-    void validateRevokeCredential_shouldErrorUnauthorizedRole_whenRoleIsNotLear() {
+    void validateRevokeCredential_shouldErrorUnauthorizedRole_whenNoPower() {
         // Arrange
         String token = "token";
 
         CredentialProcedure procedure = mock(CredentialProcedure.class);
         when(procedure.getCredentialStatus()).thenReturn(VALID);
 
-        PolicyContext ctx = buildContext("SOME_OTHER_ROLE", "ORG_1", false);
-        when(policyContextFactory.fromTokenSimple(token)).thenReturn(Mono.just(ctx));
+        PolicyContext ctx = buildContextNoPowers("ORG_1", false, "DOME");
+        when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
         // Act + Assert
         StepVerifier.create(service.validateRevokeCredential("p-4", token, procedure))
                 .expectError(UnauthorizedRoleException.class)
                 .verify();
 
-        verify(policyContextFactory).fromTokenSimple(token);
+        verify(policyContextFactory).fromTokenSimple(eq(token), any());
     }
 
     @Test
@@ -130,7 +135,7 @@ class StatusListPdpServiceImplTest {
         CredentialProcedure procedure = mock(CredentialProcedure.class);
         when(procedure.getCredentialStatus()).thenReturn(VALID);
 
-        when(policyContextFactory.fromTokenSimple(token))
+        when(policyContextFactory.fromTokenSimple(eq(token), any()))
                 .thenReturn(Mono.error(new JWTParsingException("boom")));
 
         // Act + Assert
@@ -138,7 +143,7 @@ class StatusListPdpServiceImplTest {
                 .expectError(JWTParsingException.class)
                 .verify();
 
-        verify(policyContextFactory).fromTokenSimple(token);
+        verify(policyContextFactory).fromTokenSimple(eq(token), any());
     }
 
     @Test
@@ -152,8 +157,8 @@ class StatusListPdpServiceImplTest {
         when(procedure.getCredentialStatus()).thenReturn(VALID);
         when(procedure.getOrganizationIdentifier()).thenReturn(procedureOrg);
 
-        PolicyContext ctx = buildContext(LEAR, userOrg, false);
-        when(policyContextFactory.fromTokenSimple(token)).thenReturn(Mono.just(ctx));
+        PolicyContext ctx = buildContext(userOrg, false, "DOME");
+        when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
         // Act + Assert
         StepVerifier.create(service.validateRevokeCredential("p-6", token, procedure))
