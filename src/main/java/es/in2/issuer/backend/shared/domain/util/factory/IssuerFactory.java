@@ -32,7 +32,7 @@ public class IssuerFactory {
      * - Remote mode: remote flow, retries, errors are propagated
      */
     public Mono<DetailedIssuer> createDetailedIssuer() {
-        log.debug("🔐: createDetailedIssuer");
+        log.debug("IssuerFactory: createDetailedIssuer");
         return qtspIssuerServiceImpl.isServerMode()
                 ? Mono.just(buildLocalDetailedIssuer())
                 : createRemoteDetailedIssuer();
@@ -44,7 +44,7 @@ public class IssuerFactory {
      * - Remote mode: remote flow, retries, errors are propagated
      */
     public Mono<SimpleIssuer> createSimpleIssuer() {
-        log.debug("🔐: createSimpleIssuer");
+        log.debug("IssuerFactory: createSimpleIssuer");
         return qtspIssuerServiceImpl.isServerMode()
                 ? Mono.just(buildLocalSimpleIssuer())
                 : createRemoteDetailedIssuer()
@@ -59,7 +59,7 @@ public class IssuerFactory {
      *   and completes empty.
      */
     public Mono<DetailedIssuer> createDetailedIssuerAndNotifyOnError(String procedureId, String email) {
-        log.debug("🔐: createDetailedIssuerAndNotifyOnError");
+        log.debug("IssuerFactory: createDetailedIssuerAndNotifyOnError");
         return qtspIssuerServiceImpl.isServerMode()
                 ? Mono.just(buildLocalDetailedIssuer())
                 : createRemoteDetailedIssuerNotifyOnError(procedureId, email);
@@ -71,7 +71,7 @@ public class IssuerFactory {
      *   and completes empty.
      */
     public Mono<SimpleIssuer> createSimpleIssuerAndNotifyOnError(String procedureId, String email) {
-        log.debug("🔐: createSimpleIssuerAndNotifyOnError");
+        log.debug("IssuerFactory: createSimpleIssuerAndNotifyOnError");
         return qtspIssuerServiceImpl.isServerMode()
                 ? Mono.just(buildLocalSimpleIssuer())
                 : createRemoteDetailedIssuerNotifyOnError(procedureId, email)
@@ -103,7 +103,7 @@ public class IssuerFactory {
      * - propagates the error downstream if it still fails
      */
     private Mono<DetailedIssuer> createRemoteDetailedIssuer() {
-        log.debug("🔐: createRemoteDetailedIssuer");
+        log.debug("IssuerFactory: createRemoteDetailedIssuer");
         return remoteIssuerCoreFlow()
                 .retryWhen(buildRetrySpec())
                 .doOnError(err ->
@@ -117,7 +117,7 @@ public class IssuerFactory {
      * - if it still fails, executes handlePostRecoverError(procedureId, email) and completes empty
      */
     private Mono<DetailedIssuer> createRemoteDetailedIssuerNotifyOnError(String procedureId, String email) {
-        log.debug("🔐: createRemoteDetailedIssuerNotifyOnError");
+        log.debug("IssuerFactory: createRemoteDetailedIssuerNotifyOnError");
         return remoteIssuerCoreFlow()
                 .retryWhen(buildRetrySpec())
                 .onErrorResume(err -> {

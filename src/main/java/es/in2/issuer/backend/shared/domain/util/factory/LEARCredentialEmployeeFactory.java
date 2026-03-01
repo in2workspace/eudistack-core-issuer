@@ -100,7 +100,7 @@ public class LEARCredentialEmployeeFactory {
             } else {
                 throw new InvalidCredentialFormatException("Invalid credential format");
             }
-            log.info("✅ {}", employee.toString());
+            log.info("Parsed LEARCredentialEmployee: {}", employee);
             return employee;
         } catch (JsonProcessingException e) {
             log.error("Error parsing LEARCredentialEmployee", e);
@@ -247,7 +247,7 @@ public class LEARCredentialEmployeeFactory {
 
 
     private Mono<LEARCredentialEmployee> bindIssuerToLearCredentialEmployee(LEARCredentialEmployee decodedCredential, String procedureId, String email) {
-        log.debug("🔐: bindIssuerToLearCredentialEmployee");
+        log.debug("bindIssuerToLearCredentialEmployee");
         return issuerFactory.createDetailedIssuerAndNotifyOnError(procedureId, email)
                 .map(issuer -> LEARCredentialEmployee.builder()
                         .context(decodedCredential.context())

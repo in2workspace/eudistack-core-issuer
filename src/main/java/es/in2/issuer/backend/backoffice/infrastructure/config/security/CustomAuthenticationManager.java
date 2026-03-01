@@ -40,7 +40,7 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
 
     @Override
     public Mono<Authentication> authenticate(Authentication authentication) {
-        log.debug("🔐 CustomAuthenticationManager - authenticate - start");
+        log.debug("CustomAuthenticationManager - authenticate - start");
         final String accessToken = String.valueOf(authentication.getCredentials());
         final String maybeIdToken = (authentication instanceof es.in2.issuer.backend.backoffice.infrastructure.config.security.DualTokenAuthentication dta)
                 ? dta.getIdToken()
@@ -100,17 +100,17 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
                     try {
                         return SignedJWT.parse(token);
                     } catch (ParseException e) {
-                        log.error("❌ Failed to parse JWT", e);
+                        log.error("Failed to parse JWT", e);
                         throw new BadCredentialsException("Invalid JWT token format", e);
                     }
                 })
                 .flatMap(signedJWT -> {
                     try {
                         String issuer = signedJWT.getJWTClaimsSet().getIssuer();
-                        log.debug("🔐 CustomAuthenticationManager - Issuer - {}", issuer);
+                        log.debug("CustomAuthenticationManager - Issuer - {}", issuer);
 
                         if (issuer == null) {
-                            log.error("❌ Missing issuer (iss) claim");
+                            log.error("Missing issuer (iss) claim");
                             return Mono.error(new BadCredentialsException("Missing issuer (iss) claim"));
                         }
                         return Mono.just(issuer);
@@ -120,21 +120,21 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
                     }
                 })
                 .onErrorMap(ParseException.class, e -> {
-                    log.error("❌ Unable to parse JWT claims", e);
+                    log.error("Unable to parse JWT claims", e);
                     return new BadCredentialsException("Unable to parse JWT claims", e);
                 });
     }
 
     private Mono<Jwt> verifyAndParseJwtForIssuer(String issuer, String token) {
         if (issuer.equals(appConfig.getVerifierUrl())) {
-            log.debug("✅ Token from Verifier - {}", appConfig.getVerifierUrl());
+            log.debug("Token from Verifier - {}", appConfig.getVerifierUrl());
             return handleVerifierToken(token);
         }
         if (issuer.equals(appConfig.getIssuerBackendUrl())) {
-            log.debug("✅ Token from Credential Issuer - {}", appConfig.getIssuerBackendUrl());
+            log.debug("Token from Credential Issuer - {}", appConfig.getIssuerBackendUrl());
             return handleIssuerBackendToken(token);
         }
-        log.debug("❌ Token from unknown issuer");
+        log.debug("Token from unknown issuer");
         return Mono.error(new BadCredentialsException("Unknown token issuer: " + issuer));
     }
 
@@ -148,20 +148,20 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
                 .flatMap(jwtService::validateJwtSignatureReactive)
                 .flatMap(isValid -> {
                     if (!Boolean.TRUE.equals(isValid)) {
-                        log.error("❌ Invalid JWT signature");
+                        log.error("Invalid JWT signature");
                         return Mono.error(new BadCredentialsException("Invalid JWT signature"));
                     }
                     return parseAndValidateJwt(token, Boolean.FALSE);
                 })
                 .onErrorMap(ParseException.class, e -> {
-                    log.error("❌ Failed to parse JWS", e);
+                    log.error("Failed to parse JWS", e);
                     return new BadCredentialsException("Invalid JWS token format", e);
                 });
     }
 
     private Mono<Jwt> parseAndValidateJwt(String token, boolean validateVcClaim) {
         return Mono.fromCallable(() -> {
-            log.debug("✅ parseAndValidateJwt");
+            log.debug("parseAndValidateJwt");
             String[] parts = token.split("\\.");
             if (parts.length < 3) {
                 throw new BadCredentialsException("Invalid JWT token format");
@@ -193,9 +193,9 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
 
     private void validateVcClaim(Map<String, Object> claims) {
         Object vcObj = claims.get("vc");
-        log.debug("✅ validateVcClaim");
+        log.debug("validateVcClaim");
         if (vcObj == null) {
-            log.error("❌ The 'vc' claim is required but not present.");
+            log.error("The 'vc' claim is required but not present.");
             throw new BadCredentialsException("The 'vc' claim is required but not present.");
         }
         String vcJson;
@@ -205,7 +205,7 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
             try {
                 vcJson = objectMapper.writeValueAsString(vcObj);
             } catch (Exception e) {
-                log.error("❌ Error processing 'vc' claim.", e);
+                log.error("Error processing 'vc' claim.", e);
                 throw new BadCredentialsException("Error processing 'vc' claim", e);
             }
         }
@@ -213,13 +213,13 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
         try {
             vcNode = objectMapper.readTree(vcJson);
         } catch (Exception e) {
-            log.error("❌ Error parsing 'vc' claim.", e);
+            log.error("Error parsing 'vc' claim.", e);
             throw new BadCredentialsException("Error parsing 'vc' claim", e);
         }
         JsonNode typeNode = vcNode.get("type");
         if (typeNode == null || !typeNode.isArray() || StreamSupport.stream(typeNode.spliterator(), false)
                 .noneMatch(node -> ACCEPTED_VC_TYPES.contains(node.asText()))) {
-            log.error("❌ Credential type required: one of {}.", ACCEPTED_VC_TYPES);
+            log.error("Credential type required: one of {}.", ACCEPTED_VC_TYPES);
             throw new BadCredentialsException("Credential type required: one of " + ACCEPTED_VC_TYPES);
         }
     }
