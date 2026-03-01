@@ -12,10 +12,12 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.employee.LEARCredentialEmployee;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.machine.LEARCredentialMachine;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.machine.LEARCredentialMachine.CredentialSubject.Mandate;
+import es.in2.issuer.backend.shared.domain.policy.PolicyContext;
+import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
+import es.in2.issuer.backend.shared.domain.policy.PolicyEnforcer;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.domain.util.factory.CredentialFactory;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import es.in2.issuer.backend.shared.infrastructure.config.security.service.VerifiableCredentialPolicyAuthorizationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,42 +25,41 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
-import java.util.stream.StreamSupport;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.LEAR_CREDENTIAL_MACHINE;
+import static es.in2.issuer.backend.backoffice.domain.util.Constants.LER;
+import static es.in2.issuer.backend.backoffice.domain.util.Constants.SYS_ADMIN;
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
-import static es.in2.issuer.backend.shared.domain.util.Utils.*;
+import static es.in2.issuer.backend.shared.domain.util.Utils.extractMandatorLearCredentialEmployee;
+import static es.in2.issuer.backend.shared.domain.util.Utils.extractPowers;
 
-//fixme: change to accept token that contains a LEAR Credential MAchine in Employee and Machine policies
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class VerifiableCredentialPolicyAuthorizationServiceImpl implements VerifiableCredentialPolicyAuthorizationService {
 
-    private final AppConfig appConfig;
-    private final JWTService jwtService;
+    private final PolicyContextFactory policyContextFactory;
+    private final PolicyEnforcer policyEnforcer;
     private final ObjectMapper objectMapper;
+    private final JWTService jwtService;
     private final CredentialFactory credentialFactory;
     private final VerifierService verifierService;
 
     @Override
     public Mono<Void> authorize(String token, String schema, JsonNode payload, String idToken) {
-        return Mono.fromCallable(() -> jwtService.parseJWT(token))
-                .flatMap(signedJWT -> {
-                    String payloadStr = signedJWT.getPayload().toString();
-                    if (!payloadStr.contains(ROLE)) {
-                        return checkPolicies(token, schema, payload, idToken);
-                    }else{
-                        String roleClaim = jwtService.getClaimFromPayload(signedJWT.getPayload(), ROLE);
-                        return authorizeByRole(roleClaim, token, schema, payload, idToken);
+        return policyContextFactory.fromTokenForIssuance(token, schema)
+                .flatMap(ctx -> {
+                    String role = ctx.role();
+                    if (role != null) {
+                        return authorizeByRole(ctx, schema, payload, idToken);
+                    } else {
+                        return checkPolicies(ctx, schema, payload, idToken);
                     }
                 });
     }
 
-    private Mono<Void> authorizeByRole(String role, String token, String schema, JsonNode payload, String idToken) {
-        role =(role != null) ? role.replace("\"", ""): role;
-        if (role==null || role.isBlank()) {
+    private Mono<Void> authorizeByRole(PolicyContext ctx, String schema, JsonNode payload, String idToken) {
+        String role = ctx.role();
+        if (role == null || role.isBlank()) {
             return Mono.error(new UnauthorizedRoleException("Access denied: Role is empty"));
         }
         if (LABEL_CREDENTIAL.equals(schema)) {
@@ -67,117 +68,31 @@ public class VerifiableCredentialPolicyAuthorizationServiceImpl implements Verif
         return switch (role) {
             case SYS_ADMIN, LER -> Mono.error(new UnauthorizedRoleException("The request is invalid. " +
                     "The roles 'SYSADMIN' and 'LER' currently have no defined permissions."));
-            case LEAR -> checkPolicies(token, schema, payload, idToken);
+            case LEAR -> checkPolicies(ctx, schema, payload, idToken);
             default -> Mono.error(new UnauthorizedRoleException("Access denied: Unauthorized Role '" + role + "'"));
         };
     }
 
-    private Mono<Void> checkPolicies(String token, String schema, JsonNode payload, String idToken) {
-        return Mono.fromCallable(() -> jwtService.parseJWT(token))
-                .flatMap(signedJWT -> {
-                    String vcClaim = jwtService.getClaimFromPayload(signedJWT.getPayload(), VC);
-                    return mapVcToLEARCredential(vcClaim, schema)
-                            .flatMap(learCredential ->
-                                    switch (schema) {
-                                        case LEAR_CREDENTIAL_EMPLOYEE -> authorizeLearCredentialEmployee(learCredential, payload);
-                                        case LEAR_CREDENTIAL_MACHINE -> authorizeLearCredentialMachine(learCredential, payload);
-                                        case LABEL_CREDENTIAL -> authorizeLabelCredential(learCredential, idToken);
-                                        default ->
-                                                Mono.error(new InsufficientPermissionException("Unauthorized: Unsupported schema"));
-                                    }
-                            );
-                });
+    private Mono<Void> checkPolicies(PolicyContext ctx, String schema, JsonNode payload, String idToken) {
+        LEARCredential learCredential = ctx.credential();
+        return switch (schema) {
+            case LEAR_CREDENTIAL_EMPLOYEE -> authorizeLearCredentialEmployee(ctx, learCredential, payload);
+            case LEAR_CREDENTIAL_MACHINE -> authorizeLearCredentialMachine(ctx, learCredential, payload);
+            case LABEL_CREDENTIAL -> authorizeLabelCredential(learCredential, idToken);
+            default -> Mono.error(new InsufficientPermissionException("Unauthorized: Unsupported schema"));
+        };
     }
 
-    /**
-     * Determines the allowed credential type based on the provided list and schema.
-     * Returns a Mono emitting the allowed type.
-     */
-    private Mono<String> determineAllowedCredentialType(List<String> types, String schema) {
-        return Mono.fromCallable(() -> {
-            if (LABEL_CREDENTIAL.equals(schema)) {
-                // For verifiable certification, only LEARCredentialMachine into the access token is allowed.
-                if (types.contains(LEAR_CREDENTIAL_MACHINE)) {
-                    return LEAR_CREDENTIAL_MACHINE;
-                } else {
-                    throw new InsufficientPermissionException(
-                            "Unauthorized: Credential type 'LEARCredentialMachine' is required for verifiable certification.");
-                }
-            } else if (LEAR_CREDENTIAL_MACHINE.equals(schema)) {
-                if (types.contains(LEAR_CREDENTIAL_EMPLOYEE)) {
-                    return LEAR_CREDENTIAL_EMPLOYEE;
-                } else {
-                    throw new InsufficientPermissionException(
-                            "Unauthorized: Credential type 'LEARCredentialEmployee' is required for LEARCredentialMachine.");
-                }
-            } else {
-                // For LEAR_CREDENTIAL_EMPLOYEE schema, allow either employee or machine.
-                if (types.contains(LEAR_CREDENTIAL_EMPLOYEE)) {
-                    return LEAR_CREDENTIAL_EMPLOYEE;
-                } else if (types.contains(LEAR_CREDENTIAL_MACHINE)) {
-                    return LEAR_CREDENTIAL_MACHINE;
-                } else {
-                    throw new InsufficientPermissionException(
-                            "Unauthorized: Credential type 'LEARCredentialEmployee' or 'LEARCredentialMachine' is required.");
-                }
-            }
-        });
-    }
-
-    private Mono<LEARCredential> mapVcToLEARCredential(String vcClaim, String schema) {
-        return checkIfCredentialTypeIsAllowedToIssue(vcClaim, schema)
-                .flatMap(credentialType -> {
-                    if (LEAR_CREDENTIAL_EMPLOYEE.equals(credentialType)) {
-                        return Mono.fromCallable(() -> credentialFactory.learCredentialEmployeeFactory.mapStringToLEARCredentialEmployee(vcClaim));
-                    } else if (LEAR_CREDENTIAL_MACHINE.equals(credentialType)) {
-                        return Mono.fromCallable(() -> credentialFactory.learCredentialMachineFactory.mapStringToLEARCredentialMachine(vcClaim));
-                    } else {
-                        return Mono.error(new InsufficientPermissionException("Unsupported credential type: " + credentialType));
-                    }
-                });
-    }
-
-    /**
-     * Checks if the credential type contained in the vcClaim is allowed for the given schema.
-     * Returns a Mono emitting the allowed type if valid, or an error otherwise.
-     */
-    private Mono<String> checkIfCredentialTypeIsAllowedToIssue(String vcClaim, String schema) {
-        return Mono.fromCallable(() -> objectMapper.readTree(vcClaim))
-                .flatMap(vcJsonNode ->
-                        extractCredentialTypes(vcJsonNode)
-                                .flatMap(types -> determineAllowedCredentialType(types, schema))
-                )
-                .onErrorMap(JsonProcessingException.class, e -> new ParseErrorException("Error extracting credential type"));
-    }
-
-    /**
-     * Extracts and validates the credential types from the provided JSON node.
-     * Returns a Mono emitting the list of credential type strings.
-     */
-    private Mono<List<String>> extractCredentialTypes(JsonNode vcJsonNode) {
-        return Mono.fromCallable(() -> {
-            JsonNode typeNode = vcJsonNode.get("type");
-            if (typeNode == null) {
-                throw new InsufficientPermissionException("The credential type is missing, the credential is invalid.");
-            }
-            if (typeNode.isTextual()) {
-                return List.of(typeNode.asText());
-            } else if (typeNode.isArray()) {
-                return StreamSupport.stream(typeNode.spliterator(), false)
-                        .map(JsonNode::asText)
-                        .toList();
-            } else {
-                throw new InsufficientPermissionException("Invalid format for credential type.");
-            }
-        });
-    }
-
-    // It checks if the signer if Mandator is IN2 or if the credential has same organizationIdentifier as the Mandator of the credential.
-    private Mono<Void> authorizeLearCredentialEmployee(LEARCredential learCredential, JsonNode payload) {
-        if (isSignerIssuancePolicyValid(learCredential) || isMandatorIssuancePolicyValid(learCredential, payload)) {
-            return Mono.empty();
-        }
-        return Mono.error(new InsufficientPermissionException("Unauthorized: LEARCredentialEmployee does not meet any issuance policies."));
+    private Mono<Void> authorizeLearCredentialEmployee(PolicyContext ctx, LEARCredential learCredential, JsonNode payload) {
+        return policyEnforcer.enforceAny(ctx, payload,
+                "Unauthorized: LEARCredentialEmployee does not meet any issuance policies.",
+                (context, p) -> isSignerIssuancePolicyValid(context)
+                        ? Mono.empty()
+                        : Mono.error(new InsufficientPermissionException("Signer policy not met")),
+                (context, p) -> isMandatorIssuancePolicyValid(context.credential(), p)
+                        ? Mono.empty()
+                        : Mono.error(new InsufficientPermissionException("Mandator policy not met"))
+        );
     }
 
     private Mono<Void> authorizeLabelCredential(LEARCredential learCredential, String idToken) {
@@ -187,42 +102,25 @@ public class VerifiableCredentialPolicyAuthorizationServiceImpl implements Verif
                         : Mono.error(new InsufficientPermissionException("Unauthorized: VerifiableCertification does not meet the issuance policy.")));
     }
 
-    private Mono<Void> authorizeLearCredentialMachine(LEARCredential learCredential, JsonNode payload) {
-        if (isSignerIssuancePolicyValidLEARCredentialMachine(learCredential) || isMandatorIssuancePolicyValidLEARCredentialMachine(learCredential, payload)) {
-            return Mono.empty();
-        }
-        return Mono.error(new InsufficientPermissionException("Unauthorized: LEARCredentialMachine does not meet any issuance policies."));
+    private Mono<Void> authorizeLearCredentialMachine(PolicyContext ctx, LEARCredential learCredential, JsonNode payload) {
+        return policyEnforcer.enforceAny(ctx, payload,
+                "Unauthorized: LEARCredentialMachine does not meet any issuance policies.",
+                (context, p) -> isSignerIssuancePolicyValid(context)
+                        ? Mono.empty()
+                        : Mono.error(new InsufficientPermissionException("Signer policy not met")),
+                (context, p) -> isMandatorIssuancePolicyValidLEARCredentialMachine(context.credential(), p)
+                        ? Mono.empty()
+                        : Mono.error(new InsufficientPermissionException("Mandator policy not met"))
+        );
     }
 
-    // Reads mandator's organizationIdentifier for both Employee and Machine credentials
-    private String resolveMandatorOrgIdentifier(LEARCredential cred) {
-        // Prefer checking by declared "type" to keep it aligned with your existing logic
-        if (cred.type() != null && cred.type().contains(LEAR_CREDENTIAL_MACHINE)) {
-            // Machine mandator type: LEARCredentialMachine.CredentialSubject.Mandate.Mandator
-            var m = extractMandatorLearCredentialMachine(cred);
-            return (m != null) ? m.organizationIdentifier() : null;
-        } else {
-            // Employee mandator type: es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Mandator
-            var m = extractMandatorLearCredentialEmployee(cred);
-            return (m != null) ? m.organizationIdentifier() : null;
-        }
-    }
-
-    // Checks if signer is IN2 and has Onboarding/Execute power
-    private boolean isSignerIssuancePolicyValid(LEARCredential learCredential) {
-
-        final String orgId = resolveMandatorOrgIdentifier(learCredential);
-        return appConfig.getAdminOrganizationId().equals(orgId)
-                && hasLearCredentialOnboardingExecutePower(extractPowers(learCredential));
-    }
-
-    // For machine we reutilize the same logic
-    private boolean isSignerIssuancePolicyValidLEARCredentialMachine(LEARCredential learCredential) {
-        return isSignerIssuancePolicyValid(learCredential);
+    // Checks if signer is admin org and has Onboarding/Execute power
+    private boolean isSignerIssuancePolicyValid(PolicyContext ctx) {
+        return ctx.sysAdmin() && ctx.hasPowerFunctionAndAction("Onboarding", "Execute");
     }
 
     private boolean isMandatorIssuancePolicyValid(LEARCredential learCredential, JsonNode payload) {
-        if (!hasLearCredentialOnboardingExecutePower(extractPowers(learCredential))) {
+        if (!hasOnboardingExecutePower(extractPowers(learCredential))) {
             return false;
         }
 
@@ -233,15 +131,14 @@ public class VerifiableCredentialPolicyAuthorizationServiceImpl implements Verif
     }
 
     private boolean isMandatorIssuancePolicyValidLEARCredentialMachine(LEARCredential learCredential, JsonNode payload) {
-        if (!hasLearCredentialOnboardingExecutePower(extractPowers(learCredential))) {
+        if (!hasOnboardingExecutePower(extractPowers(learCredential))) {
             return false;
         }
         LEARCredentialMachine.CredentialSubject.Mandate mandate = objectMapper.convertValue(payload, LEARCredentialMachine.CredentialSubject.Mandate.class);
         if (mandate == null) {
             return false;
         }
-        final Mandator learCredentialMandator = extractMandatorLearCredentialEmployee(
-                learCredential);
+        final Mandator learCredentialMandator = extractMandatorLearCredentialEmployee(learCredential);
         final Mandate.Mandator payloadMandator = mandate.mandator();
         return payloadMandator.organization().equals(learCredentialMandator.organization()) &&
                 payloadMandator.country().equals(learCredentialMandator.country()) &&
@@ -257,19 +154,10 @@ public class VerifiableCredentialPolicyAuthorizationServiceImpl implements Verif
                 .map(idTokenValid -> credentialValid && idTokenValid);
     }
 
-    /**
-     * Validates the idToken by verifying its signature (without checking expiration),
-     * parsing its 'vc_json' claim into a LEARCredentialEmployee.
-     *
-     * @param idToken the id token to validate.
-     * @return a Mono emitting the LEARCredential interface if valid.
-     */
     private Mono<LEARCredential> validateIdToken(String idToken) {
-        // Use the verifierService's method that verifies the token without expiration check.
         return verifierService.verifyTokenWithoutExpiration(idToken)
                 .then(Mono.fromCallable(() -> jwtService.parseJWT(idToken)))
                 .flatMap(idSignedJWT -> {
-                    // The claim is called vc_json because we use the id_token from the VCVerifier that return the vc in json string format
                     String idVcClaim = jwtService.getClaimFromPayload(idSignedJWT.getPayload(), "vc_json");
                     try {
                         String processedVc = objectMapper.readValue(idVcClaim, String.class);
@@ -279,38 +167,16 @@ public class VerifiableCredentialPolicyAuthorizationServiceImpl implements Verif
                         return Mono.error(new ParseErrorException("Error parsing id_token credential: " + e));
                     }
                 });
-
     }
 
     private boolean containsCertificationAndAttest(List<Power> powers) {
-        return powers.stream().anyMatch(this::isCertificationFunction) &&
-                powers.stream().anyMatch(this::hasAttestAction);
+        return powers.stream().anyMatch(p -> "Certification".equals(p.function())) &&
+                powers.stream().anyMatch(p -> PolicyContext.hasAction(p, "Attest"));
     }
 
-    private boolean isCertificationFunction(Power power) {
-        return "Certification".equals(power.function());
-    }
-
-    private boolean hasAttestAction(Power power) {
-        return power.action() instanceof List<?> actions ?
-                actions.stream().anyMatch(action -> "Attest".equals(action.toString())) :
-                "Attest".equals(power.action().toString());
-    }
-
-    private boolean hasLearCredentialOnboardingExecutePower(List<Power> powers) {
-
-        return powers.stream().anyMatch(this::isOnboardingFunction) &&
-                powers.stream().anyMatch(this::hasExecuteAction);
-    }
-
-    private boolean isOnboardingFunction(Power power) {
-        return "Onboarding".equals(power.function());
-    }
-
-    private boolean hasExecuteAction(Power power) {
-        return power.action() instanceof List<?> actions ?
-                actions.stream().anyMatch(action -> "Execute".equals(action.toString())) :
-                "Execute".equals(power.action().toString());
+    private boolean hasOnboardingExecutePower(List<Power> powers) {
+        return powers.stream().anyMatch(p -> "Onboarding".equals(p.function())) &&
+                powers.stream().anyMatch(p -> PolicyContext.hasAction(p, "Execute"));
     }
 
     private boolean payloadPowersOnlyIncludeProductOffering(List<Power> powers) {
