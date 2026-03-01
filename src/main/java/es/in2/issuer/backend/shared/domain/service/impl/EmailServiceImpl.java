@@ -8,9 +8,8 @@ import es.in2.issuer.backend.shared.domain.service.TranslationService;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.internet.MimeUtility;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.mail.MailProperties;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.InputStreamSource;
@@ -32,20 +31,33 @@ import static es.in2.issuer.backend.backoffice.domain.util.Constants.UTF_8;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class EmailServiceImpl implements EmailService {
     private final JavaMailSender javaMailSender;
     private final TemplateEngine templateEngine;
-    private final MailProperties mailProperties;
+    private final String mailFrom;
     private final CredentialProcedureService credentialProcedureService;
     private final TranslationService translationService;
+
+    public EmailServiceImpl(
+            JavaMailSender javaMailSender,
+            TemplateEngine templateEngine,
+            @Value("${app.mail-from}") String mailFrom,
+            CredentialProcedureService credentialProcedureService,
+            TranslationService translationService
+    ) {
+        this.javaMailSender = javaMailSender;
+        this.templateEngine = templateEngine;
+        this.mailFrom = mailFrom;
+        this.credentialProcedureService = credentialProcedureService;
+        this.translationService = translationService;
+    }
 
     @Override
     public Mono<Void> sendTxCodeNotification(String to, String subject, String pin) {
         return Mono.fromCallable(() -> {
             MimeMessage mimeMessage = javaMailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
-            helper.setFrom(mailProperties.getUsername());
+            helper.setFrom(mailFrom);
             helper.setTo(to);
 
             String translated = translationService.translate(subject);
@@ -70,7 +82,7 @@ public class EmailServiceImpl implements EmailService {
         return Mono.fromCallable(() -> {
             MimeMessage mimeMessage = javaMailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
-            helper.setFrom(mailProperties.getUsername());
+            helper.setFrom(mailFrom);
             helper.setTo(to);
             helper.setSubject(translationService.translate(subject));
 
@@ -105,7 +117,7 @@ public class EmailServiceImpl implements EmailService {
         return Mono.fromCallable(() -> {
             MimeMessage mimeMessage = javaMailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
-            helper.setFrom(mailProperties.getUsername());
+            helper.setFrom(mailFrom);
             helper.setTo(to);
             helper.setSubject(translationService.translate(subject));
 
@@ -122,7 +134,7 @@ public class EmailServiceImpl implements EmailService {
         return Mono.fromCallable(() -> {
             MimeMessage mimeMessage = javaMailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
-            helper.setFrom(mailProperties.getUsername());
+            helper.setFrom(mailFrom);
             helper.setTo(to);
             helper.setSubject(translationService.translate(subject));
 
@@ -141,7 +153,7 @@ public class EmailServiceImpl implements EmailService {
         return Mono.fromCallable(() -> {
             MimeMessage mimeMessage = javaMailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-            helper.setFrom(mailProperties.getUsername());
+            helper.setFrom(mailFrom);
             helper.setTo(to);
             helper.setSubject(translationService.translate(subject));
 
@@ -160,7 +172,7 @@ public class EmailServiceImpl implements EmailService {
         return Mono.fromCallable(() -> {
             MimeMessage mimeMessage = javaMailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
-            helper.setFrom(mailProperties.getUsername());
+            helper.setFrom(mailFrom);
             helper.setTo(to);
             helper.setSubject(translationService.translate("email.unsuccessful-submission"));
 
@@ -180,7 +192,7 @@ public class EmailServiceImpl implements EmailService {
         return Mono.fromCallable(() -> {
             MimeMessage mimeMessage = javaMailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
-            helper.setFrom(mailProperties.getUsername());
+            helper.setFrom(mailFrom);
             helper.setTo(to);
             helper.setSubject(translationService.translate("email.missing-documents-certification") + productId);
 
@@ -223,7 +235,7 @@ public class EmailServiceImpl implements EmailService {
                 MimeMessage mimeMessage = javaMailSender.createMimeMessage();
                 MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
 
-                helper.setFrom(mailProperties.getUsername());
+                helper.setFrom(mailFrom);
                 helper.setTo(to);
 
                 Context context = buildEmailContext(organization, credentialId, type, credentialStatus);

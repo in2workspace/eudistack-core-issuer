@@ -11,10 +11,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.boot.autoconfigure.mail.MailProperties;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
@@ -31,17 +29,17 @@ class EmailServiceImplTest {
 
     @Mock private JavaMailSender javaMailSender;
     @Mock private TemplateEngine templateEngine;
-    @Mock private MailProperties mailProperties;
     @Mock private CredentialProcedureService credentialProcedureService;
     @Mock private TranslationService translationService;
 
-    @InjectMocks
     private EmailServiceImpl emailService;
 
     @BeforeEach
     void setUpLenient() {
-        // lenient because some tests short-circuit before these are called
-        lenient().when(mailProperties.getUsername()).thenReturn("user@example.com");
+        emailService = new EmailServiceImpl(
+                javaMailSender, templateEngine, "noreply@example.com",
+                credentialProcedureService, translationService
+        );
         lenient().when(translationService.getLocale()).thenReturn("en");
         // Pass-through translation (may not be used in every test)
         lenient().when(translationService.translate(any(String.class)))

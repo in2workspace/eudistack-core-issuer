@@ -97,6 +97,7 @@ app:
     wallet-guide-url: ${APP_KNOWLEDGE_BASE_WALLET_GUIDE_URL:https://example.com/wallet}
   verifier-url: ${APP_VERIFIER_URL:https://verifier.example.com}
   wallet-url: ${APP_WALLET_URL:https://wallet.example.com}
+  mail-from: ${APP_MAIL_FROM:onboarding@resend.dev}
   config-source: ${APP_CONFIG_SOURCE:yaml}
   default-lang: ${APP_DEFAULT_LANG:en}
   admin-organization-id: ${APP_ADMIN_ORGANIZATION_ID:VATES-B60645900}

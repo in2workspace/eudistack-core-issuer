@@ -17,7 +17,7 @@ RUN if [ "$SKIP_TESTS" = "true" ]; then \
     fi
 
 # --- Stage 2: runtime ------------------------------------------------------
-FROM eclipse-temurin:25-jdk-alpine
+FROM eclipse-temurin:25-jre-alpine
 RUN addgroup -S nonroot && adduser -S nonroot -G nonroot
 USER nonroot
 WORKDIR /app
