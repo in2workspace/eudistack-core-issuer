@@ -7,8 +7,10 @@ import com.nimbusds.jose.JWSObject;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.InvalidTokenException;
 import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
+import es.in2.issuer.backend.shared.domain.model.dto.OrgContext;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
+import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
@@ -29,8 +31,8 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.VC;
 public class AccessTokenServiceImpl implements AccessTokenService {
 
     private final ObjectMapper objectMapper;
-
     private final DeferredCredentialMetadataService deferredCredentialMetadataService;
+    private final AppConfig appConfig;
 
     @Override
     public Mono<String> getCleanBearerToken(String authorizationHeader) {
@@ -65,6 +67,59 @@ public class AccessTokenServiceImpl implements AccessTokenService {
         return getCleanBearerToken(authorizationHeader)
                 .flatMap(this::extractOrganizationIdFromToken)
                 .switchIfEmpty(Mono.error(new InvalidTokenException()));
+    }
+
+    @Override
+    public Mono<OrgContext> getOrganizationContext(String authorizationHeader) {
+        return getCleanBearerToken(authorizationHeader)
+                .flatMap(token -> {
+                    try {
+                        SignedJWT parsedVcJwt = SignedJWT.parse(token);
+                        JsonNode jsonObject = objectMapper.readTree(parsedVcJwt.getPayload().toString());
+                        JsonNode mandateNode = jsonObject.get(VC)
+                                .get(CREDENTIAL_SUBJECT)
+                                .get(MANDATE);
+                        String orgId = mandateNode.get(MANDATOR)
+                                .get(ORGANIZATION_IDENTIFIER)
+                                .asText();
+                        boolean isSysAdmin = orgId.equals(appConfig.getAdminOrganizationId())
+                                && hasPowerInJsonNode(mandateNode, "Onboarding", "Execute");
+                        return Mono.just(new OrgContext(orgId, isSysAdmin));
+                    } catch (ParseException | JsonProcessingException e) {
+                        return Mono.error(new InvalidTokenException());
+                    }
+                })
+                .switchIfEmpty(Mono.error(new InvalidTokenException()));
+    }
+
+    private boolean hasPowerInJsonNode(JsonNode mandateNode, String function, String action) {
+        JsonNode powerNode = mandateNode.get("power");
+        if (powerNode == null || !powerNode.isArray()) {
+            return false;
+        }
+        for (JsonNode power : powerNode) {
+            if (function.equals(power.path("function").asText(null))
+                    || function.equals(power.path("tmf_function").asText(null))) {
+                JsonNode actionNode = power.has("action") ? power.get("action") : power.get("tmf_action");
+                if (actionNode != null && matchesAction(actionNode, action)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean matchesAction(JsonNode actionNode, String action) {
+        if (actionNode.isTextual()) {
+            return action.equals(actionNode.asText());
+        } else if (actionNode.isArray()) {
+            for (JsonNode a : actionNode) {
+                if (action.equals(a.asText())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @Override

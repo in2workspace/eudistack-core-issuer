@@ -2,10 +2,8 @@ package es.in2.issuer.backend.shared.domain.policy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.Payload;
-import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
-import es.in2.issuer.backend.shared.domain.exception.JWTParsingException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Mandator;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.employee.LEARCredentialEmployee;
@@ -24,7 +22,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.test.StepVerifier;
 
-import java.text.ParseException;
 import java.util.Collections;
 import java.util.List;
 
@@ -79,14 +76,11 @@ class PolicyContextFactoryTest {
     // --- fromTokenSimple ---
 
     @Test
-    void fromTokenSimple_createsContextWithRoleAndPowers() throws Exception {
+    void fromTokenSimple_createsContextWithPowers() {
         SignedJWT signedJWT = mock(SignedJWT.class);
-        JWTClaimsSet claimsSet = mock(JWTClaimsSet.class);
         Payload payload = mock(Payload.class);
 
         when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
-        when(signedJWT.getJWTClaimsSet()).thenReturn(claimsSet);
-        when(claimsSet.getClaim("role")).thenReturn("LEAR");
         when(signedJWT.getPayload()).thenReturn(payload);
 
         String vcJson = "{\"type\":[\"LEARCredentialEmployee\"]}";
@@ -96,26 +90,23 @@ class PolicyContextFactoryTest {
         when(learCredentialEmployeeFactory.mapStringToLEARCredentialEmployee(vcJson)).thenReturn(credential);
         when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
 
-        StepVerifier.create(factory.fromTokenSimple(TOKEN))
+        StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
                 .assertNext(ctx -> {
-                    assertThat(ctx.role()).isEqualTo("LEAR");
                     assertThat(ctx.organizationIdentifier()).isEqualTo("ORG-123");
                     assertThat(ctx.credentialType()).isEqualTo(LEAR_CREDENTIAL_EMPLOYEE);
                     assertThat(ctx.sysAdmin()).isFalse();
                     assertThat(ctx.powers()).hasSize(1);
+                    assertThat(ctx.tenantDomain()).isEqualTo("DOME");
                 })
                 .verifyComplete();
     }
 
     @Test
-    void fromTokenSimple_setsIsSysAdminWhenOrgMatchesAdminOrg() throws Exception {
+    void fromTokenSimple_setsIsSysAdminWhenOrgMatchesAdminOrgAndHasOnboardingPower() {
         SignedJWT signedJWT = mock(SignedJWT.class);
-        JWTClaimsSet claimsSet = mock(JWTClaimsSet.class);
         Payload payload = mock(Payload.class);
 
         when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
-        when(signedJWT.getJWTClaimsSet()).thenReturn(claimsSet);
-        when(claimsSet.getClaim("role")).thenReturn("LEAR");
         when(signedJWT.getPayload()).thenReturn(payload);
 
         String vcJson = "{\"type\":[\"LEARCredentialEmployee\"]}";
@@ -125,7 +116,7 @@ class PolicyContextFactoryTest {
         when(learCredentialEmployeeFactory.mapStringToLEARCredentialEmployee(vcJson)).thenReturn(credential);
         when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
 
-        StepVerifier.create(factory.fromTokenSimple(TOKEN))
+        StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
                 .assertNext(ctx -> {
                     assertThat(ctx.sysAdmin()).isTrue();
                     assertThat(ctx.organizationIdentifier()).isEqualTo(ADMIN_ORG_ID);
@@ -134,28 +125,38 @@ class PolicyContextFactoryTest {
     }
 
     @Test
-    void fromTokenSimple_failsWhenJWTClaimsSetThrowsParseException() throws Exception {
+    void fromTokenSimple_notSysAdminWhenAdminOrgButNoOnboardingPower() {
         SignedJWT signedJWT = mock(SignedJWT.class);
+        Payload payload = mock(Payload.class);
 
         when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
-        when(signedJWT.getJWTClaimsSet()).thenThrow(new ParseException("Bad JWT", 0));
+        when(signedJWT.getPayload()).thenReturn(payload);
 
-        StepVerifier.create(factory.fromTokenSimple(TOKEN))
-                .expectError(JWTParsingException.class)
-                .verify();
+        String vcJson = "{\"type\":[\"LEARCredentialEmployee\"]}";
+        when(jwtService.getClaimFromPayload(payload, "vc")).thenReturn(vcJson);
+
+        LEARCredentialEmployee credential = buildLEARCredentialEmployeeWithPower(
+                ADMIN_ORG_ID, "ProductOffering", "Execute");
+        when(learCredentialEmployeeFactory.mapStringToLEARCredentialEmployee(vcJson)).thenReturn(credential);
+        when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
+
+        StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
+                .assertNext(ctx -> {
+                    assertThat(ctx.sysAdmin()).isFalse();
+                    assertThat(ctx.organizationIdentifier()).isEqualTo(ADMIN_ORG_ID);
+                })
+                .verifyComplete();
     }
 
     // --- fromTokenForIssuance ---
 
     @Test
-    void fromTokenForIssuance_setsRoleToNullWhenNoRoleInPayload() {
+    void fromTokenForIssuance_createsContextWithPowers() {
         SignedJWT signedJWT = mock(SignedJWT.class);
         Payload payload = mock(Payload.class);
 
         when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
         when(signedJWT.getPayload()).thenReturn(payload);
-        // Payload does NOT contain "role" key
-        when(payload.toString()).thenReturn("{\"iss\":\"test\",\"vc\":{\"type\":[\"LEARCredentialEmployee\"]}}");
 
         String vcJson = "{\"type\":[\"LEARCredentialEmployee\"]}";
         when(jwtService.getClaimFromPayload(payload, "vc")).thenReturn(vcJson);
@@ -164,60 +165,10 @@ class PolicyContextFactoryTest {
         when(learCredentialEmployeeFactory.mapStringToLEARCredentialEmployee(vcJson)).thenReturn(credential);
         when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
 
-        StepVerifier.create(factory.fromTokenForIssuance(TOKEN, LEAR_CREDENTIAL_EMPLOYEE))
+        StepVerifier.create(factory.fromTokenForIssuance(TOKEN, LEAR_CREDENTIAL_EMPLOYEE, "DOME"))
                 .assertNext(ctx -> {
-                    assertThat(ctx.role()).isNull();
                     assertThat(ctx.credentialType()).isEqualTo(LEAR_CREDENTIAL_EMPLOYEE);
-                })
-                .verifyComplete();
-    }
-
-    @Test
-    void fromTokenForIssuance_setsEmptyRoleWhenRoleIsNullInPayload() {
-        SignedJWT signedJWT = mock(SignedJWT.class);
-        Payload payload = mock(Payload.class);
-
-        when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
-        when(signedJWT.getPayload()).thenReturn(payload);
-        // Payload CONTAINS "role" key but with null value
-        when(payload.toString()).thenReturn("{\"iss\":\"test\",\"role\":null,\"vc\":{\"type\":[\"LEARCredentialEmployee\"]}}");
-        when(jwtService.getClaimFromPayload(payload, "role")).thenReturn(null);
-
-        String vcJson = "{\"type\":[\"LEARCredentialEmployee\"]}";
-        when(jwtService.getClaimFromPayload(payload, "vc")).thenReturn(vcJson);
-
-        LEARCredentialEmployee credential = buildLEARCredentialEmployee("ORG-123");
-        when(learCredentialEmployeeFactory.mapStringToLEARCredentialEmployee(vcJson)).thenReturn(credential);
-        when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
-
-        StepVerifier.create(factory.fromTokenForIssuance(TOKEN, LEAR_CREDENTIAL_EMPLOYEE))
-                .assertNext(ctx -> {
-                    // Empty string signals "role key was present but value was null"
-                    assertThat(ctx.role()).isEmpty();
-                })
-                .verifyComplete();
-    }
-
-    @Test
-    void fromTokenForIssuance_extractsRoleFromPayload() {
-        SignedJWT signedJWT = mock(SignedJWT.class);
-        Payload payload = mock(Payload.class);
-
-        when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
-        when(signedJWT.getPayload()).thenReturn(payload);
-        when(payload.toString()).thenReturn("{\"iss\":\"test\",\"role\":\"LEAR\",\"vc\":{\"type\":[\"LEARCredentialEmployee\"]}}");
-        when(jwtService.getClaimFromPayload(payload, "role")).thenReturn("LEAR");
-
-        String vcJson = "{\"type\":[\"LEARCredentialEmployee\"]}";
-        when(jwtService.getClaimFromPayload(payload, "vc")).thenReturn(vcJson);
-
-        LEARCredentialEmployee credential = buildLEARCredentialEmployee("ORG-123");
-        when(learCredentialEmployeeFactory.mapStringToLEARCredentialEmployee(vcJson)).thenReturn(credential);
-        when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
-
-        StepVerifier.create(factory.fromTokenForIssuance(TOKEN, LEAR_CREDENTIAL_EMPLOYEE))
-                .assertNext(ctx -> {
-                    assertThat(ctx.role()).isEqualTo("LEAR");
+                    assertThat(ctx.tenantDomain()).isEqualTo("DOME");
                 })
                 .verifyComplete();
     }
@@ -229,13 +180,12 @@ class PolicyContextFactoryTest {
 
         when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
         when(signedJWT.getPayload()).thenReturn(payload);
-        when(payload.toString()).thenReturn("{\"iss\":\"test\"}");
 
         // VC contains LEARCredentialEmployee but LABEL_CREDENTIAL requires LEARCredentialMachine
         String vcJson = "{\"type\":[\"LEARCredentialEmployee\"]}";
         when(jwtService.getClaimFromPayload(payload, "vc")).thenReturn(vcJson);
 
-        StepVerifier.create(factory.fromTokenForIssuance(TOKEN, LABEL_CREDENTIAL))
+        StepVerifier.create(factory.fromTokenForIssuance(TOKEN, LABEL_CREDENTIAL, "DOME"))
                 .expectErrorMatches(e ->
                         e instanceof InsufficientPermissionException &&
                                 e.getMessage().contains("LEARCredentialMachine"))
@@ -249,13 +199,12 @@ class PolicyContextFactoryTest {
 
         when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
         when(signedJWT.getPayload()).thenReturn(payload);
-        when(payload.toString()).thenReturn("{\"iss\":\"test\"}");
 
         // VC without type field
         String vcJson = "{\"id\":\"something\"}";
         when(jwtService.getClaimFromPayload(payload, "vc")).thenReturn(vcJson);
 
-        StepVerifier.create(factory.fromTokenForIssuance(TOKEN, LEAR_CREDENTIAL_EMPLOYEE))
+        StepVerifier.create(factory.fromTokenForIssuance(TOKEN, LEAR_CREDENTIAL_EMPLOYEE, "DOME"))
                 .expectError(InsufficientPermissionException.class)
                 .verify();
     }
@@ -263,12 +212,17 @@ class PolicyContextFactoryTest {
     // --- Helper ---
 
     private LEARCredentialEmployee buildLEARCredentialEmployee(String orgId) {
+        return buildLEARCredentialEmployeeWithPower(orgId, "Onboarding", "Execute");
+    }
+
+    private LEARCredentialEmployee buildLEARCredentialEmployeeWithPower(
+            String orgId, String function, String action) {
         Mandator mandator = Mandator.builder()
                 .organizationIdentifier(orgId)
                 .build();
         Power power = Power.builder()
-                .function("Onboarding")
-                .action("Execute")
+                .function(function)
+                .action(action)
                 .build();
         LEARCredentialEmployee.CredentialSubject.Mandate.Mandatee mandatee =
                 LEARCredentialEmployee.CredentialSubject.Mandate.Mandatee.builder()
