@@ -53,7 +53,4 @@ public class EndpointsConstants {
     public static final String STATUS_LIST_BASE = "/w3c/v1/credentials/status";
     public static final String STATUS_LIST_PATH = STATUS_LIST_BASE + "/**";
 
-    // todo: remove these constants if not needed
-    public static final String TRUST_FRAMEWORK_ISSUER = "/issuer";
-
 }

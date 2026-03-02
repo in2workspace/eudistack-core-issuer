@@ -9,7 +9,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.repository.CredentialProcedureRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,7 +52,7 @@ class CredentialProcedureServiceImplTest {
     private R2dbcEntityTemplate r2dbcEntityTemplate;
 
     @Mock
-    private AppConfig appConfig;
+    private IssuerProperties appConfig;
 
     @InjectMocks
     private CredentialProcedureServiceImpl credentialProcedureService;

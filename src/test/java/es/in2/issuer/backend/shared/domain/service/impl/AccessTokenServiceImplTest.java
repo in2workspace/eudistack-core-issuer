@@ -13,7 +13,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
 import es.in2.issuer.backend.shared.domain.model.dto.OrgContext;
 import es.in2.issuer.backend.shared.domain.model.entities.DeferredCredentialMetadata;
 import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -46,7 +46,7 @@ class AccessTokenServiceImplTest {
     @Mock
     private DeferredCredentialMetadataService mockDeferredCredentialMetadataService;
     @Mock
-    private AppConfig mockAppConfig;
+    private IssuerProperties mockAppConfig;
     @InjectMocks
     private AccessTokenServiceImpl accessTokenServiceImpl;
 

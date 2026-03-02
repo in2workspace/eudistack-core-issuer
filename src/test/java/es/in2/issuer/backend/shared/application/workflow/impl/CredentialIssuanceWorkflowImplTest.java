@@ -17,7 +17,7 @@ import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import es.in2.issuer.backend.shared.domain.service.*;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.WebClientConfig;
 import es.in2.issuer.backend.shared.infrastructure.config.security.service.IssuancePdpService;
 import org.junit.jupiter.api.Assertions;
@@ -35,7 +35,7 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE;
+import static es.in2.issuer.backend.shared.domain.util.Constants.MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.JWT_VC_JSON;
 import static es.in2.issuer.backend.shared.domain.util.Constants.LABEL_CREDENTIAL;
 import static org.mockito.ArgumentMatchers.*;
@@ -54,7 +54,7 @@ class CredentialIssuanceWorkflowImplTest {
     private ProofValidationService proofValidationService;
 
     @Mock
-    private AppConfig appConfig;
+    private IssuerProperties appConfig;
 
     @Mock
     private EmailService emailService;
@@ -348,7 +348,7 @@ class CredentialIssuanceWorkflowImplTest {
     //    void generateVerifiableCredentialResponseSyncSuccess() {
     //        String processId = "1234";
     //        CredentialRequest credentialRequest = CredentialRequest.builder()
-    //                .credentialConfigurationId(JWT_VC)
+    //                .credentialConfigurationId(JWT_VC_JSON)
     //                .proofs(Proofs.builder()
     //                        .jwt(List.of("eyJraWQiOiJkaWQ6a2V5OnpEbmFlbjIzd003NmdwaVNMSGt1NGJGRGJzc1ZTOXN0eTl4M0s3eVZxamJTZFRQV0MjekRuYWVuMjN3TTc2Z3BpU0xIa3U0YkZEYnNzVlM5c3R5OXgzSzd5VnFqYlNkVFBXQyIsInR5cCI6Im9wZW5pZDR2Y2ktcHJvb2Yrand0IiwiYWxnIjoiRVMyNTYifQ.eyJpc3MiOiJkaWQ6a2V5OnpEbmFlbjIzd003NmdwaVNMSGt1NGJGRGJzc1ZTOXN0eTl4M0s3eVZxamJTZFRQV0MiLCJhdWQiOiJodHRwOi8vbG9jYWxob3N0OjgwNzEiLCJleHAiOjE3MTI5MTcwNDAsImlhdCI6MTcxMjA1MzA0MCwibm9uY2UiOiI4OVh4bXdMMlJtR2wyUlp1LU1UU3lRPT0ifQ.DdaaNm4vTn60njLtAQ7Q5oGsQILfA-5h9-sv4MBcVyNBAfSrUUajZqlUukT-5Bx8EqocSvf0RIFRHLcvO9_LMg"))
     //                        .build())
@@ -402,7 +402,7 @@ class CredentialIssuanceWorkflowImplTest {
     //    void generateVerifiableCredentialResponseFailedProofException() {
     //        String processId = "1234";
     //        CredentialRequest credentialRequest = CredentialRequest.builder()
-    //                .credentialConfigurationId(JWT_VC)
+    //                .credentialConfigurationId(JWT_VC_JSON)
     //                .proofs(Proofs.builder()
     //                        .jwt(List.of("eyJraWQiOiJkaWQ6a2V5OnpEbmFlbjIzd003NmdwaVNMSGt1NGJGRGJzc1ZTOXN0eTl4M0s3eVZxamJTZFRQV0MjekRuYWVuMjN3TTc2Z3BpU0xIa3U0YkZEYnNzVlM5c3R5OXgzSzd5VnFqYlNkVFBXQyIsInR5cCI6Im9wZW5pZDR2Y2ktcHJvb2Yrand0IiwiYWxnIjoiRVMyNTYifQ.eyJpc3MiOiJkaWQ6a2V5OnpEbmFlbjIzd003NmdwaVNMSGt1NGJGRGJzc1ZTOXN0eTl4M0s3eVZxamJTZFRQV0MiLCJhdWQiOiJodHRwOi8vbG9jYWxob3N0OjgwNzEiLCJleHAiOjE3MTI5MTcwNDAsImlhdCI6MTcxMjA1MzA0MCwibm9uY2UiOiI4OVh4bXdMMlJtR2wyUlp1LU1UU3lRPT0ifQ.DdaaNm4vTn60njLtAQ7Q5oGsQILfA-5h9-sv4MBcVyNBAfSrUUajZqlUukT-5Bx8EqocSvf0RIFRHLcvO9_LMg"))
     //                        .build())
@@ -420,7 +420,7 @@ class CredentialIssuanceWorkflowImplTest {
     //    void generateVerifiableCredentialResponseInvalidSignerOrgIdentifier() {
     //        String processId = "1234";
     //        CredentialRequest credentialRequest = CredentialRequest.builder()
-    //                .credentialConfigurationId(JWT_VC)
+    //                .credentialConfigurationId(JWT_VC_JSON)
     //                .proofs(Proofs.builder()
     //                        .jwt(List.of("eyJraWQiOiJkaWQ6a2V5OnpEbmFlbjIzd003NmdwaVNMSGt1NGJGRGJzc1ZTOXN0eTl4M0s3eVZxamJTZFRQV0MjekRuYWVuMjN3TTc2Z3BpU0xIa3U0YkZEYnNzVlM5c3R5OXgzSzd5VnFqYlNkVFBXQyIsInR5cCI6Im9wZW5pZDR2Y2ktcHJvb2Yrand0IiwiYWxnIjoiRVMyNTYifQ.eyJpc3MiOiJkaWQ6a2V5OnpEbmFlbjIzd003NmdwaVNMSGt1NGJGRGJzc1ZTOXN0eTl4M0s3eVZxamJTZFRQV0MiLCJhdWQiOiJodHRwOi8vbG9jYWxob3N0OjgwNzEiLCJleHAiOjE3MTI5MTcwNDAsImlhdCI6MTcxMjA1MzA0MCwibm9uY2UiOiI4OVh4bXdMMlJtR2wyUlp1LU1UU3lRPT0ifQ.DdaaNm4vTn60njLtAQ7Q5oGsQILfA-5h9-sv4MBcVyNBAfSrUUajZqlUukT-5Bx8EqocSvf0RIFRHLcvO9_LMg"))
     //                        .build())
@@ -472,7 +472,7 @@ class CredentialIssuanceWorkflowImplTest {
     //    void generateVerifiableCredentialResponseInvalidMandatorOrgIdentifier() {
     //        String processId = "1234";
     //        CredentialRequest credentialRequest = CredentialRequest.builder()
-    //                .credentialConfigurationId(JWT_VC)
+    //                .credentialConfigurationId(JWT_VC_JSON)
     //                .proofs(Proofs.builder()
     //                        .jwt(List.of("eyJraWQiOiJkaWQ6a2V5OnpEbmFlbjIzd003NmdwaVNMSGt1NGJGRGJzc1ZTOXN0eTl4M0s3eVZxamJTZFRQV0MjekRuYWVuMjN3TTc2Z3BpU0xIa3U0YkZEYnNzVlM5c3R5OXgzSzd5VnFqYlNkVFBXQyIsInR5cCI6Im9wZW5pZDR2Y2ktcHJvb2Yrand0IiwiYWxnIjoiRVMyNTYifQ.eyJpc3MiOiJkaWQ6a2V5OnpEbmFlbjIzd003NmdwaVNMSGt1NGJGRGJzc1ZTOXN0eTl4M0s3eVZxamJTZFRQV0MiLCJhdWQiOiJodHRwOi8vbG9jYWxob3N0OjgwNzEiLCJleHAiOjE3MTI5MTcwNDAsImlhdCI6MTcxMjA1MzA0MCwibm9uY2UiOiI4OVh4bXdMMlJtR2wyUlp1LU1UU3lRPT0ifQ.DdaaNm4vTn60njLtAQ7Q5oGsQILfA-5h9-sv4MBcVyNBAfSrUUajZqlUukT-5Bx8EqocSvf0RIFRHLcvO9_LMg"))
     //                        .build())

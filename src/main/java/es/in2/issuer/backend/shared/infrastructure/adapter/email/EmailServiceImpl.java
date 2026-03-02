@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.shared.domain.service.impl;
+package es.in2.issuer.backend.shared.infrastructure.adapter.email;
 
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
@@ -26,8 +26,8 @@ import reactor.core.scheduler.Schedulers;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.UTF_8;
+import static es.in2.issuer.backend.shared.domain.util.Constants.MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE;
+import static es.in2.issuer.backend.shared.domain.util.Constants.UTF_8;
 
 @Slf4j
 @Service

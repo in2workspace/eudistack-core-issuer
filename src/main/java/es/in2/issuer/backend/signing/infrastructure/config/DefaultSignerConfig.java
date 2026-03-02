@@ -2,11 +2,12 @@ package es.in2.issuer.backend.signing.infrastructure.config;
 
 import es.in2.issuer.backend.shared.infrastructure.config.adapter.ConfigAdapter;
 import es.in2.issuer.backend.shared.infrastructure.config.adapter.factory.ConfigAdapterFactory;
+import es.in2.issuer.backend.signing.domain.model.port.SignerConfig;
 import es.in2.issuer.backend.signing.infrastructure.properties.DefaultSignerProperties;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-public class DefaultSignerConfig {
+public class DefaultSignerConfig implements SignerConfig {
     private final ConfigAdapter configAdapter;
     private final DefaultSignerProperties defaultSignerProperties;
 

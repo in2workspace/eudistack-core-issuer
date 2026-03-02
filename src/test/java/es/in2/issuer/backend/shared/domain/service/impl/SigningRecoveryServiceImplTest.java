@@ -3,7 +3,7 @@ package es.in2.issuer.backend.shared.domain.service.impl;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.entities.DeferredCredentialMetadata;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.repository.CredentialProcedureRepository;
 import es.in2.issuer.backend.shared.infrastructure.repository.DeferredCredentialMetadataRepository;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
@@ -19,7 +19,7 @@ import reactor.test.StepVerifier;
 import java.util.UUID;
 
 import static org.mockito.Mockito.*;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.ASYNC;
+import static es.in2.issuer.backend.shared.domain.util.Constants.ASYNC;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -32,7 +32,7 @@ class SigningRecoveryServiceImplTest {
     @Mock
     private DeferredCredentialMetadataRepository deferredCredentialMetadataRepository;
     @Mock
-    private AppConfig appConfig;
+    private IssuerProperties appConfig;
     @Mock
     private EmailService emailService;
     @InjectMocks

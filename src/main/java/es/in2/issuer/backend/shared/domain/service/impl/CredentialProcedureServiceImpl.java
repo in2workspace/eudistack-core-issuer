@@ -12,7 +12,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.repository.CredentialProcedureRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +25,6 @@ import reactor.core.publisher.Mono;
 import java.util.Optional;
 import java.util.UUID;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 @Service
@@ -33,7 +32,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 @Slf4j
 public class CredentialProcedureServiceImpl implements CredentialProcedureService {
 
-    private final AppConfig appConfig;
+    private final IssuerProperties appConfig;
     private static final String UPDATED_CREDENTIAL = "Updated credential";
     private final CredentialProcedureRepository credentialProcedureRepository;
     private final ObjectMapper objectMapper;

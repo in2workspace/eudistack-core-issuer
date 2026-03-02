@@ -3,7 +3,7 @@ package es.in2.issuer.backend.shared.domain.service.impl;
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.util.Constants;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,7 +28,7 @@ class CredentialIssuerMetadataServiceImplTest {
     private static final String ISSUER_URL = "https://issuer.example.com";
 
     @Mock
-    private AppConfig appConfig;
+    private IssuerProperties appConfig;
 
     @Mock
     private CredentialProfileRegistry credentialProfileRegistry;

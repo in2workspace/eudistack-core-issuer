@@ -13,7 +13,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.LabelCredential;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.signing.infrastructure.config.DefaultSignerConfig; // <-- NEW import
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -45,7 +45,7 @@ class LabelCredentialFactoryTest {
     private IssuerFactory issuerFactory;
 
     @Mock
-    private AppConfig appConfig;
+    private IssuerProperties appConfig;
 
     @Mock
     private CredentialProcedureService credentialProcedureService;

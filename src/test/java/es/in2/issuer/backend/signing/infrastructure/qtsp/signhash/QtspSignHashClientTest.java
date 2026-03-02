@@ -18,7 +18,7 @@ import reactor.test.StepVerifier;
 import java.nio.charset.StandardCharsets;
 
 import static org.mockito.ArgumentMatchers.*;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_REMOTE_TYPE_SERVER;
+import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOTE_TYPE_SERVER;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 

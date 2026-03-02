@@ -50,8 +50,6 @@ import java.util.Map;
 import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.CWT_VC;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.JWT_VC;
 
 @Service
 @Slf4j
@@ -170,7 +168,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
 
     private Mono<String> signCredentialOnRequestedFormat(String unsignedCredential, String format, String token, String procedureId, String email) {
         return Mono.defer(() -> {
-            if (format.equals(JWT_VC)) {
+            if (format.equals(JWT_VC_JSON)) {
                 return setSubIfCredentialSubjectIdPresent(unsignedCredential)
                         .flatMap(payloadToSign -> {
                             log.info("Signing credential in JADES remotely ...");
@@ -379,7 +377,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                                         };
 
                                 return updateDecodedCredentialMono
-                                        .then(this.signAndUpdateCredentialByProcedureId(token, procedureId, JWT_VC))
+                                        .then(this.signAndUpdateCredentialByProcedureId(token, procedureId, JWT_VC_JSON))
                                         .flatMap(signedVc ->
                                                 credentialProcedureService
                                                         .updateCredentialProcedureCredentialStatusToValidByProcedureId(procedureId)
@@ -440,7 +438,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
         return credentialProcedureService.updateDecodedCredentialByProcedureId(
                 procedureId,
                 bindCredential,
-                JWT_VC
+                JWT_VC_JSON
         );
     }
 }

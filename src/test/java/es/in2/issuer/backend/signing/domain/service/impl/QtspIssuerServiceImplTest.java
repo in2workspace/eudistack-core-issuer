@@ -21,7 +21,7 @@ import java.util.Base64;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_REMOTE_TYPE_SERVER;
+import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOTE_TYPE_SERVER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 

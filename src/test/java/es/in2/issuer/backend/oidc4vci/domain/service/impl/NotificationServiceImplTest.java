@@ -19,8 +19,8 @@ import reactor.test.StepVerifier;
 
 import java.util.UUID;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.CREDENTIAL_STATUS;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.STATUS_LIST_CREDENTIAL;
+import static es.in2.issuer.backend.shared.domain.util.Constants.CREDENTIAL_STATUS;
+import static es.in2.issuer.backend.shared.domain.util.Constants.STATUS_LIST_CREDENTIAL;
 import static es.in2.issuer.backend.shared.domain.util.Constants.VC;
 import static org.mockito.Mockito.*;
 

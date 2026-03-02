@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.adapter.ConfigAdapter;
 import es.in2.issuer.backend.shared.infrastructure.config.adapter.factory.ConfigAdapterFactory;
 import es.in2.issuer.backend.shared.infrastructure.config.properties.AppProperties;
@@ -10,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
 import java.util.List;
 
 @Configuration
-public class AppConfig {
+public class AppConfig implements IssuerProperties {
 
     private final ConfigAdapter configAdapter;
     private final AppProperties appProperties;
@@ -70,10 +71,6 @@ public class AppConfig {
     }
     public List<String> getDefaultCorsAllowedOrigins() {
         return corsProperties.defaultAllowedOrigins();
-    }
-
-    public String getTrustFrameworkUrl() {
-        return configAdapter.getConfiguration(appProperties.trustFrameworkUrl());
     }
 
     public String getVerifierUrl() {

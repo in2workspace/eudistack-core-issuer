@@ -4,8 +4,8 @@
 
 | Block | Name | Complexity | Estimated New Files | Estimated Modified Files |
 |-------|------|-----------|--------------------|-----------------------|
-| **F** | Eliminate Keycloak | Medium | 0 | ~8 (delete 3) |
-| **G** | Restructure PDP Policies | Medium | ~8 | ~6 |
+| **F** | Eliminate Keycloak ✅ | Medium | 0 | ~8 (delete 3) |
+| **G** | Restructure PDP Policies ✅ | Medium | ~8 | ~6 |
 | **A** | JSON Schema Credentials ✅ | Medium-High | 6 new | 9 modified |
 | **B** | SD-JWT Format | High | ~6-8 | ~5-8 |
 | **C** | Authorization Code Flow + Issuer-Initiated | Very High | ~15-20 | ~10-12 |

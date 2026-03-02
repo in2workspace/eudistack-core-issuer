@@ -16,7 +16,7 @@ import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFa
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialMachineFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LabelCredentialFactory;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -41,7 +41,7 @@ class PolicyContextFactoryTest {
     private JWTService jwtService;
 
     @Mock
-    private AppConfig appConfig;
+    private IssuerProperties appConfig;
 
     @Mock
     private LEARCredentialEmployeeFactory learCredentialEmployeeFactory;

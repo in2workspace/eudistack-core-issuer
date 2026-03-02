@@ -5,7 +5,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.VerifierOauth2AccessToken;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.M2MTokenService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
@@ -18,8 +18,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.CLIENT_ASSERTION_TYPE_VALUE;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.CLIENT_CREDENTIALS_GRANT_TYPE_VALUE;
+import static es.in2.issuer.backend.shared.domain.util.Constants.CLIENT_ASSERTION_TYPE_VALUE;
+import static es.in2.issuer.backend.shared.domain.util.Constants.CLIENT_CREDENTIALS_GRANT_TYPE_VALUE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.CLIENT_ASSERTION_EXPIRATION_TIME;
 import static es.in2.issuer.backend.shared.domain.util.Constants.CLIENT_ASSERTION_EXPIRATION_TIME_UNIT;
 
@@ -29,7 +29,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.CLIENT_ASSERTIO
 public class M2MTokenServiceImpl implements M2MTokenService {
 
     private final JWTService jwtService;
-    private final AppConfig appConfig;
+    private final IssuerProperties appConfig;
     private final VerifierService verifierService;
 
     @Override

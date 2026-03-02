@@ -12,7 +12,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.employee.LEARCredentialEmployee;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -27,7 +27,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE_DESCRIPTION;
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 @Slf4j

@@ -10,7 +10,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
 import es.in2.issuer.backend.shared.domain.model.dto.OrgContext;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
@@ -22,8 +22,7 @@ import reactor.core.publisher.Mono;
 import java.text.ParseException;
 import java.time.Instant;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
-import static es.in2.issuer.backend.shared.domain.util.Constants.VC;
+import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 @Service
 @Slf4j
@@ -32,7 +31,7 @@ public class AccessTokenServiceImpl implements AccessTokenService {
 
     private final ObjectMapper objectMapper;
     private final DeferredCredentialMetadataService deferredCredentialMetadataService;
-    private final AppConfig appConfig;
+    private final IssuerProperties appConfig;
 
     @Override
     public Mono<String> getCleanBearerToken(String authorizationHeader) {

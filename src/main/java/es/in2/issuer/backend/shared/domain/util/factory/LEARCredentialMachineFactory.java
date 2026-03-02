@@ -12,7 +12,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.machine.LEARCredentialMachine;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -37,7 +37,7 @@ public class LEARCredentialMachineFactory {
     private final ObjectMapper objectMapper;
     private final AccessTokenService accessTokenService;
     private final IssuerFactory issuerFactory;
-    private final AppConfig appConfig;
+    private final IssuerProperties appConfig;
 
     public Mono<String> bindCryptographicCredentialSubjectId(String decodedCredentialString, String subjectId) {
         LEARCredentialMachine decodedCredential = mapStringToLEARCredentialMachine(decodedCredentialString);

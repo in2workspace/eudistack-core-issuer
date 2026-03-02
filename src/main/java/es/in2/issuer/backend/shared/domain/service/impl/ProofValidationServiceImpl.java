@@ -15,7 +15,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.SUPPORTED_PROOF_TYP;
+import static es.in2.issuer.backend.shared.domain.util.Constants.SUPPORTED_PROOF_TYP;
 
 @Slf4j
 @Service

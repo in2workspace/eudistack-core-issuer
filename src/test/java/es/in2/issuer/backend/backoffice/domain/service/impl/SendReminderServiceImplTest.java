@@ -19,9 +19,9 @@ import org.springframework.security.access.AccessDeniedException;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.CREDENTIAL_ACTIVATION_EMAIL_SUBJECT;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.CREDENTIAL_READY;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE;
+import static es.in2.issuer.backend.shared.domain.util.Constants.CREDENTIAL_ACTIVATION_EMAIL_SUBJECT;
+import static es.in2.issuer.backend.shared.domain.util.Constants.CREDENTIAL_READY;
+import static es.in2.issuer.backend.shared.domain.util.Constants.MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE;
 import static es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum.DRAFT;
 import static es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum.PEND_DOWNLOAD;
 import static es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum.WITHDRAWN;

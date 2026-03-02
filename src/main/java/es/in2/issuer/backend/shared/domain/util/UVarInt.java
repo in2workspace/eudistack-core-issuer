@@ -5,8 +5,8 @@ import lombok.Getter;
 import java.util.ArrayList;
 import java.util.List;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.MSB;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.MSBALL;
+import static es.in2.issuer.backend.shared.domain.util.Constants.MSB;
+import static es.in2.issuer.backend.shared.domain.util.Constants.MSBALL;
 
 @Getter
 public class UVarInt {

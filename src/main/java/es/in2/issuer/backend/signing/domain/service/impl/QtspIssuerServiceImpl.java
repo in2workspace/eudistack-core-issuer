@@ -37,7 +37,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
+import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 import static es.in2.issuer.backend.signing.domain.util.PathConstants.INFO_PATH;
 import static es.in2.issuer.backend.signing.domain.util.PathConstants.LIST_PATH;
 

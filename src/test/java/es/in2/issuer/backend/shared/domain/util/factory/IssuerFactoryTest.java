@@ -3,9 +3,10 @@ package es.in2.issuer.backend.shared.domain.util.factory;
 
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
-import es.in2.issuer.backend.shared.domain.service.impl.SigningRecoveryServiceImpl;
-import es.in2.issuer.backend.signing.domain.service.impl.QtspIssuerServiceImpl;
-import es.in2.issuer.backend.signing.infrastructure.config.DefaultSignerConfig;
+import es.in2.issuer.backend.shared.domain.service.SigningRecoveryService;
+import es.in2.issuer.backend.signing.domain.model.port.SignerConfig;
+import es.in2.issuer.backend.signing.domain.model.port.SigningRuntimeProperties;
+import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -17,16 +18,17 @@ import reactor.test.StepVerifier;
 import java.util.concurrent.TimeoutException;
 
 import static org.mockito.Mockito.*;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.DID_ELSI;
+import static es.in2.issuer.backend.shared.domain.util.Constants.DID_ELSI;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 
 @ExtendWith(MockitoExtension.class)
 class IssuerFactoryTest {
 
-    @Mock private DefaultSignerConfig defaultSignerConfig;
-    @Mock private SigningRecoveryServiceImpl signingRecoveryServiceImpl;
-    @Mock private QtspIssuerServiceImpl qtspIssuerServiceImpl;
+    @Mock private SignerConfig signerConfig;
+    @Mock private SigningRecoveryService signingRecoveryService;
+    @Mock private QtspIssuerService qtspIssuerService;
+    @Mock private SigningRuntimeProperties signingRuntimeProperties;
 
     @InjectMocks private IssuerFactory issuerFactory;
 
@@ -34,13 +36,13 @@ class IssuerFactoryTest {
 
     @Test
     void createDetailedIssuer_LocalServerSide_ReturnsFromDefaultConfig() {
-        when(qtspIssuerServiceImpl.isServerMode()).thenReturn(true);
+        when(signingRuntimeProperties.getProvider()).thenReturn("in-memory");
 
-        when(defaultSignerConfig.getOrganizationIdentifier()).thenReturn("ORG-ID");
-        when(defaultSignerConfig.getOrganization()).thenReturn("MyOrg");
-        when(defaultSignerConfig.getCountry()).thenReturn("ES");
-        when(defaultSignerConfig.getCommonName()).thenReturn("CN");
-        when(defaultSignerConfig.getSerialNumber()).thenReturn("SN123");
+        when(signerConfig.getOrganizationIdentifier()).thenReturn("ORG-ID");
+        when(signerConfig.getOrganization()).thenReturn("MyOrg");
+        when(signerConfig.getCountry()).thenReturn("ES");
+        when(signerConfig.getCommonName()).thenReturn("CN");
+        when(signerConfig.getSerialNumber()).thenReturn("SN123");
 
         StepVerifier.create(issuerFactory.createDetailedIssuer())
                 .assertNext(issuer -> {
@@ -53,28 +55,27 @@ class IssuerFactoryTest {
                 })
                 .verifyComplete();
 
-        verify(qtspIssuerServiceImpl).isServerMode();
-        verifyNoMoreInteractions(qtspIssuerServiceImpl);
-        verifyNoInteractions(signingRecoveryServiceImpl);
+        verifyNoInteractions(qtspIssuerService);
+        verifyNoInteractions(signingRecoveryService);
     }
 
     @Test
     void createSimpleIssuer_LocalServerSide_ReturnsFromDefaultConfig() {
-        when(qtspIssuerServiceImpl.isServerMode()).thenReturn(true);
-        when(defaultSignerConfig.getOrganizationIdentifier()).thenReturn("ORG-ID");
+        when(signingRuntimeProperties.getProvider()).thenReturn("in-memory");
+        when(signerConfig.getOrganizationIdentifier()).thenReturn("ORG-ID");
 
         StepVerifier.create(issuerFactory.createSimpleIssuer())
                 .assertNext(simple -> assertEquals(DID_ELSI + "ORG-ID", simple.getId()))
                 .verifyComplete();
 
-        verify(qtspIssuerServiceImpl).isServerMode();
-        verifyNoMoreInteractions(qtspIssuerServiceImpl);
-        verifyNoInteractions(signingRecoveryServiceImpl);
+        verifyNoInteractions(qtspIssuerService);
+        verifyNoInteractions(signingRecoveryService);
     }
 
     @Test
     void createDetailedIssuer_Remote_SuccessPath() {
-        when(qtspIssuerServiceImpl.isServerMode()).thenReturn(false);
+        when(signingRuntimeProperties.getProvider()).thenReturn("csc-sign-doc");
+        when(qtspIssuerService.isServerMode()).thenReturn(false);
 
         DetailedIssuer expected = DetailedIssuer.builder()
                 .id("id1")
@@ -85,103 +86,108 @@ class IssuerFactoryTest {
                 .serialNumber("SN")
                 .build();
 
-        when(qtspIssuerServiceImpl.resolveRemoteDetailedIssuer())
+        when(qtspIssuerService.resolveRemoteDetailedIssuer())
                 .thenReturn(Mono.just(expected));
 
         StepVerifier.create(issuerFactory.createDetailedIssuer())
                 .expectNext(expected)
                 .verifyComplete();
 
-        verify(qtspIssuerServiceImpl).isServerMode();
-        verify(qtspIssuerServiceImpl).resolveRemoteDetailedIssuer();
-        verifyNoMoreInteractions(qtspIssuerServiceImpl);
-        verifyNoInteractions(signingRecoveryServiceImpl);
+        verify(qtspIssuerService).isServerMode();
+        verify(qtspIssuerService).resolveRemoteDetailedIssuer();
+        verifyNoMoreInteractions(qtspIssuerService);
+        verifyNoInteractions(signingRecoveryService);
     }
 
     @Test
     void createSimpleIssuer_Remote_SuccessPath() {
-        when(qtspIssuerServiceImpl.isServerMode()).thenReturn(false);
+        when(signingRuntimeProperties.getProvider()).thenReturn("csc-sign-doc");
+        when(qtspIssuerService.isServerMode()).thenReturn(false);
 
         DetailedIssuer detailed = DetailedIssuer.builder()
                 .id("issuer-id")
                 .build();
 
-        when(qtspIssuerServiceImpl.resolveRemoteDetailedIssuer())
+        when(qtspIssuerService.resolveRemoteDetailedIssuer())
                 .thenReturn(Mono.just(detailed));
 
         StepVerifier.create(issuerFactory.createSimpleIssuer())
                 .assertNext(simple -> assertEquals("issuer-id", simple.getId()))
                 .verifyComplete();
 
-        verify(qtspIssuerServiceImpl).isServerMode();
-        verify(qtspIssuerServiceImpl).resolveRemoteDetailedIssuer();
-        verifyNoMoreInteractions(qtspIssuerServiceImpl);
-        verifyNoInteractions(signingRecoveryServiceImpl);
+        verify(qtspIssuerService).isServerMode();
+        verify(qtspIssuerService).resolveRemoteDetailedIssuer();
+        verifyNoMoreInteractions(qtspIssuerService);
+        verifyNoInteractions(signingRecoveryService);
     }
 
     @Test
     void createDetailedIssuer_Remote_Error_PropagatesError() {
-        when(qtspIssuerServiceImpl.isServerMode()).thenReturn(false);
+        when(signingRuntimeProperties.getProvider()).thenReturn("csc-sign-doc");
+        when(qtspIssuerService.isServerMode()).thenReturn(false);
 
         RemoteSignatureException ex = new RemoteSignatureException("boom");
-        when(qtspIssuerServiceImpl.resolveRemoteDetailedIssuer())
+        when(qtspIssuerService.resolveRemoteDetailedIssuer())
                 .thenReturn(Mono.error(ex));
 
         StepVerifier.create(issuerFactory.createDetailedIssuer())
                 .expectErrorSatisfies(err -> assertEquals(ex, err))
                 .verify();
 
-        verify(qtspIssuerServiceImpl).isServerMode();
-        verify(qtspIssuerServiceImpl).resolveRemoteDetailedIssuer();
-        verifyNoMoreInteractions(qtspIssuerServiceImpl);
-        verifyNoInteractions(signingRecoveryServiceImpl);
+        verify(qtspIssuerService).isServerMode();
+        verify(qtspIssuerService).resolveRemoteDetailedIssuer();
+        verifyNoMoreInteractions(qtspIssuerService);
+        verifyNoInteractions(signingRecoveryService);
     }
 
     @Test
     void createDetailedIssuerAndNotifyOnError_Remote_Error_CompletesEmptyAndCallsPostRecover() {
-        when(qtspIssuerServiceImpl.isServerMode()).thenReturn(false);
+        when(signingRuntimeProperties.getProvider()).thenReturn("csc-sign-doc");
+        when(qtspIssuerService.isServerMode()).thenReturn(false);
 
-        when(qtspIssuerServiceImpl.resolveRemoteDetailedIssuer())
+        when(qtspIssuerService.resolveRemoteDetailedIssuer())
                 .thenReturn(Mono.error(new RemoteSignatureException("credentials mismatch")));
 
-        when(signingRecoveryServiceImpl.handlePostRecoverError(procedureId, ""))
+        when(signingRecoveryService.handlePostRecoverError(procedureId, ""))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(issuerFactory.createDetailedIssuerAndNotifyOnError(procedureId, ""))
                 .verifyComplete();
 
-        verify(qtspIssuerServiceImpl).isServerMode();
-        verify(qtspIssuerServiceImpl).resolveRemoteDetailedIssuer();
-        verify(signingRecoveryServiceImpl).handlePostRecoverError(procedureId, "");
-        verifyNoMoreInteractions(qtspIssuerServiceImpl, signingRecoveryServiceImpl);
+        verify(qtspIssuerService).isServerMode();
+        verify(qtspIssuerService).resolveRemoteDetailedIssuer();
+        verify(signingRecoveryService).handlePostRecoverError(procedureId, "");
+        verifyNoMoreInteractions(qtspIssuerService, signingRecoveryService);
     }
 
     @Test
     void createDetailedIssuerAndNotifyOnError_Remote_PostRecoverFails_PropagatesPostRecoverError() {
-        when(qtspIssuerServiceImpl.isServerMode()).thenReturn(false);
+        when(signingRuntimeProperties.getProvider()).thenReturn("csc-sign-doc");
+        when(qtspIssuerService.isServerMode()).thenReturn(false);
 
-        when(qtspIssuerServiceImpl.resolveRemoteDetailedIssuer())
+        when(qtspIssuerService.resolveRemoteDetailedIssuer())
                 .thenReturn(Mono.error(new RemoteSignatureException("boom")));
 
         RuntimeException postEx = new RuntimeException("post-recover failed");
-        when(signingRecoveryServiceImpl.handlePostRecoverError(procedureId, ""))
+        when(signingRecoveryService.handlePostRecoverError(procedureId, ""))
                 .thenReturn(Mono.error(postEx));
 
         StepVerifier.create(issuerFactory.createDetailedIssuerAndNotifyOnError(procedureId, ""))
                 .expectErrorSatisfies(err -> assertEquals(postEx, err))
                 .verify();
 
-        verify(qtspIssuerServiceImpl).isServerMode();
-        verify(qtspIssuerServiceImpl).resolveRemoteDetailedIssuer();
-        verify(signingRecoveryServiceImpl).handlePostRecoverError(procedureId, "");
-        verifyNoMoreInteractions(qtspIssuerServiceImpl, signingRecoveryServiceImpl);
+        verify(qtspIssuerService).isServerMode();
+        verify(qtspIssuerService).resolveRemoteDetailedIssuer();
+        verify(signingRecoveryService).handlePostRecoverError(procedureId, "");
+        verifyNoMoreInteractions(qtspIssuerService, signingRecoveryService);
     }
 
     @Test
     void createDetailedIssuer_Remote_RecoverableErrors_ThenRetryExhausted() {
-        when(qtspIssuerServiceImpl.isServerMode()).thenReturn(false);
+        when(signingRuntimeProperties.getProvider()).thenReturn("csc-sign-doc");
+        when(qtspIssuerService.isServerMode()).thenReturn(false);
 
-        when(qtspIssuerServiceImpl.resolveRemoteDetailedIssuer())
+        when(qtspIssuerService.resolveRemoteDetailedIssuer())
                 .thenReturn(Mono.error(new TimeoutException("t1")))
                 .thenReturn(Mono.error(new TimeoutException("t2")))
                 .thenReturn(Mono.error(new TimeoutException("t3")))
@@ -194,60 +200,63 @@ class IssuerFactoryTest {
                 })
                 .verify();
 
-        verify(qtspIssuerServiceImpl).isServerMode();
-        verify(qtspIssuerServiceImpl, times(1)).resolveRemoteDetailedIssuer();
-        verifyNoMoreInteractions(qtspIssuerServiceImpl);
-        verifyNoInteractions(signingRecoveryServiceImpl);
+        verify(qtspIssuerService).isServerMode();
+        verify(qtspIssuerService, times(1)).resolveRemoteDetailedIssuer();
+        verifyNoMoreInteractions(qtspIssuerService);
+        verifyNoInteractions(signingRecoveryService);
     }
 
 
     @Test
     void createDetailedIssuerAndNotifyOnError_Remote_RecoverableErrors_ThenPostRecoverCompletesEmpty() {
-        when(qtspIssuerServiceImpl.isServerMode()).thenReturn(false);
+        when(signingRuntimeProperties.getProvider()).thenReturn("csc-sign-doc");
+        when(qtspIssuerService.isServerMode()).thenReturn(false);
 
-        when(qtspIssuerServiceImpl.resolveRemoteDetailedIssuer())
+        when(qtspIssuerService.resolveRemoteDetailedIssuer())
                 .thenReturn(Mono.error(new TimeoutException("t1")));
 
-        when(signingRecoveryServiceImpl.handlePostRecoverError(procedureId, ""))
+        when(signingRecoveryService.handlePostRecoverError(procedureId, ""))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(issuerFactory.createDetailedIssuerAndNotifyOnError(procedureId, ""))
                 .verifyComplete();
 
-        verify(qtspIssuerServiceImpl).isServerMode();
-        verify(qtspIssuerServiceImpl, times(1)).resolveRemoteDetailedIssuer();
-        verify(signingRecoveryServiceImpl).handlePostRecoverError(procedureId, "");
-        verifyNoMoreInteractions(qtspIssuerServiceImpl, signingRecoveryServiceImpl);
+        verify(qtspIssuerService).isServerMode();
+        verify(qtspIssuerService, times(1)).resolveRemoteDetailedIssuer();
+        verify(signingRecoveryService).handlePostRecoverError(procedureId, "");
+        verifyNoMoreInteractions(qtspIssuerService, signingRecoveryService);
     }
 
     @Test
     void createSimpleIssuerAndNotifyOnError_Remote_Error_CompletesEmptyAndCallsPostRecover() {
-        when(qtspIssuerServiceImpl.isServerMode()).thenReturn(false);
+        when(signingRuntimeProperties.getProvider()).thenReturn("csc-sign-doc");
+        when(qtspIssuerService.isServerMode()).thenReturn(false);
 
-        when(qtspIssuerServiceImpl.resolveRemoteDetailedIssuer())
+        when(qtspIssuerService.resolveRemoteDetailedIssuer())
                 .thenReturn(Mono.error(new RemoteSignatureException("boom")));
 
-        when(signingRecoveryServiceImpl.handlePostRecoverError(procedureId, ""))
+        when(signingRecoveryService.handlePostRecoverError(procedureId, ""))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(issuerFactory.createSimpleIssuerAndNotifyOnError(procedureId, ""))
                 .verifyComplete();
 
-        verify(qtspIssuerServiceImpl).isServerMode();
-        verify(qtspIssuerServiceImpl).resolveRemoteDetailedIssuer();
-        verify(signingRecoveryServiceImpl).handlePostRecoverError(procedureId, "");
-        verifyNoMoreInteractions(qtspIssuerServiceImpl, signingRecoveryServiceImpl);
+        verify(qtspIssuerService).isServerMode();
+        verify(qtspIssuerService).resolveRemoteDetailedIssuer();
+        verify(signingRecoveryService).handlePostRecoverError(procedureId, "");
+        verifyNoMoreInteractions(qtspIssuerService, signingRecoveryService);
     }
 
     @Test
     void createSimpleIssuer_Remote_Success_MapsToSimpleIssuer() {
-        when(qtspIssuerServiceImpl.isServerMode()).thenReturn(false);
+        when(signingRuntimeProperties.getProvider()).thenReturn("csc-sign-doc");
+        when(qtspIssuerService.isServerMode()).thenReturn(false);
 
         DetailedIssuer detailed = DetailedIssuer.builder()
                 .id("did:elsi:ABC")
                 .build();
 
-        when(qtspIssuerServiceImpl.resolveRemoteDetailedIssuer())
+        when(qtspIssuerService.resolveRemoteDetailedIssuer())
                 .thenReturn(Mono.just(detailed));
 
         StepVerifier.create(issuerFactory.createSimpleIssuer())
@@ -256,9 +265,9 @@ class IssuerFactoryTest {
                 })
                 .verifyComplete();
 
-        verify(qtspIssuerServiceImpl).isServerMode();
-        verify(qtspIssuerServiceImpl).resolveRemoteDetailedIssuer();
-        verifyNoMoreInteractions(qtspIssuerServiceImpl);
-        verifyNoInteractions(signingRecoveryServiceImpl);
+        verify(qtspIssuerService).isServerMode();
+        verify(qtspIssuerService).resolveRemoteDetailedIssuer();
+        verifyNoMoreInteractions(qtspIssuerService);
+        verifyNoInteractions(signingRecoveryService);
     }
 }

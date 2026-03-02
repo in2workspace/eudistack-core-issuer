@@ -15,7 +15,7 @@ import es.in2.issuer.backend.shared.domain.exception.WellKnownInfoFetchException
 import es.in2.issuer.backend.shared.domain.model.dto.OpenIDProviderMetadata;
 import es.in2.issuer.backend.shared.domain.model.dto.VerifierOauth2AccessToken;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -25,8 +25,8 @@ import reactor.core.publisher.Mono;
 import java.text.ParseException;
 import java.util.Date;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.CONTENT_TYPE;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.CONTENT_TYPE_URL_ENCODED_FORM;
+import static es.in2.issuer.backend.shared.domain.util.Constants.CONTENT_TYPE;
+import static es.in2.issuer.backend.shared.domain.util.Constants.CONTENT_TYPE_URL_ENCODED_FORM;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH;
 
 @Service
@@ -34,7 +34,7 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.AUTHOR
 @RequiredArgsConstructor
 public class VerifierServiceImpl implements VerifierService {
 
-    private final AppConfig appConfig;
+    private final IssuerProperties appConfig;
     private final WebClient oauth2VerifierWebClient;
 
     // Cache to store JWKs and avoid multiple endpoint calls

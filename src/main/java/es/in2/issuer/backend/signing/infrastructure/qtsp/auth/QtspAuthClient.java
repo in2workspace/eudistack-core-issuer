@@ -24,8 +24,8 @@ import reactor.core.publisher.Mono;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.CREDENTIAL_ID;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
+import static es.in2.issuer.backend.shared.domain.util.Constants.CREDENTIAL_ID;
+import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
 
 @Slf4j
 @Component

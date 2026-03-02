@@ -27,8 +27,8 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.Set;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.SUPPORTED_PROOF_ALG;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.SUPPORTED_PROOF_TYP;
+import static es.in2.issuer.backend.shared.domain.util.Constants.SUPPORTED_PROOF_ALG;
+import static es.in2.issuer.backend.shared.domain.util.Constants.SUPPORTED_PROOF_TYP;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 

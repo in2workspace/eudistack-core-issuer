@@ -10,7 +10,6 @@ class AppPropertiesTest {
     void appProperties_initializesCorrectly() {
         String appUrl = "https://app-url.com";
         String issuerFrontendUrl = "https://issuer-frontend-url.com";
-        String trustFrameworkUrl = "https://trust-framework-url.com";
         String verifierUrl = "https://verifier-url.com";
         String configSource = "configSource";
         String walletFrontendUrl = "https://wallet-frontend-url.com";
@@ -28,7 +27,6 @@ class AppPropertiesTest {
         AppProperties appProperties = new AppProperties(
                 appUrl,
                 issuerFrontendUrl,
-                trustFrameworkUrl,
                 knowledgeBase,
                 verifierUrl,
                 configSource,
@@ -41,7 +39,6 @@ class AppPropertiesTest {
         // Assert
         assertEquals(appUrl, appProperties.url());
         assertEquals(issuerFrontendUrl, appProperties.issuerFrontendUrl());
-        assertEquals(trustFrameworkUrl, appProperties.trustFrameworkUrl());
         assertEquals(knowledgeBase, appProperties.knowledgeBase());
         assertEquals(verifierUrl, appProperties.verifierUrl());
         assertEquals(configSource, appProperties.configSource());

@@ -22,7 +22,7 @@ import reactor.core.publisher.Mono;
 import java.util.List;
 import java.util.Map;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
+import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
 
 @Slf4j
 @RequiredArgsConstructor

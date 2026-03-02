@@ -2,6 +2,8 @@ package es.in2.issuer.backend.shared.domain.service.impl;
 
 import com.nimbusds.jose.JWSObject;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
+import es.in2.issuer.backend.shared.domain.exception.CredentialIssuanceException;
+import es.in2.issuer.backend.shared.domain.exception.JWTParsingException;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
@@ -25,10 +27,10 @@ import reactor.core.publisher.Mono;
 
 import java.text.ParseException;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
-import static es.in2.issuer.backend.shared.domain.util.Constants.DEFERRED_CREDENTIAL_POLLING_INTERVAL;
+import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 
 @Service
@@ -98,7 +100,7 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
             String newAuthServerNonce = jwsObject.getPayload().toJSONObject().get("jti").toString();
             return deferredCredentialMetadataService.updateAuthServerNonceByAuthServerNonce(newAuthServerNonce, preAuthCode);
         } catch (ParseException e) {
-            throw new RuntimeException();
+            throw new JWTParsingException("Failed to parse access token JWT");
         }
 
     }
@@ -146,7 +148,7 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
                                     subjectDid)
                             .onErrorResume(e -> {
                                 log.error("Error binding cryptographic credential subject ID: {}", e.getMessage(), e);
-                                return Mono.error(new RuntimeException("Failed to bind cryptographic credential subject", e));
+                                return Mono.error(new CredentialIssuanceException("Failed to bind cryptographic credential subject", e));
                             })
                             .flatMap(bound -> credentialProcedureService
                                     .updateDecodedCredentialByProcedureId(procedureId, bound)
@@ -174,15 +176,15 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
                             .updateDeferredCredentialMetadataByAuthServerNonce(authServerNonce)
                             .onErrorResume(e -> {
                                 log.error("Error updating deferred metadata with authServerNonce: {}", e.getMessage(), e);
-                                return Mono.error(new RuntimeException("Failed to update deferred metadata", e));
+                                return Mono.error(new CredentialIssuanceException("Failed to update deferred metadata", e));
                             })
-                            .switchIfEmpty(Mono.error(new RuntimeException("TransactionId not found after updating deferred metadata")))
+                            .switchIfEmpty(Mono.error(new NoSuchElementException("TransactionId not found after updating deferred metadata")))
                             .flatMap(transactionId -> deferredCredentialMetadataService.getFormatByProcedureId(procedureId)
                                     .onErrorResume(e -> {
                                         log.error("Error mapping/binding issuer and updating credential: {}", e.getMessage(), e);
-                                        return Mono.error(new RuntimeException("Failed to retrieve credential format", e));
+                                        return Mono.error(new CredentialIssuanceException("Failed to retrieve credential format", e));
                                     })
-                                    .switchIfEmpty(Mono.error(new RuntimeException("Credential format not found for procedureId: " + procedureId)))
+                                    .switchIfEmpty(Mono.error(new NoSuchElementException("Credential format not found for procedureId: " + procedureId)))
                                     .flatMap(format -> credentialFactory
                                             .mapCredentialBindIssuerAndUpdateDB(
                                                     processId,
@@ -194,7 +196,7 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
                                                     email
                                             )
                                             .then(credentialProcedureService.getOperationModeByProcedureId(procedureId))
-                                            .switchIfEmpty(Mono.error(new RuntimeException("Operation mode not found for procedureId: " + procedureId)))
+                                            .switchIfEmpty(Mono.error(new NoSuchElementException("Operation mode not found for procedureId: " + procedureId)))
                                             .flatMap(mode -> buildCredentialResponseBasedOnOperationMode(
                                                     mode,
                                                     procedureId,
@@ -225,7 +227,7 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
                     .signAndUpdateCredentialByProcedureId(
                             BEARER_PREFIX + token,
                             procedureId,
-                            JWT_VC
+                            JWT_VC_JSON
                     )
                     .flatMap(signed -> Mono.just(
                             CredentialResponse.builder()

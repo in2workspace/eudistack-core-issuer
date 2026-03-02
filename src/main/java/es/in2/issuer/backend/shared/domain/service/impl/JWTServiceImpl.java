@@ -45,7 +45,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.DID_KEY;
+import static es.in2.issuer.backend.shared.domain.util.Constants.DID_KEY;
 
 @Slf4j
 @Service

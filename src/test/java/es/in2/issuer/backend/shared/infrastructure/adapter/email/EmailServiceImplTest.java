@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.shared.domain.service.impl;
+package es.in2.issuer.backend.shared.infrastructure.adapter.email;
 
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotificationInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;

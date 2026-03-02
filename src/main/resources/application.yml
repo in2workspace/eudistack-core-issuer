@@ -91,7 +91,6 @@ openapi:
 app:
   url: ${APP_URL:http://localhost:8080}
   issuer-frontend-url: ${APP_ISSUER_FRONTEND_URL:http://localhost:4200}
-  trust-framework-url: ${APP_TRUST_FRAMEWORK_URL:https://trust-framework.example.com}
   knowledge-base:
     upload-certification-guide-url: ${APP_KNOWLEDGE_BASE_UPLOAD_CERTIFICATION_GUIDE_URL:https://example.com/guide}
     wallet-guide-url: ${APP_KNOWLEDGE_BASE_WALLET_GUIDE_URL:https://example.com/wallet}

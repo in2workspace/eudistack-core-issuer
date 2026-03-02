@@ -2,10 +2,11 @@ package es.in2.issuer.backend.shared.domain.util.factory;
 
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
-import es.in2.issuer.backend.shared.domain.service.impl.SigningRecoveryServiceImpl;
-import es.in2.issuer.backend.signing.domain.service.impl.QtspIssuerServiceImpl;
+import es.in2.issuer.backend.shared.domain.service.SigningRecoveryService;
+import es.in2.issuer.backend.signing.domain.model.port.SignerConfig;
+import es.in2.issuer.backend.signing.domain.model.port.SigningRuntimeProperties;
+import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
 import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
-import es.in2.issuer.backend.signing.infrastructure.config.DefaultSignerConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -15,37 +16,44 @@ import reactor.util.retry.Retry;
 import java.time.Duration;
 import java.util.Date;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
+import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class IssuerFactory {
 
-    private final DefaultSignerConfig defaultSignerConfig;
-    private final SigningRecoveryServiceImpl signingRecoveryServiceImpl;
-    private final QtspIssuerServiceImpl qtspIssuerServiceImpl;
+    private static final String IN_MEMORY_PROVIDER = "in-memory";
+
+    private final SignerConfig signerConfig;
+    private final SigningRecoveryService signingRecoveryService;
+    private final QtspIssuerService qtspIssuerService;
+    private final SigningRuntimeProperties signingRuntimeProperties;
+
+    private boolean isLocalProvider() {
+        return IN_MEMORY_PROVIDER.equalsIgnoreCase(signingRuntimeProperties.getProvider());
+    }
 
     /**
      * Detailed issuer creation without post-recover side-effects.
-     * - Server mode: local issuer
+     * - Local (in-memory) or server mode: local issuer
      * - Remote mode: remote flow, retries, errors are propagated
      */
     public Mono<DetailedIssuer> createDetailedIssuer() {
         log.debug("IssuerFactory: createDetailedIssuer");
-        return qtspIssuerServiceImpl.isServerMode()
+        return isLocalProvider() || qtspIssuerService.isServerMode()
                 ? Mono.just(buildLocalDetailedIssuer())
                 : createRemoteDetailedIssuer();
     }
 
     /**
      * Simple issuer creation without post-recover side-effects.
-     * - Server mode: local issuer
+     * - Local (in-memory) or server mode: local issuer
      * - Remote mode: remote flow, retries, errors are propagated
      */
     public Mono<SimpleIssuer> createSimpleIssuer() {
         log.debug("IssuerFactory: createSimpleIssuer");
-        return qtspIssuerServiceImpl.isServerMode()
+        return isLocalProvider() || qtspIssuerService.isServerMode()
                 ? Mono.just(buildLocalSimpleIssuer())
                 : createRemoteDetailedIssuer()
                 .map(detailed -> SimpleIssuer.builder()
@@ -60,7 +68,7 @@ public class IssuerFactory {
      */
     public Mono<DetailedIssuer> createDetailedIssuerAndNotifyOnError(String procedureId, String email) {
         log.debug("IssuerFactory: createDetailedIssuerAndNotifyOnError");
-        return qtspIssuerServiceImpl.isServerMode()
+        return isLocalProvider() || qtspIssuerService.isServerMode()
                 ? Mono.just(buildLocalDetailedIssuer())
                 : createRemoteDetailedIssuerNotifyOnError(procedureId, email);
     }
@@ -72,7 +80,7 @@ public class IssuerFactory {
      */
     public Mono<SimpleIssuer> createSimpleIssuerAndNotifyOnError(String procedureId, String email) {
         log.debug("IssuerFactory: createSimpleIssuerAndNotifyOnError");
-        return qtspIssuerServiceImpl.isServerMode()
+        return isLocalProvider() || qtspIssuerService.isServerMode()
                 ? Mono.just(buildLocalSimpleIssuer())
                 : createRemoteDetailedIssuerNotifyOnError(procedureId, email)
                 .map(detailed -> SimpleIssuer.builder()
@@ -82,18 +90,18 @@ public class IssuerFactory {
 
     private DetailedIssuer buildLocalDetailedIssuer() {
         return DetailedIssuer.builder()
-                .id(DID_ELSI + defaultSignerConfig.getOrganizationIdentifier())
-                .organizationIdentifier(defaultSignerConfig.getOrganizationIdentifier())
-                .organization(defaultSignerConfig.getOrganization())
-                .country(defaultSignerConfig.getCountry())
-                .commonName(defaultSignerConfig.getCommonName())
-                .serialNumber(defaultSignerConfig.getSerialNumber())
+                .id(DID_ELSI + signerConfig.getOrganizationIdentifier())
+                .organizationIdentifier(signerConfig.getOrganizationIdentifier())
+                .organization(signerConfig.getOrganization())
+                .country(signerConfig.getCountry())
+                .commonName(signerConfig.getCommonName())
+                .serialNumber(signerConfig.getSerialNumber())
                 .build();
     }
 
     private SimpleIssuer buildLocalSimpleIssuer() {
         return SimpleIssuer.builder()
-                .id(DID_ELSI + defaultSignerConfig.getOrganizationIdentifier())
+                .id(DID_ELSI + signerConfig.getOrganizationIdentifier())
                 .build();
     }
 
@@ -122,7 +130,7 @@ public class IssuerFactory {
                 .retryWhen(buildRetrySpec())
                 .onErrorResume(err -> {
                     log.error("Error during remote issuer creation at {}: {}", new Date(), err.getMessage());
-                    return signingRecoveryServiceImpl.handlePostRecoverError(procedureId, email)
+                    return signingRecoveryService.handlePostRecoverError(procedureId, email)
                             .then(Mono.empty());
                 });
     }
@@ -131,7 +139,7 @@ public class IssuerFactory {
      * Core remote signature flow: validate -> token -> certInfo -> extract issuer
      */
     private Mono<DetailedIssuer> remoteIssuerCoreFlow() {
-        return qtspIssuerServiceImpl.resolveRemoteDetailedIssuer();
+        return qtspIssuerService.resolveRemoteDetailedIssuer();
     }
 
     private Retry buildRetrySpec() {

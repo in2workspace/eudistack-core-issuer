@@ -25,4 +25,5 @@ public class SendReminderController {
         String processId = UUID.randomUUID().toString();
         return sendReminderService.sendReminder(processId, procedureId, bearerToken);
     }
+    
 }

@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Map;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.AUTHENTICATION_FAILED;
+import static es.in2.issuer.backend.shared.domain.util.Constants.AUTHENTICATION_FAILED;
 
 @Slf4j
 @Component

@@ -59,7 +59,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(InvalidOrMissingProofException.class)
-    @ResponseStatus(HttpStatus.NOT_FOUND)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<GlobalErrorMessage> handleInvalidOrMissingProof(
             InvalidOrMissingProofException ex,
             ServerHttpRequest request
@@ -68,13 +68,13 @@ public class GlobalExceptionHandler {
                 ex, request,
                 GlobalErrorTypes.INVALID_OR_MISSING_PROOF.getCode(),
                 "Invalid or missing proof",
-                HttpStatus.NOT_FOUND,
+                HttpStatus.BAD_REQUEST,
                 "Credential Request did not contain a proof, or proof was invalid, i.e. it was not bound to a Credential Issuer provided nonce."
         );
     }
 
     @ExceptionHandler(InvalidTokenException.class)
-    @ResponseStatus(HttpStatus.NOT_FOUND)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public Mono<GlobalErrorMessage> handleInvalidToken(
             InvalidTokenException ex,
             ServerHttpRequest request
@@ -83,7 +83,7 @@ public class GlobalExceptionHandler {
                 ex, request,
                 GlobalErrorTypes.INVALID_TOKEN.getCode(),
                 "Invalid token",
-                HttpStatus.NOT_FOUND,
+                HttpStatus.UNAUTHORIZED,
                 "Credential Request contains the wrong Access Token or the Access Token is missing"
         );
     }
@@ -149,7 +149,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(ProofValidationException.class)
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<GlobalErrorMessage> handleProofValidationException(
             ProofValidationException ex,
             ServerHttpRequest request
@@ -158,8 +158,8 @@ public class GlobalExceptionHandler {
                 ex, request,
                 GlobalErrorTypes.PROOF_VALIDATION_ERROR.getCode(),
                 "Proof validation error",
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "An internal proof validation error occurred."
+                HttpStatus.BAD_REQUEST,
+                "The provided proof is invalid."
         );
     }
 

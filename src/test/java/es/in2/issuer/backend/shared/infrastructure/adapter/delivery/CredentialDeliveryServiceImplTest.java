@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.shared.domain.service.impl;
+package es.in2.issuer.backend.shared.infrastructure.adapter.delivery;
 
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;

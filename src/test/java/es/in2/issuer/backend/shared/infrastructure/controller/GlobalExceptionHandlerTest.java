@@ -146,7 +146,7 @@ class GlobalExceptionHandlerTest {
         var ex = new InvalidOrMissingProofException("bad proof");
         var type = GlobalErrorTypes.INVALID_OR_MISSING_PROOF.getCode();
         var title = "Invalid or missing proof";
-        var st = HttpStatus.NOT_FOUND;
+        var st = HttpStatus.BAD_REQUEST;
         var fallback = "Credential Request did not contain a proof, or proof was invalid, i.e. it was not bound to a Credential Issuer provided nonce.";
         var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
 
@@ -164,7 +164,7 @@ class GlobalExceptionHandlerTest {
     void handleInvalidOrMissingProof_usesFallback_whenMessageNullOrBlank() {
         var type = GlobalErrorTypes.INVALID_OR_MISSING_PROOF.getCode();
         var title = "Invalid or missing proof";
-        var st = HttpStatus.NOT_FOUND;
+        var st = HttpStatus.BAD_REQUEST;
         var fallback = "Credential Request did not contain a proof, or proof was invalid, i.e. it was not bound to a Credential Issuer provided nonce.";
 
         var exNull = new InvalidOrMissingProofException((String) null);
@@ -196,7 +196,7 @@ class GlobalExceptionHandlerTest {
         var ex = new InvalidTokenException("Message");
         var type = GlobalErrorTypes.INVALID_TOKEN.getCode();
         var title = "Invalid token";
-        var st = HttpStatus.NOT_FOUND;
+        var st = HttpStatus.UNAUTHORIZED;
         var fallback = "Credential Request contains the wrong Access Token or the Access Token is missing";
 
         var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
@@ -214,7 +214,7 @@ class GlobalExceptionHandlerTest {
     void handleInvalidToken_usesFallback_whenMessageNullOrBlank() {
         var type = GlobalErrorTypes.INVALID_TOKEN.getCode();
         var title = "Invalid token";
-        var st = HttpStatus.NOT_FOUND;
+        var st = HttpStatus.UNAUTHORIZED;
         var fallback = "Credential Request contains the wrong Access Token or the Access Token is missing";
 
         var exNull = new InvalidTokenException((String) null);
@@ -351,8 +351,8 @@ class GlobalExceptionHandlerTest {
         var ex = new ProofValidationException("proof invalid");
         var type = GlobalErrorTypes.PROOF_VALIDATION_ERROR.getCode();
         var title = "Proof validation error";
-        var st = HttpStatus.INTERNAL_SERVER_ERROR;
-        var fallback = "An internal proof validation error occurred.";
+        var st = HttpStatus.BAD_REQUEST;
+        var fallback = "The provided proof is invalid.";
         var expected = new GlobalErrorMessage(type, title, st.value(), "proof invalid", UUID.randomUUID().toString());
 
         when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));

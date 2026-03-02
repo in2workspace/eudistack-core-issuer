@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.statuslist.domain.util;
 
-public class Constants {
+public final class Constants {
 
     private Constants() {
         throw new IllegalStateException("Utility class");

@@ -10,7 +10,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.util.factory.CredentialFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -32,7 +32,7 @@ public class PolicyContextFactory {
 
     private final JWTService jwtService;
     private final ObjectMapper objectMapper;
-    private final AppConfig appConfig;
+    private final IssuerProperties appConfig;
     private final LEARCredentialEmployeeFactory learCredentialEmployeeFactory;
     private final CredentialFactory credentialFactory;
 

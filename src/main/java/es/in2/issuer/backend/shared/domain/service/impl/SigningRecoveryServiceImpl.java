@@ -6,7 +6,7 @@ import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.SigningRecoveryService;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.repository.CredentialProcedureRepository;
 import es.in2.issuer.backend.shared.infrastructure.repository.DeferredCredentialMetadataRepository;
 import lombok.RequiredArgsConstructor;
@@ -15,7 +15,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
+import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 @Slf4j
 @Service
@@ -24,7 +24,7 @@ public class SigningRecoveryServiceImpl implements SigningRecoveryService {
 
     private final CredentialProcedureRepository credentialProcedureRepository;
     private final DeferredCredentialMetadataRepository deferredCredentialMetadataRepository;
-    private final AppConfig appConfig;
+    private final IssuerProperties appConfig;
     private final EmailService emailService;
 
     @Override

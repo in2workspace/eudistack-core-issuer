@@ -30,7 +30,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
+import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 import static es.in2.issuer.backend.signing.domain.util.PathConstants.AUTHORIZE_PATH;
 import static es.in2.issuer.backend.signing.domain.util.PathConstants.SIGN_DOC_PATH;
 

@@ -12,7 +12,6 @@ import org.springframework.validation.annotation.Validated;
 public record AppProperties(
         @NotBlank @URL String url,
         @NotBlank @URL String issuerFrontendUrl,
-        @NotBlank @URL String trustFrameworkUrl,
         @NotNull KnowledgeBase knowledgeBase,
         @NotBlank @URL String verifierUrl,
         @NotBlank String configSource,
@@ -26,7 +25,6 @@ public record AppProperties(
     public AppProperties(
             String url,
             String issuerFrontendUrl,
-            String trustFrameworkUrl,
             KnowledgeBase knowledgeBase,
             String verifierUrl,
             String configSource,
@@ -37,7 +35,6 @@ public record AppProperties(
     ) {
         this.url = url;
         this.issuerFrontendUrl = issuerFrontendUrl;
-        this.trustFrameworkUrl = trustFrameworkUrl;
         this.knowledgeBase = knowledgeBase;
         this.verifierUrl = verifierUrl;
         this.configSource = configSource;

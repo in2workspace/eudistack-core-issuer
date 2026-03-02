@@ -11,7 +11,7 @@ import es.in2.issuer.backend.shared.domain.model.entities.DeferredCredentialMeta
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import es.in2.issuer.backend.shared.domain.service.*;
 import es.in2.issuer.backend.shared.domain.util.JwtUtils;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.security.service.IssuancePdpService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,10 +24,8 @@ import javax.naming.OperationNotSupportedException;
 import java.util.Set;
 import java.util.UUID;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
-import static es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum.PEND_SIGNATURE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
-import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_MACHINE;
+import static es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum.PEND_SIGNATURE;
 
 @Slf4j
 @Service
@@ -35,7 +33,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL
 public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflow {
 
     private final VerifiableCredentialService verifiableCredentialService;
-    private final AppConfig appConfig;
+    private final IssuerProperties appConfig;
     private final ProofValidationService proofValidationService;
     private final EmailService emailService;
     private final CredentialProcedureService credentialProcedureService;
