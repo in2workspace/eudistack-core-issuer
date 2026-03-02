@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.ResourcePatternResolver;
 import org.springframework.stereotype.Component;
@@ -18,28 +19,30 @@ import java.util.Map;
 @Component
 public class CredentialProfileRegistry {
 
-    private static final String PROFILES_PATTERN = "classpath:credentials/profiles/*.json";
-
     private final Map<String, CredentialProfile> byConfigurationId;
     private final Map<String, CredentialProfile> byCredentialType;
     private final Map<String, CredentialProfile> byEnumName;
 
-    public CredentialProfileRegistry(ObjectMapper objectMapper, ResourcePatternResolver resourcePatternResolver) {
+    public CredentialProfileRegistry(
+            ObjectMapper objectMapper,
+            ResourcePatternResolver resourcePatternResolver,
+            @Value("${credential.profiles.path:classpath:credentials/profiles}") String profilesBasePath) {
+        String profilesPattern = profilesBasePath + "/*.json";
         Map<String, CredentialProfile> configIdMap = new LinkedHashMap<>();
         Map<String, CredentialProfile> typeMap = new LinkedHashMap<>();
         Map<String, CredentialProfile> enumNameMap = new LinkedHashMap<>();
 
         try {
-            Resource[] resources = resourcePatternResolver.getResources(PROFILES_PATTERN);
+            Resource[] resources = resourcePatternResolver.getResources(profilesPattern);
             for (Resource resource : resources) {
                 loadProfile(objectMapper, resource, configIdMap, typeMap, enumNameMap);
             }
         } catch (IOException e) {
-            throw new IllegalStateException("Failed to load credential profiles from " + PROFILES_PATTERN, e);
+            throw new IllegalStateException("Failed to load credential profiles from " + profilesPattern, e);
         }
 
         if (configIdMap.isEmpty()) {
-            log.warn("No credential profiles found at {}", PROFILES_PATTERN);
+            log.warn("No credential profiles found at {}", profilesPattern);
         } else {
             log.info("Loaded {} credential profile(s): {}", configIdMap.size(), configIdMap.keySet());
         }
@@ -70,12 +73,13 @@ public class CredentialProfileRegistry {
 
             String credentialType = profile.credentialType();
             if (typeMap.containsKey(credentialType)) {
-                throw new IllegalStateException(
-                        "Duplicate credential type '" + credentialType + "' in " + filename);
+                log.warn("Multiple profiles share credential type '{}' (skipping typeMap entry for '{}'). " +
+                        "Use getByConfigurationId() or getByEnumName() for unambiguous lookup.", credentialType, configId);
+            } else {
+                typeMap.put(credentialType, profile);
             }
 
             configIdMap.put(configId, profile);
-            typeMap.put(credentialType, profile);
 
             // Also index by CredentialType enum name (e.g., "LEAR_CREDENTIAL_EMPLOYEE")
             for (CredentialType ct : CredentialType.values()) {

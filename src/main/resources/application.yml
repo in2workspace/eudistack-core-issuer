@@ -87,6 +87,11 @@ openapi:
       name: "Test Name"
       url: "https://example.com"
 
+# Credential profiles
+credential:
+  profiles:
+    path: ${CREDENTIAL_PROFILES_PATH:classpath:credentials/profiles}
+
 # Application
 app:
   url: ${APP_URL:http://localhost:8080}

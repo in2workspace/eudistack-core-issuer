@@ -12,7 +12,7 @@ import java.util.Set;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record CredentialProfile(
         @JsonProperty("credential_configuration_id") String credentialConfigurationId,
-        @JsonProperty("format") String format,
+        @JsonProperty("credential_format") String format,
         @JsonProperty("scope") String scope,
         @JsonProperty("credential_definition") CredentialDefinition credentialDefinition,
         @JsonProperty("cryptographic_binding_methods_supported") Set<String> cryptographicBindingMethodsSupported,

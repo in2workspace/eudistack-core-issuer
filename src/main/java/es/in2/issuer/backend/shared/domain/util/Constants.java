@@ -25,6 +25,7 @@ public final class Constants {
 
     // CREDENTIAL FORMATS
     public static final String JWT_VC_JSON = "jwt_vc_json";
+    public static final String DC_SD_JWT = "dc+sd-jwt";
     public static final String CWT_VC = "cwt_vc";
     public static final String CWT_VC_JSON = "cwt_vc_json";
     public static final String VC = "vc";

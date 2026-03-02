@@ -30,6 +30,13 @@ public record CredentialIssuerMetadata(
             @JsonProperty("credential_signing_alg_values_supported") Set<String> credentialSigningAlgValuesSupported,
             @JsonProperty("proof_types_supported") Map<String, CredentialProfile.ProofTypeConfig> proofTypesSupported,
             @JsonProperty("credential_metadata") CredentialProfile.CredentialMetadata credentialMetadata,
-            @JsonProperty("vct") String vct
-    ) {}
+            @JsonProperty("vct") String vct,
+            @JsonProperty("credential_definition") CredentialDefinition credentialDefinition
+    ) {
+        @Builder
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        public record CredentialDefinition(
+                @JsonProperty("type") List<String> type
+        ) {}
+    }
 }

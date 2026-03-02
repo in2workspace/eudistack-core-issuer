@@ -24,6 +24,8 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.domain.util.factory.IssuerFactory;
+import es.in2.issuer.backend.shared.domain.util.sdjwt.Disclosure;
+import es.in2.issuer.backend.shared.domain.util.sdjwt.SdJwtPayloadBuilder;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialMachineFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LabelCredentialFactory;
@@ -72,6 +74,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
     private final IssuerFactory issuerFactory;
     private final GenericCredentialBuilder genericCredentialBuilder;
     private final CredentialProfileRegistry credentialProfileRegistry;
+    private final SdJwtPayloadBuilder sdJwtPayloadBuilder;
 
 
     @Override
@@ -91,6 +94,15 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                             Mono<Map<String, Object>> cnfMono = profile.cnfRequired()
                                     ? Mono.fromCallable(() -> parseCnfJson(credentialProcedure.getCnf()))
                                     : Mono.just(Map.of());
+
+                            // SD-JWT path: build flat payload directly from decoded credential
+                            if (DC_SD_JWT.equals(format) && profile.sdJwt() != null) {
+                                final CredentialProfile finalProfile = profile;
+                                return cnfMono.flatMap(cnfMap ->
+                                        buildSdJwtCredential(finalProfile, credentialProcedure.getCredentialDecoded(),
+                                                cnfMap, token, procedureId, updatedBy)
+                                );
+                            }
 
                             return cnfMono.flatMap(cnfMap ->
                                     genericCredentialBuilder.buildJwtPayload(
@@ -172,11 +184,11 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                 return setSubIfCredentialSubjectIdPresent(unsignedCredential)
                         .flatMap(payloadToSign -> {
                             log.info("Signing credential in JADES remotely ...");
-                            SigningRequest signingRequest = new SigningRequest(
-                                    SigningType.JADES,
-                                    payloadToSign,
-                                    new SigningContext(token, procedureId, email)
-                            );
+                            SigningRequest signingRequest = SigningRequest.builder()
+                                    .type(SigningType.JADES)
+                                    .data(payloadToSign)
+                                    .context(new SigningContext(token, procedureId, email))
+                                    .build();
 
                             return signingProvider.sign(signingRequest)
                                     .map(SigningResult::data);
@@ -281,11 +293,11 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
     private Mono<byte[]> generateCOSEBytesFromCBOR(byte[] cbor, String token, String email, String procedureId) {
         log.info("Signing credential in COSE format remotely ...");
         String cborBase64 = Base64.getEncoder().encodeToString(cbor);
-        SigningRequest signingRequest = new SigningRequest(
-                SigningType.COSE,
-                cborBase64,
-                new SigningContext(token, procedureId, email)
-        );
+        SigningRequest signingRequest = SigningRequest.builder()
+                .type(SigningType.COSE)
+                .data(cborBase64)
+                .context(new SigningContext(token, procedureId, email))
+                .build();
         return signingProvider.sign(signingRequest)
                 .map(SigningResult::data)
                 .map(Base64.getDecoder()::decode);
@@ -431,6 +443,30 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                             });
                 })
                 .then();
+    }
+
+    private Mono<String> buildSdJwtCredential(CredentialProfile profile, String decodedCredentialJson,
+            Map<String, Object> cnfMap, String token, String procedureId, String email) {
+        return Mono.fromCallable(() -> sdJwtPayloadBuilder.build(decodedCredentialJson, profile, cnfMap))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(components -> {
+                    log.info("Signing SD-JWT credential for procedureId={}", procedureId);
+                    SigningRequest signingRequest = SigningRequest.builder()
+                            .type(SigningType.JADES)
+                            .data(components.payloadJson())
+                            .context(new SigningContext(token, procedureId, email))
+                            .typ(DC_SD_JWT)
+                            .build();
+                    return signingProvider.sign(signingRequest)
+                            .map(result -> {
+                                StringBuilder sb = new StringBuilder(result.data());
+                                for (Disclosure d : components.disclosures()) {
+                                    sb.append('~').append(d.encoded());
+                                }
+                                sb.append('~');
+                                return sb.toString();
+                            });
+                });
     }
 
     private Mono<Void> updateDecodedCredentialByProcedureId(String procedureId, String bindCredential) {

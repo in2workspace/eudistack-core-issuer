@@ -60,6 +60,15 @@ public class CredentialIssuerMetadataServiceImpl implements CredentialIssuerMeta
 
         String vct = profile.sdJwt() != null ? profile.sdJwt().vct() : null;
 
+        CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition credDef = null;
+        if (profile.credentialDefinition() != null
+                && profile.credentialDefinition().type() != null
+                && !profile.credentialDefinition().type().isEmpty()) {
+            credDef = CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition.builder()
+                    .type(profile.credentialDefinition().type())
+                    .build();
+        }
+
         return CredentialIssuerMetadata.CredentialConfiguration.builder()
                 .format(profile.format())
                 .scope(profile.scope())
@@ -68,6 +77,7 @@ public class CredentialIssuerMetadataServiceImpl implements CredentialIssuerMeta
                 .proofTypesSupported(proofTypes)
                 .credentialMetadata(profile.credentialMetadata())
                 .vct(vct)
+                .credentialDefinition(credDef)
                 .build();
     }
 }

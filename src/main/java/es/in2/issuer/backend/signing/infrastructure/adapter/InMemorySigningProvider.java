@@ -71,12 +71,13 @@ public class InMemorySigningProvider implements SigningProvider {
         return Mono.defer(() -> {
             SigningRequestValidator.validate(request);
 
+            String typValue = request.typ() != null ? request.typ() : "JWT";
             return switch (request.type()) {
                 case JADES -> {
                     if (rsaPrivateKey != null && x5cBase64 != null) {
-                        yield Mono.just(new SigningResult(SigningType.JADES, signAsJwsRs256(request.data())));
+                        yield Mono.just(new SigningResult(SigningType.JADES, signAsJwsRs256(request.data(), typValue)));
                     }
-                    yield Mono.just(new SigningResult(SigningType.JADES, signAsJwsEs256(request.data())));
+                    yield Mono.just(new SigningResult(SigningType.JADES, signAsJwsEs256(request.data(), typValue)));
                 }
                 case COSE -> Mono.just(new SigningResult(SigningType.COSE, normalizeBase64(request.data())));
             };
@@ -85,8 +86,8 @@ public class InMemorySigningProvider implements SigningProvider {
 
     // ── RS256 signing (with x5c certificate) ─────────────────────────────────
 
-    private String signAsJwsRs256(String payloadJson) {
-        String headerJson = "{\"alg\":\"RS256\",\"typ\":\"JWT\",\"x5c\":[\"" + x5cBase64 + "\"]}";
+    private String signAsJwsRs256(String payloadJson, String typ) {
+        String headerJson = "{\"alg\":\"RS256\",\"typ\":\"" + typ + "\",\"x5c\":[\"" + x5cBase64 + "\"]}";
 
         String headerB64u = base64Url(headerJson.getBytes(StandardCharsets.UTF_8));
         String payloadB64u = base64Url(payloadJson.getBytes(StandardCharsets.UTF_8));
@@ -118,8 +119,8 @@ public class InMemorySigningProvider implements SigningProvider {
      *
      * NOTE: This is still "in-memory/dev" because the key is ephemeral and not backed by HSM/QTSP.
      */
-    private String signAsJwsEs256(String payloadJson) {
-        String headerJson = "{\"alg\":\"ES256\",\"typ\":\"JWT\"}";
+    private String signAsJwsEs256(String payloadJson, String typ) {
+        String headerJson = "{\"alg\":\"ES256\",\"typ\":\"" + typ + "\"}";
 
         String headerB64u = base64Url(headerJson.getBytes(StandardCharsets.UTF_8));
         String payloadB64u = base64Url(payloadJson.getBytes(StandardCharsets.UTF_8));
