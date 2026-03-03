@@ -9,6 +9,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.repository.CredentialProcedureRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,6 +54,9 @@ class CredentialProcedureServiceImplTest {
 
     @Mock
     private IssuerProperties appConfig;
+
+    @Mock
+    private CredentialProfileRegistry credentialProfileRegistry;
 
     @InjectMocks
     private CredentialProcedureServiceImpl credentialProcedureService;

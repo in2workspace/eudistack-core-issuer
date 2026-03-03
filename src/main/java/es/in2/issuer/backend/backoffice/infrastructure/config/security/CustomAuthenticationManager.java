@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.backoffice.infrastructure.config.security;
 
-import brave.internal.Nullable;
+import jakarta.annotation.Nullable;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jwt.SignedJWT;

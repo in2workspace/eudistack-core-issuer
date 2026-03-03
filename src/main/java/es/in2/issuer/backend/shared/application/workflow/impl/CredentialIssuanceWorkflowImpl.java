@@ -11,8 +11,10 @@ import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.entities.DeferredCredentialMetadata;
 import es.in2.issuer.backend.shared.domain.service.*;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.util.JwtUtils;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.security.service.IssuancePdpService;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListEntry;
@@ -50,6 +52,7 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
     private final M2MTokenService m2mTokenService;
     private final CredentialDeliveryService credentialDeliveryService;
     private final JwtUtils jwtUtils;
+    private final CredentialProfileRegistry credentialProfileRegistry;
 
     @Override
     public Mono<Void> execute(String processId, PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest, String token, String idToken) {
@@ -115,13 +118,15 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
         String credentialConfigurationId = preSubmittedCredentialDataRequest.credentialConfigurationId();
         var payload = preSubmittedCredentialDataRequest.payload();
 
-        return switch (credentialConfigurationId) {
-            case LEAR_CREDENTIAL_EMPLOYEE, "LEARCredentialEmployeeW3C" -> {
+        String credentialType = resolveCredentialType(credentialConfigurationId);
+
+        return switch (credentialType) {
+            case LEAR_CREDENTIAL_EMPLOYEE -> {
                 String email = payload.get(MANDATEE).get(EMAIL).asText();
                 String org = payload.get(MANDATOR).get(ORGANIZATION).asText();
                 yield new CredentialOfferEmailNotificationInfo(email, org);
             }
-            case LEAR_CREDENTIAL_MACHINE, "LEARCredentialMachineW3C" -> {
+            case LEAR_CREDENTIAL_MACHINE -> {
                 String email;
                 if (preSubmittedCredentialDataRequest.email() == null || preSubmittedCredentialDataRequest.email().isBlank()) {
                     email = payload.get(MANDATOR).get(EMAIL).asText();
@@ -140,9 +145,18 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
                 yield new CredentialOfferEmailNotificationInfo(email, appConfig.getSysTenant());
             }
             default -> throw new FormatUnsupportedException(
-                    "Unknown credential_configuration_id: " + credentialConfigurationId
+                    "Unknown credential type: " + credentialType + " (from credential_configuration_id: " + credentialConfigurationId + ")"
             );
         };
+    }
+
+    private String resolveCredentialType(String credentialConfigurationId) {
+        CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialConfigurationId);
+        if (profile != null) {
+            return profile.credentialType();
+        }
+        // Fallback: the configId itself may already be a credential type (e.g. LEARCredentialEmployee)
+        return credentialConfigurationId;
     }
 
     @Override

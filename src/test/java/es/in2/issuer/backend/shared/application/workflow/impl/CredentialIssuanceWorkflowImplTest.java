@@ -21,6 +21,7 @@ import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.*;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.WebClientConfig;
 import es.in2.issuer.backend.shared.infrastructure.config.security.service.IssuancePdpService;
 import org.junit.jupiter.api.Assertions;
@@ -85,6 +86,9 @@ class CredentialIssuanceWorkflowImplTest {
 
     @Mock
     private CredentialIssuerMetadataService credentialIssuerMetadataService;
+
+    @Mock
+    private CredentialProfileRegistry credentialProfileRegistry;
 
     @InjectMocks
     private CredentialIssuanceWorkflowImpl verifiableCredentialIssuanceWorkflow;

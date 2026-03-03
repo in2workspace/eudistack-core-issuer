@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.shared.domain.model.entities;
 
-import brave.internal.Nullable;
+import jakarta.annotation.Nullable;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import lombok.*;
 import org.springframework.data.annotation.*;

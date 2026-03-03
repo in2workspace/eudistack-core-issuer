@@ -9,10 +9,12 @@ import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeExcept
 import es.in2.issuer.backend.shared.domain.exception.NoCredentialFoundException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.repository.CredentialProcedureRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +39,7 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
     private final CredentialProcedureRepository credentialProcedureRepository;
     private final ObjectMapper objectMapper;
     private final R2dbcEntityTemplate r2dbcEntityTemplate;
+    private final CredentialProfileRegistry credentialProfileRegistry;
 
     @Override
     public Mono<String> createCredentialProcedure(CredentialProcedureCreationRequest credentialProcedureCreationRequest) {
@@ -376,9 +379,10 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
     public Mono<CredentialOfferEmailNotificationInfo> getCredentialOfferEmailInfoByProcedureId(String procedureId) {
         return credentialProcedureRepository
                 .findByProcedureId(UUID.fromString(procedureId))
-                .flatMap(credentialProcedure ->
-                        switch (credentialProcedure.getCredentialType()) {
-                            case LEAR_CREDENTIAL_EMPLOYEE, "LEARCredentialEmployeeW3C" -> Mono.fromCallable(() ->
+                .flatMap(credentialProcedure -> {
+                        String credentialType = resolveCredentialType(credentialProcedure.getCredentialType());
+                        return switch (credentialType) {
+                            case LEAR_CREDENTIAL_EMPLOYEE -> Mono.fromCallable(() ->
                                             objectMapper.readTree(credentialProcedure.getCredentialDecoded())
                                     )
                                     .map(credential -> {
@@ -398,7 +402,7 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
                                                     "Error parsing credential for procedureId: " + procedureId
                                             )
                                     );
-                            case LEAR_CREDENTIAL_MACHINE, "LEARCredentialMachineW3C" -> Mono.fromCallable(() ->
+                            case LEAR_CREDENTIAL_MACHINE -> Mono.fromCallable(() ->
                                             objectMapper.readTree(credentialProcedure.getCredentialDecoded())
                                     )
                                     .map(credential -> {
@@ -427,9 +431,18 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
                                     )
                             );
                             default -> Mono.error(new FormatUnsupportedException(
-                                    "Unknown credential type: " + credentialProcedure.getCredentialType()
+                                    "Unknown credential type: " + credentialType + " (configId: " + credentialProcedure.getCredentialType() + ")"
                             ));
-                        });
+                        };
+                });
+    }
+
+    private String resolveCredentialType(String credentialConfigurationId) {
+        CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialConfigurationId);
+        if (profile != null) {
+            return profile.credentialType();
+        }
+        return credentialConfigurationId;
     }
 
 }

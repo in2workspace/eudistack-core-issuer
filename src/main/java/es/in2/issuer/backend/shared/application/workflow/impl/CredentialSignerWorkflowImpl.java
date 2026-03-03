@@ -353,19 +353,20 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                                     "Credential procedure with ID " + procedureId + " is not in PEND_SIGNATURE status"
                             )))
                             .flatMap(credentialProcedure -> {
-                                String credentialType = credentialProcedure.getCredentialType();
+                                String configId = credentialProcedure.getCredentialType();
 
                                 // Try profile-based generic path
-                                CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialType);
+                                CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
                                 Mono<Void> updateDecodedCredentialMono;
                                 if (profile != null) {
                                     updateDecodedCredentialMono = genericCredentialBuilder
                                             .bindIssuer(profile, credentialProcedure.getCredentialDecoded(), procedureId, email)
                                             .flatMap(bindCredential -> updateDecodedCredentialByProcedureId(procedureId, bindCredential));
                                 } else {
-                                    // Fallback to old factories
+                                    // Fallback to old factories using the configId as credential type
+                                    String credentialType = configId;
                                     updateDecodedCredentialMono = switch (credentialType) {
-                                        case LEAR_CREDENTIAL_MACHINE, "LEARCredentialMachineW3C" ->
+                                        case LEAR_CREDENTIAL_MACHINE ->
                                                 learCredentialMachineFactory
                                                         .mapCredentialAndBindIssuerInToTheCredential(
                                                                 credentialProcedure.getCredentialDecoded(), procedureId, email
@@ -374,7 +375,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                                                                 updateDecodedCredentialByProcedureId(procedureId, bindCredential)
                                                         );
 
-                                        case LEAR_CREDENTIAL_EMPLOYEE, "LEARCredentialEmployeeW3C" ->
+                                        case LEAR_CREDENTIAL_EMPLOYEE ->
                                                 learCredentialEmployeeFactory
                                                         .mapCredentialAndBindIssuerInToTheCredential(
                                                                 credentialProcedure.getCredentialDecoded(), procedureId, email
@@ -384,7 +385,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                                                         );
 
                                         default -> {
-                                            log.error("Unknown credential type: {}", credentialType);
+                                            log.error("Unknown credential type: {} (configId: {})", credentialType, configId);
                                             yield Mono.error(new IllegalArgumentException(
                                                     "Unsupported credential type: " + credentialType
                                             ));
