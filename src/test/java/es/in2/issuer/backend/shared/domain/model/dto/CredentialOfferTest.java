@@ -16,8 +16,8 @@ class CredentialOfferTest {
         String expectedCredentialIssuer = "https://credential-issuer.example.com";
         Map<String, Grants> expectedGrants = new HashMap<>();
         Grants.TxCode expectedTxCode = new Grants.TxCode(4, "numeric", "description");
-        expectedGrants.put("grant1", new Grants("type1", expectedTxCode));
-        expectedGrants.put("grant2", new Grants("type2", expectedTxCode));
+        expectedGrants.put("grant1", new Grants("type1", expectedTxCode, null));
+        expectedGrants.put("grant2", new Grants("type2", expectedTxCode, null));
         List<String> expectedCredentialConfigurationIds = List.of("id1", "id2");
         // Act
         CredentialOffer credentialOffer = new CredentialOffer(
@@ -52,8 +52,8 @@ class CredentialOfferTest {
         String expectedCredentialIssuer = "https://credential-issuer.example.com";
         Map<String, Grants> expectedGrants = new HashMap<>();
         Grants.TxCode expectedTxCode = new Grants.TxCode(4, "numeric", "description");
-        expectedGrants.put("grant1", new Grants("type1", expectedTxCode));
-        expectedGrants.put("grant2", new Grants("type2", expectedTxCode));
+        expectedGrants.put("grant1", new Grants("type1", expectedTxCode, null));
+        expectedGrants.put("grant2", new Grants("type2", expectedTxCode, null));
         List<String> expectedCredentialConfigurationIds = List.of("id1", "id2");
         // Act
         CredentialOffer offer1 = new CredentialOffer(

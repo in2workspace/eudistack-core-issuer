@@ -45,32 +45,31 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.DID_KEY;
-
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class JWTServiceImpl implements JWTService {
 
+    private static final String DID_KEY_PREFIX = "did:key:";
+
     private final ObjectMapper objectMapper;
     private final CryptoComponent cryptoComponent;
 
+    /**
+     * Generates a JWT signed with the Authorization Server's EC key.
+     * The kid header is a JWK Thumbprint (RFC 7638) resolvable via jwks_uri.
+     */
     @Override
     public String generateJWT(String payload) {
         try {
-            // Get ECKey
-            ECKey ecJWK = cryptoComponent.getECKey();
-            // Set Header
+            ECKey asKey = cryptoComponent.getECKey();
             JWSHeader jwsHeader = new JWSHeader.Builder(JWSAlgorithm.ES256)
-                    .keyID(cryptoComponent.getECKey().getKeyID())
+                    .keyID(asKey.getKeyID())
                     .type(JOSEObjectType.JWT)
                     .build();
-            // Set Payload
             JWTClaimsSet claimsSet = convertPayloadToJWTClaimsSet(payload);
-            // Create JWT for ES256 algorithm
             SignedJWT jwt = new SignedJWT(jwsHeader, claimsSet);
-            // Sign with a private EC key
-            JWSSigner signer = new ECDSASigner(ecJWK);
+            JWSSigner signer = new ECDSASigner(asKey);
             jwt.sign(signer);
             return jwt.serialize();
         } catch (JOSEException e) {
@@ -95,12 +94,35 @@ public class JWTServiceImpl implements JWTService {
 
     }
 
+    /**
+     * Validates the signature of a JWS object.
+     * <p>
+     * Resolution order:
+     * 1. If kid matches the AS key's JWK Thumbprint → verify with AS key directly
+     * 2. If kid starts with "did:key:" → legacy did:key resolution (P-256 decompress)
+     * 3. Otherwise → error
+     */
     @Override
     public Mono<Boolean> validateJwtSignatureReactive(JWSObject jwsObject) {
         String kid = jwsObject.getHeader().getKeyID();
-        String encodedPublicKey = extractEncodedPublicKey(kid);
-        return decodePublicKeyIntoBytes(encodedPublicKey)
-                .flatMap(publicKeyBytes -> validateJwtSignature(jwsObject.getParsedString(), publicKeyBytes));
+        ECKey asKey = cryptoComponent.getECKey();
+
+        // Case 1: kid matches the AS key's JWK Thumbprint
+        if (kid != null && kid.equals(asKey.getKeyID())) {
+            return Mono.fromCallable(() -> {
+                ECDSAVerifier verifier = new ECDSAVerifier(asKey.toECPublicKey());
+                return jwsObject.verify(verifier);
+            });
+        }
+
+        // Case 2: legacy did:key resolution
+        if (kid != null && kid.startsWith(DID_KEY_PREFIX)) {
+            String encodedPublicKey = extractEncodedPublicKeyFromDidKey(kid);
+            return decodePublicKeyIntoBytes(encodedPublicKey)
+                    .flatMap(publicKeyBytes -> validateJwtSignature(jwsObject.getParsedString(), publicKeyBytes));
+        }
+
+        return Mono.error(new IllegalArgumentException("Cannot resolve public key from kid: " + kid));
     }
 
     @Override
@@ -172,19 +194,18 @@ public class JWTServiceImpl implements JWTService {
     }
 
 
-    public String extractEncodedPublicKey(String kid) {
-        String prefix = DID_KEY;
-        String encodedPublicKey;
-
+    /**
+     * Legacy: extracts the multibase-encoded public key from a did:key URI.
+     * Supports formats: "did:key:z..." and "did:key:z...#fragment"
+     */
+    private String extractEncodedPublicKeyFromDidKey(String kid) {
         if (kid.contains("#")) {
-            encodedPublicKey = kid.substring(kid.indexOf("#") + 1);
-        } else if (kid.contains(prefix)) {
-            encodedPublicKey = kid.substring(kid.indexOf(prefix) + prefix.length());
-        } else {
-            throw new IllegalArgumentException("'kid' format not correct");
+            return kid.substring(kid.indexOf("#") + 1);
         }
-
-        return encodedPublicKey;
+        if (kid.startsWith(DID_KEY_PREFIX)) {
+            return kid.substring(DID_KEY_PREFIX.length());
+        }
+        throw new IllegalArgumentException("Invalid did:key format: " + kid);
     }
 
 

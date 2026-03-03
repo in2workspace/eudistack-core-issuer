@@ -90,6 +90,8 @@ public class SecurityConfig {
                                 CORS_CREDENTIAL_OFFER_PATH,
                                 CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_PATH,
                                 AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH,
+                                OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_PATH,
+                                JWKS_PATH,
                                 HEALTH_PATH,
                                 PROMETHEUS_PATH,
                                 SPRINGDOC_PATH,
@@ -98,6 +100,9 @@ public class SecurityConfig {
                                 BACKOFFICE_STATUS_CREDENTIALS
                         ).permitAll()
                         .pathMatchers(HttpMethod.POST, OAUTH_TOKEN_PATH).permitAll()
+                        .pathMatchers(HttpMethod.POST, OID4VCI_PAR_PATH).permitAll()
+                        .pathMatchers(HttpMethod.GET, OID4VCI_AUTHORIZE_PATH).permitAll()
+                        .pathMatchers(HttpMethod.POST, OID4VCI_NONCE_PATH).permitAll()
                         .pathMatchers(HttpMethod.PUT, SIGNING_CONFIG_PATH).permitAll()
                         // Authenticated endpoints (all go through CustomAuthenticationManager)
                         .anyExchange().authenticated()

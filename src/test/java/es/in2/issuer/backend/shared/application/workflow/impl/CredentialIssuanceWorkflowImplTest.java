@@ -6,7 +6,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
+import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
+import es.in2.issuer.backend.statuslist.domain.model.StatusListEntry;
+import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidOrMissingProofException;
@@ -15,7 +19,6 @@ import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.entities.BindingInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
-import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import es.in2.issuer.backend.shared.domain.service.*;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.WebClientConfig;
@@ -38,6 +41,7 @@ import java.util.*;
 import static es.in2.issuer.backend.shared.domain.util.Constants.MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.JWT_VC_JSON;
 import static es.in2.issuer.backend.shared.domain.util.Constants.LABEL_CREDENTIAL;
+import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_MACHINE;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -66,6 +70,9 @@ class CredentialIssuanceWorkflowImplTest {
     private DeferredCredentialMetadataService deferredCredentialMetadataService;
     @Mock
     private CredentialSignerWorkflow credentialSignerWorkflow;
+
+    @Mock
+    private StatusListWorkflow statusListWorkflow;
 
     @Mock
     private WebClientConfig webClientConfig;
@@ -176,7 +183,12 @@ class CredentialIssuanceWorkflowImplTest {
         String transactionCode = "4321";
 
         when(issuancePdpService.authorize(token, type, jsonNode, idToken)).thenReturn(Mono.empty());
-        when(verifiableCredentialService.generateVc(processId, preSubmittedCredentialDataRequest, expectedEmail, token))
+        when(statusListWorkflow.allocateEntry(eq(StatusPurpose.REVOCATION), anyString(), eq(token)))
+                .thenReturn(Mono.just(StatusListEntry.builder()
+                        .id("entry-id").type("BitstringStatusListEntry")
+                        .statusPurpose(StatusPurpose.REVOCATION).statusListIndex("5")
+                        .statusListCredential("https://example.com/status").build()));
+        when(verifiableCredentialService.generateVc(eq(processId), eq(preSubmittedCredentialDataRequest), eq(expectedEmail), any(CredentialStatus.class), anyString()))
                 .thenReturn(Mono.just(transactionCode));
         when(appConfig.getIssuerFrontendUrl()).thenReturn(issuerUiExternalDomain);
         when(appConfig.getKnowledgebaseWalletUrl()).thenReturn(knowledgebaseWalletUrl);
@@ -256,7 +268,12 @@ class CredentialIssuanceWorkflowImplTest {
         String transactionCode = "4321";
 
         when(issuancePdpService.authorize(token, type, jsonNode, null)).thenReturn(Mono.empty());
-        when(verifiableCredentialService.generateVc(processId, preSubmittedCredentialDataRequest, expectedEmail, token))
+        when(statusListWorkflow.allocateEntry(eq(StatusPurpose.REVOCATION), anyString(), eq(token)))
+                .thenReturn(Mono.just(StatusListEntry.builder()
+                        .id("entry-id").type("BitstringStatusListEntry")
+                        .statusPurpose(StatusPurpose.REVOCATION).statusListIndex("5")
+                        .statusListCredential("https://example.com/status").build()));
+        when(verifiableCredentialService.generateVc(eq(processId), eq(preSubmittedCredentialDataRequest), eq(expectedEmail), any(CredentialStatus.class), anyString()))
                 .thenReturn(Mono.just(transactionCode));
         when(appConfig.getIssuerFrontendUrl()).thenReturn(issuerUiExternalDomain);
         when(appConfig.getKnowledgebaseWalletUrl()).thenReturn(knowledgebaseWalletUrl);
@@ -564,7 +581,12 @@ class CredentialIssuanceWorkflowImplTest {
         when(issuancePdpService.authorize(token, schema, payload, idToken))
                 .thenReturn(Mono.empty());
 
-        when(verifiableCredentialService.generateVc(processId, req, email, token))
+        when(statusListWorkflow.allocateEntry(eq(StatusPurpose.REVOCATION), anyString(), eq(token)))
+                .thenReturn(Mono.just(StatusListEntry.builder()
+                        .id("entry-id").type("BitstringStatusListEntry")
+                        .statusPurpose(StatusPurpose.REVOCATION).statusListIndex("5")
+                        .statusListCredential("https://example.com/status").build()));
+        when(verifiableCredentialService.generateVc(eq(processId), eq(req), eq(email), any(CredentialStatus.class), anyString()))
                 .thenReturn(Mono.just(transactionCode));
 
         when(appConfig.getIssuerFrontendUrl()).thenReturn(issuerUiExternalDomain);
@@ -609,7 +631,7 @@ class CredentialIssuanceWorkflowImplTest {
         CredentialIssuerMetadata metadata = mock(CredentialIssuerMetadata.class);
         CredentialIssuerMetadata.CredentialConfiguration cfg = mock(CredentialIssuerMetadata.CredentialConfiguration.class);
 
-        String typeId = CredentialType.LEAR_CREDENTIAL_MACHINE.getTypeId();
+        String typeId = LEAR_CREDENTIAL_MACHINE;
         when(cfg.cryptographicBindingMethodsSupported()).thenReturn(Collections.emptySet());
 
         Map<String, CredentialIssuerMetadata.CredentialConfiguration> map = new HashMap<>();
@@ -618,7 +640,7 @@ class CredentialIssuanceWorkflowImplTest {
 
         CredentialProcedure proc = mock(CredentialProcedure.class);
         when(proc.getOperationMode()).thenReturn("S");
-        when(proc.getCredentialType()).thenReturn(CredentialType.LEAR_CREDENTIAL_MACHINE.name());
+        when(proc.getCredentialType()).thenReturn(LEAR_CREDENTIAL_MACHINE);
         when(proc.getEmail()).thenReturn(null);
         when(proc.getProcedureId()).thenReturn(UUID.fromString(procedureId));
 
@@ -676,7 +698,7 @@ class CredentialIssuanceWorkflowImplTest {
 
         CredentialProcedure proc = mock(CredentialProcedure.class);
         when(proc.getOperationMode()).thenReturn("S");
-        when(proc.getCredentialType()).thenReturn(CredentialType.LEAR_CREDENTIAL_MACHINE.name());
+        when(proc.getCredentialType()).thenReturn(LEAR_CREDENTIAL_MACHINE);
         when(proc.getEmail()).thenReturn("owner@in2.es");
         when(proc.getCredentialEncoded()).thenReturn("ENCODED_JWT_VALUE");
         when(proc.getProcedureId()).thenReturn(UUID.fromString(procedureId));
@@ -685,7 +707,7 @@ class CredentialIssuanceWorkflowImplTest {
         CredentialIssuerMetadata metadata = mock(CredentialIssuerMetadata.class);
         CredentialIssuerMetadata.CredentialConfiguration cfg = mock(CredentialIssuerMetadata.CredentialConfiguration.class);
 
-        String typeId = CredentialType.LEAR_CREDENTIAL_MACHINE.getTypeId();
+        String typeId = LEAR_CREDENTIAL_MACHINE;
         when(cfg.cryptographicBindingMethodsSupported()).thenReturn(Collections.emptySet());
 
         Map<String, CredentialIssuerMetadata.CredentialConfiguration> map = new HashMap<>();
@@ -802,7 +824,12 @@ class CredentialIssuanceWorkflowImplTest {
         when(issuancePdpService.authorize(token, type, jsonNode, idToken))
                 .thenReturn(Mono.empty());
 
-        when(verifiableCredentialService.generateVc(processId, preSubmittedCredentialDataRequest, expectedEmail, token))
+        when(statusListWorkflow.allocateEntry(eq(StatusPurpose.REVOCATION), anyString(), eq(token)))
+                .thenReturn(Mono.just(StatusListEntry.builder()
+                        .id("entry-id").type("BitstringStatusListEntry")
+                        .statusPurpose(StatusPurpose.REVOCATION).statusListIndex("5")
+                        .statusListCredential("https://example.com/status").build()));
+        when(verifiableCredentialService.generateVc(eq(processId), eq(preSubmittedCredentialDataRequest), eq(expectedEmail), any(CredentialStatus.class), anyString()))
                 .thenReturn(Mono.just(transactionCode));
 
         when(appConfig.getIssuerFrontendUrl()).thenReturn(issuerUiExternalDomain);
@@ -849,7 +876,12 @@ class CredentialIssuanceWorkflowImplTest {
         // when
         when(issuancePdpService.authorize(token, LABEL_CREDENTIAL, payload, idToken))
                 .thenReturn(Mono.empty());
-        when(verifiableCredentialService.generateVc(processId, req, ownerEmail, token))
+        when(statusListWorkflow.allocateEntry(eq(StatusPurpose.REVOCATION), anyString(), eq(token)))
+                .thenReturn(Mono.just(StatusListEntry.builder()
+                        .id("entry-id").type("BitstringStatusListEntry")
+                        .statusPurpose(StatusPurpose.REVOCATION).statusListIndex("5")
+                        .statusListCredential("https://example.com/status").build()));
+        when(verifiableCredentialService.generateVc(eq(processId), eq(req), eq(ownerEmail), any(CredentialStatus.class), anyString()))
                 .thenReturn(Mono.just(tx));
         when(appConfig.getIssuerFrontendUrl()).thenReturn(issuerUiExternalDomain);
         when(appConfig.getKnowledgebaseWalletUrl()).thenReturn(knowledgebaseWalletUrl);
@@ -991,7 +1023,7 @@ class CredentialIssuanceWorkflowImplTest {
     void validateAndDetermineBindingInfo_whenProofSigningAlgsMissing_throwsConfigurationException() {
         // given
         CredentialProcedure proc = mock(CredentialProcedure.class);
-        when(proc.getCredentialType()).thenReturn(CredentialType.LEAR_CREDENTIAL_MACHINE.name());
+        when(proc.getCredentialType()).thenReturn(LEAR_CREDENTIAL_MACHINE);
 
         CredentialIssuerMetadata md = mock(CredentialIssuerMetadata.class);
 
@@ -1003,7 +1035,7 @@ class CredentialIssuanceWorkflowImplTest {
         // proofTypesSupported jwt present but NO algs
         when(cfg.proofTypesSupported()).thenReturn(Map.of("jwt", jwtProofCfg(Collections.emptySet())));
 
-        when(md.credentialConfigurationsSupported()).thenReturn(Map.of(CredentialType.LEAR_CREDENTIAL_MACHINE.getTypeId(), cfg));
+        when(md.credentialConfigurationsSupported()).thenReturn(Map.of(LEAR_CREDENTIAL_MACHINE, cfg));
 
         CredentialRequest req = CredentialRequest.builder()
                 .proof(Proof.builder().jwt(buildDummyJwtProofWithKid("did:key:z123#k1")).build())
@@ -1027,7 +1059,7 @@ class CredentialIssuanceWorkflowImplTest {
     void validateAndDetermineBindingInfo_whenProofsNull_throwsInvalidOrMissingProofException() {
         // given
         CredentialProcedure proc = mock(CredentialProcedure.class);
-        when(proc.getCredentialType()).thenReturn(CredentialType.LEAR_CREDENTIAL_MACHINE.name());
+        when(proc.getCredentialType()).thenReturn(LEAR_CREDENTIAL_MACHINE);
 
         CredentialIssuerMetadata md = mock(CredentialIssuerMetadata.class);
 
@@ -1040,7 +1072,7 @@ class CredentialIssuanceWorkflowImplTest {
                 Map.of("jwt", jwtProofCfg(Set.of("ES256")))
         );
 
-        when(md.credentialConfigurationsSupported()).thenReturn(Map.of(CredentialType.LEAR_CREDENTIAL_MACHINE.getTypeId(), cfg));
+        when(md.credentialConfigurationsSupported()).thenReturn(Map.of(LEAR_CREDENTIAL_MACHINE, cfg));
 
         CredentialRequest req = CredentialRequest.builder()
                 .proof(null)
@@ -1055,7 +1087,7 @@ class CredentialIssuanceWorkflowImplTest {
                 .expectErrorSatisfies(ex -> {
                     org.junit.jupiter.api.Assertions.assertInstanceOf(InvalidOrMissingProofException.class, ex);
                     org.junit.jupiter.api.Assertions.assertEquals(
-                            "Missing proof for type " + CredentialType.LEAR_CREDENTIAL_MACHINE.name(),
+                            "Missing proof for type " + LEAR_CREDENTIAL_MACHINE,
                             ex.getMessage()
                     );
                 })
@@ -1070,7 +1102,7 @@ class CredentialIssuanceWorkflowImplTest {
     void validateAndDetermineBindingInfo_whenProofInvalid_throwsInvalidOrMissingProofException() {
         // given
         CredentialProcedure proc = mock(CredentialProcedure.class);
-        when(proc.getCredentialType()).thenReturn(CredentialType.LEAR_CREDENTIAL_MACHINE.name());
+        when(proc.getCredentialType()).thenReturn(LEAR_CREDENTIAL_MACHINE);
 
         CredentialIssuerMetadata md = mock(CredentialIssuerMetadata.class);
         when(md.credentialIssuer()).thenReturn("https://issuer.example");
@@ -1081,7 +1113,7 @@ class CredentialIssuanceWorkflowImplTest {
         when(cfg.cryptographicBindingMethodsSupported()).thenReturn(Set.of("did"));
         when(cfg.proofTypesSupported()).thenReturn(Map.of("jwt", jwtProofCfg(Set.of("ES256"))));
 
-        when(md.credentialConfigurationsSupported()).thenReturn(Map.of(CredentialType.LEAR_CREDENTIAL_MACHINE.getTypeId(), cfg));
+        when(md.credentialConfigurationsSupported()).thenReturn(Map.of(LEAR_CREDENTIAL_MACHINE, cfg));
 
         String jwtProof = buildDummyJwtProofWithKid("did:key:z123#k1");
         CredentialRequest req = CredentialRequest.builder()
@@ -1109,7 +1141,7 @@ class CredentialIssuanceWorkflowImplTest {
     void validateAndDetermineBindingInfo_whenProofValid_returnsBindingInfoWithKidSubjectId() {
         // given
         CredentialProcedure proc = mock(CredentialProcedure.class);
-        when(proc.getCredentialType()).thenReturn(CredentialType.LEAR_CREDENTIAL_MACHINE.name());
+        when(proc.getCredentialType()).thenReturn(LEAR_CREDENTIAL_MACHINE);
 
         CredentialIssuerMetadata md = mock(CredentialIssuerMetadata.class);
         when(md.credentialIssuer()).thenReturn("https://issuer.example");
@@ -1120,7 +1152,7 @@ class CredentialIssuanceWorkflowImplTest {
         when(cfg.cryptographicBindingMethodsSupported()).thenReturn(Set.of("did"));
         when(cfg.proofTypesSupported()).thenReturn(Map.of("jwt", jwtProofCfg(Set.of("ES256"))));
 
-        when(md.credentialConfigurationsSupported()).thenReturn(Map.of(CredentialType.LEAR_CREDENTIAL_MACHINE.getTypeId(), cfg));
+        when(md.credentialConfigurationsSupported()).thenReturn(Map.of(LEAR_CREDENTIAL_MACHINE, cfg));
 
         String kid = "did:key:zDnaeiLt1XYBTBZkvfYQ5AABYFqouxpv63LYKkiw2xad9rReK#key-1";
         String jwtProof = buildDummyJwtProofWithKid(kid);

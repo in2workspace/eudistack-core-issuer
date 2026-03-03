@@ -3,7 +3,7 @@
 #
 # Usage:
 #   cd docker
-#   cp .env.example .env             # configurar RESEND_API_KEY
+#   cp .env.example .env             # configurar SMTP_USERNAME y SMTP_PASSWORD
 #   docker compose up -d postgres    # solo BBDD (backend lanzado desde IDE)
 #   docker compose up -d             # BBDD + backend en contenedor
 #
@@ -51,18 +51,18 @@ services:
       SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/issuer
       SPRING_FLYWAY_DEFAULT_SCHEMA: issuer
 
-      # --- Mail (Resend SMTP) ------------------------------------------------
-      SPRING_MAIL_HOST: smtp.resend.com
-      SPRING_MAIL_PORT: 465
-      SPRING_MAIL_USERNAME: resend
-      SPRING_MAIL_PASSWORD: ${RESEND_API_KEY}
-      SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH: "true"
-      SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: "false"
-      SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE: "true"
-      SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_TRUST: smtp.resend.com
+      # --- Mail (AWS SES SMTP) -----------------------------------------------
+      SMTP_HOST: email-smtp.eu-west-1.amazonaws.com
+      SMTP_PORT: 587
+      SMTP_USERNAME: ${SMTP_USERNAME}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_AUTH: "true"
+      SMTP_STARTTLS: "true"
+      SMTP_SSL_ENABLE: "false"
+      SMTP_SSL_TRUST: ""
 
       # --- App ---------------------------------------------------------------
-      APP_MAIL_FROM: onboarding@resend.dev
+      APP_MAIL_FROM: noreply@mail-stg.altia.eudistack.net
       APP_URL: http://localhost:8080
       APP_ISSUER_FRONTEND_URL: http://localhost:4200
       APP_TRUST_FRAMEWORK_URL: https://trust-framework.example.com

@@ -1,12 +1,8 @@
 package es.in2.issuer.backend.shared.infrastructure.adapter.email;
 
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotificationInfo;
-import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
-import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
-import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
+import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
 import es.in2.issuer.backend.shared.domain.service.TranslationService;
 import jakarta.mail.internet.MimeMessage;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,11 +12,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
-import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import java.util.UUID;
-
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -29,7 +23,6 @@ class EmailServiceImplTest {
 
     @Mock private JavaMailSender javaMailSender;
     @Mock private TemplateEngine templateEngine;
-    @Mock private CredentialProcedureService credentialProcedureService;
     @Mock private TranslationService translationService;
 
     private EmailServiceImpl emailService;
@@ -38,10 +31,9 @@ class EmailServiceImplTest {
     void setUpLenient() {
         emailService = new EmailServiceImpl(
                 javaMailSender, templateEngine, "noreply@example.com",
-                credentialProcedureService, translationService
+                translationService
         );
         lenient().when(translationService.getLocale()).thenReturn("en");
-        // Pass-through translation (may not be used in every test)
         lenient().when(translationService.translate(any(String.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
     }
@@ -50,7 +42,6 @@ class EmailServiceImplTest {
     void testSendTxCodeNotification() {
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
-        // Template now includes locale suffix
         when(templateEngine.process(eq("pin-email-en"), any(Context.class))).thenReturn("htmlContent");
 
         StepVerifier.create(emailService.sendTxCodeNotification("to@example.com", "subject.key", "1234"))
@@ -66,7 +57,7 @@ class EmailServiceImplTest {
         when(templateEngine.process(eq("activate-credential-email-en"), any(Context.class))).thenReturn("htmlContent");
 
         StepVerifier.create(
-                emailService.sendCredentialActivationEmail("to@example.com", "subject.key", "link", "knowledgebaseUrl","organization")
+                emailService.sendCredentialActivationEmail("to@example.com", "subject.key", "link", "knowledgebaseUrl", "organization")
         ).verifyComplete();
 
         verify(javaMailSender).send(mimeMessage);
@@ -85,7 +76,7 @@ class EmailServiceImplTest {
     }
 
     @Test
-    void testSendPendingSignatureCredentialNotification(){
+    void testSendPendingSignatureCredentialNotification() {
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
         when(templateEngine.process(eq("credential-pending-signature-notification-en"), any(Context.class))).thenReturn("htmlContent");
@@ -109,7 +100,7 @@ class EmailServiceImplTest {
     }
 
     @Test
-    void sendResponseUriFailed_sendsEmailSuccessfully(){
+    void sendResponseUriFailed_sendsEmailSuccessfully() {
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
         when(templateEngine.process(eq("response-uri-failed-en"), any(Context.class))).thenReturn("htmlContent");
@@ -121,11 +112,11 @@ class EmailServiceImplTest {
     }
 
     @Test
-    void sendResponseUriFailed_handlesException(){
+    void sendResponseUriFailed_handlesException() {
         when(javaMailSender.createMimeMessage()).thenThrow(new RuntimeException("Mail server error"));
 
         StepVerifier.create(emailService.sendResponseUriFailed("to@example.com", "productId", "guideUrl"))
-                .expectError(RuntimeException.class) // service does not map this one
+                .expectError(RuntimeException.class)
                 .verify();
     }
 
@@ -145,85 +136,20 @@ class EmailServiceImplTest {
         when(javaMailSender.createMimeMessage()).thenThrow(new RuntimeException("Mail server error"));
 
         StepVerifier.create(emailService.sendResponseUriAcceptedWithHtml("to@example.com", "productId", "htmlContent"))
-                .expectError(RuntimeException.class) // service does not map this one
+                .expectError(RuntimeException.class)
                 .verify();
     }
 
     @Test
-    void notifyIfCredentialStatusChanges_returnsEmptyWhenStatusDifferent() {
-        // Real status is REVOKED but expected is EXPIRED -> no email should be sent
-        CredentialProcedure credential = mock(CredentialProcedure.class);
-        when(credential.getCredentialStatus()).thenReturn(CredentialStatusEnum.REVOKED);
-
-        StepVerifier.create(emailService.notifyIfCredentialStatusChanges(credential, "EXPIRED"))
-                .verifyComplete();
-
-        // No email or credential service should be invoked
-        verifyNoInteractions(javaMailSender, templateEngine, credentialProcedureService);
-    }
-
-    @Test
-    void notifyIfCredentialStatusChanges_sendsExpiredEmail_andSetsTemplateVariables() {
-        MimeMessage mimeMessage = mock(MimeMessage.class);
-        when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
-        // Template now includes locale suffix
-        when(templateEngine.process(eq("revoked-expired-credential-email-en"), any(Context.class)))
-                .thenReturn("htmlContent");
-
-        // Mocked credential
-        CredentialProcedure credential = mock(CredentialProcedure.class);
-        UUID procedureId = UUID.randomUUID();
-        when(credential.getProcedureId()).thenReturn(procedureId);
-        when(credential.getCredentialStatus()).thenReturn(CredentialStatusEnum.EXPIRED);
-        when(credential.getCredentialType()).thenReturn("LEARCredentialEmployee");
-
-        // New flow: first get credentialId, then email info
-        when(credentialProcedureService.getCredentialId(credential)).thenReturn(Mono.just("cred-123"));
-        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(procedureId.toString()))
-                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo(
-                        "to@example.com", "ACME Corp"
-                )));
-
-        StepVerifier.create(emailService.notifyIfCredentialStatusChanges(credential, "EXPIRED"))
-                .verifyComplete();
-
-        verify(javaMailSender).send(mimeMessage);
-
-        // Capture the Context to check the added variables
-        ArgumentCaptor<Context> ctxCaptor = ArgumentCaptor.forClass(Context.class);
-        verify(templateEngine).process(eq("revoked-expired-credential-email-en"), ctxCaptor.capture());
-        Context ctx = ctxCaptor.getValue();
-
-        // Subject/title for EXPIRED are set in the service (title is hardcoded English there)
-        Assertions.assertEquals("email.expired.title", ctx.getVariable("title"));
-        // Context variables built by buildEmailContext(...)
-        Assertions.assertEquals("ACME Corp", ctx.getVariable("organization"));
-        Assertions.assertEquals("cred-123", ctx.getVariable("credentialId"));
-        Assertions.assertEquals("LEARCredentialEmployee", ctx.getVariable("type"));
-        Assertions.assertEquals("EXPIRED", ctx.getVariable("credentialStatus"));
-    }
-
-    @Test
-    void notifyIfCredentialStatusChanges_sendsRevokedEmail_andSetsRevokedTitle() {
+    void sendCredentialStatusChangeNotification_withExpiredStatus_sendsEmailAndSetsTemplateVariables() {
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
         when(templateEngine.process(eq("revoked-expired-credential-email-en"), any(Context.class)))
                 .thenReturn("htmlContent");
 
-        CredentialProcedure credential = mock(CredentialProcedure.class);
-        UUID procedureId = UUID.randomUUID();
-        when(credential.getProcedureId()).thenReturn(procedureId);
-        when(credential.getCredentialStatus()).thenReturn(CredentialStatusEnum.REVOKED);
-        when(credential.getCredentialType()).thenReturn("LEARCredentialEmployee");
-
-        when(credentialProcedureService.getCredentialId(credential)).thenReturn(Mono.just("cred-999"));
-        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(procedureId.toString()))
-                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo(
-                        "to@example.com", "Umbrella Inc"
-                )));
-
-        StepVerifier.create(emailService.notifyIfCredentialStatusChanges(credential, "REVOKED"))
-                .verifyComplete();
+        StepVerifier.create(emailService.sendCredentialStatusChangeNotification(
+                "to@example.com", "ACME Corp", "cred-123", "LEARCredentialEmployee", "EXPIRED"
+        )).verifyComplete();
 
         verify(javaMailSender).send(mimeMessage);
 
@@ -231,32 +157,44 @@ class EmailServiceImplTest {
         verify(templateEngine).process(eq("revoked-expired-credential-email-en"), ctxCaptor.capture());
         Context ctx = ctxCaptor.getValue();
 
-        // Subject/title for REVOKED (title is hardcoded English in service)
-        Assertions.assertEquals("email.revoked.title", ctx.getVariable("title"));
-        // Key variables
-        Assertions.assertEquals("Umbrella Inc", ctx.getVariable("organization"));
-        Assertions.assertEquals("cred-999", ctx.getVariable("credentialId"));
-        Assertions.assertEquals("LEARCredentialEmployee", ctx.getVariable("type"));
-        Assertions.assertEquals("REVOKED", ctx.getVariable("credentialStatus"));
+        assertEquals("email.expired.title", ctx.getVariable("title"));
+        assertEquals("ACME Corp", ctx.getVariable("organization"));
+        assertEquals("cred-123", ctx.getVariable("credentialId"));
+        assertEquals("LEARCredentialEmployee", ctx.getVariable("type"));
+        assertEquals("EXPIRED", ctx.getVariable("credentialStatus"));
     }
 
     @Test
-    void notifyIfCredentialStatusChanges_mapsErrorsToEmailCommunicationException() {
-        // When getCredentialId(...) fails, it should propagate as EmailCommunicationException per service mapping
-        CredentialProcedure credential = mock(CredentialProcedure.class);
-        when(credential.getCredentialStatus()).thenReturn(CredentialStatusEnum.EXPIRED);
-        // Avoid NPE: provide a non-null procedureId
-        when(credential.getProcedureId()).thenReturn(UUID.randomUUID());
+    void sendCredentialStatusChangeNotification_withRevokedStatus_sendsEmailAndSetsTemplateVariables() {
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("revoked-expired-credential-email-en"), any(Context.class)))
+                .thenReturn("htmlContent");
 
-        when(credentialProcedureService.getCredentialId(credential))
-                .thenReturn(Mono.error(new RuntimeException("boom")));
+        StepVerifier.create(emailService.sendCredentialStatusChangeNotification(
+                "to@example.com", "Umbrella Inc", "cred-999", "LEARCredentialEmployee", "REVOKED"
+        )).verifyComplete();
 
-        StepVerifier.create(emailService.notifyIfCredentialStatusChanges(credential, "EXPIRED"))
-                .expectError(es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException.class)
+        verify(javaMailSender).send(mimeMessage);
+
+        ArgumentCaptor<Context> ctxCaptor = ArgumentCaptor.forClass(Context.class);
+        verify(templateEngine).process(eq("revoked-expired-credential-email-en"), ctxCaptor.capture());
+        Context ctx = ctxCaptor.getValue();
+
+        assertEquals("email.revoked.title", ctx.getVariable("title"));
+        assertEquals("Umbrella Inc", ctx.getVariable("organization"));
+        assertEquals("cred-999", ctx.getVariable("credentialId"));
+        assertEquals("LEARCredentialEmployee", ctx.getVariable("type"));
+        assertEquals("REVOKED", ctx.getVariable("credentialStatus"));
+    }
+
+    @Test
+    void sendCredentialStatusChangeNotification_onMailError_mapsToEmailCommunicationException() {
+        when(javaMailSender.createMimeMessage()).thenThrow(new RuntimeException("Mail server error"));
+
+        StepVerifier.create(emailService.sendCredentialStatusChangeNotification(
+                "to@example.com", "ACME Corp", "cred-123", "LEARCredentialEmployee", "REVOKED"
+        )).expectError(EmailCommunicationException.class)
                 .verify();
-
-        // Ensure no email info is requested if getCredentialId(...) already failed
-        verify(credentialProcedureService, never()).getCredentialOfferEmailInfoByProcedureId(anyString());
-        verifyNoInteractions(javaMailSender, templateEngine);
     }
 }

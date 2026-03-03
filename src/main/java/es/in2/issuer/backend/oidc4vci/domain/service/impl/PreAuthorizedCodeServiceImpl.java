@@ -76,7 +76,7 @@ public class PreAuthorizedCodeServiceImpl implements PreAuthorizedCodeService {
                 .length(TX_CODE_SIZE)
                 .inputMode(TX_INPUT_MODE)
                 .build();
-        Grants grants = new Grants(preAuthorizedCode, grantTxCode);
+        Grants grants = new Grants(preAuthorizedCode, grantTxCode, null);
         return Mono.just(new PreAuthorizedCodeResponse(grants, txCode));
     }
 }

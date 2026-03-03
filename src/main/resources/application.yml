@@ -2,7 +2,7 @@
 # Issuer Core Backend — application.yml
 #
 # All values are injectable via environment variables (Spring relaxed binding).
-# Defaults are set for local development (localhost, Resend SMTP, etc.).
+# Defaults are set for local development (localhost, AWS SES SMTP, etc.).
 # In production, override via Docker Compose env, Kubernetes ConfigMap, or .env.
 # =============================================================================
 
@@ -20,15 +20,15 @@ spring:
     locations: classpath:db/migration
     default-schema: ${SPRING_FLYWAY_DEFAULT_SCHEMA:issuer}
   mail:
-    host: ${SPRING_MAIL_HOST:smtp.resend.com}
-    port: ${SPRING_MAIL_PORT:465}
-    username: ${SPRING_MAIL_USERNAME:resend}
-    password: ${SPRING_MAIL_PASSWORD:${RESEND_API_KEY:}}
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
     properties.mail.smtp:
-      auth: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH:true}
-      starttls.enable: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE:false}
-      ssl.enable: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE:true}
-      ssl.trust: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_TRUST:smtp.resend.com}
+      auth: ${SMTP_AUTH:true}
+      starttls.enable: ${SMTP_STARTTLS:true}
+      ssl.enable: ${SMTP_SSL_ENABLE:false}
+      ssl.trust: ${SMTP_SSL_TRUST:}
   messages:
     basename: messages/messages
 
@@ -101,17 +101,10 @@ app:
     wallet-guide-url: ${APP_KNOWLEDGE_BASE_WALLET_GUIDE_URL:https://example.com/wallet}
   verifier-url: ${APP_VERIFIER_URL:https://verifier.example.com}
   wallet-url: ${APP_WALLET_URL:https://wallet.example.com}
-  mail-from: ${APP_MAIL_FROM:onboarding@resend.dev}
-  config-source: ${APP_CONFIG_SOURCE:yaml}
+  mail-from: ${APP_MAIL_FROM:noreply@mail-stg.altia.eudistack.net}
   default-lang: ${APP_DEFAULT_LANG:en}
   admin-organization-id: ${APP_ADMIN_ORGANIZATION_ID:VATES-B60645900}
   sys-tenant: ${APP_SYS_TENANT:SYSTEM}
-
-# Azure (only used when config-source=azure)
-azure:
-  endpoint: ${AZURE_ENDPOINT:https://myappconfig.azconfig.io}
-  label:
-    global: ${AZURE_LABEL_GLOBAL:in2-issuer-backend}
 
 # Default Signer
 default-signer:
@@ -137,6 +130,27 @@ signing:
   certificate:
     cert-path: ${SIGNING_CERTIFICATE_CERT_PATH:}
     key-path: ${SIGNING_CERTIFICATE_KEY_PATH:}
+
+# OID4VCI Profile (authorization_code flow configuration)
+oid4vci:
+  profile:
+    grants-supported:
+      - urn:ietf:params:oauth:grant-type:pre-authorized_code
+      - authorization_code
+    authorization-code:
+      require-par: ${OID4VCI_REQUIRE_PAR:true}
+      require-pkce: ${OID4VCI_REQUIRE_PKCE:true}
+      pkce-methods:
+        - S256
+      require-dpop: ${OID4VCI_REQUIRE_DPOP:true}
+      dpop-signing-algs:
+        - ES256
+      client-auth-method: ${OID4VCI_CLIENT_AUTH_METHOD:attest_jwt_client_auth}
+      require-nonce: ${OID4VCI_REQUIRE_NONCE:true}
+
+# Trusted Wallet Providers
+wallet-provider-trust:
+  providers-path: ${WALLET_PROVIDER_TRUST_PATH:classpath:trusted-wallet-providers.yaml}
 
 # CORS
 cors:

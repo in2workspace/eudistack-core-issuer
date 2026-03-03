@@ -1,7 +1,9 @@
 package es.in2.issuer.backend.shared.domain.model.dto;
 
-import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import org.junit.jupiter.api.Test;
+
+import static es.in2.issuer.backend.shared.domain.util.Constants.LABEL_CREDENTIAL;
+import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
 
 import java.sql.Timestamp;
 
@@ -18,7 +20,7 @@ class CredentialProcedureCreationRequestTest {
                 .procedureId("proc-123")
                 .organizationIdentifier("org-456")
                 .credentialDecoded("decoded-credential")
-                .credentialType(CredentialType.LEAR_CREDENTIAL_EMPLOYEE)
+                .credentialType(LEAR_CREDENTIAL_EMPLOYEE)
                 .subject("did:example:subject")
                 .validUntil(validUntil)
                 .operationMode("ONLINE")
@@ -31,7 +33,7 @@ class CredentialProcedureCreationRequestTest {
                 .returns("proc-123", CredentialProcedureCreationRequest::procedureId)
                 .returns("org-456", CredentialProcedureCreationRequest::organizationIdentifier)
                 .returns("decoded-credential", CredentialProcedureCreationRequest::credentialDecoded)
-                .returns(CredentialType.LEAR_CREDENTIAL_EMPLOYEE, CredentialProcedureCreationRequest::credentialType)
+                .returns(LEAR_CREDENTIAL_EMPLOYEE, CredentialProcedureCreationRequest::credentialType)
                 .returns("did:example:subject", CredentialProcedureCreationRequest::subject)
                 .returns(validUntil, CredentialProcedureCreationRequest::validUntil)
                 .returns("ONLINE", CredentialProcedureCreationRequest::operationMode)
@@ -48,7 +50,7 @@ class CredentialProcedureCreationRequestTest {
                 .procedureId("proc-1")
                 .organizationIdentifier("org-1")
                 .credentialDecoded("cred")
-                .credentialType(CredentialType.LABEL_CREDENTIAL)
+                .credentialType(LABEL_CREDENTIAL)
                 .subject("subj")
                 .validUntil(validUntil)
                 .operationMode("ONLINE")
@@ -60,7 +62,7 @@ class CredentialProcedureCreationRequestTest {
                 .procedureId("proc-1")
                 .organizationIdentifier("org-1")
                 .credentialDecoded("cred")
-                .credentialType(CredentialType.LABEL_CREDENTIAL)
+                .credentialType(LABEL_CREDENTIAL)
                 .subject("subj")
                 .validUntil(validUntil)
                 .operationMode("ONLINE")
@@ -72,7 +74,7 @@ class CredentialProcedureCreationRequestTest {
                 .procedureId("proc-2")
                 .organizationIdentifier("org-1")
                 .credentialDecoded("cred")
-                .credentialType(CredentialType.LABEL_CREDENTIAL)
+                .credentialType(LABEL_CREDENTIAL)
                 .subject("subj")
                 .validUntil(validUntil)
                 .operationMode("ONLINE")
@@ -127,15 +129,6 @@ class CredentialProcedureCreationRequestTest {
                 .returns(null, CredentialProcedureCreationRequest::operationMode)
                 .returns(null, CredentialProcedureCreationRequest::signatureMode)
                 .returns(null, CredentialProcedureCreationRequest::email);
-    }
-
-    @Test
-    void credentialTypeShouldExposeTypeId() {
-        // Arrange
-        CredentialType type = CredentialType.LEAR_CREDENTIAL_MACHINE;
-
-        // Assert
-        assertThat(type.getTypeId()).isEqualTo("LEARCredentialMachine");
     }
 
     @Test

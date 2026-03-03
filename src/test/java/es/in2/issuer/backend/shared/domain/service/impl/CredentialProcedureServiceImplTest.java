@@ -8,14 +8,14 @@ import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonExceptio
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
-import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.repository.CredentialProcedureRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.LABEL_CREDENTIAL_TYPE;
+import static es.in2.issuer.backend.shared.domain.util.Constants.LABEL_CREDENTIAL;
+import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
 import static org.junit.jupiter.api.Assertions.*;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -71,7 +71,7 @@ class CredentialProcedureServiceImplTest {
         String credentialDecoded = "{\"vc\":{\"type\":[\"VerifiableCredential\"]}}";
         String organizationIdentifier = "org-123";
         String expectedProcedureId = UUID.randomUUID().toString();
-        String expectedCredentialType = "LEAR_CREDENTIAL_EMPLOYEE";
+        String expectedCredentialType = LEAR_CREDENTIAL_EMPLOYEE;
         String expectedSubject = "TestSubject";
         String expectedEmail = "test@example.com";
         String expectedOperationMode = "async";
@@ -82,7 +82,7 @@ class CredentialProcedureServiceImplTest {
                 .organizationIdentifier(organizationIdentifier)
                 .credentialDecoded(credentialDecoded)
                 .subject(expectedSubject)
-                .credentialType(CredentialType.LEAR_CREDENTIAL_EMPLOYEE)
+                .credentialType(LEAR_CREDENTIAL_EMPLOYEE)
                 .validUntil(expectedValidUntil)
                 .operationMode(expectedOperationMode)  // ← AÑADIDO
                 .email(expectedEmail)  // ← AÑADIDO
@@ -794,7 +794,7 @@ class CredentialProcedureServiceImplTest {
 
         CredentialProcedure cp = new CredentialProcedure();
         cp.setProcedureId(UUID.fromString(procedureId));
-        cp.setCredentialType(LABEL_CREDENTIAL_TYPE);
+        cp.setCredentialType(LABEL_CREDENTIAL);
         cp.setEmail(email);
         // For LABEL, decoded JSON is not used, so it can be null
         cp.setCredentialDecoded(null);

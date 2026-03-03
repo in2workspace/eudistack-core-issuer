@@ -2,7 +2,6 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
-import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
@@ -21,7 +20,6 @@ public class CredentialProfileRegistry {
 
     private final Map<String, CredentialProfile> byConfigurationId;
     private final Map<String, CredentialProfile> byCredentialType;
-    private final Map<String, CredentialProfile> byEnumName;
 
     public CredentialProfileRegistry(
             ObjectMapper objectMapper,
@@ -30,12 +28,11 @@ public class CredentialProfileRegistry {
         String profilesPattern = profilesBasePath + "/*.json";
         Map<String, CredentialProfile> configIdMap = new LinkedHashMap<>();
         Map<String, CredentialProfile> typeMap = new LinkedHashMap<>();
-        Map<String, CredentialProfile> enumNameMap = new LinkedHashMap<>();
 
         try {
             Resource[] resources = resourcePatternResolver.getResources(profilesPattern);
             for (Resource resource : resources) {
-                loadProfile(objectMapper, resource, configIdMap, typeMap, enumNameMap);
+                loadProfile(objectMapper, resource, configIdMap, typeMap);
             }
         } catch (IOException e) {
             throw new IllegalStateException("Failed to load credential profiles from " + profilesPattern, e);
@@ -49,13 +46,11 @@ public class CredentialProfileRegistry {
 
         this.byConfigurationId = Collections.unmodifiableMap(configIdMap);
         this.byCredentialType = Collections.unmodifiableMap(typeMap);
-        this.byEnumName = Collections.unmodifiableMap(enumNameMap);
     }
 
     private void loadProfile(ObjectMapper objectMapper, Resource resource,
                              Map<String, CredentialProfile> configIdMap,
-                             Map<String, CredentialProfile> typeMap,
-                             Map<String, CredentialProfile> enumNameMap) {
+                             Map<String, CredentialProfile> typeMap) {
         String filename = resource.getFilename();
         try (InputStream is = resource.getInputStream()) {
             CredentialProfile profile = objectMapper.readValue(is, CredentialProfile.class);
@@ -74,20 +69,12 @@ public class CredentialProfileRegistry {
             String credentialType = profile.credentialType();
             if (typeMap.containsKey(credentialType)) {
                 log.warn("Multiple profiles share credential type '{}' (skipping typeMap entry for '{}'). " +
-                        "Use getByConfigurationId() or getByEnumName() for unambiguous lookup.", credentialType, configId);
+                        "Use getByConfigurationId() for unambiguous lookup.", credentialType, configId);
             } else {
                 typeMap.put(credentialType, profile);
             }
 
             configIdMap.put(configId, profile);
-
-            // Also index by CredentialType enum name (e.g., "LEAR_CREDENTIAL_EMPLOYEE")
-            for (CredentialType ct : CredentialType.values()) {
-                if (ct.getTypeId().equals(configId)) {
-                    enumNameMap.put(ct.name(), profile);
-                    break;
-                }
-            }
 
             log.info("Loaded credential profile '{}' (type: {}) from {}", configId, credentialType, filename);
         } catch (IOException e) {
@@ -101,14 +88,6 @@ public class CredentialProfileRegistry {
 
     public CredentialProfile getByCredentialType(String credentialType) {
         return byCredentialType.get(credentialType);
-    }
-
-    /**
-     * Lookup by CredentialType enum name (e.g., "LEAR_CREDENTIAL_EMPLOYEE").
-     * Used by CredentialSignerWorkflowImpl which stores the enum name in the database.
-     */
-    public CredentialProfile getByEnumName(String enumName) {
-        return byEnumName.get(enumName);
     }
 
     public Map<String, CredentialProfile> getAllProfiles() {

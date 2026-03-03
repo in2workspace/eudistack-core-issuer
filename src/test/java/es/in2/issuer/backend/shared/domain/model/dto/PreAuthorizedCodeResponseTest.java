@@ -9,7 +9,7 @@ class PreAuthorizedCodeResponseTest {
     @Test
     void testConstructorAndGetters() {
         // Arrange
-        Grants grants = new Grants("type", new Grants.TxCode(4, "numeric", "description"));
+        Grants grants = new Grants("type", new Grants.TxCode(4, "numeric", "description"), null);
         String expectedPin = "1234";
 
         // Act
@@ -26,7 +26,7 @@ class PreAuthorizedCodeResponseTest {
     @Test
     void testSetters() {
         // Arrange
-        Grants grants = new Grants("newType", new Grants.TxCode(5, "newNumeric", "newDescription"));
+        Grants grants = new Grants("newType", new Grants.TxCode(5, "newNumeric", "newDescription"), null);
         String newPin = "5678";
 
         // Act

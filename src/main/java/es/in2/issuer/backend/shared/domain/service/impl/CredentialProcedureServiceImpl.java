@@ -45,7 +45,7 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
                 .credentialStatus(CredentialStatusEnum.DRAFT)
                 .credentialDecoded(credentialProcedureCreationRequest.credentialDecoded())
                 .organizationIdentifier(credentialProcedureCreationRequest.organizationIdentifier())
-                .credentialType(credentialProcedureCreationRequest.credentialType().toString())
+                .credentialType(credentialProcedureCreationRequest.credentialType())
                 .subject(credentialProcedureCreationRequest.subject())
                 .validUntil(credentialProcedureCreationRequest.validUntil())
                 .operationMode(credentialProcedureCreationRequest.operationMode())
@@ -378,7 +378,7 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
                 .findByProcedureId(UUID.fromString(procedureId))
                 .flatMap(credentialProcedure ->
                         switch (credentialProcedure.getCredentialType()) {
-                            case LEAR_CREDENTIAL_EMPLOYEE_TYPE -> Mono.fromCallable(() ->
+                            case LEAR_CREDENTIAL_EMPLOYEE, "LEARCredentialEmployeeW3C" -> Mono.fromCallable(() ->
                                             objectMapper.readTree(credentialProcedure.getCredentialDecoded())
                                     )
                                     .map(credential -> {
@@ -398,7 +398,7 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
                                                     "Error parsing credential for procedureId: " + procedureId
                                             )
                                     );
-                            case LEAR_CREDENTIAL_MACHINE_TYPE -> Mono.fromCallable(() ->
+                            case LEAR_CREDENTIAL_MACHINE, "LEARCredentialMachineW3C" -> Mono.fromCallable(() ->
                                             objectMapper.readTree(credentialProcedure.getCredentialDecoded())
                                     )
                                     .map(credential -> {
@@ -420,7 +420,7 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
                                                     "Error parsing credential for procedureId: " + procedureId
                                             )
                                     );
-                            case LABEL_CREDENTIAL_TYPE -> Mono.just(
+                            case LABEL_CREDENTIAL -> Mono.just(
                                     new CredentialOfferEmailNotificationInfo(
                                             credentialProcedure.getEmail(),
                                             appConfig.getSysTenant()

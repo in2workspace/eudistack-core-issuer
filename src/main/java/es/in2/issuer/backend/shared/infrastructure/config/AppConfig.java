@@ -1,57 +1,40 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
-import es.in2.issuer.backend.shared.infrastructure.config.adapter.ConfigAdapter;
-import es.in2.issuer.backend.shared.infrastructure.config.adapter.factory.ConfigAdapterFactory;
 import es.in2.issuer.backend.shared.infrastructure.config.properties.AppProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.properties.CorsProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.properties.IssuerIdentityProperties;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.List;
 
 @Configuration
+@RequiredArgsConstructor
 public class AppConfig implements IssuerProperties {
 
-    private final ConfigAdapter configAdapter;
     private final AppProperties appProperties;
     private final IssuerIdentityProperties issuerIdentityProperties;
     private final CorsProperties corsProperties;
 
-    public AppConfig(
-            ConfigAdapterFactory configAdapterFactory,
-            AppProperties appProperties,
-            IssuerIdentityProperties issuerIdentityProperties,
-            CorsProperties corsProperties
-    ) {
-        this.configAdapter = configAdapterFactory.getAdapter();
-        this.appProperties = appProperties;
-        this.issuerIdentityProperties = issuerIdentityProperties;
-        this.corsProperties = corsProperties;
-    }
-
     public String getIssuerBackendUrl() {
-        return configAdapter.getConfiguration(appProperties.url());
+        return appProperties.url();
     }
 
     public String getIssuerFrontendUrl() {
-        return configAdapter.getConfiguration(appProperties.issuerFrontendUrl());
+        return appProperties.issuerFrontendUrl();
     }
 
     public String getKnowledgebaseWalletUrl() {
-        return configAdapter.getConfiguration(appProperties.knowledgeBase().walletGuideUrl());
+        return appProperties.knowledgeBase().walletGuideUrl();
     }
 
     public String getWalletFrontendUrl() {
-        return configAdapter.getConfiguration(appProperties.walletUrl());
+        return appProperties.walletUrl();
     }
 
     public String getKnowledgeBaseUploadCertificationGuideUrl() {
-        return configAdapter.getConfiguration(appProperties.knowledgeBase().uploadCertificationGuideUrl());
-    }
-
-    public String getConfigSource() {
-        return configAdapter.getConfiguration(appProperties.configSource());
+        return appProperties.knowledgeBase().uploadCertificationGuideUrl();
     }
 
     public String getCredentialSubjectDidKey() {
@@ -69,23 +52,24 @@ public class AppConfig implements IssuerProperties {
     public List<String> getExternalCorsAllowedOrigins() {
         return corsProperties.externalAllowedOrigins();
     }
+
     public List<String> getDefaultCorsAllowedOrigins() {
         return corsProperties.defaultAllowedOrigins();
     }
 
     public String getVerifierUrl() {
-        return configAdapter.getConfiguration(appProperties.verifierUrl());
+        return appProperties.verifierUrl();
     }
 
     public String getDefaultLang() {
-        return configAdapter.getConfiguration(appProperties.defaultLang());
+        return appProperties.defaultLang();
     }
 
     public String getAdminOrganizationId() {
-        return configAdapter.getConfiguration(appProperties.adminOrganizationId());
+        return appProperties.adminOrganizationId();
     }
 
-    public String getSysTenant(){
-        return configAdapter.getConfiguration(appProperties.sysTenant());
+    public String getSysTenant() {
+        return appProperties.sysTenant();
     }
 }

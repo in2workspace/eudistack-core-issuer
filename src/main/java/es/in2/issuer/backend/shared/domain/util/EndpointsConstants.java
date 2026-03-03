@@ -37,6 +37,13 @@ public class EndpointsConstants {
     public static final String WELL_KNOWN_PATH = WELL_KNOWN_BASE_PATH + "/**";
     public static final String CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_PATH = WELL_KNOWN_BASE_PATH + "/openid-credential-issuer";
     public static final String AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH = WELL_KNOWN_BASE_PATH + "/openid-configuration";
+    public static final String OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_PATH = WELL_KNOWN_BASE_PATH + "/oauth-authorization-server";
+    public static final String JWKS_PATH = WELL_KNOWN_BASE_PATH + "/jwks.json";
+
+    // Authorization Code Flow Endpoints
+    public static final String OID4VCI_PAR_PATH = OID4VCI_BASE_PATH + "/par";
+    public static final String OID4VCI_AUTHORIZE_PATH = OID4VCI_BASE_PATH + "/authorize";
+    public static final String OID4VCI_NONCE_PATH = OID4VCI_BASE_PATH + "/nonce";
 
     // oauth Endpoints
     public static final String OAUTH_PATH ="/oauth/**";

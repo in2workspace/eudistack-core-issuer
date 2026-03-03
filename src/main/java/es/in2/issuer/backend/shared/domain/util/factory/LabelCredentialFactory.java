@@ -10,7 +10,6 @@ import es.in2.issuer.backend.shared.domain.model.dto.LabelCredentialJwtPayload;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.LabelCredential;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
-import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +23,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.LABEL_CREDENTIAL;
 import static es.in2.issuer.backend.shared.domain.util.Constants.LABEL_CREDENTIAL_CONTEXT;
 import static es.in2.issuer.backend.shared.domain.util.Constants.LABEL_CREDENTIAL_TYPES;
 
@@ -159,7 +159,7 @@ public class LabelCredentialFactory {
                                 .procedureId(procedureId)
                                 .organizationIdentifier(organizationId)
                                 .credentialDecoded(decodedCredential)
-                                .credentialType(CredentialType.LABEL_CREDENTIAL)
+                                .credentialType(LABEL_CREDENTIAL)
                                 .subject(labelCredentialDecoded.credentialSubject().id())
                                 .validUntil(parseEpochSecondIntoTimestamp(parseDateToUnixTime(labelCredentialDecoded.validUntil())))
                                 .operationMode(operationMode)

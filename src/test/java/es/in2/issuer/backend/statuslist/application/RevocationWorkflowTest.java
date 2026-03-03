@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.statuslist.domain.service.LegacyCredentialStatusRevocationService;
+import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotificationInfo;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
@@ -65,6 +66,7 @@ class RevocationWorkflowTest {
     void setUp() {
         mockProcedure = new CredentialProcedure();
         mockProcedure.setCredentialDecoded(createValidCredentialJson());
+        mockProcedure.setCredentialType("LEARCredentialEmployee");
     }
 
     // ========== Test revoke() method ==========
@@ -80,7 +82,11 @@ class RevocationWorkflowTest {
         when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure)).thenReturn(Mono.empty());
         when(statusListProvider.revoke(PROCEDURE_ID, CLEAN_TOKEN)).thenReturn(Mono.empty());
         when(credentialProcedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
-        when(emailService.notifyIfCredentialStatusChanges(eq(mockProcedure), anyString())).thenReturn(Mono.empty());
+        when(credentialProcedureService.getCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
+                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
+        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
+                .thenReturn(Mono.empty());
 
         setupObjectMapperForBitstring();
 
@@ -103,7 +109,11 @@ class RevocationWorkflowTest {
         when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure)).thenReturn(Mono.empty());
         when(legacyCredentialStatusRevocationService.revoke(eq(LIST_ID), any(CredentialStatus.class))).thenReturn(Mono.empty());
         when(credentialProcedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
-        when(emailService.notifyIfCredentialStatusChanges(eq(mockProcedure), anyString())).thenReturn(Mono.empty());
+        when(credentialProcedureService.getCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
+                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
+        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
+                .thenReturn(Mono.empty());
 
         setupObjectMapperForLegacy();
 
@@ -203,7 +213,11 @@ class RevocationWorkflowTest {
         when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure)).thenReturn(Mono.empty());
         when(statusListProvider.revoke(PROCEDURE_ID, CLEAN_TOKEN)).thenReturn(Mono.empty());
         when(credentialProcedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
-        when(emailService.notifyIfCredentialStatusChanges(eq(mockProcedure), anyString())).thenReturn(Mono.empty());
+        when(credentialProcedureService.getCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
+                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
+        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
+                .thenReturn(Mono.empty());
 
         setupObjectMapperForBitstring();
 
@@ -226,7 +240,11 @@ class RevocationWorkflowTest {
         when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure)).thenReturn(Mono.empty());
         when(legacyCredentialStatusRevocationService.revoke(eq(LIST_ID), any(CredentialStatus.class))).thenReturn(Mono.empty());
         when(credentialProcedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
-        when(emailService.notifyIfCredentialStatusChanges(eq(mockProcedure), anyString())).thenReturn(Mono.empty());
+        when(credentialProcedureService.getCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
+                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
+        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
+                .thenReturn(Mono.empty());
 
         setupObjectMapperForLegacy();
 
@@ -285,7 +303,11 @@ class RevocationWorkflowTest {
         when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure)).thenReturn(Mono.empty());
         when(legacyCredentialStatusRevocationService.revoke(eq(LIST_ID), any(CredentialStatus.class))).thenReturn(Mono.empty());
         when(credentialProcedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
-        when(emailService.notifyIfCredentialStatusChanges(eq(mockProcedure), anyString())).thenReturn(Mono.empty());
+        when(credentialProcedureService.getCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
+                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
+        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
+                .thenReturn(Mono.empty());
 
         setupObjectMapperForPartialStatus();
 

@@ -10,8 +10,9 @@ import es.in2.issuer.backend.shared.domain.model.dto.LabelCredentialJwtPayload;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.LabelCredential;
-import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
+
+import static es.in2.issuer.backend.shared.domain.util.Constants.LABEL_CREDENTIAL;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.signing.infrastructure.config.DefaultSignerConfig; // <-- NEW import
@@ -138,7 +139,7 @@ class LabelCredentialFactoryTest {
                 .assertNext(request -> {
                     assertEquals(procedureId, request.procedureId());
                     assertEquals("subject-1", request.subject());
-                    assertEquals(CredentialType.LABEL_CREDENTIAL, request.credentialType());
+                    assertEquals(LABEL_CREDENTIAL, request.credentialType());
                     assertEquals(email, request.email());
                     assertEquals(operationMode, request.operationMode());
                     assertEquals("org-456", request.organizationIdentifier());

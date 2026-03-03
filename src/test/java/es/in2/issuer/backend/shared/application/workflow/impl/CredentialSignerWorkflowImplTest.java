@@ -28,11 +28,15 @@ import reactor.test.StepVerifier;
 
 import java.util.UUID;
 
+import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
+import es.in2.issuer.backend.shared.domain.util.sdjwt.SdJwtPayloadBuilder;
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
+
 import static org.mockito.Mockito.*;
 import static es.in2.issuer.backend.shared.domain.util.Constants.JWT_VC_JSON;
-import static es.in2.issuer.backend.shared.domain.util.Constants.LABEL_CREDENTIAL_TYPE;
-import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE_TYPE;
-import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_MACHINE_TYPE;
+import static es.in2.issuer.backend.shared.domain.util.Constants.LABEL_CREDENTIAL;
+import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
+import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_MACHINE;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -92,6 +96,15 @@ class CredentialSignerWorkflowImplTest {
     @Mock
     private VerifierOauth2AccessToken verifierOauth2AccessToken;
 
+    @Mock
+    private CredentialProfileRegistry credentialProfileRegistry;
+
+    @Mock
+    private GenericCredentialBuilder genericCredentialBuilder;
+
+    @Mock
+    private SdJwtPayloadBuilder sdJwtPayloadBuilder;
+
     @Spy
     @InjectMocks
     CredentialSignerWorkflowImpl credentialSignerWorkflow;
@@ -107,7 +120,7 @@ class CredentialSignerWorkflowImplTest {
     void testRetrySignUnsignedCredential_Success_LEARCredentialEmployee() {
         CredentialProcedure credentialProcedure = mock(CredentialProcedure.class);
         when(credentialProcedure.getCredentialDecoded()).thenReturn("decodedCredential");
-        when(credentialProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_EMPLOYEE_TYPE);
+        when(credentialProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_EMPLOYEE);
         when(credentialProcedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.PEND_SIGNATURE);
 
         when(accessTokenService.getCleanBearerToken(authorizationHeader))
@@ -179,7 +192,7 @@ class CredentialSignerWorkflowImplTest {
     void testRetrySignUnsignedCredential_ErrorOnMappingCredential() {
         CredentialProcedure credentialProcedure = mock(CredentialProcedure.class);
         when(credentialProcedure.getCredentialDecoded()).thenReturn("decodedCredential");
-        when(credentialProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_EMPLOYEE_TYPE);
+        when(credentialProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_EMPLOYEE);
         when(credentialProcedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.PEND_SIGNATURE);
 
         when(accessTokenService.getCleanBearerToken(authorizationHeader))
@@ -228,11 +241,11 @@ class CredentialSignerWorkflowImplTest {
     @Test
     void testRetrySignUnsignedCredential_LabelCredential_NoResponseUri_ThrowsError() {
         CredentialProcedure initialProcedure = mock(CredentialProcedure.class);
-        when(initialProcedure.getCredentialType()).thenReturn(LABEL_CREDENTIAL_TYPE);
+        when(initialProcedure.getCredentialType()).thenReturn(LABEL_CREDENTIAL);
         when(initialProcedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.PEND_SIGNATURE);
 
         CredentialProcedure updatedProcedure = mock(CredentialProcedure.class);
-        when(updatedProcedure.getCredentialType()).thenReturn(LABEL_CREDENTIAL_TYPE);
+        when(updatedProcedure.getCredentialType()).thenReturn(LABEL_CREDENTIAL);
 
         when(accessTokenService.getCleanBearerToken(authorizationHeader))
                 .thenReturn(Mono.just(token));
@@ -286,12 +299,12 @@ class CredentialSignerWorkflowImplTest {
     @Test
     void testRetrySignUnsignedCredential_NonLabelCredential_DoesNotSendVc() {
         CredentialProcedure initialProcedure = mock(CredentialProcedure.class);
-        when(initialProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_EMPLOYEE_TYPE);
+        when(initialProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_EMPLOYEE);
         when(initialProcedure.getCredentialDecoded()).thenReturn("decodedCredential");
         when(initialProcedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.PEND_SIGNATURE);
 
         CredentialProcedure updatedProcedure = mock(CredentialProcedure.class);
-        when(updatedProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_EMPLOYEE_TYPE);
+        when(updatedProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_EMPLOYEE);
 
         when(accessTokenService.getCleanBearerToken(authorizationHeader))
                 .thenReturn(Mono.just(token));
@@ -380,7 +393,7 @@ class CredentialSignerWorkflowImplTest {
     void testRetrySignUnsignedCredential_Success_LEARCredentialMachine() {
         CredentialProcedure credentialProcedure = mock(CredentialProcedure.class);
         when(credentialProcedure.getCredentialDecoded()).thenReturn("decodedCredential");
-        when(credentialProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_MACHINE_TYPE);
+        when(credentialProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_MACHINE);
         when(credentialProcedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.PEND_SIGNATURE);
 
         when(accessTokenService.getCleanBearerToken(authorizationHeader))
@@ -435,7 +448,7 @@ class CredentialSignerWorkflowImplTest {
     void testRetrySignUnsignedCredential_ErrorOnMappingCredential_LEARCredentialMachine() {
         CredentialProcedure credentialProcedure = mock(CredentialProcedure.class);
         when(credentialProcedure.getCredentialDecoded()).thenReturn("decodedCredential");
-        when(credentialProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_MACHINE_TYPE);
+        when(credentialProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_MACHINE);
         when(credentialProcedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.PEND_SIGNATURE);
 
         when(accessTokenService.getCleanBearerToken(authorizationHeader))

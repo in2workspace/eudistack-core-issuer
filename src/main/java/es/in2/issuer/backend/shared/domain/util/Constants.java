@@ -18,9 +18,6 @@ public final class Constants {
     public static final String VERIFIABLE_ATTESTATION = "VerifiableAttestation";
     public static final String LEAR_CREDENTIAL_JWT = "LEARCredentialJWT";
     public static final String LEAR_CREDENTIAL_CWT = "LEARCredentialCWT";
-    public static final String LABEL_CREDENTIAL_TYPE = "LABEL_CREDENTIAL";
-    public static final String LEAR_CREDENTIAL_EMPLOYEE_TYPE = "LEAR_CREDENTIAL_EMPLOYEE";
-    public static final String LEAR_CREDENTIAL_MACHINE_TYPE = "LEAR_CREDENTIAL_MACHINE";
     public static final List<String> LABEL_CREDENTIAL_TYPES = List.of(LABEL_CREDENTIAL, VERIFIABLE_CREDENTIAL);
 
     // CREDENTIAL FORMATS
@@ -69,7 +66,6 @@ public final class Constants {
 
     // DID PREFIXES
     public static final String DID_ELSI = "did:elsi:";
-    public static final String DID_KEY = "did:key:";
 
     // GRANT TYPES
     public static final String GRANT_TYPE = "urn:ietf:params:oauth:grant-type:pre-authorized_code";

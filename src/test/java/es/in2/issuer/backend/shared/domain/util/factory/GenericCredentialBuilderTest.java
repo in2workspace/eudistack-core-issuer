@@ -7,8 +7,9 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
-import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
+
+import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -55,7 +56,7 @@ class GenericCredentialBuilderTest {
                         profile, "proc-1", payload, status, "S", "test@example.com"))
                 .assertNext(request -> {
                     assertThat(request.procedureId()).isEqualTo("proc-1");
-                    assertThat(request.credentialType()).isEqualTo(CredentialType.LEAR_CREDENTIAL_EMPLOYEE);
+                    assertThat(request.credentialType()).isEqualTo(LEAR_CREDENTIAL_EMPLOYEE);
                     assertThat(request.operationMode()).isEqualTo("S");
                     assertThat(request.email()).isEqualTo("test@example.com");
                     assertThat(request.subject()).isEqualTo("John Doe");

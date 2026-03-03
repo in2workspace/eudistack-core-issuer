@@ -5,4 +5,8 @@ import reactor.core.publisher.Mono;
 
 public interface TokenService {
     Mono<TokenResponse> generateTokenResponse(String grantType, String preAuthorizedCode, String txCode, String refreshToken);
+
+    Mono<TokenResponse> generateTokenResponseForAuthorizationCode(
+            String code, String redirectUri, String codeVerifier, String dpopHeader, String tokenEndpointUri
+    );
 }

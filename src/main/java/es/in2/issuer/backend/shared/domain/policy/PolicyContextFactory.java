@@ -82,13 +82,13 @@ public class PolicyContextFactory {
      * - The VC may be Employee or Machine type
      * - The allowed credential type depends on the schema being issued
      */
-    public Mono<PolicyContext> fromTokenForIssuance(String token, String schema, String tenantDomain) {
+    public Mono<PolicyContext> fromTokenForIssuance(String token, String credentialType, String tenantDomain) {
         return Mono.fromCallable(() -> jwtService.parseJWT(token))
                 .flatMap(signedJWT -> {
                     String vcClaim = jwtService.getClaimFromPayload(signedJWT.getPayload(), VC);
 
-                    return checkIfCredentialTypeIsAllowedToIssue(vcClaim, schema)
-                            .flatMap(credentialType -> mapVcToLEARCredential(vcClaim, credentialType)
+                    return checkIfCredentialTypeIsAllowedToIssue(vcClaim, credentialType)
+                            .flatMap(resolvedType -> mapVcToLEARCredential(vcClaim, resolvedType)
                                     .map(credential -> {
                                         String orgId = resolveOrganizationIdentifier(credential);
                                         List<Power> powers = extractPowers(credential);
@@ -100,7 +100,7 @@ public class PolicyContextFactory {
                                                 orgId,
                                                 powers,
                                                 credential,
-                                                credentialType,
+                                                resolvedType,
                                                 isSysAdmin,
                                                 tenantDomain
                                         );
@@ -135,11 +135,11 @@ public class PolicyContextFactory {
         }
     }
 
-    private Mono<String> checkIfCredentialTypeIsAllowedToIssue(String vcClaim, String schema) {
+    private Mono<String> checkIfCredentialTypeIsAllowedToIssue(String vcClaim, String credentialType) {
         return Mono.fromCallable(() -> objectMapper.readTree(vcClaim))
                 .flatMap(vcJsonNode ->
                         extractCredentialTypes(vcJsonNode)
-                                .flatMap(types -> determineAllowedCredentialType(types, schema))
+                                .flatMap(types -> determineAllowedCredentialType(types, credentialType))
                 )
                 .onErrorMap(JsonProcessingException.class,
                         e -> new ParseErrorException("Error extracting credential type"));
@@ -169,16 +169,16 @@ public class PolicyContextFactory {
                 "Onboarding".equals(p.function()) && PolicyContext.hasAction(p, "Execute"));
     }
 
-    private Mono<String> determineAllowedCredentialType(List<String> types, String schema) {
+    private Mono<String> determineAllowedCredentialType(List<String> types, String credentialType) {
         return Mono.fromCallable(() -> {
-            if (LABEL_CREDENTIAL.equals(schema)) {
+            if (LABEL_CREDENTIAL.equals(credentialType)) {
                 if (types.contains(LEAR_CREDENTIAL_MACHINE)) {
                     return LEAR_CREDENTIAL_MACHINE;
                 } else {
                     throw new InsufficientPermissionException(
                             "Unauthorized: Credential type 'LEARCredentialMachine' is required for verifiable certification.");
                 }
-            } else if (LEAR_CREDENTIAL_MACHINE.equals(schema)) {
+            } else if (LEAR_CREDENTIAL_MACHINE.equals(credentialType)) {
                 if (types.contains(LEAR_CREDENTIAL_EMPLOYEE)) {
                     return LEAR_CREDENTIAL_EMPLOYEE;
                 } else {

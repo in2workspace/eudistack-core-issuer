@@ -1,9 +1,8 @@
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE SCHEMA IF NOT EXISTS issuer;
 
 -- Create credential_management table if it doesn't exist
 CREATE TABLE IF NOT EXISTS issuer.credential_procedure (
-    procedure_id uuid PRIMARY KEY UNIQUE DEFAULT uuid_generate_v4(),
+    procedure_id uuid PRIMARY KEY UNIQUE DEFAULT gen_random_uuid(),
     credential_id uuid,
     credential_format VARCHAR(20),
     credential_decoded TEXT,
@@ -18,7 +17,7 @@ CREATE TABLE IF NOT EXISTS issuer.credential_procedure (
 
 -- Create credential_deferred table if it doesn't exist
 CREATE TABLE IF NOT EXISTS issuer.deferred_credential_metadata (
-    id uuid PRIMARY KEY UNIQUE DEFAULT uuid_generate_v4(),
+    id uuid PRIMARY KEY UNIQUE DEFAULT gen_random_uuid(),
     transaction_code VARCHAR(255),
     transaction_id VARCHAR(255),
     auth_server_nonce VARCHAR(255),

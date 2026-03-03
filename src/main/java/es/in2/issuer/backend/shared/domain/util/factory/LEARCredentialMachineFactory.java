@@ -10,7 +10,6 @@ import es.in2.issuer.backend.shared.domain.model.dto.LEARCredentialMachineJwtPay
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.machine.LEARCredentialMachine;
-import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import lombok.RequiredArgsConstructor;
@@ -109,7 +108,7 @@ public class LEARCredentialMachineFactory {
                 .procedureId(procedureId)
                 .organizationIdentifier(mandatorOrgId)
                 .credentialDecoded(decodedCredential)
-                .credentialType(CredentialType.LEAR_CREDENTIAL_MACHINE)
+                .credentialType("LEARCredentialMachineW3C")
                 .subject(credentialDecoded.credentialSubject().mandate().mandatee().domain())
                 .validUntil(parseEpochSecondIntoTimestamp(parseDateToUnixTime(credentialDecoded.validUntil())))
                 .operationMode(operationMode)

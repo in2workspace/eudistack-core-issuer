@@ -1,13 +1,17 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
 import com.nimbusds.jose.Payload;
+import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.TokenService;
+import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndRefreshToken;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndTxCode;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
+import es.in2.issuer.backend.shared.domain.service.DpopValidationService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
+import es.in2.issuer.backend.shared.domain.service.PkceVerifier;
 import es.in2.issuer.backend.shared.domain.service.RefreshTokenService;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
@@ -19,8 +23,10 @@ import reactor.core.publisher.Mono;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.UUID;
 
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.ACCESS_TOKEN_EXPIRATION_TIME_DAYS;
 import static es.in2.issuer.backend.shared.domain.util.Constants.GRANT_TYPE;
@@ -31,14 +37,19 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.REFRESH_TOKEN_G
 @RequiredArgsConstructor
 public class TokenServiceImpl implements TokenService {
 
-    private static final String TOKEN_TYPE = "bearer";
+    private static final String TOKEN_TYPE_BEARER = "bearer";
+    private static final String TOKEN_TYPE_DPOP = "DPoP";
 
     private final CacheStore<CredentialProcedureIdAndTxCode> txCodeCacheStore;
     private final CacheStore<CredentialProcedureIdAndRefreshToken> refreshTokenCacheStore;
+    private final CacheStore<AuthorizationCodeData> authorizationCodeCacheStore;
     private final JWTService jwtService;
     private final RefreshTokenService refreshTokenService;
     private final AppConfig appConfig;
     private final CredentialProcedureService credentialProcedureService;
+    private final PkceVerifier pkceVerifier;
+    private final DpopValidationService dpopValidationService;
+    private final Oid4vciProfileProperties profileProperties;
 
     @Override
     public Mono<TokenResponse> generateTokenResponse(String grantType, String preAuthorizedCode, String txCode, String refreshToken) {
@@ -165,9 +176,67 @@ public class TokenServiceImpl implements TokenService {
         long expiresIn = accessTokenExpirationTime - Instant.now().getEpochSecond();
         return TokenResponse.builder()
                 .accessToken(accessToken)
-                .tokenType(TOKEN_TYPE)
+                .tokenType(TOKEN_TYPE_BEARER)
                 .expiresIn(expiresIn)
                 .refreshToken(refreshToken)
+                .build();
+    }
+
+    @Override
+    public Mono<TokenResponse> generateTokenResponseForAuthorizationCode(
+            String code, String redirectUri, String codeVerifier, String dpopHeader, String tokenEndpointUri
+    ) {
+        log.debug("Generating token response for authorization code");
+
+        return authorizationCodeCacheStore.get(code)
+                .onErrorMap(NoSuchElementException.class, ex -> new IllegalArgumentException("Invalid or expired authorization code"))
+                .flatMap(codeData -> authorizationCodeCacheStore.delete(code)
+                        .then(Mono.defer(() -> validateAndGenerateAuthCodeToken(codeData, redirectUri, codeVerifier, dpopHeader, tokenEndpointUri))))
+                .doOnSuccess(r -> log.debug("Token response generated for authorization_code, type={}", r.tokenType()))
+                .doOnError(e -> log.error("Error generating token for authorization_code: {}", e.getMessage()));
+    }
+
+    private Mono<TokenResponse> validateAndGenerateAuthCodeToken(
+            AuthorizationCodeData codeData, String redirectUri,
+            String codeVerifier, String dpopHeader, String tokenEndpointUri
+    ) {
+        if (codeData.redirectUri() != null && !codeData.redirectUri().equals(redirectUri)) {
+            return Mono.error(new IllegalArgumentException("redirect_uri mismatch"));
+        }
+
+        if (profileProperties.authorizationCode().requirePkce()) {
+            pkceVerifier.verifyS256(codeVerifier, codeData.codeChallenge());
+        }
+
+        String dpopJkt = profileProperties.authorizationCode().requireDpop()
+                ? dpopValidationService.validate(dpopHeader, "POST", tokenEndpointUri)
+                : null;
+
+        return Mono.just(buildAuthCodeTokenResponse(dpopJkt));
+    }
+
+    private TokenResponse buildAuthCodeTokenResponse(String dpopJkt) {
+        Instant issueTime = Instant.now();
+        long accessTokenExpirationTime = generateAccessTokenExpirationTime(issueTime);
+        boolean isDpop = dpopJkt != null;
+
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("iss", appConfig.getIssuerBackendUrl());
+        claims.put("iat", issueTime.getEpochSecond());
+        claims.put("exp", accessTokenExpirationTime);
+        claims.put("jti", UUID.randomUUID().toString());
+        if (isDpop) {
+            claims.put("cnf", Map.of("jkt", dpopJkt));
+        }
+
+        String accessToken = jwtService.generateJWT(new Payload(claims).toString());
+        long expiresIn = accessTokenExpirationTime - Instant.now().getEpochSecond();
+
+        return TokenResponse.builder()
+                .accessToken(accessToken)
+                .tokenType(isDpop ? TOKEN_TYPE_DPOP : TOKEN_TYPE_BEARER)
+                .expiresIn(expiresIn)
+                .refreshToken(null)
                 .build();
     }
 }

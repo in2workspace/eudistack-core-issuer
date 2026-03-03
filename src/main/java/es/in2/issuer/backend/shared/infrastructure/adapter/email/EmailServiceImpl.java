@@ -1,8 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.adapter.email;
 
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
-import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
-import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.TranslationService;
 import jakarta.mail.MessagingException;
@@ -35,20 +33,17 @@ public class EmailServiceImpl implements EmailService {
     private final JavaMailSender javaMailSender;
     private final TemplateEngine templateEngine;
     private final String mailFrom;
-    private final CredentialProcedureService credentialProcedureService;
     private final TranslationService translationService;
 
     public EmailServiceImpl(
             JavaMailSender javaMailSender,
             TemplateEngine templateEngine,
             @Value("${app.mail-from}") String mailFrom,
-            CredentialProcedureService credentialProcedureService,
             TranslationService translationService
     ) {
         this.javaMailSender = javaMailSender;
         this.templateEngine = templateEngine;
         this.mailFrom = mailFrom;
-        this.credentialProcedureService = credentialProcedureService;
         this.translationService = translationService;
     }
 
@@ -204,29 +199,9 @@ public class EmailServiceImpl implements EmailService {
     }
 
     @Override
-    public Mono<Void> notifyIfCredentialStatusChanges(CredentialProcedure credentialProcedure, String expectedStatus) {
-        if (!credentialProcedure.getCredentialStatus().toString().equalsIgnoreCase(expectedStatus)) {
-            return Mono.empty();
-        }
-
-        return credentialProcedureService
-                .getCredentialId(credentialProcedure)
-                .flatMap(credentialId ->
-                        credentialProcedureService
-                                .getCredentialOfferEmailInfoByProcedureId(credentialProcedure.getProcedureId().toString())
-                                .flatMap(info ->
-                                        sendCredentialRevokedOrExpiredNotificationEmail(
-                                                info.email(),
-                                                info.organization(),
-                                                credentialId,
-                                                credentialProcedure.getCredentialType(),
-                                                expectedStatus
-                                        )
-                                )
-                )
-                //todo don't pass procedure id, pass credential id instead
-                .onErrorMap(e -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE))
-                .doOnError(e -> log.error("Error sending '{}' email for credential procedure {}", expectedStatus, credentialProcedure.getProcedureId().toString()));
+    public Mono<Void> sendCredentialStatusChangeNotification(String to, String organization, String credentialId, String type, String status) {
+        return sendCredentialRevokedOrExpiredNotificationEmail(to, organization, credentialId, type, status)
+                .onErrorMap(e -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE));
     }
 
     private Mono<Void> sendCredentialRevokedOrExpiredNotificationEmail(String to, String organization, String credentialId, String type, String credentialStatus){

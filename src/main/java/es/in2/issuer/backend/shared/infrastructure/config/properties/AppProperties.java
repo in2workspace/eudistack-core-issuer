@@ -4,7 +4,6 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.hibernate.validator.constraints.URL;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.validation.annotation.Validated;
 
 @ConfigurationProperties(prefix = "app")
@@ -14,35 +13,11 @@ public record AppProperties(
         @NotBlank @URL String issuerFrontendUrl,
         @NotNull KnowledgeBase knowledgeBase,
         @NotBlank @URL String verifierUrl,
-        @NotBlank String configSource,
         @NotBlank @URL String walletUrl,
         @NotBlank String defaultLang,
         @NotBlank String adminOrganizationId,
         @NotBlank String sysTenant
 ) {
-
-    @ConstructorBinding
-    public AppProperties(
-            String url,
-            String issuerFrontendUrl,
-            KnowledgeBase knowledgeBase,
-            String verifierUrl,
-            String configSource,
-            String walletUrl,
-            String defaultLang,
-            String adminOrganizationId,
-            String sysTenant
-    ) {
-        this.url = url;
-        this.issuerFrontendUrl = issuerFrontendUrl;
-        this.knowledgeBase = knowledgeBase;
-        this.verifierUrl = verifierUrl;
-        this.configSource = configSource;
-        this.walletUrl = walletUrl;
-        this.defaultLang = defaultLang;
-        this.adminOrganizationId = adminOrganizationId;
-        this.sysTenant = sysTenant;
-    }
 
     @Validated
     public record KnowledgeBase(

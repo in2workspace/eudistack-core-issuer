@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.shared.domain.service;
 
-import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import reactor.core.publisher.Mono;
 
 public interface EmailService {
@@ -11,5 +10,5 @@ public interface EmailService {
     Mono<Void> sendResponseUriFailed(String to, String productId, String guideUrl);
     Mono<Void> sendResponseUriAcceptedWithHtml(String to, String productId, String htmlContent);
     Mono<Void> sendPendingSignatureCredentialNotification(String to, String subject, String id, String domain);
-    Mono<Void> notifyIfCredentialStatusChanges(CredentialProcedure credential, String expectedStatus);
+    Mono<Void> sendCredentialStatusChangeNotification(String to, String organization, String credentialId, String type, String status);
 }

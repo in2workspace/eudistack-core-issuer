@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureCreationRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
-import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -61,10 +60,19 @@ public class GenericCredentialBuilder {
             credential.put("description", profile.description());
         }
 
-        // credentialSubject — payload is the mandate data
-        ObjectNode credentialSubject = objectMapper.createObjectNode();
-        credentialSubject.set("mandate", payload);
-        credential.set("credentialSubject", credentialSubject);
+        // credentialSubject — strategy-based
+        JsonNode credentialSubjectNode;
+        if ("direct".equals(profile.credentialSubjectStrategy())) {
+            // payload is the full credential; extract its credentialSubject directly
+            JsonNode cs = payload.get("credentialSubject");
+            credentialSubjectNode = (cs != null) ? cs : payload;
+        } else {
+            // default: wrap payload as mandate
+            ObjectNode mandateWrapper = objectMapper.createObjectNode();
+            mandateWrapper.set("mandate", payload);
+            credentialSubjectNode = mandateWrapper;
+        }
+        credential.set("credentialSubject", credentialSubjectNode);
 
         // validFrom / validUntil
         Instant now = Instant.now();
@@ -102,7 +110,7 @@ public class GenericCredentialBuilder {
                         .procedureId(procedureId)
                         .organizationIdentifier(orgId)
                         .credentialDecoded(credentialJson)
-                        .credentialType(resolveCredentialType(profile.credentialConfigurationId()))
+                        .credentialType(profile.credentialConfigurationId())
                         .subject(subject)
                         .validUntil(Timestamp.from(parseInstant(validUntil)))
                         .operationMode(operationMode)
@@ -297,12 +305,4 @@ public class GenericCredentialBuilder {
         }
     }
 
-    private CredentialType resolveCredentialType(String credentialConfigurationId) {
-        for (CredentialType type : CredentialType.values()) {
-            if (type.getTypeId().equals(credentialConfigurationId)) {
-                return type;
-            }
-        }
-        throw new IllegalStateException("Unknown credential type: " + credentialConfigurationId);
-    }
 }

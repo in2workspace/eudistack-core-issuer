@@ -5,7 +5,6 @@ import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedEx
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureCreationRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
-import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
 import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
@@ -69,7 +68,7 @@ class CredentialFactoryTest {
 
         PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest = PreSubmittedCredentialDataRequest.builder()
                 .operationMode("S")
-                .schema(LEAR_CREDENTIAL_EMPLOYEE)
+                .credentialConfigurationId(LEAR_CREDENTIAL_EMPLOYEE)
                 .payload(jsonNode)
                 .build();
 
@@ -77,7 +76,7 @@ class CredentialFactoryTest {
                 .procedureId(procedureId)
                 .organizationIdentifier("org123")
                 .credentialDecoded("decoded")
-                .credentialType(CredentialType.LEAR_CREDENTIAL_EMPLOYEE)
+                .credentialType(LEAR_CREDENTIAL_EMPLOYEE)
                 .subject("subject")
                 .validUntil(new Timestamp(System.currentTimeMillis()))
                 .operationMode("S")
@@ -117,7 +116,7 @@ class CredentialFactoryTest {
 
         PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest = PreSubmittedCredentialDataRequest.builder()
                 .operationMode("S")
-                .schema(LABEL_CREDENTIAL)
+                .credentialConfigurationId(LABEL_CREDENTIAL)
                 .payload(jsonNode)
                 .build();
 
@@ -125,7 +124,7 @@ class CredentialFactoryTest {
                 .procedureId(procedureId)
                 .organizationIdentifier("org456")
                 .credentialDecoded("decoded")
-                .credentialType(CredentialType.LABEL_CREDENTIAL)
+                .credentialType(LABEL_CREDENTIAL)
                 .subject("subject")
                 .validUntil(new Timestamp(System.currentTimeMillis()))
                 .operationMode("S")
@@ -165,7 +164,7 @@ class CredentialFactoryTest {
 
         PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest = PreSubmittedCredentialDataRequest.builder()
                 .operationMode("S")
-                .schema(LEAR_CREDENTIAL_MACHINE)
+                .credentialConfigurationId(LEAR_CREDENTIAL_MACHINE)
                 .payload(jsonNode)
                 .build();
 
@@ -173,7 +172,7 @@ class CredentialFactoryTest {
                 .procedureId(procedureId)
                 .organizationIdentifier("org789")
                 .credentialDecoded("decoded")
-                .credentialType(CredentialType.LEAR_CREDENTIAL_MACHINE)
+                .credentialType(LEAR_CREDENTIAL_MACHINE)
                 .subject("machine-subject")
                 .validUntil(new Timestamp(System.currentTimeMillis()))
                 .operationMode("S")
@@ -211,7 +210,7 @@ class CredentialFactoryTest {
                 .build();
 
         PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest = PreSubmittedCredentialDataRequest.builder()
-                .schema("UNSUPPORTED_CREDENTIAL")
+                .credentialConfigurationId("UNSUPPORTED_CREDENTIAL")
                 .payload(mock(JsonNode.class))
                 .operationMode("S")
                 .build();

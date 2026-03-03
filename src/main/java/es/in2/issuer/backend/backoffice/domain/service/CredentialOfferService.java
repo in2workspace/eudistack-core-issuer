@@ -6,5 +6,6 @@ import reactor.core.publisher.Mono;
 
 public interface CredentialOfferService {
     Mono<CredentialOfferData> buildCustomCredentialOffer(String credentialType, Grants grants, String employeeEmail, String pin);
+    Mono<CredentialOfferData> buildAuthorizationCodeCredentialOffer(String credentialType, String issuerState, String credentialEmail);
     Mono<String> createCredentialOfferUriResponse(String nonce);
 }

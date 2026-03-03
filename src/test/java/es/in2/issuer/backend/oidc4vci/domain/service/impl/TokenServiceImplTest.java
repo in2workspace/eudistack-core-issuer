@@ -1,9 +1,13 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
+import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
+import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndRefreshToken;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndTxCode;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
+import es.in2.issuer.backend.shared.domain.service.DpopValidationService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
+import es.in2.issuer.backend.shared.domain.service.PkceVerifier;
 import es.in2.issuer.backend.shared.domain.service.RefreshTokenService;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
@@ -44,6 +48,9 @@ class TokenServiceImplTest {
     private CacheStore<CredentialProcedureIdAndRefreshToken> refreshTokenCacheStore;
 
     @Mock
+    private CacheStore<AuthorizationCodeData> authorizationCodeCacheStore;
+
+    @Mock
     private JWTService jwtService;
 
     @Mock
@@ -55,6 +62,15 @@ class TokenServiceImplTest {
     @Mock
     private CredentialProcedureService credentialProcedureService;
 
+    @Mock
+    private PkceVerifier pkceVerifier;
+
+    @Mock
+    private DpopValidationService dpopValidationService;
+
+    @Mock
+    private Oid4vciProfileProperties profileProperties;
+
     private TokenServiceImpl tokenService;
 
     private CredentialProcedureIdAndTxCode testCredentialProcedureIdAndTxCode;
@@ -64,10 +80,14 @@ class TokenServiceImplTest {
         tokenService = new TokenServiceImpl(
                 txCodeCacheStore,
                 refreshTokenCacheStore,
+                authorizationCodeCacheStore,
                 jwtService,
                 refreshTokenService,
                 appConfig,
-                credentialProcedureService
+                credentialProcedureService,
+                pkceVerifier,
+                dpopValidationService,
+                profileProperties
         );
 
         testCredentialProcedureIdAndTxCode = new CredentialProcedureIdAndTxCode(

@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.shared.domain.model.dto;
 
-import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import lombok.Builder;
 
 import java.sql.Timestamp;
@@ -10,7 +9,7 @@ public record CredentialProcedureCreationRequest(
         String procedureId,
         String organizationIdentifier,
         String credentialDecoded,
-        CredentialType credentialType,
+        String credentialType,
         String subject,
         Timestamp validUntil,
         String operationMode,

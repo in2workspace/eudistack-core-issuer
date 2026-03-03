@@ -25,7 +25,9 @@ public record CredentialProfile(
         @JsonProperty("description") String description,
         @JsonProperty("subject_extraction") SubjectExtraction subjectExtraction,
         @JsonProperty("organization_extraction") OrganizationExtraction organizationExtraction,
-        @JsonProperty("sd_jwt") SdJwtConfig sdJwt
+        @JsonProperty("sd_jwt") SdJwtConfig sdJwt,
+        @JsonProperty("credential_subject_strategy") String credentialSubjectStrategy,
+        @JsonProperty("json_schema") String jsonSchema
 ) {
 
     @Builder

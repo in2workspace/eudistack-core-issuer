@@ -18,25 +18,29 @@ import reactor.core.publisher.Mono;
 import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.ENGLISH;
+import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH;
+import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_PATH;
 
 @Slf4j
 @RestController
-@RequestMapping("/.well-known/openid-configuration")
 @RequiredArgsConstructor
 public class AuthorizationServerMetadataController {
 
     private final GetAuthorizationServerMetadataWorkflow getAuthorizationServerMetadataWorkflow;
 
-    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+    @GetMapping(
+            value = {OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_PATH, AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH},
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
     @ResponseStatus(HttpStatus.OK)
-    public Mono<AuthorizationServerMetadata> getCredentialIssuerMetadata(ServerWebExchange exchange) {
+    public Mono<AuthorizationServerMetadata> getAuthorizationServerMetadata(ServerWebExchange exchange) {
         String processId = UUID.randomUUID().toString();
         ServerHttpResponse response = exchange.getResponse();
         response.getHeaders().add(HttpHeaders.CONTENT_LANGUAGE, ENGLISH);
         return getAuthorizationServerMetadataWorkflow.execute(processId)
                 .doFirst(() ->
                         log.info("Process ID: {} - Getting Authorization Server Metadata...", processId))
-                .doOnSuccess(credentialOffer ->
+                .doOnSuccess(metadata ->
                         log.info("Process ID: {} - Authorization Server Metadata generated successfully.", processId));
     }
 

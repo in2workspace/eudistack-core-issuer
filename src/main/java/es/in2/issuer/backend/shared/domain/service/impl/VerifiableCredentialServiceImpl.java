@@ -1,10 +1,8 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
 import com.nimbusds.jose.JWSObject;
-import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.CredentialIssuanceException;
 import es.in2.issuer.backend.shared.domain.exception.JWTParsingException;
-import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
@@ -17,9 +15,6 @@ import es.in2.issuer.backend.shared.domain.util.factory.CredentialFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.IssuerFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LabelCredentialFactory;
-import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
-import es.in2.issuer.backend.statuslist.domain.model.StatusListEntry;
-import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -28,7 +23,6 @@ import reactor.core.publisher.Mono;
 import java.text.ParseException;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
@@ -40,27 +34,18 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
     private final CredentialFactory credentialFactory;
     private final CredentialProcedureService credentialProcedureService;
     private final DeferredCredentialMetadataService deferredCredentialMetadataService;
-    private final CredentialSignerWorkflow credentialSignerWorkflow;
     private final LEARCredentialEmployeeFactory learCredentialEmployeeFactory;
     private final LabelCredentialFactory labelCredentialFactory;
     private final IssuerFactory issuerFactory;
-    private final StatusListWorkflow statusListWorkflow;
 
     @Override
-    public Mono<String> generateVc(String processId, PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest, String email, String token) {
-        String procedureId = UUID.randomUUID().toString();
-
-        return statusListWorkflow
-                .allocateEntry(StatusPurpose.REVOCATION, procedureId, token)
-                .map(this::toCredentialStatus)
-                .flatMap(credentialStatus ->
-                        credentialFactory.mapCredentialIntoACredentialProcedureRequest(
-                                processId,
-                                procedureId,
-                                preSubmittedCredentialDataRequest,
-                                credentialStatus,
-                                email
-                        )
+    public Mono<String> generateVc(String processId, PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest, String email, CredentialStatus credentialStatus, String procedureId) {
+        return credentialFactory.mapCredentialIntoACredentialProcedureRequest(
+                        processId,
+                        procedureId,
+                        preSubmittedCredentialDataRequest,
+                        credentialStatus,
+                        email
                 )
                 .flatMap(credentialProcedureService::createCredentialProcedure)
                 .then(deferredCredentialMetadataService.createDeferredCredentialMetadata(
@@ -110,7 +95,6 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
             String processId,
             String subjectDid,
             String authServerNonce,
-            String token,
             String email,
             String procedureId){
         return bindAndSaveIfNeeded(processId, procedureId, subjectDid)
@@ -119,7 +103,6 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
                         procedureId,
                         boundCred,
                         authServerNonce,
-                        token,
                         email
                 ));
     }
@@ -162,7 +145,6 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
             String procedureId,
             String boundCredential,
             String authServerNonce,
-            String token,
             String email
     ) {
         return Mono.zip(
@@ -195,66 +177,10 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
                                                     authServerNonce,
                                                     email
                                             )
-                                            .then(credentialProcedureService.getOperationModeByProcedureId(procedureId))
-                                            .switchIfEmpty(Mono.error(new NoSuchElementException("Operation mode not found for procedureId: " + procedureId)))
-                                            .flatMap(mode -> buildCredentialResponseBasedOnOperationMode(
-                                                    mode,
-                                                    procedureId,
-                                                    transactionId,
-                                                    token,
-                                                    notificationId
-                                            ))
+                                            .then(getCredentialResponseWithTransactionId(transactionId, notificationId))
                                     )
                             );
                 });
-    }
-
-
-
-    private Mono<CredentialResponse> buildCredentialResponseBasedOnOperationMode(
-            String operationMode,
-            String procedureId,
-            String transactionId,
-            String token,
-            String notificationId) {
-        if (ASYNC.equals(operationMode)) {
-            return credentialProcedureService
-                    .getDecodedCredentialByProcedureId(procedureId)
-                    .flatMap(decodedCredential ->
-                            getCredentialResponseWithTransactionId(transactionId, notificationId));
-        } else if (SYNC.equals(operationMode)) {
-            return credentialSignerWorkflow
-                    .signAndUpdateCredentialByProcedureId(
-                            BEARER_PREFIX + token,
-                            procedureId,
-                            JWT_VC_JSON
-                    )
-                    .flatMap(signed -> Mono.just(
-                            CredentialResponse.builder()
-                                    .credentials(List.of(
-                                            CredentialResponse.Credential.builder()
-                                                    .credential(signed)
-                                                    .build()
-                                    ))
-                                    .notificationId(notificationId)
-                                    .build()
-                    ))
-                    .onErrorResume(error -> {
-                        if (error instanceof RemoteSignatureException
-                                || error instanceof IllegalArgumentException) {
-                            log.info("Error in SYNC mode, falling back to unsigned");
-                            return credentialProcedureService
-                                    .getDecodedCredentialByProcedureId(procedureId)
-                                    .flatMap(unsigned -> getCredentialResponseWithTransactionId(transactionId, notificationId));
-                        }
-                        return Mono.error(error);
-                    });
-
-        } else {
-            return Mono.error(new IllegalArgumentException(
-                    "Unknown operation mode: " + operationMode
-            ));
-        }
     }
 
     private Mono<CredentialResponse> getCredentialResponseWithTransactionId(String transactionId, String notificationId) {
@@ -267,13 +193,4 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
         );
     }
 
-    private CredentialStatus toCredentialStatus(StatusListEntry entry) {
-        return CredentialStatus.builder()
-                .id(entry.id())
-                .type(entry.type())
-                .statusPurpose(entry.statusPurpose().value())
-                .statusListIndex(String.valueOf(entry.statusListIndex()))
-                .statusListCredential(entry.statusListCredential())
-                .build();
-    }
 }

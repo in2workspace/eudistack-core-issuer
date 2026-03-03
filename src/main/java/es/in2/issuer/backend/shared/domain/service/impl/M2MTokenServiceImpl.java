@@ -110,7 +110,7 @@ public class M2MTokenServiceImpl implements M2MTokenService {
     private String getVCinJWTDecodedFromBase64() {
         String vcTokenBase64 = appConfig.getJwtCredential();
         byte[] vcTokenDecoded = Base64.getDecoder().decode(vcTokenBase64);
-        return new String(vcTokenDecoded);
+        return new String(vcTokenDecoded, StandardCharsets.UTF_8);
     }
 }
 

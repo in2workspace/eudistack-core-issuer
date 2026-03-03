@@ -11,7 +11,6 @@ import es.in2.issuer.backend.shared.domain.model.dto.LEARCredentialEmployeeJwtPa
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.employee.LEARCredentialEmployee;
-import es.in2.issuer.backend.shared.domain.model.enums.CredentialType;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -285,7 +284,7 @@ public class LEARCredentialEmployeeFactory {
                         .procedureId(procedureId)
                         .organizationIdentifier(mandatorOrgId)
                         .credentialDecoded(decodedCredential)
-                        .credentialType(CredentialType.LEAR_CREDENTIAL_EMPLOYEE)
+                        .credentialType("LEARCredentialEmployeeW3C")
                         .subject(credentialDecoded.credentialSubject().mandate().mandatee().firstName() +
                                 " " +
                                 credentialDecoded.credentialSubject().mandate().mandatee().lastName())

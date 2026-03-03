@@ -1,7 +1,9 @@
 package es.in2.issuer.backend.backoffice.domain.scheduler;
 
+import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotificationInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.infrastructure.repository.CredentialProcedureRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,13 +22,13 @@ import java.util.UUID;
 import static es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum.EXPIRED;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class CredentialExpirationSchedulerImplTest {
 
     @Mock private CredentialProcedureRepository credentialProcedureRepository;
+    @Mock private CredentialProcedureService credentialProcedureService;
     @Mock private EmailService emailService;
 
     @InjectMocks
@@ -39,7 +41,6 @@ class CredentialExpirationSchedulerImplTest {
 
     @Test
     void shouldExpireCredentialsWhenValidUntilHasPassed() {
-        // Arrange
         CredentialProcedure credential = new CredentialProcedure();
         credential.setProcedureId(UUID.randomUUID());
         credential.setCredentialType("LEARCredentialEmployee");
@@ -47,29 +48,26 @@ class CredentialExpirationSchedulerImplTest {
         credential.setValidUntil(Timestamp.from(Instant.now().minusSeconds(60)));
 
         when(credentialProcedureRepository.findAll()).thenReturn(Flux.just(credential));
-
-        // Simulate auditing @LastModifiedDate by setting updatedAt on save
         when(credentialProcedureRepository.save(any(CredentialProcedure.class)))
                 .thenAnswer(invocation -> {
                     CredentialProcedure cp = invocation.getArgument(0);
                     cp.setUpdatedAt(Instant.now());
                     return Mono.just(cp);
                 });
-
-        when(emailService.notifyIfCredentialStatusChanges(any(CredentialProcedure.class), anyString()))
+        when(credentialProcedureService.getCredentialId(any(CredentialProcedure.class)))
+                .thenReturn(Mono.just("cred-123"));
+        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(anyString()))
+                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
+        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn(Mono.empty());
 
-        // Capture a baseline "now" so the assertion isn't racy
         Instant baseline = Instant.now();
 
-        // Act
         StepVerifier.create(credentialExpirationScheduler.checkAndExpireCredentials())
                 .expectSubscription()
                 .verifyComplete();
 
-        // Assert
         verify(credentialProcedureRepository, atLeastOnce()).save(argThat(updated -> {
-            // Safe null-check to avoid NPE
             Instant ua = updated.getUpdatedAt();
             return updated.getCredentialStatus() == EXPIRED
                     && ua != null
@@ -79,7 +77,6 @@ class CredentialExpirationSchedulerImplTest {
 
     @Test
     void shouldSendEmailWhenCredentialExpires() {
-        // Arrange
         CredentialProcedure credential = new CredentialProcedure();
         credential.setProcedureId(UUID.randomUUID());
         credential.setCredentialType("LEARCredentialEmployee");
@@ -90,25 +87,26 @@ class CredentialExpirationSchedulerImplTest {
         when(credentialProcedureRepository.save(any(CredentialProcedure.class)))
                 .thenAnswer(invocation -> {
                     CredentialProcedure cp = invocation.getArgument(0);
-                    // Simulate auditing
                     cp.setUpdatedAt(Instant.now());
                     return Mono.just(cp);
                 });
-
-        when(emailService.notifyIfCredentialStatusChanges(any(CredentialProcedure.class), anyString()))
+        when(credentialProcedureService.getCredentialId(any(CredentialProcedure.class)))
+                .thenReturn(Mono.just("cred-123"));
+        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(anyString()))
+                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
+        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn(Mono.empty());
 
-        // Act
         StepVerifier.create(credentialExpirationScheduler.checkAndExpireCredentials())
                 .verifyComplete();
 
-        // Assert: email notification is sent with EXPIRED status
-        verify(emailService, times(1)).notifyIfCredentialStatusChanges(credential, "EXPIRED");
+        verify(emailService, times(1)).sendCredentialStatusChangeNotification(
+                "to@example.com", "ACME Corp", "cred-123", "LEARCredentialEmployee", "EXPIRED"
+        );
     }
 
     @Test
     void shouldNotExpireCredentialsIfValidUntilHasNotPassed() {
-        // Arrange
         CredentialProcedure credential = new CredentialProcedure();
         credential.setProcedureId(UUID.randomUUID());
         credential.setCredentialType("LEARCredentialEmployee");
@@ -117,22 +115,12 @@ class CredentialExpirationSchedulerImplTest {
 
         when(credentialProcedureRepository.findAll()).thenReturn(Flux.just(credential));
 
-        // Even if save were stubbed, we expect it to never be called
-        when(credentialProcedureRepository.save(any(CredentialProcedure.class)))
-                .thenAnswer(invocation -> {
-                    CredentialProcedure cp = invocation.getArgument(0);
-                    cp.setUpdatedAt(Instant.now());
-                    return Mono.just(cp);
-                });
-
-        // Act
         StepVerifier.create(credentialExpirationScheduler.checkAndExpireCredentials())
                 .expectSubscription()
                 .verifyComplete();
 
-        // Assert
         verify(credentialProcedureRepository, never()).save(any(CredentialProcedure.class));
-        verify(emailService, never()).notifyIfCredentialStatusChanges(any(), any());
+        verify(emailService, never()).sendCredentialStatusChangeNotification(any(), any(), any(), any(), any());
 
         assertEquals(CredentialStatusEnum.VALID, credential.getCredentialStatus());
         assertNull(credential.getUpdatedAt(), "updatedAt should remain null because save() was never called");

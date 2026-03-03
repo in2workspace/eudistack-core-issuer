@@ -48,12 +48,15 @@ public class SigningProviderConfig {
     ) {
         Map<String, SigningProvider> map = new HashMap<>();
 
-        if (!certPath.isBlank() && !keyPath.isBlank()) {
-            log.info("Local x509 certificate configured — in-memory provider will use RS256 + x5c");
-            map.put("in-memory", new InMemorySigningProvider(certPath, keyPath));
-        } else {
-            map.put("in-memory", new InMemorySigningProvider());
+        if (certPath.isBlank() || keyPath.isBlank()) {
+            throw new IllegalStateException(
+                    "Credential signing requires an X.509 certificate. " +
+                    "Configure signing.certificate.cert-path and signing.certificate.key-path " +
+                    "with paths to the signing certificate and private key PEM files.");
         }
+
+        log.info("Local x509 certificate configured — in-memory provider will use x5c header");
+        map.put("in-memory", new InMemorySigningProvider(certPath, keyPath));
 
         map.put("csc-sign-doc", new CscSignDocSigningProvider(
                 remoteSignatureService,

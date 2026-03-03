@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.backoffice.infrastructure.controller;
 
-import es.in2.issuer.backend.backoffice.domain.service.SendReminderService;
+import es.in2.issuer.backend.backoffice.application.workflow.SendReminderWorkflow;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -17,13 +17,13 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class SendReminderController {
 
-    private final SendReminderService sendReminderService;
+    private final SendReminderWorkflow sendReminderWorkflow;
 
     @PostMapping(value = "/{procedure_id}", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public Mono<Void> sendEmailReminder(@RequestHeader(HttpHeaders.AUTHORIZATION) String bearerToken, @PathVariable("procedure_id") String procedureId) {
         String processId = UUID.randomUUID().toString();
-        return sendReminderService.sendReminder(processId, procedureId, bearerToken);
+        return sendReminderWorkflow.sendReminder(processId, procedureId, bearerToken);
     }
     
 }

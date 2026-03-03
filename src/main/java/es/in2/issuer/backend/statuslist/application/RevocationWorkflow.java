@@ -110,7 +110,15 @@ public class RevocationWorkflow {
                                             processId, action, credentialProcedureId
                                     ))
                             )
-                            .then(emailService.notifyIfCredentialStatusChanges(ctx.procedure, REVOKED)
+                            .then(credentialProcedureService.getCredentialId(ctx.procedure)
+                                    .zipWith(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(credentialProcedureId))
+                                    .flatMap(idAndInfo -> emailService.sendCredentialStatusChangeNotification(
+                                            idAndInfo.getT2().email(),
+                                            idAndInfo.getT2().organization(),
+                                            idAndInfo.getT1(),
+                                            ctx.procedure.getCredentialType(),
+                                            REVOKED
+                                    ))
                                     .doOnSuccess(v -> log.debug(
                                             "processId={} action={} step=emailNotificationTriggered procedureId={} newStatus={}",
                                             processId, action, credentialProcedureId, REVOKED

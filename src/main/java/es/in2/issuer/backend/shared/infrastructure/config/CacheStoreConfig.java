@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
+import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
+import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferData;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndRefreshToken;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndTxCode;
@@ -11,6 +13,7 @@ import org.springframework.context.annotation.Configuration;
 
 import java.util.concurrent.TimeUnit;
 
+import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.*;
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 @Configuration
@@ -51,5 +54,20 @@ public class CacheStoreConfig {
     @Bean
     public CacheStore<CredentialProcedureIdAndRefreshToken> refreshTokenCacheStore() {
         return new CacheStore<>(REFRESH_TOKEN_EXPIRATION, REFRESH_TOKEN_EXPIRATION_TIME_UNIT);
+    }
+
+    @Bean
+    public CacheStore<PushedAuthorizationRequest> parCacheStore() {
+        return new CacheStore<>(PAR_CACHE_EXPIRY_SECONDS, TimeUnit.SECONDS);
+    }
+
+    @Bean
+    public CacheStore<AuthorizationCodeData> authorizationCodeCacheStore() {
+        return new CacheStore<>(AUTHORIZATION_CODE_CACHE_EXPIRY_SECONDS, TimeUnit.SECONDS);
+    }
+
+    @Bean
+    public CacheStore<String> nonceCacheStore() {
+        return new CacheStore<>(NONCE_CACHE_EXPIRY_SECONDS, TimeUnit.SECONDS);
     }
 }

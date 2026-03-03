@@ -1,9 +1,7 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.JWTParsingException;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialResponse;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
 import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
 import es.in2.issuer.backend.shared.domain.util.factory.CredentialFactory;
@@ -19,8 +17,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.BEARER_PREFIX;
-import static es.in2.issuer.backend.shared.domain.util.Constants.JWT_VC_JSON;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -43,8 +39,6 @@ class VerifiableCredentialServiceImplTest {
     private CredentialFactory credentialFactory;
     @Mock
     private CredentialProcedureService credentialProcedureService;
-    @Mock
-    private CredentialSignerWorkflow credentialSignerWorkflow;
     @Mock
     private ObjectMapper objectMapper;
     @Mock
@@ -91,80 +85,9 @@ class VerifiableCredentialServiceImplTest {
     }
 
     @Test
-    void buildCredentialResponseSync_RemoteSignatureException_FallbackToUnsigned() {
-        String token = "token";
-        String subjectDid = "did:example:123456789";
-        String authServerNonce = "auth-server-nonce-789";
-        String format = "json";
-        String credentialType = "LEARCredentialEmployee";
-        String decodedCredential = "decodedCredential";
-        String notificationIdExample = "notification-id-910";
-        String boundCredential = "boundCredential";
-        String unsignedCredential = "unsignedCredential";
-        String transId = "transactionId";
-        String procId = "procedureId";
-        String proceId = "processId";
-
-        when(credentialProcedureService.getCredentialTypeByProcedureId(procId))
-                .thenReturn(Mono.just(credentialType));
-
-        when(credentialProcedureService.getDecodedCredentialByProcedureId(procId))
-                .thenReturn(Mono.just(decodedCredential), Mono.just(unsignedCredential));
-
-        when(credentialProcedureService.getNotificationIdByProcedureId(procId))
-                .thenReturn(Mono.just(notificationIdExample));
-
-        when(credentialFactory.bindCryptographicCredentialSubjectId(
-                proceId, credentialType, decodedCredential, subjectDid))
-                .thenReturn(Mono.just(boundCredential));
-
-        when(credentialProcedureService.updateDecodedCredentialByProcedureId(procId, boundCredential))
-                .thenReturn(Mono.empty());
-
-        when(deferredCredentialMetadataService.updateDeferredCredentialMetadataByAuthServerNonce(authServerNonce))
-                .thenReturn(Mono.just(transId));
-
-        when(deferredCredentialMetadataService.getFormatByProcedureId(procId))
-                .thenReturn(Mono.just(format));
-
-        when(credentialProcedureService.getNotificationIdByProcedureId(procId))
-                .thenReturn(Mono.just(notificationIdExample));
-
-        when(credentialFactory.mapCredentialBindIssuerAndUpdateDB(
-                proceId, procId, boundCredential, credentialType, format, authServerNonce, testEmail))
-                .thenReturn(Mono.empty());
-
-        when(credentialProcedureService.getOperationModeByProcedureId(procId))
-                .thenReturn(Mono.just("S")); // SYNC
-
-        when(credentialSignerWorkflow.signAndUpdateCredentialByProcedureId(BEARER_PREFIX + token, procId, JWT_VC_JSON))
-                .thenReturn(Mono.error(new IllegalArgumentException("Simulated error")));
-
-        Mono<CredentialResponse> result = verifiableCredentialServiceImpl.buildCredentialResponse(
-                proceId, subjectDid, authServerNonce, token, testEmail, procId);
-
-        StepVerifier.create(result)
-                .assertNext(response -> {
-                    assertEquals(transId, response.transactionId());
-                    assertEquals(3600L, response.interval());
-                    assertEquals(notificationIdExample, response.notificationId());
-                })
-                .verifyComplete();
-
-        verify(credentialSignerWorkflow, times(1))
-                .signAndUpdateCredentialByProcedureId(BEARER_PREFIX + token, procId, JWT_VC_JSON);
-
-        verify(credentialProcedureService, times(2))
-                .getDecodedCredentialByProcedureId(procId);
-    }
-
-
-
-    @Test
     void buildCredentialResponse_whenBindCryptographicSubjectFails_emitsFailedToBindMessage() {
         String subjectDid = "did:example:123";
         String authServerNonce = "nonce";
-        String token = "token";
         String email = testEmail;
         String procedureIdLocal = "proc-bind-fail";
 
@@ -181,7 +104,7 @@ class VerifiableCredentialServiceImplTest {
 
         StepVerifier.create(
                         verifiableCredentialServiceImpl.buildCredentialResponse(
-                                processId, subjectDid, authServerNonce, token, email, procedureIdLocal
+                                processId, subjectDid, authServerNonce, email, procedureIdLocal
                         )
                 )
                 .expectErrorSatisfies(ex -> {
@@ -200,7 +123,6 @@ class VerifiableCredentialServiceImplTest {
     void buildCredentialResponse_whenUpdateDeferredEmpty_emitsTransactionIdNotFound() {
         String subjectDid = "did:example:123";
         String authServerNonce = "nonce";
-        String token = "token";
         String email = testEmail;
         String procedureIdLocal = "proc-update-deferred-empty";
 
@@ -225,7 +147,7 @@ class VerifiableCredentialServiceImplTest {
 
         StepVerifier.create(
                         verifiableCredentialServiceImpl.buildCredentialResponse(
-                                processId, subjectDid, authServerNonce, token, email, procedureIdLocal
+                                processId, subjectDid, authServerNonce, email, procedureIdLocal
                         )
                 )
                 .expectErrorSatisfies(ex -> {
@@ -239,7 +161,6 @@ class VerifiableCredentialServiceImplTest {
     void buildCredentialResponse_whenFormatEmpty_emitsFormatNotFound() {
         String subjectDid = "did:example:123";
         String authServerNonce = "nonce";
-        String token = "token";
         String email = testEmail;
         String procedureIdLocal = "proc-format-empty";
         String txId = "tx-2";
@@ -269,7 +190,7 @@ class VerifiableCredentialServiceImplTest {
 
         StepVerifier.create(
                         verifiableCredentialServiceImpl.buildCredentialResponse(
-                                processId, subjectDid, authServerNonce, token, email, procedureIdLocal
+                                processId, subjectDid, authServerNonce, email, procedureIdLocal
                         )
                 )
                 .expectErrorSatisfies(ex -> {
@@ -282,112 +203,5 @@ class VerifiableCredentialServiceImplTest {
                 .verify();
     }
 
-    @Test
-    void buildCredentialResponse_whenOperationModeEmpty_emitsOperationModeNotFound() {
-        String subjectDid = "did:example:123";
-        String authServerNonce = "nonce";
-        String token = "token";
-        String email = testEmail;
-        String procedureIdLocal = "proc-mode-empty";
-        String txId = "tx-3";
-        String format = "jwt_vc_json";
-
-        String credType = "LEARCredentialEmployee";
-        String decoded = "decoded";
-        String bound = "bound";
-
-        when(credentialProcedureService.getCredentialTypeByProcedureId(procedureIdLocal))
-                .thenReturn(Mono.just(credType));
-        when(credentialProcedureService.getDecodedCredentialByProcedureId(procedureIdLocal))
-                .thenReturn(Mono.just(decoded));
-        when(credentialProcedureService.getNotificationIdByProcedureId(procedureIdLocal))
-                .thenReturn(Mono.just(notificationId));
-
-        when(credentialFactory.bindCryptographicCredentialSubjectId(processId, credType, decoded, subjectDid))
-                .thenReturn(Mono.just(bound));
-        when(credentialProcedureService.updateDecodedCredentialByProcedureId(procedureIdLocal, bound))
-                .thenReturn(Mono.empty());
-
-        when(deferredCredentialMetadataService.updateDeferredCredentialMetadataByAuthServerNonce(authServerNonce))
-                .thenReturn(Mono.just(txId));
-
-        when(deferredCredentialMetadataService.getFormatByProcedureId(procedureIdLocal))
-                .thenReturn(Mono.just(format));
-
-        when(credentialFactory.mapCredentialBindIssuerAndUpdateDB(
-                processId, procedureIdLocal, bound, credType, format, authServerNonce, email
-        )).thenReturn(Mono.empty());
-
-        when(credentialProcedureService.getOperationModeByProcedureId(procedureIdLocal))
-                .thenReturn(Mono.empty());
-
-        StepVerifier.create(
-                        verifiableCredentialServiceImpl.buildCredentialResponse(
-                                processId, subjectDid, authServerNonce, token, email, procedureIdLocal
-                        )
-                )
-                .expectErrorSatisfies(ex -> {
-                    Assertions.assertInstanceOf(RuntimeException.class, ex);
-                    assertEquals(
-                            "Operation mode not found for procedureId: " + procedureIdLocal,
-                            ex.getMessage()
-                    );
-                })
-                .verify();
-    }
-
-
-    @Test
-    void buildCredentialResponse_whenUnknownOperationMode_emitsIllegalArgumentException() {
-        String subjectDid = "did:example:123";
-        String authServerNonce = "nonce";
-        String token = "token";
-        String email = testEmail;
-        String procedureIdLocal = "proc-unknown-mode";
-        String txId = "tx-4";
-        String format = "jwt_vc_json";
-        String unknownMode = "X";
-
-        String credType = "LEARCredentialEmployee";
-        String decoded = "decoded";
-        String bound = "bound";
-
-        when(credentialProcedureService.getCredentialTypeByProcedureId(procedureIdLocal))
-                .thenReturn(Mono.just(credType));
-        when(credentialProcedureService.getDecodedCredentialByProcedureId(procedureIdLocal))
-                .thenReturn(Mono.just(decoded));
-        when(credentialProcedureService.getNotificationIdByProcedureId(procedureIdLocal))
-                .thenReturn(Mono.just(notificationId));
-
-        when(credentialFactory.bindCryptographicCredentialSubjectId(processId, credType, decoded, subjectDid))
-                .thenReturn(Mono.just(bound));
-        when(credentialProcedureService.updateDecodedCredentialByProcedureId(procedureIdLocal, bound))
-                .thenReturn(Mono.empty());
-
-        when(deferredCredentialMetadataService.updateDeferredCredentialMetadataByAuthServerNonce(authServerNonce))
-                .thenReturn(Mono.just(txId));
-
-        when(deferredCredentialMetadataService.getFormatByProcedureId(procedureIdLocal))
-                .thenReturn(Mono.just(format));
-
-        when(credentialFactory.mapCredentialBindIssuerAndUpdateDB(
-                processId, procedureIdLocal, bound, credType, format, authServerNonce, email
-        )).thenReturn(Mono.empty());
-
-        when(credentialProcedureService.getOperationModeByProcedureId(procedureIdLocal))
-                .thenReturn(Mono.just(unknownMode));
-
-        StepVerifier.create(
-                        verifiableCredentialServiceImpl.buildCredentialResponse(
-                                processId, subjectDid, authServerNonce, token, email, procedureIdLocal
-                        )
-                )
-                .expectErrorSatisfies(ex -> {
-                    Assertions.assertInstanceOf(IllegalArgumentException.class, ex);
-                    assertEquals("Unknown operation mode: " + unknownMode, ex.getMessage());
-                })
-                .verify();
-    }
-
-
 }
+

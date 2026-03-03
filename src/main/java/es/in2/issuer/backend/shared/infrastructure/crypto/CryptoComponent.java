@@ -1,14 +1,12 @@
 package es.in2.issuer.backend.shared.infrastructure.crypto;
 
+import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.crypto.bc.BouncyCastleProviderSingleton;
 import com.nimbusds.jose.jwk.Curve;
 import com.nimbusds.jose.jwk.ECKey;
-import es.in2.issuer.backend.shared.domain.exception.DidKeyCreationException;
 import es.in2.issuer.backend.shared.domain.exception.ECKeyCreationException;
-import es.in2.issuer.backend.shared.domain.util.UVarInt;
 import lombok.RequiredArgsConstructor;
-import org.bitcoinj.base.Base58;
-import org.bouncycastle.jcajce.provider.asymmetric.ec.BCECPublicKey;
+import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.jce.ECNamedCurveTable;
 import org.bouncycastle.jce.spec.ECParameterSpec;
 import org.bouncycastle.jce.spec.ECPrivateKeySpec;
@@ -18,10 +16,22 @@ import org.springframework.context.annotation.Configuration;
 
 import java.math.BigInteger;
 import java.security.KeyFactory;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
 import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.ECPublicKey;
-import java.security.spec.X509EncodedKeySpec;
+import java.security.spec.ECGenParameterSpec;
 
+/**
+ * Provides the Authorization Server's EC P-256 key used exclusively for signing
+ * OAuth2 tokens (access tokens, client assertions, etc.).
+ * <p>
+ * The key ID (kid) is a JWK Thumbprint (RFC 7638, SHA-256, base64url),
+ * which can be resolved via the {@code jwks_uri} endpoint.
+ * <p>
+ * Credential signing uses a separate certificate-backed key via SigningProvider SPI.
+ */
+@Slf4j
 @Configuration
 @RequiredArgsConstructor
 public class CryptoComponent {
@@ -30,87 +40,57 @@ public class CryptoComponent {
 
     @Bean
     public ECKey getECKey() {
-        return buildEcKeyFromPrivateKey();
+        String privateKeyHex = cryptoConfig.getPrivateKey();
+        if (privateKeyHex == null || privateKeyHex.isBlank()) {
+            log.info("No AS private key configured — generating ephemeral EC P-256 keypair for token signing.");
+            return generateEphemeralEcKey();
+        }
+        return buildEcKeyFromPrivateKey(privateKeyHex);
     }
 
-    /**
-     * Documentation: <a href="https://connect2id.com/products/nimbus-jose-jwt/examples/jwt-with-es256r-signature">JSON Web Token (JWT) with ES256K (secp256k1) signature</a>
-     *
-     * @return - ECKey
-     */
-    private ECKey buildEcKeyFromPrivateKey() {
+    private ECKey buildEcKeyFromPrivateKey(String privateKeyHex) {
         try {
-            // Convert the private key from hexadecimal string to BigInteger
-            BigInteger privateKeyInt = new BigInteger(cryptoConfig.getPrivateKey(), 16);
+            BigInteger privateKeyInt = new BigInteger(privateKeyHex, 16);
 
-            // Get the curve parameters for secp256r1 (P-256)
             ECParameterSpec ecSpec = ECNamedCurveTable.getParameterSpec("secp256r1");
 
-            // Initialize the key factory for EC algorithm
             KeyFactory keyFactory = KeyFactory.getInstance("EC", BouncyCastleProviderSingleton.getInstance());
 
-            // Create the private key spec for secp256r1
             ECPrivateKeySpec privateKeySpec = new ECPrivateKeySpec(privateKeyInt, ecSpec);
             ECPrivateKey privateKey = (ECPrivateKey) keyFactory.generatePrivate(privateKeySpec);
 
-            // Generate the public key spec from the private key and curve parameters
             ECPublicKeySpec publicKeySpec = new ECPublicKeySpec(ecSpec.getG().multiply(privateKeyInt), ecSpec);
             ECPublicKey publicKey = (ECPublicKey) keyFactory.generatePublic(publicKeySpec);
 
-            // Build the ECKey using secp256r1 curve (P-256)
-            return new ECKey.Builder(Curve.P_256, publicKey)
-                    .privateKey(privateKey)
-                    .keyID(generateDidKey(publicKey))
-                    .build();
+            return buildWithThumbprintKid(publicKey, privateKey);
         } catch (Exception e) {
-            throw new ECKeyCreationException("Error creating JWK source for secp256r1: " + e);
+            throw new ECKeyCreationException("Error creating AS EC key from configured private key: " + e.getMessage());
         }
     }
 
-
-    // Generates a standard DID Key
-    private String generateDidKey(ECPublicKey ecPublicKey){
+    private ECKey generateEphemeralEcKey() {
         try {
-            // Convert ECPublicKey (Java) to BCECPublicKey (Bouncy Castle)
-            byte[] encodedKey = ecPublicKey.getEncoded();
-            KeyFactory keyFactory = KeyFactory.getInstance("EC", BouncyCastleProviderSingleton.getInstance());
+            KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC");
+            kpg.initialize(new ECGenParameterSpec("secp256r1"));
+            KeyPair kp = kpg.generateKeyPair();
 
-            // Decode the public key using Bouncy Castle
-            X509EncodedKeySpec keySpec = new X509EncodedKeySpec(encodedKey);
-            BCECPublicKey bcPublicKey = (BCECPublicKey) keyFactory.generatePublic(keySpec);
-
-            // Extract the bytes from BCECPublicKey
-            byte[] pubKeyBytes = bcPublicKey.getQ().getEncoded(true);
-
-            // Multicodec key code for secp256r1
-            int multiCodecKeyCodeForSecp256r1 = 0x1200;
-
-            // Convert the public key to multibase58 format
-            String multiBase58Btc = convertRawKeyToMultiBase58Btc(pubKeyBytes, multiCodecKeyCodeForSecp256r1);
-            return "did:key:z" + multiBase58Btc;
-
+            return buildWithThumbprintKid(
+                    (ECPublicKey) kp.getPublic(),
+                    (ECPrivateKey) kp.getPrivate()
+            );
         } catch (Exception e) {
-            throw new DidKeyCreationException("Error converting public key to did:key");
+            throw new ECKeyCreationException("Error generating ephemeral AS EC key: " + e.getMessage());
         }
     }
 
-    // Converts raw public key bytes into a multibase58 string
-    private String convertRawKeyToMultiBase58Btc(byte[] publicKey, int code) {
-        UVarInt codeVarInt = new UVarInt(code);
-
-        // Calculate the total length of the resulting byte array
-        int totalLength = publicKey.length + codeVarInt.getLength();
-
-        // Create a byte array to hold the multicodec and raw key
-        byte[] multicodecAndRawKey = new byte[totalLength];
-
-        // Copy the UVarInt bytes to the beginning of the byte array
-        System.arraycopy(codeVarInt.getBytes(), 0, multicodecAndRawKey, 0, codeVarInt.getLength());
-
-        // Copy the raw public key bytes after the UVarInt bytes
-        System.arraycopy(publicKey, 0, multicodecAndRawKey, codeVarInt.getLength(), publicKey.length);
-
-        // Encode the combined byte array to Base58
-        return Base58.encode(multicodecAndRawKey);
+    private ECKey buildWithThumbprintKid(ECPublicKey publicKey, ECPrivateKey privateKey) throws JOSEException {
+        ECKey ecKey = new ECKey.Builder(Curve.P_256, publicKey)
+                .privateKey(privateKey)
+                .build();
+        String thumbprint = ecKey.computeThumbprint().toString();
+        log.info("AS key initialized with kid (JWK Thumbprint): {}", thumbprint);
+        return new ECKey.Builder(ecKey)
+                .keyID(thumbprint)
+                .build();
     }
 }

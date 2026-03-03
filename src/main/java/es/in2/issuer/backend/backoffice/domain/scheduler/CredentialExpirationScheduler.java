@@ -3,6 +3,7 @@ package es.in2.issuer.backend.backoffice.domain.scheduler;
 
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.infrastructure.repository.CredentialProcedureRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ import static es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEn
 public class CredentialExpirationScheduler {
 
     private final CredentialProcedureRepository credentialProcedureRepository;
+    private final CredentialProcedureService credentialProcedureService;
     private final EmailService emailService;
 
     @Scheduled(cron = "0 0 1 * * ?") //Every day at 1:00 AM
@@ -32,7 +34,15 @@ public class CredentialExpirationScheduler {
                 .flatMap(credentialProcedure -> isExpiredAndNotAlreadyMarked(credentialProcedure)
                         .filter(Boolean::booleanValue)
                         .flatMap(expired -> expireCredential(credentialProcedure)
-                                .then(emailService.notifyIfCredentialStatusChanges(credentialProcedure, EXPIRED.toString()))))
+                                .then(credentialProcedureService.getCredentialId(credentialProcedure)
+                                        .zipWith(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(credentialProcedure.getProcedureId().toString()))
+                                        .flatMap(idAndInfo -> emailService.sendCredentialStatusChangeNotification(
+                                                idAndInfo.getT2().email(),
+                                                idAndInfo.getT2().organization(),
+                                                idAndInfo.getT1(),
+                                                credentialProcedure.getCredentialType(),
+                                                EXPIRED.toString()
+                                        )))))
                 .then();
     }
 

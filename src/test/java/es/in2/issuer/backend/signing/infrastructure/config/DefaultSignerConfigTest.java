@@ -1,83 +1,57 @@
 package es.in2.issuer.backend.signing.infrastructure.config;
 
-import es.in2.issuer.backend.shared.infrastructure.config.adapter.ConfigAdapter;
-import es.in2.issuer.backend.shared.infrastructure.config.adapter.factory.ConfigAdapterFactory;
 import es.in2.issuer.backend.signing.infrastructure.properties.DefaultSignerProperties;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class DefaultSignerConfigTest {
 
     @Mock
-    private ConfigAdapter configAdapter;
+    private DefaultSignerProperties defaultSignerProperties;
 
-    @Mock
-    private ConfigAdapterFactory configAdapterFactory;
-
+    @InjectMocks
     private DefaultSignerConfig defaultSignerConfig;
-
-    @BeforeEach
-    void setUp() {
-        // Initialize the real DefaultSignerProperties with test values
-        DefaultSignerProperties defaultSignerProperties = new DefaultSignerProperties(
-                "CommonName",
-                "Country",
-                "email",
-                "OrgId",
-                "Organization",
-                "SerialNumber"
-        );
-
-        // Mock configAdapterFactory behavior to return the mocked configAdapter
-        lenient().when(configAdapterFactory.getAdapter()).thenReturn(configAdapter);
-
-        // Mock configAdapter behavior
-        lenient().when(configAdapter.getConfiguration(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
-
-        defaultSignerConfig = new DefaultSignerConfig(configAdapterFactory, defaultSignerProperties);
-    }
 
     @Test
     void testGetCommonName() {
-        String result = defaultSignerConfig.getCommonName();
-        assertEquals("CommonName", result);
+        when(defaultSignerProperties.commonName()).thenReturn("CommonName");
+        assertEquals("CommonName", defaultSignerConfig.getCommonName());
     }
 
     @Test
     void testGetCountry() {
-        String result = defaultSignerConfig.getCountry();
-        assertEquals("Country", result);
+        when(defaultSignerProperties.country()).thenReturn("Country");
+        assertEquals("Country", defaultSignerConfig.getCountry());
     }
 
     @Test
     void testGetEmail() {
-        String result = defaultSignerConfig.getEmail();
-        assertEquals("email", result);
+        when(defaultSignerProperties.email()).thenReturn("email");
+        assertEquals("email", defaultSignerConfig.getEmail());
     }
 
     @Test
     void testGetOrganizationIdentifier() {
-        String result = defaultSignerConfig.getOrganizationIdentifier();
-        assertEquals("OrgId", result);
+        when(defaultSignerProperties.organizationIdentifier()).thenReturn("OrgId");
+        assertEquals("OrgId", defaultSignerConfig.getOrganizationIdentifier());
     }
 
     @Test
     void testGetOrganization() {
-        String result = defaultSignerConfig.getOrganization();
-        assertEquals("Organization", result);
+        when(defaultSignerProperties.organization()).thenReturn("Organization");
+        assertEquals("Organization", defaultSignerConfig.getOrganization());
     }
 
     @Test
     void testGetSerialNumber() {
-        String result = defaultSignerConfig.getSerialNumber();
-        assertEquals("SerialNumber", result);
+        when(defaultSignerProperties.serialNumber()).thenReturn("SerialNumber");
+        assertEquals("SerialNumber", defaultSignerConfig.getSerialNumber());
     }
 }
