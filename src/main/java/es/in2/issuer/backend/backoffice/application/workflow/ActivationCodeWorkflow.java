@@ -6,4 +6,5 @@ import reactor.core.publisher.Mono;
 public interface ActivationCodeWorkflow {
     Mono<CredentialOfferUriResponse> buildCredentialOfferUri(String processId, String transactionCode);
     Mono<CredentialOfferUriResponse> buildNewCredentialOfferUri(String processId, String cTransactionCode);
+    Mono<Void> reissueCredentialOffer(String processId, String transactionCode);
 }

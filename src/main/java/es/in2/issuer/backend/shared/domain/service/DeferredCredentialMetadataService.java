@@ -20,6 +20,7 @@ public interface DeferredCredentialMetadataService {
     Mono<String> updateDeferredCredentialMetadataByAuthServerNonce(String authServerNonce);
     Mono<Void> updateDeferredCredentialByAuthServerNonce(String authServerNonce, String format);
     Mono<Void> validateTransactionCode(String transactionCode);
+    Mono<Void> validateTransactionCodeNonDestructive(String transactionCode);
     Mono<Void> updateAuthServerNonceByAuthServerNonce(String accessToken, String preAuthCode);
     Mono<Void> updateVcByProcedureId(String vc, String procedureId);
     Mono<DeferredCredentialMetadataDeferredResponse> getVcByTransactionId(String transactionId);

@@ -5,7 +5,7 @@ import reactor.core.publisher.Mono;
 
 public interface CredentialIssuanceWorkflow {
 
-    Mono<Void> execute(String processId, PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest, String bearerToken, String idToken);
+    Mono<IssuanceResponse> execute(String processId, PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest, String bearerToken, String idToken);
 
     Mono<CredentialResponse> generateVerifiableCredentialResponse(String processId, CredentialRequest credentialRequest, AccessTokenContext token);
 

@@ -2,6 +2,8 @@ package es.in2.issuer.backend.shared.application.workflow.impl;
 
 import com.nimbusds.jose.JWSObject;
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
+import es.in2.issuer.backend.backoffice.domain.service.CredentialOfferService;
+import es.in2.issuer.backend.oidc4vci.application.workflow.PreAuthorizedCodeWorkflow;
 import es.in2.issuer.backend.shared.application.workflow.CredentialIssuanceWorkflow;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.*;
@@ -9,6 +11,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.entities.BindingInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.entities.DeferredCredentialMetadata;
+import es.in2.issuer.backend.shared.domain.repository.CredentialOfferCacheRepository;
 import es.in2.issuer.backend.shared.domain.service.*;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
@@ -53,9 +56,12 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
     private final CredentialDeliveryService credentialDeliveryService;
     private final JwtUtils jwtUtils;
     private final CredentialProfileRegistry credentialProfileRegistry;
+    private final PreAuthorizedCodeWorkflow preAuthorizedCodeWorkflow;
+    private final CredentialOfferService credentialOfferService;
+    private final CredentialOfferCacheRepository credentialOfferCacheRepository;
 
     @Override
-    public Mono<Void> execute(String processId, PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest, String token, String idToken) {
+    public Mono<IssuanceResponse> execute(String processId, PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest, String token, String idToken) {
 
         // Check if the format is supported
         String requestFormat = preSubmittedCredentialDataRequest.format();
@@ -72,43 +78,73 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
             return Mono.error(new MissingIdTokenHeaderException("Missing required ID Token header for VerifiableCertification issuance."));
         }
 
-        // TODO LabelCredential the email information extraction must be done after the policy validation
-        // We extract the email information from the PreSubmittedCredentialDataRequest
         CredentialOfferEmailNotificationInfo emailInfo =
                 extractCredentialOfferEmailInfo(preSubmittedCredentialDataRequest);
 
         String procedureId = UUID.randomUUID().toString();
+        String credentialType = resolveCredentialType(preSubmittedCredentialDataRequest.credentialConfigurationId());
+        String delivery = preSubmittedCredentialDataRequest.delivery() != null
+                ? preSubmittedCredentialDataRequest.delivery()
+                : DELIVERY_DEFERRED;
 
         // Validate user policy before proceeding
         return issuancePdpService.authorize(token, preSubmittedCredentialDataRequest.credentialConfigurationId(), preSubmittedCredentialDataRequest.payload(), idToken)
                 .then(statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, procedureId, token)
                         .map(this::toCredentialStatus)
                         .flatMap(credentialStatus -> verifiableCredentialService.generateVc(processId, preSubmittedCredentialDataRequest, emailInfo.email(), credentialStatus, procedureId))
-                        .flatMap(transactionCode -> sendCredentialOfferEmail(transactionCode, emailInfo))
+                        .flatMap(transactionCode -> generateCredentialOffer(transactionCode, procedureId, credentialType, emailInfo, delivery))
                 );
     }
 
-    private Mono<Void> sendCredentialOfferEmail(
+    /**
+     * Generates the credential offer, caches it, and handles delivery:
+     * - immediate: returns the credential_offer_uri (no email)
+     * - deferred: sends email with QR + wallet deep link + re-issue link, returns empty response
+     */
+    private Mono<IssuanceResponse> generateCredentialOffer(
             String transactionCode,
-            CredentialOfferEmailNotificationInfo info
+            String procedureId,
+            String credentialType,
+            CredentialOfferEmailNotificationInfo emailInfo,
+            String delivery
     ) {
-        String credentialOfferUrl = buildCredentialOfferUrl(transactionCode);
-
-        return emailService.sendCredentialActivationEmail(
-                        info.email(),
-                        CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
-                        credentialOfferUrl,
-                        appConfig.getKnowledgebaseWalletUrl(),
-                        info.organization()
-                )
-                .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE));
+        return preAuthorizedCodeWorkflow.generatePreAuthorizedCode(Mono.just(procedureId))
+                .flatMap(preAuthResponse ->
+                        deferredCredentialMetadataService.updateAuthServerNonceByTransactionCode(
+                                transactionCode, preAuthResponse.grants().preAuthorizedCode()
+                        )
+                        .then(credentialOfferService.buildCustomCredentialOffer(
+                                credentialType, preAuthResponse.grants(), emailInfo.email(), preAuthResponse.pin()
+                        ))
+                        .flatMap(credentialOfferCacheRepository::saveCustomCredentialOffer)
+                        .flatMap(credentialOfferService::createCredentialOfferUriResponse)
+                        .flatMap(credentialOfferUri -> {
+                            if (DELIVERY_IMMEDIATE.equals(delivery)) {
+                                log.info("Credential offer URI (immediate): {}", credentialOfferUri);
+                                return Mono.just(IssuanceResponse.builder()
+                                        .credentialOfferUri(credentialOfferUri)
+                                        .build());
+                            }
+                            // deferred: send email and return empty response
+                            String reissueUrl = buildReissueUrl(transactionCode);
+                            return emailService.sendCredentialOfferEmail(
+                                            emailInfo.email(),
+                                            CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
+                                            credentialOfferUri,
+                                            reissueUrl,
+                                            appConfig.getWalletFrontendUrl(),
+                                            emailInfo.organization()
+                                    )
+                                    .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE))
+                                    .thenReturn(IssuanceResponse.builder().build());
+                        })
+                );
     }
 
-    private String buildCredentialOfferUrl(String transactionCode) {
+    private String buildReissueUrl(String transactionCode) {
         return UriComponentsBuilder
-                .fromHttpUrl(appConfig.getIssuerFrontendUrl())
-                .path("/credential-offer")
-                .queryParam("transaction_code", transactionCode)
+                .fromUriString(appConfig.getIssuerBackendUrl())
+                .path("/oid4vci/v1/credential-offer/reissue/" + transactionCode)
                 .build()
                 .toUriString();
     }

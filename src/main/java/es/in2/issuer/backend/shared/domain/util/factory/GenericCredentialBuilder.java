@@ -155,7 +155,11 @@ public class GenericCredentialBuilder {
     private Mono<String> setIssuerField(String decodedCredentialJson, Object issuer) {
         try {
             ObjectNode credential = (ObjectNode) objectMapper.readTree(decodedCredentialJson);
-            credential.set("issuer", objectMapper.valueToTree(issuer));
+            JsonNode issuerNode = objectMapper.valueToTree(issuer);
+            if (issuerNode.isObject()) {
+                ((ObjectNode) issuerNode).remove("id");
+            }
+            credential.set("issuer", issuerNode);
             return Mono.just(objectMapper.writeValueAsString(credential));
         } catch (Exception e) {
             return Mono.error(new IllegalStateException("Failed to bind issuer", e));
@@ -261,6 +265,9 @@ public class GenericCredentialBuilder {
         }
         if (issuer.has("id")) {
             return issuer.get("id").asText();
+        }
+        if (issuer.has("organizationIdentifier")) {
+            return "did:elsi:" + issuer.get("organizationIdentifier").asText();
         }
         return "";
     }

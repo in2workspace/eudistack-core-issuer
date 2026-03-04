@@ -79,6 +79,10 @@ public final class Constants {
     public static final String ASYNC = "A";
     public static final String SYNC = "S";
 
+    // DELIVERY MODES
+    public static final String DELIVERY_IMMEDIATE = "immediate";
+    public static final String DELIVERY_DEFERRED = "deferred";
+
     // HTTP
     public static final String BEARER_PREFIX = "Bearer ";
     public static final String UTF_8 = "UTF-8";
@@ -98,7 +102,7 @@ public final class Constants {
     public static final String CLIENT_ASSERTION_EXPIRATION_TIME_UNIT = "MINUTES";
     public static final long REFRESH_TOKEN_EXPIRATION = 30;
     public static final TimeUnit REFRESH_TOKEN_EXPIRATION_TIME_UNIT = TimeUnit.DAYS;
-    public static final long PRE_AUTH_CODE_EXPIRY_DURATION_MINUTES = 5;
+    public static final long PRE_AUTH_CODE_EXPIRY_DURATION_MINUTES = 10;
     public static final Long DEFERRED_CREDENTIAL_POLLING_INTERVAL = 3600L;
 
     // REMOTE SIGNATURE

@@ -31,6 +31,12 @@ public class DeferredCredentialMetadataServiceImpl implements DeferredCredential
     }
 
     @Override
+    public Mono<Void> validateTransactionCodeNonDestructive(String transactionCode) {
+        log.debug("Validating transactionCode (non-destructive): " + transactionCode);
+        return cacheStoreForTransactionCode.get(transactionCode).then();
+    }
+
+    @Override
     public Mono<String> validateCTransactionCode(String cTransactionCode) {
         log.debug("Validating cTransactionCode: " + cTransactionCode);
         return cacheStoreForCTransactionCode.get(cTransactionCode)
