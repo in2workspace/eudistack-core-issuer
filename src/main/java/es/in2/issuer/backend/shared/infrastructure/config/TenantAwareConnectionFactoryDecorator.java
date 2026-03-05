@@ -5,19 +5,23 @@ import io.r2dbc.spi.ConnectionFactory;
 import io.r2dbc.spi.ConnectionFactoryMetadata;
 import lombok.extern.slf4j.Slf4j;
 import org.reactivestreams.Publisher;
-import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
-import org.springframework.r2dbc.connection.R2dbcTransactionManager;
-import org.springframework.transaction.ReactiveTransactionManager;
 import reactor.core.publisher.Mono;
+
+import java.io.Closeable;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 /**
  * Wraps the auto-configured R2DBC {@code ConnectionFactory} (which already includes
  * connection pooling) with tenant context injection for PostgreSQL Row-Level Security.
+ *
+ * <p>Uses a {@link BeanPostProcessor} to wrap the bean <em>after</em> Spring Boot's
+ * R2DBC auto-configuration has created it, avoiding the
+ * {@code @ConditionalOnMissingBean(ConnectionFactory.class)} conflict that would
+ * prevent the auto-configured {@code ConnectionFactory} from being created.
  *
  * <p>On every {@code create()} call — i.e., each time a connection is borrowed from
  * the pool — this wrapper executes {@code SET app.current_tenant = '...'} to configure
@@ -29,25 +33,26 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  * is used, which the RLS policy allows to access all rows.
  */
 @Slf4j
-@Configuration
+@Configuration(proxyBeanMethods = false)
 public class TenantAwareConnectionFactoryDecorator {
 
     static final String SYSTEM_TENANT = "*";
 
     @Bean
-    @Primary
-    ConnectionFactory tenantAwareConnectionFactory(
-            @Qualifier("connectionFactory") ConnectionFactory pooledConnectionFactory) {
-        return new TenantAwareConnectionFactory(pooledConnectionFactory);
+    static BeanPostProcessor tenantAwareConnectionFactoryPostProcessor() {
+        return new BeanPostProcessor() {
+            @Override
+            public Object postProcessAfterInitialization(Object bean, String beanName) {
+                if ("connectionFactory".equals(beanName) && bean instanceof ConnectionFactory cf) {
+                    log.info("Wrapping ConnectionFactory '{}' with tenant-aware decorator", beanName);
+                    return new TenantAwareConnectionFactory(cf);
+                }
+                return bean;
+            }
+        };
     }
 
-    @Bean
-    ReactiveTransactionManager transactionManager(
-            @Qualifier("tenantAwareConnectionFactory") ConnectionFactory connectionFactory) {
-        return new R2dbcTransactionManager(connectionFactory);
-    }
-
-    private static class TenantAwareConnectionFactory implements ConnectionFactory {
+    static class TenantAwareConnectionFactory implements ConnectionFactory, Closeable {
 
         private final ConnectionFactory delegate;
 
@@ -67,6 +72,25 @@ public class TenantAwareConnectionFactoryDecorator {
         @Override
         public ConnectionFactoryMetadata getMetadata() {
             return delegate.getMetadata();
+        }
+
+        /**
+         * Delegates shutdown to the underlying pool so that Spring's
+         * {@code destroyMethod="dispose"} on the original bean works correctly.
+         */
+        public void dispose() {
+            if (delegate instanceof Closeable c) {
+                try {
+                    c.close();
+                } catch (Exception e) {
+                    log.warn("Error closing delegate ConnectionFactory: {}", e.getMessage());
+                }
+            }
+        }
+
+        @Override
+        public void close() {
+            dispose();
         }
 
         private Mono<Connection> setTenant(Connection connection, String tenant) {
