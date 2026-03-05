@@ -42,6 +42,7 @@ class StatusListPdpServiceImplTest {
                 orgId,
                 Collections.singletonList(Power.builder().function("Onboarding").action("Execute").domain(orgId).build()),
                 null,
+                null,
                 LEAR_CREDENTIAL_EMPLOYEE,
                 sysAdmin,
                 orgId
@@ -49,7 +50,7 @@ class StatusListPdpServiceImplTest {
     }
 
     private PolicyContext buildContextNoPowers(String orgId, boolean sysAdmin) {
-        return new PolicyContext(orgId, Collections.emptyList(), null, LEAR_CREDENTIAL_EMPLOYEE, sysAdmin, orgId);
+        return new PolicyContext(orgId, Collections.emptyList(), null, null, LEAR_CREDENTIAL_EMPLOYEE, sysAdmin, orgId);
     }
 
     @Test

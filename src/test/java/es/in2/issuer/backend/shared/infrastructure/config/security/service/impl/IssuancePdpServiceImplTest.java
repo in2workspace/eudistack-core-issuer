@@ -6,18 +6,15 @@ import com.nimbusds.jose.Payload;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
 import es.in2.issuer.backend.shared.domain.exception.ParseErrorException;
-import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.LEARCredential;
-import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Mandator;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
-import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.employee.LEARCredentialEmployee;
-import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.machine.LEARCredentialMachine;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContext;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
 import es.in2.issuer.backend.shared.domain.policy.PolicyEnforcer;
 import es.in2.issuer.backend.shared.domain.policy.rules.RequireCertificationIssuanceRule;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
-import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
+import es.in2.issuer.backend.shared.domain.util.DynamicCredentialParser;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,7 +29,6 @@ import java.util.HashMap;
 import java.util.List;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
-import static es.in2.issuer.backend.shared.domain.util.Utils.extractPowers;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -56,7 +52,7 @@ class IssuancePdpServiceImplTest {
     private VerifierService verifierService;
 
     @Mock
-    private LEARCredentialEmployeeFactory learCredentialEmployeeFactory;
+    private DynamicCredentialParser credentialParser;
 
     @Mock
     private CredentialProfileRegistry credentialProfileRegistry;
@@ -68,23 +64,39 @@ class IssuancePdpServiceImplTest {
         PolicyEnforcer policyEnforcer = new PolicyEnforcer();
 
         RequireCertificationIssuanceRule certificationRule = new RequireCertificationIssuanceRule(
-                verifierService, jwtService, objectMapper, learCredentialEmployeeFactory);
+                verifierService, jwtService, objectMapper, credentialParser);
 
         issuancePdpService = new IssuancePdpServiceImpl(
                 policyContextFactory,
                 policyEnforcer,
                 objectMapper,
                 certificationRule,
-                credentialProfileRegistry
+                credentialProfileRegistry,
+                credentialParser
         );
     }
 
-    private PolicyContext buildContext(LEARCredential credential, String credentialType,
-                                      String orgId, boolean sysAdmin) {
+    private PolicyContext buildContextFromPowers(List<Power> powers, String credentialType,
+                                                 String orgId, boolean sysAdmin) {
         return new PolicyContext(
                 orgId,
-                extractPowers(credential),
+                powers,
+                null,
+                null,
+                credentialType,
+                sysAdmin,
+                null
+        );
+    }
+
+    private PolicyContext buildContextWithCredential(List<Power> powers, String credentialType,
+                                                     String orgId, boolean sysAdmin,
+                                                     JsonNode credential, CredentialProfile profile) {
+        return new PolicyContext(
+                orgId,
+                powers,
                 credential,
+                profile,
                 credentialType,
                 sysAdmin,
                 null
@@ -96,8 +108,10 @@ class IssuancePdpServiceImplTest {
         String token = "valid-token";
         JsonNode payload = mock(JsonNode.class);
 
-        LEARCredentialEmployee learCredential = getLEARCredentialEmployee();
-        PolicyContext ctx = buildContext(learCredential, LEAR_CREDENTIAL_EMPLOYEE, ADMIN_ORG_ID, true);
+        List<Power> signerPowers = List.of(
+                Power.builder().function("Onboarding").action("Execute").build()
+        );
+        PolicyContext ctx = buildContextFromPowers(signerPowers, LEAR_CREDENTIAL_EMPLOYEE, ADMIN_ORG_ID, true);
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
                 .thenReturn(Mono.just(ctx));
 
@@ -130,8 +144,10 @@ class IssuancePdpServiceImplTest {
         String schema = "UnsupportedSchema";
         JsonNode payload = mock(JsonNode.class);
 
-        LEARCredentialEmployee learCredential = getLEARCredentialEmployee();
-        PolicyContext ctx = buildContext(learCredential, LEAR_CREDENTIAL_EMPLOYEE, ADMIN_ORG_ID, true);
+        List<Power> signerPowers = List.of(
+                Power.builder().function("Onboarding").action("Execute").build()
+        );
+        PolicyContext ctx = buildContextFromPowers(signerPowers, LEAR_CREDENTIAL_EMPLOYEE, ADMIN_ORG_ID, true);
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(schema), any()))
                 .thenReturn(Mono.just(ctx));
 
@@ -166,8 +182,10 @@ class IssuancePdpServiceImplTest {
         String token = "valid-token";
         JsonNode payload = mock(JsonNode.class);
 
-        LEARCredentialEmployee learCredential = getLEARCredentialEmployeeWithDifferentOrg();
-        PolicyContext ctx = buildContext(learCredential, LEAR_CREDENTIAL_EMPLOYEE, "OTHER_ORGANIZATION", false);
+        List<Power> signerPowers = List.of(
+                Power.builder().function("Onboarding").action("Execute").build()
+        );
+        PolicyContext ctx = buildContextFromPowers(signerPowers, LEAR_CREDENTIAL_EMPLOYEE, "OTHER_ORGANIZATION", false);
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
                 .thenReturn(Mono.just(ctx));
 
@@ -187,8 +205,8 @@ class IssuancePdpServiceImplTest {
         JsonNode payload = mock(JsonNode.class);
 
         // Signer has empty powers — short-circuits before idToken validation
-        LEARCredentialMachine learCredential = getLEARCredentialMachineWithInvalidPolicy();
-        PolicyContext ctx = buildContext(learCredential, LEAR_CREDENTIAL_MACHINE, ADMIN_ORG_ID, true);
+        List<Power> emptyPowers = Collections.emptyList();
+        PolicyContext ctx = buildContextFromPowers(emptyPowers, LEAR_CREDENTIAL_MACHINE, ADMIN_ORG_ID, true);
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LABEL_CREDENTIAL), any()))
                 .thenReturn(Mono.just(ctx));
 
@@ -206,8 +224,10 @@ class IssuancePdpServiceImplTest {
         String idToken = "dummy-id-token";
         JsonNode payload = mock(JsonNode.class);
 
-        LEARCredentialMachine learCredential = getLEARCredentialMachineForCertification();
-        PolicyContext ctx = buildContext(learCredential, LEAR_CREDENTIAL_MACHINE, "SomeOrganization", false);
+        List<Power> certificationPowers = List.of(
+                Power.builder().function("Certification").action("Attest").build()
+        );
+        PolicyContext ctx = buildContextFromPowers(certificationPowers, LEAR_CREDENTIAL_MACHINE, "SomeOrganization", false);
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LABEL_CREDENTIAL), any()))
                 .thenReturn(Mono.just(ctx));
 
@@ -219,8 +239,13 @@ class IssuancePdpServiceImplTest {
         when(jwtService.parseJWT(idToken)).thenReturn(idTokenSignedJWT);
         when(jwtService.getClaimFromPayload(idTokenPayload, "vc_json")).thenReturn("\"vcJson\"");
         when(objectMapper.readValue("\"vcJson\"", String.class)).thenReturn("vcJson");
-        LEARCredentialEmployee idTokenCredential = getLEARCredentialEmployeeForCertification();
-        when(learCredentialEmployeeFactory.mapStringToLEARCredentialEmployee("vcJson")).thenReturn(idTokenCredential);
+        // Mock DynamicCredentialParser for id_token VC
+        com.fasterxml.jackson.databind.node.ObjectNode idTokenVcNode = new ObjectMapper().createObjectNode();
+        CredentialProfile idTokenProfile = mock(CredentialProfile.class);
+        Power certPower = Power.builder().function("Certification").action("Attest").build();
+        var parsed = new DynamicCredentialParser.ParsedCredential(idTokenVcNode, idTokenProfile, "LEARCredentialEmployee");
+        when(credentialParser.parse("vcJson")).thenReturn(parsed);
+        when(credentialParser.extractPowers(idTokenVcNode, idTokenProfile)).thenReturn(List.of(certPower));
 
         Mono<Void> result = issuancePdpService.authorize(token, LABEL_CREDENTIAL, payload, idToken);
 
@@ -232,8 +257,10 @@ class IssuancePdpServiceImplTest {
         String token = "valid-token";
         JsonNode payload = mock(JsonNode.class);
 
-        LEARCredentialEmployee learCredential = getLEARCredentialEmployeeForCertification();
-        PolicyContext ctx = buildContext(learCredential, LEAR_CREDENTIAL_EMPLOYEE, "SomeOrganization", false);
+        List<Power> certificationPowers = List.of(
+                Power.builder().function("Certification").action("Attest").build()
+        );
+        PolicyContext ctx = buildContextFromPowers(certificationPowers, LEAR_CREDENTIAL_EMPLOYEE, "SomeOrganization", false);
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
                 .thenReturn(Mono.just(ctx));
 
@@ -249,27 +276,37 @@ class IssuancePdpServiceImplTest {
     @Test
     void authorize_success_withMandatorIssuancePolicyValid() {
         String token = "valid-token";
-        JsonNode payload = mock(JsonNode.class);
 
-        LEARCredentialEmployee learCredential = getLEARCredentialEmployeeWithDifferentOrg();
+        // Build a real JsonNode payload with mandator and power array
+        ObjectMapper realMapper = new ObjectMapper();
+        com.fasterxml.jackson.databind.node.ObjectNode payload = realMapper.createObjectNode();
+        com.fasterxml.jackson.databind.node.ObjectNode mandatorNode = payload.putObject("mandator");
+        mandatorNode.put("organizationIdentifier", "OTHER_ORGANIZATION");
+        com.fasterxml.jackson.databind.node.ArrayNode powerArray = payload.putArray("power");
+        com.fasterxml.jackson.databind.node.ObjectNode powerNode = powerArray.addObject();
+        powerNode.put("function", "ProductOffering");
+        com.fasterxml.jackson.databind.node.ArrayNode actionArray = powerNode.putArray("action");
+        actionArray.add("Create").add("Update").add("Delete");
 
-        LEARCredentialEmployee.CredentialSubject.Mandate mandateFromPayload = LEARCredentialEmployee.CredentialSubject.Mandate.builder()
-                .mandator(Mandator.builder()
-                        .organizationIdentifier(learCredential.credentialSubject().mandate().mandator().organizationIdentifier())
-                        .serialNumber(learCredential.credentialSubject().mandate().mandator().serialNumber())
-                        .country(learCredential.credentialSubject().mandate().mandator().country())
-                        .commonName(learCredential.credentialSubject().mandate().mandator().commonName())
-                        .email(learCredential.credentialSubject().mandate().mandator().email())
-                        .build())
-                .power(Collections.singletonList(
-                        Power.builder()
-                                .function("ProductOffering")
-                                .action(List.of("Create", "Update", "Delete"))
-                                .build()))
-                .build();
-        when(objectMapper.convertValue(payload, LEARCredentialEmployee.CredentialSubject.Mandate.class)).thenReturn(mandateFromPayload);
+        // Signer has Onboarding/Execute + ProductOffering powers
+        List<Power> signerPowers = List.of(
+                Power.builder().function("Onboarding").action("Execute").build(),
+                Power.builder().function("ProductOffering").action(List.of("Create", "Update", "Delete")).build()
+        );
 
-        PolicyContext ctx = buildContext(learCredential, LEAR_CREDENTIAL_EMPLOYEE, "OTHER_ORGANIZATION", false);
+        // Context needs credential and profile for credentialParser.extractOrganizationId()
+        JsonNode signerCredential = realMapper.createObjectNode();
+        CredentialProfile signerProfile = mock(CredentialProfile.class);
+        when(credentialParser.extractOrganizationId(signerCredential, signerProfile)).thenReturn("OTHER_ORGANIZATION");
+
+        // objectMapper.convertValue is still used on the power array node inside the rule
+        when(objectMapper.convertValue(any(JsonNode.class), any(com.fasterxml.jackson.core.type.TypeReference.class)))
+                .thenAnswer(invocation -> {
+                    JsonNode node = invocation.getArgument(0);
+                    return realMapper.convertValue(node, new com.fasterxml.jackson.core.type.TypeReference<List<Power>>() {});
+                });
+
+        PolicyContext ctx = buildContextWithCredential(signerPowers, LEAR_CREDENTIAL_EMPLOYEE, "OTHER_ORGANIZATION", false, signerCredential, signerProfile);
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
                 .thenReturn(Mono.just(ctx));
 
@@ -281,27 +318,35 @@ class IssuancePdpServiceImplTest {
     @Test
     void authorize_failure_dueToInvalidPayloadPowers() {
         String token = "valid-token";
-        JsonNode payload = mock(JsonNode.class);
 
-        LEARCredentialEmployee learCredential = getLEARCredentialEmployeeWithDifferentOrg();
+        // Build a real JsonNode payload with mandator and power array with wrong function
+        ObjectMapper realMapper = new ObjectMapper();
+        com.fasterxml.jackson.databind.node.ObjectNode payload = realMapper.createObjectNode();
+        com.fasterxml.jackson.databind.node.ObjectNode mandatorNode = payload.putObject("mandator");
+        mandatorNode.put("organizationIdentifier", "OTHER_ORGANIZATION");
+        com.fasterxml.jackson.databind.node.ArrayNode powerArray = payload.putArray("power");
+        com.fasterxml.jackson.databind.node.ObjectNode powerNode = powerArray.addObject();
+        powerNode.put("function", "OtherFunction");
+        powerNode.put("action", "SomeAction");
 
-        LEARCredentialEmployee.CredentialSubject.Mandate mandateFromPayload = LEARCredentialEmployee.CredentialSubject.Mandate.builder()
-                .mandator(Mandator.builder()
-                        .organizationIdentifier(learCredential.credentialSubject().mandate().mandator().organizationIdentifier())
-                        .serialNumber(learCredential.credentialSubject().mandate().mandator().serialNumber())
-                        .country(learCredential.credentialSubject().mandate().mandator().country())
-                        .commonName(learCredential.credentialSubject().mandate().mandator().commonName())
-                        .email(learCredential.credentialSubject().mandate().mandator().email())
-                        .build())
-                .power(Collections.singletonList(
-                        Power.builder()
-                                .function("OtherFunction")
-                                .action("SomeAction")
-                                .build()))
-                .build();
-        when(objectMapper.convertValue(payload, LEARCredentialEmployee.CredentialSubject.Mandate.class)).thenReturn(mandateFromPayload);
+        // Signer has Onboarding/Execute power (needed to pass first check) but no ProductOffering
+        List<Power> signerPowers = List.of(
+                Power.builder().function("Onboarding").action("Execute").build()
+        );
 
-        PolicyContext ctx = buildContext(learCredential, LEAR_CREDENTIAL_EMPLOYEE, "OTHER_ORGANIZATION", false);
+        // Context needs credential and profile for credentialParser.extractOrganizationId()
+        JsonNode signerCredential = realMapper.createObjectNode();
+        CredentialProfile signerProfile = mock(CredentialProfile.class);
+        when(credentialParser.extractOrganizationId(signerCredential, signerProfile)).thenReturn("OTHER_ORGANIZATION");
+
+        // objectMapper.convertValue is still used on the power array node inside the rule
+        when(objectMapper.convertValue(any(JsonNode.class), any(com.fasterxml.jackson.core.type.TypeReference.class)))
+                .thenAnswer(invocation -> {
+                    JsonNode node = invocation.getArgument(0);
+                    return realMapper.convertValue(node, new com.fasterxml.jackson.core.type.TypeReference<List<Power>>() {});
+                });
+
+        PolicyContext ctx = buildContextWithCredential(signerPowers, LEAR_CREDENTIAL_EMPLOYEE, "OTHER_ORGANIZATION", false, signerCredential, signerProfile);
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
                 .thenReturn(Mono.just(ctx));
 
@@ -319,8 +364,10 @@ class IssuancePdpServiceImplTest {
         String token = "valid-token";
         JsonNode payload = mock(JsonNode.class);
 
-        LEARCredentialEmployee signerEmployee = getLEARCredentialEmployee();
-        PolicyContext ctx = buildContext(signerEmployee, LEAR_CREDENTIAL_EMPLOYEE, ADMIN_ORG_ID, true);
+        List<Power> signerPowers = List.of(
+                Power.builder().function("Onboarding").action("Execute").build()
+        );
+        PolicyContext ctx = buildContextFromPowers(signerPowers, LEAR_CREDENTIAL_EMPLOYEE, ADMIN_ORG_ID, true);
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_MACHINE), any()))
                 .thenReturn(Mono.just(ctx));
 
@@ -350,8 +397,10 @@ class IssuancePdpServiceImplTest {
         String token = "valid-token";
         JsonNode payload = mock(JsonNode.class);
 
-        LEARCredentialEmployee signerEmployee = getLEARCredentialEmployee();
-        PolicyContext ctx = buildContext(signerEmployee, LEAR_CREDENTIAL_EMPLOYEE, ADMIN_ORG_ID, true);
+        List<Power> signerPowers = List.of(
+                Power.builder().function("Onboarding").action("Execute").build()
+        );
+        PolicyContext ctx = buildContextFromPowers(signerPowers, LEAR_CREDENTIAL_EMPLOYEE, ADMIN_ORG_ID, true);
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_MACHINE), any()))
                 .thenReturn(Mono.just(ctx));
 
@@ -360,157 +409,4 @@ class IssuancePdpServiceImplTest {
         StepVerifier.create(result).verifyComplete();
     }
 
-    // --- Credential helper methods ---
-
-    private LEARCredentialEmployee getLEARCredentialEmployee() {
-        Mandator mandator = Mandator.builder()
-                .organizationIdentifier(ADMIN_ORG_ID)
-                .build();
-        LEARCredentialEmployee.CredentialSubject.Mandate.Mandatee mandatee =
-                LEARCredentialEmployee.CredentialSubject.Mandate.Mandatee.builder()
-                        .id("did:key:1234")
-                        .firstName("John")
-                        .lastName("Doe")
-                        .email("john.doe@example.com")
-                        .build();
-        Power power = Power.builder()
-                .function("Onboarding")
-                .action("Execute")
-                .build();
-        LEARCredentialEmployee.CredentialSubject.Mandate mandate =
-                LEARCredentialEmployee.CredentialSubject.Mandate.builder()
-                        .mandator(mandator)
-                        .mandatee(mandatee)
-                        .power(Collections.singletonList(power))
-                        .build();
-        LEARCredentialEmployee.CredentialSubject credentialSubject =
-                LEARCredentialEmployee.CredentialSubject.builder()
-                        .mandate(mandate)
-                        .build();
-        return LEARCredentialEmployee.builder()
-                .type(List.of("VerifiableCredential", "LEARCredentialEmployee"))
-                .credentialSubject(credentialSubject)
-                .build();
-    }
-
-    private LEARCredentialEmployee getLEARCredentialEmployeeWithDifferentOrg() {
-        Mandator mandator = Mandator.builder()
-                .organizationIdentifier("OTHER_ORGANIZATION")
-                .commonName("SomeOtherOrganization")
-                .country("ES")
-                .email("someaddres@example.com")
-                .serialNumber("123456")
-                .build();
-        LEARCredentialEmployee.CredentialSubject.Mandate.Mandatee mandatee =
-                LEARCredentialEmployee.CredentialSubject.Mandate.Mandatee.builder()
-                        .id("did:key:1234")
-                        .firstName("John")
-                        .lastName("Doe")
-                        .email("john.doe@example.com")
-                        .build();
-        Power power = Power.builder()
-                .function("Onboarding")
-                .action("Execute")
-                .build();
-        LEARCredentialEmployee.CredentialSubject.Mandate mandate =
-                LEARCredentialEmployee.CredentialSubject.Mandate.builder()
-                        .mandator(mandator)
-                        .mandatee(mandatee)
-                        .power(Collections.singletonList(power))
-                        .build();
-        LEARCredentialEmployee.CredentialSubject credentialSubject =
-                LEARCredentialEmployee.CredentialSubject.builder()
-                        .mandate(mandate)
-                        .build();
-        return LEARCredentialEmployee.builder()
-                .type(List.of("VerifiableCredential", "LEARCredentialEmployee"))
-                .credentialSubject(credentialSubject)
-                .build();
-    }
-
-    private LEARCredentialMachine getLEARCredentialMachineForCertification() {
-        LEARCredentialMachine.CredentialSubject.Mandate.Mandator mandator =
-                LEARCredentialMachine.CredentialSubject.Mandate.Mandator.builder()
-                        .organization("SomeOrganization")
-                        .build();
-        LEARCredentialMachine.CredentialSubject.Mandate.Mandatee mandatee =
-                LEARCredentialMachine.CredentialSubject.Mandate.Mandatee.builder()
-                        .id("did:key:1234")
-                        .build();
-        Power power = Power.builder()
-                .function("Certification")
-                .action("Attest")
-                .build();
-        LEARCredentialMachine.CredentialSubject.Mandate mandate =
-                LEARCredentialMachine.CredentialSubject.Mandate.builder()
-                        .mandator(mandator)
-                        .mandatee(mandatee)
-                        .power(Collections.singletonList(power))
-                        .build();
-        LEARCredentialMachine.CredentialSubject credentialSubject =
-                LEARCredentialMachine.CredentialSubject.builder()
-                        .mandate(mandate)
-                        .build();
-        return LEARCredentialMachine.builder()
-                .type(List.of("VerifiableCredential", "LEARCredentialMachine"))
-                .credentialSubject(credentialSubject)
-                .build();
-    }
-
-    private LEARCredentialEmployee getLEARCredentialEmployeeForCertification() {
-        Mandator mandator = Mandator.builder()
-                .organizationIdentifier("SomeOrganization")
-                .build();
-        LEARCredentialEmployee.CredentialSubject.Mandate.Mandatee mandatee =
-                LEARCredentialEmployee.CredentialSubject.Mandate.Mandatee.builder()
-                        .id("did:key:1234")
-                        .firstName("Jane")
-                        .lastName("Doe")
-                        .email("jane.doe@example.com")
-                        .build();
-        Power power = Power.builder()
-                .function("Certification")
-                .action("Attest")
-                .build();
-        LEARCredentialEmployee.CredentialSubject.Mandate mandate =
-                LEARCredentialEmployee.CredentialSubject.Mandate.builder()
-                        .mandator(mandator)
-                        .mandatee(mandatee)
-                        .power(Collections.singletonList(power))
-                        .build();
-        LEARCredentialEmployee.CredentialSubject credentialSubject =
-                LEARCredentialEmployee.CredentialSubject.builder()
-                        .mandate(mandate)
-                        .build();
-        return LEARCredentialEmployee.builder()
-                .type(List.of("VerifiableCredential", "LEARCredentialEmployee"))
-                .credentialSubject(credentialSubject)
-                .build();
-    }
-
-    private LEARCredentialMachine getLEARCredentialMachineWithInvalidPolicy() {
-        LEARCredentialMachine.CredentialSubject.Mandate.Mandator mandator =
-                LEARCredentialMachine.CredentialSubject.Mandate.Mandator.builder()
-                        .organization(ADMIN_ORG_ID)
-                        .build();
-        LEARCredentialMachine.CredentialSubject.Mandate.Mandatee mandatee =
-                LEARCredentialMachine.CredentialSubject.Mandate.Mandatee.builder()
-                        .id("did:key:1234")
-                        .build();
-        List<Power> emptyPowers = Collections.emptyList();
-        LEARCredentialMachine.CredentialSubject.Mandate mandate =
-                LEARCredentialMachine.CredentialSubject.Mandate.builder()
-                        .mandator(mandator)
-                        .mandatee(mandatee)
-                        .power(emptyPowers)
-                        .build();
-        LEARCredentialMachine.CredentialSubject credentialSubject =
-                LEARCredentialMachine.CredentialSubject.builder()
-                        .mandate(mandate)
-                        .build();
-        return LEARCredentialMachine.builder()
-                .type(List.of("VerifiableCredential", "LEARCredentialMachine"))
-                .credentialSubject(credentialSubject)
-                .build();
-    }
 }

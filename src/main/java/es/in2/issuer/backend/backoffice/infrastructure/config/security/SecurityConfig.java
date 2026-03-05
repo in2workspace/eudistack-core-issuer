@@ -61,6 +61,16 @@ public class SecurityConfig {
     }
 
     @Bean
+    @Order(0)
+    public SecurityWebFilterChain credentialOfferRefreshFilterChain(ServerHttpSecurity http) {
+        return http
+                .securityMatcher(ServerWebExchangeMatchers.pathMatchers(CREDENTIAL_OFFER_REFRESH_PATH))
+                .authorizeExchange(exchange -> exchange.anyExchange().permitAll())
+                .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                .build();
+    }
+
+    @Bean
     @Order(1)
     public SecurityWebFilterChain unifiedFilterChain(
             ServerHttpSecurity http,

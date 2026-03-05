@@ -9,15 +9,13 @@ import es.in2.issuer.backend.shared.domain.policy.PolicyContext;
 import es.in2.issuer.backend.shared.domain.policy.PolicyRule;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
-import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
+import es.in2.issuer.backend.shared.domain.util.DynamicCredentialParser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
-
-import static es.in2.issuer.backend.shared.domain.util.Utils.extractPowers;
 
 /**
  * Certification issuance policy for gx:LabelCredential.
@@ -34,11 +32,11 @@ public class RequireCertificationIssuanceRule implements PolicyRule<String> {
     private final VerifierService verifierService;
     private final JWTService jwtService;
     private final ObjectMapper objectMapper;
-    private final LEARCredentialEmployeeFactory learCredentialEmployeeFactory;
+    private final DynamicCredentialParser credentialParser;
 
     @Override
     public Mono<Void> evaluate(PolicyContext context, String idToken) {
-        boolean signerValid = containsCertificationAndAttest(extractPowers(context.credential()));
+        boolean signerValid = containsCertificationAndAttest(context.powers());
         if (!signerValid) {
             return Mono.error(new InsufficientPermissionException(
                     "Signer credential does not have Certification/Attest power"));
@@ -61,9 +59,9 @@ public class RequireCertificationIssuanceRule implements PolicyRule<String> {
                     String idVcClaim = jwtService.getClaimFromPayload(idSignedJWT.getPayload(), "vc_json");
                     try {
                         String processedVc = objectMapper.readValue(idVcClaim, String.class);
-                        var credentialEmployee = learCredentialEmployeeFactory
-                                .mapStringToLEARCredentialEmployee(processedVc);
-                        return Mono.just(extractPowers(credentialEmployee));
+                        var parsed = credentialParser.parse(processedVc);
+                        List<Power> powers = credentialParser.extractPowers(parsed.node(), parsed.profile());
+                        return Mono.just(powers);
                     } catch (JsonProcessingException e) {
                         return Mono.error(new ParseErrorException("Error parsing id_token credential: " + e));
                     }

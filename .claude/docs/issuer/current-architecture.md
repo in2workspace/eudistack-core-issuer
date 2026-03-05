@@ -38,16 +38,14 @@ src/main/java/es/in2/issuer/backend/
 │   ├── domain/
 │   │   ├── model/
 │   │   │   ├── dto/                     # CredentialRequest/Response, PreSubmittedCredentialDataRequest
-│   │   │   ├── dto/credential/          # Issuer, CredentialStatus, LEARCredential hierarchy
+│   │   │   ├── dto/credential/          # Issuer, CredentialStatus, Power, Mandator
 │   │   │   ├── entities/                # CredentialProcedure, DeferredCredentialMetadata
 │   │   │   └── enums/                   # CredentialStatusEnum, CredentialType, SignatureMode
 │   │   ├── exception/                   # 61 domain-specific exceptions
 │   │   ├── service/                     # JWTService, AccessTokenService, VerifierService,
 │   │   │                                  ProofValidationService, M2MTokenService, etc.
 │   │   └── util/
-│   │       ├── factory/                 # CredentialFactory, LEARCredentialEmployeeFactory,
-│   │       │                              LEARCredentialMachineFactory, LabelCredentialFactory,
-│   │       │                              IssuerFactory
+│   │       ├── factory/                 # CredentialFactory, GenericCredentialBuilder, IssuerFactory
 │   │       ├── Constants.java           # GRANT_TYPE, credential types, contexts, expiration times
 │   │       └── EndpointsConstants.java  # All endpoint paths
 │   └── infrastructure/
@@ -226,27 +224,15 @@ signature_configuration_audit (
 | Monitoring | micrometer-tracing-bridge-brave | - | Distributed tracing |
 | Monitoring | micrometer-registry-prometheus | - | Metrics |
 
-## Credential Types (Hardcoded)
+## Credential Types (Profile-Driven)
 
-### LEARCredentialEmployee
+Credential types are defined entirely by JSON Schema profiles loaded by `CredentialProfileRegistry` at startup. No type-specific Java code is required.
 
-- **Format**: `jwt_vc_json` (W3C VCDM v2.0)
-- **Factory**: `LEARCredentialEmployeeFactory`
-- **Record**: `LEARCredentialEmployee` implements `LEARCredential`
-- **Structure**: `@context`, `id`, `type`, `description`, `credentialSubject.mandate.{mandatee, mandator, power[]}`, `issuer`, `validFrom`, `validUntil`, `credentialStatus`
-- **Context URLs**: `https://www.w3.org/ns/credentials/v2` + `https://credentials.eudistack.eu/.well-known/credentials/lear_credential_employee/w3c/v3`
+- **Factory**: `GenericCredentialBuilder` — builds unsigned credentials in the correct format (W3C VCDM or flat SD-JWT) based on `credential_format` in the profile
+- **Parsing**: `DynamicCredentialParser` — extracts powers, mandator, and orgId from `JsonNode` using `policy_extraction` paths in the profile
+- **Signing**: `CredentialSignerWorkflowImpl` — dispatches to JWT (JADES), SD-JWT, or CWT signing based on format
 
-### LEARCredentialMachine
-
-- **Format**: `jwt_vc_json`
-- **Factory**: `LEARCredentialMachineFactory`
-- **Context**: `https://www.w3.org/ns/credentials/v2` + `https://credentials.eudistack.eu/.well-known/credentials/lear_credential_machine/w3c/v2`
-
-### LabelCredential (gx:LabelCredential)
-
-- **Format**: `jwt_vc_json`
-- **Factory**: `LabelCredentialFactory`
-- **Context**: `https://www.w3.org/ns/credentials/v2` + `https://w3id.org/gaia-x/development#`
+See `spec-credential-schema-profiles.md` for the full profile specification and list of active profiles.
 
 ## Authentication Architecture
 
@@ -274,16 +260,16 @@ signature_configuration_audit (
 
 ## Policy Decision Points (3 separate services)
 
-### VerifiableCredentialPolicyAuthorizationServiceImpl
+### IssuancePdpServiceImpl
 - **Location**: `shared/infrastructure/config/security/service/impl/`
-- **Guards**: VCI issuance (`/vci/v1/issuances`)
+- **Guards**: VCI issuance (`/vci/v1/issuances`) and backoffice issuance
 - **Logic**:
-  - Extract `role` claim → must be `LEAR`
-  - Extract `vc` claim → parse into LEARCredential
-  - Route by schema:
-    - LEARCredentialEmployee: signer policy (admin org + Onboarding/Execute) OR mandator policy (same org + ProductOffering only)
-    - LEARCredentialMachine: signer policy OR mandator policy (same org + Onboarding only)
-    - LabelCredential: LEARCredentialMachine in access token + ID token validation against Verifier + Certification/Attest power
+  - Extract `vc` claim → parse via `DynamicCredentialParser` (profile-driven, no typed POJOs)
+  - Build `PolicyContext` with powers, orgId, sysAdmin flag, credential profile
+  - Route by credential type:
+    - LEARCredentialEmployee: `RequireSignerIssuanceRule` (admin org + Onboarding/Execute) OR `RequireMandatorDelegationRule("ProductOffering")` (same org + delegation coverage)
+    - LEARCredentialMachine: `RequireSignerIssuanceRule` OR `RequireMandatorDelegationRule("Onboarding")`
+    - LabelCredential: `RequireCertificationIssuanceRule` (Certification/Attest in signer + ID token)
 
 ### BackofficePdpServiceImpl
 - **Location**: `backoffice/application/workflow/policies/impl/`
@@ -297,15 +283,10 @@ signature_configuration_audit (
 
 ## Known Pain Points
 
-1. **Credential definitions hardcoded** in Factory classes with if/else dispatch in `CredentialFactory`
-2. **3 PDP services with duplicated code** (token parsing, role check, org extraction, sys-admin check)
+1. ~~**Credential definitions hardcoded** in Factory classes~~ — **RESOLVED**: `GenericCredentialBuilder` + `CredentialProfileRegistry` (profile-driven)
+2. ~~**3 PDP services with duplicated code**~~ — **RESOLVED**: `PolicyContextFactory` + `PolicyEnforcer` + composable `PolicyRule` implementations
 3. **Keycloak still required** for backoffice endpoints despite OID4VCI already decoupled
 4. **Metadata uses draft format** (`credential_definition.type[]` instead of OID4VCI 1.0 Final `credential_metadata.claims[].path[]`)
-5. **AuthorizationServerMetadata** incomplete (missing `authorization_endpoint`, `par_endpoint`, `dpop_signing_alg`)
-6. **TokenRequest** only supports `pre-authorized_code` and `refresh_token` (no `authorization_code`)
-7. **No SD-JWT** implementation (only `jwt_vc_json`)
-8. **No DPoP, PAR, PKCE, WIA** support
-9. **Nonce validation stubbed** (comment says "TODO: Check nonce when implemented")
-10. **COSE signing incomplete** (only Base64 normalization, not real COSE_Sign1)
-11. **IssuerApiClientTokenService** uses ROPC flow (deprecated in OAuth 2.1)
-12. **LEARCredentialEmployeeFactory.mapStringToLEARCredentialEmployee** has if/else for 3 different context URLs
+5. ~~**No SD-JWT** implementation~~ — **RESOLVED**: `GenericCredentialBuilder` builds flat SD-JWT payloads, `SdJwtPayloadBuilder` creates disclosures
+6. **COSE signing incomplete** (only Base64 normalization, not real COSE_Sign1)
+7. ~~**LEARCredentialEmployeeFactory.mapStringToLEARCredentialEmployee**~~ — **RESOLVED**: Legacy factories deleted, replaced by `DynamicCredentialParser`

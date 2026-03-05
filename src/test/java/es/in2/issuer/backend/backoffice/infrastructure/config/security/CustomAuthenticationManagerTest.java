@@ -33,6 +33,7 @@ class CustomAuthenticationManagerTest {
     @Mock private VerifierService verifierService;
     @Mock private JWTService jwtService;
     @Mock private AppConfig appConfig;
+    @Mock private es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry credentialProfileRegistry;
 
     private es.in2.issuer.backend.backoffice.infrastructure.config.security.CustomAuthenticationManager authenticationManager;
 
@@ -42,7 +43,8 @@ class CustomAuthenticationManagerTest {
                 verifierService,
                 new ObjectMapper(),
                 appConfig,
-                jwtService
+                jwtService,
+                credentialProfileRegistry
         );
         lenient().doReturn("principal@example.com")
                 .when(jwtService)

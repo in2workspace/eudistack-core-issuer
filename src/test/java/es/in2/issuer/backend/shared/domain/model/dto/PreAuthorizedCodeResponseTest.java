@@ -8,35 +8,35 @@ class PreAuthorizedCodeResponseTest {
 
     @Test
     void testConstructorAndGetters() {
-        // Arrange
-        Grants grants = new Grants("type", new Grants.TxCode(4, "numeric", "description"), null);
+        String expectedPreAuthorizedCode = "pre-auth-code-123";
+        TxCode expectedTxCode = new TxCode(4, "numeric", "description");
         String expectedPin = "1234";
 
-        // Act
-        PreAuthorizedCodeResponse preAuthorizedCodeResponse = new PreAuthorizedCodeResponse(
-                grants,
+        PreAuthorizedCodeResponse response = new PreAuthorizedCodeResponse(
+                expectedPreAuthorizedCode,
+                expectedTxCode,
                 expectedPin
         );
 
-        // Assert
-        assertEquals(grants, preAuthorizedCodeResponse.grants());
-        assertEquals(expectedPin, preAuthorizedCodeResponse.pin());
+        assertEquals(expectedPreAuthorizedCode, response.preAuthorizedCode());
+        assertEquals(expectedTxCode, response.txCode());
+        assertEquals(expectedPin, response.pin());
     }
 
     @Test
-    void testSetters() {
-        // Arrange
-        Grants grants = new Grants("newType", new Grants.TxCode(5, "newNumeric", "newDescription"), null);
-        String newPin = "5678";
+    void testBuilder() {
+        String expectedPreAuthorizedCode = "pre-auth-code-456";
+        TxCode expectedTxCode = new TxCode(5, "numeric", "newDescription");
+        String expectedPin = "5678";
 
-        // Act
-        PreAuthorizedCodeResponse preAuthorizedCodeResponse = PreAuthorizedCodeResponse.builder()
-                .grants(grants)
-                .pin(newPin)
+        PreAuthorizedCodeResponse response = PreAuthorizedCodeResponse.builder()
+                .preAuthorizedCode(expectedPreAuthorizedCode)
+                .txCode(expectedTxCode)
+                .pin(expectedPin)
                 .build();
 
-        // Assert
-        assertEquals(grants, preAuthorizedCodeResponse.grants());
-        assertEquals(newPin, preAuthorizedCodeResponse.pin());
+        assertEquals(expectedPreAuthorizedCode, response.preAuthorizedCode());
+        assertEquals(expectedTxCode, response.txCode());
+        assertEquals(expectedPin, response.pin());
     }
 }

@@ -47,6 +47,7 @@ class BackofficePdpServiceImplTest {
                 orgId,
                 Collections.singletonList(Power.builder().function("Onboarding").action("Execute").domain(orgId).build()),
                 null,
+                null,
                 LEAR_CREDENTIAL_EMPLOYEE,
                 sysAdmin,
                 orgId
@@ -54,7 +55,7 @@ class BackofficePdpServiceImplTest {
     }
 
     private PolicyContext buildContextNoPowers(String orgId, boolean sysAdmin) {
-        return new PolicyContext(orgId, Collections.emptyList(), null, LEAR_CREDENTIAL_EMPLOYEE, sysAdmin, orgId);
+        return new PolicyContext(orgId, Collections.emptyList(), null, null, LEAR_CREDENTIAL_EMPLOYEE, sysAdmin, orgId);
     }
 
     @Test

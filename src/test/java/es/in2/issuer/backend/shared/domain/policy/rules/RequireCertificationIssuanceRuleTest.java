@@ -4,14 +4,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.Payload;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
-import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Mandator;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
-import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.employee.LEARCredentialEmployee;
-import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.machine.LEARCredentialMachine;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContext;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
-import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
+import es.in2.issuer.backend.shared.domain.util.DynamicCredentialParser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,11 +18,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 
-import static es.in2.issuer.backend.shared.domain.util.Utils.extractPowers;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -38,53 +34,23 @@ class RequireCertificationIssuanceRuleTest {
     @Mock
     private ObjectMapper objectMapper;
     @Mock
-    private LEARCredentialEmployeeFactory learCredentialEmployeeFactory;
+    private DynamicCredentialParser credentialParser;
 
     private RequireCertificationIssuanceRule rule;
 
     @BeforeEach
     void setUp() {
-        rule = new RequireCertificationIssuanceRule(verifierService, jwtService, objectMapper, learCredentialEmployeeFactory);
+        rule = new RequireCertificationIssuanceRule(verifierService, jwtService, objectMapper, credentialParser);
     }
 
-    private LEARCredentialMachine buildMachineCredentialWithPower(String function, String action) {
-        Power power = Power.builder().function(function).action(action).build();
-        return LEARCredentialMachine.builder()
-                .type(List.of("VerifiableCredential", "LEARCredentialMachine"))
-                .credentialSubject(LEARCredentialMachine.CredentialSubject.builder()
-                        .mandate(LEARCredentialMachine.CredentialSubject.Mandate.builder()
-                                .mandator(LEARCredentialMachine.CredentialSubject.Mandate.Mandator.builder()
-                                        .organization("Org").build())
-                                .mandatee(LEARCredentialMachine.CredentialSubject.Mandate.Mandatee.builder()
-                                        .id("did:key:1234").build())
-                                .power(Collections.singletonList(power))
-                                .build())
-                        .build())
-                .build();
-    }
-
-    private LEARCredentialEmployee buildEmployeeCredentialWithPower(String function, String action) {
-        Mandator mandator = Mandator.builder().organizationIdentifier("Org").build();
-        Power power = Power.builder().function(function).action(action).build();
-        return LEARCredentialEmployee.builder()
-                .type(List.of("VerifiableCredential", "LEARCredentialEmployee"))
-                .credentialSubject(LEARCredentialEmployee.CredentialSubject.builder()
-                        .mandate(LEARCredentialEmployee.CredentialSubject.Mandate.builder()
-                                .mandator(mandator)
-                                .mandatee(LEARCredentialEmployee.CredentialSubject.Mandate.Mandatee.builder()
-                                        .id("did:key:5678").firstName("Jane").lastName("Doe")
-                                        .email("jane@example.com").build())
-                                .power(Collections.singletonList(power))
-                                .build())
-                        .build())
-                .build();
+    private List<Power> buildPowers(String function, String action) {
+        return List.of(Power.builder().function(function).action(action).build());
     }
 
     @Test
     void evaluate_succeedsWhenBothSignerAndIdTokenHaveCertificationAttest() throws Exception {
-        // Signer with Certification/Attest
-        var signer = buildMachineCredentialWithPower("Certification", "Attest");
-        PolicyContext ctx = new PolicyContext("Org", extractPowers(signer), signer, "LEARCredentialMachine", false, null);
+        List<Power> signerPowers = buildPowers("Certification", "Attest");
+        PolicyContext ctx = new PolicyContext("Org", signerPowers, null, null, "LEARCredentialMachine", false, null);
 
         String idToken = "dummy-id-token";
 
@@ -96,9 +62,12 @@ class RequireCertificationIssuanceRuleTest {
         when(jwtService.getClaimFromPayload(idTokenPayload, "vc_json")).thenReturn("\"vcJson\"");
         when(objectMapper.readValue("\"vcJson\"", String.class)).thenReturn("vcJson");
 
-        var idTokenCredential = buildEmployeeCredentialWithPower("Certification", "Attest");
-        when(learCredentialEmployeeFactory.mapStringToLEARCredentialEmployee("vcJson"))
-                .thenReturn(idTokenCredential);
+        com.fasterxml.jackson.databind.node.ObjectNode idTokenVcNode = new ObjectMapper().createObjectNode();
+        CredentialProfile idTokenProfile = mock(CredentialProfile.class);
+        Power idTokenPower = Power.builder().function("Certification").action("Attest").build();
+        var parsed = new DynamicCredentialParser.ParsedCredential(idTokenVcNode, idTokenProfile, "LEARCredentialEmployee");
+        when(credentialParser.parse("vcJson")).thenReturn(parsed);
+        when(credentialParser.extractPowers(idTokenVcNode, idTokenProfile)).thenReturn(List.of(idTokenPower));
 
         StepVerifier.create(rule.evaluate(ctx, idToken))
                 .verifyComplete();
@@ -106,8 +75,8 @@ class RequireCertificationIssuanceRuleTest {
 
     @Test
     void evaluate_failsWhenSignerLacksCertificationPower() {
-        var signer = buildMachineCredentialWithPower("Onboarding", "Execute");
-        PolicyContext ctx = new PolicyContext("Org", extractPowers(signer), signer, "LEARCredentialMachine", false, null);
+        List<Power> signerPowers = buildPowers("Onboarding", "Execute");
+        PolicyContext ctx = new PolicyContext("Org", signerPowers, null, null, "LEARCredentialMachine", false, null);
 
         StepVerifier.create(rule.evaluate(ctx, "dummy-id-token"))
                 .expectErrorMatches(e ->
@@ -118,8 +87,8 @@ class RequireCertificationIssuanceRuleTest {
 
     @Test
     void evaluate_failsWhenIdTokenLacksCertificationPower() throws Exception {
-        var signer = buildMachineCredentialWithPower("Certification", "Attest");
-        PolicyContext ctx = new PolicyContext("Org", extractPowers(signer), signer, "LEARCredentialMachine", false, null);
+        List<Power> signerPowers = buildPowers("Certification", "Attest");
+        PolicyContext ctx = new PolicyContext("Org", signerPowers, null, null, "LEARCredentialMachine", false, null);
 
         String idToken = "dummy-id-token";
 
@@ -131,10 +100,12 @@ class RequireCertificationIssuanceRuleTest {
         when(jwtService.getClaimFromPayload(idTokenPayload, "vc_json")).thenReturn("\"vcJson\"");
         when(objectMapper.readValue("\"vcJson\"", String.class)).thenReturn("vcJson");
 
-        // idToken credential with wrong power
-        var idTokenCredential = buildEmployeeCredentialWithPower("Onboarding", "Execute");
-        when(learCredentialEmployeeFactory.mapStringToLEARCredentialEmployee("vcJson"))
-                .thenReturn(idTokenCredential);
+        com.fasterxml.jackson.databind.node.ObjectNode idTokenVcNode = new ObjectMapper().createObjectNode();
+        CredentialProfile idTokenProfile = mock(CredentialProfile.class);
+        Power idTokenPower = Power.builder().function("Onboarding").action("Execute").build();
+        var parsed = new DynamicCredentialParser.ParsedCredential(idTokenVcNode, idTokenProfile, "LEARCredentialEmployee");
+        when(credentialParser.parse("vcJson")).thenReturn(parsed);
+        when(credentialParser.extractPowers(idTokenVcNode, idTokenProfile)).thenReturn(List.of(idTokenPower));
 
         StepVerifier.create(rule.evaluate(ctx, idToken))
                 .expectErrorMatches(e ->

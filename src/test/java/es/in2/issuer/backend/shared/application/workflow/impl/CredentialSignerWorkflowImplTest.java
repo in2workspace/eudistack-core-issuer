@@ -11,9 +11,6 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.util.factory.IssuerFactory;
-import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
-import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialMachineFactory;
-import es.in2.issuer.backend.shared.domain.util.factory.LabelCredentialFactory;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.repository.CredentialProcedureRepository;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
@@ -58,15 +55,6 @@ class CredentialSignerWorkflowImplTest {
 
     @Mock
     private DeferredCredentialWorkflow deferredCredentialWorkflow;
-
-    @Mock
-    private LEARCredentialEmployeeFactory learCredentialEmployeeFactory;
-
-    @Mock
-    private LEARCredentialMachineFactory learCredentialMachineFactory;
-
-    @Mock
-    private LabelCredentialFactory labelCredentialFactory;
 
     @Mock
     private IssuerFactory issuerFactory;
@@ -190,7 +178,7 @@ class CredentialSignerWorkflowImplTest {
 
         verify(accessTokenService).getCleanBearerToken(authorizationHeader);
         verify(backofficePdpService).validateSignCredential(processId, token, procedureId);
-        verifyNoInteractions(learCredentialEmployeeFactory);
+
     }
 
     @Test
@@ -336,7 +324,7 @@ class CredentialSignerWorkflowImplTest {
                 .verify();
 
         verify(credentialProcedureRepository).findByProcedureId(UUID.fromString(procedureId));
-        verifyNoInteractions(learCredentialEmployeeFactory);
+
         verifyNoInteractions(issuerFactory);
     }
 

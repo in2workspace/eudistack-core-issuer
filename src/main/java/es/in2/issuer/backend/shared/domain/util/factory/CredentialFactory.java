@@ -48,7 +48,7 @@ public class CredentialFactory {
         if (profile == null) {
             return Mono.error(new CredentialTypeUnsupportedException(credentialType));
         }
-        return genericCredentialBuilder.bindSubjectId(decodedCredential, subjectDid)
+        return genericCredentialBuilder.bindSubjectId(profile, decodedCredential, subjectDid)
                 .doOnSuccess(bound ->
                         log.info("ProcessID: {} - Credential bound to subject via profile: {}", processId, credentialType));
     }

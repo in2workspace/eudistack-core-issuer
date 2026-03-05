@@ -62,6 +62,9 @@ public class EndpointsConstants {
     public static final String BOOTSTRAP_PATH = BOOTSTRAP_BASE_PATH + "/**";
     public static final String BOOTSTRAP_ISSUANCES_PATH = BOOTSTRAP_BASE_PATH + "/issuances";
 
+    // Credential Offer Refresh
+    public static final String CREDENTIAL_OFFER_REFRESH_PATH = "/credential-offer/refresh/**";
+
     //status list Endpoints
     public static final String STATUS_LIST_BASE = "/w3c/v1/credentials/status";
     public static final String STATUS_LIST_PATH = STATUS_LIST_BASE + "/**";

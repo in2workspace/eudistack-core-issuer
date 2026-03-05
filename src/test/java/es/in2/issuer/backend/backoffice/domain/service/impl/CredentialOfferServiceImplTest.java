@@ -1,5 +1,8 @@
 package es.in2.issuer.backend.backoffice.domain.service.impl;
 
+import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferGrants;
+import es.in2.issuer.backend.shared.domain.model.dto.PreAuthorizedCodeGrant;
+import es.in2.issuer.backend.shared.domain.model.dto.TxCode;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -9,6 +12,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
+
+import java.util.List;
 
 import static org.mockito.Mockito.when;
 
@@ -26,25 +31,30 @@ class CredentialOfferServiceImplTest {
         when(appConfig.getIssuerBackendUrl()).thenReturn("https://example.com");
     }
 
-    //todo
-//    @Test
-//    void testBuildCustomCredentialOffer() {
-//        String credentialType = "type1";
-//        String preAuthCode = "code123";
-//        String email = "example@exmple.com";
-//        String pin = "1234";
-//        Grants grants = Grants.builder().preAuthorizedCode(preAuthCode).txCode(Grants.TxCode.builder().length(4).build()).build();
-//        when(appConfig.getIssuerBackendUrl()).thenReturn("https://example.com");
-//        StepVerifier.create(credentialOfferService.buildCustomCredentialOffer(credentialType, grants, email, pin))
-//                .expectNextMatches(offer ->
-//                        offer.credentialOffer().credentialIssuer().equals("https://example.com") &&
-//                                offer.credentialOffer().credentialConfigurationIds().equals(List.of(credentialType)) &&
-//                                offer.credentialOffer().grants().containsKey(GRANT_TYPE) &&
-//                                offer.credentialOffer().grants().get(GRANT_TYPE).preAuthorizedCode().equals(preAuthCode) &&
-//                                offer.credentialOffer().grants().get(GRANT_TYPE).txCode().length() == 4
-//                )
-//                .verifyComplete();
-//    }
+    @Test
+    void testBuildCredentialOffer() {
+        String credentialType = "type1";
+        String preAuthCode = "code123";
+        String email = "example@example.com";
+        String pin = "1234";
+        CredentialOfferGrants grants = CredentialOfferGrants.builder()
+                .preAuthorizedCode(PreAuthorizedCodeGrant.builder()
+                        .preAuthorizedCode(preAuthCode)
+                        .txCode(TxCode.builder().length(4).build())
+                        .build())
+                .build();
+
+        StepVerifier.create(credentialOfferService.buildCredentialOffer(credentialType, grants, email, pin))
+                .expectNextMatches(offer ->
+                        offer.credentialOffer().credentialIssuer().equals("https://example.com") &&
+                                offer.credentialOffer().credentialConfigurationIds().equals(List.of(credentialType)) &&
+                                offer.credentialOffer().grants().preAuthorizedCode().preAuthorizedCode().equals(preAuthCode) &&
+                                offer.credentialOffer().grants().preAuthorizedCode().txCode().length() == 4 &&
+                                offer.credentialEmail().equals(email) &&
+                                offer.pin().equals(pin)
+                )
+                .verifyComplete();
+    }
 
     @Test
     void testCreateCredentialOfferUriResponse() {

@@ -72,7 +72,6 @@ class CredentialFactoryTest {
                 .credentialType(LEAR_CREDENTIAL_EMPLOYEE)
                 .subject("subject")
                 .validUntil(new Timestamp(System.currentTimeMillis()))
-                .signatureMode("sign")
                 .email(email)
                 .build();
 
@@ -119,7 +118,6 @@ class CredentialFactoryTest {
                 .credentialType(LEAR_CREDENTIAL_MACHINE)
                 .subject("machine-subject")
                 .validUntil(new Timestamp(System.currentTimeMillis()))
-                .signatureMode("sign")
                 .email(email)
                 .build();
 
@@ -179,7 +177,7 @@ class CredentialFactoryTest {
         CredentialProfile profile = mock(CredentialProfile.class);
         when(credentialProfileRegistry.getByConfigurationId(credentialType)).thenReturn(profile);
 
-        when(genericCredentialBuilder.bindSubjectId(credential, mandateeId))
+        when(genericCredentialBuilder.bindSubjectId(eq(profile), eq(credential), eq(mandateeId)))
                 .thenReturn(Mono.just(result));
 
         //Act & Assert
@@ -187,7 +185,7 @@ class CredentialFactoryTest {
                 .expectNext(result)
                 .verifyComplete();
 
-        verify(genericCredentialBuilder).bindSubjectId(credential, mandateeId);
+        verify(genericCredentialBuilder).bindSubjectId(profile, credential, mandateeId);
     }
 
     @Test
@@ -206,7 +204,7 @@ class CredentialFactoryTest {
                 .expectError(CredentialTypeUnsupportedException.class)
                 .verify();
 
-        verify(genericCredentialBuilder, never()).bindSubjectId(anyString(), anyString());
+        verify(genericCredentialBuilder, never()).bindSubjectId(any(), anyString(), anyString());
     }
 
     @Test
@@ -220,7 +218,7 @@ class CredentialFactoryTest {
         CredentialProfile profile = mock(CredentialProfile.class);
         when(credentialProfileRegistry.getByConfigurationId(LEAR_CREDENTIAL_MACHINE)).thenReturn(profile);
 
-        when(genericCredentialBuilder.bindSubjectId(decodedCredential, subjectDid))
+        when(genericCredentialBuilder.bindSubjectId(eq(profile), eq(decodedCredential), eq(subjectDid)))
                 .thenReturn(Mono.just(expected));
 
         // Act & Assert
@@ -235,7 +233,7 @@ class CredentialFactoryTest {
                 .expectNext(expected)
                 .verifyComplete();
 
-        verify(genericCredentialBuilder).bindSubjectId(decodedCredential, subjectDid);
+        verify(genericCredentialBuilder).bindSubjectId(profile, decodedCredential, subjectDid);
     }
 
     @Test
@@ -250,7 +248,7 @@ class CredentialFactoryTest {
         CredentialProfile profile = mock(CredentialProfile.class);
         when(credentialProfileRegistry.getByConfigurationId(credentialType)).thenReturn(profile);
 
-        when(genericCredentialBuilder.bindSubjectId(decodedCredential, subjectDid))
+        when(genericCredentialBuilder.bindSubjectId(eq(profile), eq(decodedCredential), eq(subjectDid)))
                 .thenReturn(Mono.error(error));
 
         // Act & Assert
@@ -265,7 +263,7 @@ class CredentialFactoryTest {
                 .expectErrorMatches(t -> t == error)
                 .verify();
 
-        verify(genericCredentialBuilder).bindSubjectId(decodedCredential, subjectDid);
+        verify(genericCredentialBuilder).bindSubjectId(profile, decodedCredential, subjectDid);
     }
 
     @Test

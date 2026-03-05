@@ -65,7 +65,7 @@ class RevocationWorkflowTest {
     @BeforeEach
     void setUp() {
         mockProcedure = new CredentialProcedure();
-        mockProcedure.setCredentialDecoded(createValidCredentialJson());
+        mockProcedure.setCredentialDataSet(createValidCredentialJson());
         mockProcedure.setCredentialType("LEARCredentialEmployee");
     }
 
@@ -75,7 +75,7 @@ class RevocationWorkflowTest {
     void revoke_WithBitstringType_ShouldSucceed() throws JsonProcessingException {
         // Arrange
         String credentialJson = createValidCredentialJsonWithBitstring();
-        mockProcedure.setCredentialDecoded(credentialJson);
+        mockProcedure.setCredentialDataSet(credentialJson);
 
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
@@ -102,7 +102,7 @@ class RevocationWorkflowTest {
     void revoke_WithLegacyType_ShouldUseLegacyService() throws JsonProcessingException {
         // Arrange
         String credentialJson = createValidCredentialJsonWithLegacyType();
-        mockProcedure.setCredentialDecoded(credentialJson);
+        mockProcedure.setCredentialDataSet(credentialJson);
 
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
@@ -129,7 +129,7 @@ class RevocationWorkflowTest {
     void revoke_WithNullCredentialStatus_ShouldUseLegacyService() throws JsonProcessingException {
         // Arrange
         String credentialJson = "{\"vc\": {}}";
-        mockProcedure.setCredentialDecoded(credentialJson);
+        mockProcedure.setCredentialDataSet(credentialJson);
 
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
@@ -149,7 +149,7 @@ class RevocationWorkflowTest {
     void revoke_WithInvalidJson_ShouldThrowException() throws JsonProcessingException {
         // Arrange
         String invalidJson = "{invalid json}";
-        mockProcedure.setCredentialDecoded(invalidJson);
+        mockProcedure.setCredentialDataSet(invalidJson);
 
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
@@ -206,7 +206,7 @@ class RevocationWorkflowTest {
     void revokeSystem_WithBitstringType_ShouldSucceed() throws JsonProcessingException {
         // Arrange
         String credentialJson = createValidCredentialJsonWithBitstring();
-        mockProcedure.setCredentialDecoded(credentialJson);
+        mockProcedure.setCredentialDataSet(credentialJson);
 
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
@@ -233,7 +233,7 @@ class RevocationWorkflowTest {
     void revokeSystem_WithLegacyType_ShouldUseLegacyService() throws JsonProcessingException {
         // Arrange
         String credentialJson = createValidCredentialJsonWithLegacyType();
-        mockProcedure.setCredentialDecoded(credentialJson);
+        mockProcedure.setCredentialDataSet(credentialJson);
 
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
@@ -274,7 +274,7 @@ class RevocationWorkflowTest {
     @Test
     void revoke_WithNullCredentialStatusNode_ShouldThrowException() throws JsonProcessingException {
         // Arrange
-        mockProcedure.setCredentialDecoded("{}");
+        mockProcedure.setCredentialDataSet("{}");
 
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
@@ -296,7 +296,7 @@ class RevocationWorkflowTest {
     void revoke_WithPartialCredentialStatus_ShouldHandleNullFields() throws JsonProcessingException {
         // Arrange
         String credentialJson = createCredentialJsonWithPartialStatus();
-        mockProcedure.setCredentialDecoded(credentialJson);
+        mockProcedure.setCredentialDataSet(credentialJson);
 
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));

@@ -124,10 +124,16 @@ This is not a PDP policy but a data-filtering rule applied at the controller lev
 ## Policy rules inventory
 
 | Rule class | What it checks | SysAdmin bypass | Used in |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `RequirePowerRule` | User has a specific power (function + action) with a domain matching the tenant | Yes | Backoffice, StatusList |
 | `RequireOrganizationRule` | User's organization matches the resource's organization | Yes | Backoffice, StatusList |
+| `RequireTenantMatchRule` | Request tenant header matches the user's organization | No (skips if no header) | Issuance |
 | `RequireSignerIssuanceRule` | User is SysAdmin with `Onboarding / Execute` | No (sysAdmin IS the rule) | Issuance Employee, Machine |
-| `RequireMandatorEmployeeIssuanceRule` | Mandator org match + powers limited to `ProductOffering` | No | Issuance Employee |
-| `RequireMandatorMachineIssuanceRule` | Mandator org match + powers limited to `Onboarding` | No | Issuance Machine |
+| `RequireMandatorDelegationRule` | Mandator org match + all delegated powers have expected function + actions covered by signer | No | Issuance Employee (`"ProductOffering"`), Machine (`"Onboarding"`) |
 | `RequireCertificationIssuanceRule` | Signer + idToken both have `Certification / Attest` | No | Issuance LabelCredential |
+
+### Implementation notes
+
+- **`PolicyContext`** holds `JsonNode credential` (not typed POJOs) and `CredentialProfile profile`. Powers and organizationId are extracted via `DynamicCredentialParser` using `policy_extraction` paths from the profile.
+- **`RequireMandatorDelegationRule`** is parameterized by the expected function name. It replaces the former `RequireMandatorEmployeeIssuanceRule` and `RequireMandatorMachineIssuanceRule`.
+- **`PolicyEnforcer.enforceAny()`** implements OR semantics: succeeds if any rule passes (used for Signer OR Mandator paths).

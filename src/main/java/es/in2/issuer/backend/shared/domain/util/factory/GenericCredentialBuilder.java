@@ -31,9 +31,11 @@ public class GenericCredentialBuilder {
     private final IssuerFactory issuerFactory;
     private final AccessTokenService accessTokenService;
 
+    private static final String DC_SD_JWT = "dc+sd-jwt";
+
     /**
-     * Builds a W3C VCDM credential from a profile definition and input payload.
-     * Replaces the type-specific mapAndBuild*() methods.
+     * Builds an unsigned credential from a profile definition and input payload.
+     * Dispatches by format: W3C VCDM for jwt_vc_json/cwt_vc, flat structure for dc+sd-jwt.
      */
     public Mono<CredentialProcedureCreationRequest> buildCredential(
             CredentialProfile profile,
@@ -42,38 +44,6 @@ public class GenericCredentialBuilder {
             CredentialStatus credentialStatus,
             String email) {
 
-        ObjectNode credential = objectMapper.createObjectNode();
-
-        // @context
-        credential.set("@context", objectMapper.valueToTree(profile.credentialDefinition().context()));
-
-        // id
-        String credentialId = "urn:uuid:" + UUID.randomUUID();
-        credential.put("id", credentialId);
-
-        // type
-        credential.set("type", objectMapper.valueToTree(profile.credentialDefinition().type()));
-
-        // description (if present)
-        if (profile.description() != null) {
-            credential.put("description", profile.description());
-        }
-
-        // credentialSubject — strategy-based
-        JsonNode credentialSubjectNode;
-        if ("direct".equals(profile.credentialSubjectStrategy())) {
-            // payload is the full credential; extract its credentialSubject directly
-            JsonNode cs = payload.get("credentialSubject");
-            credentialSubjectNode = (cs != null) ? cs : payload;
-        } else {
-            // default: wrap payload as mandate
-            ObjectNode mandateWrapper = objectMapper.createObjectNode();
-            mandateWrapper.set("mandate", payload);
-            credentialSubjectNode = mandateWrapper;
-        }
-        credential.set("credentialSubject", credentialSubjectNode);
-
-        // validFrom / validUntil
         Instant now = Instant.now();
         String validFrom;
         String validUntil;
@@ -82,26 +52,22 @@ public class GenericCredentialBuilder {
             validFrom = now.toString();
             validUntil = now.plus(profile.validityDays(), ChronoUnit.DAYS).toString();
         } else {
-            // Use values from payload (LabelCredential case)
-            // The payload for LabelCredential comes as a full credential, not just mandate
             validFrom = payload.has("validFrom") ? payload.get("validFrom").asText() : now.toString();
             validUntil = payload.has("validUntil") ? payload.get("validUntil").asText()
                     : now.plus(365, ChronoUnit.DAYS).toString();
         }
-        credential.put("validFrom", validFrom);
-        credential.put("validUntil", validUntil);
-
-        // credentialStatus
-        credential.set("credentialStatus", objectMapper.valueToTree(credentialStatus));
 
         String credentialJson;
-        try {
-            credentialJson = objectMapper.writeValueAsString(credential);
-        } catch (Exception e) {
-            return Mono.error(new IllegalStateException("Failed to serialize credential", e));
+        if (DC_SD_JWT.equals(profile.format()) && profile.sdJwt() != null) {
+            credentialJson = buildSdJwtFlatCredential(profile, payload, credentialStatus, validFrom, validUntil);
+        } else {
+            credentialJson = buildW3cCredential(profile, payload, credentialStatus, validFrom, validUntil);
         }
 
-        // Extract subject and organization
+        if (credentialJson == null) {
+            return Mono.error(new IllegalStateException("Failed to serialize credential"));
+        }
+
         String subject = extractSubject(profile, payload);
 
         return extractOrganizationIdentifier(profile, payload)
@@ -117,19 +83,126 @@ public class GenericCredentialBuilder {
     }
 
     /**
-     * Binds a DID to credentialSubject.id in the decoded credential JSON.
-     * Generic — works for any credential type.
+     * Builds a W3C VCDM credential structure.
+     * Used for jwt_vc_json and cwt_vc formats.
      */
-    public Mono<String> bindSubjectId(String decodedCredentialJson, String subjectDid) {
+    private String buildW3cCredential(CredentialProfile profile, JsonNode payload,
+                                       CredentialStatus credentialStatus,
+                                       String validFrom, String validUntil) {
+        ObjectNode credential = objectMapper.createObjectNode();
+
+        credential.set("@context", objectMapper.valueToTree(profile.credentialDefinition().context()));
+        credential.put("id", "urn:uuid:" + UUID.randomUUID());
+        credential.set("type", objectMapper.valueToTree(profile.credentialDefinition().type()));
+
+        if (profile.description() != null) {
+            credential.put("description", profile.description());
+        }
+
+        JsonNode credentialSubjectNode;
+        if ("direct".equals(profile.credentialSubjectStrategy())) {
+            JsonNode cs = payload.get("credentialSubject");
+            credentialSubjectNode = (cs != null) ? cs : payload;
+        } else {
+            ObjectNode mandateWrapper = objectMapper.createObjectNode();
+            mandateWrapper.set("mandate", payload);
+            credentialSubjectNode = mandateWrapper;
+        }
+        credential.set("credentialSubject", credentialSubjectNode);
+
+        credential.put("validFrom", validFrom);
+        credential.put("validUntil", validUntil);
+        credential.set("credentialStatus", objectMapper.valueToTree(credentialStatus));
+
+        try {
+            return objectMapper.writeValueAsString(credential);
+        } catch (Exception e) {
+            log.error("Failed to serialize W3C credential", e);
+            return null;
+        }
+    }
+
+    /**
+     * Builds a flat SD-JWT VC structure directly.
+     * No W3C wrapper — payload claims go at top level.
+     * Structure: {vct, iss(placeholder), sub(placeholder), iat, nbf, exp, mandate, status}
+     */
+    private String buildSdJwtFlatCredential(CredentialProfile profile, JsonNode payload,
+                                             CredentialStatus credentialStatus,
+                                             String validFrom, String validUntil) {
+        ObjectNode credential = objectMapper.createObjectNode();
+
+        credential.put("vct", profile.sdJwt().vct());
+
+        // iss and sub are placeholders — bound later by bindIssuer/bindSubjectId
+        credential.put("iss", "");
+        credential.put("sub", "");
+
+        long iat = parseDateToUnixTime(validFrom);
+        long exp = parseDateToUnixTime(validUntil);
+        credential.put("iat", iat);
+        credential.put("nbf", iat);
+        credential.put("exp", exp);
+
+        // Payload goes directly at top level (e.g., "mandate": {...})
+        if ("direct".equals(profile.credentialSubjectStrategy())) {
+            // For "direct" strategy, merge all payload fields into top level
+            payload.properties().forEach(entry -> credential.set(entry.getKey(), entry.getValue()));
+        } else {
+            // Default: payload is the mandate content
+            credential.set("mandate", payload);
+        }
+
+        // Map credentialStatus → status_list
+        if (credentialStatus != null) {
+            String statusListUri = credentialStatus.statusListCredential();
+            String statusListIdx = credentialStatus.statusListIndex();
+            if (statusListUri != null && statusListIdx != null) {
+                try {
+                    int idx = Integer.parseInt(statusListIdx);
+                    credential.set("status", objectMapper.valueToTree(
+                            Map.of("status_list", Map.of("uri", statusListUri, "idx", idx))));
+                } catch (NumberFormatException e) {
+                    credential.set("status", objectMapper.valueToTree(
+                            Map.of("status_list", Map.of("uri", statusListUri, "idx", statusListIdx))));
+                }
+            }
+        }
+
+        // Store validFrom/validUntil as metadata for later use
+        credential.put("validFrom", validFrom);
+        credential.put("validUntil", validUntil);
+
+        try {
+            return objectMapper.writeValueAsString(credential);
+        } catch (Exception e) {
+            log.error("Failed to serialize SD-JWT flat credential", e);
+            return null;
+        }
+    }
+
+    /**
+     * Binds a DID to the credential subject.
+     * Format-aware: W3C sets credentialSubject.id, SD-JWT sets sub + mandate.mandatee.id.
+     */
+    public Mono<String> bindSubjectId(CredentialProfile profile, String decodedCredentialJson, String subjectDid) {
         try {
             ObjectNode credential = (ObjectNode) objectMapper.readTree(decodedCredentialJson);
-            ObjectNode credentialSubject = (ObjectNode) credential.get("credentialSubject");
 
-            if (credentialSubject == null) {
-                return Mono.error(new IllegalStateException("Missing credentialSubject in credential"));
+            if (DC_SD_JWT.equals(profile.format())) {
+                credential.put("sub", subjectDid);
+                JsonNode mandate = credential.get("mandate");
+                if (mandate != null && mandate.has("mandatee")) {
+                    ((ObjectNode) mandate.get("mandatee")).put("id", subjectDid);
+                }
+            } else {
+                ObjectNode credentialSubject = (ObjectNode) credential.get("credentialSubject");
+                if (credentialSubject == null) {
+                    return Mono.error(new IllegalStateException("Missing credentialSubject in credential"));
+                }
+                credentialSubject.put("id", subjectDid);
             }
 
-            credentialSubject.put("id", subjectDid);
             return Mono.just(objectMapper.writeValueAsString(credential));
         } catch (Exception e) {
             return Mono.error(new IllegalStateException("Failed to bind subject ID", e));
@@ -138,30 +211,48 @@ public class GenericCredentialBuilder {
 
     /**
      * Creates and binds an Issuer to the decoded credential.
-     * Uses profile.issuerType() to determine DetailedIssuer vs SimpleIssuer.
+     * Format-aware: W3C sets issuer object, SD-JWT sets iss string.
      */
     public Mono<String> bindIssuer(CredentialProfile profile, String decodedCredentialJson,
                                    String procedureId, String email) {
         return switch (profile.issuerType()) {
             case DETAILED -> issuerFactory.createDetailedIssuerAndNotifyOnError(procedureId, email)
-                    .flatMap(issuer -> setIssuerField(decodedCredentialJson, issuer));
+                    .flatMap(issuer -> setIssuerField(profile, decodedCredentialJson, issuer));
             case SIMPLE -> issuerFactory.createSimpleIssuerAndNotifyOnError(procedureId, email)
-                    .flatMap(issuer -> setIssuerField(decodedCredentialJson, issuer));
+                    .flatMap(issuer -> setIssuerField(profile, decodedCredentialJson, issuer));
         };
     }
 
-    private Mono<String> setIssuerField(String decodedCredentialJson, Object issuer) {
+    private Mono<String> setIssuerField(CredentialProfile profile, String decodedCredentialJson, Object issuer) {
         try {
             ObjectNode credential = (ObjectNode) objectMapper.readTree(decodedCredentialJson);
             JsonNode issuerNode = objectMapper.valueToTree(issuer);
-            if (issuerNode.isObject()) {
-                ((ObjectNode) issuerNode).remove("id");
+
+            if (DC_SD_JWT.equals(profile.format())) {
+                // SD-JWT: iss is a string (the issuer DID)
+                String issuerId = extractIssuerIdFromNode(issuerNode);
+                credential.put("iss", issuerId);
+            } else {
+                // W3C: issuer is an object
+                if (issuerNode.isObject()) {
+                    ((ObjectNode) issuerNode).remove("id");
+                }
+                credential.set("issuer", issuerNode);
             }
-            credential.set("issuer", issuerNode);
+
             return Mono.just(objectMapper.writeValueAsString(credential));
         } catch (Exception e) {
             return Mono.error(new IllegalStateException("Failed to bind issuer", e));
         }
+    }
+
+    private String extractIssuerIdFromNode(JsonNode issuerNode) {
+        if (issuerNode.isTextual()) return issuerNode.asText();
+        if (issuerNode.has("id")) return issuerNode.get("id").asText();
+        if (issuerNode.has("organizationIdentifier")) {
+            return "did:elsi:" + issuerNode.get("organizationIdentifier").asText();
+        }
+        return "";
     }
 
     /**

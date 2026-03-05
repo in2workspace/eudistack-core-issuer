@@ -19,24 +19,26 @@ class CredentialProcedureCreationRequestTest {
         CredentialProcedureCreationRequest request = CredentialProcedureCreationRequest.builder()
                 .procedureId("proc-123")
                 .organizationIdentifier("org-456")
-                .credentialDecoded("decoded-credential")
+                .credentialDataSet("decoded-credential")
                 .credentialType(LEAR_CREDENTIAL_EMPLOYEE)
+                .credentialFormat("jwt_vc")
                 .subject("did:example:subject")
                 .validUntil(validUntil)
-.signatureMode("JWS")
                 .email("roger@example.com")
+                .delivery("sync")
                 .build();
 
         // Assert
         assertThat(request)
                 .returns("proc-123", CredentialProcedureCreationRequest::procedureId)
                 .returns("org-456", CredentialProcedureCreationRequest::organizationIdentifier)
-                .returns("decoded-credential", CredentialProcedureCreationRequest::credentialDecoded)
+                .returns("decoded-credential", CredentialProcedureCreationRequest::credentialDataSet)
                 .returns(LEAR_CREDENTIAL_EMPLOYEE, CredentialProcedureCreationRequest::credentialType)
+                .returns("jwt_vc", CredentialProcedureCreationRequest::credentialFormat)
                 .returns("did:example:subject", CredentialProcedureCreationRequest::subject)
                 .returns(validUntil, CredentialProcedureCreationRequest::validUntil)
-                .returns("JWS", CredentialProcedureCreationRequest::signatureMode)
-                .returns("roger@example.com", CredentialProcedureCreationRequest::email);
+                .returns("roger@example.com", CredentialProcedureCreationRequest::email)
+                .returns("sync", CredentialProcedureCreationRequest::delivery);
     }
 
     @Test
@@ -47,34 +49,37 @@ class CredentialProcedureCreationRequestTest {
         CredentialProcedureCreationRequest a = CredentialProcedureCreationRequest.builder()
                 .procedureId("proc-1")
                 .organizationIdentifier("org-1")
-                .credentialDecoded("cred")
+                .credentialDataSet("cred")
                 .credentialType(LABEL_CREDENTIAL)
+                .credentialFormat("jwt_vc")
                 .subject("subj")
                 .validUntil(validUntil)
-.signatureMode("JWS")
                 .email("a@b.com")
+                .delivery("async")
                 .build();
 
         CredentialProcedureCreationRequest b = CredentialProcedureCreationRequest.builder()
                 .procedureId("proc-1")
                 .organizationIdentifier("org-1")
-                .credentialDecoded("cred")
+                .credentialDataSet("cred")
                 .credentialType(LABEL_CREDENTIAL)
+                .credentialFormat("jwt_vc")
                 .subject("subj")
                 .validUntil(validUntil)
-.signatureMode("JWS")
                 .email("a@b.com")
+                .delivery("async")
                 .build();
 
         CredentialProcedureCreationRequest c = CredentialProcedureCreationRequest.builder()
                 .procedureId("proc-2")
                 .organizationIdentifier("org-1")
-                .credentialDecoded("cred")
+                .credentialDataSet("cred")
                 .credentialType(LABEL_CREDENTIAL)
+                .credentialFormat("jwt_vc")
                 .subject("subj")
                 .validUntil(validUntil)
-.signatureMode("JWS")
                 .email("a@b.com")
+                .delivery("async")
                 .build();
 
         // Assert
@@ -117,12 +122,13 @@ class CredentialProcedureCreationRequestTest {
         assertThat(request)
                 .returns("proc-123", CredentialProcedureCreationRequest::procedureId)
                 .returns(null, CredentialProcedureCreationRequest::organizationIdentifier)
-                .returns(null, CredentialProcedureCreationRequest::credentialDecoded)
+                .returns(null, CredentialProcedureCreationRequest::credentialDataSet)
                 .returns(null, CredentialProcedureCreationRequest::credentialType)
+                .returns(null, CredentialProcedureCreationRequest::credentialFormat)
                 .returns(null, CredentialProcedureCreationRequest::subject)
                 .returns(null, CredentialProcedureCreationRequest::validUntil)
-                .returns(null, CredentialProcedureCreationRequest::signatureMode)
-                .returns(null, CredentialProcedureCreationRequest::email);
+                .returns(null, CredentialProcedureCreationRequest::email)
+                .returns(null, CredentialProcedureCreationRequest::delivery);
     }
 
     @Test

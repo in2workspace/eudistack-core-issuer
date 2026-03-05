@@ -21,7 +21,6 @@ class CredentialDetailsTest {
         String expectedCredentialJson = "{\"key\": \"value\"}";
         JsonNode jsonNode = null;
         String email = "email";
-        String expectedSignatureMode = "signatureMode";
         try {
             jsonNode = objectMapper.readTree(expectedCredentialJson);
         } catch (Exception e) {
@@ -29,13 +28,13 @@ class CredentialDetailsTest {
         }
 
         // Act
-        CredentialDetails credentialDetails = new CredentialDetails(uuid, expectedCredentialStatus, expectedSignatureMode, jsonNode, email);
+        CredentialDetails credentialDetails = new CredentialDetails(uuid, expectedCredentialStatus, jsonNode, email);
 
         // Assert
         assertEquals(uuid, credentialDetails.procedureId());
         assertEquals(expectedCredentialStatus, credentialDetails.lifeCycleStatus());
         assertEquals(jsonNode, credentialDetails.credential());
-        assertEquals(expectedSignatureMode, credentialDetails.signatureMode());
+        assertEquals(email, credentialDetails.email());
     }
 
     @Test
@@ -65,10 +64,9 @@ class CredentialDetailsTest {
         String expectedCredentialStatus = "Valid";
         JsonNode jsonNode = objectMapper.readTree("{\"key\": \"value\"}");
         String email = "email";
-        String expectedSignatureMode = "signatureMode";
 
-        CredentialDetails credentialDetails = new CredentialDetails(uuid, expectedCredentialStatus, expectedSignatureMode, jsonNode, email);
-        CredentialDetails credentialDetails2 = new CredentialDetails(uuid, expectedCredentialStatus, expectedSignatureMode, jsonNode, email);
+        CredentialDetails credentialDetails = new CredentialDetails(uuid, expectedCredentialStatus, jsonNode, email);
+        CredentialDetails credentialDetails2 = new CredentialDetails(uuid, expectedCredentialStatus, jsonNode, email);
 
         // Assert
         assertEquals(credentialDetails, credentialDetails2);

@@ -2,17 +2,14 @@ package es.in2.issuer.backend.shared.infrastructure.config.security.service.impl
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Mandator;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
-import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.employee.LEARCredentialEmployee;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
 import es.in2.issuer.backend.shared.domain.policy.PolicyEnforcer;
 import es.in2.issuer.backend.shared.domain.policy.rules.RequireCertificationIssuanceRule;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.domain.service.impl.JWTServiceImpl;
-import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
-import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialMachineFactory;
+import es.in2.issuer.backend.shared.domain.util.DynamicCredentialParser;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.crypto.CryptoComponent;
@@ -24,11 +21,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import java.util.Collections;
 import java.util.List;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -50,9 +47,7 @@ class IssuancePdpServiceImplIntegrationTest {
     private AppConfig appConfig;
 
     @Mock
-    private LEARCredentialEmployeeFactory learCredentialEmployeeFactory;
-    @Mock
-    private LEARCredentialMachineFactory learCredentialMachineFactory;
+    private DynamicCredentialParser credentialParser;
     @Mock
     private CredentialProfileRegistry credentialProfileRegistry;
 
@@ -71,21 +66,21 @@ class IssuancePdpServiceImplIntegrationTest {
                 jwtService,
                 objectMapper,
                 appConfig,
-                learCredentialEmployeeFactory,
-                learCredentialMachineFactory
+                credentialParser
         );
 
         PolicyEnforcer policyEnforcer = new PolicyEnforcer();
 
         RequireCertificationIssuanceRule certificationRule = new RequireCertificationIssuanceRule(
-                verifierService, jwtService, objectMapper, learCredentialEmployeeFactory);
+                verifierService, jwtService, objectMapper, credentialParser);
 
         issuancePdpService = new IssuancePdpServiceImpl(
                 policyContextFactory,
                 policyEnforcer,
                 objectMapper,
                 certificationRule,
-                credentialProfileRegistry
+                credentialProfileRegistry,
+                credentialParser
         );
     }
 
@@ -127,44 +122,23 @@ class IssuancePdpServiceImplIntegrationTest {
                 }
                 """;
         JsonNode jsonNode = objectMapper.readTree(json);
-        LEARCredentialEmployee learCredential = getLEARCredentialEmployee();
-        when(learCredentialEmployeeFactory.mapStringToLEARCredentialEmployee(any())).thenReturn(learCredential);
+        // Mock DynamicCredentialParser for the VC claim extracted from token
+        List<Power> signerPowers = List.of(
+                Power.builder().function("Onboarding").action("Execute").domain("DOME").type("Domain").build(),
+                Power.builder().function("ProductOffering").action(List.of("Create", "Update")).domain("DOME").type("Domain").build()
+        );
+        com.fasterxml.jackson.databind.node.ObjectNode vcNode = objectMapper.createObjectNode();
+        es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile profile =
+                org.mockito.Mockito.mock(es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile.class);
+        var parsed = new DynamicCredentialParser.ParsedCredential(vcNode, profile, LEAR_CREDENTIAL_EMPLOYEE);
+        when(credentialParser.parse(any())).thenReturn(parsed);
+        when(credentialParser.extractPowers(eq(vcNode), eq(profile)))
+                .thenReturn(signerPowers);
+        when(credentialParser.extractOrganizationId(eq(vcNode), eq(profile)))
+                .thenReturn("VATES-B60645900");
 
         Mono<Void> result = issuancePdpService.authorize(token, LEAR_CREDENTIAL_EMPLOYEE, jsonNode, "dummy-id-token");
 
         StepVerifier.create(result).verifyComplete();
-    }
-
-    private LEARCredentialEmployee getLEARCredentialEmployee() {
-        Mandator mandator = Mandator.builder()
-                .organizationIdentifier("VATES-B60645900")
-                .build();
-        LEARCredentialEmployee.CredentialSubject.Mandate.Mandatee mandatee =
-                LEARCredentialEmployee.CredentialSubject.Mandate.Mandatee.builder()
-                        .id("did:key:zDnaexNyf67234aQ96KtqKKssZnyWqrZzQkpVLFJX4Z56vBm9")
-                        .firstName("test")
-                        .lastName("test")
-                        .email("miguel.mir@in2.es")
-                        .build();
-        Power power = Power.builder()
-                .function("Onboarding")
-                .action("Execute")
-                .domain("DOME")
-                .type("Domain")
-                .build();
-        LEARCredentialEmployee.CredentialSubject.Mandate mandate =
-                LEARCredentialEmployee.CredentialSubject.Mandate.builder()
-                        .mandator(mandator)
-                        .mandatee(mandatee)
-                        .power(Collections.singletonList(power))
-                        .build();
-        LEARCredentialEmployee.CredentialSubject credentialSubject =
-                LEARCredentialEmployee.CredentialSubject.builder()
-                        .mandate(mandate)
-                        .build();
-        return LEARCredentialEmployee.builder()
-                .type(List.of("VerifiableCredential", "LEARCredentialEmployee"))
-                .credentialSubject(credentialSubject)
-                .build();
     }
 }

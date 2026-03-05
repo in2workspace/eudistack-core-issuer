@@ -7,6 +7,7 @@ import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Configuration;
@@ -37,6 +38,7 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
     private final ObjectMapper objectMapper;
     private final AppConfig appConfig;
     private final JWTService jwtService;
+    private final CredentialProfileRegistry credentialProfileRegistry;
 
     @Override
     public Mono<Authentication> authenticate(Authentication authentication) {
@@ -186,10 +188,11 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
         });
     }
 
-    private static final Set<String> ACCEPTED_VC_TYPES = Set.of(
-            "LEARCredentialMachine",
-            "LEARCredentialEmployee"
-    );
+    private Set<String> getAcceptedVcTypes() {
+        return credentialProfileRegistry.getAllProfiles().values().stream()
+                .map(es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile::credentialType)
+                .collect(java.util.stream.Collectors.toSet());
+    }
 
     private void validateVcClaim(Map<String, Object> claims) {
         Object vcObj = claims.get("vc");
@@ -217,10 +220,11 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
             throw new BadCredentialsException("Error parsing 'vc' claim", e);
         }
         JsonNode typeNode = vcNode.get("type");
+        Set<String> acceptedTypes = getAcceptedVcTypes();
         if (typeNode == null || !typeNode.isArray() || StreamSupport.stream(typeNode.spliterator(), false)
-                .noneMatch(node -> ACCEPTED_VC_TYPES.contains(node.asText()))) {
-            log.error("Credential type required: one of {}.", ACCEPTED_VC_TYPES);
-            throw new BadCredentialsException("Credential type required: one of " + ACCEPTED_VC_TYPES);
+                .noneMatch(node -> acceptedTypes.contains(node.asText()))) {
+            log.error("Credential type required: one of {}.", acceptedTypes);
+            throw new BadCredentialsException("Credential type required: one of " + acceptedTypes);
         }
     }
 }

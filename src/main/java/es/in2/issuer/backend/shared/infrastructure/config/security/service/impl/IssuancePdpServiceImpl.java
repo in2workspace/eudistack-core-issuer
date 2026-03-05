@@ -7,6 +7,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.Credenti
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
 import es.in2.issuer.backend.shared.domain.policy.PolicyEnforcer;
 import es.in2.issuer.backend.shared.domain.policy.rules.*;
+import es.in2.issuer.backend.shared.domain.util.DynamicCredentialParser;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.security.service.IssuancePdpService;
 import io.micrometer.observation.annotation.Observed;
@@ -27,6 +28,7 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
     private final ObjectMapper objectMapper;
     private final RequireCertificationIssuanceRule requireCertificationIssuanceRule;
     private final CredentialProfileRegistry credentialProfileRegistry;
+    private final DynamicCredentialParser credentialParser;
 
     @Observed(name = "issuance.pdp-authorize", contextualName = "issuance-pdp-authorize")
     @Override
@@ -45,11 +47,11 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
                         case LEAR_CREDENTIAL_EMPLOYEE -> policyEnforcer.enforceAny(ctx, payload,
                                 "Unauthorized: LEARCredentialEmployee does not meet any issuance policies.",
                                 new RequireSignerIssuanceRule(),
-                                new RequireMandatorEmployeeIssuanceRule(objectMapper));
+                                new RequireMandatorDelegationRule("ProductOffering", objectMapper, credentialParser));
                         case LEAR_CREDENTIAL_MACHINE -> policyEnforcer.enforceAny(ctx, payload,
                                 "Unauthorized: LEARCredentialMachine does not meet any issuance policies.",
                                 new RequireSignerIssuanceRule(),
-                                new RequireMandatorMachineIssuanceRule(objectMapper));
+                                new RequireMandatorDelegationRule("Onboarding", objectMapper, credentialParser));
                         case LABEL_CREDENTIAL -> requireCertificationIssuanceRule.evaluate(ctx, idToken);
                         default -> Mono.error(new InsufficientPermissionException(
                                 "Unauthorized: Unsupported schema"));

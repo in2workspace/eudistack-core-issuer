@@ -27,7 +27,8 @@ public record CredentialProfile(
         @JsonProperty("organization_extraction") OrganizationExtraction organizationExtraction,
         @JsonProperty("sd_jwt") SdJwtConfig sdJwt,
         @JsonProperty("credential_subject_strategy") String credentialSubjectStrategy,
-        @JsonProperty("json_schema") String jsonSchema
+        @JsonProperty("json_schema") String jsonSchema,
+        @JsonProperty("policy_extraction") PolicyExtraction policyExtraction
 ) {
 
     @Builder
@@ -86,6 +87,14 @@ public record CredentialProfile(
             @JsonProperty("vct") String vct,
             @JsonProperty("sd_alg") String sdAlg,
             @JsonProperty("sd_claims") List<String> sdClaims
+    ) {}
+
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record PolicyExtraction(
+            @JsonProperty("powers_path") String powersPath,
+            @JsonProperty("mandator_path") String mandatorPath,
+            @JsonProperty("org_id_field") String orgIdField
     ) {}
 
     /**

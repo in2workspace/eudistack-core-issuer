@@ -166,7 +166,9 @@ class GenericCredentialBuilderTest {
                 }
                 """;
 
-        StepVerifier.create(genericCredentialBuilder.bindSubjectId(credential, "did:key:z123"))
+        CredentialProfile profile = employeeProfile();
+
+        StepVerifier.create(genericCredentialBuilder.bindSubjectId(profile, credential, "did:key:z123"))
                 .assertNext(result -> {
                     assertThat(result).contains("\"id\":\"did:key:z123\"");
                     assertThat(result).contains("\"mandate\"");
@@ -182,7 +184,9 @@ class GenericCredentialBuilderTest {
                 }
                 """;
 
-        StepVerifier.create(genericCredentialBuilder.bindSubjectId(credential, "did:key:z123"))
+        CredentialProfile profile = employeeProfile();
+
+        StepVerifier.create(genericCredentialBuilder.bindSubjectId(profile, credential, "did:key:z123"))
                 .expectErrorMatches(e -> e instanceof IllegalStateException
                         && e.getMessage().contains("Missing credentialSubject"))
                 .verify();

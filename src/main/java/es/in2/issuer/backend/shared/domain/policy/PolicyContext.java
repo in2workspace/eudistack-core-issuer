@@ -1,7 +1,8 @@
 package es.in2.issuer.backend.shared.domain.policy;
 
-import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.LEARCredential;
+import com.fasterxml.jackson.databind.JsonNode;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 
 import java.util.List;
 
@@ -12,7 +13,8 @@ import java.util.List;
 public record PolicyContext(
         String organizationIdentifier,
         List<Power> powers,
-        LEARCredential credential,
+        JsonNode credential,
+        CredentialProfile profile,
         String credentialType,
         boolean sysAdmin,
         String tenantDomain

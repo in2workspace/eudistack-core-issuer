@@ -3,6 +3,7 @@ package es.in2.issuer.backend.shared.domain.service.impl;
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
 import es.in2.issuer.backend.shared.domain.exception.NoCredentialFoundException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
@@ -31,9 +32,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-import static org.hibernate.validator.internal.util.Contracts.assertNotNull;
-import static org.junit.Assert.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -70,9 +68,9 @@ class CredentialProcedureServiceImplTest {
     }
 
     @Test
-    void createCredentialProcedure_shouldSaveProcedureAndReturnProcedureId() {
+    void createCredentialProcedure_shouldSaveProcedureAndReturnCredentialProcedure() {
         // Given
-        String credentialDecoded = "{\"vc\":{\"type\":[\"VerifiableCredential\"]}}";
+        String credentialDataSet = "{\"vc\":{\"type\":[\"VerifiableCredential\"]}}";
         String organizationIdentifier = "org-123";
         String expectedProcedureId = UUID.randomUUID().toString();
         String expectedCredentialType = LEAR_CREDENTIAL_EMPLOYEE;
@@ -83,23 +81,25 @@ class CredentialProcedureServiceImplTest {
         CredentialProcedureCreationRequest request = CredentialProcedureCreationRequest.builder()
                 .procedureId(expectedProcedureId)
                 .organizationIdentifier(organizationIdentifier)
-                .credentialDecoded(credentialDecoded)
+                .credentialDataSet(credentialDataSet)
                 .subject(expectedSubject)
                 .credentialType(LEAR_CREDENTIAL_EMPLOYEE)
+                .credentialFormat("jwt_vc_json")
                 .validUntil(expectedValidUntil)
                 .email(expectedEmail)
+                .delivery("push")
                 .build();
 
         CredentialProcedure savedCredentialProcedure = CredentialProcedure.builder()
                 .procedureId(UUID.fromString(expectedProcedureId))
                 .credentialStatus(CredentialStatusEnum.DRAFT)
-                .credentialDecoded(credentialDecoded)
+                .credentialDataSet(credentialDataSet)
                 .organizationIdentifier(organizationIdentifier)
                 .credentialType(expectedCredentialType)
                 .subject(expectedSubject)
                 .validUntil(expectedValidUntil)
-                .signatureMode("remote")
                 .email(expectedEmail)
+                .delivery("push")
                 .notificationId(UUID.randomUUID())
                 .build();
 
@@ -108,11 +108,15 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(Mono.just(savedCredentialProcedure));
 
         // When
-        Mono<String> result = credentialProcedureService.createCredentialProcedure(request);
+        Mono<CredentialProcedure> result = credentialProcedureService.createCredentialProcedure(request);
 
         // Then
         StepVerifier.create(result)
-                .expectNext(expectedProcedureId)
+                .expectNextMatches(cp ->
+                        cp.getProcedureId().equals(UUID.fromString(expectedProcedureId)) &&
+                                cp.getCredentialStatus() == CredentialStatusEnum.DRAFT &&
+                                cp.getCredentialDataSet().equals(credentialDataSet) &&
+                                cp.getOrganizationIdentifier().equals(organizationIdentifier))
                 .verifyComplete();
 
         verify(r2dbcEntityTemplate, times(1)).insert(any(CredentialProcedure.class));
@@ -122,17 +126,17 @@ class CredentialProcedureServiceImplTest {
     void getCredentialTypeByProcedureId_shouldReturnNonDefaultType() throws Exception {
         // Given
         String procedureId = UUID.randomUUID().toString();
-        String credentialDecoded = "{\"vc\":{\"type\":[\"VerifiableCredential\", \"TestType\"]}}";
+        String credentialDataSet = "{\"vc\":{\"type\":[\"VerifiableCredential\", \"TestType\"]}}";
 
         CredentialProcedure credentialProcedure = new CredentialProcedure();
         credentialProcedure.setProcedureId(UUID.fromString(procedureId));
-        credentialProcedure.setCredentialDecoded(credentialDecoded);
+        credentialProcedure.setCredentialDataSet(credentialDataSet);
 
-        JsonNode credentialNode = new ObjectMapper().readTree(credentialDecoded);
+        JsonNode credentialNode = new ObjectMapper().readTree(credentialDataSet);
 
         when(credentialProcedureRepository.findById(any(UUID.class)))
                 .thenReturn(Mono.just(credentialProcedure));
-        when(objectMapper.readTree(credentialDecoded))
+        when(objectMapper.readTree(credentialDataSet))
                 .thenReturn(credentialNode);
 
         // When
@@ -148,17 +152,17 @@ class CredentialProcedureServiceImplTest {
     void getCredentialTypeByProcedureId_shouldReturnEmptyIfOnlyDefaultTypesPresent() throws Exception {
         // Given
         String procedureId = UUID.randomUUID().toString();
-        String credentialDecoded = "{\"vc\":{\"type\":[\"VerifiableCredential\", \"VerifiableAttestation\"]}}";
+        String credentialDataSet = "{\"vc\":{\"type\":[\"VerifiableCredential\", \"VerifiableAttestation\"]}}";
 
         CredentialProcedure credentialProcedure = new CredentialProcedure();
         credentialProcedure.setProcedureId(UUID.fromString(procedureId));
-        credentialProcedure.setCredentialDecoded(credentialDecoded);
+        credentialProcedure.setCredentialDataSet(credentialDataSet);
 
-        JsonNode credentialNode = new ObjectMapper().readTree(credentialDecoded);
+        JsonNode credentialNode = new ObjectMapper().readTree(credentialDataSet);
 
         when(credentialProcedureRepository.findById(any(UUID.class)))
                 .thenReturn(Mono.just(credentialProcedure));
-        when(objectMapper.readTree(credentialDecoded))
+        when(objectMapper.readTree(credentialDataSet))
                 .thenReturn(credentialNode);
 
         // When
@@ -174,17 +178,17 @@ class CredentialProcedureServiceImplTest {
     void getCredentialTypeByProcedureId_shouldReturnErrorIfTypeMissing() throws Exception {
         // Given
         String procedureId = UUID.randomUUID().toString();
-        String credentialDecoded = "{\"vc\":{}}";
+        String credentialDataSet = "{\"vc\":{}}";
 
         CredentialProcedure credentialProcedure = new CredentialProcedure();
         credentialProcedure.setProcedureId(UUID.fromString(procedureId));
-        credentialProcedure.setCredentialDecoded(credentialDecoded);
+        credentialProcedure.setCredentialDataSet(credentialDataSet);
 
-        JsonNode credentialNode = new ObjectMapper().readTree(credentialDecoded);
+        JsonNode credentialNode = new ObjectMapper().readTree(credentialDataSet);
 
         when(credentialProcedureRepository.findById(any(UUID.class)))
                 .thenReturn(Mono.just(credentialProcedure));
-        when(objectMapper.readTree(credentialDecoded))
+        when(objectMapper.readTree(credentialDataSet))
                 .thenReturn(credentialNode);
 
         // When
@@ -192,7 +196,7 @@ class CredentialProcedureServiceImplTest {
 
         // Then
         StepVerifier.create(result)
-                .expectErrorMatches(throwable -> throwable instanceof RuntimeException &&
+                .expectErrorMatches(throwable -> throwable instanceof MissingCredentialTypeException &&
                         throwable.getMessage().equals("The credential type is missing"))
                 .verify();
     }
@@ -201,15 +205,15 @@ class CredentialProcedureServiceImplTest {
     void getCredentialTypeByProcedureId_shouldReturnErrorIfJsonProcessingExceptionOccurs() throws Exception {
         // Given
         String procedureId = UUID.randomUUID().toString();
-        String invalidCredentialDecoded = "{\"vc\":{\"type\":[\"VerifiableCredential\", \"TestType\"}";
+        String invalidCredentialDataSet = "{\"vc\":{\"type\":[\"VerifiableCredential\", \"TestType\"}";
 
         CredentialProcedure credentialProcedure = new CredentialProcedure();
         credentialProcedure.setProcedureId(UUID.fromString(procedureId));
-        credentialProcedure.setCredentialDecoded(invalidCredentialDecoded);
+        credentialProcedure.setCredentialDataSet(invalidCredentialDataSet);
 
         when(credentialProcedureRepository.findById(any(UUID.class)))
                 .thenReturn(Mono.just(credentialProcedure));
-        when(objectMapper.readTree(invalidCredentialDecoded))
+        when(objectMapper.readTree(invalidCredentialDataSet))
                 .thenThrow(new RuntimeException("Invalid JSON"));
 
         // When
@@ -222,7 +226,7 @@ class CredentialProcedureServiceImplTest {
     }
 
     @Test
-    void updateDecodedCredentialByProcedureId_shouldUpdateAndSaveCredentialProcedure() {
+    void updateCredentialDataSetByProcedureId_shouldUpdateAndSaveCredentialProcedure() {
         // Given
         String procedureId = UUID.randomUUID().toString();
         String newCredential = "{\"vc\":{\"type\":[\"NewCredentialType\"]}}";
@@ -230,7 +234,7 @@ class CredentialProcedureServiceImplTest {
 
         CredentialProcedure existingCredentialProcedure = new CredentialProcedure();
         existingCredentialProcedure.setProcedureId(UUID.fromString(procedureId));
-        existingCredentialProcedure.setCredentialDecoded("{\"vc\":{\"type\":[\"OldCredentialType\"]}}");
+        existingCredentialProcedure.setCredentialDataSet("{\"vc\":{\"type\":[\"OldCredentialType\"]}}");
         existingCredentialProcedure.setCredentialStatus(CredentialStatusEnum.DRAFT);
         existingCredentialProcedure.setCredentialFormat("old_format");
 
@@ -240,7 +244,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(Mono.just(existingCredentialProcedure));
 
         // When
-        Mono<Void> result = credentialProcedureService.updateDecodedCredentialByProcedureId(procedureId, newCredential, newFormat);
+        Mono<Void> result = credentialProcedureService.updateCredentialDataSetByProcedureId(procedureId, newCredential, newFormat);
 
         // Then
         StepVerifier.create(result).verifyComplete();
@@ -248,13 +252,13 @@ class CredentialProcedureServiceImplTest {
         verify(credentialProcedureRepository, times(1)).findById(UUID.fromString(procedureId));
         verify(credentialProcedureRepository, times(1)).save(existingCredentialProcedure);
 
-        assertEquals(newCredential, existingCredentialProcedure.getCredentialDecoded());
+        assertEquals(newCredential, existingCredentialProcedure.getCredentialDataSet());
         assertEquals(newFormat, existingCredentialProcedure.getCredentialFormat());
         assertEquals(CredentialStatusEnum.ISSUED, existingCredentialProcedure.getCredentialStatus());
     }
 
     @Test
-    void updateDecodedCredentialByProcedureId_shouldHandleProcedureNotFound() {
+    void updateCredentialDataSetByProcedureId_shouldHandleProcedureNotFound() {
         // Given
         String procedureId = UUID.randomUUID().toString();
         String newCredential = "{\"vc\":{\"type\":[\"NewCredentialType\"]}}";
@@ -264,7 +268,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(Mono.empty());
 
         // When
-        Mono<Void> result = credentialProcedureService.updateDecodedCredentialByProcedureId(procedureId, newCredential, newFormat);
+        Mono<Void> result = credentialProcedureService.updateCredentialDataSetByProcedureId(procedureId, newCredential, newFormat);
 
         // Then
         StepVerifier.create(result).verifyComplete();
@@ -274,24 +278,24 @@ class CredentialProcedureServiceImplTest {
     }
 
     @Test
-    void getDecodedCredentialByProcedureId_shouldReturnDecodedCredential() {
+    void getCredentialDataSetByProcedureId_shouldReturnCredentialDataSet() {
         // Given
         String procedureId = UUID.randomUUID().toString();
-        String expectedDecodedCredential = "{\"vc\":{\"type\":[\"TestCredentialType\"]}}";
+        String expectedCredentialDataSet = "{\"vc\":{\"type\":[\"TestCredentialType\"]}}";
 
         CredentialProcedure credentialProcedure = new CredentialProcedure();
         credentialProcedure.setProcedureId(UUID.fromString(procedureId));
-        credentialProcedure.setCredentialDecoded(expectedDecodedCredential);
+        credentialProcedure.setCredentialDataSet(expectedCredentialDataSet);
 
         when(credentialProcedureRepository.findById(any(UUID.class)))
                 .thenReturn(Mono.just(credentialProcedure));
 
         // When
-        Mono<String> result = credentialProcedureService.getDecodedCredentialByProcedureId(procedureId);
+        Mono<String> result = credentialProcedureService.getCredentialDataSetByProcedureId(procedureId);
 
         // Then
         StepVerifier.create(result)
-                .expectNext(expectedDecodedCredential)
+                .expectNext(expectedCredentialDataSet)
                 .verifyComplete();
     }
 
@@ -317,16 +321,16 @@ class CredentialProcedureServiceImplTest {
     void getAllIssuedCredentialByOrganizationIdentifier_shouldReturnAllIssuedCredentials() {
         // Given
         String organizationIdentifier = "org-123";
-        String credential1Decoded = "{\"vc\":{\"type\":[\"TestCredentialType1\"]}}";
-        String credential2Decoded = "{\"vc\":{\"type\":[\"TestCredentialType2\"]}}";
+        String credential1DataSet = "{\"vc\":{\"type\":[\"TestCredentialType1\"]}}";
+        String credential2DataSet = "{\"vc\":{\"type\":[\"TestCredentialType2\"]}}";
 
         CredentialProcedure credentialProcedure1 = new CredentialProcedure();
-        credentialProcedure1.setCredentialDecoded(credential1Decoded);
+        credentialProcedure1.setCredentialDataSet(credential1DataSet);
         credentialProcedure1.setCredentialStatus(CredentialStatusEnum.ISSUED);
         credentialProcedure1.setOrganizationIdentifier(organizationIdentifier);
 
         CredentialProcedure credentialProcedure2 = new CredentialProcedure();
-        credentialProcedure2.setCredentialDecoded(credential2Decoded);
+        credentialProcedure2.setCredentialDataSet(credential2DataSet);
         credentialProcedure2.setCredentialStatus(CredentialStatusEnum.ISSUED);
         credentialProcedure2.setOrganizationIdentifier(organizationIdentifier);
 
@@ -336,8 +340,8 @@ class CredentialProcedureServiceImplTest {
 
         // When / Then
         StepVerifier.create(credentialProcedureService.getAllIssuedCredentialByOrganizationIdentifier(organizationIdentifier))
-                .expectNext(credential1Decoded)
-                .expectNext(credential2Decoded)
+                .expectNext(credential1DataSet)
+                .expectNext(credential2DataSet)
                 .verifyComplete();
     }
 
@@ -363,25 +367,23 @@ class CredentialProcedureServiceImplTest {
         // Given (non-admin path)
         String procedureId = UUID.randomUUID().toString();
         String organizationIdentifier = "org-123";
-        String credentialDecoded = "{\"vc\":{\"type\":[\"TestCredentialType\"]}}";
+        String credentialDataSet = "{\"vc\":{\"type\":[\"TestCredentialType\"]}}";
         UUID expectedProcedureId = UUID.fromString(procedureId);
         CredentialStatusEnum status = CredentialStatusEnum.ISSUED;
-        String signatureMode = "remote";
         String email = "owner@example.com";
 
         CredentialProcedure credentialProcedure = new CredentialProcedure();
         credentialProcedure.setProcedureId(expectedProcedureId);
-        credentialProcedure.setCredentialDecoded(credentialDecoded);
+        credentialProcedure.setCredentialDataSet(credentialDataSet);
         credentialProcedure.setCredentialStatus(status);
         credentialProcedure.setOrganizationIdentifier(organizationIdentifier);
-        credentialProcedure.setSignatureMode(signatureMode);
         credentialProcedure.setEmail(email);
 
-        JsonNode credentialNode = new ObjectMapper().readTree(credentialDecoded);
+        JsonNode credentialNode = new ObjectMapper().readTree(credentialDataSet);
 
         when(credentialProcedureRepository.findByProcedureIdAndOrganizationIdentifier(any(UUID.class), any(String.class)))
                 .thenReturn(Mono.just(credentialProcedure));
-        when(objectMapper.readTree(credentialDecoded)).thenReturn(credentialNode);
+        when(objectMapper.readTree(credentialDataSet)).thenReturn(credentialNode);
 
         // When
         Mono<CredentialDetails> result = credentialProcedureService
@@ -393,7 +395,6 @@ class CredentialProcedureServiceImplTest {
                         details.procedureId().equals(expectedProcedureId) &&
                                 details.lifeCycleStatus().equals(status.name()) &&
                                 details.credential().equals(credentialNode) &&
-                                signatureMode.equals(details.signatureMode()) &&
                                 email.equals(details.email())
                 )
                 .verifyComplete();
@@ -408,24 +409,22 @@ class CredentialProcedureServiceImplTest {
         // Given (admin organization -> bypass via sysAdmin=true)
         String procedureId = UUID.randomUUID().toString();
         String organizationIdentifier = ADMIN_ORG_ID;
-        String credentialDecoded = "{\"vc\":{\"type\":[\"TestCredentialType\"]}}";
+        String credentialDataSet = "{\"vc\":{\"type\":[\"TestCredentialType\"]}}";
         UUID expectedProcedureId = UUID.fromString(procedureId);
-        String signatureMode = "remote";
         String email = "admin-owner@example.com";
 
         CredentialProcedure credentialProcedure = new CredentialProcedure();
         credentialProcedure.setProcedureId(expectedProcedureId);
-        credentialProcedure.setCredentialDecoded(credentialDecoded);
+        credentialProcedure.setCredentialDataSet(credentialDataSet);
         credentialProcedure.setCredentialStatus(CredentialStatusEnum.VALID);
         credentialProcedure.setOrganizationIdentifier("any-org");
-        credentialProcedure.setSignatureMode(signatureMode);
         credentialProcedure.setEmail(email);
 
-        JsonNode credentialNode = new ObjectMapper().readTree(credentialDecoded);
+        JsonNode credentialNode = new ObjectMapper().readTree(credentialDataSet);
 
         when(credentialProcedureRepository.findByProcedureId(any(UUID.class)))
                 .thenReturn(Mono.just(credentialProcedure));
-        when(objectMapper.readTree(credentialDecoded)).thenReturn(credentialNode);
+        when(objectMapper.readTree(credentialDataSet)).thenReturn(credentialNode);
 
         // When
         Mono<CredentialDetails> result = credentialProcedureService
@@ -436,7 +435,6 @@ class CredentialProcedureServiceImplTest {
                 .expectNextMatches(details ->
                         details.procedureId().equals(expectedProcedureId) &&
                                 details.credential().equals(credentialNode) &&
-                                signatureMode.equals(details.signatureMode()) &&
                                 email.equals(details.email())
                 )
                 .verifyComplete();
@@ -462,7 +460,7 @@ class CredentialProcedureServiceImplTest {
         // Then
         StepVerifier.create(result)
                 .expectErrorSatisfies(err -> {
-                    assertTrue(err instanceof NoCredentialFoundException);
+                    assertInstanceOf(NoCredentialFoundException.class, err);
                     assertTrue(err.getMessage().contains(procedureId));
                 })
                 .verify();
@@ -492,16 +490,16 @@ class CredentialProcedureServiceImplTest {
         // Given
         String procedureId = UUID.randomUUID().toString();
         String organizationIdentifier = "org-123";
-        String invalidCredentialDecoded = "{\"vc\":{\"type\":[\"TestCredentialType\"}";
+        String invalidCredentialDataSet = "{\"vc\":{\"type\":[\"TestCredentialType\"}";
 
         CredentialProcedure credentialProcedure = new CredentialProcedure();
         credentialProcedure.setProcedureId(UUID.fromString(procedureId));
-        credentialProcedure.setCredentialDecoded(invalidCredentialDecoded);
+        credentialProcedure.setCredentialDataSet(invalidCredentialDataSet);
         credentialProcedure.setOrganizationIdentifier(organizationIdentifier);
 
         when(credentialProcedureRepository.findByProcedureIdAndOrganizationIdentifier(any(UUID.class), any(String.class)))
                 .thenReturn(Mono.just(credentialProcedure));
-        when(objectMapper.readTree(invalidCredentialDecoded))
+        when(objectMapper.readTree(invalidCredentialDataSet))
                 .thenThrow(new JsonParseException(null, "Error parsing credential"));
 
         // When
@@ -515,61 +513,75 @@ class CredentialProcedureServiceImplTest {
     }
 
     @Test
-    void getCredentialNodeSync_shouldReturnJsonNode_whenInputIsValid() throws Exception {
+    void getCredentialNode_shouldReturnJsonNode_whenInputIsValid() throws Exception {
         // Given
-        String credentialDecoded = "{\"vc\":{\"type\":[\"VerifiableCredential\",\"Employee\"]}}";
+        String credentialDataSet = "{\"vc\":{\"type\":[\"VerifiableCredential\",\"Employee\"]}}";
         CredentialProcedure cp = new CredentialProcedure();
-        cp.setCredentialDecoded(credentialDecoded);
+        cp.setCredentialDataSet(credentialDataSet);
 
-        JsonNode expectedNode = new ObjectMapper().readTree(credentialDecoded);
-        when(objectMapper.readTree(credentialDecoded)).thenReturn(expectedNode);
+        JsonNode expectedNode = new ObjectMapper().readTree(credentialDataSet);
+        when(objectMapper.readTree(credentialDataSet)).thenReturn(expectedNode);
 
         // When
-        JsonNode result = credentialProcedureService.getCredentialNodeSync(cp);
+        Mono<JsonNode> result = credentialProcedureService.getCredentialNode(cp);
 
         // Then
-        assertNotNull(result, "Returned JsonNode should not be null");
-        assertTrue(result.has("vc"), "Returned JsonNode should contain 'vc' field");
-        assertEquals(expectedNode, result);
-        verify(objectMapper, times(1)).readTree(credentialDecoded);
+        StepVerifier.create(result)
+                .expectNextMatches(node ->
+                        node.has("vc") && node.equals(expectedNode))
+                .verifyComplete();
+
+        verify(objectMapper, times(1)).readTree(credentialDataSet);
     }
 
     @Test
-    void getCredentialNodeSync_shouldThrow_whenCredentialProcedureIsNull() {
-        ParseCredentialJsonException ex = assertThrows(
-                ParseCredentialJsonException.class,
-                () -> credentialProcedureService.getCredentialNodeSync(null)
-        );
-        assertEquals("CredentialProcedure or credentialDecoded is null", ex.getMessage());
+    void getCredentialNode_shouldError_whenCredentialProcedureIsNull() {
+        // When
+        Mono<JsonNode> result = credentialProcedureService.getCredentialNode(null);
+
+        // Then
+        StepVerifier.create(result)
+                .expectErrorMatches(err ->
+                        err instanceof ParseCredentialJsonException &&
+                                err.getMessage().equals("CredentialProcedure or credentialDataSet is null"))
+                .verify();
     }
 
     @Test
-    void getCredentialNodeSync_shouldThrow_whenCredentialDecodedIsNull() {
+    void getCredentialNode_shouldError_whenCredentialDataSetIsNull() {
         CredentialProcedure cp = new CredentialProcedure();
-        cp.setCredentialDecoded(null);
+        cp.setCredentialDataSet(null);
 
-        ParseCredentialJsonException ex = assertThrows(
-                ParseCredentialJsonException.class,
-                () -> credentialProcedureService.getCredentialNodeSync(cp)
-        );
-        assertEquals("CredentialProcedure or credentialDecoded is null", ex.getMessage());
+        // When
+        Mono<JsonNode> result = credentialProcedureService.getCredentialNode(cp);
+
+        // Then
+        StepVerifier.create(result)
+                .expectErrorMatches(err ->
+                        err instanceof ParseCredentialJsonException &&
+                                err.getMessage().equals("CredentialProcedure or credentialDataSet is null"))
+                .verify();
     }
 
     @Test
-    void getCredentialNodeSync_shouldThrow_whenJsonIsInvalid() throws Exception {
+    void getCredentialNode_shouldError_whenJsonIsInvalid() throws Exception {
         String invalidJson = "{\"vc\":{\"type\":[\"VerifiableCredential\",\"Employee\"}";
         CredentialProcedure cp = new CredentialProcedure();
-        cp.setCredentialDecoded(invalidJson);
+        cp.setCredentialDataSet(invalidJson);
 
         doThrow(new JsonParseException(null, "Malformed JSON"))
                 .when(objectMapper).readTree(invalidJson);
 
-        ParseCredentialJsonException ex = assertThrows(
-                ParseCredentialJsonException.class,
-                () -> credentialProcedureService.getCredentialNodeSync(cp)
-        );
+        // When
+        Mono<JsonNode> result = credentialProcedureService.getCredentialNode(cp);
 
-        assertEquals("Error parsing credential JSON", ex.getMessage());
+        // Then
+        StepVerifier.create(result)
+                .expectErrorMatches(err ->
+                        err instanceof ParseCredentialJsonException &&
+                                err.getMessage().equals("Error parsing credential JSON"))
+                .verify();
+
         verify(objectMapper, times(1)).readTree(invalidJson);
     }
 
@@ -585,6 +597,7 @@ class CredentialProcedureServiceImplTest {
         cp1.setCredentialStatus(CredentialStatusEnum.DRAFT);
         cp1.setOrganizationIdentifier("org-1");
         cp1.setUpdatedAt(Instant.parse("2025-01-10T10:00:00Z"));
+        cp1.setCredentialDataSet("{\"vc\":{}}");
 
         CredentialProcedure cp2 = new CredentialProcedure();
         cp2.setProcedureId(UUID.randomUUID());
@@ -593,9 +606,16 @@ class CredentialProcedureServiceImplTest {
         cp2.setCredentialStatus(CredentialStatusEnum.ISSUED);
         cp2.setOrganizationIdentifier("org-2");
         cp2.setUpdatedAt(Instant.parse("2025-02-12T09:30:00Z"));
+        cp2.setCredentialDataSet("{\"vc\":{}}");
 
         when(credentialProcedureRepository.findAllOrderByUpdatedDesc())
                 .thenReturn(Flux.fromIterable(List.of(cp2, cp1)));
+
+        // objectMapper.readTree is called inside toProcedureBasicInfo
+        try {
+            when(objectMapper.readTree("{\"vc\":{}}")).thenReturn(new ObjectMapper().readTree("{\"vc\":{}}"));
+        } catch (Exception ignored) {
+        }
 
         // When
         Mono<CredentialProcedures> mono = credentialProcedureService.getAllProceduresVisibleFor(adminOrg, true);
@@ -714,6 +734,7 @@ class CredentialProcedureServiceImplTest {
         cp1.setCredentialStatus(CredentialStatusEnum.DRAFT);
         cp1.setOrganizationIdentifier(orgId);
         cp1.setUpdatedAt(Instant.parse("2025-01-10T10:00:00Z"));
+        cp1.setCredentialDataSet("{\"vc\":{}}");
 
         CredentialProcedure cp2 = new CredentialProcedure();
         cp2.setProcedureId(UUID.randomUUID());
@@ -722,9 +743,16 @@ class CredentialProcedureServiceImplTest {
         cp2.setCredentialStatus(CredentialStatusEnum.ISSUED);
         cp2.setOrganizationIdentifier(orgId);
         cp2.setUpdatedAt(Instant.parse("2025-02-12T09:30:00Z"));
+        cp2.setCredentialDataSet("{\"vc\":{}}");
 
         when(credentialProcedureRepository.findAllByOrganizationIdentifier(orgId))
                 .thenReturn(Flux.fromIterable(List.of(cp1, cp2)));
+
+        // objectMapper.readTree is called inside toProcedureBasicInfo
+        try {
+            when(objectMapper.readTree("{\"vc\":{}}")).thenReturn(new ObjectMapper().readTree("{\"vc\":{}}"));
+        } catch (Exception ignored) {
+        }
 
         // When
         Mono<CredentialProcedures> mono = credentialProcedureService.getAllProceduresBasicInfoByOrganizationId(orgId);
@@ -792,7 +820,7 @@ class CredentialProcedureServiceImplTest {
         cp.setCredentialType(LABEL_CREDENTIAL);
         cp.setEmail(email);
         // For LABEL, decoded JSON is not used, so it can be null
-        cp.setCredentialDecoded(null);
+        cp.setCredentialDataSet(null);
 
         when(credentialProcedureRepository.findByProcedureId(UUID.fromString(procedureId)))
                 .thenReturn(Mono.just(cp));

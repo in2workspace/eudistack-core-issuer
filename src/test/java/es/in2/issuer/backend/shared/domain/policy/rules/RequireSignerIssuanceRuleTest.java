@@ -19,7 +19,7 @@ class RequireSignerIssuanceRuleTest {
     void evaluate_succeedsWhenSysAdminWithOnboardingExecute() {
         Power power = Power.builder()
                 .function("Onboarding").action("Execute").build();
-        PolicyContext ctx = new PolicyContext("ORG-1", List.of(power), null, null, true, null);
+        PolicyContext ctx = new PolicyContext("ORG-1", List.of(power), null, null, null, true, null);
 
         StepVerifier.create(rule.evaluate(ctx, mock(JsonNode.class)))
                 .verifyComplete();
@@ -27,7 +27,7 @@ class RequireSignerIssuanceRuleTest {
 
     @Test
     void evaluate_failsWhenSysAdminButMissingPower() {
-        PolicyContext ctx = new PolicyContext("ORG-1", List.of(), null, null, true, null);
+        PolicyContext ctx = new PolicyContext("ORG-1", List.of(), null, null, null, true, null);
 
         StepVerifier.create(rule.evaluate(ctx, mock(JsonNode.class)))
                 .expectErrorMatches(e ->
@@ -40,7 +40,7 @@ class RequireSignerIssuanceRuleTest {
     void evaluate_failsWhenNotSysAdminEvenWithPower() {
         Power power = Power.builder()
                 .function("Onboarding").action("Execute").build();
-        PolicyContext ctx = new PolicyContext("ORG-1", List.of(power), null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG-1", List.of(power), null, null, null, false, null);
 
         StepVerifier.create(rule.evaluate(ctx, mock(JsonNode.class)))
                 .expectErrorMatches(e ->
@@ -51,7 +51,7 @@ class RequireSignerIssuanceRuleTest {
 
     @Test
     void evaluate_failsWhenNotSysAdminAndNoPower() {
-        PolicyContext ctx = new PolicyContext("ORG-1", List.of(), null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG-1", List.of(), null, null, null, false, null);
 
         StepVerifier.create(rule.evaluate(ctx, mock(JsonNode.class)))
                 .expectErrorMatches(e ->
