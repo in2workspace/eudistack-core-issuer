@@ -75,13 +75,9 @@ public final class Constants {
     public static final String CLIENT_CREDENTIALS_GRANT_TYPE_VALUE = "client_credentials";
     public static final String CLIENT_ASSERTION_TYPE_VALUE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 
-    // OPERATION MODES
-    public static final String ASYNC = "A";
-    public static final String SYNC = "S";
-
     // DELIVERY MODES
-    public static final String DELIVERY_IMMEDIATE = "immediate";
-    public static final String DELIVERY_DEFERRED = "deferred";
+    public static final String DELIVERY_UI = "ui";
+    public static final String DELIVERY_EMAIL = "email";
 
     // HTTP
     public static final String BEARER_PREFIX = "Bearer ";

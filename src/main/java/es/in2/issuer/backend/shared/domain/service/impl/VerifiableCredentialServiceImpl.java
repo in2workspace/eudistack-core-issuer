@@ -12,9 +12,6 @@ import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
 import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
 import es.in2.issuer.backend.shared.domain.service.VerifiableCredentialService;
 import es.in2.issuer.backend.shared.domain.util.factory.CredentialFactory;
-import es.in2.issuer.backend.shared.domain.util.factory.IssuerFactory;
-import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
-import es.in2.issuer.backend.shared.domain.util.factory.LabelCredentialFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -24,6 +21,7 @@ import java.text.ParseException;
 import java.util.List;
 import java.util.NoSuchElementException;
 
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 
@@ -34,9 +32,7 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
     private final CredentialFactory credentialFactory;
     private final CredentialProcedureService credentialProcedureService;
     private final DeferredCredentialMetadataService deferredCredentialMetadataService;
-    private final LEARCredentialEmployeeFactory learCredentialEmployeeFactory;
-    private final LabelCredentialFactory labelCredentialFactory;
-    private final IssuerFactory issuerFactory;
+    private final CredentialProfileRegistry credentialProfileRegistry;
 
     @Override
     public Mono<String> generateVc(String processId, PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest, String email, CredentialStatus credentialStatus, String procedureId) {
@@ -48,16 +44,15 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
                         email
                 )
                 .flatMap(credentialProcedureService::createCredentialProcedure)
-                .then(deferredCredentialMetadataService.createDeferredCredentialMetadata(
-                        procedureId,
-                        preSubmittedCredentialDataRequest.operationMode(),
-                        preSubmittedCredentialDataRequest.responseUri())
-                )
-                .flatMap(transactionCode ->
-                        credentialProcedureService.updateFormatByProcedureId(procedureId, preSubmittedCredentialDataRequest.format())
-                                .then(deferredCredentialMetadataService.updateFormatByProcedureId(procedureId, preSubmittedCredentialDataRequest.format()))
-                                .thenReturn(transactionCode)
-                );
+                .then(deferredCredentialMetadataService.createDeferredCredentialMetadata(procedureId))
+                .flatMap(transactionCode -> {
+                        String format = credentialProfileRegistry
+                                .getByConfigurationId(preSubmittedCredentialDataRequest.credentialConfigurationId())
+                                .format();
+                        return credentialProcedureService.updateFormatByProcedureId(procedureId, format)
+                                .then(deferredCredentialMetadataService.updateFormatByProcedureId(procedureId, format))
+                                .thenReturn(transactionCode);
+                });
     }
 
     @Override

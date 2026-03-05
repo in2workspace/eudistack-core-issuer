@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import lombok.extern.slf4j.Slf4j;
@@ -20,6 +21,7 @@ public class CredentialProfileRegistry {
 
     private final Map<String, CredentialProfile> byConfigurationId;
     private final Map<String, CredentialProfile> byCredentialType;
+    private final Map<String, JsonNode> rawProfilesByConfigurationId;
 
     public CredentialProfileRegistry(
             ObjectMapper objectMapper,
@@ -28,11 +30,12 @@ public class CredentialProfileRegistry {
         String profilesPattern = profilesBasePath + "/*.json";
         Map<String, CredentialProfile> configIdMap = new LinkedHashMap<>();
         Map<String, CredentialProfile> typeMap = new LinkedHashMap<>();
+        Map<String, JsonNode> rawMap = new LinkedHashMap<>();
 
         try {
             Resource[] resources = resourcePatternResolver.getResources(profilesPattern);
             for (Resource resource : resources) {
-                loadProfile(objectMapper, resource, configIdMap, typeMap);
+                loadProfile(objectMapper, resource, configIdMap, typeMap, rawMap);
             }
         } catch (IOException e) {
             throw new IllegalStateException("Failed to load credential profiles from " + profilesPattern, e);
@@ -46,14 +49,17 @@ public class CredentialProfileRegistry {
 
         this.byConfigurationId = Collections.unmodifiableMap(configIdMap);
         this.byCredentialType = Collections.unmodifiableMap(typeMap);
+        this.rawProfilesByConfigurationId = Collections.unmodifiableMap(rawMap);
     }
 
     private void loadProfile(ObjectMapper objectMapper, Resource resource,
                              Map<String, CredentialProfile> configIdMap,
-                             Map<String, CredentialProfile> typeMap) {
+                             Map<String, CredentialProfile> typeMap,
+                             Map<String, JsonNode> rawMap) {
         String filename = resource.getFilename();
         try (InputStream is = resource.getInputStream()) {
-            CredentialProfile profile = objectMapper.readValue(is, CredentialProfile.class);
+            JsonNode rawJson = objectMapper.readTree(is);
+            CredentialProfile profile = objectMapper.treeToValue(rawJson, CredentialProfile.class);
 
             String configId = profile.credentialConfigurationId();
             if (configId == null || configId.isBlank()) {
@@ -75,6 +81,7 @@ public class CredentialProfileRegistry {
             }
 
             configIdMap.put(configId, profile);
+            rawMap.put(configId, rawJson);
 
             log.info("Loaded credential profile '{}' (type: {}) from {}", configId, credentialType, filename);
         } catch (IOException e) {
@@ -92,5 +99,9 @@ public class CredentialProfileRegistry {
 
     public Map<String, CredentialProfile> getAllProfiles() {
         return byConfigurationId;
+    }
+
+    public JsonNode getRawProfile(String credentialConfigurationId) {
+        return rawProfilesByConfigurationId.get(credentialConfigurationId);
     }
 }

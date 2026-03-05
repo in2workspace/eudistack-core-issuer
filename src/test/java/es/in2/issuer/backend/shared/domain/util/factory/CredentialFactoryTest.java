@@ -5,6 +5,7 @@ import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedEx
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureCreationRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
 import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
@@ -18,22 +19,12 @@ import reactor.test.StepVerifier;
 
 import java.sql.Timestamp;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.LABEL_CREDENTIAL;
 import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_MACHINE;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class CredentialFactoryTest {
-
-    @Mock
-    private LEARCredentialEmployeeFactory learCredentialEmployeeFactory;
-
-    @Mock
-    private LEARCredentialMachineFactory learCredentialMachineFactory;
-
-    @Mock
-    private LabelCredentialFactory labelCredentialFactory;
 
     @Mock
     private GenericCredentialBuilder genericCredentialBuilder;
@@ -67,10 +58,12 @@ class CredentialFactoryTest {
                 .build();
 
         PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest = PreSubmittedCredentialDataRequest.builder()
-                .operationMode("S")
                 .credentialConfigurationId(LEAR_CREDENTIAL_EMPLOYEE)
                 .payload(jsonNode)
                 .build();
+
+        CredentialProfile profile = mock(CredentialProfile.class);
+        when(credentialProfileRegistry.getByConfigurationId(LEAR_CREDENTIAL_EMPLOYEE)).thenReturn(profile);
 
         CredentialProcedureCreationRequest expectedResponse = CredentialProcedureCreationRequest.builder()
                 .procedureId(procedureId)
@@ -79,13 +72,11 @@ class CredentialFactoryTest {
                 .credentialType(LEAR_CREDENTIAL_EMPLOYEE)
                 .subject("subject")
                 .validUntil(new Timestamp(System.currentTimeMillis()))
-                .operationMode("S")
                 .signatureMode("sign")
                 .email(email)
                 .build();
 
-        when(learCredentialEmployeeFactory.mapAndBuildLEARCredentialEmployee(
-                procedureId, jsonNode, credentialStatus, "S", email))
+        when(genericCredentialBuilder.buildCredential(profile, procedureId, jsonNode, credentialStatus, email))
                 .thenReturn(Mono.just(expectedResponse));
 
         //Act & Assert
@@ -94,56 +85,7 @@ class CredentialFactoryTest {
                 .expectNext(expectedResponse)
                 .verifyComplete();
 
-        verify(learCredentialEmployeeFactory).mapAndBuildLEARCredentialEmployee(
-                procedureId, jsonNode, credentialStatus, "S", email);
-    }
-
-    @Test
-    void testMapCredentialIntoACredentialProcedureRequest_LabelCredential_Success() {
-        //Arrange
-        String processId = "processId";
-        String procedureId = "procedureId";
-        String email = "test@example.com";
-        JsonNode jsonNode = mock(JsonNode.class);
-
-        CredentialStatus credentialStatus = CredentialStatus.builder()
-                .id("https://example.com/status/2")
-                .type("StatusList2021Entry")
-                .statusPurpose("revocation")
-                .statusListIndex("67890")
-                .statusListCredential("https://example.com/credentials/status/2")
-                .build();
-
-        PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest = PreSubmittedCredentialDataRequest.builder()
-                .operationMode("S")
-                .credentialConfigurationId(LABEL_CREDENTIAL)
-                .payload(jsonNode)
-                .build();
-
-        CredentialProcedureCreationRequest expectedResponse = CredentialProcedureCreationRequest.builder()
-                .procedureId(procedureId)
-                .organizationIdentifier("org456")
-                .credentialDecoded("decoded")
-                .credentialType(LABEL_CREDENTIAL)
-                .subject("subject")
-                .validUntil(new Timestamp(System.currentTimeMillis()))
-                .operationMode("S")
-                .signatureMode("sign")
-                .email(email)
-                .build();
-
-        when(labelCredentialFactory.mapAndBuildLabelCredential(
-                procedureId, jsonNode, credentialStatus, "S", email))
-                .thenReturn(Mono.just(expectedResponse));
-
-        //Act & Assert
-        StepVerifier.create(credentialFactory.mapCredentialIntoACredentialProcedureRequest(
-                        processId, procedureId, preSubmittedCredentialDataRequest, credentialStatus, email))
-                .expectNext(expectedResponse)
-                .verifyComplete();
-
-        verify(labelCredentialFactory).mapAndBuildLabelCredential(
-                procedureId, jsonNode, credentialStatus, "S", email);
+        verify(genericCredentialBuilder).buildCredential(profile, procedureId, jsonNode, credentialStatus, email);
     }
 
     @Test
@@ -163,10 +105,12 @@ class CredentialFactoryTest {
                 .build();
 
         PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest = PreSubmittedCredentialDataRequest.builder()
-                .operationMode("S")
                 .credentialConfigurationId(LEAR_CREDENTIAL_MACHINE)
                 .payload(jsonNode)
                 .build();
+
+        CredentialProfile profile = mock(CredentialProfile.class);
+        when(credentialProfileRegistry.getByConfigurationId(LEAR_CREDENTIAL_MACHINE)).thenReturn(profile);
 
         CredentialProcedureCreationRequest expectedResponse = CredentialProcedureCreationRequest.builder()
                 .procedureId(procedureId)
@@ -175,13 +119,11 @@ class CredentialFactoryTest {
                 .credentialType(LEAR_CREDENTIAL_MACHINE)
                 .subject("machine-subject")
                 .validUntil(new Timestamp(System.currentTimeMillis()))
-                .operationMode("S")
                 .signatureMode("sign")
                 .email(email)
                 .build();
 
-        when(learCredentialMachineFactory.mapAndBuildLEARCredentialMachine(
-                procedureId, jsonNode, credentialStatus, "S", email))
+        when(genericCredentialBuilder.buildCredential(profile, procedureId, jsonNode, credentialStatus, email))
                 .thenReturn(Mono.just(expectedResponse));
 
         //Act & Assert
@@ -190,8 +132,7 @@ class CredentialFactoryTest {
                 .expectNext(expectedResponse)
                 .verifyComplete();
 
-        verify(learCredentialMachineFactory).mapAndBuildLEARCredentialMachine(
-                procedureId, jsonNode, credentialStatus, "S", email);
+        verify(genericCredentialBuilder).buildCredential(profile, procedureId, jsonNode, credentialStatus, email);
     }
 
     @Test
@@ -212,8 +153,10 @@ class CredentialFactoryTest {
         PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest = PreSubmittedCredentialDataRequest.builder()
                 .credentialConfigurationId("UNSUPPORTED_CREDENTIAL")
                 .payload(mock(JsonNode.class))
-                .operationMode("S")
                 .build();
+
+        when(credentialProfileRegistry.getByConfigurationId("UNSUPPORTED_CREDENTIAL")).thenReturn(null);
+        when(credentialProfileRegistry.getByCredentialType("UNSUPPORTED_CREDENTIAL")).thenReturn(null);
 
         //Act & Assert
         StepVerifier.create(credentialFactory.mapCredentialIntoACredentialProcedureRequest(
@@ -221,12 +164,7 @@ class CredentialFactoryTest {
                 .expectError(CredentialTypeUnsupportedException.class)
                 .verify();
 
-        verify(learCredentialEmployeeFactory, never()).mapAndBuildLEARCredentialEmployee(
-                any(), any(), any(), any(), any());
-        verify(labelCredentialFactory, never()).mapAndBuildLabelCredential(
-                any(), any(), any(), any(), any());
-        verify(learCredentialMachineFactory, never()).mapAndBuildLEARCredentialMachine(
-                any(), any(), any(), any(), any());
+        verify(genericCredentialBuilder, never()).buildCredential(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -238,7 +176,10 @@ class CredentialFactoryTest {
         String mandateeId = "mandateeId";
         String result = "result";
 
-        when(learCredentialEmployeeFactory.bindCryptographicCredentialSubjectId(credential, mandateeId))
+        CredentialProfile profile = mock(CredentialProfile.class);
+        when(credentialProfileRegistry.getByConfigurationId(credentialType)).thenReturn(profile);
+
+        when(genericCredentialBuilder.bindSubjectId(credential, mandateeId))
                 .thenReturn(Mono.just(result));
 
         //Act & Assert
@@ -246,7 +187,7 @@ class CredentialFactoryTest {
                 .expectNext(result)
                 .verifyComplete();
 
-        verify(learCredentialEmployeeFactory).bindCryptographicCredentialSubjectId(credential, mandateeId);
+        verify(genericCredentialBuilder).bindSubjectId(credential, mandateeId);
     }
 
     @Test
@@ -257,12 +198,15 @@ class CredentialFactoryTest {
         String credential = "credential";
         String mandateeId = "mandateeId";
 
+        when(credentialProfileRegistry.getByConfigurationId(credentialType)).thenReturn(null);
+        when(credentialProfileRegistry.getByCredentialType(credentialType)).thenReturn(null);
+
         //Act & Assert
         StepVerifier.create(credentialFactory.bindCryptographicCredentialSubjectId(processId, credentialType, credential, mandateeId))
                 .expectError(CredentialTypeUnsupportedException.class)
                 .verify();
 
-        verify(learCredentialEmployeeFactory, never()).bindCryptographicCredentialSubjectId(anyString(), anyString());
+        verify(genericCredentialBuilder, never()).bindSubjectId(anyString(), anyString());
     }
 
     @Test
@@ -273,7 +217,10 @@ class CredentialFactoryTest {
         String subjectDid = "did:key:zDna...";
         String expected = "boundCredential";
 
-        when(learCredentialMachineFactory.bindCryptographicCredentialSubjectId(decodedCredential, subjectDid))
+        CredentialProfile profile = mock(CredentialProfile.class);
+        when(credentialProfileRegistry.getByConfigurationId(LEAR_CREDENTIAL_MACHINE)).thenReturn(profile);
+
+        when(genericCredentialBuilder.bindSubjectId(decodedCredential, subjectDid))
                 .thenReturn(Mono.just(expected));
 
         // Act & Assert
@@ -288,8 +235,7 @@ class CredentialFactoryTest {
                 .expectNext(expected)
                 .verifyComplete();
 
-        verify(learCredentialMachineFactory).bindCryptographicCredentialSubjectId(decodedCredential, subjectDid);
-        verifyNoInteractions(learCredentialEmployeeFactory);
+        verify(genericCredentialBuilder).bindSubjectId(decodedCredential, subjectDid);
     }
 
     @Test
@@ -301,7 +247,10 @@ class CredentialFactoryTest {
         String subjectDid = "did:key:zDna...";
         RuntimeException error = new RuntimeException("bind error");
 
-        when(learCredentialMachineFactory.bindCryptographicCredentialSubjectId(decodedCredential, subjectDid))
+        CredentialProfile profile = mock(CredentialProfile.class);
+        when(credentialProfileRegistry.getByConfigurationId(credentialType)).thenReturn(profile);
+
+        when(genericCredentialBuilder.bindSubjectId(decodedCredential, subjectDid))
                 .thenReturn(Mono.error(error));
 
         // Act & Assert
@@ -316,8 +265,7 @@ class CredentialFactoryTest {
                 .expectErrorMatches(t -> t == error)
                 .verify();
 
-        verify(learCredentialMachineFactory).bindCryptographicCredentialSubjectId(decodedCredential, subjectDid);
-        verifyNoInteractions(learCredentialEmployeeFactory);
+        verify(genericCredentialBuilder).bindSubjectId(decodedCredential, subjectDid);
     }
 
     @Test
@@ -329,7 +277,10 @@ class CredentialFactoryTest {
         String format = "format";
         String authServerNonce = "nonce";
 
-        when(learCredentialEmployeeFactory.mapCredentialAndBindIssuerInToTheCredential(decodedCredential, procedureId, ""))
+        CredentialProfile profile = mock(CredentialProfile.class);
+        when(credentialProfileRegistry.getByConfigurationId(LEAR_CREDENTIAL_EMPLOYEE)).thenReturn(profile);
+
+        when(genericCredentialBuilder.bindIssuer(profile, decodedCredential, procedureId, ""))
                 .thenReturn(Mono.just(boundCredential));
         when(credentialProcedureService.updateDecodedCredentialByProcedureId(procedureId, boundCredential, format))
                 .thenReturn(Mono.empty());
@@ -339,7 +290,7 @@ class CredentialFactoryTest {
         StepVerifier.create(credentialFactory.mapCredentialBindIssuerAndUpdateDB(processId, procedureId, decodedCredential, LEAR_CREDENTIAL_EMPLOYEE, format, authServerNonce, ""))
                 .verifyComplete();
 
-        verify(learCredentialEmployeeFactory).mapCredentialAndBindIssuerInToTheCredential(decodedCredential, procedureId, "");
+        verify(genericCredentialBuilder).bindIssuer(profile, decodedCredential, procedureId, "");
         verify(credentialProcedureService).updateDecodedCredentialByProcedureId(procedureId, boundCredential, format);
         verify(deferredCredentialMetadataService).updateDeferredCredentialByAuthServerNonce(authServerNonce, format);
     }
@@ -353,11 +304,14 @@ class CredentialFactoryTest {
         String format = "format";
         String authServerNonce = "nonce";
 
+        when(credentialProfileRegistry.getByConfigurationId(credentialType)).thenReturn(null);
+        when(credentialProfileRegistry.getByCredentialType(credentialType)).thenReturn(null);
+
         StepVerifier.create(credentialFactory.mapCredentialBindIssuerAndUpdateDB(processId, procedureId, decodedCredential, credentialType, format, authServerNonce, ""))
                 .expectError(CredentialTypeUnsupportedException.class)
                 .verify();
 
-        verify(learCredentialEmployeeFactory, never()).mapCredentialAndBindIssuerInToTheCredential(any(), any(), any());
+        verify(genericCredentialBuilder, never()).bindIssuer(any(), any(), any(), any());
         verify(credentialProcedureService, never()).updateDecodedCredentialByProcedureId(any(), any(), any());
         verify(deferredCredentialMetadataService, never()).updateDeferredCredentialMetadataByAuthServerNonce(any());
     }
@@ -370,14 +324,17 @@ class CredentialFactoryTest {
         String format = "format";
         String authServerNonce = "nonce";
 
-        when(learCredentialEmployeeFactory.mapCredentialAndBindIssuerInToTheCredential(decodedCredential, procedureId, ""))
+        CredentialProfile profile = mock(CredentialProfile.class);
+        when(credentialProfileRegistry.getByConfigurationId(LEAR_CREDENTIAL_EMPLOYEE)).thenReturn(profile);
+
+        when(genericCredentialBuilder.bindIssuer(profile, decodedCredential, procedureId, ""))
                 .thenReturn(Mono.error(new RuntimeException("Binding error")));
 
         StepVerifier.create(credentialFactory.mapCredentialBindIssuerAndUpdateDB(processId, procedureId, decodedCredential, LEAR_CREDENTIAL_EMPLOYEE, format, authServerNonce, ""))
                 .expectError(RuntimeException.class)
                 .verify();
 
-        verify(learCredentialEmployeeFactory).mapCredentialAndBindIssuerInToTheCredential(decodedCredential, procedureId, "");
+        verify(genericCredentialBuilder).bindIssuer(profile, decodedCredential, procedureId, "");
         verify(credentialProcedureService, never()).updateDecodedCredentialByProcedureId(any(), any(), any());
         verify(deferredCredentialMetadataService, never()).updateDeferredCredentialMetadataByAuthServerNonce(any());
     }
@@ -391,7 +348,10 @@ class CredentialFactoryTest {
         String format = "format";
         String authServerNonce = "nonce";
 
-        when(learCredentialEmployeeFactory.mapCredentialAndBindIssuerInToTheCredential(decodedCredential, procedureId, ""))
+        CredentialProfile profile = mock(CredentialProfile.class);
+        when(credentialProfileRegistry.getByConfigurationId(LEAR_CREDENTIAL_EMPLOYEE)).thenReturn(profile);
+
+        when(genericCredentialBuilder.bindIssuer(profile, decodedCredential, procedureId, ""))
                 .thenReturn(Mono.just(boundCredential));
         when(credentialProcedureService.updateDecodedCredentialByProcedureId(procedureId, boundCredential, format))
                 .thenReturn(Mono.error(new RuntimeException("DB Update error")));
@@ -400,7 +360,7 @@ class CredentialFactoryTest {
                 .expectError(RuntimeException.class)
                 .verify();
 
-        verify(learCredentialEmployeeFactory).mapCredentialAndBindIssuerInToTheCredential(decodedCredential, procedureId, "");
+        verify(genericCredentialBuilder).bindIssuer(profile, decodedCredential, procedureId, "");
         verify(credentialProcedureService).updateDecodedCredentialByProcedureId(procedureId, boundCredential, format);
         verify(deferredCredentialMetadataService).updateDeferredCredentialByAuthServerNonce(authServerNonce, format);
     }

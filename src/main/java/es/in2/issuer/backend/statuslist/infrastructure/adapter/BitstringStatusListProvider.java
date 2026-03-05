@@ -324,7 +324,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
 
     private String buildListUrl(Long listId) {
         requireNonNullParam(listId, "listId");
-        return appConfig.getIssuerBackendUrl() + STATUS_LIST_BASE + "/" + listId;
+        return appConfig.getIssuerInternalUrl() + STATUS_LIST_BASE + "/" + listId;
     }
 
     private Mono<StatusList> resolveRevocationCandidate(Long statusListId, Integer idx) {

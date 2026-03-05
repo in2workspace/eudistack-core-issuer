@@ -21,6 +21,11 @@ public class AppConfig implements IssuerProperties {
         return appProperties.url();
     }
 
+    public String getIssuerInternalUrl() {
+        String internal = appProperties.internalUrl();
+        return (internal != null && !internal.isBlank()) ? internal : appProperties.url();
+    }
+
     public String getIssuerFrontendUrl() {
         return appProperties.issuerFrontendUrl();
     }

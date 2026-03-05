@@ -78,18 +78,16 @@ class CredentialProcedureServiceImplTest {
         String expectedCredentialType = LEAR_CREDENTIAL_EMPLOYEE;
         String expectedSubject = "TestSubject";
         String expectedEmail = "test@example.com";
-        String expectedOperationMode = "async";
         Timestamp expectedValidUntil = new Timestamp(Instant.now().toEpochMilli() + 1000);
 
         CredentialProcedureCreationRequest request = CredentialProcedureCreationRequest.builder()
-                .procedureId(expectedProcedureId)  // ← AÑADIDO
+                .procedureId(expectedProcedureId)
                 .organizationIdentifier(organizationIdentifier)
                 .credentialDecoded(credentialDecoded)
                 .subject(expectedSubject)
                 .credentialType(LEAR_CREDENTIAL_EMPLOYEE)
                 .validUntil(expectedValidUntil)
-                .operationMode(expectedOperationMode)  // ← AÑADIDO
-                .email(expectedEmail)  // ← AÑADIDO
+                .email(expectedEmail)
                 .build();
 
         CredentialProcedure savedCredentialProcedure = CredentialProcedure.builder()
@@ -100,7 +98,6 @@ class CredentialProcedureServiceImplTest {
                 .credentialType(expectedCredentialType)
                 .subject(expectedSubject)
                 .validUntil(expectedValidUntil)
-                .operationMode(expectedOperationMode)
                 .signatureMode("remote")
                 .email(expectedEmail)
                 .notificationId(UUID.randomUUID())
@@ -369,7 +366,6 @@ class CredentialProcedureServiceImplTest {
         String credentialDecoded = "{\"vc\":{\"type\":[\"TestCredentialType\"]}}";
         UUID expectedProcedureId = UUID.fromString(procedureId);
         CredentialStatusEnum status = CredentialStatusEnum.ISSUED;
-        String operationMode = "remote";
         String signatureMode = "remote";
         String email = "owner@example.com";
 
@@ -378,7 +374,6 @@ class CredentialProcedureServiceImplTest {
         credentialProcedure.setCredentialDecoded(credentialDecoded);
         credentialProcedure.setCredentialStatus(status);
         credentialProcedure.setOrganizationIdentifier(organizationIdentifier);
-        credentialProcedure.setOperationMode(operationMode);
         credentialProcedure.setSignatureMode(signatureMode);
         credentialProcedure.setEmail(email);
 
@@ -398,7 +393,6 @@ class CredentialProcedureServiceImplTest {
                         details.procedureId().equals(expectedProcedureId) &&
                                 details.lifeCycleStatus().equals(status.name()) &&
                                 details.credential().equals(credentialNode) &&
-                                operationMode.equals(details.operationMode()) &&
                                 signatureMode.equals(details.signatureMode()) &&
                                 email.equals(details.email())
                 )
@@ -416,7 +410,6 @@ class CredentialProcedureServiceImplTest {
         String organizationIdentifier = ADMIN_ORG_ID;
         String credentialDecoded = "{\"vc\":{\"type\":[\"TestCredentialType\"]}}";
         UUID expectedProcedureId = UUID.fromString(procedureId);
-        String operationMode = "remote";
         String signatureMode = "remote";
         String email = "admin-owner@example.com";
 
@@ -425,7 +418,6 @@ class CredentialProcedureServiceImplTest {
         credentialProcedure.setCredentialDecoded(credentialDecoded);
         credentialProcedure.setCredentialStatus(CredentialStatusEnum.VALID);
         credentialProcedure.setOrganizationIdentifier("any-org");
-        credentialProcedure.setOperationMode(operationMode);
         credentialProcedure.setSignatureMode(signatureMode);
         credentialProcedure.setEmail(email);
 
@@ -444,7 +436,6 @@ class CredentialProcedureServiceImplTest {
                 .expectNextMatches(details ->
                         details.procedureId().equals(expectedProcedureId) &&
                                 details.credential().equals(credentialNode) &&
-                                operationMode.equals(details.operationMode()) &&
                                 signatureMode.equals(details.signatureMode()) &&
                                 email.equals(details.email())
                 )

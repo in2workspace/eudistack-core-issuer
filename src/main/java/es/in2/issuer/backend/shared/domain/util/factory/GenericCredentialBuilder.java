@@ -40,7 +40,6 @@ public class GenericCredentialBuilder {
             String procedureId,
             JsonNode payload,
             CredentialStatus credentialStatus,
-            String operationMode,
             String email) {
 
         ObjectNode credential = objectMapper.createObjectNode();
@@ -113,7 +112,6 @@ public class GenericCredentialBuilder {
                         .credentialType(profile.credentialConfigurationId())
                         .subject(subject)
                         .validUntil(Timestamp.from(parseInstant(validUntil)))
-                        .operationMode(operationMode)
                         .email(email)
                         .build());
     }

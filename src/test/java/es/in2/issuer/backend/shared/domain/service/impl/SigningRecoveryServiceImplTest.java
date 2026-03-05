@@ -19,7 +19,6 @@ import reactor.test.StepVerifier;
 import java.util.UUID;
 
 import static org.mockito.Mockito.*;
-import static es.in2.issuer.backend.shared.domain.util.Constants.ASYNC;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -49,7 +48,6 @@ class SigningRecoveryServiceImplTest {
         procedure.setProcedureId(UUID.fromString(procedureId));
         procedure.setOrganizationIdentifier("ORG");
         procedure.setUpdatedBy("updated@example.com");
-        procedure.setOperationMode("SYNC");
         procedure.setCredentialStatus(CredentialStatusEnum.PEND_SIGNATURE);
     }
 
@@ -69,8 +67,6 @@ class SigningRecoveryServiceImplTest {
 
         StepVerifier.create(signingRecoveryService.handlePostRecoverError(procedureId, email))
                 .verifyComplete();
-
-        assertThat(procedure.getOperationMode()).isEqualTo(ASYNC);
 
         assertThat(procedure.getCredentialStatus()).isEqualTo(CredentialStatusEnum.PEND_SIGNATURE);
 

@@ -23,8 +23,7 @@ class CredentialProcedureCreationRequestTest {
                 .credentialType(LEAR_CREDENTIAL_EMPLOYEE)
                 .subject("did:example:subject")
                 .validUntil(validUntil)
-                .operationMode("ONLINE")
-                .signatureMode("JWS")
+.signatureMode("JWS")
                 .email("roger@example.com")
                 .build();
 
@@ -36,7 +35,6 @@ class CredentialProcedureCreationRequestTest {
                 .returns(LEAR_CREDENTIAL_EMPLOYEE, CredentialProcedureCreationRequest::credentialType)
                 .returns("did:example:subject", CredentialProcedureCreationRequest::subject)
                 .returns(validUntil, CredentialProcedureCreationRequest::validUntil)
-                .returns("ONLINE", CredentialProcedureCreationRequest::operationMode)
                 .returns("JWS", CredentialProcedureCreationRequest::signatureMode)
                 .returns("roger@example.com", CredentialProcedureCreationRequest::email);
     }
@@ -53,8 +51,7 @@ class CredentialProcedureCreationRequestTest {
                 .credentialType(LABEL_CREDENTIAL)
                 .subject("subj")
                 .validUntil(validUntil)
-                .operationMode("ONLINE")
-                .signatureMode("JWS")
+.signatureMode("JWS")
                 .email("a@b.com")
                 .build();
 
@@ -65,8 +62,7 @@ class CredentialProcedureCreationRequestTest {
                 .credentialType(LABEL_CREDENTIAL)
                 .subject("subj")
                 .validUntil(validUntil)
-                .operationMode("ONLINE")
-                .signatureMode("JWS")
+.signatureMode("JWS")
                 .email("a@b.com")
                 .build();
 
@@ -77,8 +73,7 @@ class CredentialProcedureCreationRequestTest {
                 .credentialType(LABEL_CREDENTIAL)
                 .subject("subj")
                 .validUntil(validUntil)
-                .operationMode("ONLINE")
-                .signatureMode("JWS")
+.signatureMode("JWS")
                 .email("a@b.com")
                 .build();
 
@@ -126,7 +121,6 @@ class CredentialProcedureCreationRequestTest {
                 .returns(null, CredentialProcedureCreationRequest::credentialType)
                 .returns(null, CredentialProcedureCreationRequest::subject)
                 .returns(null, CredentialProcedureCreationRequest::validUntil)
-                .returns(null, CredentialProcedureCreationRequest::operationMode)
                 .returns(null, CredentialProcedureCreationRequest::signatureMode)
                 .returns(null, CredentialProcedureCreationRequest::email);
     }

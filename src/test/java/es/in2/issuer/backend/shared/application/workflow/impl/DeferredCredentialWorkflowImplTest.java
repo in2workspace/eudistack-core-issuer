@@ -82,9 +82,6 @@ class DeferredCredentialWorkflowImplTest {
         when(deferredCredentialMetadataService.updateVcByProcedureId(jwt, procedureId))
                 .thenReturn(Mono.empty());
 
-        when(deferredCredentialMetadataService.getOperationModeByProcedureId(procedureId))
-                .thenReturn(Mono.just("ASYNC"));
-
         // when + then
         StepVerifier.create(deferredCredentialWorkflow.updateSignedCredentials(signedCredentials, procedureId))
                 .verifyComplete();

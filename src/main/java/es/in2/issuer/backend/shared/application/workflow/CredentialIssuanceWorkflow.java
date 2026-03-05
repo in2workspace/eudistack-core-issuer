@@ -7,6 +7,8 @@ public interface CredentialIssuanceWorkflow {
 
     Mono<IssuanceResponse> execute(String processId, PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest, String bearerToken, String idToken);
 
+    Mono<IssuanceResponse> executeWithoutAuthorization(String processId, PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest);
+
     Mono<CredentialResponse> generateVerifiableCredentialResponse(String processId, CredentialRequest credentialRequest, AccessTokenContext token);
 
     Mono<CredentialResponse> generateVerifiableCredentialDeferredResponse(String processId, DeferredCredentialRequest deferredCredentialRequest, AccessTokenContext accessTokenContext);

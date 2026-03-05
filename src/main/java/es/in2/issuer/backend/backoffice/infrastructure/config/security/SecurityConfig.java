@@ -4,10 +4,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.SecurityWebFiltersOrder;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
@@ -27,26 +25,20 @@ public class SecurityConfig {
     private final CustomAuthenticationManager customAuthenticationManager;
     private final InternalCORSConfig internalCORSConfig;
 
-    @Bean
-    @Primary
-    public ReactiveAuthenticationManager primaryAuthenticationManager() {
-        return customAuthenticationManager;
-    }
-
-    @Bean
-    public AuthenticationWebFilter customAuthenticationWebFilter(ProblemAuthenticationEntryPoint entryPoint) {
+    private AuthenticationWebFilter customAuthenticationWebFilter(ProblemAuthenticationEntryPoint entryPoint) {
         AuthenticationWebFilter authenticationWebFilter = new AuthenticationWebFilter(customAuthenticationManager);
         log.debug("customAuthenticationWebFilter - inside");
 
         authenticationWebFilter.setRequiresAuthenticationMatcher(
                 ServerWebExchangeMatchers.pathMatchers(
-                        // OID4VCI / VCI paths
-                        VCI_ISSUANCES_PATH,
+                        // Issuance endpoint (unified)
+                        ISSUANCES_PATH,
+                        // OID4VCI paths
                         OAUTH_TOKEN_PATH,
                         OID4VCI_CREDENTIAL_PATH,
                         OID4VCI_DEFERRED_CREDENTIAL_PATH,
                         OID4VCI_NOTIFICATION_PATH,
-                        // Backoffice paths (migrated from internalFilterChain)
+                        // Backoffice paths
                         BACKOFFICE_PATH,
                         STATUS_LIST_PATH,
                         SIGNING_PROVIDERS_PATH,
@@ -56,6 +48,16 @@ public class SecurityConfig {
         authenticationWebFilter.setServerAuthenticationConverter(new DualTokenServerAuthenticationConverter());
         authenticationWebFilter.setAuthenticationFailureHandler(new ServerAuthenticationEntryPointFailureHandler(entryPoint));
         return authenticationWebFilter;
+    }
+
+    @Bean
+    @Order(0)
+    public SecurityWebFilterChain bootstrapFilterChain(ServerHttpSecurity http) {
+        return http
+                .securityMatcher(ServerWebExchangeMatchers.pathMatchers(BOOTSTRAP_PATH))
+                .authorizeExchange(exchange -> exchange.anyExchange().permitAll())
+                .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                .build();
     }
 
     @Bean
@@ -69,12 +71,14 @@ public class SecurityConfig {
 
         http
                 .securityMatcher(ServerWebExchangeMatchers.pathMatchers(
+                        // Issuance endpoint (unified)
+                        ISSUANCES_PATH,
                         // Public OID4VCI paths
                         CORS_OID4VCI_PATH,
                         VCI_PATH,
                         WELL_KNOWN_PATH,
                         OAUTH_PATH,
-                        // Backoffice paths (migrated from internalFilterChain)
+                        // Backoffice paths
                         BACKOFFICE_PATH,
                         STATUS_LIST_PATH,
                         SIGNING_PROVIDERS_PATH,

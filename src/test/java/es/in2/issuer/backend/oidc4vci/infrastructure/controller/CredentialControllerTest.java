@@ -54,8 +54,7 @@ class CredentialControllerTest {
         AccessTokenContext accessTokenContext = new AccessTokenContext(
                 "testToken",
                 "jti-123",
-                "proc-123",
-                "responseUri"
+                "proc-123"
         );
 
         when(accessTokenService.validateAndResolveProcedure(authorizationHeader))
@@ -99,8 +98,7 @@ class CredentialControllerTest {
         AccessTokenContext accessTokenContext = new AccessTokenContext(
                 "testToken",
                 "jti-123",
-                "proc-123",
-                "responseUri"
+                "proc-123"
         );
 
         when(accessTokenService.validateAndResolveProcedure(authorizationHeader))

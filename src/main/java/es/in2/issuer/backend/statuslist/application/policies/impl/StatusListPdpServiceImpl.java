@@ -6,6 +6,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
 import es.in2.issuer.backend.shared.domain.policy.rules.RequireOrganizationRule;
 import es.in2.issuer.backend.shared.domain.policy.rules.RequirePowerRule;
+import es.in2.issuer.backend.shared.domain.policy.rules.RequireTenantMatchRule;
 import es.in2.issuer.backend.statuslist.application.policies.StatusListPdpService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +33,7 @@ public class StatusListPdpServiceImpl implements StatusListPdpService {
             log.info("Process ID: {} - Validating 'revoke' action...", processId);
             return validateStatus(procedure.getCredentialStatus())
                     .then(Mono.defer(() -> policyContextFactory.fromTokenSimple(token, tenantDomain)))
+                    .flatMap(ctx -> new RequireTenantMatchRule().evaluate(ctx, null).thenReturn(ctx))
                     .flatMap(ctx ->
                             RequirePowerRule.<Void>of("Onboarding", "Execute")
                                     .evaluate(ctx, null)

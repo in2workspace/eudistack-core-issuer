@@ -34,7 +34,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import javax.naming.OperationNotSupportedException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -48,9 +47,6 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class CredentialIssuanceWorkflowImplTest {
-
-    @Mock
-    private CredentialDeliveryService credentialDeliveryService;
 
     @Mock
     private VerifiableCredentialService verifiableCredentialService;
@@ -82,9 +78,6 @@ class CredentialIssuanceWorkflowImplTest {
     private IssuancePdpService issuancePdpService;
 
     @Mock
-    private M2MTokenService m2MTokenService;
-
-    @Mock
     private CredentialIssuerMetadataService credentialIssuerMetadataService;
 
     @Mock
@@ -92,33 +85,6 @@ class CredentialIssuanceWorkflowImplTest {
 
     @InjectMocks
     private CredentialIssuanceWorkflowImpl verifiableCredentialIssuanceWorkflow;
-
-    @Test
-    void unsupportedFormatErrorExceptionTest() {
-        String processId = "1234";
-        PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest = PreSubmittedCredentialDataRequest.builder().payload(null).schema("LEARCredentialEmployee").format("json_ldp").operationMode("S").build();
-        StepVerifier.create(verifiableCredentialIssuanceWorkflow.execute(processId, preSubmittedCredentialDataRequest, "token", null))
-                .expectError(FormatUnsupportedException.class)
-                .verify();
-    }
-
-    @Test
-    void unsupportedOperationModeExceptionTest() {
-        String processId = "1234";
-        PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest =
-                PreSubmittedCredentialDataRequest.builder()
-                        .payload(null)
-                        .schema("LEARCredentialEmployee")
-                        .format(JWT_VC_JSON)
-                        .operationMode("F")
-                        .build();
-
-        StepVerifier.create(
-                        verifiableCredentialIssuanceWorkflow.execute(processId, preSubmittedCredentialDataRequest, "token", null)
-                )
-                .expectError(OperationNotSupportedException.class)
-                .verify();
-    }
 
     @Test
     void completeWithdrawLEARProcessSyncSuccess() throws JsonProcessingException {
@@ -183,7 +149,7 @@ class CredentialIssuanceWorkflowImplTest {
                 """;
         ObjectMapper objectMapper = new ObjectMapper();
         JsonNode jsonNode = objectMapper.readTree(json);
-        PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest = PreSubmittedCredentialDataRequest.builder().payload(jsonNode).schema("LEARCredentialEmployee").format(JWT_VC_JSON).operationMode("S").build();
+        PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest = PreSubmittedCredentialDataRequest.builder().payload(jsonNode).credentialConfigurationId("LEARCredentialEmployee").build();
         String transactionCode = "4321";
 
         when(issuancePdpService.authorize(token, type, jsonNode, idToken)).thenReturn(Mono.empty());
@@ -265,9 +231,7 @@ class CredentialIssuanceWorkflowImplTest {
         JsonNode jsonNode = objectMapper.readTree(json);
         PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest = PreSubmittedCredentialDataRequest.builder()
                 .payload(jsonNode)
-                .schema("LEARCredentialEmployee")
-                .format(JWT_VC_JSON)
-                .operationMode("S")
+                .credentialConfigurationId("LEARCredentialEmployee")
                 .build();
         String transactionCode = "4321";
 
@@ -576,9 +540,7 @@ class CredentialIssuanceWorkflowImplTest {
         PreSubmittedCredentialDataRequest req =
                 PreSubmittedCredentialDataRequest.builder()
                         .payload(payload)
-                        .schema(schema)
-                        .format(JWT_VC_JSON)
-                        .operationMode("S")
+                        .credentialConfigurationId(schema)
                         .email(email) // <- important for the test
                         .build();
 
@@ -627,8 +589,7 @@ class CredentialIssuanceWorkflowImplTest {
         AccessTokenContext accessTokenContext = new AccessTokenContext(
                 "raw-token",
                 nonce,
-                procedureId,
-                null
+                procedureId
         );
 
         // metadata no proof
@@ -643,7 +604,6 @@ class CredentialIssuanceWorkflowImplTest {
         when(metadata.credentialConfigurationsSupported()).thenReturn(map);
 
         CredentialProcedure proc = mock(CredentialProcedure.class);
-        when(proc.getOperationMode()).thenReturn("S");
         when(proc.getCredentialType()).thenReturn(LEAR_CREDENTIAL_MACHINE);
         when(proc.getEmail()).thenReturn(null);
         when(proc.getProcedureId()).thenReturn(UUID.fromString(procedureId));
@@ -662,8 +622,7 @@ class CredentialIssuanceWorkflowImplTest {
                 eq(processId),
                 isNull(),
                 eq(nonce),
-                eq(accessTokenContext.rawToken()),
-                isNull(String.class),
+                isNull(),
                 eq(procedureId)
         )).thenReturn(Mono.just(cr));
 
@@ -683,97 +642,6 @@ class CredentialIssuanceWorkflowImplTest {
                 )
         ).expectNext(cr).verifyComplete();
 
-        verifyNoInteractions(credentialDeliveryService);
-    }
-
-    @Test
-    void generateVerifiableCredentialResponse_UsesEncodedCredentialOnDelivery() {
-        String processId = "p-1";
-        String nonce = "nonce123";
-        String responseUri = "https://wallet.example.com/callback";
-
-        String procedureId = UUID.randomUUID().toString(); // ✅ UUID
-        AccessTokenContext accessTokenContext = new AccessTokenContext(
-                "raw-token",
-                nonce,
-                procedureId,
-                responseUri
-        );
-
-        CredentialProcedure proc = mock(CredentialProcedure.class);
-        when(proc.getOperationMode()).thenReturn("S");
-        when(proc.getCredentialType()).thenReturn(LEAR_CREDENTIAL_MACHINE);
-        when(proc.getEmail()).thenReturn("owner@in2.es");
-        when(proc.getCredentialEncoded()).thenReturn("ENCODED_JWT_VALUE");
-        when(proc.getProcedureId()).thenReturn(UUID.fromString(procedureId));
-
-        // metadata no proof
-        CredentialIssuerMetadata metadata = mock(CredentialIssuerMetadata.class);
-        CredentialIssuerMetadata.CredentialConfiguration cfg = mock(CredentialIssuerMetadata.CredentialConfiguration.class);
-
-        String typeId = LEAR_CREDENTIAL_MACHINE;
-        when(cfg.cryptographicBindingMethodsSupported()).thenReturn(Collections.emptySet());
-
-        Map<String, CredentialIssuerMetadata.CredentialConfiguration> map = new HashMap<>();
-        map.put(typeId, cfg);
-        when(metadata.credentialConfigurationsSupported()).thenReturn(map);
-
-        when(credentialProcedureService.getCredentialProcedureById(procedureId)).thenReturn(Mono.just(proc));
-        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(processId)).thenReturn(Mono.just(metadata));
-
-        CredentialResponse cr = CredentialResponse.builder()
-                .credentials(List.of(CredentialResponse.Credential.builder().credential("whatever").build()))
-                .transactionId("t-1")
-                .build();
-
-        when(verifiableCredentialService.buildCredentialResponse(
-                eq(processId),
-                isNull(),
-                eq(nonce),
-                eq(accessTokenContext.rawToken()),
-                eq("owner@in2.es"),
-                eq(procedureId)
-        )).thenReturn(Mono.just(cr));
-
-        when(credentialProcedureService.getCredentialStatusByProcedureId(procedureId))
-                .thenReturn(Mono.just(CredentialStatusEnum.DRAFT.toString()));
-        when(credentialProcedureService.updateCredentialProcedureCredentialStatusToValidByProcedureId(procedureId))
-                .thenReturn(Mono.empty());
-        when(credentialProcedureService.getDecodedCredentialByProcedureId(procedureId))
-                .thenReturn(Mono.just("DECODED_SHOULD_NOT_BE_USED"));
-
-        when(credentialProcedureService.getCredentialId(proc)).thenReturn(Mono.just("cred-777"));
-        when(m2MTokenService.getM2MToken())
-                .thenReturn(Mono.just(new VerifierOauth2AccessToken("access-token-value", "", "")));
-
-        ArgumentCaptor<String> responseUriCap = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> encodedCap = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> credIdCap = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> emailCap = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> accessTokenCap = ArgumentCaptor.forClass(String.class);
-
-        when(credentialDeliveryService.sendVcToResponseUri(
-                responseUriCap.capture(),
-                encodedCap.capture(),
-                credIdCap.capture(),
-                emailCap.capture(),
-                accessTokenCap.capture()
-        )).thenReturn(Mono.empty());
-
-        StepVerifier.create(
-                verifiableCredentialIssuanceWorkflow.generateVerifiableCredentialResponse(
-                        processId,
-                        CredentialRequest.builder().credentialConfigurationId(JWT_VC_JSON).build(),
-                        accessTokenContext
-                )
-        ).expectNext(cr).verifyComplete();
-
-        // asserts
-        org.junit.jupiter.api.Assertions.assertEquals(responseUri, responseUriCap.getValue());
-        org.junit.jupiter.api.Assertions.assertEquals("ENCODED_JWT_VALUE", encodedCap.getValue());
-        org.junit.jupiter.api.Assertions.assertEquals("cred-777", credIdCap.getValue());
-        org.junit.jupiter.api.Assertions.assertEquals("owner@in2.es", emailCap.getValue());
-        org.junit.jupiter.api.Assertions.assertEquals("access-token-value", accessTokenCap.getValue());
     }
 
     @Test
@@ -817,9 +685,7 @@ class CredentialIssuanceWorkflowImplTest {
         PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest =
                 PreSubmittedCredentialDataRequest.builder()
                         .payload(jsonNode)
-                        .schema("LEARCredentialMachine")
-                        .format(JWT_VC_JSON)
-                        .operationMode("S")
+                        .credentialConfigurationId("LEARCredentialMachine")
                         .build();
 
         String transactionCode = "tx-9876";
@@ -871,9 +737,7 @@ class CredentialIssuanceWorkflowImplTest {
 
         PreSubmittedCredentialDataRequest req = PreSubmittedCredentialDataRequest.builder()
                 .payload(payload)
-                .schema(LABEL_CREDENTIAL)
-                .format(JWT_VC_JSON)
-                .operationMode("S")
+                .credentialConfigurationId(LABEL_CREDENTIAL)
                 .email(ownerEmail)
                 .build();
 

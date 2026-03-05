@@ -296,7 +296,6 @@ class AccessTokenServiceImplTest {
 
         String jti = "jti123";
         long exp = Instant.now().plusSeconds(3600).getEpochSecond();
-        String responseUri = "http://response.uri";
 
         JWSObject mockJwsObject = mock(JWSObject.class);
         Payload mockPayload = mock(Payload.class);
@@ -311,8 +310,6 @@ class AccessTokenServiceImplTest {
 
         UUID procedureId = UUID.randomUUID();
         when(mockMetadata.getProcedureId()).thenReturn(procedureId);
-
-        when(mockMetadata.getResponseUri()).thenReturn(responseUri);
 
         when(mockDeferredCredentialMetadataService
                 .getDeferredCredentialMetadataByAuthServerNonce(jti))
@@ -333,7 +330,6 @@ class AccessTokenServiceImplTest {
                             validToken.equals(context.rawToken())
                                     && jti.equals(context.jti())
                                     && procedureId.toString().equals(context.procedureId())
-                                    && responseUri.equals(context.responseUri())
                     )
                     .verifyComplete();
         }

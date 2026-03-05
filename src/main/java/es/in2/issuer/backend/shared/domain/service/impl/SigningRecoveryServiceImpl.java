@@ -1,7 +1,6 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
 import java.util.*;
-import es.in2.issuer.backend.shared.domain.exception.*;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
@@ -13,9 +12,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
-
-
-import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 @Slf4j
 @Service
@@ -39,23 +35,11 @@ public class SigningRecoveryServiceImpl implements SigningRecoveryService {
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("No CredentialProcedure for " + procedureId)))
                 .cache();
 
-        Mono<Void> updateOperationMode = cachedProc
+        Mono<Void> updateStatus = cachedProc
                 .flatMap(cp -> {
-                    cp.setOperationMode(ASYNC);
                     cp.setCredentialStatus(CredentialStatusEnum.PEND_SIGNATURE);
                     return credentialProcedureRepository.save(cp)
-                            .doOnSuccess(saved -> log.info("Updated operationMode to Async - Procedure"))
-                            .then();
-                });
-
-        Mono<Void> updateDeferredMetadata = deferredCredentialMetadataRepository.findByProcedureId(id)
-                .switchIfEmpty(Mono.fromRunnable(() ->
-                        log.error("No deferred metadata found for procedureId: {}", procedureId)
-                ).then(Mono.empty()))
-                .flatMap(deferred -> {
-                    deferred.setOperationMode(ASYNC);
-                    return deferredCredentialMetadataRepository.save(deferred)
-                            .doOnSuccess(saved -> log.info("Updated operationMode to Async - Deferred"))
+                            .doOnSuccess(saved -> log.info("Updated status to PEND_SIGNATURE - Procedure"))
                             .then();
                 });
 
@@ -75,8 +59,7 @@ public class SigningRecoveryServiceImpl implements SigningRecoveryService {
             );
         });
 
-        return updateOperationMode
-                .then(updateDeferredMetadata)
+        return updateStatus
                 .then(sendEmail);
     }
 

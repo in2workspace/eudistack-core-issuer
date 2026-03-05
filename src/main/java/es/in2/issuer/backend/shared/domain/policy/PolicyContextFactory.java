@@ -8,8 +8,8 @@ import es.in2.issuer.backend.shared.domain.exception.ParseErrorException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.LEARCredential;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
-import es.in2.issuer.backend.shared.domain.util.factory.CredentialFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
+import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialMachineFactory;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,7 +34,7 @@ public class PolicyContextFactory {
     private final ObjectMapper objectMapper;
     private final IssuerProperties appConfig;
     private final LEARCredentialEmployeeFactory learCredentialEmployeeFactory;
-    private final CredentialFactory credentialFactory;
+    private final LEARCredentialMachineFactory learCredentialMachineFactory;
 
     /**
      * Creates a PolicyContext from a JWT token for Backoffice and StatusList PDPs.
@@ -123,11 +123,11 @@ public class PolicyContextFactory {
     private Mono<LEARCredential> mapVcToLEARCredential(String vcClaim, String credentialType) {
         if (LEAR_CREDENTIAL_EMPLOYEE.equals(credentialType)) {
             return Mono.fromCallable(() ->
-                    credentialFactory.learCredentialEmployeeFactory
+                    learCredentialEmployeeFactory
                             .mapStringToLEARCredentialEmployee(vcClaim));
         } else if (LEAR_CREDENTIAL_MACHINE.equals(credentialType)) {
             return Mono.fromCallable(() ->
-                    credentialFactory.learCredentialMachineFactory
+                    learCredentialMachineFactory
                             .mapStringToLEARCredentialMachine(vcClaim));
         } else {
             return Mono.error(new InsufficientPermissionException(

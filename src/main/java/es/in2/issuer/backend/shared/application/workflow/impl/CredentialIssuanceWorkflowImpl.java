@@ -10,7 +10,6 @@ import es.in2.issuer.backend.shared.domain.exception.*;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.entities.BindingInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
-import es.in2.issuer.backend.shared.domain.model.entities.DeferredCredentialMetadata;
 import es.in2.issuer.backend.shared.domain.repository.CredentialOfferCacheRepository;
 import es.in2.issuer.backend.shared.domain.service.*;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
@@ -18,10 +17,12 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.Credenti
 import es.in2.issuer.backend.shared.domain.util.JwtUtils;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
+import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.config.security.service.IssuancePdpService;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListEntry;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
+import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,7 +30,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 
 import javax.naming.ConfigurationException;
-import javax.naming.OperationNotSupportedException;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -52,48 +52,62 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
     private final DeferredCredentialMetadataService deferredCredentialMetadataService;
     private final IssuancePdpService issuancePdpService;
     private final CredentialIssuerMetadataService credentialIssuerMetadataService;
-    private final M2MTokenService m2mTokenService;
-    private final CredentialDeliveryService credentialDeliveryService;
     private final JwtUtils jwtUtils;
     private final CredentialProfileRegistry credentialProfileRegistry;
     private final PreAuthorizedCodeWorkflow preAuthorizedCodeWorkflow;
     private final CredentialOfferService credentialOfferService;
     private final CredentialOfferCacheRepository credentialOfferCacheRepository;
+    private final PayloadSchemaValidator payloadSchemaValidator;
+    private final IssuanceMetrics issuanceMetrics;
 
+    @Observed(name = "issuance.execute", contextualName = "issuance-execute")
     @Override
     public Mono<IssuanceResponse> execute(String processId, PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest, String token, String idToken) {
+        var sample = issuanceMetrics.startTimer();
+        String configId = preSubmittedCredentialDataRequest.credentialConfigurationId();
+        String delivery = preSubmittedCredentialDataRequest.delivery() != null ? preSubmittedCredentialDataRequest.delivery() : DELIVERY_EMAIL;
 
-        // Check if the format is supported
-        String requestFormat = preSubmittedCredentialDataRequest.format();
-        if (!JWT_VC_JSON.equals(requestFormat) && !DC_SD_JWT.equals(requestFormat)) {
-            return Mono.error(new FormatUnsupportedException("Format: " + requestFormat + " is not supported"));
-        }
-        // Check if operation_mode is different to sync
-        if (!preSubmittedCredentialDataRequest.operationMode().equals(SYNC)) {
-            return Mono.error(new OperationNotSupportedException("operation_mode: " + preSubmittedCredentialDataRequest.operationMode() + " with credential_configuration_id: " + preSubmittedCredentialDataRequest.credentialConfigurationId()));
-        }
+        return validateRequest(preSubmittedCredentialDataRequest, idToken)
+                .then(payloadSchemaValidator.validate(configId, preSubmittedCredentialDataRequest.payload()))
+                .then(issuancePdpService.authorize(token, configId, preSubmittedCredentialDataRequest.payload(), idToken))
+                .then(issueCredential(processId, preSubmittedCredentialDataRequest, token))
+                .doOnSuccess(r -> issuanceMetrics.recordSuccess(sample, configId, delivery))
+                .doOnError(e -> issuanceMetrics.recordError(sample, configId, delivery));
+    }
 
-        // Validate idToken header for VerifiableCertification schema
-        if (preSubmittedCredentialDataRequest.credentialConfigurationId().equals(LABEL_CREDENTIAL) && idToken == null) {
+    @Observed(name = "issuance.execute-bootstrap", contextualName = "issuance-execute-bootstrap")
+    @Override
+    public Mono<IssuanceResponse> executeWithoutAuthorization(String processId, PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest) {
+        return validateRequest(preSubmittedCredentialDataRequest, null)
+                .then(payloadSchemaValidator.validate(preSubmittedCredentialDataRequest.credentialConfigurationId(), preSubmittedCredentialDataRequest.payload()))
+                .then(issueCredential(processId, preSubmittedCredentialDataRequest, "bootstrap"));
+    }
+
+    private Mono<Void> validateRequest(PreSubmittedCredentialDataRequest request, String idToken) {
+        if (request.email() == null || request.email().isBlank()) {
+            return Mono.error(new IllegalArgumentException("email is required"));
+        }
+        CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(request.credentialConfigurationId());
+        if (profile == null) {
+            return Mono.error(new CredentialTypeUnsupportedException(
+                    "Unknown credential_configuration_id: " + request.credentialConfigurationId()));
+        }
+        if (profile.credentialType().equals(LABEL_CREDENTIAL) && idToken == null) {
             return Mono.error(new MissingIdTokenHeaderException("Missing required ID Token header for VerifiableCertification issuance."));
         }
+        return Mono.empty();
+    }
 
-        CredentialOfferEmailNotificationInfo emailInfo =
-                extractCredentialOfferEmailInfo(preSubmittedCredentialDataRequest);
-
+    private Mono<IssuanceResponse> issueCredential(String processId, PreSubmittedCredentialDataRequest request, String token) {
+        CredentialOfferEmailNotificationInfo emailInfo = extractCredentialOfferEmailInfo(request);
         String procedureId = UUID.randomUUID().toString();
-        String credentialType = resolveCredentialType(preSubmittedCredentialDataRequest.credentialConfigurationId());
-        String delivery = preSubmittedCredentialDataRequest.delivery() != null
-                ? preSubmittedCredentialDataRequest.delivery()
-                : DELIVERY_DEFERRED;
+        String credentialType = resolveCredentialType(request.credentialConfigurationId());
+        String delivery = request.delivery() != null ? request.delivery() : DELIVERY_EMAIL;
 
-        // Validate user policy before proceeding
-        return issuancePdpService.authorize(token, preSubmittedCredentialDataRequest.credentialConfigurationId(), preSubmittedCredentialDataRequest.payload(), idToken)
-                .then(statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, procedureId, token)
-                        .map(this::toCredentialStatus)
-                        .flatMap(credentialStatus -> verifiableCredentialService.generateVc(processId, preSubmittedCredentialDataRequest, emailInfo.email(), credentialStatus, procedureId))
-                        .flatMap(transactionCode -> generateCredentialOffer(transactionCode, procedureId, credentialType, emailInfo, delivery))
-                );
+        return statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, procedureId, token)
+                .map(this::toCredentialStatus)
+                .flatMap(credentialStatus -> verifiableCredentialService.generateVc(processId, request, emailInfo.email(), credentialStatus, procedureId))
+                .flatMap(transactionCode -> generateCredentialOffer(transactionCode, procedureId, credentialType, emailInfo, delivery));
     }
 
     /**
@@ -119,8 +133,8 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
                         .flatMap(credentialOfferCacheRepository::saveCustomCredentialOffer)
                         .flatMap(credentialOfferService::createCredentialOfferUriResponse)
                         .flatMap(credentialOfferUri -> {
-                            if (DELIVERY_IMMEDIATE.equals(delivery)) {
-                                log.info("Credential offer URI (immediate): {}", credentialOfferUri);
+                            if (DELIVERY_UI.equals(delivery)) {
+                                log.info("Credential offer URI (ui): {}", credentialOfferUri);
                                 return Mono.just(IssuanceResponse.builder()
                                         .credentialOfferUri(credentialOfferUri)
                                         .build());
@@ -188,13 +202,14 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
 
     private String resolveCredentialType(String credentialConfigurationId) {
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialConfigurationId);
-        if (profile != null) {
-            return profile.credentialType();
+        if (profile == null) {
+            throw new CredentialTypeUnsupportedException(
+                    "Unknown credential_configuration_id: " + credentialConfigurationId);
         }
-        // Fallback: the configId itself may already be a credential type (e.g. LEARCredentialEmployee)
-        return credentialConfigurationId;
+        return profile.credentialType();
     }
 
+    @Observed(name = "issuance.generate-vc-response", contextualName = "issuance-generate-vc-response")
     @Override
     public Mono<CredentialResponse> generateVerifiableCredentialResponse(
             String processId,
@@ -213,16 +228,12 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
 
                     String email = proc.getEmail();
 
-                    boolean responseUriPresent = accessTokenContext.responseUri() != null && !accessTokenContext.responseUri().isBlank();
-
                     log.info(
-                            "[{}] Loaded procedure context: nonce(jti)={}, procedureId={}, operationMode={}, credentialType={}, responseUriPresent={}",
+                            "[{}] Loaded procedure context: nonce(jti)={}, procedureId={}, credentialType={}",
                             processId,
                             nonce,
                             procedureId,
-                            proc.getOperationMode(),
-                            proc.getCredentialType(),
-                            responseUriPresent
+                            proc.getCredentialType()
                     );
 
                     Mono<BindingInfo> bindingInfoMono = validateAndDetermineBindingInfo(proc, md, credentialRequest)
@@ -259,19 +270,8 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
                                     procedureId
                             )));
 
-                    DeferredCredentialMetadata deferred = new DeferredCredentialMetadata();
-                    deferred.setResponseUri(accessTokenContext.responseUri());
-                    deferred.setProcedureId(UUID.fromString(procedureId));
-
                     return vcMono.flatMap(cr ->
-                            handleOperationMode(
-                                    proc.getOperationMode(),
-                                    processId,
-                                    cr,
-                                    proc,
-                                    deferred,
-                                    accessTokenContext.rawToken()
-                            )
+                            signAndDeliverCredential(processId, cr, proc, accessTokenContext.rawToken())
                     );
                 });
     }
@@ -394,78 +394,41 @@ public class CredentialIssuanceWorkflowImpl implements CredentialIssuanceWorkflo
     }
 
 
-    private Mono<CredentialResponse> handleOperationMode(
-            String operationMode,
+    private Mono<CredentialResponse> signAndDeliverCredential(
             String processId,
             CredentialResponse cr,
-            CredentialProcedure credentialProcedure,
-            DeferredCredentialMetadata deferred,
+            CredentialProcedure proc,
             String rawToken
     ) {
+        return credentialProcedureService.getCredentialStatusByProcedureId(proc.getProcedureId().toString())
+                .flatMap(status -> {
+                    Mono<Void> upd = !PEND_SIGNATURE.toString().equals(status)
+                            ? credentialProcedureService.updateCredentialProcedureCredentialStatusToValidByProcedureId(proc.getProcedureId().toString())
+                            : Mono.empty();
 
-        return switch (operationMode) {
-            case ASYNC -> {
-                Mono<String> emailMono = Mono.just(credentialProcedure.getEmail());
-                yield emailMono.flatMap(email ->
-                        emailService.sendPendingCredentialNotification(email, "email.pending-credential")
-                                .thenReturn(cr)
-                );
-            }
-            case SYNC -> Mono.just(credentialProcedure)
-                    .flatMap(proc -> credentialProcedureService.getCredentialStatusByProcedureId(proc.getProcedureId().toString())
-                            .flatMap(status -> {
-                                Mono<Void> upd = !PEND_SIGNATURE.toString().equals(status)
-                                        ? credentialProcedureService.updateCredentialProcedureCredentialStatusToValidByProcedureId(proc.getProcedureId().toString())
-                                        : Mono.empty();
-
-                                String credentialFormat = proc.getCredentialFormat() != null
-                                        ? proc.getCredentialFormat()
-                                        : JWT_VC_JSON;
-                                return upd.then(
-                                        credentialSignerWorkflow.signAndUpdateCredentialByProcedureId(
-                                                BEARER_PREFIX + rawToken,
-                                                proc.getProcedureId().toString(),
-                                                credentialFormat
-                                        )
-                                        .flatMap(signedCredential -> {
-                                            CredentialResponse signedCr = CredentialResponse.builder()
-                                                    .credentials(List.of(CredentialResponse.Credential.builder()
-                                                            .credential(signedCredential)
-                                                            .build()))
-                                                    .build();
-
-                                            if (deferred.getResponseUri() != null && !deferred.getResponseUri().isBlank()) {
-                                                return credentialProcedureService.getCredentialId(proc)
-                                                        .doOnNext(credentialId -> log.debug("Using credentialId for delivery: {}", credentialId))
-                                                        .flatMap(credentialId ->
-                                                                m2mTokenService.getM2MToken()
-                                                                        .flatMap(tokenResponse ->
-                                                                                credentialDeliveryService.sendVcToResponseUri(
-                                                                                        deferred.getResponseUri(),
-                                                                                        signedCredential,
-                                                                                        credentialId,
-                                                                                        proc.getEmail(),
-                                                                                        tokenResponse.accessToken()
-                                                                                )
-                                                                        )
-                                        )
-                                                        .thenReturn(signedCr);
-                                            }
-
-                                            return Mono.just(signedCr);
-                                        })
-                                        .onErrorResume(e -> {
-                                            if (e instanceof RemoteSignatureException || e instanceof IllegalArgumentException) {
-                                                log.warn("[{}] Signing failed ({}), falling back to deferred response", processId, e.getMessage());
-                                                return Mono.just(cr);
-                                            }
-                                            return Mono.error(e);
-                                        })
-                                );
+                    String credentialFormat = proc.getCredentialFormat() != null
+                            ? proc.getCredentialFormat()
+                            : JWT_VC_JSON;
+                    return upd.then(
+                            credentialSignerWorkflow.signAndUpdateCredentialByProcedureId(
+                                    BEARER_PREFIX + rawToken,
+                                    proc.getProcedureId().toString(),
+                                    credentialFormat
+                            )
+                            .map(signedCredential -> CredentialResponse.builder()
+                                    .credentials(List.of(CredentialResponse.Credential.builder()
+                                            .credential(signedCredential)
+                                            .build()))
+                                    .build())
+                            .onErrorResume(e -> {
+                                if (e instanceof RemoteSignatureException || e instanceof IllegalArgumentException) {
+                                    log.warn("[{}] Signing failed ({}), falling back to deferred response", processId, e.getMessage());
+                                    return Mono.just(cr);
+                                }
+                                return Mono.error(e);
                             })
                     );
-            default -> Mono.error(new IllegalArgumentException("Unknown operation mode: " + operationMode));
-        };
+                });
     }
 
     @Override

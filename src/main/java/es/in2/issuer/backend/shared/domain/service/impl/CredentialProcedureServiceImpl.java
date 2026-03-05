@@ -51,7 +51,6 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
                 .credentialType(credentialProcedureCreationRequest.credentialType())
                 .subject(credentialProcedureCreationRequest.subject())
                 .validUntil(credentialProcedureCreationRequest.validUntil())
-                .operationMode(credentialProcedureCreationRequest.operationMode())
                 .signatureMode("remote")
                 .email(credentialProcedureCreationRequest.email())
                 .notificationId(UUID.randomUUID())
@@ -183,12 +182,6 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
     }
 
     @Override
-    public Mono<String> getOperationModeByProcedureId(String procedureId) {
-        return credentialProcedureRepository.findById(UUID.fromString(procedureId))
-                .flatMap(credentialProcedure -> Mono.just(credentialProcedure.getOperationMode()));
-    }
-
-    @Override
     public Mono<String> getCredentialStatusByProcedureId(String procedureId) {
         log.debug("Getting credential status for procedureId: {}", procedureId);
         return credentialProcedureRepository.findCredentialStatusByProcedureId(UUID.fromString(procedureId));
@@ -218,7 +211,6 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
                         return Mono.just(CredentialDetails.builder()
                                 .procedureId(credentialProcedure.getProcedureId())
                                 .lifeCycleStatus(String.valueOf(credentialProcedure.getCredentialStatus()))
-                                .operationMode(credentialProcedure.getOperationMode())
                                 .signatureMode(credentialProcedure.getSignatureMode())
                                 .credential(objectMapper.readTree(credentialProcedure.getCredentialDecoded()))
                                 .email(credentialProcedure.getEmail())

@@ -6,12 +6,10 @@ import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionExcep
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
 import es.in2.issuer.backend.shared.domain.policy.PolicyEnforcer;
-import es.in2.issuer.backend.shared.domain.policy.rules.RequireCertificationIssuanceRule;
-import es.in2.issuer.backend.shared.domain.policy.rules.RequireMandatorEmployeeIssuanceRule;
-import es.in2.issuer.backend.shared.domain.policy.rules.RequireMandatorMachineIssuanceRule;
-import es.in2.issuer.backend.shared.domain.policy.rules.RequireSignerIssuanceRule;
+import es.in2.issuer.backend.shared.domain.policy.rules.*;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.security.service.IssuancePdpService;
+import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -30,6 +28,7 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
     private final RequireCertificationIssuanceRule requireCertificationIssuanceRule;
     private final CredentialProfileRegistry credentialProfileRegistry;
 
+    @Observed(name = "issuance.pdp-authorize", contextualName = "issuance-pdp-authorize")
     @Override
     public Mono<Void> authorize(String token, String credentialConfigurationId, JsonNode payload, String idToken) {
         return Mono.deferContextual(reactorCtx -> {
@@ -41,6 +40,7 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
             String credentialType = profile != null ? profile.credentialType() : credentialConfigurationId;
 
             return policyContextFactory.fromTokenForIssuance(token, credentialType, tenantDomain)
+                    .flatMap(ctx -> new RequireTenantMatchRule().evaluate(ctx, payload).thenReturn(ctx))
                     .flatMap(ctx -> switch (credentialType) {
                         case LEAR_CREDENTIAL_EMPLOYEE -> policyEnforcer.enforceAny(ctx, payload,
                                 "Unauthorized: LEARCredentialEmployee does not meet any issuance policies.",

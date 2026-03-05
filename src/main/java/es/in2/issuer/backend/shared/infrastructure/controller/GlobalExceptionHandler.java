@@ -29,7 +29,7 @@ public class GlobalExceptionHandler {
     //todo add handler for RemoteSignatureException
 
     @ExceptionHandler(CredentialTypeUnsupportedException.class)
-    @ResponseStatus(HttpStatus.NOT_FOUND)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<GlobalErrorMessage> handleCredentialTypeUnsupported(
             CredentialTypeUnsupportedException ex,
             ServerHttpRequest request
@@ -38,8 +38,8 @@ public class GlobalExceptionHandler {
                 ex, request,
                 GlobalErrorTypes.UNSUPPORTED_CREDENTIAL_TYPE.getCode(),
                 "Unsupported credential type",
-                HttpStatus.NOT_FOUND,
-                "The given credential type is not supported"
+                HttpStatus.BAD_REQUEST,
+                "The given credential_configuration_id is not supported by this issuer"
         );
     }
 
@@ -400,6 +400,40 @@ public class GlobalExceptionHandler {
                 "Credential procedure not found",
                 HttpStatus.NOT_FOUND,
                 "The requested credential procedure was not found"
+        );
+    }
+
+    @ExceptionHandler(TenantMismatchException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Mono<GlobalErrorMessage> handleTenantMismatchException(
+            TenantMismatchException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.TENANT_MISMATCH.getCode(),
+                "Tenant mismatch",
+                HttpStatus.FORBIDDEN,
+                "The token's organization does not match the requested tenant"
+        );
+    }
+
+    @ExceptionHandler(PayloadValidationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handlePayloadValidationException(
+            PayloadValidationException ex,
+            ServerHttpRequest request
+    ) {
+        var violations = ex.getViolations().stream()
+                .map(v -> new GlobalErrorMessage.FieldViolation(v.field(), v.message()))
+                .toList();
+        return errors.handleWithViolations(
+                ex, request,
+                GlobalErrorTypes.PAYLOAD_VALIDATION.getCode(),
+                "Payload validation failed",
+                HttpStatus.BAD_REQUEST,
+                "The credential payload does not conform to the required schema",
+                violations
         );
     }
 

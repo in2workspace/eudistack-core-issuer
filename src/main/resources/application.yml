@@ -40,7 +40,7 @@ logging:
     org.springframework.security: ${LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY:INFO}
     es.in2.issuer: ${LOGGING_LEVEL_ES_IN2_ISSUER:DEBUG}
 
-# Actuator
+# Actuator & Observability
 management:
   endpoints:
     enabled-by-default: false
@@ -57,6 +57,17 @@ management:
       show-details: always
     prometheus:
       enabled: true
+  tracing:
+    sampling:
+      probability: ${OTEL_SAMPLING_PROBABILITY:1.0}
+    propagation:
+      type: w3c
+  observations:
+    key-values:
+      service: ${spring.application.name}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
 
 # OpenAPI / Swagger
 springdoc:
@@ -95,6 +106,7 @@ credential:
 # Application
 app:
   url: ${APP_URL:http://localhost:8080}
+  internal-url: ${APP_INTERNAL_URL:}
   issuer-frontend-url: ${APP_ISSUER_FRONTEND_URL:http://localhost:4200}
   knowledge-base:
     upload-certification-guide-url: ${APP_KNOWLEDGE_BASE_UPLOAD_CERTIFICATION_GUIDE_URL:https://example.com/guide}
@@ -105,15 +117,6 @@ app:
   default-lang: ${APP_DEFAULT_LANG:en}
   admin-organization-id: ${APP_ADMIN_ORGANIZATION_ID:VATES-B60645900}
   sys-tenant: ${APP_SYS_TENANT:SYSTEM}
-
-# Default Signer
-default-signer:
-  common-name: ${DEFAULT_SIGNER_COMMON_NAME:Local Dev Issuer}
-  country: ${DEFAULT_SIGNER_COUNTRY:ES}
-  email: ${DEFAULT_SIGNER_EMAIL:dev@example.com}
-  organization-identifier: ${DEFAULT_SIGNER_ORGANIZATION_IDENTIFIER:VATES-B60645900}
-  organization: ${DEFAULT_SIGNER_ORGANIZATION:Dev Organization}
-  serial-number: ${DEFAULT_SIGNER_SERIAL_NUMBER:B60645900}
 
 # Issuer Identity
 issuer-identity:

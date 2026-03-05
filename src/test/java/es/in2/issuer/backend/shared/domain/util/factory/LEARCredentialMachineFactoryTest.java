@@ -90,7 +90,6 @@ class LEARCredentialMachineFactoryTest {
                         "proc-123",
                         jsonNode,
                         credentialStatus,
-                        "S",
                         ""
                 );
 
@@ -99,7 +98,6 @@ class LEARCredentialMachineFactoryTest {
                 .assertNext(req -> {
                     assertThat(req.procedureId()).isEqualTo("proc-123");
                     assertThat(req.organizationIdentifier()).isEqualTo("orgId");
-                    assertThat(req.operationMode()).isEqualTo("S");
                     assertThat(req.email()).isEmpty();
                     assertThat(req.credentialDecoded()).isEqualTo(json);
                     assertThat(req.subject()).isEqualTo("example-domain");

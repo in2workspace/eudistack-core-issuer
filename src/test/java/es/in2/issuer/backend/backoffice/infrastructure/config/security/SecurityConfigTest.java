@@ -244,17 +244,9 @@ class SecurityConfigTest {
         }
 
         @Test
-        void vciIssuances_post_shouldReturn401_whenNoAuth() {
+        void issuances_post_shouldReturn401_whenNoAuth() {
             MockServerWebExchange exchange = MockServerWebExchange.from(
-                    MockServerHttpRequest.post(VCI_ISSUANCES_PATH).build()
-            );
-            assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
-        }
-
-        @Test
-        void backofficeIssuance_post_shouldReturn401_whenNoAuth() {
-            MockServerWebExchange exchange = MockServerWebExchange.from(
-                    MockServerHttpRequest.post(BACKOFFICE_ISSUANCE).build()
+                    MockServerHttpRequest.post(ISSUANCES_PATH).build()
             );
             assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
         }
@@ -324,20 +316,9 @@ class SecurityConfigTest {
         }
 
         @Test
-        void vciIssuances_post_shouldReturn200_whenAuthenticated() {
+        void issuances_post_shouldReturn200_whenAuthenticated() {
             MockServerWebExchange exchange = MockServerWebExchange.from(
-                    MockServerHttpRequest.post(VCI_ISSUANCES_PATH)
-                            .header(HttpHeaders.AUTHORIZATION, "Bearer good-token")
-                            .build()
-            );
-            assertEquals(HttpStatus.OK, executeFilter(exchange));
-            verify(customAuthenticationManager).authenticate(any());
-        }
-
-        @Test
-        void backofficeIssuance_post_shouldReturn200_whenAuthenticated() {
-            MockServerWebExchange exchange = MockServerWebExchange.from(
-                    MockServerHttpRequest.post(BACKOFFICE_ISSUANCE)
+                    MockServerHttpRequest.post(ISSUANCES_PATH)
                             .header(HttpHeaders.AUTHORIZATION, "Bearer good-token")
                             .build()
             );

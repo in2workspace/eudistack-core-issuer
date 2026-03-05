@@ -48,9 +48,6 @@ public class CredentialProcedure {
     @Column("valid_until")
     private Timestamp validUntil;
 
-    @Column("operation_mode")
-    private String operationMode;
-
     @Column("signature_mode")
     private String signatureMode;
 

@@ -34,7 +34,6 @@ import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegis
 
 import static org.mockito.Mockito.*;
 import static es.in2.issuer.backend.shared.domain.util.Constants.JWT_VC_JSON;
-import static es.in2.issuer.backend.shared.domain.util.Constants.LABEL_CREDENTIAL;
 import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_MACHINE;
 
@@ -77,12 +76,6 @@ class CredentialSignerWorkflowImplTest {
 
     @Mock
     private DeferredCredentialMetadataService deferredCredentialMetadataService;
-
-    @Mock
-    private M2MTokenService m2mTokenService;
-
-    @Mock
-    private CredentialDeliveryService credentialDeliveryService;
 
     @Mock
     private IssuerProperties appConfig;
@@ -239,64 +232,6 @@ class CredentialSignerWorkflowImplTest {
     }
 
     @Test
-    void testRetrySignUnsignedCredential_LabelCredential_NoResponseUri_ThrowsError() {
-        CredentialProcedure initialProcedure = mock(CredentialProcedure.class);
-        when(initialProcedure.getCredentialType()).thenReturn(LABEL_CREDENTIAL);
-        when(initialProcedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.PEND_SIGNATURE);
-
-        CredentialProcedure updatedProcedure = mock(CredentialProcedure.class);
-        when(updatedProcedure.getCredentialType()).thenReturn(LABEL_CREDENTIAL);
-
-        when(accessTokenService.getCleanBearerToken(authorizationHeader))
-                .thenReturn(Mono.just(token));
-        when(backofficePdpService.validateSignCredential(processId, token, procedureId))
-                .thenReturn(Mono.empty());
-        when(accessTokenService.getMandateeEmail(authorizationHeader))
-                .thenReturn(Mono.just(email));
-
-        when(credentialProcedureRepository.findByProcedureId(UUID.fromString(procedureId)))
-                .thenReturn(Mono.just(initialProcedure), Mono.just(updatedProcedure));
-
-        when(issuerFactory.createSimpleIssuerAndNotifyOnError(procedureId, email))
-                .thenReturn(Mono.just(simpleIssuer));
-        when(labelCredentialFactory.mapIssuer(procedureId, simpleIssuer))
-                .thenReturn(Mono.just("bindedVc"));
-        when(credentialProcedureService.updateDecodedCredentialByProcedureId(procedureId, "bindedVc", JWT_VC_JSON))
-                .thenReturn(Mono.empty());
-
-        doReturn(Mono.just("signedVc"))
-                .when(credentialSignerWorkflow)
-                .signAndUpdateCredentialByProcedureId(token, procedureId, JWT_VC_JSON);
-        when(credentialProcedureService.updateCredentialProcedureCredentialStatusToValidByProcedureId(procedureId))
-                .thenReturn(Mono.empty());
-        when(credentialProcedureRepository.save(any()))
-                .thenReturn(Mono.just(updatedProcedure));
-
-        when(deferredCredentialMetadataService.getResponseUriByProcedureId(procedureId))
-                .thenReturn(Mono.empty());
-
-        StepVerifier.create(
-                        credentialSignerWorkflow.retrySignUnsignedCredential(processId, authorizationHeader, procedureId)
-                )
-                .expectErrorMatches(throwable ->
-                        throwable instanceof IllegalStateException &&
-                                throwable.getMessage().contains("Missing responseUri for procedureId")
-                )
-                .verify();
-
-        // Verify LABEL flow and helper usage
-        verify(issuerFactory).createSimpleIssuerAndNotifyOnError(procedureId, email);
-        verify(labelCredentialFactory).mapIssuer(procedureId, simpleIssuer);
-        verify(credentialProcedureService)
-                .updateDecodedCredentialByProcedureId(procedureId, "bindedVc", JWT_VC_JSON);
-        verify(credentialSignerWorkflow)
-                .signAndUpdateCredentialByProcedureId(token, procedureId, JWT_VC_JSON);
-        verify(credentialProcedureService)
-                .updateCredentialProcedureCredentialStatusToValidByProcedureId(procedureId);
-        verify(credentialProcedureRepository).save(any());
-    }
-
-    @Test
     void testRetrySignUnsignedCredential_NonLabelCredential_DoesNotSendVc() {
         CredentialProcedure initialProcedure = mock(CredentialProcedure.class);
         when(initialProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_EMPLOYEE);
@@ -342,8 +277,6 @@ class CredentialSignerWorkflowImplTest {
 
         // No VC delivery should happen for non-LABEL credentials
         verifyNoInteractions(deferredCredentialMetadataService);
-        verifyNoInteractions(m2mTokenService);
-        verifyNoInteractions(credentialDeliveryService);
     }
 
     @Test

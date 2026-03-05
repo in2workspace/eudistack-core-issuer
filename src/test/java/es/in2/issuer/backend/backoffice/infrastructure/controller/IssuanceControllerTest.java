@@ -3,11 +3,11 @@ package es.in2.issuer.backend.backoffice.infrastructure.controller;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.application.workflow.CredentialIssuanceWorkflow;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -42,31 +42,85 @@ class IssuanceControllerTest {
     @MockBean
     private AccessTokenService accessTokenService;
 
-    @ParameterizedTest
-    @ValueSource(strings = {"/backoffice/v1/issuances", "/vci/v1/issuances"})
-    void issueCredential_Success(String uri) throws JsonProcessingException {
+    @Test
+    void issueCredential_Immediate_Returns201WithLocationHeader() throws JsonProcessingException {
 
         String bearerToken = "Bearer test-token";
         String cleanToken = "test-token";
+        String credentialOfferUri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fserver.example.com%2Fcredential-offer%2Fabc123";
         var testRequest = PreSubmittedCredentialDataRequest.builder()
-                .schema("test-schema")
-                .format("test-format")
+                .credentialConfigurationId("test-schema")
                 .payload(objectMapper.createObjectNode().put("key", "value"))
                 .build();
 
         when(accessTokenService.getCleanBearerToken(bearerToken))
                 .thenReturn(Mono.just(cleanToken));
         when(credentialIssuanceWorkflow.execute(anyString(), eq(testRequest), eq(cleanToken), isNull()))
-                .thenReturn(Mono.empty());
+                .thenReturn(Mono.just(IssuanceResponse.builder().credentialOfferUri(credentialOfferUri).build()));
 
         webTestClient.mutateWith(csrf())
                 .post()
-                .uri(uri)
+                .uri("/v1/issuances")
                 .header(HttpHeaders.AUTHORIZATION, bearerToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(objectMapper.writeValueAsString(testRequest))
                 .exchange()
                 .expectStatus().isCreated()
+                .expectHeader().location(credentialOfferUri)
+                .expectBody().isEmpty();
+    }
+
+    @Test
+    void issueCredential_Deferred_Returns202Accepted() throws JsonProcessingException {
+
+        String bearerToken = "Bearer test-token";
+        String cleanToken = "test-token";
+        var testRequest = PreSubmittedCredentialDataRequest.builder()
+                .credentialConfigurationId("test-schema")
+                .payload(objectMapper.createObjectNode().put("key", "value"))
+                .build();
+
+        when(accessTokenService.getCleanBearerToken(bearerToken))
+                .thenReturn(Mono.just(cleanToken));
+        when(credentialIssuanceWorkflow.execute(anyString(), eq(testRequest), eq(cleanToken), isNull()))
+                .thenReturn(Mono.just(IssuanceResponse.builder().build()));
+
+        webTestClient.mutateWith(csrf())
+                .post()
+                .uri("/v1/issuances")
+                .header(HttpHeaders.AUTHORIZATION, bearerToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(objectMapper.writeValueAsString(testRequest))
+                .exchange()
+                .expectStatus().isAccepted()
+                .expectBody().isEmpty();
+    }
+
+    @Test
+    void issueCredential_WithIdToken_PassesIdTokenToWorkflow() throws JsonProcessingException {
+
+        String bearerToken = "Bearer test-token";
+        String cleanToken = "test-token";
+        String idToken = "id-token-value";
+        var testRequest = PreSubmittedCredentialDataRequest.builder()
+                .credentialConfigurationId("test-schema")
+                .payload(objectMapper.createObjectNode().put("key", "value"))
+                .build();
+
+        when(accessTokenService.getCleanBearerToken(bearerToken))
+                .thenReturn(Mono.just(cleanToken));
+        when(credentialIssuanceWorkflow.execute(anyString(), eq(testRequest), eq(cleanToken), eq(idToken)))
+                .thenReturn(Mono.just(IssuanceResponse.builder().build()));
+
+        webTestClient.mutateWith(csrf())
+                .post()
+                .uri("/v1/issuances")
+                .header(HttpHeaders.AUTHORIZATION, bearerToken)
+                .header("X-Id-Token", idToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(objectMapper.writeValueAsString(testRequest))
+                .exchange()
+                .expectStatus().isAccepted()
                 .expectBody().isEmpty();
     }
 }

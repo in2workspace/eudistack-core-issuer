@@ -95,7 +95,6 @@ class LabelCredentialFactoryTest {
         // Arrange
         String procedureId = "proc-123";
         String email = "test@in2.es";
-        String operationMode = "S";
         JsonNode mockNode = mock(JsonNode.class);
 
         CredentialStatus credentialStatus = mock(CredentialStatus.class);
@@ -130,7 +129,6 @@ class LabelCredentialFactoryTest {
                         procedureId,
                         mockNode,
                         credentialStatus,
-                        operationMode,
                         email
                 );
 
@@ -141,7 +139,6 @@ class LabelCredentialFactoryTest {
                     assertEquals("subject-1", request.subject());
                     assertEquals(LABEL_CREDENTIAL, request.credentialType());
                     assertEquals(email, request.email());
-                    assertEquals(operationMode, request.operationMode());
                     assertEquals("org-456", request.organizationIdentifier());
                     assertNotNull(request.validUntil());
                     assertNotNull(request.credentialDecoded());

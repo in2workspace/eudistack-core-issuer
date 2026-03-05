@@ -36,14 +36,14 @@ public class LabelCredentialFactory {
     private final IssuerFactory issuerFactory;
     private final AccessTokenService accessTokenService;
 
-    public Mono<CredentialProcedureCreationRequest> mapAndBuildLabelCredential(String procedureId, JsonNode credential, CredentialStatus credentialStatus, String operationMode, String email) {
+    public Mono<CredentialProcedureCreationRequest> mapAndBuildLabelCredential(String procedureId, JsonNode credential, CredentialStatus credentialStatus, String email) {
         LabelCredential labelCredential = objectMapper.convertValue(credential, LabelCredential.class);
 
         return buildLabelCredential(labelCredential, credentialStatus)
                 .flatMap(labelCredentialDecoded ->
                         convertLabelCredentialInToString(labelCredentialDecoded)
                                 .flatMap(decodedCredential ->
-                                        buildCredentialProcedureCreationRequest(procedureId, decodedCredential, labelCredentialDecoded, operationMode, email)
+                                        buildCredentialProcedureCreationRequest(procedureId, decodedCredential, labelCredentialDecoded, email)
                                 )
                 );
     }
@@ -151,7 +151,7 @@ public class LabelCredentialFactory {
     }
 
 
-    private Mono<CredentialProcedureCreationRequest> buildCredentialProcedureCreationRequest(String procedureId, String decodedCredential, LabelCredential labelCredentialDecoded, String operationMode, String email) {
+    private Mono<CredentialProcedureCreationRequest> buildCredentialProcedureCreationRequest(String procedureId, String decodedCredential, LabelCredential labelCredentialDecoded, String email) {
 
         return accessTokenService.getOrganizationIdFromCurrentSession()
                 .flatMap(organizationId ->
@@ -162,7 +162,6 @@ public class LabelCredentialFactory {
                                 .credentialType(LABEL_CREDENTIAL)
                                 .subject(labelCredentialDecoded.credentialSubject().id())
                                 .validUntil(parseEpochSecondIntoTimestamp(parseDateToUnixTime(labelCredentialDecoded.validUntil())))
-                                .operationMode(operationMode)
                                 .email(email)
                                 .build()
                         )

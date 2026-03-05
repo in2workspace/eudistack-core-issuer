@@ -5,6 +5,7 @@ import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
 import es.in2.issuer.backend.shared.domain.policy.PolicyEnforcer;
 import es.in2.issuer.backend.shared.domain.policy.rules.RequireOrganizationRule;
 import es.in2.issuer.backend.shared.domain.policy.rules.RequirePowerRule;
+import es.in2.issuer.backend.shared.domain.policy.rules.RequireTenantMatchRule;
 import es.in2.issuer.backend.shared.infrastructure.repository.CredentialProcedureRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,6 +41,7 @@ public class BackofficePdpServiceImpl implements BackofficePdpService {
         return Mono.deferContextual(reactorCtx -> {
             String tenantDomain = reactorCtx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null);
             return policyContextFactory.fromTokenSimple(token, tenantDomain)
+                    .flatMap(ctx -> new RequireTenantMatchRule().evaluate(ctx, null).thenReturn(ctx))
                     .flatMap(ctx ->
                             policyEnforcer.enforce(ctx, null, RequirePowerRule.of("Onboarding", "Execute"))
                                     .then(Mono.defer(() -> {

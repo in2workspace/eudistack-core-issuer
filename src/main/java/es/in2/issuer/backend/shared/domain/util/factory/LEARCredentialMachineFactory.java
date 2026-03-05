@@ -55,13 +55,13 @@ public class LEARCredentialMachineFactory {
         }
     }
 
-    public Mono<CredentialProcedureCreationRequest> mapAndBuildLEARCredentialMachine(String procedureId, JsonNode learCredential, CredentialStatus credentialStatus, String operationMode, String email) {
+    public Mono<CredentialProcedureCreationRequest> mapAndBuildLEARCredentialMachine(String procedureId, JsonNode learCredential, CredentialStatus credentialStatus, String email) {
         LEARCredentialMachine.CredentialSubject baseCredentialSubject = mapJsonNodeToCredentialSubject(learCredential);
         return buildFinalLearCredentialMachine(baseCredentialSubject, credentialStatus)
                 .flatMap(credentialDecoded ->
                         convertLEARCredentialMachineInToString(credentialDecoded)
                                 .flatMap(credentialDecodedString ->
-                                        buildCredentialProcedureCreationRequest(procedureId, credentialDecodedString, credentialDecoded, operationMode, email)
+                                        buildCredentialProcedureCreationRequest(procedureId, credentialDecodedString, credentialDecoded, email)
                                 )
                 );
     }
@@ -101,7 +101,7 @@ public class LEARCredentialMachineFactory {
         }
     }
 
-    private Mono<CredentialProcedureCreationRequest> buildCredentialProcedureCreationRequest(String procedureId, String decodedCredential, LEARCredentialMachine credentialDecoded, String operationMode, String email) {
+    private Mono<CredentialProcedureCreationRequest> buildCredentialProcedureCreationRequest(String procedureId, String decodedCredential, LEARCredentialMachine credentialDecoded, String email) {
         String mandatorOrgId = credentialDecoded.credentialSubject().mandate().mandator().organizationIdentifier();
         return Mono.just(
             CredentialProcedureCreationRequest.builder()
@@ -111,7 +111,6 @@ public class LEARCredentialMachineFactory {
                 .credentialType("LEARCredentialMachineW3C")
                 .subject(credentialDecoded.credentialSubject().mandate().mandatee().domain())
                 .validUntil(parseEpochSecondIntoTimestamp(parseDateToUnixTime(credentialDecoded.validUntil())))
-                .operationMode(operationMode)
                 .email(email)
                 .build()
         );

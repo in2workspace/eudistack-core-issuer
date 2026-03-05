@@ -1,13 +1,9 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.JWTParsingException;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
 import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
 import es.in2.issuer.backend.shared.domain.util.factory.CredentialFactory;
-import es.in2.issuer.backend.shared.domain.util.factory.IssuerFactory;
-import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
-import es.in2.issuer.backend.shared.domain.util.factory.LabelCredentialFactory;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,14 +35,6 @@ class VerifiableCredentialServiceImplTest {
     private CredentialFactory credentialFactory;
     @Mock
     private CredentialProcedureService credentialProcedureService;
-    @Mock
-    private ObjectMapper objectMapper;
-    @Mock
-    private LEARCredentialEmployeeFactory learCredentialEmployeeFactory;
-    @Mock
-    private LabelCredentialFactory labelCredentialFactory;
-    @Mock
-    private IssuerFactory issuerFactory;
     @InjectMocks
     private VerifiableCredentialServiceImpl verifiableCredentialServiceImpl;
 

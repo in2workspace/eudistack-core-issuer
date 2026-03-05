@@ -53,11 +53,10 @@ class GenericCredentialBuilderTest {
         CredentialStatus status = credentialStatus();
 
         StepVerifier.create(genericCredentialBuilder.buildCredential(
-                        profile, "proc-1", payload, status, "S", "test@example.com"))
+                        profile, "proc-1", payload, status, "test@example.com"))
                 .assertNext(request -> {
                     assertThat(request.procedureId()).isEqualTo("proc-1");
                     assertThat(request.credentialType()).isEqualTo(LEAR_CREDENTIAL_EMPLOYEE);
-                    assertThat(request.operationMode()).isEqualTo("S");
                     assertThat(request.email()).isEqualTo("test@example.com");
                     assertThat(request.subject()).isEqualTo("John Doe");
                     assertThat(request.organizationIdentifier()).isEqualTo("VATES-B12345678");
@@ -89,7 +88,7 @@ class GenericCredentialBuilderTest {
         when(accessTokenService.getOrganizationIdFromCurrentSession()).thenReturn(Mono.just("ORG-123"));
 
         StepVerifier.create(genericCredentialBuilder.buildCredential(
-                        profile, "proc-2", payload, credentialStatus(), "S", "test@example.com"))
+                        profile, "proc-2", payload, credentialStatus(), "test@example.com"))
                 .assertNext(request -> {
                     assertThat(request.credentialDecoded()).contains(fixedFrom);
                     assertThat(request.credentialDecoded()).contains(fixedUntil);
@@ -105,7 +104,7 @@ class GenericCredentialBuilderTest {
         when(accessTokenService.getOrganizationIdFromCurrentSession()).thenReturn(Mono.just("SESSION-ORG-ID"));
 
         StepVerifier.create(genericCredentialBuilder.buildCredential(
-                        profile, "proc-3", payload, credentialStatus(), "S", "test@example.com"))
+                        profile, "proc-3", payload, credentialStatus(), "test@example.com"))
                 .assertNext(request ->
                         assertThat(request.organizationIdentifier()).isEqualTo("SESSION-ORG-ID"))
                 .verifyComplete();
@@ -117,7 +116,7 @@ class GenericCredentialBuilderTest {
         JsonNode payload = mandatePayload();
 
         StepVerifier.create(genericCredentialBuilder.buildCredential(
-                        profile, "proc-4", payload, credentialStatus(), "S", "test@example.com"))
+                        profile, "proc-4", payload, credentialStatus(), "test@example.com"))
                 .assertNext(request ->
                         assertThat(request.subject()).isEqualTo("John Doe"))
                 .verifyComplete();
@@ -137,7 +136,7 @@ class GenericCredentialBuilderTest {
         JsonNode payload = payloadRoot;
 
         StepVerifier.create(genericCredentialBuilder.buildCredential(
-                        profile, "proc-5", payload, credentialStatus(), "S", "test@example.com"))
+                        profile, "proc-5", payload, credentialStatus(), "test@example.com"))
                 .assertNext(request ->
                         assertThat(request.subject()).isEqualTo("api.example.com"))
                 .verifyComplete();
@@ -149,7 +148,7 @@ class GenericCredentialBuilderTest {
         JsonNode payload = mandatePayload();
 
         StepVerifier.create(genericCredentialBuilder.buildCredential(
-                        profile, "proc-6", payload, credentialStatus(), "S", "test@example.com"))
+                        profile, "proc-6", payload, credentialStatus(), "test@example.com"))
                 .assertNext(request ->
                         assertThat(request.credentialDecoded()).contains("\"description\""))
                 .verifyComplete();

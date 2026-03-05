@@ -11,6 +11,7 @@ import es.in2.issuer.backend.shared.domain.service.TranslationService;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.internet.MimeUtility;
+import io.micrometer.observation.annotation.Observed;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
@@ -115,6 +116,7 @@ public class EmailServiceImpl implements EmailService {
         }).subscribeOn(Schedulers.boundedElastic()).then();
     }
 
+    @Observed(name = "issuance.send-email", contextualName = "issuance-send-email")
     @Override
     public Mono<Void> sendCredentialOfferEmail(String to, String subject, String credentialOfferUri,
                                                 String reissueUrl, String walletUrl, String organization) {

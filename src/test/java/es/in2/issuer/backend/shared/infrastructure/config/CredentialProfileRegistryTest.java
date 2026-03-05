@@ -24,9 +24,9 @@ class CredentialProfileRegistryTest {
     void shouldLoadProfileAndLookupByConfigurationId() throws IOException {
         ResourcePatternResolver resolver = mockResolver(validEmployeeProfile());
 
-        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver);
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
-        CredentialProfile profile = registry.getByConfigurationId("LEARCredentialEmployee");
+        CredentialProfile profile = registry.getByConfigurationId("LEARCredentialEmployeeSdJwt");
         assertThat(profile).isNotNull();
         assertThat(profile.format()).isEqualTo("jwt_vc_json");
         assertThat(profile.scope()).isEqualTo("lear_credential_employee");
@@ -39,53 +39,41 @@ class CredentialProfileRegistryTest {
     void shouldLookupByCredentialType() throws IOException {
         ResourcePatternResolver resolver = mockResolver(validEmployeeProfile());
 
-        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver);
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
         CredentialProfile profile = registry.getByCredentialType("LEARCredentialEmployee");
         assertThat(profile).isNotNull();
-        assertThat(profile.credentialConfigurationId()).isEqualTo("LEARCredentialEmployee");
-    }
-
-    @Test
-    void shouldLookupByEnumName() throws IOException {
-        ResourcePatternResolver resolver = mockResolver(validEmployeeProfile());
-
-        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver);
-
-        CredentialProfile profile = registry.getByEnumName("LEAR_CREDENTIAL_EMPLOYEE");
-        assertThat(profile).isNotNull();
-        assertThat(profile.credentialConfigurationId()).isEqualTo("LEARCredentialEmployee");
+        assertThat(profile.credentialConfigurationId()).isEqualTo("LEARCredentialEmployeeSdJwt");
     }
 
     @Test
     void shouldReturnNullForUnknownKeys() throws IOException {
         ResourcePatternResolver resolver = mockResolver(validEmployeeProfile());
 
-        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver);
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
         assertThat(registry.getByConfigurationId("NonExistent")).isNull();
         assertThat(registry.getByCredentialType("NonExistent")).isNull();
-        assertThat(registry.getByEnumName("NON_EXISTENT")).isNull();
     }
 
     @Test
     void shouldLoadMultipleProfiles() throws IOException {
         ResourcePatternResolver resolver = mockResolver(validEmployeeProfile(), validMachineProfile());
 
-        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver);
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
         assertThat(registry.getAllProfiles()).hasSize(2);
-        assertThat(registry.getByConfigurationId("LEARCredentialEmployee")).isNotNull();
-        assertThat(registry.getByConfigurationId("LEARCredentialMachine")).isNotNull();
+        assertThat(registry.getByConfigurationId("LEARCredentialEmployeeSdJwt")).isNotNull();
+        assertThat(registry.getByConfigurationId("LEARCredentialMachineSdJwt")).isNotNull();
     }
 
     @Test
     void shouldDeriveCredentialTypeFromDefinition() throws IOException {
         ResourcePatternResolver resolver = mockResolver(validEmployeeProfile());
 
-        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver);
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
-        CredentialProfile profile = registry.getByConfigurationId("LEARCredentialEmployee");
+        CredentialProfile profile = registry.getByConfigurationId("LEARCredentialEmployeeSdJwt");
         assertThat(profile.credentialType()).isEqualTo("LEARCredentialEmployee");
         assertThat(profile.credentialDefinition().type())
                 .containsExactly("VerifiableCredential", "LEARCredentialEmployee");
@@ -95,9 +83,9 @@ class CredentialProfileRegistryTest {
     void shouldParseCredentialMetadata() throws IOException {
         ResourcePatternResolver resolver = mockResolver(validEmployeeProfile());
 
-        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver);
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
-        CredentialProfile profile = registry.getByConfigurationId("LEARCredentialEmployee");
+        CredentialProfile profile = registry.getByConfigurationId("LEARCredentialEmployeeSdJwt");
         assertThat(profile.credentialMetadata()).isNotNull();
         assertThat(profile.credentialMetadata().display()).hasSize(1);
         assertThat(profile.credentialMetadata().display().getFirst().name()).isEqualTo("LEAR Credential Employee");
@@ -108,9 +96,9 @@ class CredentialProfileRegistryTest {
     void shouldParseSubjectExtraction() throws IOException {
         ResourcePatternResolver resolver = mockResolver(validEmployeeProfile());
 
-        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver);
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
-        CredentialProfile profile = registry.getByConfigurationId("LEARCredentialEmployee");
+        CredentialProfile profile = registry.getByConfigurationId("LEARCredentialEmployeeSdJwt");
         assertThat(profile.subjectExtraction()).isNotNull();
         assertThat(profile.subjectExtraction().strategy()).isEqualTo("concat");
         assertThat(profile.subjectExtraction().fields())
@@ -122,9 +110,9 @@ class CredentialProfileRegistryTest {
     void shouldParseOrganizationExtraction() throws IOException {
         ResourcePatternResolver resolver = mockResolver(validEmployeeProfile());
 
-        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver);
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
-        CredentialProfile profile = registry.getByConfigurationId("LEARCredentialEmployee");
+        CredentialProfile profile = registry.getByConfigurationId("LEARCredentialEmployeeSdJwt");
         assertThat(profile.organizationExtraction()).isNotNull();
         assertThat(profile.organizationExtraction().strategy()).isEqualTo("field");
         assertThat(profile.organizationExtraction().field()).isEqualTo("mandate.mandator.organizationIdentifier");
@@ -142,7 +130,7 @@ class CredentialProfileRegistryTest {
                 """;
         ResourcePatternResolver resolver = mockResolver(namedResource("bad.json", json));
 
-        assertThatThrownBy(() -> new CredentialProfileRegistry(OBJECT_MAPPER, resolver))
+        assertThatThrownBy(() -> new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("no credential_configuration_id");
     }
@@ -153,13 +141,13 @@ class CredentialProfileRegistryTest {
                 validEmployeeProfile(),
                 namedResource("duplicate.json", validEmployeeProfileJson()));
 
-        assertThatThrownBy(() -> new CredentialProfileRegistry(OBJECT_MAPPER, resolver))
+        assertThatThrownBy(() -> new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Duplicate credential_configuration_id");
     }
 
     @Test
-    void shouldFailOnDuplicateCredentialType() throws IOException {
+    void shouldKeepFirstProfileForDuplicateCredentialType() throws IOException {
         String duplicateTypeJson = """
                 {
                   "credential_configuration_id": "DifferentId",
@@ -176,9 +164,12 @@ class CredentialProfileRegistryTest {
                 validEmployeeProfile(),
                 namedResource("dup-type.json", duplicateTypeJson));
 
-        assertThatThrownBy(() -> new CredentialProfileRegistry(OBJECT_MAPPER, resolver))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Duplicate credential type");
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
+
+        assertThat(registry.getAllProfiles()).hasSize(2);
+        CredentialProfile typeResult = registry.getByCredentialType("LEARCredentialEmployee");
+        assertThat(typeResult).isNotNull();
+        assertThat(typeResult.credentialConfigurationId()).isEqualTo("LEARCredentialEmployeeSdJwt");
     }
 
     @Test
@@ -186,7 +177,7 @@ class CredentialProfileRegistryTest {
         ResourcePatternResolver resolver = mock(ResourcePatternResolver.class);
         when(resolver.getResources(anyString())).thenReturn(new Resource[0]);
 
-        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver);
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
         assertThat(registry.getAllProfiles()).isEmpty();
     }
@@ -195,7 +186,7 @@ class CredentialProfileRegistryTest {
     void shouldReturnUnmodifiableMap() throws IOException {
         ResourcePatternResolver resolver = mockResolver(validEmployeeProfile());
 
-        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver);
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
         assertThatThrownBy(() -> registry.getAllProfiles().put("key", null))
                 .isInstanceOf(UnsupportedOperationException.class);
@@ -216,7 +207,7 @@ class CredentialProfileRegistryTest {
     private Resource validMachineProfile() {
         return namedResource("lear-credential-machine.json", """
                 {
-                  "credential_configuration_id": "LEARCredentialMachine",
+                  "credential_configuration_id": "LEARCredentialMachineSdJwt",
                   "format": "jwt_vc_json",
                   "scope": "lear_credential_machine",
                   "credential_definition": {
@@ -245,7 +236,7 @@ class CredentialProfileRegistryTest {
     private String validEmployeeProfileJson() {
         return """
                 {
-                  "credential_configuration_id": "LEARCredentialEmployee",
+                  "credential_configuration_id": "LEARCredentialEmployeeSdJwt",
                   "format": "jwt_vc_json",
                   "scope": "lear_credential_employee",
                   "credential_definition": {

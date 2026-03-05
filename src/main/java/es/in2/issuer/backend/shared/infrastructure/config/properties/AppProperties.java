@@ -10,6 +10,7 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 public record AppProperties(
         @NotBlank @URL String url,
+        @URL String internalUrl,
         @NotBlank @URL String issuerFrontendUrl,
         @NotNull KnowledgeBase knowledgeBase,
         @NotBlank @URL String verifierUrl,

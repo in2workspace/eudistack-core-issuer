@@ -23,6 +23,7 @@ import static es.in2.issuer.backend.shared.domain.util.Utils.extractPowers;
  * 1. Signer credential has Onboarding/Execute power
  * 2. Payload mandator organizationIdentifier matches signer mandator
  * 3. All payload powers have function == "ProductOffering"
+ * 4. Each delegated power's actions must be a subset of the signer's actions for the same function
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -56,8 +57,26 @@ public class RequireMandatorEmployeeIssuanceRule implements PolicyRule<JsonNode>
             return false;
         }
 
-        return mandate.power().stream()
-                .allMatch(power -> "ProductOffering".equals(power.function()));
+        if (!mandate.power().stream().allMatch(power -> "ProductOffering".equals(power.function()))) {
+            return false;
+        }
+
+        // Delegation limitation: each delegated power must be covered by a signer power
+        return mandate.power().stream().allMatch(delegated -> isDelegationCovered(delegated, signerPowers));
+    }
+
+    private boolean isDelegationCovered(Power delegated, List<Power> signerPowers) {
+        List<String> delegatedActions = normalizeActions(delegated.action());
+        return signerPowers.stream()
+                .filter(sp -> delegated.function().equals(sp.function()))
+                .anyMatch(sp -> normalizeActions(sp.action()).containsAll(delegatedActions));
+    }
+
+    private List<String> normalizeActions(Object action) {
+        if (action instanceof List<?> actions) {
+            return actions.stream().map(Object::toString).toList();
+        }
+        return List.of(action.toString());
     }
 
     private boolean hasOnboardingExecutePower(List<Power> powers) {

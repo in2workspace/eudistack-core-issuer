@@ -15,8 +15,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.ASYNC;
-import static es.in2.issuer.backend.shared.domain.util.Constants.CREDENTIAL_READY;
+
 
 @Slf4j
 @Service
@@ -56,14 +55,6 @@ public class DeferredCredentialWorkflowImpl implements DeferredCredentialWorkflo
                     .updatedEncodedCredentialByCredentialProcedureId(jwt, procedureId)
                     .flatMap(procId ->
                             deferredCredentialMetadataService.updateVcByProcedureId(jwt, procId)
-                                    .then(deferredCredentialMetadataService.getOperationModeByProcedureId(procId))
-                                    .filter(ASYNC::equals)
-                                    .flatMap(mode -> credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(procId)
-                                            .flatMap( emailInfo -> emailService.sendCredentialSignedNotification(
-                                            emailInfo.email(),
-                                            CREDENTIAL_READY,
-                                            emailInfo.organization()
-                                    )))
                     );
         } catch (Exception e) {
             return Mono.error(new RuntimeException("Failed to process signed credential", e));

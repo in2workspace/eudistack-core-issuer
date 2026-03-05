@@ -22,7 +22,9 @@ public class EndpointsConstants {
 
     // VCI API Endpoints
     public static final String VCI_PATH = VCI_BASE_PATH+"/**";
-    public static final String VCI_ISSUANCES_PATH = VCI_BASE_PATH+"/issuances";
+
+    // Issuance Endpoint (unified)
+    public static final String ISSUANCES_PATH = "/v1/issuances";
 
     // OIDC4VCI Endpoints
     public static final String CORS_OID4VCI_PATH = "/oid4vci/**";
@@ -54,7 +56,11 @@ public class EndpointsConstants {
     public static final String BACKOFFICE_STATUS_CREDENTIALS = BACKOFFICE_BASE_PATH+"/credentials/status/**";
     public static final String BACKOFFICE_RETRY_SIGN_CREDENTIALS = BACKOFFICE_BASE_PATH+"/retry-sign-credential/{id}";
     public static final String BACKOFFICE_DEFERRED_CREDENTIALS = BACKOFFICE_BASE_PATH + "/deferred-credentials";
-    public static final String BACKOFFICE_ISSUANCE = BACKOFFICE_BASE_PATH+"/issuances";
+
+    // Bootstrap Endpoints
+    public static final String BOOTSTRAP_BASE_PATH = "/bootstrap/v1";
+    public static final String BOOTSTRAP_PATH = BOOTSTRAP_BASE_PATH + "/**";
+    public static final String BOOTSTRAP_ISSUANCES_PATH = BOOTSTRAP_BASE_PATH + "/issuances";
 
     //status list Endpoints
     public static final String STATUS_LIST_BASE = "/w3c/v1/credentials/status";

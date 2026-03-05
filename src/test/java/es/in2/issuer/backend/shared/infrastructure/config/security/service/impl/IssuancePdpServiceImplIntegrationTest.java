@@ -8,18 +8,13 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.employee.LE
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
 import es.in2.issuer.backend.shared.domain.policy.PolicyEnforcer;
 import es.in2.issuer.backend.shared.domain.policy.rules.RequireCertificationIssuanceRule;
-import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
-import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.domain.service.impl.JWTServiceImpl;
-import es.in2.issuer.backend.shared.domain.util.factory.CredentialFactory;
-import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialMachineFactory;
-import es.in2.issuer.backend.shared.domain.util.factory.LabelCredentialFactory;
-import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.crypto.CryptoComponent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -57,17 +52,9 @@ class IssuancePdpServiceImplIntegrationTest {
     @Mock
     private LEARCredentialEmployeeFactory learCredentialEmployeeFactory;
     @Mock
-    private LabelCredentialFactory labelCredentialFactory;
-    @Mock
     private LEARCredentialMachineFactory learCredentialMachineFactory;
     @Mock
-    private GenericCredentialBuilder genericCredentialBuilder;
-    @Mock
     private CredentialProfileRegistry credentialProfileRegistry;
-    @Mock
-    private CredentialProcedureService credentialProcedureService;
-    @Mock
-    private DeferredCredentialMetadataService deferredCredentialMetadataService;
 
     private IssuancePdpServiceImpl issuancePdpService;
 
@@ -75,15 +62,6 @@ class IssuancePdpServiceImplIntegrationTest {
     void setUp() {
         objectMapper = new ObjectMapper();
         jwtService = new JWTServiceImpl(objectMapper, cryptoComponent);
-        CredentialFactory credentialFactory = new CredentialFactory(
-                learCredentialEmployeeFactory,
-                learCredentialMachineFactory,
-                labelCredentialFactory,
-                genericCredentialBuilder,
-                credentialProfileRegistry,
-                credentialProcedureService,
-                deferredCredentialMetadataService
-        );
 
         org.mockito.Mockito.lenient()
                 .when(appConfig.getAdminOrganizationId())
@@ -94,19 +72,20 @@ class IssuancePdpServiceImplIntegrationTest {
                 objectMapper,
                 appConfig,
                 learCredentialEmployeeFactory,
-                credentialFactory
+                learCredentialMachineFactory
         );
 
         PolicyEnforcer policyEnforcer = new PolicyEnforcer();
 
         RequireCertificationIssuanceRule certificationRule = new RequireCertificationIssuanceRule(
-                verifierService, jwtService, objectMapper, credentialFactory);
+                verifierService, jwtService, objectMapper, learCredentialEmployeeFactory);
 
         issuancePdpService = new IssuancePdpServiceImpl(
                 policyContextFactory,
                 policyEnforcer,
                 objectMapper,
-                certificationRule
+                certificationRule,
+                credentialProfileRegistry
         );
     }
 

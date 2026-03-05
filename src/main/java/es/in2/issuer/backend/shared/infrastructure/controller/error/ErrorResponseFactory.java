@@ -8,6 +8,7 @@ import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
+import java.util.List;
 import java.util.UUID;
 
 @Slf4j
@@ -18,7 +19,16 @@ public class ErrorResponseFactory {
             String type, String title, HttpStatus status, String fallbackDetail
     ) {
         String detail = resolveDetail(ex, fallbackDetail);
-        return Mono.fromSupplier(() -> buildError(type, title, status, detail, ex, request));
+        return Mono.fromSupplier(() -> buildError(type, title, status, detail, ex, request, null));
+    }
+
+    public Mono<GlobalErrorMessage> handleWithViolations(
+            Exception ex, ServerHttpRequest request,
+            String type, String title, HttpStatus status, String fallbackDetail,
+            List<GlobalErrorMessage.FieldViolation> violations
+    ) {
+        String detail = resolveDetail(ex, fallbackDetail);
+        return Mono.fromSupplier(() -> buildError(type, title, status, detail, ex, request, violations));
     }
 
     public GlobalErrorMessage handleWithNow(
@@ -26,7 +36,7 @@ public class ErrorResponseFactory {
             String type, String title, HttpStatus status, String fallbackDetail
     ) {
         String detail = resolveDetail(ex, fallbackDetail);
-        return buildError(type, title, status, detail, ex, request);
+        return buildError(type, title, status, detail, ex, request, null);
     }
 
     private String resolveDetail(Exception ex, String fallback) {
@@ -36,12 +46,13 @@ public class ErrorResponseFactory {
 
     private GlobalErrorMessage buildError(
             String type, String title, HttpStatus httpStatus, String detail,
-            Exception ex, ServerHttpRequest request
+            Exception ex, ServerHttpRequest request,
+            List<GlobalErrorMessage.FieldViolation> violations
     ) {
         String instance = UUID.randomUUID().toString();
         RequestPath path = request.getPath();
         log.error("instance={} path={} status={} ex={} detail={}",
                 instance, path.value(), httpStatus.value(), ex.getClass().getName(), detail);
-        return new GlobalErrorMessage(type, title, httpStatus.value(), detail, instance);
+        return new GlobalErrorMessage(type, title, httpStatus.value(), detail, instance, violations);
     }
 }

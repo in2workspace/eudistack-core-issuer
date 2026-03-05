@@ -9,7 +9,7 @@ import es.in2.issuer.backend.shared.domain.policy.PolicyContext;
 import es.in2.issuer.backend.shared.domain.policy.PolicyRule;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
-import es.in2.issuer.backend.shared.domain.util.factory.CredentialFactory;
+import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -34,7 +34,7 @@ public class RequireCertificationIssuanceRule implements PolicyRule<String> {
     private final VerifierService verifierService;
     private final JWTService jwtService;
     private final ObjectMapper objectMapper;
-    private final CredentialFactory credentialFactory;
+    private final LEARCredentialEmployeeFactory learCredentialEmployeeFactory;
 
     @Override
     public Mono<Void> evaluate(PolicyContext context, String idToken) {
@@ -61,7 +61,7 @@ public class RequireCertificationIssuanceRule implements PolicyRule<String> {
                     String idVcClaim = jwtService.getClaimFromPayload(idSignedJWT.getPayload(), "vc_json");
                     try {
                         String processedVc = objectMapper.readValue(idVcClaim, String.class);
-                        var credentialEmployee = credentialFactory.learCredentialEmployeeFactory
+                        var credentialEmployee = learCredentialEmployeeFactory
                                 .mapStringToLEARCredentialEmployee(processedVc);
                         return Mono.just(extractPowers(credentialEmployee));
                     } catch (JsonProcessingException e) {

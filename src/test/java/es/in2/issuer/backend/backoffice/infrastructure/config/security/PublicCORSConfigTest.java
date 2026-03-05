@@ -48,7 +48,7 @@ class PublicCORSConfigTest {
         UrlBasedCorsConfigurationSource source = publicCORSConfig.publicCorsConfigurationSource();
 
         var exchange2 = MockServerWebExchange.from(
-                MockServerHttpRequest.get(VCI_ISSUANCES_PATH).build()
+                MockServerHttpRequest.get(ISSUANCES_PATH).build()
         );
         CorsConfiguration externalConfig = source.getCorsConfiguration(exchange2);
         assertNotNull(externalConfig);

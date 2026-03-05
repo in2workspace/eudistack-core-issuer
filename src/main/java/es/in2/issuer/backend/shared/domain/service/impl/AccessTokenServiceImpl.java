@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.JWSObject;
@@ -19,7 +18,6 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-import java.text.ParseException;
 import java.time.Instant;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
@@ -48,15 +46,11 @@ public class AccessTokenServiceImpl implements AccessTokenService {
     @Override
     public Mono<String> getUserId(String authorizationHeader) {
         return getCleanBearerToken(authorizationHeader)
-                .flatMap(token -> {
-                    try {
-                        SignedJWT parsedVcJwt = SignedJWT.parse(token);
-                        JsonNode jsonObject = new ObjectMapper().readTree(parsedVcJwt.getPayload().toString());
-                        return Mono.just(jsonObject.get("sub").asText());
-                    } catch (ParseException | JsonProcessingException e) {
-                        return Mono.error(e);
-                    }
-                })
+                .flatMap(token -> Mono.fromCallable(() -> {
+                    SignedJWT parsedVcJwt = SignedJWT.parse(token);
+                    JsonNode jsonObject = objectMapper.readTree(parsedVcJwt.getPayload().toString());
+                    return jsonObject.get("sub").asText();
+                }).onErrorMap(e -> new InvalidTokenException()))
                 .switchIfEmpty(Mono.error(new InvalidTokenException()));
     }
 
@@ -71,23 +65,19 @@ public class AccessTokenServiceImpl implements AccessTokenService {
     @Override
     public Mono<OrgContext> getOrganizationContext(String authorizationHeader) {
         return getCleanBearerToken(authorizationHeader)
-                .flatMap(token -> {
-                    try {
-                        SignedJWT parsedVcJwt = SignedJWT.parse(token);
-                        JsonNode jsonObject = objectMapper.readTree(parsedVcJwt.getPayload().toString());
-                        JsonNode mandateNode = jsonObject.get(VC)
-                                .get(CREDENTIAL_SUBJECT)
-                                .get(MANDATE);
-                        String orgId = mandateNode.get(MANDATOR)
-                                .get(ORGANIZATION_IDENTIFIER)
-                                .asText();
-                        boolean isSysAdmin = orgId.equals(appConfig.getAdminOrganizationId())
-                                && hasPowerInJsonNode(mandateNode, "Onboarding", "Execute");
-                        return Mono.just(new OrgContext(orgId, isSysAdmin));
-                    } catch (ParseException | JsonProcessingException e) {
-                        return Mono.error(new InvalidTokenException());
-                    }
-                })
+                .flatMap(token -> Mono.fromCallable(() -> {
+                    SignedJWT parsedVcJwt = SignedJWT.parse(token);
+                    JsonNode jsonObject = objectMapper.readTree(parsedVcJwt.getPayload().toString());
+                    JsonNode mandateNode = jsonObject.get(VC)
+                            .get(CREDENTIAL_SUBJECT)
+                            .get(MANDATE);
+                    String orgId = mandateNode.get(MANDATOR)
+                            .get(ORGANIZATION_IDENTIFIER)
+                            .asText();
+                    boolean isSysAdmin = orgId.equals(appConfig.getAdminOrganizationId())
+                            && hasPowerInJsonNode(mandateNode, "Onboarding", "Execute");
+                    return new OrgContext(orgId, isSysAdmin);
+                }).onErrorMap(e -> new InvalidTokenException()))
                 .switchIfEmpty(Mono.error(new InvalidTokenException()));
     }
 
@@ -130,19 +120,16 @@ public class AccessTokenServiceImpl implements AccessTokenService {
 
 
     private Mono<String> extractMandateeEmailFromToken(String token) {
-        try {
+        return Mono.fromCallable(() -> {
             SignedJWT parsedVcJwt = SignedJWT.parse(token);
             JsonNode jsonObject = objectMapper.readTree(parsedVcJwt.getPayload().toString());
-            String email = jsonObject.get(VC)
+            return jsonObject.get(VC)
                     .get(CREDENTIAL_SUBJECT)
                     .get(MANDATE)
                     .get(MANDATEE)
                     .get(EMAIL)
                     .asText();
-            return Mono.just(email);
-        } catch (ParseException | JsonProcessingException e) {
-            return Mono.error(new InvalidTokenException());
-        }
+        }).onErrorMap(e -> new InvalidTokenException());
     }
 
     @Override
@@ -154,19 +141,16 @@ public class AccessTokenServiceImpl implements AccessTokenService {
     }
 
     private Mono<String> extractOrganizationIdFromToken(String token) {
-        try {
+        return Mono.fromCallable(() -> {
             SignedJWT parsedVcJwt = SignedJWT.parse(token);
             JsonNode jsonObject = objectMapper.readTree(parsedVcJwt.getPayload().toString());
-            String organizationId = jsonObject.get(VC)
+            return jsonObject.get(VC)
                     .get(CREDENTIAL_SUBJECT)
                     .get(MANDATE)
                     .get(MANDATOR)
                     .get(ORGANIZATION_IDENTIFIER)
                     .asText();
-            return Mono.just(organizationId);
-        } catch (ParseException | JsonProcessingException e) {
-            return Mono.error(new InvalidTokenException());
-        }
+        }).onErrorMap(e -> new InvalidTokenException());
     }
 
     private @NotNull Mono<String> getTokenFromCurrentSession() {
@@ -202,8 +186,7 @@ public class AccessTokenServiceImpl implements AccessTokenService {
                                             .map(def -> new AccessTokenContext(
                                                     rawToken,
                                                     jti,
-                                                    def.getProcedureId().toString(),
-                                                    def.getResponseUri()
+                                                    def.getProcedureId().toString()
                                             ));
                                 })
                 );

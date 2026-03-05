@@ -7,15 +7,9 @@ import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionExcep
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Mandator;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.employee.LEARCredentialEmployee;
-import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
-import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
-import es.in2.issuer.backend.shared.domain.util.factory.CredentialFactory;
-import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialMachineFactory;
-import es.in2.issuer.backend.shared.domain.util.factory.LabelCredentialFactory;
-import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,37 +43,13 @@ class PolicyContextFactoryTest {
     @Mock
     private LEARCredentialMachineFactory learCredentialMachineFactory;
 
-    @Mock
-    private LabelCredentialFactory labelCredentialFactory;
-
-    @Mock
-    private GenericCredentialBuilder genericCredentialBuilder;
-
-    @Mock
-    private CredentialProfileRegistry credentialProfileRegistry;
-
-    @Mock
-    private CredentialProcedureService credentialProcedureService;
-
-    @Mock
-    private DeferredCredentialMetadataService deferredCredentialMetadataService;
-
     private PolicyContextFactory factory;
 
     @BeforeEach
     void setUp() {
         ObjectMapper objectMapper = new ObjectMapper();
-        CredentialFactory credentialFactory = new CredentialFactory(
-                learCredentialEmployeeFactory,
-                learCredentialMachineFactory,
-                labelCredentialFactory,
-                genericCredentialBuilder,
-                credentialProfileRegistry,
-                credentialProcedureService,
-                deferredCredentialMetadataService
-        );
         factory = new PolicyContextFactory(
-                jwtService, objectMapper, appConfig, learCredentialEmployeeFactory, credentialFactory
+                jwtService, objectMapper, appConfig, learCredentialEmployeeFactory, learCredentialMachineFactory
         );
     }
 

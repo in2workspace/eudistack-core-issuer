@@ -47,7 +47,7 @@ public class PublicCORSConfig {
         externalConfig.setAllowCredentials(false);
         externalConfig.setMaxAge(1800L);
 
-        source.registerCorsConfiguration(VCI_ISSUANCES_PATH, externalConfig);
+        source.registerCorsConfiguration(ISSUANCES_PATH, externalConfig);
 
         CorsConfiguration oid4vciConfig = new CorsConfiguration();
         oid4vciConfig.setAllowedOrigins(appConfig.getExternalCorsAllowedOrigins());

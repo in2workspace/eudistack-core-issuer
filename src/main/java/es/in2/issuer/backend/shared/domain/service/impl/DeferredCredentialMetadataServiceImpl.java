@@ -57,8 +57,8 @@ public class DeferredCredentialMetadataServiceImpl implements DeferredCredential
     }
 
     @Override
-    public Mono<String> createDeferredCredentialMetadata(String procedureId, String operationMode, String responseUri) {
-        log.debug("Creating deferred credential metadata: procedureId={}, operationMode={}, responseUri={}", procedureId, operationMode, responseUri);
+    public Mono<String> createDeferredCredentialMetadata(String procedureId) {
+        log.debug("Creating deferred credential metadata: procedureId={}", procedureId);
         return generateCustomNonce()
                 .flatMap(nonce -> cacheStoreForTransactionCode.add(nonce, nonce))
                 .flatMap(transactionCode -> {
@@ -66,8 +66,6 @@ public class DeferredCredentialMetadataServiceImpl implements DeferredCredential
                             .builder()
                             .procedureId(UUID.fromString(procedureId))
                             .transactionCode(transactionCode)
-                            .operationMode(operationMode)
-                            .responseUri(responseUri)
                             .build();
                     return deferredCredentialMetadataRepository.save(deferredCredentialMetadata)
                             .then(Mono.just(transactionCode));
@@ -87,15 +85,6 @@ public class DeferredCredentialMetadataServiceImpl implements DeferredCredential
                                                 ))
                                 )
                 );
-    }
-
-    @Override
-    public Mono<String> getResponseUriByProcedureId(String procedureId) {
-        return deferredCredentialMetadataRepository.findByProcedureId(UUID.fromString(procedureId))
-                .flatMap(deferredCredentialMetadata -> {
-                    String responseUri = deferredCredentialMetadata.getResponseUri();
-                    return Mono.justOrEmpty(responseUri);
-                });
     }
 
     @Override
@@ -135,18 +124,6 @@ public class DeferredCredentialMetadataServiceImpl implements DeferredCredential
         return deferredCredentialMetadataRepository.findByAuthServerNonce(authServerNonce)
                 .switchIfEmpty(Mono.error(new CredentialAlreadyIssuedException("The credential has already been issued")))
                 .doOnNext(deferredCredentialMetadata -> log.debug("Found DeferredCredentialMetadata for authServerNonce: {}", authServerNonce));
-    }
-
-    @Override
-    public Mono<String> getOperationModeByAuthServerNonce(String authServerNonce) {
-        return deferredCredentialMetadataRepository.findByAuthServerNonce(authServerNonce)
-                .flatMap(deferredCredentialMetadata -> Mono.just(deferredCredentialMetadata.getOperationMode()));
-    }
-
-    @Override
-    public Mono<String> getOperationModeByProcedureId(String procedureId) {
-        return deferredCredentialMetadataRepository.findByProcedureId(UUID.fromString(procedureId))
-                .flatMap(deferredCredentialMetadata -> Mono.just(deferredCredentialMetadata.getOperationMode()));
     }
 
     @Override

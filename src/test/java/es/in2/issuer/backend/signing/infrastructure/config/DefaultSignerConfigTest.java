@@ -1,57 +1,56 @@
 package es.in2.issuer.backend.signing.infrastructure.config;
 
-import es.in2.issuer.backend.signing.infrastructure.properties.DefaultSignerProperties;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.Mockito.when;
+import java.util.Objects;
 
-@ExtendWith(MockitoExtension.class)
+import static org.junit.jupiter.api.Assertions.*;
+
 class DefaultSignerConfigTest {
 
-    @Mock
-    private DefaultSignerProperties defaultSignerProperties;
-
-    @InjectMocks
-    private DefaultSignerConfig defaultSignerConfig;
-
-    @Test
-    void testGetCommonName() {
-        when(defaultSignerProperties.commonName()).thenReturn("CommonName");
-        assertEquals("CommonName", defaultSignerConfig.getCommonName());
+    private String getTestCertPath(String filename) {
+        return Objects.requireNonNull(
+                getClass().getClassLoader().getResource("certs/" + filename),
+                "Test certificate not found: " + filename
+        ).getPath();
     }
 
     @Test
-    void testGetCountry() {
-        when(defaultSignerProperties.country()).thenReturn("Country");
-        assertEquals("Country", defaultSignerConfig.getCountry());
+    void shouldExtractFieldsFromCertificate() {
+        DefaultSignerConfig config = new DefaultSignerConfig(getTestCertPath("test-eseal.crt"));
+
+        assertEquals("VATES-A15456585", config.getOrganizationIdentifier());
+        assertEquals("ALTIA CONSULTORES, SA", config.getOrganization());
+        assertEquals("ES", config.getCountry());
+        assertEquals("ALTIA CONSULTORES, SA - Sello Electronico", config.getCommonName());
+        assertEquals("A15456585", config.getSerialNumber());
     }
 
     @Test
-    void testGetEmail() {
-        when(defaultSignerProperties.email()).thenReturn("email");
-        assertEquals("email", defaultSignerConfig.getEmail());
+    void shouldThrowWhenCertPathIsBlank() {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new DefaultSignerConfig(""));
+        assertTrue(ex.getMessage().contains("signing.certificate.cert-path is required"));
     }
 
     @Test
-    void testGetOrganizationIdentifier() {
-        when(defaultSignerProperties.organizationIdentifier()).thenReturn("OrgId");
-        assertEquals("OrgId", defaultSignerConfig.getOrganizationIdentifier());
+    void shouldThrowWhenCertPathIsNull() {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new DefaultSignerConfig(null));
+        assertTrue(ex.getMessage().contains("signing.certificate.cert-path is required"));
     }
 
     @Test
-    void testGetOrganization() {
-        when(defaultSignerProperties.organization()).thenReturn("Organization");
-        assertEquals("Organization", defaultSignerConfig.getOrganization());
+    void shouldThrowWhenCertificateFileDoesNotExist() {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new DefaultSignerConfig("/nonexistent/path/cert.crt"));
+        assertTrue(ex.getMessage().contains("Failed to read signer identity from certificate"));
     }
 
     @Test
-    void testGetSerialNumber() {
-        when(defaultSignerProperties.serialNumber()).thenReturn("SerialNumber");
-        assertEquals("SerialNumber", defaultSignerConfig.getSerialNumber());
+    void shouldThrowWhenCertificateMissingOrganizationIdentifier() {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new DefaultSignerConfig(getTestCertPath("test-no-orgid.crt")));
+        assertTrue(ex.getMessage().contains("does not contain organizationIdentifier"));
     }
 }

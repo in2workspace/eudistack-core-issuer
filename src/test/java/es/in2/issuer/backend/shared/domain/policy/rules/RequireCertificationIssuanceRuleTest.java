@@ -9,16 +9,9 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.employee.LEARCredentialEmployee;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.machine.LEARCredentialMachine;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContext;
-import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
-import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
-import es.in2.issuer.backend.shared.domain.util.factory.CredentialFactory;
-import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialEmployeeFactory;
-import es.in2.issuer.backend.shared.domain.util.factory.LEARCredentialMachineFactory;
-import es.in2.issuer.backend.shared.domain.util.factory.LabelCredentialFactory;
-import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -46,33 +39,12 @@ class RequireCertificationIssuanceRuleTest {
     private ObjectMapper objectMapper;
     @Mock
     private LEARCredentialEmployeeFactory learCredentialEmployeeFactory;
-    @Mock
-    private LEARCredentialMachineFactory learCredentialMachineFactory;
-    @Mock
-    private LabelCredentialFactory labelCredentialFactory;
-    @Mock
-    private GenericCredentialBuilder genericCredentialBuilder;
-    @Mock
-    private CredentialProfileRegistry credentialProfileRegistry;
-    @Mock
-    private CredentialProcedureService credentialProcedureService;
-    @Mock
-    private DeferredCredentialMetadataService deferredCredentialMetadataService;
 
     private RequireCertificationIssuanceRule rule;
 
     @BeforeEach
     void setUp() {
-        CredentialFactory credentialFactory = new CredentialFactory(
-                learCredentialEmployeeFactory,
-                learCredentialMachineFactory,
-                labelCredentialFactory,
-                genericCredentialBuilder,
-                credentialProfileRegistry,
-                credentialProcedureService,
-                deferredCredentialMetadataService
-        );
-        rule = new RequireCertificationIssuanceRule(verifierService, jwtService, objectMapper, credentialFactory);
+        rule = new RequireCertificationIssuanceRule(verifierService, jwtService, objectMapper, learCredentialEmployeeFactory);
     }
 
     private LEARCredentialMachine buildMachineCredentialWithPower(String function, String action) {

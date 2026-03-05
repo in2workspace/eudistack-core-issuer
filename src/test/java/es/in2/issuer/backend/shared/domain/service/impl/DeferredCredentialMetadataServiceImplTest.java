@@ -79,66 +79,13 @@ class DeferredCredentialMetadataServiceImplTest {
         when(deferredCredentialMetadataRepository.save(any(DeferredCredentialMetadata.class))).thenReturn(Mono.just(new DeferredCredentialMetadata()));
 
         // Act
-        StepVerifier.create(deferredCredentialMetadataService.createDeferredCredentialMetadata(procedureId, "A", null))
+        StepVerifier.create(deferredCredentialMetadataService.createDeferredCredentialMetadata(procedureId))
                 .expectNext(transactionCode)
                 .verifyComplete();
 
         // Assert
         verify(cacheStore, times(1)).add(anyString(), anyString());
         verify(deferredCredentialMetadataRepository, times(1)).save(any(DeferredCredentialMetadata.class));
-    }
-
-    @Test
-    void testGetResponseUriByProcedureId_Success() {
-        // Arrange
-        String procedureId = UUID.randomUUID().toString();
-        String expectedUri = "https://callback.example.com/response";
-        DeferredCredentialMetadata metadata = new DeferredCredentialMetadata();
-        metadata.setResponseUri(expectedUri);
-
-        when(deferredCredentialMetadataRepository.findByProcedureId(UUID.fromString(procedureId)))
-                .thenReturn(Mono.just(metadata));
-
-        // Act & Assert
-        StepVerifier.create(deferredCredentialMetadataService.getResponseUriByProcedureId(procedureId))
-                .expectNext(expectedUri)
-                .verifyComplete();
-
-        verify(deferredCredentialMetadataRepository, times(1))
-                .findByProcedureId(UUID.fromString(procedureId));
-    }
-
-    @Test
-    void testGetResponseUriByProcedureId_NotFound() {
-        // Arrange
-        String procedureId = UUID.randomUUID().toString();
-        when(deferredCredentialMetadataRepository.findByProcedureId(UUID.fromString(procedureId)))
-                .thenReturn(Mono.empty());
-
-        // Act & Assert
-        StepVerifier.create(deferredCredentialMetadataService.getResponseUriByProcedureId(procedureId))
-                .verifyComplete();
-
-        verify(deferredCredentialMetadataRepository, times(1))
-                .findByProcedureId(UUID.fromString(procedureId));
-    }
-
-    @Test
-    void testGetResponseUriByProcedureId_NullResponseUri() {
-        // Arrange
-        String procedureId = UUID.randomUUID().toString();
-        DeferredCredentialMetadata metadata = new DeferredCredentialMetadata();
-        metadata.setResponseUri(null);  // o "" per provar emissió buida
-
-        when(deferredCredentialMetadataRepository.findByProcedureId(UUID.fromString(procedureId)))
-                .thenReturn(Mono.just(metadata));
-
-        // Act & Assert
-        StepVerifier.create(deferredCredentialMetadataService.getResponseUriByProcedureId(procedureId))
-                .verifyComplete();
-
-        verify(deferredCredentialMetadataRepository, times(1))
-                .findByProcedureId(UUID.fromString(procedureId));
     }
 
     @Test
@@ -292,42 +239,6 @@ class DeferredCredentialMetadataServiceImplTest {
 
         // Assert
         verify(deferredCredentialMetadataRepository, times(1)).deleteById(UUID.fromString(id));
-    }
-
-    @Test
-    void testGetOperationModeByAuthServerNonce_Success() {
-        // Arrange
-        String authServerNonce = "auth-server-nonce";
-        DeferredCredentialMetadata deferredCredentialMetadata = new DeferredCredentialMetadata();
-        deferredCredentialMetadata.setProcedureId(UUID.randomUUID());
-        deferredCredentialMetadata.setOperationMode("A");
-        when(deferredCredentialMetadataRepository.findByAuthServerNonce(authServerNonce)).thenReturn(Mono.just(deferredCredentialMetadata));
-
-        // Act
-        StepVerifier.create(deferredCredentialMetadataService.getOperationModeByAuthServerNonce(authServerNonce))
-                .expectNext(deferredCredentialMetadata.getOperationMode())
-                .verifyComplete();
-
-        // Assert
-        verify(deferredCredentialMetadataRepository, times(1)).findByAuthServerNonce(authServerNonce);
-    }
-
-    @Test
-    void testGetOperationModeByProcedureId_Success() {
-        // Arrange
-        UUID procedureId = UUID.randomUUID();
-        DeferredCredentialMetadata deferredCredentialMetadata = new DeferredCredentialMetadata();
-        deferredCredentialMetadata.setProcedureId(procedureId);
-        deferredCredentialMetadata.setOperationMode("A");
-        when(deferredCredentialMetadataRepository.findByProcedureId(procedureId)).thenReturn(Mono.just(deferredCredentialMetadata));
-
-        // Act
-        StepVerifier.create(deferredCredentialMetadataService.getOperationModeByProcedureId(String.valueOf(procedureId)))
-                .expectNext(deferredCredentialMetadata.getOperationMode())
-                .verifyComplete();
-
-        // Assert
-        verify(deferredCredentialMetadataRepository, times(1)).findByProcedureId(procedureId);
     }
 
     @Test

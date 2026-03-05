@@ -65,13 +65,13 @@ public class LEARCredentialEmployeeFactory {
                 .flatMap(this::convertLEARCredentialEmployeeInToString);
     }
 
-    public Mono<CredentialProcedureCreationRequest> mapAndBuildLEARCredentialEmployee(String procedureId, JsonNode learCredential, CredentialStatus credentialStatus, String operationMode, String email) {
+    public Mono<CredentialProcedureCreationRequest> mapAndBuildLEARCredentialEmployee(String procedureId, JsonNode learCredential, CredentialStatus credentialStatus, String email) {
         LEARCredentialEmployee.CredentialSubject baseCredentialSubject = mapJsonNodeToCredentialSubject(learCredential);
         return buildFinalLearCredentialEmployee(baseCredentialSubject, credentialStatus)
                 .flatMap(credentialDecoded ->
                         convertLEARCredentialEmployeeInToString(credentialDecoded)
                                 .flatMap(credentialDecodedString ->
-                                        buildCredentialProcedureCreationRequest(procedureId, credentialDecodedString, credentialDecoded, operationMode, email)
+                                        buildCredentialProcedureCreationRequest(procedureId, credentialDecodedString, credentialDecoded, email)
                                 )
                 );
     }
@@ -276,7 +276,7 @@ public class LEARCredentialEmployeeFactory {
         }
     }
 
-    private Mono<CredentialProcedureCreationRequest> buildCredentialProcedureCreationRequest(String procedureId, String decodedCredential, LEARCredentialEmployee credentialDecoded, String operationMode, String email) {
+    private Mono<CredentialProcedureCreationRequest> buildCredentialProcedureCreationRequest(String procedureId, String decodedCredential, LEARCredentialEmployee credentialDecoded, String email) {
         String mandatorOrgId = credentialDecoded.credentialSubject().mandate().mandator().organizationIdentifier();
 
         return Mono.just(
@@ -289,7 +289,6 @@ public class LEARCredentialEmployeeFactory {
                                 " " +
                                 credentialDecoded.credentialSubject().mandate().mandatee().lastName())
                         .validUntil(parseEpochSecondIntoTimestamp(parseDateToUnixTime(credentialDecoded.validUntil())))
-                        .operationMode(operationMode)
                         .email(email)
                         .build()
         );

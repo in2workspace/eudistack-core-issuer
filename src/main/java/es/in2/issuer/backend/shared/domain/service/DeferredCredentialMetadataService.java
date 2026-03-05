@@ -7,15 +7,12 @@ import reactor.core.publisher.Mono;
 import java.util.Map;
 
 public interface DeferredCredentialMetadataService {
-    Mono<String> getResponseUriByProcedureId(String procedureId);
-    Mono<String> createDeferredCredentialMetadata(String procedureId, String operationMode, String responseUri);
+    Mono<String> createDeferredCredentialMetadata(String procedureId);
     Mono<Map<String, Object>> updateCacheStoreForCTransactionCode(String transactionCode);
     Mono<String> validateCTransactionCode(String cTransactionCode);
     Mono<String> updateTransactionCodeInDeferredCredentialMetadata(String procedureId);
     Mono<String> getProcedureIdByTransactionCode(String transactionCode);
     Mono<DeferredCredentialMetadata> getDeferredCredentialMetadataByAuthServerNonce(String authServerNonce);
-    Mono<String> getOperationModeByAuthServerNonce(String authServerNonce);
-    Mono<String> getOperationModeByProcedureId(String procedureId);
     Mono<Void> updateAuthServerNonceByTransactionCode(String transactionCode, String authServerNonce);
     Mono<String> updateDeferredCredentialMetadataByAuthServerNonce(String authServerNonce);
     Mono<Void> updateDeferredCredentialByAuthServerNonce(String authServerNonce, String format);
