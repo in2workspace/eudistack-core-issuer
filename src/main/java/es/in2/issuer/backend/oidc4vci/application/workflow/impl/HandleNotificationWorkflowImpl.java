@@ -1,7 +1,5 @@
 package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.oidc4vci.application.workflow.HandleNotificationWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.exception.InvalidNotificationIdException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.InvalidNotificationRequestException;
@@ -24,7 +22,6 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflow {
 
     private final CredentialProcedureService credentialProcedureService;
-    private final ObjectMapper objectMapper;
     private final RevocationWorkflow revocationWorkflow;
 
     @Override
@@ -117,47 +114,13 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     }
 
     private Mono<Void> revokeCredentialFromDecoded(String processId, CredentialProcedure procedure, String bearerToken) {
-        return extractListIdFromDecodedCredential(procedure)
-                .flatMap(listId -> revocationWorkflow.revokeSystem(
-                                        processId,
-                                        bearerToken,
-                                        procedure.getProcedureId().toString(),
-                                        listId
-                                )
-                                .doFirst(() -> log.info("Process ID: {} - Revoking Credential... procedureId={} listId={}",
-                                        processId, procedure.getProcedureId(), listId))
-                                .doOnSuccess(result -> log.info("Process ID: {} - Credential revoked successfully. procedureId={} listId={}",
-                                        processId, procedure.getProcedureId(), listId))
-                                .then()
-                )
-                .doOnError(e -> log.warn("Process ID: {} - revokeCredentialFromDecoded failed: {}", processId, e.getMessage(), e));
-    }
-
-    private Mono<Integer> extractListIdFromDecodedCredential(CredentialProcedure procedure) {
-        return Mono.fromCallable(() -> {
-            JsonNode credential = objectMapper.readTree(procedure.getCredentialDataSet());
-
-            JsonNode statusNode = credential.has(VC)
-                    ? credential.path(VC).path(CREDENTIAL_STATUS)
-                    : credential.path(CREDENTIAL_STATUS);
-
-            if (statusNode.isMissingNode() || statusNode.isNull()) {
-                throw new IllegalArgumentException("Credential status node not found in decoded credential");
-            }
-
-            JsonNode slcNode = statusNode.path(STATUS_LIST_CREDENTIAL);
-            String slc = slcNode.asText();
-
-            if (slc == null || slc.isBlank()) {
-                throw new IllegalArgumentException("status_list_credential is missing/blank");
-            }
-
-            char lastChar = slc.charAt(slc.length() - 1);
-            if (!Character.isDigit(lastChar)) {
-                throw new IllegalArgumentException("Last character of status_list_credential is not a digit: " + slc);
-            }
-
-            return Character.getNumericValue(lastChar);
-        });
+        String procedureId = procedure.getProcedureId().toString();
+        return revocationWorkflow.revokeSystem(processId, bearerToken, procedureId)
+                .doFirst(() -> log.info("processId={} action=revokeCredential status=started procedureId={}",
+                        processId, procedureId))
+                .doOnSuccess(v -> log.info("processId={} action=revokeCredential status=completed procedureId={}",
+                        processId, procedureId))
+                .doOnError(e -> log.warn("processId={} action=revokeCredential status=failed procedureId={} error={}",
+                        processId, procedureId, e.getMessage(), e));
     }
 }

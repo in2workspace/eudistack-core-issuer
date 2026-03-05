@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationEvent;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationRequest;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
@@ -12,16 +11,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.util.UUID;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.CREDENTIAL_STATUS;
-import static es.in2.issuer.backend.shared.domain.util.Constants.STATUS_LIST_CREDENTIAL;
-import static es.in2.issuer.backend.shared.domain.util.Constants.VC;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -32,9 +27,6 @@ class HandleNotificationWorkflowImplTest {
 
     @Mock
     private CredentialProcedureService credentialProcedureService;
-
-    @Spy
-    private ObjectMapper objectMapper = new ObjectMapper();
 
     @Mock
     private RevocationWorkflow revocationWorkflow;
@@ -86,23 +78,11 @@ class HandleNotificationWorkflowImplTest {
     }
 
     @Test
-    void handleNotification_deletedEvent_shouldRevoke_whenNotIdempotent_andVcWrappedJson() {
+    void handleNotification_deletedEvent_shouldRevoke_whenNotIdempotent() {
         when(procedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.VALID);
-
-        String decoded = """
-                {
-                  "%s": {
-                    "%s": {
-                      "%s": "https://example/status/7"
-                    }
-                  }
-                }
-                """.formatted(VC, CREDENTIAL_STATUS, STATUS_LIST_CREDENTIAL);
-
-        when(procedure.getCredentialDataSet()).thenReturn(decoded);
         when(credentialProcedureService.getCredentialProcedureByNotificationId("nid-1"))
                 .thenReturn(Mono.just(procedure));
-        when(revocationWorkflow.revokeSystem(processId, bearerToken, procedureId.toString(), 7))
+        when(revocationWorkflow.revokeSystem(processId, bearerToken, procedureId.toString()))
                 .thenReturn(Mono.empty());
 
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_DELETED, "desc");
@@ -110,92 +90,21 @@ class HandleNotificationWorkflowImplTest {
         StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
                 .verifyComplete();
 
-        verify(revocationWorkflow).revokeSystem(processId, bearerToken, procedureId.toString(), 7);
+        verify(revocationWorkflow).revokeSystem(processId, bearerToken, procedureId.toString());
     }
 
     @Test
-    void handleNotification_deletedEvent_shouldRevoke_whenNotIdempotent_andRootJson() {
+    void handleNotification_deletedEvent_revokeFails_shouldPropagateError() {
         when(procedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.VALID);
-
-        String decoded = """
-                {
-                  "%s": {
-                    "%s": "https://example/status/3"
-                  }
-                }
-                """.formatted(CREDENTIAL_STATUS, STATUS_LIST_CREDENTIAL);
-
-        when(procedure.getCredentialDataSet()).thenReturn(decoded);
         when(credentialProcedureService.getCredentialProcedureByNotificationId("nid-1"))
                 .thenReturn(Mono.just(procedure));
-        when(revocationWorkflow.revokeSystem(processId, bearerToken, procedureId.toString(), 3))
-                .thenReturn(Mono.empty());
+        when(revocationWorkflow.revokeSystem(processId, bearerToken, procedureId.toString()))
+                .thenReturn(Mono.error(new RuntimeException("revocation failed")));
 
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_DELETED, "desc");
 
         StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
-                .verifyComplete();
-
-        verify(revocationWorkflow).revokeSystem(processId, bearerToken, procedureId.toString(), 3);
-    }
-
-    @Test
-    void handleNotification_deletedEvent_statusListCredentialBlank_shouldError() {
-        when(procedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.VALID);
-
-        String decoded = """
-                {
-                  "%s": {
-                    "%s": {
-                      "%s": "   "
-                    }
-                  }
-                }
-                """.formatted(VC, CREDENTIAL_STATUS, STATUS_LIST_CREDENTIAL);
-
-        when(procedure.getCredentialDataSet()).thenReturn(decoded);
-        when(credentialProcedureService.getCredentialProcedureByNotificationId("nid-1"))
-                .thenReturn(Mono.just(procedure));
-
-        NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_DELETED, "desc");
-
-        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
-                .expectErrorSatisfies(ex -> {
-                    assert ex instanceof IllegalArgumentException;
-                    assert ex.getMessage().contains("status_list_credential is missing/blank");
-                })
+                .expectError(RuntimeException.class)
                 .verify();
-
-        verifyNoInteractions(revocationWorkflow);
-    }
-
-    @Test
-    void handleNotification_deletedEvent_lastCharNotDigit_shouldError() {
-        when(procedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.VALID);
-
-        String decoded = """
-                {
-                  "%s": {
-                    "%s": {
-                      "%s": "https://example/status/X"
-                    }
-                  }
-                }
-                """.formatted(VC, CREDENTIAL_STATUS, STATUS_LIST_CREDENTIAL);
-
-        when(procedure.getCredentialDataSet()).thenReturn(decoded);
-        when(credentialProcedureService.getCredentialProcedureByNotificationId("nid-1"))
-                .thenReturn(Mono.just(procedure));
-
-        NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_DELETED, "desc");
-
-        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
-                .expectErrorSatisfies(ex -> {
-                    assert ex instanceof IllegalArgumentException;
-                    assert ex.getMessage().contains("not a digit");
-                })
-                .verify();
-
-        verifyNoInteractions(revocationWorkflow);
     }
 }

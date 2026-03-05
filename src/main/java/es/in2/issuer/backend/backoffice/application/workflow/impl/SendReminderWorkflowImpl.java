@@ -1,11 +1,10 @@
 package es.in2.issuer.backend.backoffice.application.workflow.impl;
 
-import es.in2.issuer.backend.backoffice.application.workflow.ActivationCodeWorkflow;
 import es.in2.issuer.backend.backoffice.application.workflow.SendReminderWorkflow;
 import es.in2.issuer.backend.backoffice.application.workflow.policies.BackofficePdpService;
+import es.in2.issuer.backend.shared.application.workflow.CredentialOfferRefreshWorkflow;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
-import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,8 +22,7 @@ public class SendReminderWorkflowImpl implements SendReminderWorkflow {
     private final BackofficePdpService backofficePdpService;
     private final EmailService emailService;
     private final CredentialProcedureService credentialProcedureService;
-    private final DeferredCredentialMetadataService deferredCredentialMetadataService;
-    private final ActivationCodeWorkflow activationCodeWorkflow;
+    private final CredentialOfferRefreshWorkflow credentialOfferRefreshWorkflow;
 
     @Override
     public Mono<Void> sendReminder(String processId, String procedureId, String bearerToken) {
@@ -37,12 +35,8 @@ public class SendReminderWorkflowImpl implements SendReminderWorkflow {
                 .flatMap(credentialProcedure ->
                     switch (credentialProcedure.getCredentialStatus()) {
                         case DRAFT, WITHDRAWN ->
-                            // Refresh the transaction code and reissue a credential offer via email
-                            deferredCredentialMetadataService
-                                    .updateTransactionCodeInDeferredCredentialMetadata(procedureId)
-                                    .flatMap(newTransactionCode ->
-                                            activationCodeWorkflow.reissueCredentialOffer(processId, newTransactionCode)
-                                    );
+                            credentialOfferRefreshWorkflow.refreshCredentialOffer(
+                                    credentialProcedure.getRefreshToken());
 
                         case PEND_DOWNLOAD ->
                             emailService.sendCredentialSignedNotification(
