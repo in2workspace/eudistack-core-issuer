@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
-import es.in2.issuer.backend.shared.application.workflow.CredentialIssuanceWorkflow;
+import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
 import es.in2.issuer.backend.shared.domain.model.dto.DeferredCredentialRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialResponse;
@@ -28,7 +28,7 @@ class DeferredCredentialControllerTest {
     private AccessTokenService accessTokenService;
 
     @Mock
-    private CredentialIssuanceWorkflow credentialIssuanceWorkflow;
+    private Oid4VciCredentialWorkflow oid4VciCredentialWorkflow;
 
     @InjectMocks
     private DeferredCredentialController deferredCredentialController;
@@ -46,7 +46,7 @@ class DeferredCredentialControllerTest {
         when(accessTokenService.validateAndResolveProcedure(anyString())).thenReturn(Mono.just(
                 AccessTokenContext.builder()
                         .build()));
-        when(credentialIssuanceWorkflow.generateVerifiableCredentialDeferredResponse(anyString(), eq(deferredCredentialRequest), any())).thenReturn(Mono.just(credentialResponse));
+        when(oid4VciCredentialWorkflow.generateVerifiableCredentialDeferredResponse(anyString(), eq(deferredCredentialRequest), any())).thenReturn(Mono.just(credentialResponse));
 
         Mono<ResponseEntity<CredentialResponse>> result = deferredCredentialController.getCredential("", deferredCredentialRequest);
 

@@ -68,7 +68,7 @@ class CredentialFactoryTest {
         CredentialProcedureCreationRequest expectedResponse = CredentialProcedureCreationRequest.builder()
                 .procedureId(procedureId)
                 .organizationIdentifier("org123")
-                .credentialDecoded("decoded")
+                .credentialDataSet("decoded")
                 .credentialType(LEAR_CREDENTIAL_EMPLOYEE)
                 .subject("subject")
                 .validUntil(new Timestamp(System.currentTimeMillis()))
@@ -115,7 +115,7 @@ class CredentialFactoryTest {
         CredentialProcedureCreationRequest expectedResponse = CredentialProcedureCreationRequest.builder()
                 .procedureId(procedureId)
                 .organizationIdentifier("org789")
-                .credentialDecoded("decoded")
+                .credentialDataSet("decoded")
                 .credentialType(LEAR_CREDENTIAL_MACHINE)
                 .subject("machine-subject")
                 .validUntil(new Timestamp(System.currentTimeMillis()))
@@ -282,7 +282,7 @@ class CredentialFactoryTest {
 
         when(genericCredentialBuilder.bindIssuer(profile, decodedCredential, procedureId, ""))
                 .thenReturn(Mono.just(boundCredential));
-        when(credentialProcedureService.updateDecodedCredentialByProcedureId(procedureId, boundCredential, format))
+        when(credentialProcedureService.updateCredentialDataSetByProcedureId(procedureId, boundCredential, format))
                 .thenReturn(Mono.empty());
         when(deferredCredentialMetadataService.updateDeferredCredentialByAuthServerNonce(authServerNonce, format))
                 .thenReturn(Mono.empty());
@@ -291,7 +291,7 @@ class CredentialFactoryTest {
                 .verifyComplete();
 
         verify(genericCredentialBuilder).bindIssuer(profile, decodedCredential, procedureId, "");
-        verify(credentialProcedureService).updateDecodedCredentialByProcedureId(procedureId, boundCredential, format);
+        verify(credentialProcedureService).updateCredentialDataSetByProcedureId(procedureId, boundCredential, format);
         verify(deferredCredentialMetadataService).updateDeferredCredentialByAuthServerNonce(authServerNonce, format);
     }
 
@@ -312,7 +312,7 @@ class CredentialFactoryTest {
                 .verify();
 
         verify(genericCredentialBuilder, never()).bindIssuer(any(), any(), any(), any());
-        verify(credentialProcedureService, never()).updateDecodedCredentialByProcedureId(any(), any(), any());
+        verify(credentialProcedureService, never()).updateCredentialDataSetByProcedureId(any(), any(), any());
         verify(deferredCredentialMetadataService, never()).updateDeferredCredentialMetadataByAuthServerNonce(any());
     }
 
@@ -335,7 +335,7 @@ class CredentialFactoryTest {
                 .verify();
 
         verify(genericCredentialBuilder).bindIssuer(profile, decodedCredential, procedureId, "");
-        verify(credentialProcedureService, never()).updateDecodedCredentialByProcedureId(any(), any(), any());
+        verify(credentialProcedureService, never()).updateCredentialDataSetByProcedureId(any(), any(), any());
         verify(deferredCredentialMetadataService, never()).updateDeferredCredentialMetadataByAuthServerNonce(any());
     }
 
@@ -353,7 +353,7 @@ class CredentialFactoryTest {
 
         when(genericCredentialBuilder.bindIssuer(profile, decodedCredential, procedureId, ""))
                 .thenReturn(Mono.just(boundCredential));
-        when(credentialProcedureService.updateDecodedCredentialByProcedureId(procedureId, boundCredential, format))
+        when(credentialProcedureService.updateCredentialDataSetByProcedureId(procedureId, boundCredential, format))
                 .thenReturn(Mono.error(new RuntimeException("DB Update error")));
 
         StepVerifier.create(credentialFactory.mapCredentialBindIssuerAndUpdateDB(processId, procedureId, decodedCredential, LEAR_CREDENTIAL_EMPLOYEE, format, authServerNonce, ""))
@@ -361,7 +361,7 @@ class CredentialFactoryTest {
                 .verify();
 
         verify(genericCredentialBuilder).bindIssuer(profile, decodedCredential, procedureId, "");
-        verify(credentialProcedureService).updateDecodedCredentialByProcedureId(procedureId, boundCredential, format);
+        verify(credentialProcedureService).updateCredentialDataSetByProcedureId(procedureId, boundCredential, format);
         verify(deferredCredentialMetadataService).updateDeferredCredentialByAuthServerNonce(authServerNonce, format);
     }
 }

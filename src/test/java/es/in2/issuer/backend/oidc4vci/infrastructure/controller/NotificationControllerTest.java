@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
-import es.in2.issuer.backend.oidc4vci.domain.service.NotificationService;
+import es.in2.issuer.backend.oidc4vci.application.workflow.HandleNotificationWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,7 +23,7 @@ import static org.mockito.Mockito.*;
 class NotificationControllerTest {
 
     @Mock
-    private NotificationService notificationService;
+    private HandleNotificationWorkflow handleNotificationWorkflow;
 
     @InjectMocks
     private NotificationController notificationController;
@@ -34,7 +34,7 @@ class NotificationControllerTest {
         NotificationRequest request = mock(NotificationRequest.class);
         String authorization = "Bearer abc.def.ghi";
 
-        when(notificationService.handleNotification(anyString(), eq(request), eq(authorization))).thenReturn(Mono.empty());
+        when(handleNotificationWorkflow.handleNotification(anyString(), eq(request), eq(authorization))).thenReturn(Mono.empty());
 
         // when
         Mono<Void> result = notificationController.handleNotification(request, authorization);
@@ -44,7 +44,7 @@ class NotificationControllerTest {
 
 
         ArgumentCaptor<String> processIdCaptor = ArgumentCaptor.forClass(String.class);
-        verify(notificationService).handleNotification(processIdCaptor.capture(), eq(request), eq(authorization));
+        verify(handleNotificationWorkflow).handleNotification(processIdCaptor.capture(), eq(request), eq(authorization));
 
         String processId = processIdCaptor.getValue();
         assertNotNull(processId);
@@ -78,7 +78,7 @@ class NotificationControllerTest {
         String authorization = "Bearer token";
         RuntimeException error = new RuntimeException("service failed");
 
-        when(notificationService.handleNotification(anyString(), eq(request), eq(authorization))).thenReturn(Mono.error(error));
+        when(handleNotificationWorkflow.handleNotification(anyString(), eq(request), eq(authorization))).thenReturn(Mono.error(error));
 
         // when
         Mono<Void> result = notificationController.handleNotification(request, authorization);
@@ -88,6 +88,6 @@ class NotificationControllerTest {
                 .expectErrorSatisfies(e -> assertFalse(e.getMessage().isBlank()))
                 .verify();
 
-        verify(notificationService).handleNotification(anyString(), eq(request), eq(authorization));
+        verify(handleNotificationWorkflow).handleNotification(anyString(), eq(request), eq(authorization));
     }
 }

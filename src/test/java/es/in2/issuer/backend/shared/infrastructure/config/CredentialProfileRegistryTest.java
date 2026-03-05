@@ -122,7 +122,7 @@ class CredentialProfileRegistryTest {
     void shouldFailOnMissingConfigurationId() throws IOException {
         String json = """
                 {
-                  "format": "jwt_vc_json",
+                  "credential_format": "jwt_vc_json",
                   "credential_definition": {
                     "type": ["VerifiableCredential", "Test"]
                   }
@@ -151,7 +151,7 @@ class CredentialProfileRegistryTest {
         String duplicateTypeJson = """
                 {
                   "credential_configuration_id": "DifferentId",
-                  "format": "jwt_vc_json",
+                  "credential_format": "jwt_vc_json",
                   "credential_definition": {
                     "type": ["VerifiableCredential", "LEARCredentialEmployee"]
                   },
@@ -208,7 +208,7 @@ class CredentialProfileRegistryTest {
         return namedResource("lear-credential-machine.json", """
                 {
                   "credential_configuration_id": "LEARCredentialMachineSdJwt",
-                  "format": "jwt_vc_json",
+                  "credential_format": "jwt_vc_json",
                   "scope": "lear_credential_machine",
                   "credential_definition": {
                     "context": ["https://www.w3.org/ns/credentials/v2"],
@@ -237,7 +237,7 @@ class CredentialProfileRegistryTest {
         return """
                 {
                   "credential_configuration_id": "LEARCredentialEmployeeSdJwt",
-                  "format": "jwt_vc_json",
+                  "credential_format": "jwt_vc_json",
                   "scope": "lear_credential_employee",
                   "credential_definition": {
                     "context": [

@@ -99,7 +99,7 @@ class HandleNotificationWorkflowImplTest {
                 }
                 """.formatted(VC, CREDENTIAL_STATUS, STATUS_LIST_CREDENTIAL);
 
-        when(procedure.getCredentialDecoded()).thenReturn(decoded);
+        when(procedure.getCredentialDataSet()).thenReturn(decoded);
         when(credentialProcedureService.getCredentialProcedureByNotificationId("nid-1"))
                 .thenReturn(Mono.just(procedure));
         when(revocationWorkflow.revokeSystem(processId, bearerToken, procedureId.toString(), 7))
@@ -125,7 +125,7 @@ class HandleNotificationWorkflowImplTest {
                 }
                 """.formatted(CREDENTIAL_STATUS, STATUS_LIST_CREDENTIAL);
 
-        when(procedure.getCredentialDecoded()).thenReturn(decoded);
+        when(procedure.getCredentialDataSet()).thenReturn(decoded);
         when(credentialProcedureService.getCredentialProcedureByNotificationId("nid-1"))
                 .thenReturn(Mono.just(procedure));
         when(revocationWorkflow.revokeSystem(processId, bearerToken, procedureId.toString(), 3))
@@ -153,7 +153,7 @@ class HandleNotificationWorkflowImplTest {
                 }
                 """.formatted(VC, CREDENTIAL_STATUS, STATUS_LIST_CREDENTIAL);
 
-        when(procedure.getCredentialDecoded()).thenReturn(decoded);
+        when(procedure.getCredentialDataSet()).thenReturn(decoded);
         when(credentialProcedureService.getCredentialProcedureByNotificationId("nid-1"))
                 .thenReturn(Mono.just(procedure));
 
@@ -183,7 +183,7 @@ class HandleNotificationWorkflowImplTest {
                 }
                 """.formatted(VC, CREDENTIAL_STATUS, STATUS_LIST_CREDENTIAL);
 
-        when(procedure.getCredentialDecoded()).thenReturn(decoded);
+        when(procedure.getCredentialDataSet()).thenReturn(decoded);
         when(credentialProcedureService.getCredentialProcedureByNotificationId("nid-1"))
                 .thenReturn(Mono.just(procedure));
 

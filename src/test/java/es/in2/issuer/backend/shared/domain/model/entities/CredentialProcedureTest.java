@@ -13,81 +13,66 @@ class CredentialProcedureTest {
     @Test
     void testCredentialProcedure() {
         UUID procedureId = UUID.randomUUID();
-        String credentialId = UUID.randomUUID().toString();
         String credentialFormat = "testFormat";
-        String credentialDecoded = "testDecoded";
-        String credentialEncoded = "testEncoded";
+        String credentialDataSet = "testDataSet";
         CredentialStatusEnum credentialStatusEnum = CredentialStatusEnum.VALID;
         String organizationIdentifier = "testOrganizationIdentifier";
+        String credentialType = "LEARCredentialEmployee";
         Timestamp validUntil = new Timestamp(System.currentTimeMillis() + 1000);
+        String email = "test@example.com";
+        String delivery = "email";
 
         CredentialProcedure credentialProcedure = CredentialProcedure.builder()
                 .procedureId(procedureId)
                 .credentialFormat(credentialFormat)
-                .credentialDecoded(credentialDecoded)
-                .credentialEncoded(credentialEncoded)
+                .credentialDataSet(credentialDataSet)
                 .credentialStatus(credentialStatusEnum)
                 .organizationIdentifier(organizationIdentifier)
+                .credentialType(credentialType)
                 .validUntil(validUntil)
+                .email(email)
+                .delivery(delivery)
                 .build();
 
         assertEquals(procedureId, credentialProcedure.getProcedureId());
         assertEquals(credentialFormat, credentialProcedure.getCredentialFormat());
-        assertEquals(credentialDecoded, credentialProcedure.getCredentialDecoded());
-        assertEquals(credentialEncoded, credentialProcedure.getCredentialEncoded());
+        assertEquals(credentialDataSet, credentialProcedure.getCredentialDataSet());
         assertEquals(credentialStatusEnum, credentialProcedure.getCredentialStatus());
         assertEquals(organizationIdentifier, credentialProcedure.getOrganizationIdentifier());
+        assertEquals(credentialType, credentialProcedure.getCredentialType());
         assertEquals(validUntil, credentialProcedure.getValidUntil());
+        assertEquals(email, credentialProcedure.getEmail());
+        assertEquals(delivery, credentialProcedure.getDelivery());
     }
 
     @Test
     void testSettersAndGetters() {
         CredentialProcedure credentialProcedure = new CredentialProcedure();
         UUID procedureId = UUID.randomUUID();
-        String credentialId = UUID.randomUUID().toString();
         String credentialFormat = "format";
-        String credentialDecoded = "decoded";
-        String credentialEncoded = "encoded";
+        String credentialDataSet = "dataSet";
         CredentialStatusEnum credentialStatusEnum = CredentialStatusEnum.VALID;
         String organizationIdentifier = "orgId";
+        String credentialType = "LEARCredentialEmployee";
         Timestamp validUntil = new Timestamp(System.currentTimeMillis() + 1000);
+        String email = "test@example.com";
 
         credentialProcedure.setProcedureId(procedureId);
         credentialProcedure.setCredentialFormat(credentialFormat);
-        credentialProcedure.setCredentialDecoded(credentialDecoded);
-        credentialProcedure.setCredentialEncoded(credentialEncoded);
+        credentialProcedure.setCredentialDataSet(credentialDataSet);
         credentialProcedure.setCredentialStatus(credentialStatusEnum);
         credentialProcedure.setOrganizationIdentifier(organizationIdentifier);
+        credentialProcedure.setCredentialType(credentialType);
         credentialProcedure.setValidUntil(validUntil);
+        credentialProcedure.setEmail(email);
 
         assertEquals(procedureId, credentialProcedure.getProcedureId());
         assertEquals(credentialFormat, credentialProcedure.getCredentialFormat());
-        assertEquals(credentialDecoded, credentialProcedure.getCredentialDecoded());
-        assertEquals(credentialEncoded, credentialProcedure.getCredentialEncoded());
+        assertEquals(credentialDataSet, credentialProcedure.getCredentialDataSet());
         assertEquals(credentialStatusEnum, credentialProcedure.getCredentialStatus());
         assertEquals(organizationIdentifier, credentialProcedure.getOrganizationIdentifier());
-
+        assertEquals(credentialType, credentialProcedure.getCredentialType());
         assertEquals(validUntil, credentialProcedure.getValidUntil());
+        assertEquals(email, credentialProcedure.getEmail());
     }
-
-//    @Test
-//    void testToString() {
-//        CredentialProcedure credentialProcedure = CredentialProcedure.builder().build();
-//
-//        String expected = "CredentialProcedure(procedureId=" + credentialProcedure.getProcedureId() +
-//                ", credentialId=" + credentialProcedure.getCredentialId() +
-//                ", credentialFormat=" + credentialProcedure.getCredentialFormat() +
-//                ", credentialDecoded=" + credentialProcedure.getCredentialDecoded() +
-//                ", credentialEncoded=" + credentialProcedure.getCredentialEncoded() +
-//                ", credentialStatus=" + credentialProcedure.getCredentialStatus() +
-//                ", organizationIdentifier=" + credentialProcedure.getOrganizationIdentifier() +
-//                ", updatedAt=" + credentialProcedure.getUpdatedAt() +
-//                ", subject=" + credentialProcedure.getSubject() +
-//                ", credentialType=" + credentialProcedure.getCredentialType() +
-//                ", validUntil=" + credentialProcedure.getValidUntil() +
-//                ", operationMode=" + credentialProcedure.getOperationMode() +
-//                ", signatureMode=" + credentialProcedure.getSignatureMode() +
-//                ")";
-//        assertEquals(expected, credentialProcedure.toString());
-//    }
 }

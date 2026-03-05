@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
-import es.in2.issuer.backend.shared.application.workflow.CredentialIssuanceWorkflow;
+import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialResponse;
@@ -26,7 +26,7 @@ import static org.mockito.Mockito.when;
 class CredentialControllerTest {
 
     @Mock
-    private CredentialIssuanceWorkflow credentialIssuanceWorkflow;
+    private Oid4VciCredentialWorkflow oid4VciCredentialWorkflow;
 
     @Mock
     private AccessTokenService accessTokenService;
@@ -60,7 +60,7 @@ class CredentialControllerTest {
         when(accessTokenService.validateAndResolveProcedure(authorizationHeader))
                 .thenReturn(Mono.just(accessTokenContext));
 
-        when(credentialIssuanceWorkflow.generateVerifiableCredentialResponse(
+        when(oid4VciCredentialWorkflow.generateVerifiableCredentialResponse(
                 anyString(),
                 eq(credentialRequest),
                 eq(accessTokenContext)
@@ -104,7 +104,7 @@ class CredentialControllerTest {
         when(accessTokenService.validateAndResolveProcedure(authorizationHeader))
                 .thenReturn(Mono.just(accessTokenContext));
 
-        when(credentialIssuanceWorkflow.generateVerifiableCredentialResponse(
+        when(oid4VciCredentialWorkflow.generateVerifiableCredentialResponse(
                 anyString(),
                 eq(credentialRequest),
                 eq(accessTokenContext)

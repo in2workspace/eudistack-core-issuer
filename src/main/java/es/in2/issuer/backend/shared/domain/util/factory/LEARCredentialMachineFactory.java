@@ -107,7 +107,7 @@ public class LEARCredentialMachineFactory {
             CredentialProcedureCreationRequest.builder()
                 .procedureId(procedureId)
                 .organizationIdentifier(mandatorOrgId)
-                .credentialDecoded(decodedCredential)
+                .credentialDataSet(decodedCredential)
                 .credentialType("LEARCredentialMachineW3C")
                 .subject(credentialDecoded.credentialSubject().mandate().mandatee().domain())
                 .validUntil(parseEpochSecondIntoTimestamp(parseDateToUnixTime(credentialDecoded.validUntil())))

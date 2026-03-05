@@ -63,14 +63,14 @@ class GenericCredentialBuilderTest {
                     assertThat(request.validUntil()).isNotNull();
 
                     // Verify credential JSON structure
-                    assertThat(request.credentialDecoded()).contains("\"@context\"");
-                    assertThat(request.credentialDecoded()).contains("\"VerifiableCredential\"");
-                    assertThat(request.credentialDecoded()).contains("\"LEARCredentialEmployee\"");
-                    assertThat(request.credentialDecoded()).contains("\"credentialSubject\"");
-                    assertThat(request.credentialDecoded()).contains("\"mandate\"");
-                    assertThat(request.credentialDecoded()).contains("\"validFrom\"");
-                    assertThat(request.credentialDecoded()).contains("\"validUntil\"");
-                    assertThat(request.credentialDecoded()).contains("\"credentialStatus\"");
+                    assertThat(request.credentialDataSet()).contains("\"@context\"");
+                    assertThat(request.credentialDataSet()).contains("\"VerifiableCredential\"");
+                    assertThat(request.credentialDataSet()).contains("\"LEARCredentialEmployee\"");
+                    assertThat(request.credentialDataSet()).contains("\"credentialSubject\"");
+                    assertThat(request.credentialDataSet()).contains("\"mandate\"");
+                    assertThat(request.credentialDataSet()).contains("\"validFrom\"");
+                    assertThat(request.credentialDataSet()).contains("\"validUntil\"");
+                    assertThat(request.credentialDataSet()).contains("\"credentialStatus\"");
                 })
                 .verifyComplete();
     }
@@ -90,8 +90,8 @@ class GenericCredentialBuilderTest {
         StepVerifier.create(genericCredentialBuilder.buildCredential(
                         profile, "proc-2", payload, credentialStatus(), "test@example.com"))
                 .assertNext(request -> {
-                    assertThat(request.credentialDecoded()).contains(fixedFrom);
-                    assertThat(request.credentialDecoded()).contains(fixedUntil);
+                    assertThat(request.credentialDataSet()).contains(fixedFrom);
+                    assertThat(request.credentialDataSet()).contains(fixedUntil);
                 })
                 .verifyComplete();
     }
@@ -150,7 +150,7 @@ class GenericCredentialBuilderTest {
         StepVerifier.create(genericCredentialBuilder.buildCredential(
                         profile, "proc-6", payload, credentialStatus(), "test@example.com"))
                 .assertNext(request ->
-                        assertThat(request.credentialDecoded()).contains("\"description\""))
+                        assertThat(request.credentialDataSet()).contains("\"description\""))
                 .verifyComplete();
     }
 

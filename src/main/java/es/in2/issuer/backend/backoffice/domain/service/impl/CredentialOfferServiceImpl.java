@@ -3,7 +3,7 @@ package es.in2.issuer.backend.backoffice.domain.service.impl;
 import es.in2.issuer.backend.backoffice.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOffer;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferData;
-import es.in2.issuer.backend.shared.domain.model.dto.Grants;
+import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferGrants;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,10 +13,7 @@ import reactor.core.publisher.Mono;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Map;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.AUTHORIZATION_CODE;
-import static es.in2.issuer.backend.shared.domain.util.Constants.GRANT_TYPE;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.OID4VCI_CREDENTIAL_OFFER_PATH;
 import static es.in2.issuer.backend.shared.domain.util.HttpUtils.ensureUrlHasProtocol;
 
@@ -28,53 +25,25 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
     private final AppConfig appConfig;
 
     @Override
-    public Mono<CredentialOfferData> buildCustomCredentialOffer(
+    public Mono<CredentialOfferData> buildCredentialOffer(
             String credentialType,
-            Grants grants,
+            CredentialOfferGrants grants,
             String credentialEmail,
             String pin) {
 
-        return Mono.defer(() -> {
-            // credentialType is already the credential_configuration_id (e.g. "LEARCredentialEmployee")
-            CredentialOffer offer = CredentialOffer.builder()
-                    .credentialIssuer(appConfig.getIssuerBackendUrl())
-                    .credentialConfigurationIds(List.of(credentialType))
-                    .grants(Map.of(GRANT_TYPE, grants))
-                    .build();
+        CredentialOffer offer = CredentialOffer.builder()
+                .credentialIssuer(appConfig.getIssuerBackendUrl())
+                .credentialConfigurationIds(List.of(credentialType))
+                .grants(grants)
+                .build();
 
-            CredentialOfferData data = CredentialOfferData.builder()
-                    .credentialOffer(offer)
-                    .credentialEmail(credentialEmail)
-                    .pin(pin)
-                    .build();
+        CredentialOfferData data = CredentialOfferData.builder()
+                .credentialOffer(offer)
+                .credentialEmail(credentialEmail)
+                .pin(pin)
+                .build();
 
-            return Mono.just(data);
-        });
-    }
-
-
-    @Override
-    public Mono<CredentialOfferData> buildAuthorizationCodeCredentialOffer(
-            String credentialType, String issuerState, String credentialEmail) {
-
-        return Mono.defer(() -> {
-            Grants grants = Grants.builder()
-                    .issuerState(issuerState)
-                    .build();
-
-            CredentialOffer offer = CredentialOffer.builder()
-                    .credentialIssuer(appConfig.getIssuerBackendUrl())
-                    .credentialConfigurationIds(List.of(credentialType))
-                    .grants(Map.of(AUTHORIZATION_CODE, grants))
-                    .build();
-
-            CredentialOfferData data = CredentialOfferData.builder()
-                    .credentialOffer(offer)
-                    .credentialEmail(credentialEmail)
-                    .build();
-
-            return Mono.just(data);
-        });
+        return Mono.just(data);
     }
 
     @Override

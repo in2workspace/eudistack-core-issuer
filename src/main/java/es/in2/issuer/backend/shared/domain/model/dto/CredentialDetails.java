@@ -9,8 +9,7 @@ import java.util.UUID;
 public record CredentialDetails(
         @JsonProperty("procedure_id") UUID procedureId,
         @JsonProperty("lifeCycleStatus") String lifeCycleStatus,
-        @JsonProperty("signature_mode") String signatureMode,
         @JsonProperty("credential") JsonNode credential,
         @JsonProperty("email") String email
-        ) {
+) {
 }

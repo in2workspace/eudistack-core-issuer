@@ -108,7 +108,7 @@ public class GenericCredentialBuilder {
                 .map(orgId -> CredentialProcedureCreationRequest.builder()
                         .procedureId(procedureId)
                         .organizationIdentifier(orgId)
-                        .credentialDecoded(credentialJson)
+                        .credentialDataSet(credentialJson)
                         .credentialType(profile.credentialConfigurationId())
                         .subject(subject)
                         .validUntil(Timestamp.from(parseInstant(validUntil)))

@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.backoffice.infrastructure.controller;
 
-import es.in2.issuer.backend.shared.application.workflow.CredentialIssuanceWorkflow;
+import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.AuthServerNonceRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,7 +18,7 @@ import static org.mockito.Mockito.when;
 class DeferredCredentialMetadataControllerTest {
 
     @Mock
-    private CredentialIssuanceWorkflow credentialIssuanceWorkflow;
+    private Oid4VciCredentialWorkflow oid4VciCredentialWorkflow;
 
     @InjectMocks
     private DeferredCredentialMetadataController deferredCredentialMetadataController;
@@ -27,7 +27,7 @@ class DeferredCredentialMetadataControllerTest {
     void bindAccessTokenByPreAuthorizedCode() {
         // Arrange
         AuthServerNonceRequest authServerNonceRequest = new AuthServerNonceRequest("pre-authorized-code", "access-token");
-        when(credentialIssuanceWorkflow.bindAccessTokenByPreAuthorizedCode(anyString(), eq(authServerNonceRequest))).thenReturn(Mono.empty());
+        when(oid4VciCredentialWorkflow.bindAccessTokenByPreAuthorizedCode(anyString(), eq(authServerNonceRequest))).thenReturn(Mono.empty());
 
         // Act
         Mono<Void> result = deferredCredentialMetadataController.bindAccessTokenByPreAuthorizedCode(authServerNonceRequest);

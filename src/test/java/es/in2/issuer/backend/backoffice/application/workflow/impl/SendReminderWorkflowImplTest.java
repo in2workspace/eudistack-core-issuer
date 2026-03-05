@@ -1,8 +1,8 @@
 package es.in2.issuer.backend.backoffice.application.workflow.impl;
 
+import es.in2.issuer.backend.backoffice.application.workflow.ActivationCodeWorkflow;
 import es.in2.issuer.backend.backoffice.application.workflow.policies.BackofficePdpService;
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotificationInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
@@ -19,7 +19,6 @@ import org.springframework.security.access.AccessDeniedException;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.CREDENTIAL_ACTIVATION_EMAIL_SUBJECT;
 import static es.in2.issuer.backend.shared.domain.util.Constants.CREDENTIAL_READY;
 import static es.in2.issuer.backend.shared.domain.util.Constants.MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE;
 import static es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum.DRAFT;
@@ -39,8 +38,6 @@ class SendReminderWorkflowImplTest {
     private final String issuerUiExternalDomain = "https://example.com";
     private final String knowledgebaseWalletUrl = "https://knowledgebaseUrl.com";
 
-    private final String mandateeEmail = "mandatee@example.com";
-    private final String organization = "Acme Org";
     private final String transactionCode = "transactionCode123";
     private final String email = "owner@example.com";
 
@@ -50,6 +47,7 @@ class SendReminderWorkflowImplTest {
     @Mock private EmailService emailService;
     @Mock private CredentialProcedureService credentialProcedureService;
     @Mock private DeferredCredentialMetadataService deferredCredentialMetadataService;
+    @Mock private ActivationCodeWorkflow activationCodeWorkflow;
 
     @InjectMocks
     private SendReminderWorkflowImpl sendReminderWorkflow;
@@ -70,31 +68,19 @@ class SendReminderWorkflowImplTest {
         CredentialProcedure credentialProcedure = mock(CredentialProcedure.class);
         when(credentialProcedure.getCredentialStatus()).thenReturn(DRAFT);
 
-        CredentialOfferEmailNotificationInfo emailInfo =
-                new CredentialOfferEmailNotificationInfo(mandateeEmail, organization);
-
         when(credentialProcedureService.getCredentialProcedureById(procedureId))
                 .thenReturn(Mono.just(credentialProcedure));
-        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(procedureId))
-                .thenReturn(Mono.just(emailInfo));
         when(deferredCredentialMetadataService.updateTransactionCodeInDeferredCredentialMetadata(procedureId))
                 .thenReturn(Mono.just(transactionCode));
-        when(emailService.sendCredentialActivationEmail(
-                mandateeEmail,
-                CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
-                issuerUiExternalDomain + "/credential-offer?transaction_code=" + transactionCode,
-                knowledgebaseWalletUrl,
-                organization
-        )).thenReturn(Mono.empty());
+        when(activationCodeWorkflow.reissueCredentialOffer(processId, transactionCode))
+                .thenReturn(Mono.empty());
 
         StepVerifier.create(sendReminderWorkflow.sendReminder(processId, procedureId, bearerToken))
                 .verifyComplete();
 
         verify(accessTokenService).getCleanBearerToken(bearerToken);
         verify(backofficePdpService).validateSendReminder(processId, cleanToken, procedureId);
-        verify(emailService, times(1))
-                .sendCredentialActivationEmail(anyString(), anyString(), anyString(), anyString(), anyString());
-        verifyNoMoreInteractions(emailService);
+        verify(activationCodeWorkflow).reissueCredentialOffer(processId, transactionCode);
     }
 
     @Test
@@ -102,31 +88,19 @@ class SendReminderWorkflowImplTest {
         CredentialProcedure credentialProcedure = mock(CredentialProcedure.class);
         when(credentialProcedure.getCredentialStatus()).thenReturn(WITHDRAWN);
 
-        CredentialOfferEmailNotificationInfo emailInfo =
-                new CredentialOfferEmailNotificationInfo(mandateeEmail, organization);
-
         when(credentialProcedureService.getCredentialProcedureById(procedureId))
                 .thenReturn(Mono.just(credentialProcedure));
-        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(procedureId))
-                .thenReturn(Mono.just(emailInfo));
         when(deferredCredentialMetadataService.updateTransactionCodeInDeferredCredentialMetadata(procedureId))
                 .thenReturn(Mono.just(transactionCode));
-        when(emailService.sendCredentialActivationEmail(
-                mandateeEmail,
-                CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
-                issuerUiExternalDomain + "/credential-offer?transaction_code=" + transactionCode,
-                knowledgebaseWalletUrl,
-                organization
-        )).thenReturn(Mono.empty());
+        when(activationCodeWorkflow.reissueCredentialOffer(processId, transactionCode))
+                .thenReturn(Mono.empty());
 
         StepVerifier.create(sendReminderWorkflow.sendReminder(processId, procedureId, bearerToken))
                 .verifyComplete();
 
         verify(accessTokenService).getCleanBearerToken(bearerToken);
         verify(backofficePdpService).validateSendReminder(processId, cleanToken, procedureId);
-        verify(emailService, times(1))
-                .sendCredentialActivationEmail(anyString(), anyString(), anyString(), anyString(), anyString());
-        verifyNoMoreInteractions(emailService);
+        verify(activationCodeWorkflow).reissueCredentialOffer(processId, transactionCode);
     }
 
     @Test
@@ -134,18 +108,12 @@ class SendReminderWorkflowImplTest {
         CredentialProcedure credentialProcedure = mock(CredentialProcedure.class);
         when(credentialProcedure.getCredentialStatus()).thenReturn(DRAFT);
 
-        CredentialOfferEmailNotificationInfo emailInfo =
-                new CredentialOfferEmailNotificationInfo(mandateeEmail, organization);
-
         when(credentialProcedureService.getCredentialProcedureById(procedureId))
                 .thenReturn(Mono.just(credentialProcedure));
-        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(procedureId))
-                .thenReturn(Mono.just(emailInfo));
         when(deferredCredentialMetadataService.updateTransactionCodeInDeferredCredentialMetadata(procedureId))
                 .thenReturn(Mono.just(transactionCode));
-        when(emailService.sendCredentialActivationEmail(
-                anyString(), anyString(), anyString(), anyString(), anyString()
-        )).thenReturn(Mono.error(new RuntimeException("boom")));
+        when(activationCodeWorkflow.reissueCredentialOffer(processId, transactionCode))
+                .thenReturn(Mono.error(new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE)));
 
         StepVerifier.create(sendReminderWorkflow.sendReminder(processId, procedureId, bearerToken))
                 .expectErrorMatches(ex -> ex instanceof EmailCommunicationException &&
@@ -159,13 +127,8 @@ class SendReminderWorkflowImplTest {
         when(credentialProcedure.getCredentialStatus()).thenReturn(PEND_DOWNLOAD);
         when(credentialProcedure.getEmail()).thenReturn(email);
 
-        CredentialOfferEmailNotificationInfo emailInfo =
-                new CredentialOfferEmailNotificationInfo(mandateeEmail, organization);
-
         when(credentialProcedureService.getCredentialProcedureById(procedureId))
                 .thenReturn(Mono.just(credentialProcedure));
-        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(procedureId))
-                .thenReturn(Mono.just(emailInfo));
         when(emailService.sendCredentialSignedNotification(
                 email,
                 CREDENTIAL_READY,

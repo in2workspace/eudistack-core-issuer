@@ -81,7 +81,7 @@ class AccessTokenServiceImplTest {
 
             ObjectMapper mapper = new ObjectMapper();
             JsonNode payloadJson = mapper.readTree(jwtPayload);
-            when(signedJWT.getPayload()).thenReturn(new Payload(payloadJson.toString()));
+            when(mockObjectMapper.readTree(jwtPayload)).thenReturn(payloadJson);
 
             Mono<String> result = accessTokenServiceImpl.getUserId(validHeader);
 
@@ -102,7 +102,7 @@ class AccessTokenServiceImplTest {
             Mono<String> result = accessTokenServiceImpl.getUserId(invalidHeader);
 
             StepVerifier.create(result)
-                    .expectError(ParseException.class)
+                    .expectError(InvalidTokenException.class)
                     .verify();
         }
     }

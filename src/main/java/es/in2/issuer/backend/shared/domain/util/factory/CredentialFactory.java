@@ -83,7 +83,7 @@ public class CredentialFactory {
             String format,
             String authServerNonce) {
         return credentialProcedureService
-                .updateDecodedCredentialByProcedureId(procedureId, boundCredential, format)
+                .updateCredentialDataSetByProcedureId(procedureId, boundCredential, format)
                 .then(deferredCredentialMetadataService.updateDeferredCredentialByAuthServerNonce(authServerNonce, format)
                 );
     }

@@ -135,7 +135,7 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
 
     private Mono<Integer> extractListIdFromDecodedCredential(CredentialProcedure procedure) {
         return Mono.fromCallable(() -> {
-            JsonNode credential = objectMapper.readTree(procedure.getCredentialDecoded());
+            JsonNode credential = objectMapper.readTree(procedure.getCredentialDataSet());
 
             JsonNode statusNode = credential.has(VC)
                     ? credential.path(VC).path(CREDENTIAL_STATUS)

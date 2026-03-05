@@ -1,7 +1,7 @@
 package es.in2.issuer.backend.bootstrap.infrastructure.controller;
 
 import es.in2.issuer.backend.bootstrap.domain.service.BootstrapTokenService;
-import es.in2.issuer.backend.shared.application.workflow.CredentialIssuanceWorkflow;
+import es.in2.issuer.backend.shared.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,7 +27,7 @@ public class BootstrapController {
     private static final String BOOTSTRAP_TOKEN_HEADER = "X-Bootstrap-Token";
 
     private final BootstrapTokenService bootstrapTokenService;
-    private final CredentialIssuanceWorkflow credentialIssuanceWorkflow;
+    private final IssuanceWorkflow issuanceWorkflow;
 
     @PostMapping("/bootstrap/v1/issuances")
     public Mono<ResponseEntity<Void>> bootstrapIssueCredential(
@@ -42,7 +42,7 @@ public class BootstrapController {
         String processId = UUID.randomUUID().toString();
         log.info("[{}] Bootstrap issuance initiated", processId);
 
-        return credentialIssuanceWorkflow.executeWithoutAuthorization(processId, request)
+        return issuanceWorkflow.executeWithoutAuthorization(processId, request)
                 .map(response -> {
                     if (response.credentialOfferUri() != null) {
                         return ResponseEntity.created(URI.create(response.credentialOfferUri())).<Void>build();

@@ -1,8 +1,8 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndTxCode;
-import es.in2.issuer.backend.shared.domain.model.dto.Grants;
 import es.in2.issuer.backend.shared.domain.model.dto.PreAuthorizedCodeResponse;
+import es.in2.issuer.backend.shared.domain.model.dto.TxCode;
 import es.in2.issuer.backend.shared.domain.service.TranslationService;
 import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,16 +50,12 @@ class PreAuthorizedCodeServiceImplTest {
         StepVerifier.create(mono)
                 .assertNext(resp -> {
                     assertNotNull(resp, "Response must not be null");
-                    // PreAuthorizedCodeResponse(pin=..., grants=...)
                     assertEquals(txCode, resp.pin(), "pin in response must match input txCode");
+                    assertEquals(preAuthorizedCode, resp.preAuthorizedCode(),
+                            "preAuthorizedCode in response must match input");
 
-                    Grants grants = resp.grants();
-                    assertNotNull(grants, "grants must not be null");
-                    assertEquals(preAuthorizedCode, grants.preAuthorizedCode(),
-                            "preAuthorizedCode in grants must match input");
-
-                    Grants.TxCode grantTx = grants.txCode();
-                    assertNotNull(grantTx, "grants.txCode must not be null");
+                    TxCode grantTx = resp.txCode();
+                    assertNotNull(grantTx, "txCode must not be null");
                     assertEquals(TX_CODE_SIZE, grantTx.length(),
                             "TxCode.length must match TX_CODE_SIZE");
                     assertEquals(TX_INPUT_MODE, grantTx.inputMode(),
@@ -107,7 +103,7 @@ class PreAuthorizedCodeServiceImplTest {
 
         // Then
         assertNotNull(response, "Response must not be null");
-        Grants.TxCode grantTx = response.grants().txCode();
+        TxCode grantTx = response.txCode();
         assertNotNull(grantTx, "TxCode must not be null");
         assertEquals(TX_CODE_SIZE, grantTx.length(), "Should match TX_CODE_SIZE constant");
         assertEquals(TX_INPUT_MODE, grantTx.inputMode(), "Should match TX_INPUT_MODE constant");

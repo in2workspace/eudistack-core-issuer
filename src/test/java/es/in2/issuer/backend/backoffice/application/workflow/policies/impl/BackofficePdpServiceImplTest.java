@@ -42,19 +42,19 @@ class BackofficePdpServiceImplTest {
         backofficePdp = new BackofficePdpServiceImpl(policyContextFactory, policyEnforcer, credentialProcedureRepository);
     }
 
-    private PolicyContext buildContext(String orgId, boolean sysAdmin, String tenantDomain) {
+    private PolicyContext buildContext(String orgId, boolean sysAdmin) {
         return new PolicyContext(
                 orgId,
-                Collections.singletonList(Power.builder().function("Onboarding").action("Execute").domain(tenantDomain).build()),
+                Collections.singletonList(Power.builder().function("Onboarding").action("Execute").domain(orgId).build()),
                 null,
                 LEAR_CREDENTIAL_EMPLOYEE,
                 sysAdmin,
-                tenantDomain
+                orgId
         );
     }
 
-    private PolicyContext buildContextNoPowers(String orgId, boolean sysAdmin, String tenantDomain) {
-        return new PolicyContext(orgId, Collections.emptyList(), null, LEAR_CREDENTIAL_EMPLOYEE, sysAdmin, tenantDomain);
+    private PolicyContext buildContextNoPowers(String orgId, boolean sysAdmin) {
+        return new PolicyContext(orgId, Collections.emptyList(), null, LEAR_CREDENTIAL_EMPLOYEE, sysAdmin, orgId);
     }
 
     @Test
@@ -63,7 +63,7 @@ class BackofficePdpServiceImplTest {
         String adminOrgId = "admin-org";
         String procedureId = UUID.randomUUID().toString();
 
-        PolicyContext ctx = buildContext(adminOrgId, true, "DOME");
+        PolicyContext ctx = buildContext(adminOrgId, true);
         when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
         Mono<Void> result = backofficePdp.validateSignCredential("process", token, procedureId);
@@ -80,7 +80,7 @@ class BackofficePdpServiceImplTest {
         String userOrgId = "org-123";
         String procedureId = UUID.randomUUID().toString();
 
-        PolicyContext ctx = buildContext(userOrgId, false, "DOME");
+        PolicyContext ctx = buildContext(userOrgId, false);
         when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
         CredentialProcedure credentialProcedure = mock(CredentialProcedure.class);
@@ -101,7 +101,7 @@ class BackofficePdpServiceImplTest {
         String token = "token";
         String procedureId = UUID.randomUUID().toString();
 
-        PolicyContext ctx = buildContextNoPowers("some-org", false, "DOME");
+        PolicyContext ctx = buildContextNoPowers("some-org", false);
         when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
         Mono<Void> result = backofficePdp.validateSignCredential("process", token, procedureId);
@@ -154,7 +154,7 @@ class BackofficePdpServiceImplTest {
         String userOrgId = "org-123";
         String procedureId = UUID.randomUUID().toString();
 
-        PolicyContext ctx = buildContext(userOrgId, false, "DOME");
+        PolicyContext ctx = buildContext(userOrgId, false);
         when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
         when(credentialProcedureRepository.findById(UUID.fromString(procedureId)))

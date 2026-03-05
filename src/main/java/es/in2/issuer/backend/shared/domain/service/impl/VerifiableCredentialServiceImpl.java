@@ -4,8 +4,6 @@ import com.nimbusds.jose.JWSObject;
 import es.in2.issuer.backend.shared.domain.exception.CredentialIssuanceException;
 import es.in2.issuer.backend.shared.domain.exception.JWTParsingException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialResponse;
-import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
-import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
@@ -21,7 +19,6 @@ import java.text.ParseException;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 
@@ -32,39 +29,25 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
     private final CredentialFactory credentialFactory;
     private final CredentialProcedureService credentialProcedureService;
     private final DeferredCredentialMetadataService deferredCredentialMetadataService;
-    private final CredentialProfileRegistry credentialProfileRegistry;
-
-    @Override
-    public Mono<String> generateVc(String processId, PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest, String email, CredentialStatus credentialStatus, String procedureId) {
-        return credentialFactory.mapCredentialIntoACredentialProcedureRequest(
-                        processId,
-                        procedureId,
-                        preSubmittedCredentialDataRequest,
-                        credentialStatus,
-                        email
-                )
-                .flatMap(credentialProcedureService::createCredentialProcedure)
-                .then(deferredCredentialMetadataService.createDeferredCredentialMetadata(procedureId))
-                .flatMap(transactionCode -> {
-                        String format = credentialProfileRegistry
-                                .getByConfigurationId(preSubmittedCredentialDataRequest.credentialConfigurationId())
-                                .format();
-                        return credentialProcedureService.updateFormatByProcedureId(procedureId, format)
-                                .then(deferredCredentialMetadataService.updateFormatByProcedureId(procedureId, format))
-                                .thenReturn(transactionCode);
-                });
-    }
 
     @Override
     public Mono<CredentialResponse> generateDeferredCredentialResponse(CredentialProcedure procedure, String transactionId) {
         if (procedure.getCredentialStatus().equals(CredentialStatusEnum.VALID)) {
-            return Mono.just(
-                    CredentialResponse.builder()
-                            .credentials(List.of(
-                                    CredentialResponse.Credential.builder()
-                                            .credential(procedure.getCredentialEncoded())
-                                            .build()))
-                            .build());
+            return deferredCredentialMetadataService.getVcByTransactionId(transactionId)
+                    .flatMap(deferred -> {
+                        if (deferred.vc() != null) {
+                            return Mono.just(CredentialResponse.builder()
+                                    .credentials(List.of(
+                                            CredentialResponse.Credential.builder()
+                                                    .credential(deferred.vc())
+                                                    .build()))
+                                    .build());
+                        }
+                        return Mono.just(CredentialResponse.builder()
+                                .transactionId(deferred.transactionId() != null ? deferred.transactionId() : transactionId)
+                                .interval(DEFERRED_CREDENTIAL_POLLING_INTERVAL)
+                                .build());
+                    });
         } else {
             return Mono.just(CredentialResponse.builder()
                     .transactionId(transactionId)
@@ -82,7 +65,6 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
         } catch (ParseException e) {
             throw new JWTParsingException("Failed to parse access token JWT");
         }
-
     }
 
     @Override
@@ -91,7 +73,7 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
             String subjectDid,
             String authServerNonce,
             String email,
-            String procedureId){
+            String procedureId) {
         return bindAndSaveIfNeeded(processId, procedureId, subjectDid)
                 .flatMap(boundCred -> updateDeferredAndMap(
                         processId,
@@ -109,32 +91,32 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
 
         return Mono.zip(
                         credentialProcedureService.getCredentialTypeByProcedureId(procedureId),
-                        credentialProcedureService.getDecodedCredentialByProcedureId(procedureId)
+                        credentialProcedureService.getCredentialDataSetByProcedureId(procedureId)
                 )
                 .flatMap(tuple -> {
                     String credentialType = tuple.getT1();
-                    String decodedCredential = tuple.getT2();
+                    String dataSet = tuple.getT2();
                     if (subjectDid == null) {
-                        return Mono.just(decodedCredential);
+                        return Mono.just(dataSet);
                     }
 
                     return credentialFactory
                             .bindCryptographicCredentialSubjectId(
                                     processId,
                                     credentialType,
-                                    decodedCredential,
+                                    dataSet,
                                     subjectDid)
                             .onErrorResume(e -> {
                                 log.error("Error binding cryptographic credential subject ID: {}", e.getMessage(), e);
                                 return Mono.error(new CredentialIssuanceException("Failed to bind cryptographic credential subject", e));
                             })
                             .flatMap(bound -> credentialProcedureService
-                                    .updateDecodedCredentialByProcedureId(procedureId, bound)
+                                    .updateCredentialDataSetByProcedureId(procedureId, bound)
                                     .thenReturn(bound)
                             );
-
                 });
     }
+
     private Mono<CredentialResponse> updateDeferredAndMap(
             String processId,
             String procedureId,
@@ -187,5 +169,4 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
                         .build()
         );
     }
-
 }

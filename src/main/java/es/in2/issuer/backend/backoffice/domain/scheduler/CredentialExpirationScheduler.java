@@ -16,6 +16,7 @@ import reactor.core.publisher.Mono;
 import java.time.Instant;
 
 import static es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum.EXPIRED;
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 @Slf4j
 @Component
@@ -43,7 +44,8 @@ public class CredentialExpirationScheduler {
                                                 credentialProcedure.getCredentialType(),
                                                 EXPIRED.toString()
                                         )))))
-                .then();
+                .then()
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "*"));
     }
 
 

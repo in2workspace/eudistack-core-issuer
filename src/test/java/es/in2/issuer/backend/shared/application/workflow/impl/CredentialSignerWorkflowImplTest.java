@@ -37,9 +37,12 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.JWT_VC_JSON;
 import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_MACHINE;
 
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 
 @ExtendWith(MockitoExtension.class)
 class CredentialSignerWorkflowImplTest {
@@ -109,12 +112,23 @@ class CredentialSignerWorkflowImplTest {
     private final String email = "alice@example.com";
     private final String bindedCredential = "bindedCredential";
 
+    private CredentialProfile buildProfile(String credentialType) {
+        return CredentialProfile.builder()
+                .credentialConfigurationId(credentialType + "_config")
+                .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
+                        .type(java.util.List.of("VerifiableCredential", credentialType)).build())
+                .build();
+    }
+
     @Test
     void testRetrySignUnsignedCredential_Success_LEARCredentialEmployee() {
         CredentialProcedure credentialProcedure = mock(CredentialProcedure.class);
-        when(credentialProcedure.getCredentialDecoded()).thenReturn("decodedCredential");
+        when(credentialProcedure.getCredentialDataSet()).thenReturn("decodedCredential");
         when(credentialProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_EMPLOYEE);
         when(credentialProcedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.PEND_SIGNATURE);
+
+        CredentialProfile profile = buildProfile(LEAR_CREDENTIAL_EMPLOYEE);
+        when(credentialProfileRegistry.getByCredentialType(LEAR_CREDENTIAL_EMPLOYEE)).thenReturn(profile);
 
         when(accessTokenService.getCleanBearerToken(authorizationHeader))
                 .thenReturn(Mono.just(token));
@@ -125,9 +139,9 @@ class CredentialSignerWorkflowImplTest {
 
         when(credentialProcedureRepository.findByProcedureId(UUID.fromString(procedureId)))
                 .thenReturn(Mono.just(credentialProcedure));
-        when(learCredentialEmployeeFactory.mapCredentialAndBindIssuerInToTheCredential("decodedCredential", procedureId, email))
+        when(genericCredentialBuilder.bindIssuer(eq(profile), eq("decodedCredential"), eq(procedureId), eq(email)))
                 .thenReturn(Mono.just(bindedCredential));
-        when(credentialProcedureService.updateDecodedCredentialByProcedureId(procedureId, bindedCredential, JWT_VC_JSON))
+        when(credentialProcedureService.updateCredentialDataSetByProcedureId(procedureId, bindedCredential, JWT_VC_JSON))
                 .thenReturn(Mono.empty());
         doReturn(Mono.just("signedCredential"))
                 .when(credentialSignerWorkflow)
@@ -143,11 +157,9 @@ class CredentialSignerWorkflowImplTest {
 
         verify(accessTokenService).getCleanBearerToken(authorizationHeader);
         verify(backofficePdpService).validateSignCredential(processId, token, procedureId);
-        verify(learCredentialEmployeeFactory)
-                .mapCredentialAndBindIssuerInToTheCredential("decodedCredential", procedureId, email);
-        // Helper method path verification
+        verify(genericCredentialBuilder).bindIssuer(eq(profile), eq("decodedCredential"), eq(procedureId), eq(email));
         verify(credentialProcedureService)
-                .updateDecodedCredentialByProcedureId(procedureId, bindedCredential, JWT_VC_JSON);
+                .updateCredentialDataSetByProcedureId(procedureId, bindedCredential, JWT_VC_JSON);
         verify(credentialSignerWorkflow).signAndUpdateCredentialByProcedureId(token, procedureId, JWT_VC_JSON);
         verify(credentialProcedureService).updateCredentialProcedureCredentialStatusToValidByProcedureId(procedureId);
     }
@@ -184,9 +196,12 @@ class CredentialSignerWorkflowImplTest {
     @Test
     void testRetrySignUnsignedCredential_ErrorOnMappingCredential() {
         CredentialProcedure credentialProcedure = mock(CredentialProcedure.class);
-        when(credentialProcedure.getCredentialDecoded()).thenReturn("decodedCredential");
+        when(credentialProcedure.getCredentialDataSet()).thenReturn("decodedCredential");
         when(credentialProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_EMPLOYEE);
         when(credentialProcedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.PEND_SIGNATURE);
+
+        CredentialProfile profile = buildProfile(LEAR_CREDENTIAL_EMPLOYEE);
+        when(credentialProfileRegistry.getByCredentialType(LEAR_CREDENTIAL_EMPLOYEE)).thenReturn(profile);
 
         when(accessTokenService.getCleanBearerToken(authorizationHeader))
                 .thenReturn(Mono.just(token));
@@ -196,7 +211,7 @@ class CredentialSignerWorkflowImplTest {
                 .thenReturn(Mono.just(email));
         when(credentialProcedureRepository.findByProcedureId(UUID.fromString(procedureId)))
                 .thenReturn(Mono.just(credentialProcedure));
-        when(learCredentialEmployeeFactory.mapCredentialAndBindIssuerInToTheCredential("decodedCredential", procedureId, email))
+        when(genericCredentialBuilder.bindIssuer(eq(profile), eq("decodedCredential"), eq(procedureId), eq(email)))
                 .thenReturn(Mono.error(new RuntimeException("Mapping failed")));
 
         StepVerifier.create(
@@ -211,6 +226,8 @@ class CredentialSignerWorkflowImplTest {
         CredentialProcedure credentialProcedure = mock(CredentialProcedure.class);
         when(credentialProcedure.getCredentialType()).thenReturn("UNKNOWN_TYPE");
         when(credentialProcedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.PEND_SIGNATURE);
+
+        when(credentialProfileRegistry.getByCredentialType("UNKNOWN_TYPE")).thenReturn(null);
 
         when(accessTokenService.getCleanBearerToken(authorizationHeader))
                 .thenReturn(Mono.just(token));
@@ -235,11 +252,13 @@ class CredentialSignerWorkflowImplTest {
     void testRetrySignUnsignedCredential_NonLabelCredential_DoesNotSendVc() {
         CredentialProcedure initialProcedure = mock(CredentialProcedure.class);
         when(initialProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_EMPLOYEE);
-        when(initialProcedure.getCredentialDecoded()).thenReturn("decodedCredential");
+        when(initialProcedure.getCredentialDataSet()).thenReturn("decodedCredential");
         when(initialProcedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.PEND_SIGNATURE);
 
         CredentialProcedure updatedProcedure = mock(CredentialProcedure.class);
-        when(updatedProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_EMPLOYEE);
+
+        CredentialProfile profile = buildProfile(LEAR_CREDENTIAL_EMPLOYEE);
+        when(credentialProfileRegistry.getByCredentialType(LEAR_CREDENTIAL_EMPLOYEE)).thenReturn(profile);
 
         when(accessTokenService.getCleanBearerToken(authorizationHeader))
                 .thenReturn(Mono.just(token));
@@ -251,9 +270,9 @@ class CredentialSignerWorkflowImplTest {
         when(credentialProcedureRepository.findByProcedureId(UUID.fromString(procedureId)))
                 .thenReturn(Mono.just(initialProcedure), Mono.just(updatedProcedure));
 
-        when(learCredentialEmployeeFactory.mapCredentialAndBindIssuerInToTheCredential("decodedCredential", procedureId, email))
+        when(genericCredentialBuilder.bindIssuer(eq(profile), eq("decodedCredential"), eq(procedureId), eq(email)))
                 .thenReturn(Mono.just(bindedCredential));
-        when(credentialProcedureService.updateDecodedCredentialByProcedureId(procedureId, bindedCredential, JWT_VC_JSON))
+        when(credentialProcedureService.updateCredentialDataSetByProcedureId(procedureId, bindedCredential, JWT_VC_JSON))
                 .thenReturn(Mono.empty());
 
         doReturn(Mono.just("signedVc"))
@@ -269,11 +288,10 @@ class CredentialSignerWorkflowImplTest {
                 )
                 .verifyComplete();
 
-        // Verify LEAR employee flow and helper usage
-        verify(learCredentialEmployeeFactory)
-                .mapCredentialAndBindIssuerInToTheCredential("decodedCredential", procedureId, email);
+        // Verify generic credential builder flow
+        verify(genericCredentialBuilder).bindIssuer(eq(profile), eq("decodedCredential"), eq(procedureId), eq(email));
         verify(credentialProcedureService)
-                .updateDecodedCredentialByProcedureId(procedureId, bindedCredential, JWT_VC_JSON);
+                .updateCredentialDataSetByProcedureId(procedureId, bindedCredential, JWT_VC_JSON);
 
         // No VC delivery should happen for non-LABEL credentials
         verifyNoInteractions(deferredCredentialMetadataService);
@@ -325,9 +343,12 @@ class CredentialSignerWorkflowImplTest {
     @Test
     void testRetrySignUnsignedCredential_Success_LEARCredentialMachine() {
         CredentialProcedure credentialProcedure = mock(CredentialProcedure.class);
-        when(credentialProcedure.getCredentialDecoded()).thenReturn("decodedCredential");
+        when(credentialProcedure.getCredentialDataSet()).thenReturn("decodedCredential");
         when(credentialProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_MACHINE);
         when(credentialProcedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.PEND_SIGNATURE);
+
+        CredentialProfile profile = buildProfile(LEAR_CREDENTIAL_MACHINE);
+        when(credentialProfileRegistry.getByCredentialType(LEAR_CREDENTIAL_MACHINE)).thenReturn(profile);
 
         when(accessTokenService.getCleanBearerToken(authorizationHeader))
                 .thenReturn(Mono.just(token));
@@ -338,9 +359,9 @@ class CredentialSignerWorkflowImplTest {
 
         when(credentialProcedureRepository.findByProcedureId(UUID.fromString(procedureId)))
                 .thenReturn(Mono.just(credentialProcedure));
-        when(learCredentialMachineFactory.mapCredentialAndBindIssuerInToTheCredential("decodedCredential", procedureId, email))
+        when(genericCredentialBuilder.bindIssuer(eq(profile), eq("decodedCredential"), eq(procedureId), eq(email)))
                 .thenReturn(Mono.just(bindedCredential));
-        when(credentialProcedureService.updateDecodedCredentialByProcedureId(procedureId, bindedCredential, JWT_VC_JSON))
+        when(credentialProcedureService.updateCredentialDataSetByProcedureId(procedureId, bindedCredential, JWT_VC_JSON))
                 .thenReturn(Mono.empty());
 
         doReturn(Mono.just("signedCredential"))
@@ -362,27 +383,25 @@ class CredentialSignerWorkflowImplTest {
         verify(accessTokenService).getMandateeEmail(authorizationHeader);
         verify(credentialProcedureRepository, atLeastOnce()).findByProcedureId(UUID.fromString(procedureId));
 
-        verify(learCredentialMachineFactory)
-                .mapCredentialAndBindIssuerInToTheCredential("decodedCredential", procedureId, email);
-        // Helper call verification for machine credential
+        verify(genericCredentialBuilder).bindIssuer(eq(profile), eq("decodedCredential"), eq(procedureId), eq(email));
         verify(credentialProcedureService)
-                .updateDecodedCredentialByProcedureId(procedureId, bindedCredential, JWT_VC_JSON);
+                .updateCredentialDataSetByProcedureId(procedureId, bindedCredential, JWT_VC_JSON);
         verify(credentialSignerWorkflow)
                 .signAndUpdateCredentialByProcedureId(token, procedureId, JWT_VC_JSON);
         verify(credentialProcedureService)
                 .updateCredentialProcedureCredentialStatusToValidByProcedureId(procedureId);
         verify(credentialProcedureRepository).save(any());
-
-        verifyNoInteractions(learCredentialEmployeeFactory);
-        verifyNoInteractions(labelCredentialFactory);
     }
 
     @Test
     void testRetrySignUnsignedCredential_ErrorOnMappingCredential_LEARCredentialMachine() {
         CredentialProcedure credentialProcedure = mock(CredentialProcedure.class);
-        when(credentialProcedure.getCredentialDecoded()).thenReturn("decodedCredential");
+        when(credentialProcedure.getCredentialDataSet()).thenReturn("decodedCredential");
         when(credentialProcedure.getCredentialType()).thenReturn(LEAR_CREDENTIAL_MACHINE);
         when(credentialProcedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.PEND_SIGNATURE);
+
+        CredentialProfile profile = buildProfile(LEAR_CREDENTIAL_MACHINE);
+        when(credentialProfileRegistry.getByCredentialType(LEAR_CREDENTIAL_MACHINE)).thenReturn(profile);
 
         when(accessTokenService.getCleanBearerToken(authorizationHeader))
                 .thenReturn(Mono.just(token));
@@ -392,7 +411,7 @@ class CredentialSignerWorkflowImplTest {
                 .thenReturn(Mono.just(email));
         when(credentialProcedureRepository.findByProcedureId(UUID.fromString(procedureId)))
                 .thenReturn(Mono.just(credentialProcedure));
-        when(learCredentialMachineFactory.mapCredentialAndBindIssuerInToTheCredential("decodedCredential", procedureId, email))
+        when(genericCredentialBuilder.bindIssuer(eq(profile), eq("decodedCredential"), eq(procedureId), eq(email)))
                 .thenReturn(Mono.error(new RuntimeException("Machine mapping failed")));
 
         StepVerifier.create(
@@ -401,11 +420,7 @@ class CredentialSignerWorkflowImplTest {
                 .expectErrorMessage("Machine mapping failed")
                 .verify();
 
-        verify(learCredentialMachineFactory)
-                .mapCredentialAndBindIssuerInToTheCredential("decodedCredential", procedureId, email);
-
-        verifyNoInteractions(learCredentialEmployeeFactory);
-        verifyNoInteractions(labelCredentialFactory);
+        verify(genericCredentialBuilder).bindIssuer(eq(profile), eq("decodedCredential"), eq(procedureId), eq(email));
     }
 
 }

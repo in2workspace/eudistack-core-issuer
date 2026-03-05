@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
-import es.in2.issuer.backend.shared.application.workflow.CredentialIssuanceWorkflow;
+import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialResponse;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
@@ -21,7 +21,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class CredentialController {
 
-    private final CredentialIssuanceWorkflow credentialIssuanceWorkflow;
+    private final Oid4VciCredentialWorkflow oid4VciCredentialWorkflow;
     private final AccessTokenService accessTokenService;
 
     @PostMapping(produces = MediaType.APPLICATION_JSON_VALUE)
@@ -32,7 +32,7 @@ public class CredentialController {
         String processId = UUID.randomUUID().toString();
         return accessTokenService.validateAndResolveProcedure(authorizationHeader)
                 .flatMap(token ->
-                        credentialIssuanceWorkflow.generateVerifiableCredentialResponse(processId, credentialRequest, token))
+                        oid4VciCredentialWorkflow.generateVerifiableCredentialResponse(processId, credentialRequest, token))
                 .map(verifiableCredentialResponse -> {
                     log.info("Process ID: {} - Response: {}", processId, verifiableCredentialResponse);
                     if (verifiableCredentialResponse.transactionId() != null) {

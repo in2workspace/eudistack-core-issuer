@@ -216,4 +216,19 @@ public class DeferredCredentialMetadataServiceImpl implements DeferredCredential
         return deferredCredentialMetadataRepository.findByProcedureId(UUID.fromString(procedureId))
                 .map(DeferredCredentialMetadata::getVcFormat);
     }
+
+    @Override
+    public Mono<Void> updateCnfByProcedureId(String procedureId, String cnfJson) {
+        return deferredCredentialMetadataRepository.findByProcedureId(UUID.fromString(procedureId))
+                .flatMap(metadata -> {
+                    metadata.setCnf(cnfJson);
+                    return deferredCredentialMetadataRepository.save(metadata).then();
+                });
+    }
+
+    @Override
+    public Mono<String> getCnfByProcedureId(String procedureId) {
+        return deferredCredentialMetadataRepository.findByProcedureId(UUID.fromString(procedureId))
+                .map(DeferredCredentialMetadata::getCnf);
+    }
 }

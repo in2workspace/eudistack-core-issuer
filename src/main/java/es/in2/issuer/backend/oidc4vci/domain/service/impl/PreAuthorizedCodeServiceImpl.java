@@ -2,8 +2,8 @@ package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
 import es.in2.issuer.backend.oidc4vci.domain.service.PreAuthorizedCodeService;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndTxCode;
-import es.in2.issuer.backend.shared.domain.model.dto.Grants;
 import es.in2.issuer.backend.shared.domain.model.dto.PreAuthorizedCodeResponse;
+import es.in2.issuer.backend.shared.domain.model.dto.TxCode;
 import es.in2.issuer.backend.shared.domain.service.TranslationService;
 import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
 import lombok.RequiredArgsConstructor;
@@ -72,11 +72,10 @@ public class PreAuthorizedCodeServiceImpl implements PreAuthorizedCodeService {
     }
 
     private Mono<PreAuthorizedCodeResponse> buildPreAuthorizedCodeResponse(String preAuthorizedCode, String txCode) {
-        Grants.TxCode grantTxCode = Grants.TxCode.builder()
+        TxCode grantTxCode = TxCode.builder()
                 .length(TX_CODE_SIZE)
                 .inputMode(TX_INPUT_MODE)
                 .build();
-        Grants grants = new Grants(preAuthorizedCode, grantTxCode, null);
-        return Mono.just(new PreAuthorizedCodeResponse(grants, txCode));
+        return Mono.just(new PreAuthorizedCodeResponse(preAuthorizedCode, grantTxCode, txCode));
     }
 }

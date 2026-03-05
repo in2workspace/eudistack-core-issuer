@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.backoffice.infrastructure.controller;
 
-import es.in2.issuer.backend.shared.application.workflow.CredentialIssuanceWorkflow;
+import es.in2.issuer.backend.shared.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
@@ -23,7 +23,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class IssuanceController {
 
-    private final CredentialIssuanceWorkflow credentialIssuanceWorkflow;
+    private final IssuanceWorkflow issuanceWorkflow;
     private final AccessTokenService accessTokenService;
 
     @PostMapping(
@@ -36,7 +36,7 @@ public class IssuanceController {
             @RequestBody PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest) {
         String processId = UUID.randomUUID().toString();
         return accessTokenService.getCleanBearerToken(bearerToken)
-                .flatMap(token -> credentialIssuanceWorkflow.execute(processId, preSubmittedCredentialDataRequest, token, idToken))
+                .flatMap(token -> issuanceWorkflow.execute(processId, preSubmittedCredentialDataRequest, token, idToken))
                 .map(this::toResponseEntity);
     }
 

@@ -8,12 +8,12 @@ import java.sql.Timestamp;
 public record CredentialProcedureCreationRequest(
         String procedureId,
         String organizationIdentifier,
-        String credentialDecoded,
+        String credentialDataSet,
         String credentialType,
+        String credentialFormat,
         String subject,
         Timestamp validUntil,
-        String signatureMode,
-        String email
-        )
-{
+        String email,
+        String delivery
+) {
 }

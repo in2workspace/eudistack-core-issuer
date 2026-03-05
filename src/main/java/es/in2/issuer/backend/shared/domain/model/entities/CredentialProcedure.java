@@ -26,11 +26,8 @@ public class CredentialProcedure {
     @Column("credential_format")
     private String credentialFormat;
 
-    @Column("credential_decoded")
-    private String credentialDecoded;
-
-    @Column("credential_encoded")
-    private String credentialEncoded;
+    @Column("credential_data_set")
+    private String credentialDataSet;
 
     @Column("credential_status")
     private CredentialStatusEnum credentialStatus;
@@ -48,18 +45,17 @@ public class CredentialProcedure {
     @Column("valid_until")
     private Timestamp validUntil;
 
-    @Column("signature_mode")
-    private String signatureMode;
-
     @Column("email")
     private String email;
 
+    @Column("delivery")
+    private String delivery;
+
+    @Column("refresh_token")
+    private String refreshToken;
+
     @Column("notification_id")
     private UUID notificationId;
-
-    @Column("cnf")
-    private String cnf;
-
 
     // --- Auditing fields (R2DBC auditing will fill these) ---
     @CreatedDate

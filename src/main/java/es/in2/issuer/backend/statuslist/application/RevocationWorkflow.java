@@ -100,7 +100,7 @@ public class RevocationWorkflow {
                     CredentialStatus credentialStatus = parseCredentialStatus(
                             processId,
                             credentialProcedureId,
-                            ctx.procedure.getCredentialDecoded()
+                            ctx.procedure.getCredentialDataSet()
                     );
 
                     return routeRevocation(processId, credentialProcedureId, listId, credentialStatus, ctx.token)

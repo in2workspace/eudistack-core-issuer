@@ -1,7 +1,7 @@
 package es.in2.issuer.backend.bootstrap.infrastructure.controller;
 
 import es.in2.issuer.backend.bootstrap.domain.service.BootstrapTokenService;
-import es.in2.issuer.backend.shared.application.workflow.CredentialIssuanceWorkflow;
+import es.in2.issuer.backend.shared.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
 import org.junit.jupiter.api.Test;
@@ -26,7 +26,7 @@ class BootstrapControllerTest {
     private BootstrapTokenService bootstrapTokenService;
 
     @Mock
-    private CredentialIssuanceWorkflow credentialIssuanceWorkflow;
+    private IssuanceWorkflow issuanceWorkflow;
 
     @InjectMocks
     private BootstrapController bootstrapController;
@@ -41,7 +41,7 @@ class BootstrapControllerTest {
                 .build();
 
         when(bootstrapTokenService.consumeIfValid(token)).thenReturn(true);
-        when(credentialIssuanceWorkflow.executeWithoutAuthorization(anyString(), any(PreSubmittedCredentialDataRequest.class)))
+        when(issuanceWorkflow.executeWithoutAuthorization(anyString(), any(PreSubmittedCredentialDataRequest.class)))
                 .thenReturn(Mono.just(IssuanceResponse.builder().credentialOfferUri(credentialOfferUri).build()));
 
         StepVerifier.create(bootstrapController.bootstrapIssueCredential(token, request))
@@ -52,7 +52,7 @@ class BootstrapControllerTest {
                 .verifyComplete();
 
         verify(bootstrapTokenService).consumeIfValid(token);
-        verify(credentialIssuanceWorkflow).executeWithoutAuthorization(anyString(), eq(request));
+        verify(issuanceWorkflow).executeWithoutAuthorization(anyString(), eq(request));
     }
 
     @Test
@@ -70,7 +70,7 @@ class BootstrapControllerTest {
                                 && rse.getStatusCode() == HttpStatus.UNAUTHORIZED)
                 .verify();
 
-        verify(credentialIssuanceWorkflow, never()).executeWithoutAuthorization(anyString(), any());
+        verify(issuanceWorkflow, never()).executeWithoutAuthorization(anyString(), any());
     }
 
     @Test

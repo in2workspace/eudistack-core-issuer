@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.backoffice.infrastructure.controller;
 
-import es.in2.issuer.backend.shared.application.workflow.CredentialIssuanceWorkflow;
+import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.AuthServerNonceRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,13 +16,13 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class DeferredCredentialMetadataController {
 
-    private final CredentialIssuanceWorkflow credentialIssuanceWorkflow;
+    private final Oid4VciCredentialWorkflow oid4VciCredentialWorkflow;
 
     @PostMapping("/nonce")
     @ResponseStatus(HttpStatus.CREATED)
-    public Mono<Void> bindAccessTokenByPreAuthorizedCode (@RequestBody AuthServerNonceRequest authServerNonceRequest) {
+    public Mono<Void> bindAccessTokenByPreAuthorizedCode(@RequestBody AuthServerNonceRequest authServerNonceRequest) {
         String processId = UUID.randomUUID().toString();
-        return credentialIssuanceWorkflow.bindAccessTokenByPreAuthorizedCode(processId,authServerNonceRequest);
+        return oid4VciCredentialWorkflow.bindAccessTokenByPreAuthorizedCode(processId, authServerNonceRequest);
     }
 
 }

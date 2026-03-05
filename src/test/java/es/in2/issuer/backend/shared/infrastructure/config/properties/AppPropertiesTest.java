@@ -9,9 +9,9 @@ class AppPropertiesTest {
     @Test
     void appProperties_initializesCorrectly() {
         String appUrl = "https://app-url.com";
+        String internalUrl = "https://internal-url.com";
         String issuerFrontendUrl = "https://issuer-frontend-url.com";
         String verifierUrl = "https://verifier-url.com";
-        String configSource = "configSource";
         String walletFrontendUrl = "https://wallet-frontend-url.com";
         String defaultLang = "es";
         String adminOrganizationId = "org-admin";
@@ -26,10 +26,10 @@ class AppPropertiesTest {
         // Act
         AppProperties appProperties = new AppProperties(
                 appUrl,
+                internalUrl,
                 issuerFrontendUrl,
                 knowledgeBase,
                 verifierUrl,
-                configSource,
                 walletFrontendUrl,
                 defaultLang,
                 adminOrganizationId,
@@ -38,13 +38,14 @@ class AppPropertiesTest {
 
         // Assert
         assertEquals(appUrl, appProperties.url());
+        assertEquals(internalUrl, appProperties.internalUrl());
         assertEquals(issuerFrontendUrl, appProperties.issuerFrontendUrl());
         assertEquals(knowledgeBase, appProperties.knowledgeBase());
         assertEquals(verifierUrl, appProperties.verifierUrl());
-        assertEquals(configSource, appProperties.configSource());
         assertEquals(walletFrontendUrl, appProperties.walletUrl());
-        assertEquals(sysTenant, appProperties.sysTenant());
+        assertEquals(defaultLang, appProperties.defaultLang());
         assertEquals(adminOrganizationId, appProperties.adminOrganizationId());
+        assertEquals(sysTenant, appProperties.sysTenant());
     }
 
     @Test

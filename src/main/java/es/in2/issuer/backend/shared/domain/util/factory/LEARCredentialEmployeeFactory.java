@@ -283,7 +283,7 @@ public class LEARCredentialEmployeeFactory {
                 CredentialProcedureCreationRequest.builder()
                         .procedureId(procedureId)
                         .organizationIdentifier(mandatorOrgId)
-                        .credentialDecoded(decodedCredential)
+                        .credentialDataSet(decodedCredential)
                         .credentialType("LEARCredentialEmployeeW3C")
                         .subject(credentialDecoded.credentialSubject().mandate().mandatee().firstName() +
                                 " " +

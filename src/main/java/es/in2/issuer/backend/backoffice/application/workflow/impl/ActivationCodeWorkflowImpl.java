@@ -5,6 +5,9 @@ import es.in2.issuer.backend.backoffice.domain.model.dtos.CredentialOfferUriResp
 import es.in2.issuer.backend.backoffice.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.oidc4vci.application.workflow.PreAuthorizedCodeWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
+import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferGrants;
+import es.in2.issuer.backend.shared.domain.model.dto.PreAuthorizedCodeGrant;
+import es.in2.issuer.backend.shared.domain.model.dto.PreAuthorizedCodeResponse;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.repository.CredentialOfferCacheRepository;
 import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
@@ -51,19 +54,22 @@ public class ActivationCodeWorkflowImpl implements ActivationCodeWorkflow {
                         credentialProcedureService.getCredentialProcedureById(procedureId)
                                 .flatMap(credentialProcedure ->
                                         preAuthorizedCodeWorkflow.generatePreAuthorizedCode(Mono.just(procedureId))
-                                                .flatMap(preAuthorizedCodeResponse ->
+                                                .flatMap(preAuthResponse ->
                                                         deferredCredentialMetadataService.updateAuthServerNonceByTransactionCode(
                                                                         transactionCode,
-                                                                        preAuthorizedCodeResponse.grants().preAuthorizedCode()
+                                                                        preAuthResponse.preAuthorizedCode()
                                                                 )
-                                                                .then(Mono.defer(() -> credentialOfferService.buildCustomCredentialOffer(
-                                                                                credentialProcedure.getCredentialType(),
-                                                                                preAuthorizedCodeResponse.grants(),
-                                                                                credentialProcedure.getEmail(),
-                                                                                preAuthorizedCodeResponse.pin()
-                                                                        )
-                                                                        .flatMap(credentialOfferCacheRepository::saveCustomCredentialOffer)
-                                                                        .flatMap(credentialOfferService::createCredentialOfferUriResponse)))
+                                                                .then(Mono.defer(() -> {
+                                                                    CredentialOfferGrants grants = toCredentialOfferGrants(preAuthResponse);
+                                                                    return credentialOfferService.buildCredentialOffer(
+                                                                                    credentialProcedure.getCredentialType(),
+                                                                                    grants,
+                                                                                    credentialProcedure.getEmail(),
+                                                                                    preAuthResponse.pin()
+                                                                            )
+                                                                            .flatMap(credentialOfferCacheRepository::saveCustomCredentialOffer)
+                                                                            .flatMap(credentialOfferService::createCredentialOfferUriResponse);
+                                                                }))
                                                 )
                                                 .flatMap(credentialOfferUri ->
                                                         deferredCredentialMetadataService.updateCacheStoreForCTransactionCode(transactionCode)
@@ -90,34 +96,45 @@ public class ActivationCodeWorkflowImpl implements ActivationCodeWorkflow {
                                     var credentialProcedure = tuple.getT1();
                                     var emailInfo = tuple.getT2();
                                     return preAuthorizedCodeWorkflow.generatePreAuthorizedCode(Mono.just(procedureId))
-                                            .flatMap(preAuthResponse ->
-                                                    deferredCredentialMetadataService.updateAuthServerNonceByTransactionCode(
-                                                                    transactionCode, preAuthResponse.grants().preAuthorizedCode()
-                                                            )
-                                                            .then(credentialOfferService.buildCustomCredentialOffer(
-                                                                    credentialProcedure.getCredentialType(),
-                                                                    preAuthResponse.grants(),
+                                            .flatMap(preAuthResponse -> {
+                                                CredentialOfferGrants grants = toCredentialOfferGrants(preAuthResponse);
+                                                return deferredCredentialMetadataService.updateAuthServerNonceByTransactionCode(
+                                                                transactionCode, preAuthResponse.preAuthorizedCode()
+                                                        )
+                                                        .then(credentialOfferService.buildCredentialOffer(
+                                                                credentialProcedure.getCredentialType(),
+                                                                grants,
+                                                                emailInfo.email(),
+                                                                preAuthResponse.pin()
+                                                        ))
+                                                        .flatMap(credentialOfferCacheRepository::saveCustomCredentialOffer)
+                                                        .flatMap(credentialOfferService::createCredentialOfferUriResponse)
+                                                        .flatMap(credentialOfferUri -> {
+                                                            String reissueUrl = buildReissueUrl(transactionCode);
+                                                            return emailService.sendCredentialOfferEmail(
                                                                     emailInfo.email(),
-                                                                    preAuthResponse.pin()
-                                                            ))
-                                                            .flatMap(credentialOfferCacheRepository::saveCustomCredentialOffer)
-                                                            .flatMap(credentialOfferService::createCredentialOfferUriResponse)
-                                                            .flatMap(credentialOfferUri -> {
-                                                                String reissueUrl = buildReissueUrl(transactionCode);
-                                                                return emailService.sendCredentialOfferEmail(
-                                                                        emailInfo.email(),
-                                                                        CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
-                                                                        credentialOfferUri,
-                                                                        reissueUrl,
-                                                                        issuerProperties.getWalletFrontendUrl(),
-                                                                        emailInfo.organization()
-                                                                );
-                                                            })
-                                            );
+                                                                    CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
+                                                                    credentialOfferUri,
+                                                                    reissueUrl,
+                                                                    issuerProperties.getWalletFrontendUrl(),
+                                                                    emailInfo.organization()
+                                                            );
+                                                        });
+                                            });
                                 })
                 )
                 .onErrorMap(ex -> !(ex instanceof EmailCommunicationException),
                         ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE));
+    }
+
+    private CredentialOfferGrants toCredentialOfferGrants(PreAuthorizedCodeResponse preAuthResponse) {
+        PreAuthorizedCodeGrant preAuthGrant = PreAuthorizedCodeGrant.builder()
+                .preAuthorizedCode(preAuthResponse.preAuthorizedCode())
+                .txCode(preAuthResponse.txCode())
+                .build();
+        return CredentialOfferGrants.builder()
+                .preAuthorizedCode(preAuthGrant)
+                .build();
     }
 
     private String buildReissueUrl(String transactionCode) {

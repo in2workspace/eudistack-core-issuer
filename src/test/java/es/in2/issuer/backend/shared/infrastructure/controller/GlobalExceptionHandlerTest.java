@@ -56,8 +56,8 @@ class GlobalExceptionHandlerTest {
         var ex = new CredentialTypeUnsupportedException("custom msg");
         var type = GlobalErrorTypes.UNSUPPORTED_CREDENTIAL_TYPE.getCode();
         var title = "Unsupported credential type";
-        var st = HttpStatus.NOT_FOUND;
-        var fallback = "The given credential type is not supported";
+        var st = HttpStatus.BAD_REQUEST;
+        var fallback = "The given credential_configuration_id is not supported by this issuer";
         var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
 
         when(errors.handleWith(ex, request, type, title, st, fallback))
@@ -74,8 +74,8 @@ class GlobalExceptionHandlerTest {
     void handleCredentialTypeUnsupported_usesFallback_whenMessageNullOrBlank() {
         var type = GlobalErrorTypes.UNSUPPORTED_CREDENTIAL_TYPE.getCode();
         var title = "Unsupported credential type";
-        var st = HttpStatus.NOT_FOUND;
-        var fallback = "The given credential type is not supported";
+        var st = HttpStatus.BAD_REQUEST;
+        var fallback = "The given credential_configuration_id is not supported by this issuer";
 
         var exNull = new CredentialTypeUnsupportedException((String) null);
         var exBlank = new CredentialTypeUnsupportedException("   ");

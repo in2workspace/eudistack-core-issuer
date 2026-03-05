@@ -141,7 +141,7 @@ class LabelCredentialFactoryTest {
                     assertEquals(email, request.email());
                     assertEquals("org-456", request.organizationIdentifier());
                     assertNotNull(request.validUntil());
-                    assertNotNull(request.credentialDecoded());
+                    assertNotNull(request.credentialDataSet());
                 })
                 .verifyComplete();
 
@@ -179,7 +179,7 @@ class LabelCredentialFactoryTest {
 
         SimpleIssuer simpleIssuer = SimpleIssuer.builder().id("issuer-1").build();
 
-        when(credentialProcedureService.getDecodedCredentialByProcedureId(procedureId))
+        when(credentialProcedureService.getCredentialDataSetByProcedureId(procedureId))
                 .thenReturn(Mono.just(credentialJson));
 
         when(objectMapper.readValue(credentialJson, LabelCredential.class))

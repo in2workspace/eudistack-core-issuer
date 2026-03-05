@@ -60,7 +60,7 @@ class RemoteSignatureServiceImplTest {
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
 
         SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.COSE, "data", context);
+        SigningRequest req = new SigningRequest(SigningType.COSE, "data", context, null);
 
         String endpoint = "http://remote-signature-dss.com/api/v1/sign";
         String reqJson = "{\"req\":true}";
@@ -93,7 +93,7 @@ class RemoteSignatureServiceImplTest {
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
 
         SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context);
+        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context, null);
 
         when(qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
                 .thenReturn(Mono.just("access-token"));
@@ -141,7 +141,7 @@ class RemoteSignatureServiceImplTest {
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
 
         SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context);
+        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context, null);
 
         when(qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
                 .thenReturn(Mono.just("access-token"));
@@ -166,7 +166,7 @@ class RemoteSignatureServiceImplTest {
     @Test
     void processSignatureResponse_shouldFail_whenNoSignature() throws Exception {
         SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context);
+        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context, null);
 
         String responseJson = "{\"DocumentWithSignature\":[]}";
         when(objectMapper.readValue(responseJson, Map.class))
@@ -180,7 +180,7 @@ class RemoteSignatureServiceImplTest {
     @Test
     void processSignatureResponse_shouldFail_whenPayloadMismatch() throws Exception {
         SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context);
+        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context, null);
 
         String signedJwt = "signed-jwt";
         String base64Signed = Base64.getEncoder().encodeToString(signedJwt.getBytes(StandardCharsets.UTF_8));
@@ -213,7 +213,7 @@ class RemoteSignatureServiceImplTest {
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
 
         SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context);
+        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context, null);
 
         when(qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
                 .thenReturn(Mono.just("access-token"));

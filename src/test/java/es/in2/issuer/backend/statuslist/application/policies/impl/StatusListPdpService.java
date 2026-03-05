@@ -37,19 +37,19 @@ class StatusListPdpServiceImplTest {
         service = new StatusListPdpServiceImpl(policyContextFactory);
     }
 
-    private PolicyContext buildContext(String orgId, boolean sysAdmin, String tenantDomain) {
+    private PolicyContext buildContext(String orgId, boolean sysAdmin) {
         return new PolicyContext(
                 orgId,
-                Collections.singletonList(Power.builder().function("Onboarding").action("Execute").domain(tenantDomain).build()),
+                Collections.singletonList(Power.builder().function("Onboarding").action("Execute").domain(orgId).build()),
                 null,
                 LEAR_CREDENTIAL_EMPLOYEE,
                 sysAdmin,
-                tenantDomain
+                orgId
         );
     }
 
-    private PolicyContext buildContextNoPowers(String orgId, boolean sysAdmin, String tenantDomain) {
-        return new PolicyContext(orgId, Collections.emptyList(), null, LEAR_CREDENTIAL_EMPLOYEE, sysAdmin, tenantDomain);
+    private PolicyContext buildContextNoPowers(String orgId, boolean sysAdmin) {
+        return new PolicyContext(orgId, Collections.emptyList(), null, LEAR_CREDENTIAL_EMPLOYEE, sysAdmin, orgId);
     }
 
     @Test
@@ -64,7 +64,7 @@ class StatusListPdpServiceImplTest {
         when(procedure.getCredentialStatus()).thenReturn(VALID);
         when(procedure.getOrganizationIdentifier()).thenReturn(procedureOrg);
 
-        PolicyContext ctx = buildContext(userOrg, false, "DOME");
+        PolicyContext ctx = buildContext(userOrg, false);
         when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
         // Act + Assert
@@ -86,7 +86,7 @@ class StatusListPdpServiceImplTest {
         when(procedure.getCredentialStatus()).thenReturn(VALID);
         when(procedure.getOrganizationIdentifier()).thenReturn(procedureOrg);
 
-        PolicyContext ctx = buildContext(adminOrg, true, "DOME");
+        PolicyContext ctx = buildContext(adminOrg, true);
         when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
         // Act + Assert
@@ -116,7 +116,7 @@ class StatusListPdpServiceImplTest {
         CredentialProcedure procedure = mock(CredentialProcedure.class);
         when(procedure.getCredentialStatus()).thenReturn(VALID);
 
-        PolicyContext ctx = buildContextNoPowers("ORG_1", false, "DOME");
+        PolicyContext ctx = buildContextNoPowers("ORG_1", false);
         when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
         // Act + Assert
@@ -157,7 +157,7 @@ class StatusListPdpServiceImplTest {
         when(procedure.getCredentialStatus()).thenReturn(VALID);
         when(procedure.getOrganizationIdentifier()).thenReturn(procedureOrg);
 
-        PolicyContext ctx = buildContext(userOrg, false, "DOME");
+        PolicyContext ctx = buildContext(userOrg, false);
         when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
         // Act + Assert

@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.backoffice.infrastructure.controller;
 
-import es.in2.issuer.backend.backoffice.domain.service.SendReminderService;
+import es.in2.issuer.backend.backoffice.application.workflow.SendReminderWorkflow;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -18,7 +18,7 @@ import static org.mockito.Mockito.when;
 class SendReminderControllerTest {
 
     @Mock
-    private SendReminderService sendReminderService;
+    private SendReminderWorkflow sendReminderWorkflow;
 
     @InjectMocks
     private SendReminderController sendReminderController;
@@ -29,7 +29,7 @@ class SendReminderControllerTest {
         String authorizationHeader = "Bearer some.jwt.token";
         String procedureId = "testProcedureId";
 
-        when(sendReminderService.sendReminder(anyString(), eq(procedureId), eq(authorizationHeader)))
+        when(sendReminderWorkflow.sendReminder(anyString(), eq(procedureId), eq(authorizationHeader)))
                 .thenReturn(Mono.empty());
 
         // Act
@@ -39,6 +39,6 @@ class SendReminderControllerTest {
         StepVerifier.create(result)
                 .verifyComplete();
 
-        verify(sendReminderService).sendReminder(anyString(), eq(procedureId), eq(authorizationHeader));
+        verify(sendReminderWorkflow).sendReminder(anyString(), eq(procedureId), eq(authorizationHeader));
     }
 }

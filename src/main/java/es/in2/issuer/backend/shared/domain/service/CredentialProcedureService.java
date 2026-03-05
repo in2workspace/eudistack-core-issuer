@@ -10,19 +10,17 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 public interface CredentialProcedureService {
-    Mono<String> createCredentialProcedure(CredentialProcedureCreationRequest credentialProcedureCreationRequest);
+    Mono<CredentialProcedure> createCredentialProcedure(CredentialProcedureCreationRequest credentialProcedureCreationRequest);
 
     Mono<String> getCredentialTypeByProcedureId(String procedureId);
 
-    Mono<String> getNotificationIdByProcedureId(String procedureId);
-
     Mono<String> getCredentialStatusByProcedureId(String procedureId);
 
-    Mono<Void> updateDecodedCredentialByProcedureId(String procedureId, String credential);
+    Mono<Void> updateCredentialDataSetByProcedureId(String procedureId, String credentialDataSet);
 
-    Mono<Void> updateDecodedCredentialByProcedureId(String procedureId, String credential, String format);
+    Mono<Void> updateCredentialDataSetByProcedureId(String procedureId, String credentialDataSet, String format);
 
-    Mono<String> getDecodedCredentialByProcedureId(String procedureId);
+    Mono<String> getCredentialDataSetByProcedureId(String procedureId);
 
     Flux<String> getAllIssuedCredentialByOrganizationIdentifier(String organizationIdentifier);
 
@@ -36,15 +34,17 @@ public interface CredentialProcedureService {
 
     Mono<Void> updateCredentialProcedureCredentialStatusToRevoke(CredentialProcedure credentialProcedure);
 
-    Mono<String> updatedEncodedCredentialByCredentialProcedureId(String encodedCredential, String credentialProcedureId);
-
-    Mono<Void> updateCnf(String procedureId, Object cnf);
-
     Mono<CredentialProcedure> getCredentialProcedureById(String procedureId);
+
     Mono<CredentialProcedure> getCredentialProcedureByNotificationId(String notificationId);
+
+    Mono<String> getNotificationIdByProcedureId(String procedureId);
+
+    Mono<CredentialProcedure> getCredentialProcedureByRefreshToken(String refreshToken);
+
     Mono<JsonNode> getCredentialNode(CredentialProcedure credentialProcedure);
+
     Mono<String> getCredentialId(CredentialProcedure credentialProcedure);
 
-    Mono<Void> updateFormatByProcedureId(String procedureId, String format);
     Mono<CredentialOfferEmailNotificationInfo> getCredentialOfferEmailInfoByProcedureId(String procedureId);
 }

@@ -37,7 +37,7 @@ class CscSignDocSigningProviderTest {
     @Test
     void signReturnsSigningResultOnSuccess() {
         SigningContext context = new SigningContext("token", "procedureId", "email@example.com");
-        SigningRequest request = new SigningRequest(SigningType.JADES, "data", context);
+        SigningRequest request = new SigningRequest(SigningType.JADES, "data", context, null);
         SigningResult signedData = new SigningResult(SigningType.JADES, "signedData");
         when(remoteSignatureService.signIssuedCredential(any(SigningRequest.class), eq("token"), eq("procedureId"), eq("email@example.com")))
                 .thenReturn(Mono.just(signedData));
@@ -59,7 +59,7 @@ class CscSignDocSigningProviderTest {
     @Test
     void signThrowsSigningExceptionOnNullType() {
         SigningContext context = new SigningContext("token", "procedureId", "email@example.com");
-        SigningRequest request = new SigningRequest(null, "data", context);
+        SigningRequest request = new SigningRequest(null, "data", context, null);
         StepVerifier.create(cscSignDocSigningProvider.sign(request))
                 .expectError(SigningException.class)
                 .verify();
@@ -67,7 +67,7 @@ class CscSignDocSigningProviderTest {
 
     @Test
     void signThrowsSigningExceptionOnNullContext() {
-        SigningRequest request = new SigningRequest(SigningType.JADES, "data", null);
+        SigningRequest request = new SigningRequest(SigningType.JADES, "data", null, null);
         StepVerifier.create(cscSignDocSigningProvider.sign(request))
                 .expectError(SigningException.class)
                 .verify();
@@ -76,7 +76,7 @@ class CscSignDocSigningProviderTest {
     @Test
     void signPropagatesRemoteSignatureServiceError() {
         SigningContext context = new SigningContext("token", "procedureId", "email@example.com");
-        SigningRequest request = new SigningRequest(SigningType.JADES, "data", context);
+        SigningRequest request = new SigningRequest(SigningType.JADES, "data", context, null);
 
         when(remoteSignatureService.signIssuedCredential(any(SigningRequest.class), eq("token"), eq("procedureId"),
                 eq("email@example.com"))) .thenReturn(Mono.error(new SigningException("remote error")));
@@ -89,12 +89,12 @@ class CscSignDocSigningProviderTest {
         SigningContext validContext = new SigningContext("token", "procedureId", "email@example.com");
         return new Object[][]{
                 {null, "Null request"},
-                {new SigningRequest(null, "data", validContext), "Null type"},
-                {new SigningRequest(SigningType.JADES, null, validContext), "Null data"},
-                {new SigningRequest(SigningType.JADES, "   ", validContext), "Blank data"},
-                {new SigningRequest(SigningType.JADES, "data", null), "Null context"},
-                {new SigningRequest(SigningType.JADES, "data", new SigningContext(null, "procedureId", "email@example.com")), "Null token"},
-                {new SigningRequest(SigningType.JADES, "data", new SigningContext("   ", "procedureId", "email@example.com")), "Blank token"}
+                {new SigningRequest(null, "data", validContext, null), "Null type"},
+                {new SigningRequest(SigningType.JADES, null, validContext, null), "Null data"},
+                {new SigningRequest(SigningType.JADES, "   ", validContext, null), "Blank data"},
+                {new SigningRequest(SigningType.JADES, "data", null, null), "Null context"},
+                {new SigningRequest(SigningType.JADES, "data", new SigningContext(null, "procedureId", "email@example.com"), null), "Null token"},
+                {new SigningRequest(SigningType.JADES, "data", new SigningContext("   ", "procedureId", "email@example.com"), null), "Blank token"}
         };
     }
 

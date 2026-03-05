@@ -37,4 +37,7 @@ public class DeferredCredentialMetadata {
     @Column("vc_format")
     private String vcFormat;
 
+    @Column("cnf")
+    private String cnf;
+
 }

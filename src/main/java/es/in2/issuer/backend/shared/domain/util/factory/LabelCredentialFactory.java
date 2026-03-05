@@ -62,7 +62,7 @@ public class LabelCredentialFactory {
     }
 
     public Mono<String> mapIssuer(String procedureId, SimpleIssuer issuer) {
-        return credentialProcedureService.getDecodedCredentialByProcedureId(procedureId)
+        return credentialProcedureService.getCredentialDataSetByProcedureId(procedureId)
                 .flatMap(credential -> {
                     try {
                         LabelCredential labelCredential = mapStringToLabelCredential(credential);
@@ -158,7 +158,7 @@ public class LabelCredentialFactory {
                         Mono.just(CredentialProcedureCreationRequest.builder()
                                 .procedureId(procedureId)
                                 .organizationIdentifier(organizationId)
-                                .credentialDecoded(decodedCredential)
+                                .credentialDataSet(decodedCredential)
                                 .credentialType(LABEL_CREDENTIAL)
                                 .subject(labelCredentialDecoded.credentialSubject().id())
                                 .validUntil(parseEpochSecondIntoTimestamp(parseDateToUnixTime(labelCredentialDecoded.validUntil())))

@@ -28,7 +28,7 @@ class DelegatingSigningProviderTest {
 
     private static SigningRequest anyValidRequest() {
         var ctx = new SigningContext("token", "procedureId", "email@example.com");
-        return new SigningRequest(SigningType.JADES, "{\"vc\":\"unsigned\"}", ctx);
+        return new SigningRequest(SigningType.JADES, "{\"vc\":\"unsigned\"}", ctx, null);
     }
 
     @Test

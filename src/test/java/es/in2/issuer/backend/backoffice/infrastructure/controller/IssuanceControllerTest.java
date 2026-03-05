@@ -2,7 +2,7 @@ package es.in2.issuer.backend.backoffice.infrastructure.controller;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import es.in2.issuer.backend.shared.application.workflow.CredentialIssuanceWorkflow;
+import es.in2.issuer.backend.shared.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
@@ -37,7 +37,7 @@ class IssuanceControllerTest {
     private ObjectMapper objectMapper;
 
     @MockBean
-    private CredentialIssuanceWorkflow credentialIssuanceWorkflow;
+    private IssuanceWorkflow issuanceWorkflow;
 
     @MockBean
     private AccessTokenService accessTokenService;
@@ -55,7 +55,7 @@ class IssuanceControllerTest {
 
         when(accessTokenService.getCleanBearerToken(bearerToken))
                 .thenReturn(Mono.just(cleanToken));
-        when(credentialIssuanceWorkflow.execute(anyString(), eq(testRequest), eq(cleanToken), isNull()))
+        when(issuanceWorkflow.execute(anyString(), eq(testRequest), eq(cleanToken), isNull()))
                 .thenReturn(Mono.just(IssuanceResponse.builder().credentialOfferUri(credentialOfferUri).build()));
 
         webTestClient.mutateWith(csrf())
@@ -82,7 +82,7 @@ class IssuanceControllerTest {
 
         when(accessTokenService.getCleanBearerToken(bearerToken))
                 .thenReturn(Mono.just(cleanToken));
-        when(credentialIssuanceWorkflow.execute(anyString(), eq(testRequest), eq(cleanToken), isNull()))
+        when(issuanceWorkflow.execute(anyString(), eq(testRequest), eq(cleanToken), isNull()))
                 .thenReturn(Mono.just(IssuanceResponse.builder().build()));
 
         webTestClient.mutateWith(csrf())
@@ -109,7 +109,7 @@ class IssuanceControllerTest {
 
         when(accessTokenService.getCleanBearerToken(bearerToken))
                 .thenReturn(Mono.just(cleanToken));
-        when(credentialIssuanceWorkflow.execute(anyString(), eq(testRequest), eq(cleanToken), eq(idToken)))
+        when(issuanceWorkflow.execute(anyString(), eq(testRequest), eq(cleanToken), eq(idToken)))
                 .thenReturn(Mono.just(IssuanceResponse.builder().build()));
 
         webTestClient.mutateWith(csrf())

@@ -79,21 +79,22 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                         String updatedBy = credentialProcedure.getUpdatedBy();
                         log.info("Building JWT payload for credential signing for credential with type: {}", credentialType);
 
-                        CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialType);
+                        CredentialProfile profile = credentialProfileRegistry.getByCredentialType(credentialType);
                         if (profile == null) {
                             log.error("Unsupported credential type: {}", credentialType);
                             return Mono.error(new IllegalArgumentException("Unsupported credential type: " + credentialType));
                         }
 
                         Mono<Map<String, Object>> cnfMono = profile.cnfRequired()
-                                ? Mono.fromCallable(() -> parseCnfJson(credentialProcedure.getCnf()))
+                                ? deferredCredentialMetadataService.getCnfByProcedureId(procedureId)
+                                        .flatMap(cnfJson -> Mono.fromCallable(() -> parseCnfJson(cnfJson)))
                                 : Mono.just(Map.of());
 
                         // SD-JWT path: build flat payload directly from decoded credential
                         if (DC_SD_JWT.equals(format) && profile.sdJwt() != null) {
                             final CredentialProfile finalProfile = profile;
                             return cnfMono.flatMap(cnfMap ->
-                                    buildSdJwtCredential(finalProfile, credentialProcedure.getCredentialDecoded(),
+                                    buildSdJwtCredential(finalProfile, credentialProcedure.getCredentialDataSet(),
                                             cnfMap, token, procedureId, updatedBy)
                             );
                         }
@@ -101,7 +102,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                         return cnfMono.flatMap(cnfMap ->
                                 genericCredentialBuilder.buildJwtPayload(
                                                 profile,
-                                                credentialProcedure.getCredentialDecoded(),
+                                                credentialProcedure.getCredentialDataSet(),
                                                 profile.cnfRequired() ? cnfMap : null)
                                         .flatMap(unsignedCredential ->
                                                 signCredentialOnRequestedFormat(unsignedCredential, format, token, procedureId, updatedBy)
@@ -303,7 +304,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                             .flatMap(credentialProcedure -> {
                                 String configId = credentialProcedure.getCredentialType();
 
-                                CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
+                                CredentialProfile profile = credentialProfileRegistry.getByCredentialType(configId);
                                 if (profile == null) {
                                     log.error("Unknown credential type: {}", configId);
                                     return Mono.error(new IllegalArgumentException(
@@ -311,8 +312,8 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                                 }
 
                                 Mono<Void> updateDecodedCredentialMono = genericCredentialBuilder
-                                        .bindIssuer(profile, credentialProcedure.getCredentialDecoded(), procedureId, email)
-                                        .flatMap(bindCredential -> updateDecodedCredentialByProcedureId(procedureId, bindCredential));
+                                        .bindIssuer(profile, credentialProcedure.getCredentialDataSet(), procedureId, email)
+                                        .flatMap(bindCredential -> updateCredentialDataSetByProcedureId(procedureId, bindCredential));
 
                                 return updateDecodedCredentialMono
                                         .then(this.signAndUpdateCredentialByProcedureId(token, procedureId, JWT_VC_JSON))
@@ -358,9 +359,9 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                 });
     }
 
-    private Mono<Void> updateDecodedCredentialByProcedureId(String procedureId, String bindCredential) {
+    private Mono<Void> updateCredentialDataSetByProcedureId(String procedureId, String bindCredential) {
         log.info("ProcessID: {} - Credential mapped and bound to the issuer: {}", procedureId, bindCredential);
-        return credentialProcedureService.updateDecodedCredentialByProcedureId(
+        return credentialProcedureService.updateCredentialDataSetByProcedureId(
                 procedureId,
                 bindCredential,
                 JWT_VC_JSON

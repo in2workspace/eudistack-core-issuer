@@ -99,7 +99,7 @@ class LEARCredentialMachineFactoryTest {
                     assertThat(req.procedureId()).isEqualTo("proc-123");
                     assertThat(req.organizationIdentifier()).isEqualTo("orgId");
                     assertThat(req.email()).isEmpty();
-                    assertThat(req.credentialDecoded()).isEqualTo(json);
+                    assertThat(req.credentialDataSet()).isEqualTo(json);
                     assertThat(req.subject()).isEqualTo("example-domain");
                 })
                 .verifyComplete();

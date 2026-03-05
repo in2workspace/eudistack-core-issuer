@@ -1,7 +1,5 @@
 package es.in2.issuer.backend.shared.application.workflow.impl;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.application.workflow.DeferredCredentialWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.PendingCredentials;
@@ -24,7 +22,6 @@ public class DeferredCredentialWorkflowImpl implements DeferredCredentialWorkflo
 
     private final CredentialProcedureService credentialProcedureService;
     private final DeferredCredentialMetadataService deferredCredentialMetadataService;
-    private final ObjectMapper objectMapper;
     private final EmailService emailService;
 
     @Override
@@ -47,15 +44,9 @@ public class DeferredCredentialWorkflowImpl implements DeferredCredentialWorkflo
     private Mono<Void> processCredential(String jwt, String procedureId) {
         try {
             SignedJWT signedJWT = SignedJWT.parse(jwt);
-            String payload = signedJWT.getPayload().toString();
-            log.debug("Credential payload: {}", payload);
-            JsonNode credentialNode = objectMapper.readTree(payload);
+            log.debug("Credential payload: {}", signedJWT.getPayload());
 
-            return credentialProcedureService
-                    .updatedEncodedCredentialByCredentialProcedureId(jwt, procedureId)
-                    .flatMap(procId ->
-                            deferredCredentialMetadataService.updateVcByProcedureId(jwt, procId)
-                    );
+            return deferredCredentialMetadataService.updateVcByProcedureId(jwt, procedureId);
         } catch (Exception e) {
             return Mono.error(new RuntimeException("Failed to process signed credential", e));
         }

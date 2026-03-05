@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @Repository
@@ -22,4 +23,6 @@ public interface CredentialProcedureRepository extends ReactiveCrudRepository<Cr
     Mono<String> findCredentialStatusByProcedureId(UUID procedureId);
     Mono<CredentialProcedure> findByProcedureId(UUID procedureId);
     Mono<CredentialProcedure> findByNotificationId(UUID notificationId);
+    Mono<CredentialProcedure> findByRefreshToken(String refreshToken);
+    Flux<CredentialProcedure> findByCredentialStatusAndCreatedAtBefore(CredentialStatusEnum credentialStatus, Instant cutoff);
 }
