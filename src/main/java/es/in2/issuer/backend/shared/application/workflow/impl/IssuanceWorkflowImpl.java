@@ -9,7 +9,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.Credenti
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
 import es.in2.issuer.backend.shared.domain.repository.CredentialOfferCacheRepository;
 import es.in2.issuer.backend.shared.domain.service.*;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import java.util.Map;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
@@ -36,7 +36,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private final CredentialOfferService credentialOfferService;
     private final CredentialOfferCacheRepository credentialOfferCacheRepository;
     private final EmailService emailService;
-    private final AppConfig appConfig;
+    private final IssuerProperties appConfig;
     private final IssuancePdpService issuancePdpService;
     private final PayloadSchemaValidator payloadSchemaValidator;
     private final CredentialProfileRegistry credentialProfileRegistry;

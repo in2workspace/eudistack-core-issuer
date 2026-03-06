@@ -4,7 +4,7 @@ import es.in2.issuer.backend.backoffice.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOffer;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferData;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferGrants;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,7 +22,7 @@ import static es.in2.issuer.backend.shared.domain.util.HttpUtils.ensureUrlHasPro
 @RequiredArgsConstructor
 public class CredentialOfferServiceImpl implements CredentialOfferService {
 
-    private final AppConfig appConfig;
+    private final IssuerProperties appConfig;
 
     @Override
     public Mono<CredentialOfferData> buildCredentialOffer(

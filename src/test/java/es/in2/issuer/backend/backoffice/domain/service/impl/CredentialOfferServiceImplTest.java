@@ -3,7 +3,7 @@ package es.in2.issuer.backend.backoffice.domain.service.impl;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferGrants;
 import es.in2.issuer.backend.shared.domain.model.dto.PreAuthorizedCodeGrant;
 import es.in2.issuer.backend.shared.domain.model.dto.TxCode;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,7 +21,7 @@ import static org.mockito.Mockito.when;
 class CredentialOfferServiceImplTest {
 
     @Mock
-    private AppConfig appConfig;
+    private IssuerProperties appConfig;
 
     @InjectMocks
     private CredentialOfferServiceImpl credentialOfferService;

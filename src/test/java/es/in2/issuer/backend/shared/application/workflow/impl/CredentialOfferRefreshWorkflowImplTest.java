@@ -8,7 +8,7 @@ import es.in2.issuer.backend.shared.domain.repository.CredentialOfferCacheReposi
 import es.in2.issuer.backend.shared.domain.service.ProcedureService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.GrantsService;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -37,7 +37,7 @@ class CredentialOfferRefreshWorkflowImplTest {
     @Mock
     private EmailService emailService;
     @Mock
-    private AppConfig appConfig;
+    private IssuerProperties appConfig;
 
     @InjectMocks
     private CredentialOfferRefreshWorkflowImpl workflow;

@@ -2,8 +2,9 @@ package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
+import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
 import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,10 +30,10 @@ class AuthorizationServiceImplTest {
     private TransientStore<AuthorizationCodeData> authorizationCodeCacheStore;
 
     @Mock
-    private Oid4vciProfileProperties profileProperties;
+    private Oid4vciProfilePort profileProperties;
 
     @Mock
-    private AppConfig appConfig;
+    private IssuerProperties appConfig;
 
     private AuthorizationServiceImpl authorizationService;
 

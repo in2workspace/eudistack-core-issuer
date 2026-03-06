@@ -6,7 +6,7 @@ import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.TokenService;
-import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
+import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndRefreshToken;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndTxCode;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
@@ -15,7 +15,7 @@ import es.in2.issuer.backend.shared.domain.service.DpopValidationService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.PkceVerifier;
 import es.in2.issuer.backend.shared.domain.service.RefreshTokenService;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import io.micrometer.observation.annotation.Observed;
@@ -49,11 +49,11 @@ public class TokenServiceImpl implements TokenService {
     private final TransientStore<AuthorizationCodeData> authorizationCodeCacheStore;
     private final JWTService jwtService;
     private final RefreshTokenService refreshTokenService;
-    private final AppConfig appConfig;
+    private final IssuerProperties appConfig;
     private final ProcedureService procedureService;
     private final PkceVerifier pkceVerifier;
     private final DpopValidationService dpopValidationService;
-    private final Oid4vciProfileProperties profileProperties;
+    private final Oid4vciProfilePort profileProperties;
     private final IssuanceMetrics issuanceMetrics;
 
     @Override

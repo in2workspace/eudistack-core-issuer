@@ -14,7 +14,7 @@ import es.in2.issuer.backend.shared.domain.service.ProcedureService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.GrantsService;
 import es.in2.issuer.backend.shared.domain.service.PayloadSchemaValidator;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
@@ -52,7 +52,7 @@ class IssuanceWorkflowImplTest {
     @Mock
     private EmailService emailService;
     @Mock
-    private AppConfig appConfig;
+    private IssuerProperties appConfig;
     @Mock
     private IssuancePdpService issuancePdpService;
     @Mock

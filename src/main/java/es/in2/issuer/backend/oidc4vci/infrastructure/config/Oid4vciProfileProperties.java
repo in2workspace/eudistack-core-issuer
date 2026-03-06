@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.infrastructure.config;
 
+import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.List;
@@ -8,7 +9,7 @@ import java.util.List;
 public record Oid4vciProfileProperties(
         List<String> grantsSupported,
         AuthorizationCodeProperties authorizationCode
-) {
+) implements Oid4vciProfilePort {
 
     public record AuthorizationCodeProperties(
             boolean requirePar,
@@ -18,7 +19,7 @@ public record Oid4vciProfileProperties(
             List<String> dpopSigningAlgs,
             String clientAuthMethod,
             boolean requireNonce
-    ) {
+    ) implements Oid4vciProfilePort.AuthorizationCodeConfig {
         public AuthorizationCodeProperties {
             if (pkceMethods == null) pkceMethods = List.of("S256");
             if (dpopSigningAlgs == null) dpopSigningAlgs = List.of("ES256");

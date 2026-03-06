@@ -3,6 +3,7 @@ package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
+import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
 import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndRefreshToken;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndTxCode;
@@ -11,7 +12,7 @@ import es.in2.issuer.backend.shared.domain.service.DpopValidationService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.PkceVerifier;
 import es.in2.issuer.backend.shared.domain.service.RefreshTokenService;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,7 +52,7 @@ class TokenServiceImplAuthCodeTest {
     @Mock
     private RefreshTokenService refreshTokenService;
     @Mock
-    private AppConfig appConfig;
+    private IssuerProperties appConfig;
     @Mock
     private ProcedureService procedureService;
     @Mock
@@ -59,7 +60,7 @@ class TokenServiceImplAuthCodeTest {
     @Mock
     private DpopValidationService dpopValidationService;
     @Mock
-    private Oid4vciProfileProperties profileProperties;
+    private Oid4vciProfilePort profileProperties;
     @Mock
     private IssuanceMetrics issuanceMetrics;
 

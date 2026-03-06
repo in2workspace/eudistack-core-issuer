@@ -3,8 +3,8 @@ package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.oidc4vci.domain.service.AuthorizationService;
-import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,8 +24,8 @@ public class AuthorizationServiceImpl implements AuthorizationService {
 
     private final TransientStore<PushedAuthorizationRequest> parCacheStore;
     private final TransientStore<AuthorizationCodeData> authorizationCodeCacheStore;
-    private final Oid4vciProfileProperties profileProperties;
-    private final AppConfig appConfig;
+    private final Oid4vciProfilePort profileProperties;
+    private final IssuerProperties appConfig;
 
     @Override
     public Mono<URI> authorize(

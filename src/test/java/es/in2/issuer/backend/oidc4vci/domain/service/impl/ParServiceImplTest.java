@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
+import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
 import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
 import es.in2.issuer.backend.shared.domain.service.ClientAttestationValidationService;
 import es.in2.issuer.backend.shared.domain.service.DpopValidationService;
@@ -28,7 +29,7 @@ class ParServiceImplTest {
     private TransientStore<PushedAuthorizationRequest> parCacheStore;
 
     @Mock
-    private Oid4vciProfileProperties profileProperties;
+    private Oid4vciProfilePort profileProperties;
 
     @Mock
     private DpopValidationService dpopValidationService;

@@ -2,8 +2,8 @@ package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationServerMetadata;
 import es.in2.issuer.backend.oidc4vci.domain.service.AuthorizationServerMetadataService;
-import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -20,8 +20,8 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.*;
 @RequiredArgsConstructor
 public class AuthorizationServerMetadataServiceImpl implements AuthorizationServerMetadataService {
 
-    private final AppConfig appConfig;
-    private final Oid4vciProfileProperties profileProperties;
+    private final IssuerProperties appConfig;
+    private final Oid4vciProfilePort profileProperties;
 
     @Override
     public Mono<AuthorizationServerMetadata> buildAuthorizationServerMetadata(String processId) {

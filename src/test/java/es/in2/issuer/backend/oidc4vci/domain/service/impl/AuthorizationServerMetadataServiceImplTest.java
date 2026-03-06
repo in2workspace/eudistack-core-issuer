@@ -1,7 +1,8 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
+import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
 import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -18,10 +19,10 @@ import static org.mockito.Mockito.when;
 class AuthorizationServerMetadataServiceImplTest {
 
     @Mock
-    private AppConfig appConfig;
+    private IssuerProperties appConfig;
 
     @Mock
-    private Oid4vciProfileProperties profileProperties;
+    private Oid4vciProfilePort profileProperties;
 
     @InjectMocks
     private AuthorizationServerMetadataServiceImpl metadataService;

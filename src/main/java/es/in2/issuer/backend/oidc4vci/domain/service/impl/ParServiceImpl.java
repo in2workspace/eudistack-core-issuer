@@ -3,7 +3,7 @@ package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.ParService;
-import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
+import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
 import es.in2.issuer.backend.shared.domain.service.ClientAttestationValidationService;
 import es.in2.issuer.backend.shared.domain.service.DpopValidationService;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
@@ -23,7 +23,7 @@ import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.PAR_REQUEST_U
 public class ParServiceImpl implements ParService {
 
     private final TransientStore<PushedAuthorizationRequest> parCacheStore;
-    private final Oid4vciProfileProperties profileProperties;
+    private final Oid4vciProfilePort profileProperties;
     private final DpopValidationService dpopValidationService;
     private final ClientAttestationValidationService clientAttestationValidationService;
 
