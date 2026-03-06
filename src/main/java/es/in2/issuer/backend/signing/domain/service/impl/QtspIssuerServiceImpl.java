@@ -16,7 +16,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
-import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
+import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -47,7 +47,7 @@ import static es.in2.issuer.backend.signing.domain.util.PathConstants.LIST_PATH;
 public class QtspIssuerServiceImpl implements QtspIssuerService {
 
     private final ObjectMapper objectMapper;
-    private final QtspAuthClient qtspAuthClient;
+    private final QtspAuthPort qtspAuthClient;
     private final RuntimeSigningConfig runtimeSigningConfig;
     private final ConcurrentMap<String, CacheEntry> certificateInfoCache= new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Mono<String>> certificateInfoInFlight = new ConcurrentHashMap<>();

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.domain.util.HttpUtils;
+import es.in2.issuer.backend.signing.domain.spi.QtspSignHashPort;
 import es.in2.issuer.backend.signing.domain.model.dto.CscAuthorizeResponse;
 import es.in2.issuer.backend.signing.domain.model.dto.CscSignHashResponse;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
@@ -25,7 +26,7 @@ import static es.in2.issuer.backend.signing.domain.util.PathConstants.SIGN_HASH_
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class QtspSignHashClient {
+public class QtspSignHashClient implements QtspSignHashPort {
 
     private final ObjectMapper objectMapper;
     private final RuntimeSigningConfig runtimeSigningConfig;

@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
-import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
+import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
 import es.in2.issuer.backend.shared.domain.util.HttpUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,7 +32,7 @@ class QtspIssuerServiceImplTest {
 
     private QtspIssuerServiceImpl qtspIssuerService;
 
-    @Mock private QtspAuthClient qtspAuthClient;
+    @Mock private QtspAuthPort qtspAuthClient;
     @Mock private RuntimeSigningConfig runtimeSigningConfig;
     @Mock private HttpUtils httpUtils;
 

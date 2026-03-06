@@ -10,6 +10,7 @@ import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.service.HashGeneratorService;
+import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
 import es.in2.issuer.backend.shared.domain.util.HttpUtils;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import lombok.RequiredArgsConstructor;
@@ -30,7 +31,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOT
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class QtspAuthClient {
+public class QtspAuthClient implements QtspAuthPort {
 
     private final ObjectMapper objectMapper;
     private final RuntimeSigningConfig runtimeSigningConfig;

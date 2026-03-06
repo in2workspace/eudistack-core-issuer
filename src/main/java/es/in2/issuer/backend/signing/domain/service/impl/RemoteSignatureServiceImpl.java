@@ -14,7 +14,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.service.RemoteSignatureService;
 import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
-import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
+import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -39,7 +39,7 @@ import static es.in2.issuer.backend.signing.domain.util.PathConstants.SIGN_DOC_P
 public class RemoteSignatureServiceImpl implements RemoteSignatureService {
 
     private final ObjectMapper objectMapper;
-    private final QtspAuthClient qtspAuthClient;
+    private final QtspAuthPort qtspAuthClient;
     private final HttpUtils httpUtils;
     private final JwtUtils jwtUtils;
     private final RuntimeSigningConfig runtimeSigningConfig;

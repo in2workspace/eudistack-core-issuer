@@ -11,7 +11,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
-import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
+import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -37,7 +37,7 @@ import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 class RemoteSignatureServiceImplTest {
 
     @Mock private ObjectMapper objectMapper;
-    @Mock private QtspAuthClient qtspAuthClient;
+    @Mock private QtspAuthPort qtspAuthClient;
     @Mock private HttpUtils httpUtils;
     @Mock private JwtUtils jwtUtils;
     @Mock private RuntimeSigningConfig runtimeSigningConfig;
