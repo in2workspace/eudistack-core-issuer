@@ -37,9 +37,8 @@ public class VerifierServiceImpl implements VerifierService {
     private final IssuerProperties appConfig;
     private final WebClient oauth2VerifierWebClient;
 
-    // Cache to store JWKs and avoid multiple endpoint calls
-    private JWKSet cachedJWKSet;
-    private final Object jwkLock = new Object();
+    // Lazily-initialized, cached JWK Set (populated on first use via Mono.cache())
+    private volatile Mono<JWKSet> cachedJWKSet;
 
     @Override
     public Mono<Void> verifyToken(String accessToken) {
@@ -114,30 +113,26 @@ public class VerifierServiceImpl implements VerifierService {
     }
 
     private Mono<JWKSet> fetchJWKSet(String jwksUri) {
-        if (cachedJWKSet != null) {
-            return Mono.just(cachedJWKSet);
+        Mono<JWKSet> cached = cachedJWKSet;
+        if (cached != null) {
+            return cached;
         }
-
-        return Mono.defer(() -> {
-            synchronized (jwkLock) {
-                if (cachedJWKSet != null) {
-                    return Mono.just(cachedJWKSet);
-                }
-                return oauth2VerifierWebClient.get()
-                        .uri(jwksUri)
-                        .retrieve()
-                        .bodyToMono(String.class)
-                        .<JWKSet>handle((jwks, sink) -> {
-                            try {
-                                cachedJWKSet = JWKSet.parse(jwks);
-                                sink.next(cachedJWKSet);
-                            } catch (ParseException e) {
-                                sink.error(new JWTVerificationException("Error parsing the JWK Set"));
-                            }
-                        })
-                        .onErrorMap(e -> new JWTVerificationException("Error fetching the JWK Set"));
-            }
-        });
+        Mono<JWKSet> newCached = oauth2VerifierWebClient.get()
+                .uri(jwksUri)
+                .retrieve()
+                .bodyToMono(String.class)
+                .<JWKSet>handle((jwks, sink) -> {
+                    try {
+                        sink.next(JWKSet.parse(jwks));
+                    } catch (ParseException e) {
+                        sink.error(new JWTVerificationException("Error parsing the JWK Set"));
+                    }
+                })
+                .onErrorMap(e -> !(e instanceof JWTVerificationException),
+                        e -> new JWTVerificationException("Error fetching the JWK Set"))
+                .cache();
+        cachedJWKSet = newCached;
+        return newCached;
     }
 
     @Override
