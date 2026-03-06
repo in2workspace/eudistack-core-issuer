@@ -9,10 +9,11 @@ import es.in2.issuer.backend.shared.domain.model.dto.NotificationEvent;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationRequest;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
-import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
+import es.in2.issuer.backend.shared.domain.service.ProcedureService;
+import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -20,12 +21,27 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflow {
 
-    private final CredentialProcedureService credentialProcedureService;
+    private final ProcedureService procedureService;
     private final ObjectMapper objectMapper;
     private final RevocationWorkflow revocationWorkflow;
+    private final CacheStore<String> notificationCacheStore;
+    private final CacheStore<String> enrichmentCacheStore;
+
+    public HandleNotificationWorkflowImpl(
+            ProcedureService procedureService,
+            ObjectMapper objectMapper,
+            RevocationWorkflow revocationWorkflow,
+            @Qualifier("notificationCacheStore") CacheStore<String> notificationCacheStore,
+            @Qualifier("enrichmentCacheStore") CacheStore<String> enrichmentCacheStore
+    ) {
+        this.procedureService = procedureService;
+        this.objectMapper = objectMapper;
+        this.revocationWorkflow = revocationWorkflow;
+        this.notificationCacheStore = notificationCacheStore;
+        this.enrichmentCacheStore = enrichmentCacheStore;
+    }
 
     @Override
     public Mono<Void> handleNotification(String processId, NotificationRequest request, String bearerToken) {
@@ -41,23 +57,23 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
                             notificationId, event, eventDescription
                     );
 
-                    return credentialProcedureService.getCredentialProcedureByNotificationId(notificationId)
-                            .switchIfEmpty(Mono.defer(() -> {
-                                log.warn("AUDIT notification_rejected errorCode=invalid_notification_id errorDescription={} notificationId={} event={}",
-                                        "The notification_id is not recognized", notificationId, event
+                    return notificationCacheStore.get(notificationId)
+                            .onErrorResume(e -> {
+                                log.warn("AUDIT notification_rejected errorCode=invalid_notification_id notificationId={} event={}",
+                                        notificationId, event
                                 );
                                 return Mono.error(new InvalidNotificationIdException(
                                         "The notification_id is not recognized: " + notificationId
                                 ));
-                            }))
-                            .flatMap(proc -> applyIdempotentUpdate(processId, proc, event, eventDescription, bearerToken));
+                            })
+                            .flatMap(procedureId ->
+                                    procedureService.getProcedureById(procedureId)
+                                            .flatMap(proc -> handleEvent(processId, proc, event, bearerToken))
+                            );
                 })
                 .onErrorResume(InvalidNotificationRequestException.class, e -> {
-                    String nid = request != null ? request.notificationId() : null;
-                    NotificationEvent ev = request != null ? request.event() : null;
-
-                    log.warn("AUDIT notification_rejected errorCode=invalid_notification_request errorDescription={} notificationId={} event={}",
-                            e.getMessage(), nid, ev
+                    log.warn("AUDIT notification_rejected errorCode=invalid_notification_request errorDescription={}",
+                            e.getMessage()
                     );
                     return Mono.error(e);
                 })
@@ -70,67 +86,89 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
         }
     }
 
-    private Mono<Void> applyIdempotentUpdate(String processId,
-                                             CredentialProcedure procedure,
-                                             NotificationEvent event,
-                                             String eventDescription,
-                                             String bearerToken) {
+    private Mono<Void> handleEvent(String processId, CredentialProcedure procedure,
+                                   NotificationEvent event, String bearerToken) {
 
-        final CredentialStatusEnum before = procedure.getCredentialStatus();
-        final CredentialStatusEnum mappedAfter = mapEventToCredentialStatus(event);
-        final boolean idempotent = (before == mappedAfter);
+        String procedureId = procedure.getProcedureId().toString();
+        CredentialStatusEnum currentStatus = procedure.getCredentialStatus();
 
-        log.info("AUDIT notification_processing credentialProcedureId={} notificationId={} event={} idempotent={} statusBefore={} statusAfter={}",
-                procedure.getProcedureId(),
-                procedure.getNotificationId(),
-                event,
-                idempotent,
-                before,
-                mappedAfter
-        );
+        log.info("AUDIT notification_processing procedureId={} event={} currentStatus={}",
+                procedureId, event, currentStatus);
 
-        if (idempotent) {
-            log.info("AUDIT notification_idempotent credentialProcedureId={} notificationId={} event={} status={}",
-                    procedure.getProcedureId(),
-                    procedure.getNotificationId(),
-                    event,
-                    before
-            );
+        // Notifications only apply while procedure is in DRAFT
+        if (currentStatus != CredentialStatusEnum.DRAFT) {
+            log.info("AUDIT notification_ignored procedureId={} event={} reason=not_in_draft currentStatus={}",
+                    procedureId, event, currentStatus);
             return Mono.empty();
         }
 
-        if (event != NotificationEvent.CREDENTIAL_DELETED) {
-            log.info("AUDIT notification_no_external_action processId={} credentialProcedureId={} notificationId={} event={} eventDescription={}",
-                    processId, procedure.getProcedureId(), procedure.getNotificationId(), event, eventDescription
-            );
-            return Mono.empty();
-        }
-
-        return revokeCredentialFromDecoded(processId, procedure, bearerToken);
+        return switch (event) {
+            case CREDENTIAL_ACCEPTED -> handleAccepted(processId, procedure);
+            case CREDENTIAL_FAILURE -> handleFailure(processId, procedure);
+            case CREDENTIAL_DELETED -> handleDeleted(processId, procedure, bearerToken);
+        };
     }
 
-    private CredentialStatusEnum mapEventToCredentialStatus(NotificationEvent event) {
-        return switch (event) {
-            case CREDENTIAL_ACCEPTED, CREDENTIAL_FAILURE -> CredentialStatusEnum.VALID;
-            case CREDENTIAL_DELETED -> CredentialStatusEnum.REVOKED;
-        };
+    /**
+     * credential_accepted: persist enriched data from cache → DRAFT → ISSUED
+     */
+    private Mono<Void> handleAccepted(String processId, CredentialProcedure procedure) {
+        String procedureId = procedure.getProcedureId().toString();
+        log.info("[{}] credential_accepted: persisting enriched data and transitioning to ISSUED for procedureId={}",
+                processId, procedureId);
+
+        return enrichmentCacheStore.get(procedureId)
+                .flatMap(enrichedDataSet ->
+                        procedureService.updateCredentialDataSetByProcedureId(
+                                procedureId, enrichedDataSet, procedure.getCredentialFormat())
+                )
+                .doOnSuccess(v -> log.info("[{}] credential_accepted: procedureId={} transitioned to ISSUED",
+                        processId, procedureId))
+                .onErrorResume(e -> {
+                    log.warn("[{}] credential_accepted: failed to persist enriched data for procedureId={}: {}",
+                            processId, procedureId, e.getMessage());
+                    return Mono.empty();
+                });
+    }
+
+    /**
+     * credential_failure: log only, stay in DRAFT. Wallet may retry.
+     */
+    private Mono<Void> handleFailure(String processId, CredentialProcedure procedure) {
+        log.info("[{}] credential_failure: procedureId={} stays in DRAFT. Wallet may retry or request new offer.",
+                processId, procedure.getProcedureId());
+        return Mono.empty();
+    }
+
+    /**
+     * credential_deleted: DRAFT → WITHDRAWN + revoke status list entry
+     */
+    private Mono<Void> handleDeleted(String processId, CredentialProcedure procedure, String bearerToken) {
+        String procedureId = procedure.getProcedureId().toString();
+        log.info("[{}] credential_deleted: withdrawing procedureId={}", processId, procedureId);
+
+        return procedureService.withdrawCredentialProcedure(procedureId)
+                .then(revokeCredentialFromDecoded(processId, procedure, bearerToken))
+                .doOnSuccess(v -> log.info("[{}] credential_deleted: procedureId={} withdrawn and status list entry revoked",
+                        processId, procedureId))
+                .onErrorResume(e -> {
+                    log.warn("[{}] credential_deleted: error processing procedureId={}: {}",
+                            processId, procedureId, e.getMessage());
+                    return Mono.empty();
+                });
     }
 
     private Mono<Void> revokeCredentialFromDecoded(String processId, CredentialProcedure procedure, String bearerToken) {
         return extractListIdFromDecodedCredential(procedure)
                 .flatMap(listId -> revocationWorkflow.revokeSystem(
-                                        processId,
-                                        bearerToken,
-                                        procedure.getProcedureId().toString(),
-                                        listId
-                                )
-                                .doFirst(() -> log.info("Process ID: {} - Revoking Credential... procedureId={} listId={}",
-                                        processId, procedure.getProcedureId(), listId))
-                                .doOnSuccess(result -> log.info("Process ID: {} - Credential revoked successfully. procedureId={} listId={}",
-                                        processId, procedure.getProcedureId(), listId))
-                                .then()
+                                processId,
+                                bearerToken,
+                                procedure.getProcedureId().toString(),
+                                listId
+                        )
+                        .then()
                 )
-                .doOnError(e -> log.warn("Process ID: {} - revokeCredentialFromDecoded failed: {}", processId, e.getMessage(), e));
+                .doOnError(e -> log.warn("[{}] revokeCredentialFromDecoded failed: {}", processId, e.getMessage()));
     }
 
     private Mono<Integer> extractListIdFromDecodedCredential(CredentialProcedure procedure) {

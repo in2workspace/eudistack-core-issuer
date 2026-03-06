@@ -9,7 +9,7 @@ import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-public interface CredentialProcedureService {
+public interface ProcedureService {
     Mono<CredentialProcedure> createCredentialProcedure(CredentialProcedureCreationRequest credentialProcedureCreationRequest);
 
     Mono<String> getCredentialTypeByProcedureId(String procedureId);
@@ -34,17 +34,15 @@ public interface CredentialProcedureService {
 
     Mono<Void> updateCredentialProcedureCredentialStatusToRevoke(CredentialProcedure credentialProcedure);
 
-    Mono<CredentialProcedure> getCredentialProcedureById(String procedureId);
+    Mono<CredentialProcedure> getProcedureById(String procedureId);
 
-    Mono<CredentialProcedure> getCredentialProcedureByNotificationId(String notificationId);
-
-    Mono<String> getNotificationIdByProcedureId(String procedureId);
-
-    Mono<CredentialProcedure> getCredentialProcedureByRefreshToken(String refreshToken);
+    Mono<CredentialProcedure> getProcedureByCredentialOfferRefreshToken(String credentialOfferRefreshToken);
 
     Mono<JsonNode> getCredentialNode(CredentialProcedure credentialProcedure);
 
     Mono<String> getCredentialId(CredentialProcedure credentialProcedure);
 
     Mono<CredentialOfferEmailNotificationInfo> getCredentialOfferEmailInfoByProcedureId(String procedureId);
+
+    Mono<Void> withdrawCredentialProcedure(String procedureId);
 }

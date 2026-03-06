@@ -12,6 +12,7 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
+import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,8 +38,13 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class ProofValidationServiceImplTest {
 
+    private static final String TEST_NONCE = "test-nonce-value";
+
     @Mock
     private JWTService jwtService;
+
+    @Mock
+    private CacheStore<String> nonceCacheStore;
 
     @InjectMocks
     private ProofValidationServiceImpl service;
@@ -46,7 +52,7 @@ class ProofValidationServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new ProofValidationServiceImpl(jwtService);
+        service = new ProofValidationServiceImpl(jwtService, nonceCacheStore);
     }
 
     @Test
@@ -54,14 +60,18 @@ class ProofValidationServiceImplTest {
         String expectedAudience = "aud";
         long now = Instant.now().getEpochSecond();
 
-        String jwt = buildValidProofJwt(expectedAudience, now, now + 300);
+        String jwt = buildValidProofJwtWithNonce(expectedAudience, now, now + 300, TEST_NONCE);
 
         when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class)))
                 .thenReturn(Mono.just(true));
+        when(nonceCacheStore.get(TEST_NONCE)).thenReturn(Mono.just(TEST_NONCE));
+        when(nonceCacheStore.delete(TEST_NONCE)).thenReturn(Mono.empty());
 
         StepVerifier.create(service.isProofValid(jwt, Set.of(SUPPORTED_PROOF_ALG), expectedAudience))
                 .expectNext(true)
                 .verifyComplete();
+
+        verify(nonceCacheStore).delete(TEST_NONCE);
     }
 
     @Test
@@ -186,6 +196,8 @@ class ProofValidationServiceImplTest {
 
         when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class)))
                 .thenReturn(Mono.just(true));
+        when(nonceCacheStore.get(TEST_NONCE)).thenReturn(Mono.just(TEST_NONCE));
+        when(nonceCacheStore.delete(TEST_NONCE)).thenReturn(Mono.empty());
 
         StepVerifier.create(service.isProofValid(jwt, Set.of(SUPPORTED_PROOF_ALG), expectedAudience))
                 .expectNext(true)
@@ -301,6 +313,8 @@ class ProofValidationServiceImplTest {
 
         when(jwtService.validateJwtSignatureWithJwkReactive(anyString(), anyMap()))
                 .thenReturn(Mono.just(true));
+        when(nonceCacheStore.get(TEST_NONCE)).thenReturn(Mono.just(TEST_NONCE));
+        when(nonceCacheStore.delete(TEST_NONCE)).thenReturn(Mono.empty());
 
         StepVerifier.create(service.isProofValid(jwt, Set.of(SUPPORTED_PROOF_ALG), expectedAudience))
                 .expectNext(true)
@@ -331,6 +345,78 @@ class ProofValidationServiceImplTest {
 
 
 
+    // ---------------- nonce validation tests ----------------
+
+    @Test
+    void isProofValid_nonceMissing_throwsProofValidationException() {
+        String aud = "aud";
+        long now = Instant.now().getEpochSecond();
+
+        // JWT without nonce claim
+        String jwt = buildValidProofJwt(aud, now, now + 300);
+
+        when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class)))
+                .thenReturn(Mono.just(true));
+
+        StepVerifier.create(service.isProofValid(jwt, Set.of(SUPPORTED_PROOF_ALG), aud))
+                .expectError(ProofValidationException.class)
+                .verify();
+    }
+
+    @Test
+    void isProofValid_nonceInvalidOrExpired_throwsProofValidationException() {
+        String aud = "aud";
+        long now = Instant.now().getEpochSecond();
+        String expiredNonce = "expired-nonce";
+
+        String jwt = buildValidProofJwtWithNonce(aud, now, now + 300, expiredNonce);
+
+        when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class)))
+                .thenReturn(Mono.just(true));
+        when(nonceCacheStore.get(expiredNonce)).thenReturn(Mono.empty());
+
+        StepVerifier.create(service.isProofValid(jwt, Set.of(SUPPORTED_PROOF_ALG), aud))
+                .expectError(ProofValidationException.class)
+                .verify();
+    }
+
+    @Test
+    void isProofValid_nonceConsumedAfterUse() {
+        String aud = "aud";
+        long now = Instant.now().getEpochSecond();
+
+        String jwt = buildValidProofJwtWithNonce(aud, now, now + 300, TEST_NONCE);
+
+        when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class)))
+                .thenReturn(Mono.just(true));
+        when(nonceCacheStore.get(TEST_NONCE)).thenReturn(Mono.just(TEST_NONCE));
+        when(nonceCacheStore.delete(TEST_NONCE)).thenReturn(Mono.empty());
+
+        StepVerifier.create(service.isProofValid(jwt, Set.of(SUPPORTED_PROOF_ALG), aud))
+                .expectNext(true)
+                .verifyComplete();
+
+        verify(nonceCacheStore).get(TEST_NONCE);
+        verify(nonceCacheStore).delete(TEST_NONCE);
+    }
+
+    @Test
+    void isProofValid_signatureInvalid_nonceNotChecked() {
+        String aud = "aud";
+        long now = Instant.now().getEpochSecond();
+
+        String jwt = buildValidProofJwtWithNonce(aud, now, now + 300, TEST_NONCE);
+
+        when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class)))
+                .thenReturn(Mono.just(false));
+
+        StepVerifier.create(service.isProofValid(jwt, Set.of(SUPPORTED_PROOF_ALG), aud))
+                .expectNext(false)
+                .verifyComplete();
+
+        verifyNoInteractions(nonceCacheStore);
+    }
+
     // ---------------- helpers ----------------
 
     private static String buildValidProofJwt(String expectedAudience, long iat, Long exp) {
@@ -339,9 +425,17 @@ class ProofValidationServiceImplTest {
         return buildJwtRaw(header, payload);
     }
 
+    private static String buildValidProofJwtWithNonce(String expectedAudience, long iat, Long exp, String nonce) {
+        String header = "{\"alg\":\"" + SUPPORTED_PROOF_ALG + "\",\"typ\":\"" + SUPPORTED_PROOF_TYP + "\",\"kid\":\"did:key:zDummy\"}";
+        String payload = "{\"aud\":\"" + expectedAudience + "\",\"iat\":" + iat
+                + (exp != null ? ",\"exp\":" + exp : "")
+                + ",\"nonce\":\"" + nonce + "\"}";
+        return buildJwtRaw(header, payload);
+    }
+
     private static String buildAudListProofJwt(String expectedAudience, long iat) {
         String header = "{\"alg\":\"" + SUPPORTED_PROOF_ALG + "\",\"typ\":\"" + SUPPORTED_PROOF_TYP + "\",\"kid\":\"did:key:zDummy\"}";
-        String payload = "{\"aud\":[\"x\",\"" + expectedAudience + "\"],\"iat\":" + iat + "}";
+        String payload = "{\"aud\":[\"x\",\"" + expectedAudience + "\"],\"iat\":" + iat + ",\"nonce\":\"" + TEST_NONCE + "\"}";
         return buildJwtRaw(header, payload);
     }
 
@@ -371,6 +465,7 @@ class ProofValidationServiceImplTest {
                 .audience(expectedAudience)
                 .issueTime(new Date((nowEpochSec - 1) * 1000))
                 .expirationTime(new Date((nowEpochSec + 300) * 1000))
+                .claim("nonce", TEST_NONCE)
                 .build();
 
         SignedJWT jwt = new SignedJWT(header, claims);

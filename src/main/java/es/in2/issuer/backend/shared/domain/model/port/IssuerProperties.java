@@ -12,4 +12,7 @@ public interface IssuerProperties {
     String getSysTenant();
     String getCredentialSubjectDidKey();
     String getJwtCredential();
+    String getManagementTokenOrgIdJsonPath();
+    String getManagementTokenAdminPowerFunction();
+    String getManagementTokenAdminPowerAction();
 }

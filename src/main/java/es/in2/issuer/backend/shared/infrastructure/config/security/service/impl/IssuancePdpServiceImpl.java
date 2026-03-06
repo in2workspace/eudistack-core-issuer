@@ -13,6 +13,8 @@ import es.in2.issuer.backend.shared.infrastructure.config.security.service.Issua
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.context.ReactiveSecurityContextHolder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -32,7 +34,7 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
 
     @Observed(name = "issuance.pdp-authorize", contextualName = "issuance-pdp-authorize")
     @Override
-    public Mono<Void> authorize(String token, String credentialConfigurationId, JsonNode payload, String idToken) {
+    public Mono<Void> authorize(String credentialConfigurationId, JsonNode payload, String idToken) {
         return Mono.deferContextual(reactorCtx -> {
             String tenantDomain = reactorCtx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null);
 
@@ -41,7 +43,8 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
             CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialConfigurationId);
             String credentialType = profile != null ? profile.credentialType() : credentialConfigurationId;
 
-            return policyContextFactory.fromTokenForIssuance(token, credentialType, tenantDomain)
+            return getTokenFromSecurityContext()
+                    .flatMap(token -> policyContextFactory.fromTokenForIssuance(token, credentialType, tenantDomain))
                     .flatMap(ctx -> new RequireTenantMatchRule().evaluate(ctx, payload).thenReturn(ctx))
                     .flatMap(ctx -> switch (credentialType) {
                         case LEAR_CREDENTIAL_EMPLOYEE -> policyEnforcer.enforceAny(ctx, payload,
@@ -57,5 +60,13 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
                                 "Unauthorized: Unsupported schema"));
                     });
         });
+    }
+
+    private Mono<String> getTokenFromSecurityContext() {
+        return ReactiveSecurityContextHolder.getContext()
+                .map(ctx -> {
+                    JwtAuthenticationToken auth = (JwtAuthenticationToken) ctx.getAuthentication();
+                    return auth.getToken().getTokenValue();
+                });
     }
 }

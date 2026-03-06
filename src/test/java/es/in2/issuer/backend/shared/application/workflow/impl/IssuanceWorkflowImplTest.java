@@ -9,7 +9,12 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.Credenti
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.repository.CredentialOfferCacheRepository;
-import es.in2.issuer.backend.shared.domain.service.*;
+import es.in2.issuer.backend.shared.domain.service.CredentialDataSetBuilderService;
+import es.in2.issuer.backend.shared.domain.service.ProcedureService;
+import es.in2.issuer.backend.shared.domain.service.EmailService;
+import es.in2.issuer.backend.shared.domain.service.GrantsService;
+import es.in2.issuer.backend.shared.domain.service.PayloadSchemaValidator;
+import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.config.security.service.IssuancePdpService;
@@ -29,7 +34,6 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
-import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class IssuanceWorkflowImplTest {
@@ -37,9 +41,7 @@ class IssuanceWorkflowImplTest {
     @Mock
     private CredentialDataSetBuilderService credentialDataSetBuilderService;
     @Mock
-    private CredentialProcedureService credentialProcedureService;
-    @Mock
-    private DeferredCredentialMetadataService deferredCredentialMetadataService;
+    private ProcedureService procedureService;
     @Mock
     private GrantsService grantsService;
     @Mock
@@ -47,7 +49,9 @@ class IssuanceWorkflowImplTest {
     @Mock
     private CredentialOfferCacheRepository credentialOfferCacheRepository;
     @Mock
-    private DeliveryService deliveryService;
+    private EmailService emailService;
+    @Mock
+    private AppConfig appConfig;
     @Mock
     private IssuancePdpService issuancePdpService;
     @Mock
@@ -64,7 +68,6 @@ class IssuanceWorkflowImplTest {
     void executeShouldCompleteFullIssuanceFlow() {
         String processId = "test-process";
         String configId = "LEARCredentialEmployee";
-        String token = "bearer-token";
         String idToken = "id-token";
         JsonNode payload = new ObjectMapper().createObjectNode().put("name", "Test");
         UUID procedureId = UUID.randomUUID();
@@ -93,13 +96,13 @@ class IssuanceWorkflowImplTest {
         CredentialProcedure savedProcedure = CredentialProcedure.builder()
                 .procedureId(procedureId)
                 .credentialStatus(CredentialStatusEnum.DRAFT)
-                .refreshToken("refresh-token-123")
+                .credentialOfferRefreshToken("refresh-token-123")
                 .build();
 
         CredentialOfferGrants grants = CredentialOfferGrants.builder()
                 .preAuthorizedCode(PreAuthorizedCodeGrant.builder()
                         .preAuthorizedCode("pre-auth-code")
-                        .txCode(TxCode.builder().length(4).inputMode("numeric").build())
+                        .txCode(TxCode.builder().length(6).inputMode("numeric").build())
                         .build())
                 .authorizationCode(AuthorizationCodeGrant.builder().issuerState("state").build())
                 .build();
@@ -107,46 +110,30 @@ class IssuanceWorkflowImplTest {
 
         when(credentialProfileRegistry.getByConfigurationId(configId)).thenReturn(profile);
         when(payloadSchemaValidator.validate(anyString(), any())).thenReturn(Mono.empty());
-        when(issuancePdpService.authorize(anyString(), anyString(), any(), anyString())).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(anyString(), any(), anyString())).thenReturn(Mono.empty());
         when(credentialDataSetBuilderService.buildDataSet(anyString(), eq(request))).thenReturn(Mono.just(creationRequest));
-        when(credentialProcedureService.createCredentialProcedure(creationRequest)).thenReturn(Mono.just(savedProcedure));
-        when(deferredCredentialMetadataService.createDeferredCredentialMetadata(procedureId.toString())).thenReturn(Mono.just("tx-code"));
+        when(procedureService.createCredentialProcedure(creationRequest)).thenReturn(Mono.just(savedProcedure));
         when(grantsService.generateGrants(anyString(), any())).thenReturn(Mono.just(grantsResult));
-        when(deferredCredentialMetadataService.updateAuthServerNonceByTransactionCode(anyString(), anyString())).thenReturn(Mono.empty());
         when(credentialOfferService.buildCredentialOffer(anyString(), any(), anyString(), anyString()))
                 .thenReturn(Mono.just(CredentialOfferData.builder().build()));
-        when(credentialOfferCacheRepository.saveCustomCredentialOffer(any())).thenReturn(Mono.just("cache-nonce"));
+        when(credentialOfferCacheRepository.saveCredentialOffer(any())).thenReturn(Mono.just("cache-nonce"));
         when(credentialOfferService.createCredentialOfferUriResponse(anyString())).thenReturn(Mono.just("offer-uri"));
-        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(procedureId.toString()))
+        when(procedureService.getCredentialOfferEmailInfoByProcedureId(procedureId.toString()))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("test@example.com", "Org")));
-        when(deliveryService.deliver(anyString(), anyString(), anyString(), any()))
-                .thenReturn(Mono.just(IssuanceResponse.builder().build()));
+        when(appConfig.getIssuerBackendUrl()).thenReturn("https://issuer.example.com");
+        when(appConfig.getWalletFrontendUrl()).thenReturn("https://wallet.example.com");
+        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(Mono.empty());
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(workflow.execute(processId, request, token, idToken))
+        StepVerifier.create(workflow.execute(processId, request, idToken))
                 .assertNext(response -> assertNotNull(response))
                 .verifyComplete();
 
         verify(credentialDataSetBuilderService).buildDataSet(anyString(), eq(request));
-        verify(credentialProcedureService).createCredentialProcedure(creationRequest);
+        verify(procedureService).createCredentialProcedure(creationRequest);
         verify(grantsService).generateGrants(anyString(), any());
-        verify(deliveryService).deliver(eq("email"), eq("offer-uri"), eq("refresh-token-123"), any());
-    }
-
-    @Test
-    void executeShouldRejectMissingEmail() {
-        PreSubmittedCredentialDataRequest request = PreSubmittedCredentialDataRequest.builder()
-                .credentialConfigurationId("LEARCredentialEmployee")
-                .build();
-
-        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
-        lenient().when(payloadSchemaValidator.validate(anyString(), any())).thenReturn(Mono.empty());
-        lenient().when(issuancePdpService.authorize(anyString(), anyString(), any(), anyString())).thenReturn(Mono.empty());
-        lenient().when(credentialDataSetBuilderService.buildDataSet(anyString(), any())).thenReturn(Mono.empty());
-
-        StepVerifier.create(workflow.execute("p", request, "token", "idToken"))
-                .expectError(IllegalArgumentException.class)
-                .verify();
+        verify(emailService).sendCredentialOfferEmail(eq("test@example.com"), anyString(), eq("offer-uri"), anyString(), eq("https://wallet.example.com"), eq("Org"));
     }
 
     @Test
@@ -159,10 +146,10 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId("UnknownType")).thenReturn(null);
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
         lenient().when(payloadSchemaValidator.validate(anyString(), any())).thenReturn(Mono.empty());
-        lenient().when(issuancePdpService.authorize(anyString(), anyString(), any(), anyString())).thenReturn(Mono.empty());
+        lenient().when(issuancePdpService.authorize(anyString(), any(), anyString())).thenReturn(Mono.empty());
         lenient().when(credentialDataSetBuilderService.buildDataSet(anyString(), any())).thenReturn(Mono.empty());
 
-        StepVerifier.create(workflow.execute("p", request, "token", "idToken"))
+        StepVerifier.create(workflow.execute("p", request, "idToken"))
                 .expectError(CredentialTypeUnsupportedException.class)
                 .verify();
     }
@@ -195,31 +182,31 @@ class IssuanceWorkflowImplTest {
 
         CredentialProcedure savedProcedure = CredentialProcedure.builder()
                 .procedureId(procedureId)
-                .refreshToken("refresh-123")
+                .credentialOfferRefreshToken("refresh-123")
                 .build();
 
         CredentialOfferGrants grants = CredentialOfferGrants.builder()
                 .preAuthorizedCode(PreAuthorizedCodeGrant.builder()
                         .preAuthorizedCode("pre-auth")
-                        .txCode(TxCode.builder().length(4).inputMode("numeric").build())
+                        .txCode(TxCode.builder().length(6).inputMode("numeric").build())
                         .build())
                 .build();
 
         when(credentialProfileRegistry.getByConfigurationId(configId)).thenReturn(profile);
         when(payloadSchemaValidator.validate(anyString(), any())).thenReturn(Mono.empty());
         when(credentialDataSetBuilderService.buildDataSet(anyString(), eq(request))).thenReturn(Mono.just(creationRequest));
-        when(credentialProcedureService.createCredentialProcedure(creationRequest)).thenReturn(Mono.just(savedProcedure));
-        when(deferredCredentialMetadataService.createDeferredCredentialMetadata(procedureId.toString())).thenReturn(Mono.just("tx-code"));
+        when(procedureService.createCredentialProcedure(creationRequest)).thenReturn(Mono.just(savedProcedure));
         when(grantsService.generateGrants(anyString(), any())).thenReturn(Mono.just(new GrantsResult(grants, "5678")));
-        when(deferredCredentialMetadataService.updateAuthServerNonceByTransactionCode(anyString(), anyString())).thenReturn(Mono.empty());
         when(credentialOfferService.buildCredentialOffer(anyString(), any(), anyString(), anyString()))
                 .thenReturn(Mono.just(CredentialOfferData.builder().build()));
-        when(credentialOfferCacheRepository.saveCustomCredentialOffer(any())).thenReturn(Mono.just("nonce"));
+        when(credentialOfferCacheRepository.saveCredentialOffer(any())).thenReturn(Mono.just("nonce"));
         when(credentialOfferService.createCredentialOfferUriResponse(anyString())).thenReturn(Mono.just("offer-uri"));
-        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(procedureId.toString()))
+        when(procedureService.getCredentialOfferEmailInfoByProcedureId(procedureId.toString()))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("test@example.com", "Org")));
-        when(deliveryService.deliver(anyString(), anyString(), anyString(), any()))
-                .thenReturn(Mono.just(IssuanceResponse.builder().build()));
+        when(appConfig.getIssuerBackendUrl()).thenReturn("https://issuer.example.com");
+        when(appConfig.getWalletFrontendUrl()).thenReturn("https://wallet.example.com");
+        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(Mono.empty());
 
         StepVerifier.create(workflow.executeWithoutAuthorization("p", request))
                 .assertNext(response -> assertNotNull(response))

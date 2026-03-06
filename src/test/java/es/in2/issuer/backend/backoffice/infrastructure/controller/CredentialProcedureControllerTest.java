@@ -5,7 +5,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedures;
 import es.in2.issuer.backend.shared.domain.model.dto.OrgContext;
 import es.in2.issuer.backend.shared.domain.model.dto.ProcedureBasicInfo;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
-import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
+import es.in2.issuer.backend.shared.domain.service.ProcedureService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -26,7 +26,7 @@ import static org.mockito.Mockito.when;
 class CredentialProcedureControllerTest {
 
     @Mock
-    private CredentialProcedureService credentialProcedureService;
+    private ProcedureService procedureService;
 
     @Mock
     private AccessTokenService accessTokenService;
@@ -58,7 +58,7 @@ class CredentialProcedureControllerTest {
         when(accessTokenService.getOrganizationContext(anyString()))
                 .thenReturn(Mono.just(orgContext));
 
-        when(credentialProcedureService.getAllProceduresVisibleFor(organizationId, false))
+        when(procedureService.getAllProceduresVisibleFor(organizationId, false))
                 .thenReturn(Mono.just(credentialProcedures));
 
         // Act
@@ -87,7 +87,7 @@ class CredentialProcedureControllerTest {
         when(accessTokenService.getOrganizationContext(anyString()))
                 .thenReturn(Mono.just(orgContext));
 
-        when(credentialProcedureService.getProcedureDetailByProcedureIdAndOrganizationId(organizationId, procedureId, false))
+        when(procedureService.getProcedureDetailByProcedureIdAndOrganizationId(organizationId, procedureId, false))
                 .thenReturn(Mono.just(credentialDetails));
 
         // Act

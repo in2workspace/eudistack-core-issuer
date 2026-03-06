@@ -11,8 +11,6 @@ import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.InvalidTokenException;
 import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
 import es.in2.issuer.backend.shared.domain.model.dto.OrgContext;
-import es.in2.issuer.backend.shared.domain.model.entities.DeferredCredentialMetadata;
-import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,8 +42,6 @@ class AccessTokenServiceImplTest {
     @Mock
     private ObjectMapper mockObjectMapper;
     @Mock
-    private DeferredCredentialMetadataService mockDeferredCredentialMetadataService;
-    @Mock
     private IssuerProperties mockAppConfig;
     @InjectMocks
     private AccessTokenServiceImpl accessTokenServiceImpl;
@@ -66,45 +62,6 @@ class AccessTokenServiceImplTest {
         StepVerifier.create(result)
                 .expectNext(invalidHeader)
                 .verifyComplete();
-    }
-
-    @Test
-    void testGetUserIdFromHeader_Valid() throws Exception {
-        String validHeader = "Bearer token";
-        String expectedUserId = "userId123";
-        String jwtPayload = "{\"sub\":\"" + expectedUserId + "\"}";
-
-        try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
-            SignedJWT signedJWT = mock(SignedJWT.class);
-            mockedJwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(signedJWT);
-            when(signedJWT.getPayload()).thenReturn(new Payload(jwtPayload));
-
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode payloadJson = mapper.readTree(jwtPayload);
-            when(mockObjectMapper.readTree(jwtPayload)).thenReturn(payloadJson);
-
-            Mono<String> result = accessTokenServiceImpl.getUserId(validHeader);
-
-            StepVerifier.create(result)
-                    .expectNext(expectedUserId)
-                    .verifyComplete();
-        }
-    }
-
-    @Test
-    void testGetUserIdFromHeader_ThrowsParseException() {
-        String invalidHeader = "Bearer invalidToken";
-
-        try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
-            mockedJwtStatic.when(() -> SignedJWT.parse(anyString()))
-                    .thenThrow(new ParseException("Invalid token", 0));
-
-            Mono<String> result = accessTokenServiceImpl.getUserId(invalidHeader);
-
-            StepVerifier.create(result)
-                    .expectError(InvalidTokenException.class)
-                    .verify();
-        }
     }
 
     @Test
@@ -223,78 +180,13 @@ class AccessTokenServiceImplTest {
     }
 
     @Test
-    void testGetMandateeEmail_Valid() throws Exception {
-        String validJwtToken = "header.payload.signature";
-        String expectedEmail = "user@example.com";
-        String jwtPayload = "{"
-                + "\"vc\":{"
-                +     "\"credentialSubject\":{"
-                +         "\"mandate\":{"
-                +             "\"mandatee\":{"
-                +                 "\"email\":\"" + expectedEmail + "\""
-                +             "}"
-                +         "}"
-                +     "}"
-                + "}"
-                + "}";
-
-        try (MockedStatic<SignedJWT> jwtStatic = mockStatic(SignedJWT.class)) {
-            jwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(mockSignedJwt);
-            when(mockSignedJwt.getPayload()).thenReturn(new Payload(jwtPayload));
-            ObjectMapper realMapper = new ObjectMapper();
-            JsonNode tree = realMapper.readTree(jwtPayload);
-            when(mockObjectMapper.readTree(jwtPayload)).thenReturn(tree);
-
-            Mono<String> result = accessTokenServiceImpl.getMandateeEmail("Bearer " + validJwtToken);
-
-            StepVerifier.create(result)
-                    .expectNext(expectedEmail)
-                    .verifyComplete();
-        }
-    }
-
-    @Test
-    void testGetMandateeEmail_InvalidToken() {
-        String invalidJwtToken = "bad.token.here";
-
-        try (MockedStatic<SignedJWT> jwtStatic = mockStatic(SignedJWT.class)) {
-            jwtStatic.when(() -> SignedJWT.parse(anyString()))
-                    .thenThrow(new ParseException("Invalid token", 0));
-
-            Mono<String> result = accessTokenServiceImpl.getMandateeEmail("Bearer " + invalidJwtToken);
-
-            StepVerifier.create(result)
-                    .expectError(InvalidTokenException.class)
-                    .verify();
-        }
-    }
-
-    @Test
-    void testGetMandateeEmail_InvalidJson() throws Exception {
-        String validJwtToken = "header.payload.signature";
-        String badJson = "{\"vc\":{}}";
-
-        try (MockedStatic<SignedJWT> jwtStatic = mockStatic(SignedJWT.class)) {
-            jwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(mockSignedJwt);
-            when(mockSignedJwt.getPayload()).thenReturn(new Payload(badJson));
-            when(mockObjectMapper.readTree(badJson))
-                    .thenThrow(new JsonProcessingException("Bad JSON") {});
-
-            Mono<String> result = accessTokenServiceImpl.getMandateeEmail("Bearer " + validJwtToken);
-
-            StepVerifier.create(result)
-                    .expectError(InvalidTokenException.class)
-                    .verify();
-        }
-    }
-
-    @Test
-    void testValidateAndResolveProcedure_ValidToken(){
+    void testResolveAccessTokenContext_ValidToken(){
         // Arrange
         String validToken = "validToken";
         String authorizationHeader = "Bearer " + validToken;
 
         String jti = "jti123";
+        String procedureId = UUID.randomUUID().toString();
         long exp = Instant.now().plusSeconds(3600).getEpochSecond();
 
         JWSObject mockJwsObject = mock(JWSObject.class);
@@ -303,17 +195,9 @@ class AccessTokenServiceImplTest {
         when(mockJwsObject.getPayload()).thenReturn(mockPayload);
         when(mockPayload.toJSONObject()).thenReturn(Map.of(
                 "jti", jti,
+                "pid", procedureId,
                 "exp", exp
         ));
-
-        DeferredCredentialMetadata mockMetadata = mock(DeferredCredentialMetadata.class);
-
-        UUID procedureId = UUID.randomUUID();
-        when(mockMetadata.getProcedureId()).thenReturn(procedureId);
-
-        when(mockDeferredCredentialMetadataService
-                .getDeferredCredentialMetadataByAuthServerNonce(jti))
-                .thenReturn(Mono.just(mockMetadata));
 
         try (MockedStatic<JWSObject> jwsObjectMockedStatic = mockStatic(JWSObject.class)) {
             jwsObjectMockedStatic
@@ -322,25 +206,22 @@ class AccessTokenServiceImplTest {
 
             // Act
             Mono<AccessTokenContext> result =
-                    accessTokenServiceImpl.validateAndResolveProcedure(authorizationHeader);
+                    accessTokenServiceImpl.resolveAccessTokenContext(authorizationHeader);
 
             // Assert
             StepVerifier.create(result)
                     .expectNextMatches(context ->
                             validToken.equals(context.rawToken())
                                     && jti.equals(context.jti())
-                                    && procedureId.toString().equals(context.procedureId())
+                                    && procedureId.equals(context.procedureId())
                     )
                     .verifyComplete();
         }
-
-        verify(mockDeferredCredentialMetadataService, times(1))
-                .getDeferredCredentialMetadataByAuthServerNonce(jti);
     }
 
 
     @Test
-    void testValidateAndResolveProcedure_TokenWithoutJti() {
+    void testResolveAccessTokenContext_TokenWithoutJti() {
         String validToken = "validToken";
         String authorizationHeader = "Bearer " + validToken;
 
@@ -352,7 +233,7 @@ class AccessTokenServiceImplTest {
         try (MockedStatic<JWSObject> jwsObjectMockedStatic = mockStatic(JWSObject.class)) {
             jwsObjectMockedStatic.when(() -> JWSObject.parse(validToken)).thenReturn(mockJwsObject);
 
-            Mono<AccessTokenContext> result = accessTokenServiceImpl.validateAndResolveProcedure(authorizationHeader);
+            Mono<AccessTokenContext> result = accessTokenServiceImpl.resolveAccessTokenContext(authorizationHeader);
 
             StepVerifier.create(result)
                     .expectErrorMatches(throwable ->
@@ -364,19 +245,19 @@ class AccessTokenServiceImplTest {
     }
 
     @Test
-    void testValidateAndResolveProcedure_TokenWithoutExp() {
+    void testResolveAccessTokenContext_TokenWithoutExp() {
         String validToken = "validToken";
         String authorizationHeader = "Bearer " + validToken;
 
         JWSObject mockJwsObject = mock(JWSObject.class);
         Payload mockPayload = mock(Payload.class);
         when(mockJwsObject.getPayload()).thenReturn(mockPayload);
-        when(mockPayload.toJSONObject()).thenReturn(Map.of("jti", "jti123")); // Missing exp
+        when(mockPayload.toJSONObject()).thenReturn(Map.of("jti", "jti123", "pid", "proc-1")); // Missing exp
 
         try (MockedStatic<JWSObject> jwsObjectMockedStatic = mockStatic(JWSObject.class)) {
             jwsObjectMockedStatic.when(() -> JWSObject.parse(validToken)).thenReturn(mockJwsObject);
 
-            Mono<AccessTokenContext> result = accessTokenServiceImpl.validateAndResolveProcedure(authorizationHeader);
+            Mono<AccessTokenContext> result = accessTokenServiceImpl.resolveAccessTokenContext(authorizationHeader);
 
             StepVerifier.create(result)
                     .expectErrorMatches(throwable ->
@@ -388,7 +269,7 @@ class AccessTokenServiceImplTest {
     }
 
     @Test
-    void testValidateAndResolveProcedure_ExpiredToken() {
+    void testResolveAccessTokenContext_ExpiredToken() {
         String validToken = "validToken";
         String authorizationHeader = "Bearer " + validToken;
 
@@ -398,13 +279,14 @@ class AccessTokenServiceImplTest {
         when(mockJwsObject.getPayload()).thenReturn(mockPayload);
         when(mockPayload.toJSONObject()).thenReturn(Map.of(
                 "jti", "jti123",
+                "pid", "proc-1",
                 "exp", exp
         ));
 
         try (MockedStatic<JWSObject> jwsObjectMockedStatic = mockStatic(JWSObject.class)) {
             jwsObjectMockedStatic.when(() -> JWSObject.parse(validToken)).thenReturn(mockJwsObject);
 
-            Mono<AccessTokenContext> result = accessTokenServiceImpl.validateAndResolveProcedure(authorizationHeader);
+            Mono<AccessTokenContext> result = accessTokenServiceImpl.resolveAccessTokenContext(authorizationHeader);
 
             StepVerifier.create(result)
                     .expectErrorMatches(throwable ->
@@ -416,31 +298,27 @@ class AccessTokenServiceImplTest {
     }
 
     @Test
-    void testValidateAndResolveProcedure_JtiNotFound() {
+    void testResolveAccessTokenContext_TokenWithoutPid() {
         String validToken = "validToken";
         String authorizationHeader = "Bearer " + validToken;
-        String jti = "jti123";
 
         JWSObject mockJwsObject = mock(JWSObject.class);
         Payload mockPayload = mock(Payload.class);
         when(mockJwsObject.getPayload()).thenReturn(mockPayload);
         when(mockPayload.toJSONObject()).thenReturn(Map.of(
-                "jti", jti,
+                "jti", "jti123",
                 "exp", System.currentTimeMillis() / 1000 + 3600
         ));
 
         try (MockedStatic<JWSObject> jwsObjectMockedStatic = mockStatic(JWSObject.class)) {
             jwsObjectMockedStatic.when(() -> JWSObject.parse(validToken)).thenReturn(mockJwsObject);
 
-            when(mockDeferredCredentialMetadataService.getDeferredCredentialMetadataByAuthServerNonce(jti))
-                    .thenReturn(Mono.empty());
-
-            Mono<AccessTokenContext> result = accessTokenServiceImpl.validateAndResolveProcedure(authorizationHeader);
+            Mono<AccessTokenContext> result = accessTokenServiceImpl.resolveAccessTokenContext(authorizationHeader);
 
             StepVerifier.create(result)
                     .expectErrorMatches(throwable ->
                             throwable instanceof InvalidTokenException &&
-                                    throwable.getMessage().equals("No ProcedureID associated to this token")
+                                    throwable.getMessage().equals("Access token without pid")
                     )
                     .verify();
         }

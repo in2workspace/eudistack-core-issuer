@@ -19,7 +19,7 @@ public class CredentialOfferCacheRepositoryImpl implements CredentialOfferCacheR
     private final CacheStore<CredentialOfferData> cacheStore;
 
     @Override
-    public Mono<String> saveCustomCredentialOffer(CredentialOfferData credentialOfferData) {
+    public Mono<String> saveCredentialOffer(CredentialOfferData credentialOfferData) {
         return generateCustomNonce().flatMap(nonce -> cacheStore.add(nonce, credentialOfferData));
     }
 
@@ -27,10 +27,10 @@ public class CredentialOfferCacheRepositoryImpl implements CredentialOfferCacheR
     public Mono<CredentialOfferData> findCredentialOfferById(String id) {
         return cacheStore.get(id)
                 .switchIfEmpty(Mono.error(
-                        new CredentialOfferNotFoundException("CustomCredentialOffer not found for nonce: " + id))
+                        new CredentialOfferNotFoundException("CredentialOffer not found for nonce: " + id))
                 )
                 .doOnNext(customCredentialOffer ->
-                        log.debug("CustomCredentialOffer found for nonce: {}", id)
+                        log.debug("CredentialOffer found for nonce: {}", id)
                 )
                 .flatMap(customCredentialOffer ->
                         cacheStore.delete(id).thenReturn(customCredentialOffer)

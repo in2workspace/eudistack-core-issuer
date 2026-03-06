@@ -49,6 +49,29 @@ public class IssuanceMetrics {
                 .increment();
     }
 
+    public void recordTokenRequest(String grantType, String outcome) {
+        Counter.builder("oid4vci.token.requests")
+                .tag("grant_type", grantType)
+                .tag("outcome", outcome)
+                .register(meterRegistry)
+                .increment();
+    }
+
+    public void recordStatusListAllocation(String format, String outcome) {
+        Counter.builder("statuslist.allocations")
+                .tag("format", format)
+                .tag("outcome", outcome)
+                .register(meterRegistry)
+                .increment();
+    }
+
+    public void recordStatusListRevocation(String outcome) {
+        Counter.builder("statuslist.revocations")
+                .tag("outcome", outcome)
+                .register(meterRegistry)
+                .increment();
+    }
+
     private Counter counter(String configurationId, String delivery, String outcome) {
         return Counter.builder("issuance.requests")
                 .tag("configuration_id", configurationId)

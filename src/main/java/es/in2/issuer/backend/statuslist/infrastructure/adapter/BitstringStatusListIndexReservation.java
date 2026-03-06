@@ -33,16 +33,18 @@ public class BitstringStatusListIndexReservation implements StatusListIndexReser
         return reserveWithRetry(statusListId, procedureId);
     }
 
+    private static final long MAX_ATTEMPTS = 15;
+    private static final long EARLY_ESCAPE_AFTER = 8;
+    private static final double EARLY_ESCAPE_FILL_RATIO = 0.95;
+
     private Mono<StatusListIndex> reserveWithRetry(Long statusListId, String procedureId) {
         log.info("reserveOnSpecificList - statusListId: {} - procedureId: {}", statusListId, procedureId);
         requireNonNullParam(statusListId, "statusListId");
         requireNonNullParam(procedureId, "procedureId");
 
-        long maxAttempts = 30;
-
         return Mono.defer(() -> tryReserveOnce(statusListId, procedureId))
                 .retryWhen(
-                        Retry.backoff(maxAttempts - 1L, Duration.ofMillis(5))
+                        Retry.backoff(MAX_ATTEMPTS - 1L, Duration.ofMillis(5))
                                 .maxBackoff(Duration.ofMillis(100))
                                 .filter(t -> {
                                     UniqueViolationClassifier.Kind k = uniqueViolationClassifier.classify(t);
@@ -52,11 +54,34 @@ public class BitstringStatusListIndexReservation implements StatusListIndexReser
                                     long attempt = rs.totalRetries() + 2;
                                     log.debug(
                                             "action=reserveStatusListIndex retryReason=uniqueCollision statusListId={} procedureId={} attempt={}/{}",
-                                        statusListId, procedureId, attempt, maxAttempts
+                                        statusListId, procedureId, attempt, MAX_ATTEMPTS
                                 );
                                 })
                 )
+                .onErrorResume(t -> earlyEscapeIfNearlyFull(t, statusListId))
                 .onErrorMap(this::maybeWrapAsExhausted);
+    }
+
+    /**
+     * After exhausting retries, check if the list is nearly full (>95%).
+     * If so, immediately signal exhaustion instead of retrying further.
+     */
+    private Mono<StatusListIndex> earlyEscapeIfNearlyFull(Throwable t, Long statusListId) {
+        UniqueViolationClassifier.Kind k = uniqueViolationClassifier.classify(t);
+        if (k != UniqueViolationClassifier.Kind.IDX && k != UniqueViolationClassifier.Kind.UNKNOWN) {
+            return Mono.error(t);
+        }
+
+        return statusListIndexRepository.countByStatusListId(statusListId)
+                .flatMap(count -> {
+                    double fillRatio = (double) count / CAPACITY_BITS;
+                    if (fillRatio >= EARLY_ESCAPE_FILL_RATIO) {
+                        log.info("action=earlyEscape statusListId={} fillRatio={} count={}", statusListId, fillRatio, count);
+                        return Mono.error(new IndexReservationExhaustedException(
+                                "List nearly full (%.1f%%), skipping to new list".formatted(fillRatio * 100), t));
+                    }
+                    return Mono.error(t);
+                });
     }
 
     private Mono<StatusListIndex> tryReserveOnce(Long statusListId, String procedureId) {

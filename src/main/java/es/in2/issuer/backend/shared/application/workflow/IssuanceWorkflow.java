@@ -6,7 +6,7 @@ import reactor.core.publisher.Mono;
 
 public interface IssuanceWorkflow {
 
-    Mono<IssuanceResponse> execute(String processId, PreSubmittedCredentialDataRequest request, String token, String idToken);
+    Mono<IssuanceResponse> execute(String processId, PreSubmittedCredentialDataRequest request, String idToken);
 
     Mono<IssuanceResponse> executeWithoutAuthorization(String processId, PreSubmittedCredentialDataRequest request);
 

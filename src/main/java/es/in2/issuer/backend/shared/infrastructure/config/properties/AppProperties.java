@@ -17,13 +17,22 @@ public record AppProperties(
         @NotBlank @URL String walletUrl,
         @NotBlank String defaultLang,
         @NotBlank String adminOrganizationId,
-        @NotBlank String sysTenant
+        @NotBlank String sysTenant,
+        ManagementToken managementToken
 ) {
 
     @Validated
     public record KnowledgeBase(
             @NotBlank @URL String uploadCertificationGuideUrl,
             @NotBlank @URL String walletGuideUrl
+    ) {
+    }
+
+    @Validated
+    public record ManagementToken(
+            @NotBlank String orgIdJsonPath,
+            @NotBlank String adminPowerFunction,
+            @NotBlank String adminPowerAction
     ) {
     }
 }

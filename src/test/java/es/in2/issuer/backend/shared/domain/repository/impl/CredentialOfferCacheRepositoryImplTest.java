@@ -26,13 +26,13 @@ class CredentialOfferCacheRepositoryImplTest {
     private CredentialOfferCacheRepositoryImpl service;
 
     @Test
-    void testSaveCustomCredentialOffer() {
+    void testSaveCredentialOffer() {
         CredentialOfferData credentialOfferData = CredentialOfferData.builder().build(); // You should populate it as necessary
         String expectedNonce = "testNonce";
 
         when(cacheStore.add(any(String.class), eq(credentialOfferData))).thenReturn(Mono.just(expectedNonce));
 
-        StepVerifier.create(service.saveCustomCredentialOffer(credentialOfferData))
+        StepVerifier.create(service.saveCredentialOffer(credentialOfferData))
                 .expectNext(expectedNonce)
                 .verifyComplete();
 
@@ -62,7 +62,7 @@ class CredentialOfferCacheRepositoryImplTest {
         StepVerifier.create(service.findCredentialOfferById(nonce))
                 .expectErrorSatisfies(throwable -> assertThat(throwable)
                         .isInstanceOf(CredentialOfferNotFoundException.class)
-                        .hasMessageContaining("CustomCredentialOffer not found for nonce: " + nonce))
+                        .hasMessageContaining("CredentialOffer not found for nonce: " + nonce))
                 .verify();
 
         verify(cacheStore, never()).delete(anyString());

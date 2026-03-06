@@ -1,7 +1,6 @@
 package es.in2.issuer.backend.signing.infrastructure.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import es.in2.issuer.backend.shared.domain.service.SigningRecoveryService;
 import es.in2.issuer.backend.signing.domain.service.JadesHeaderBuilderService;
 import es.in2.issuer.backend.signing.domain.service.JwsSignHashService;
 import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
@@ -34,7 +33,6 @@ public class SigningProviderConfig {
             RuntimeSigningConfig runtimeSigningConfig,
 
             RemoteSignatureService remoteSignatureService,
-            SigningRecoveryService signingRecoveryService,
 
             QtspAuthClient qtspAuthClient,
             QtspIssuerService qtspIssuerService,
@@ -59,8 +57,7 @@ public class SigningProviderConfig {
         map.put("in-memory", new InMemorySigningProvider(certPath, keyPath));
 
         map.put("csc-sign-doc", new CscSignDocSigningProvider(
-                remoteSignatureService,
-                signingRecoveryService
+                remoteSignatureService
         ));
 
         map.put("csc-sign-hash", new CscSignHashSigningProvider(

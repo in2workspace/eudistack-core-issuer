@@ -3,7 +3,7 @@ package es.in2.issuer.backend.backoffice.domain.scheduler;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotificationInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
-import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
+import es.in2.issuer.backend.shared.domain.service.ProcedureService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.infrastructure.repository.CredentialProcedureRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,7 +28,7 @@ import static org.mockito.Mockito.*;
 class CredentialExpirationSchedulerImplTest {
 
     @Mock private CredentialProcedureRepository credentialProcedureRepository;
-    @Mock private CredentialProcedureService credentialProcedureService;
+    @Mock private ProcedureService procedureService;
     @Mock private EmailService emailService;
 
     @InjectMocks
@@ -54,9 +54,9 @@ class CredentialExpirationSchedulerImplTest {
                     cp.setUpdatedAt(Instant.now());
                     return Mono.just(cp);
                 });
-        when(credentialProcedureService.getCredentialId(any(CredentialProcedure.class)))
+        when(procedureService.getCredentialId(any(CredentialProcedure.class)))
                 .thenReturn(Mono.just("cred-123"));
-        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(anyString()))
+        when(procedureService.getCredentialOfferEmailInfoByProcedureId(anyString()))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn(Mono.empty());
@@ -90,9 +90,9 @@ class CredentialExpirationSchedulerImplTest {
                     cp.setUpdatedAt(Instant.now());
                     return Mono.just(cp);
                 });
-        when(credentialProcedureService.getCredentialId(any(CredentialProcedure.class)))
+        when(procedureService.getCredentialId(any(CredentialProcedure.class)))
                 .thenReturn(Mono.just("cred-123"));
-        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(anyString()))
+        when(procedureService.getCredentialOfferEmailInfoByProcedureId(anyString()))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn(Mono.empty());

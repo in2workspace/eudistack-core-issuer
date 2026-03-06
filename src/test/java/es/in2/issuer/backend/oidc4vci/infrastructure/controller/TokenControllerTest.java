@@ -3,6 +3,7 @@ package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.TokenService;
+import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,8 +16,10 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.reactive.function.BodyInserters;
 import reactor.core.publisher.Mono;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.GRANT_TYPE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.REFRESH_TOKEN_GRANT_TYPE;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.csrf;
 
@@ -34,8 +37,11 @@ class TokenControllerTest {
     @MockBean
     ErrorResponseFactory errorResponseFactory;
 
+    @MockBean
+    IssuanceMetrics issuanceMetrics;
+
     @Test
-    void testGetEntitiesSuccess() {
+    void testHandleTokenRequest_RefreshTokenGrant_ShouldReturnOk() {
         String grantType = REFRESH_TOKEN_GRANT_TYPE;
         String refreshToken = "rt-123";
         TokenResponse tokenResponse = new TokenResponse(
@@ -44,11 +50,7 @@ class TokenControllerTest {
                 3600L,
                 "1234");
 
-        when(tokenService.generateTokenResponse(
-                grantType,
-                null,
-                null,
-                refreshToken))
+        when(tokenService.handleToken(any(TokenRequest.class), isNull(), any(String.class)))
                 .thenReturn(Mono.just(tokenResponse));
 
         webTestClient

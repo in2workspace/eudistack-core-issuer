@@ -2,7 +2,6 @@ package es.in2.issuer.backend.shared.domain.util.factory;
 
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
-import es.in2.issuer.backend.shared.domain.service.SigningRecoveryService;
 import es.in2.issuer.backend.signing.domain.model.port.SignerConfig;
 import es.in2.issuer.backend.signing.domain.model.port.SigningRuntimeProperties;
 import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
@@ -26,7 +25,6 @@ public class IssuerFactory {
     private static final String IN_MEMORY_PROVIDER = "in-memory";
 
     private final SignerConfig signerConfig;
-    private final SigningRecoveryService signingRecoveryService;
     private final QtspIssuerService qtspIssuerService;
     private final SigningRuntimeProperties signingRuntimeProperties;
 
@@ -61,33 +59,6 @@ public class IssuerFactory {
                         .build());
     }
 
-    /**
-     * Detailed issuer creation with post-recover side-effects on error:
-     * - If remote flow fails after retries, it executes handlePostRecoverError(procedureId, email)
-     *   and completes empty.
-     */
-    public Mono<DetailedIssuer> createDetailedIssuerAndNotifyOnError(String procedureId, String email) {
-        log.debug("IssuerFactory: createDetailedIssuerAndNotifyOnError");
-        return isLocalProvider() || qtspIssuerService.isServerMode()
-                ? Mono.just(buildLocalDetailedIssuer())
-                : createRemoteDetailedIssuerNotifyOnError(procedureId, email);
-    }
-
-    /**
-     * Simple issuer creation with post-recover side-effects on error:
-     * - If remote flow fails after retries, it executes handlePostRecoverError(procedureId, email)
-     *   and completes empty.
-     */
-    public Mono<SimpleIssuer> createSimpleIssuerAndNotifyOnError(String procedureId, String email) {
-        log.debug("IssuerFactory: createSimpleIssuerAndNotifyOnError");
-        return isLocalProvider() || qtspIssuerService.isServerMode()
-                ? Mono.just(buildLocalSimpleIssuer())
-                : createRemoteDetailedIssuerNotifyOnError(procedureId, email)
-                .map(detailed -> SimpleIssuer.builder()
-                        .id(detailed.getId())
-                        .build());
-    }
-
     private DetailedIssuer buildLocalDetailedIssuer() {
         return DetailedIssuer.builder()
                 .id(DID_ELSI + signerConfig.getOrganizationIdentifier())
@@ -117,22 +88,6 @@ public class IssuerFactory {
                 .doOnError(err ->
                         log.error("Error during remote issuer creation at {}: {}", new Date(), err.getMessage())
                 );
-    }
-
-    /**
-     * Remote flow used by the "notify on error" methods:
-     * - retries recoverable errors
-     * - if it still fails, executes handlePostRecoverError(procedureId, email) and completes empty
-     */
-    private Mono<DetailedIssuer> createRemoteDetailedIssuerNotifyOnError(String procedureId, String email) {
-        log.debug("IssuerFactory: createRemoteDetailedIssuerNotifyOnError");
-        return remoteIssuerCoreFlow()
-                .retryWhen(buildRetrySpec())
-                .onErrorResume(err -> {
-                    log.error("Error during remote issuer creation at {}: {}", new Date(), err.getMessage());
-                    return signingRecoveryService.handlePostRecoverError(procedureId, email)
-                            .then(Mono.empty());
-                });
     }
 
     /**

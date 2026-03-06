@@ -30,9 +30,9 @@ public class CredentialController {
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
             @RequestBody CredentialRequest credentialRequest) {
         String processId = UUID.randomUUID().toString();
-        return accessTokenService.validateAndResolveProcedure(authorizationHeader)
+        return accessTokenService.resolveAccessTokenContext(authorizationHeader)
                 .flatMap(token ->
-                        oid4VciCredentialWorkflow.generateVerifiableCredentialResponse(processId, credentialRequest, token))
+                        oid4VciCredentialWorkflow.createCredentialResponse(processId, credentialRequest, token))
                 .map(verifiableCredentialResponse -> {
                     log.info("Process ID: {} - Response: {}", processId, verifiableCredentialResponse);
                     if (verifiableCredentialResponse.transactionId() != null) {

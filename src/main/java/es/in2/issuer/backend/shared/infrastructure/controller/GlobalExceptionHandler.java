@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.controller;
 
+import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.domain.exception.*;
 import es.in2.issuer.backend.shared.domain.model.dto.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
@@ -25,6 +26,7 @@ import java.util.NoSuchElementException;
 public class GlobalExceptionHandler {
 
     private final ErrorResponseFactory errors;
+    private final NonceService nonceService;
 
     //todo add handler for RemoteSignatureException
 
@@ -40,6 +42,21 @@ public class GlobalExceptionHandler {
                 "Unsupported credential type",
                 HttpStatus.BAD_REQUEST,
                 "The given credential_configuration_id is not supported by this issuer"
+        );
+    }
+
+    @ExceptionHandler(InvalidCredentialRequestException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleInvalidCredentialRequest(
+            InvalidCredentialRequestException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.INVALID_CREDENTIAL_REQUEST.getCode(),
+                "Invalid credential request",
+                HttpStatus.BAD_REQUEST,
+                "The credential request is malformed or contains invalid parameters"
         );
     }
 
@@ -70,7 +87,8 @@ public class GlobalExceptionHandler {
                 "Invalid or missing proof",
                 HttpStatus.BAD_REQUEST,
                 "Credential Request did not contain a proof, or proof was invalid, i.e. it was not bound to a Credential Issuer provided nonce."
-        );
+        ).flatMap(gem -> nonceService.generateNonce()
+                .map(nonce -> gem.withNonce(nonce.cNonce(), nonce.cNonceExpiresIn())));
     }
 
     @ExceptionHandler(InvalidTokenException.class)
@@ -261,7 +279,7 @@ public class GlobalExceptionHandler {
     ) {
         return errors.handleWith(
                 ex, request,
-                GlobalErrorTypes.FORMAT_IS_NOT_SUPPORTED.getCode(),
+                GlobalErrorTypes.UNSUPPORTED_CREDENTIAL_FORMAT.getCode(),
                 "Format not supported",
                 HttpStatus.BAD_REQUEST,
                 "Format is not supported"

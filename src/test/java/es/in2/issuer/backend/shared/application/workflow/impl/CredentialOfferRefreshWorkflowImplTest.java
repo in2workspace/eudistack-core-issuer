@@ -5,10 +5,10 @@ import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.repository.CredentialOfferCacheRepository;
-import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
-import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
-import es.in2.issuer.backend.shared.domain.service.DeliveryService;
+import es.in2.issuer.backend.shared.domain.service.ProcedureService;
+import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.GrantsService;
+import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -27,9 +27,7 @@ import static org.mockito.Mockito.*;
 class CredentialOfferRefreshWorkflowImplTest {
 
     @Mock
-    private CredentialProcedureService credentialProcedureService;
-    @Mock
-    private DeferredCredentialMetadataService deferredCredentialMetadataService;
+    private ProcedureService procedureService;
     @Mock
     private GrantsService grantsService;
     @Mock
@@ -37,14 +35,16 @@ class CredentialOfferRefreshWorkflowImplTest {
     @Mock
     private CredentialOfferCacheRepository credentialOfferCacheRepository;
     @Mock
-    private DeliveryService deliveryService;
+    private EmailService emailService;
+    @Mock
+    private AppConfig appConfig;
 
     @InjectMocks
     private CredentialOfferRefreshWorkflowImpl workflow;
 
     @Test
     void shouldRefreshCredentialOfferForDraftProcedure() {
-        String refreshToken = "valid-refresh-token";
+        String credentialOfferRefreshToken = "valid-refresh-token";
         UUID procedureId = UUID.randomUUID();
         String transactionCode = "new-tx-code";
         String preAuthCode = "new-pre-auth-code";
@@ -60,51 +60,48 @@ class CredentialOfferRefreshWorkflowImplTest {
         CredentialOfferGrants grants = CredentialOfferGrants.builder()
                 .preAuthorizedCode(PreAuthorizedCodeGrant.builder()
                         .preAuthorizedCode(preAuthCode)
-                        .txCode(TxCode.builder().length(4).inputMode("numeric").build())
+                        .txCode(TxCode.builder().length(6).inputMode("numeric").build())
                         .build())
                 .build();
         GrantsResult grantsResult = new GrantsResult(grants, "1234");
 
-        when(credentialProcedureService.getCredentialProcedureByRefreshToken(refreshToken))
+        when(procedureService.getProcedureByCredentialOfferRefreshToken(credentialOfferRefreshToken))
                 .thenReturn(Mono.just(procedure));
-        when(deferredCredentialMetadataService.updateTransactionCodeInDeferredCredentialMetadata(procedureId.toString()))
-                .thenReturn(Mono.just(transactionCode));
         when(grantsService.generateGrants(anyString(), any()))
                 .thenReturn(Mono.just(grantsResult));
-        when(deferredCredentialMetadataService.updateAuthServerNonceByTransactionCode(transactionCode, preAuthCode))
-                .thenReturn(Mono.empty());
         when(credentialOfferService.buildCredentialOffer(anyString(), any(), anyString(), anyString()))
                 .thenReturn(Mono.just(CredentialOfferData.builder().build()));
-        when(credentialOfferCacheRepository.saveCustomCredentialOffer(any()))
+        when(credentialOfferCacheRepository.saveCredentialOffer(any()))
                 .thenReturn(Mono.just("cache-nonce"));
         when(credentialOfferService.createCredentialOfferUriResponse(anyString()))
                 .thenReturn(Mono.just(credentialOfferUri));
-        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(procedureId.toString()))
+        when(procedureService.getCredentialOfferEmailInfoByProcedureId(procedureId.toString()))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("test@example.com", "Org")));
-        when(deliveryService.deliver(anyString(), anyString(), anyString(), any()))
-                .thenReturn(Mono.just(IssuanceResponse.builder().build()));
+        when(appConfig.getIssuerBackendUrl()).thenReturn("https://issuer.example.com");
+        when(appConfig.getWalletFrontendUrl()).thenReturn("https://wallet.example.com");
+        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(Mono.empty());
 
-        StepVerifier.create(workflow.refreshCredentialOffer(refreshToken))
+        StepVerifier.create(workflow.refreshCredentialOffer(credentialOfferRefreshToken))
                 .verifyComplete();
 
-        verify(deferredCredentialMetadataService).updateTransactionCodeInDeferredCredentialMetadata(procedureId.toString());
         verify(grantsService).generateGrants(anyString(), any());
-        verify(deliveryService).deliver(eq("email"), eq(credentialOfferUri), eq(refreshToken), any());
+        verify(emailService).sendCredentialOfferEmail(eq("test@example.com"), anyString(), eq(credentialOfferUri), anyString(), eq("https://wallet.example.com"), eq("Org"));
     }
 
     @Test
     void shouldRejectRefreshForNonDraftProcedure() {
-        String refreshToken = "valid-refresh-token";
+        String credentialOfferRefreshToken = "valid-refresh-token";
 
         CredentialProcedure procedure = CredentialProcedure.builder()
                 .procedureId(UUID.randomUUID())
                 .credentialStatus(CredentialStatusEnum.VALID)
                 .build();
 
-        when(credentialProcedureService.getCredentialProcedureByRefreshToken(refreshToken))
+        when(procedureService.getProcedureByCredentialOfferRefreshToken(credentialOfferRefreshToken))
                 .thenReturn(Mono.just(procedure));
 
-        StepVerifier.create(workflow.refreshCredentialOffer(refreshToken))
+        StepVerifier.create(workflow.refreshCredentialOffer(credentialOfferRefreshToken))
                 .expectErrorMatches(ex -> ex instanceof ResponseStatusException rse
                         && rse.getStatusCode().value() == 410)
                 .verify();
@@ -112,7 +109,7 @@ class CredentialOfferRefreshWorkflowImplTest {
 
     @Test
     void shouldRejectRefreshForUnknownToken() {
-        when(credentialProcedureService.getCredentialProcedureByRefreshToken("unknown"))
+        when(procedureService.getProcedureByCredentialOfferRefreshToken("unknown"))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(workflow.refreshCredentialOffer("unknown"))

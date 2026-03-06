@@ -1,8 +1,10 @@
 package es.in2.issuer.backend.statuslist.application;
 
 import es.in2.issuer.backend.statuslist.domain.model.StatusListEntry;
+import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
 import es.in2.issuer.backend.statuslist.domain.spi.StatusListProvider;
+import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -17,26 +19,28 @@ public class StatusListWorkflow {
 
     private final StatusListProvider statusListProvider;
 
-    public Mono<StatusListEntry> allocateEntry(StatusPurpose purpose, String procedureId, String token) {
-        log.info("StatusListService - allocateEntry, purpose: {}, procedureId: {}, token: {}", purpose, procedureId, token);
+    @Observed(name = "statuslist.allocate-entry", contextualName = "statuslist-allocate-entry")
+    public Mono<StatusListEntry> allocateEntry(StatusPurpose purpose, StatusListFormat format, String procedureId, String token) {
         log.info(
-                "action=allocateStatusListEntry status=started purpose={} procedureId={}",
-                purpose, procedureId
+                "action=allocateStatusListEntry status=started purpose={} format={} procedureId={}",
+                purpose, format, procedureId
         );
         requireNonNullParam(purpose, "purpose");
+        requireNonNullParam(format, "format");
 
-        return statusListProvider.allocateEntry(purpose, procedureId, token)
+        return statusListProvider.allocateEntry(purpose, format, procedureId, token)
                 .doOnSuccess(entry -> log.info(
-                        "action=allocateStatusListEntry status=completed purpose={} procedureId={} listId={} idx={}",
-                        purpose, procedureId,
+                        "action=allocateStatusListEntry status=completed purpose={} format={} procedureId={} listId={} idx={}",
+                        purpose, format, procedureId,
                         extractListId(entry), entry.statusListIndex()
                 ))
                 .doOnError(e -> log.warn(
-                        "action=allocateStatusListEntry status=failed purpose={} procedureId={} error={}",
-                        purpose, procedureId, e.toString()
+                        "action=allocateStatusListEntry status=failed purpose={} format={} procedureId={} error={}",
+                        purpose, format, procedureId, e.toString()
                 ));
     }
 
+    @Observed(name = "statuslist.get-signed-credential", contextualName = "statuslist-get-signed-credential")
     public Mono<String> getSignedStatusListCredential(Long listId) {
         requireNonNullParam(listId, "listId");
         return statusListProvider.getSignedStatusListCredential(listId);

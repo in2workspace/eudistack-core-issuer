@@ -70,4 +70,14 @@ public class CacheStoreConfig {
     public CacheStore<String> nonceCacheStore() {
         return new CacheStore<>(NONCE_CACHE_EXPIRY_SECONDS, TimeUnit.SECONDS);
     }
+
+    @Bean
+    public CacheStore<String> notificationCacheStore() {
+        return new CacheStore<>(NOTIFICATION_CACHE_EXPIRY_HOURS, TimeUnit.HOURS);
+    }
+
+    @Bean
+    public CacheStore<String> enrichmentCacheStore() {
+        return new CacheStore<>(NOTIFICATION_CACHE_EXPIRY_HOURS, TimeUnit.HOURS);
+    }
 }

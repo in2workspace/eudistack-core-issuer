@@ -229,27 +229,58 @@ class BitstringStatusListIndexReservationTest {
         when(uniqueViolationClassifier.classify(any(Throwable.class)))
                 .thenReturn(UniqueViolationClassifier.Kind.IDX);
 
+        // Early escape checks fill ratio — low count means no early escape
+        when(statusListIndexRepository.countByStatusListId(statusListId)).thenReturn(Mono.just(100L));
+
         StepVerifier.withVirtualTime(() -> service.reserve(statusListId, procedureId))
                 .thenAwait(Duration.ofSeconds(10))
                 .expectErrorSatisfies(t -> {
-                    assertTrue(t instanceof IndexReservationExhaustedException);
-
-                    Throwable c1 = t.getCause();
-                    assertNotNull(c1);
-
-                    // RetryExhaustedException is package-private, so check by class name.
-                    assertEquals("RetryExhaustedException", c1.getClass().getSimpleName());
-                    assertTrue(c1.getMessage() != null && c1.getMessage().contains("Retries exhausted"));
-
-                    // Original failure is nested as the cause of the retry-exhausted error.
-                    Throwable c2 = c1.getCause();
-                    assertSame(duplicateIdx, c2);
+                    assertInstanceOf(IndexReservationExhaustedException.class, t);
+                    assertTrue(t.getMessage().contains("Too many collisions"));
                 })
                 .verify();
 
-        verify(statusListIndexRepository, times(30)).save(any(StatusListIndex.class));
-        verify(indexAllocator, times(30)).proposeIndex(anyInt());
+        verify(statusListIndexRepository, times(15)).save(any(StatusListIndex.class));
+        verify(indexAllocator, times(15)).proposeIndex(anyInt());
         verify(uniqueViolationClassifier, atLeast(1)).classify(any(Throwable.class));
+    }
+
+    @Test
+    void reserve_earlyEscape_whenListNearlyFull_signalsExhausted() {
+        long statusListId = 200L;
+        UUID procedureUuid = UUID.randomUUID();
+        String procedureId = procedureUuid.toString();
+
+        when(indexAllocator.proposeIndex(anyInt())).thenReturn(1);
+
+        RuntimeException duplicateIdx = new RuntimeException("duplicate idx");
+        when(statusListIndexRepository.save(any(StatusListIndex.class))).thenReturn(Mono.error(duplicateIdx));
+
+        // Classify IDX for original errors, NOT_UNIQUE for our own exception
+        // so maybeWrapAsExhausted doesn't re-wrap the early escape error
+        when(uniqueViolationClassifier.classify(any(Throwable.class))).thenAnswer(invocation -> {
+            Throwable t = invocation.getArgument(0);
+            if (t instanceof IndexReservationExhaustedException) {
+                return UniqueViolationClassifier.Kind.NOT_UNIQUE;
+            }
+            return UniqueViolationClassifier.Kind.IDX;
+        });
+
+        // Early escape: list is 96% full (> 95% threshold)
+        long nearlyFullCount = (long) (131072 * 0.96);
+        when(statusListIndexRepository.countByStatusListId(statusListId)).thenReturn(Mono.just(nearlyFullCount));
+
+        StepVerifier.withVirtualTime(() -> service.reserve(statusListId, procedureId))
+                .thenAwait(Duration.ofSeconds(10))
+                .expectErrorSatisfies(t -> {
+                    assertInstanceOf(IndexReservationExhaustedException.class, t);
+                    assertTrue(t.getMessage().contains("nearly full") || t.getMessage().contains("skipping to new list"),
+                            "Expected early escape message, got: " + t.getMessage());
+                })
+                .verify();
+
+        verify(statusListIndexRepository, times(15)).save(any(StatusListIndex.class));
+        verify(statusListIndexRepository).countByStatusListId(statusListId);
     }
 
 

@@ -16,12 +16,12 @@ public class CredentialOfferRefreshController {
 
     private final CredentialOfferRefreshWorkflow credentialOfferRefreshWorkflow;
 
-    @GetMapping("/credential-offer/refresh/{refreshToken}")
-    public Mono<Rendering> refreshCredentialOffer(@PathVariable String refreshToken) {
-        return credentialOfferRefreshWorkflow.refreshCredentialOffer(refreshToken)
+    @GetMapping("/credential-offer/refresh/{credentialOfferRefreshToken}")
+    public Mono<Rendering> refreshCredentialOffer(@PathVariable String credentialOfferRefreshToken) {
+        return credentialOfferRefreshWorkflow.refreshCredentialOffer(credentialOfferRefreshToken)
                 .then(Mono.just(Rendering.view("credential-offer-refresh-success").build()))
                 .onErrorResume(ex -> {
-                    log.warn("Credential offer refresh failed for token {}: {}", refreshToken, ex.getMessage());
+                    log.warn("Credential offer refresh failed for token {}: {}", credentialOfferRefreshToken, ex.getMessage());
                     return Mono.just(Rendering.view("credential-offer-refresh-error")
                             .modelAttribute("errorMessage", ex.getMessage())
                             .build());

@@ -77,4 +77,22 @@ public class AppConfig implements IssuerProperties {
     public String getSysTenant() {
         return appProperties.sysTenant();
     }
+
+    public String getManagementTokenOrgIdJsonPath() {
+        return appProperties.managementToken() != null
+                ? appProperties.managementToken().orgIdJsonPath()
+                : "vc.credentialSubject.mandate.mandator.organizationIdentifier";
+    }
+
+    public String getManagementTokenAdminPowerFunction() {
+        return appProperties.managementToken() != null
+                ? appProperties.managementToken().adminPowerFunction()
+                : "Onboarding";
+    }
+
+    public String getManagementTokenAdminPowerAction() {
+        return appProperties.managementToken() != null
+                ? appProperties.managementToken().adminPowerAction()
+                : "Execute";
+    }
 }

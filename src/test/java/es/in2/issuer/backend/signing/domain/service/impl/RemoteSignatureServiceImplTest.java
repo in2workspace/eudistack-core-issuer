@@ -2,7 +2,6 @@ package es.in2.issuer.backend.signing.domain.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.SadException;
-import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
 import es.in2.issuer.backend.shared.domain.util.HttpUtils;
 import es.in2.issuer.backend.shared.domain.util.JwtUtils;
 import es.in2.issuer.backend.signing.domain.exception.SignatureProcessingException;
@@ -42,7 +41,6 @@ class RemoteSignatureServiceImplTest {
     @Mock private HttpUtils httpUtils;
     @Mock private JwtUtils jwtUtils;
     @Mock private RuntimeSigningConfig runtimeSigningConfig;
-    @Mock private DeferredCredentialMetadataService deferredCredentialMetadataService;
 
     @InjectMocks
     private RemoteSignatureServiceImpl remoteSignatureService;
@@ -75,8 +73,6 @@ class RemoteSignatureServiceImplTest {
         StepVerifier.create(remoteSignatureService.signIssuedCredential(req, "token", "proc", "email"))
                 .expectNext(signingResult)
                 .verifyComplete();
-
-        verify(deferredCredentialMetadataService).deleteDeferredCredentialMetadataById("proc");
     }
 
     @Test
@@ -124,8 +120,6 @@ class RemoteSignatureServiceImplTest {
         StepVerifier.create(remoteSignatureService.signSystemCredential(req, "ignored-token-here"))
                 .expectNext(expected)
                 .verifyComplete();
-
-        verify(deferredCredentialMetadataService, never()).deleteDeferredCredentialMetadataById(anyString());
     }
 
     @Test
@@ -256,6 +250,5 @@ class RemoteSignatureServiceImplTest {
 
         verify(httpUtils, times(3))
                 .postRequest(eq("https://api.external.com/csc/v2/signatures/signDoc"), anyList(), anyString());
-        verify(deferredCredentialMetadataService).deleteDeferredCredentialMetadataById("proc-1");
     }
 }

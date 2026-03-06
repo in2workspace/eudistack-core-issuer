@@ -3,6 +3,7 @@ package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 import es.in2.issuer.backend.oidc4vci.application.workflow.GetCredentialIssuerMetadataWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
+import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,13 +37,15 @@ class CredentialIssuerMetadataControllerTest {
     @MockBean
     private GetCredentialIssuerMetadataWorkflow getCredentialIssuerMetadataWorkflow;
 
+    @MockBean
+    private IssuanceMetrics issuanceMetrics;
+
     @Test
     void testGetCredentialIssuer_Metadata_Success() {
         // Arrange
         CredentialIssuerMetadata expectedCredentialIssuerMetadata = CredentialIssuerMetadata.builder()
                 .credentialIssuer("https://issuer.example.com")
                 .credentialEndpoint("https://issuer.example.com/oid4vci/v1/credential")
-                .deferredCredentialEndpoint("https://issuer.example.com/oid4vci/v1/deferred-credential")
                 .credentialConfigurationsSupported(Map.of(
                         "LEARCredentialEmployee", CredentialIssuerMetadata.CredentialConfiguration.builder()
                                 .format("jwt_vc_json")

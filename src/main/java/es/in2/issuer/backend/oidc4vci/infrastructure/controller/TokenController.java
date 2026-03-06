@@ -6,11 +6,13 @@ import es.in2.issuer.backend.oidc4vci.domain.service.TokenService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
-
-import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.AUTHORIZATION_CODE_GRANT_TYPE;
 
 @RestController
 @RequestMapping("/oauth/token")
@@ -28,21 +30,7 @@ public class TokenController {
             @RequestHeader(value = "DPoP", required = false) String dpopHeader,
             ServerWebExchange exchange
     ) {
-        if (AUTHORIZATION_CODE_GRANT_TYPE.equals(tokenRequest.grantType())) {
-            String tokenEndpointUri = exchange.getRequest().getURI().toString();
-            return tokenService.generateTokenResponseForAuthorizationCode(
-                    tokenRequest.code(),
-                    tokenRequest.redirectUri(),
-                    tokenRequest.codeVerifier(),
-                    dpopHeader,
-                    tokenEndpointUri
-            );
-        }
-
-        return tokenService.generateTokenResponse(
-                tokenRequest.grantType(),
-                tokenRequest.preAuthorizedCode(),
-                tokenRequest.txCode(),
-                tokenRequest.refreshToken());
+        String tokenEndpointUri = exchange.getRequest().getURI().toString();
+        return tokenService.handleToken(tokenRequest, dpopHeader, tokenEndpointUri);
     }
 }

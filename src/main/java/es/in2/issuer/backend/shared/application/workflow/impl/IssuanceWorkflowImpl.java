@@ -6,8 +6,10 @@ import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedEx
 import es.in2.issuer.backend.shared.domain.exception.MissingIdTokenHeaderException;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
+import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
 import es.in2.issuer.backend.shared.domain.repository.CredentialOfferCacheRepository;
 import es.in2.issuer.backend.shared.domain.service.*;
+import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.config.security.service.IssuancePdpService;
@@ -15,6 +17,7 @@ import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 
 import java.util.UUID;
@@ -27,12 +30,12 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private final CredentialDataSetBuilderService credentialDataSetBuilderService;
-    private final CredentialProcedureService credentialProcedureService;
-    private final DeferredCredentialMetadataService deferredCredentialMetadataService;
+    private final ProcedureService procedureService;
     private final GrantsService grantsService;
     private final CredentialOfferService credentialOfferService;
     private final CredentialOfferCacheRepository credentialOfferCacheRepository;
-    private final DeliveryService deliveryService;
+    private final EmailService emailService;
+    private final AppConfig appConfig;
     private final IssuancePdpService issuancePdpService;
     private final PayloadSchemaValidator payloadSchemaValidator;
     private final CredentialProfileRegistry credentialProfileRegistry;
@@ -43,7 +46,6 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     public Mono<IssuanceResponse> execute(
             String processId,
             PreSubmittedCredentialDataRequest request,
-            String token,
             String idToken) {
 
         var sample = issuanceMetrics.startTimer();
@@ -52,7 +54,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         return validateRequest(request, idToken)
                 .then(payloadSchemaValidator.validate(configId, request.payload()))
-                .then(issuancePdpService.authorize(token, configId, request.payload(), idToken))
+                .then(issuancePdpService.authorize(configId, request.payload(), idToken))
                 .then(issueCredential(processId, request))
                 .doOnSuccess(r -> issuanceMetrics.recordSuccess(sample, configId, delivery))
                 .doOnError(e -> issuanceMetrics.recordError(sample, configId, delivery));
@@ -70,9 +72,6 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     }
 
     private Mono<Void> validateRequest(PreSubmittedCredentialDataRequest request, String idToken) {
-        if (request.email() == null || request.email().isBlank()) {
-            return Mono.error(new IllegalArgumentException("email is required"));
-        }
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(request.credentialConfigurationId());
         if (profile == null) {
             return Mono.error(new CredentialTypeUnsupportedException(
@@ -88,59 +87,77 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     /**
      * Orchestrates the issuance flow:
      * 1. Build credential dataset (business data only, no issuer/cnf/statusList)
-     * 2. Create procedure (DRAFT) with format, delivery, and refreshToken
-     * 3. Create deferred credential metadata
-     * 4. Generate both grants (pre-auth + auth-code)
-     * 5. Build and cache credential offer
-     * 6. Deliver (email or UI)
+     * 2. Create procedure (DRAFT) with format, delivery, and credentialOfferRefreshToken
+     * 3. Generate both grants (pre-auth + auth-code) — cache stores preAuthCode → {procedureId, txCode}
+     * 4. Build and cache credential offer
+     * 5. Deliver (email or UI)
      */
     private Mono<IssuanceResponse> issueCredential(String processId, PreSubmittedCredentialDataRequest request) {
         String procedureId = UUID.randomUUID().toString();
 
         return credentialDataSetBuilderService.buildDataSet(procedureId, request)
                 .flatMap(creationRequest ->
-                        credentialProcedureService.createCredentialProcedure(creationRequest)
+                        procedureService.createCredentialProcedure(creationRequest)
                                 .flatMap(savedProcedure -> {
                                     String savedProcedureId = savedProcedure.getProcedureId().toString();
-                                    String refreshToken = savedProcedure.getRefreshToken();
+                                    String credentialOfferRefreshToken = savedProcedure.getCredentialOfferRefreshToken();
                                     log.info("ProcessId: {} - Created procedure: {}", processId, savedProcedureId);
 
-                                    return deferredCredentialMetadataService.createDeferredCredentialMetadata(savedProcedureId)
-                                            .flatMap(transactionCode ->
-                                                    grantsService.generateGrants(processId, Mono.just(savedProcedureId))
-                                                            .flatMap(grantsResult ->
-                                                                    updatePreAuthAndBuildOffer(transactionCode, grantsResult, creationRequest)
-                                                                            .flatMap(credentialOfferUri ->
-                                                                                    credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(savedProcedureId)
-                                                                                            .flatMap(emailInfo -> deliveryService.deliver(
-                                                                                                    creationRequest.delivery(),
-                                                                                                    credentialOfferUri,
-                                                                                                    refreshToken,
-                                                                                                    emailInfo
-                                                                                            ))
-                                                                            )
-                                                            )
+                                    return grantsService.generateGrants(processId, Mono.just(savedProcedureId))
+                                            .flatMap(grantsResult ->
+                                                    buildOfferAndDeliver(grantsResult, creationRequest, savedProcedureId, credentialOfferRefreshToken)
                                             );
                                 })
                 );
     }
 
-    private Mono<String> updatePreAuthAndBuildOffer(
-            String transactionCode,
+    private Mono<IssuanceResponse> buildOfferAndDeliver(
             GrantsResult grantsResult,
-            CredentialProcedureCreationRequest creationRequest) {
+            CredentialProcedureCreationRequest creationRequest,
+            String procedureId,
+            String credentialOfferRefreshToken) {
 
-        return deferredCredentialMetadataService.updateAuthServerNonceByTransactionCode(
-                        transactionCode, grantsResult.grants().preAuthorizedCode().preAuthorizedCode()
-                )
-                .then(credentialOfferService.buildCredentialOffer(
+        return credentialOfferService.buildCredentialOffer(
                         creationRequest.credentialType(),
                         grantsResult.grants(),
                         creationRequest.email(),
                         grantsResult.txCodeValue()
-                ))
-                .flatMap(credentialOfferCacheRepository::saveCustomCredentialOffer)
-                .flatMap(credentialOfferService::createCredentialOfferUriResponse);
+                )
+                .flatMap(credentialOfferCacheRepository::saveCredentialOffer)
+                .flatMap(credentialOfferService::createCredentialOfferUriResponse)
+                .flatMap(credentialOfferUri -> {
+                    if (DELIVERY_UI.equals(creationRequest.delivery())) {
+                        log.info("Delivering credential offer via UI for procedure: {}", procedureId);
+                        return Mono.just(IssuanceResponse.builder()
+                                .credentialOfferUri(credentialOfferUri)
+                                .build());
+                    }
+
+                    log.info("Delivering credential offer via email for procedure: {}", procedureId);
+                    return procedureService.getCredentialOfferEmailInfoByProcedureId(procedureId)
+                            .flatMap(emailInfo -> {
+                                String refreshUrl = buildRefreshUrl(credentialOfferRefreshToken);
+                                return emailService.sendCredentialOfferEmail(
+                                                emailInfo.email(),
+                                                CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
+                                                credentialOfferUri,
+                                                refreshUrl,
+                                                appConfig.getWalletFrontendUrl(),
+                                                emailInfo.organization()
+                                        )
+                                        .doOnSuccess(v -> log.info("Credential offer email sent to: {}", emailInfo.email()))
+                                        .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE))
+                                        .thenReturn(IssuanceResponse.builder().build());
+                            });
+                });
+    }
+
+    private String buildRefreshUrl(String credentialOfferRefreshToken) {
+        return UriComponentsBuilder
+                .fromUriString(appConfig.getIssuerBackendUrl())
+                .path("/credential-offer/refresh/" + credentialOfferRefreshToken)
+                .build()
+                .toUriString();
     }
 
 }

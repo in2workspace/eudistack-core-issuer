@@ -6,11 +6,9 @@ import reactor.core.publisher.Mono;
 
 public interface AccessTokenService {
     Mono<String> getCleanBearerToken(String authorizationHeader);
-    Mono<String> getUserId(String authorizationHeader);
     Mono<String> getOrganizationId(String authorizationHeader);
     Mono<OrgContext> getOrganizationContext(String authorizationHeader);
     Mono<String> getOrganizationIdFromCurrentSession();
-    Mono<String> getMandateeEmail(String authorizationHeader);
-    Mono<AccessTokenContext> validateAndResolveProcedure(String authorizationHeader);
+    Mono<AccessTokenContext> resolveAccessTokenContext(String authorizationHeader);
 
 }

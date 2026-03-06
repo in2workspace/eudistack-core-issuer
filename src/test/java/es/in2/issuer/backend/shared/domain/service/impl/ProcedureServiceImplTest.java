@@ -36,7 +36,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-class CredentialProcedureServiceImplTest {
+class ProcedureServiceImplTest {
 
     // Single source of truth for admin org id in tests
     private static final String ADMIN_ORG_ID = "IN2_ADMIN_ORG_ID_FOR_TEST";
@@ -57,7 +57,7 @@ class CredentialProcedureServiceImplTest {
     private CredentialProfileRegistry credentialProfileRegistry;
 
     @InjectMocks
-    private CredentialProcedureServiceImpl credentialProcedureService;
+    private ProcedureServiceImpl procedureService;
 
     @BeforeEach
     void setUp() {
@@ -100,7 +100,6 @@ class CredentialProcedureServiceImplTest {
                 .validUntil(expectedValidUntil)
                 .email(expectedEmail)
                 .delivery("push")
-                .notificationId(UUID.randomUUID())
                 .build();
 
         // Mock
@@ -108,7 +107,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(Mono.just(savedCredentialProcedure));
 
         // When
-        Mono<CredentialProcedure> result = credentialProcedureService.createCredentialProcedure(request);
+        Mono<CredentialProcedure> result = procedureService.createCredentialProcedure(request);
 
         // Then
         StepVerifier.create(result)
@@ -140,7 +139,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(credentialNode);
 
         // When
-        Mono<String> result = credentialProcedureService.getCredentialTypeByProcedureId(procedureId);
+        Mono<String> result = procedureService.getCredentialTypeByProcedureId(procedureId);
 
         // Then
         StepVerifier.create(result)
@@ -166,7 +165,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(credentialNode);
 
         // When
-        Mono<String> result = credentialProcedureService.getCredentialTypeByProcedureId(procedureId);
+        Mono<String> result = procedureService.getCredentialTypeByProcedureId(procedureId);
 
         // Then
         StepVerifier.create(result)
@@ -192,7 +191,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(credentialNode);
 
         // When
-        Mono<String> result = credentialProcedureService.getCredentialTypeByProcedureId(procedureId);
+        Mono<String> result = procedureService.getCredentialTypeByProcedureId(procedureId);
 
         // Then
         StepVerifier.create(result)
@@ -217,7 +216,7 @@ class CredentialProcedureServiceImplTest {
                 .thenThrow(new RuntimeException("Invalid JSON"));
 
         // When
-        Mono<String> result = credentialProcedureService.getCredentialTypeByProcedureId(procedureId);
+        Mono<String> result = procedureService.getCredentialTypeByProcedureId(procedureId);
 
         // Then
         StepVerifier.create(result)
@@ -244,7 +243,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(Mono.just(existingCredentialProcedure));
 
         // When
-        Mono<Void> result = credentialProcedureService.updateCredentialDataSetByProcedureId(procedureId, newCredential, newFormat);
+        Mono<Void> result = procedureService.updateCredentialDataSetByProcedureId(procedureId, newCredential, newFormat);
 
         // Then
         StepVerifier.create(result).verifyComplete();
@@ -268,7 +267,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(Mono.empty());
 
         // When
-        Mono<Void> result = credentialProcedureService.updateCredentialDataSetByProcedureId(procedureId, newCredential, newFormat);
+        Mono<Void> result = procedureService.updateCredentialDataSetByProcedureId(procedureId, newCredential, newFormat);
 
         // Then
         StepVerifier.create(result).verifyComplete();
@@ -291,7 +290,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(Mono.just(credentialProcedure));
 
         // When
-        Mono<String> result = credentialProcedureService.getCredentialDataSetByProcedureId(procedureId);
+        Mono<String> result = procedureService.getCredentialDataSetByProcedureId(procedureId);
 
         // Then
         StepVerifier.create(result)
@@ -309,7 +308,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(Mono.just(expectedStatus.name()));
 
         // When
-        Mono<String> result = credentialProcedureService.getCredentialStatusByProcedureId(procedureId);
+        Mono<String> result = procedureService.getCredentialStatusByProcedureId(procedureId);
 
         // Then
         StepVerifier.create(result)
@@ -339,7 +338,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(Flux.fromIterable(List.of(credentialProcedure1, credentialProcedure2)));
 
         // When / Then
-        StepVerifier.create(credentialProcedureService.getAllIssuedCredentialByOrganizationIdentifier(organizationIdentifier))
+        StepVerifier.create(procedureService.getAllIssuedCredentialByOrganizationIdentifier(organizationIdentifier))
                 .expectNext(credential1DataSet)
                 .expectNext(credential2DataSet)
                 .verifyComplete();
@@ -355,7 +354,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(Flux.empty());
 
         // When / Then
-        StepVerifier.create(credentialProcedureService.getAllIssuedCredentialByOrganizationIdentifier(organizationIdentifier))
+        StepVerifier.create(procedureService.getAllIssuedCredentialByOrganizationIdentifier(organizationIdentifier))
                 .expectNextCount(0)
                 .verifyComplete();
     }
@@ -386,7 +385,7 @@ class CredentialProcedureServiceImplTest {
         when(objectMapper.readTree(credentialDataSet)).thenReturn(credentialNode);
 
         // When
-        Mono<CredentialDetails> result = credentialProcedureService
+        Mono<CredentialDetails> result = procedureService
                 .getProcedureDetailByProcedureIdAndOrganizationId(organizationIdentifier, procedureId, false);
 
         // Then
@@ -427,7 +426,7 @@ class CredentialProcedureServiceImplTest {
         when(objectMapper.readTree(credentialDataSet)).thenReturn(credentialNode);
 
         // When
-        Mono<CredentialDetails> result = credentialProcedureService
+        Mono<CredentialDetails> result = procedureService
                 .getProcedureDetailByProcedureIdAndOrganizationId(organizationIdentifier, procedureId, true);
 
         // Then
@@ -454,7 +453,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(Mono.empty());
 
         // When
-        Mono<CredentialDetails> result = credentialProcedureService
+        Mono<CredentialDetails> result = procedureService
                 .getProcedureDetailByProcedureIdAndOrganizationId(organizationIdentifier, procedureId, false);
 
         // Then
@@ -476,7 +475,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(Mono.empty());
 
         // When
-        Mono<CredentialDetails> result = credentialProcedureService
+        Mono<CredentialDetails> result = procedureService
                 .getProcedureDetailByProcedureIdAndOrganizationId(organizationIdentifier, procedureId, true);
 
         // Then
@@ -503,7 +502,7 @@ class CredentialProcedureServiceImplTest {
                 .thenThrow(new JsonParseException(null, "Error parsing credential"));
 
         // When
-        Mono<CredentialDetails> result = credentialProcedureService
+        Mono<CredentialDetails> result = procedureService
                 .getProcedureDetailByProcedureIdAndOrganizationId(organizationIdentifier, procedureId, false);
 
         // Then
@@ -523,7 +522,7 @@ class CredentialProcedureServiceImplTest {
         when(objectMapper.readTree(credentialDataSet)).thenReturn(expectedNode);
 
         // When
-        Mono<JsonNode> result = credentialProcedureService.getCredentialNode(cp);
+        Mono<JsonNode> result = procedureService.getCredentialNode(cp);
 
         // Then
         StepVerifier.create(result)
@@ -537,7 +536,7 @@ class CredentialProcedureServiceImplTest {
     @Test
     void getCredentialNode_shouldError_whenCredentialProcedureIsNull() {
         // When
-        Mono<JsonNode> result = credentialProcedureService.getCredentialNode(null);
+        Mono<JsonNode> result = procedureService.getCredentialNode(null);
 
         // Then
         StepVerifier.create(result)
@@ -553,7 +552,7 @@ class CredentialProcedureServiceImplTest {
         cp.setCredentialDataSet(null);
 
         // When
-        Mono<JsonNode> result = credentialProcedureService.getCredentialNode(cp);
+        Mono<JsonNode> result = procedureService.getCredentialNode(cp);
 
         // Then
         StepVerifier.create(result)
@@ -573,7 +572,7 @@ class CredentialProcedureServiceImplTest {
                 .when(objectMapper).readTree(invalidJson);
 
         // When
-        Mono<JsonNode> result = credentialProcedureService.getCredentialNode(cp);
+        Mono<JsonNode> result = procedureService.getCredentialNode(cp);
 
         // Then
         StepVerifier.create(result)
@@ -618,7 +617,7 @@ class CredentialProcedureServiceImplTest {
         }
 
         // When
-        Mono<CredentialProcedures> mono = credentialProcedureService.getAllProceduresVisibleFor(adminOrg, true);
+        Mono<CredentialProcedures> mono = procedureService.getAllProceduresVisibleFor(adminOrg, true);
 
         // Then
         StepVerifier.create(mono)
@@ -677,7 +676,7 @@ class CredentialProcedureServiceImplTest {
                         .build())
         );
 
-        CredentialProcedureServiceImpl spyService = spy(credentialProcedureService);
+        ProcedureServiceImpl spyService = spy(procedureService);
 
         doReturn(Mono.just(expected))
                 .when(spyService).getAllProceduresBasicInfoByOrganizationId(orgId);
@@ -708,7 +707,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(Flux.empty());
 
         // When
-        Mono<CredentialProcedures> mono = credentialProcedureService.getAllProceduresVisibleFor(ADMIN_ORG_ID, true);
+        Mono<CredentialProcedures> mono = procedureService.getAllProceduresVisibleFor(ADMIN_ORG_ID, true);
 
         // Then
         StepVerifier.create(mono)
@@ -755,7 +754,7 @@ class CredentialProcedureServiceImplTest {
         }
 
         // When
-        Mono<CredentialProcedures> mono = credentialProcedureService.getAllProceduresBasicInfoByOrganizationId(orgId);
+        Mono<CredentialProcedures> mono = procedureService.getAllProceduresBasicInfoByOrganizationId(orgId);
 
         // Then
         StepVerifier.create(mono)
@@ -794,7 +793,7 @@ class CredentialProcedureServiceImplTest {
                 .thenReturn(Flux.empty());
 
         // When
-        Mono<CredentialProcedures> mono = credentialProcedureService.getAllProceduresBasicInfoByOrganizationId(orgId);
+        Mono<CredentialProcedures> mono = procedureService.getAllProceduresBasicInfoByOrganizationId(orgId);
 
         // Then
         StepVerifier.create(mono)
@@ -828,7 +827,7 @@ class CredentialProcedureServiceImplTest {
 
         // when
         Mono<CredentialOfferEmailNotificationInfo> mono =
-                credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(procedureId);
+                procedureService.getCredentialOfferEmailInfoByProcedureId(procedureId);
 
         // then
         StepVerifier.create(mono)

@@ -2,23 +2,26 @@ package es.in2.issuer.backend.statuslist.domain.spi;
 
 
 import es.in2.issuer.backend.statuslist.domain.model.StatusListEntry;
+import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
 import reactor.core.publisher.Mono;
 
 /**
- * Internal SPI to manage Status Lists with pluggable implementations
- * (Bitstring now, SD-JWT in the future).
+ * Internal SPI to manage Status Lists.
+ * Supports both W3C BitstringStatusList and Token Status List (draft-ietf-oauth-status-list).
  */
 public interface StatusListProvider {
 
     /**
-     * Allocates a new CredentialStatus (credentialStatus pointer) for a credential issuance flow.
-     * The implementation is responsible for selecting/creating a Status List as needed.
+     * Allocates a new status entry for a credential issuance flow.
+     * The format determines which type of status list to use:
+     * - BITSTRING_VC: W3C BitstringStatusListCredential
+     * - TOKEN_JWT: Token Status List (draft-ietf-oauth-status-list)
      */
-    Mono<StatusListEntry> allocateEntry(StatusPurpose purpose, String procedureId, String token);
+    Mono<StatusListEntry> allocateEntry(StatusPurpose purpose, StatusListFormat format, String procedureId, String token);
 
     /**
-     * Returns de VC JWT of the StatusListCredential
+     * Returns the signed status list credential (JWT) for the given list.
      */
     Mono<String> getSignedStatusListCredential(Long listId);
 

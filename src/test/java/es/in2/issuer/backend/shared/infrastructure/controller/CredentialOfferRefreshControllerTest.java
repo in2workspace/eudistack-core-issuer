@@ -24,22 +24,22 @@ class CredentialOfferRefreshControllerTest {
 
     @Test
     void shouldReturnSuccessViewOnRefresh() {
-        String refreshToken = "valid-token";
-        when(credentialOfferRefreshWorkflow.refreshCredentialOffer(refreshToken))
+        String credentialOfferRefreshToken = "valid-token";
+        when(credentialOfferRefreshWorkflow.refreshCredentialOffer(credentialOfferRefreshToken))
                 .thenReturn(Mono.empty());
 
-        StepVerifier.create(controller.refreshCredentialOffer(refreshToken))
+        StepVerifier.create(controller.refreshCredentialOffer(credentialOfferRefreshToken))
                 .assertNext(rendering -> assertEquals("credential-offer-refresh-success", extractViewName(rendering)))
                 .verifyComplete();
     }
 
     @Test
     void shouldReturnErrorViewOnFailure() {
-        String refreshToken = "invalid-token";
-        when(credentialOfferRefreshWorkflow.refreshCredentialOffer(refreshToken))
+        String credentialOfferRefreshToken = "invalid-token";
+        when(credentialOfferRefreshWorkflow.refreshCredentialOffer(credentialOfferRefreshToken))
                 .thenReturn(Mono.error(new RuntimeException("Token not found")));
 
-        StepVerifier.create(controller.refreshCredentialOffer(refreshToken))
+        StepVerifier.create(controller.refreshCredentialOffer(credentialOfferRefreshToken))
                 .assertNext(rendering -> assertEquals("credential-offer-refresh-error", extractViewName(rendering)))
                 .verifyComplete();
     }

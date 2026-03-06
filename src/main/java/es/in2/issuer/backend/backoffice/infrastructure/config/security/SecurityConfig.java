@@ -36,7 +36,6 @@ public class SecurityConfig {
                         // OID4VCI paths
                         OAUTH_TOKEN_PATH,
                         OID4VCI_CREDENTIAL_PATH,
-                        OID4VCI_DEFERRED_CREDENTIAL_PATH,
                         OID4VCI_NOTIFICATION_PATH,
                         // Backoffice paths
                         BACKOFFICE_PATH,
@@ -91,6 +90,7 @@ public class SecurityConfig {
                         // Backoffice paths
                         BACKOFFICE_PATH,
                         STATUS_LIST_PATH,
+                        TOKEN_STATUS_LIST_PATH,
                         SIGNING_PROVIDERS_PATH,
                         SIGNING_CONFIG_PATH,
                         HEALTH_PATH,
@@ -110,6 +110,7 @@ public class SecurityConfig {
                                 PROMETHEUS_PATH,
                                 SPRINGDOC_PATH,
                                 STATUS_LIST_PATH,
+                                TOKEN_STATUS_LIST_PATH,
                                 SIGNING_PROVIDERS_PATH,
                                 BACKOFFICE_STATUS_CREDENTIALS
                         ).permitAll()

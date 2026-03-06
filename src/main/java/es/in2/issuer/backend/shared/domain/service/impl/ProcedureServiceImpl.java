@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
+import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
 import es.in2.issuer.backend.shared.domain.exception.NoCredentialFoundException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
@@ -13,7 +14,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.Credenti
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
-import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
+import es.in2.issuer.backend.shared.domain.service.ProcedureService;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.repository.CredentialProcedureRepository;
 import lombok.RequiredArgsConstructor;
@@ -32,7 +33,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class CredentialProcedureServiceImpl implements CredentialProcedureService {
+public class ProcedureServiceImpl implements ProcedureService {
 
     private final IssuerProperties appConfig;
     private static final String UPDATED_CREDENTIAL = "Updated credential";
@@ -54,7 +55,7 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
                 .validUntil(request.validUntil())
                 .email(request.email())
                 .delivery(request.delivery())
-                .refreshToken(UUID.randomUUID().toString())
+                .credentialOfferRefreshToken(UUID.randomUUID().toString())
                 .build();
         return r2dbcEntityTemplate.insert(credentialProcedure)
                 .doOnSuccess(saved -> log.info("Created credential procedure: {}", saved.getProcedureId()))
@@ -132,6 +133,7 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
     public Mono<Void> updateCredentialDataSetByProcedureId(String procedureId, String credentialDataSet, String format) {
         return credentialProcedureRepository.findById(UUID.fromString(procedureId))
                 .flatMap(credentialProcedure -> {
+                    validateTransition(credentialProcedure.getCredentialStatus(), CredentialStatusEnum.ISSUED);
                     credentialProcedure.setCredentialDataSet(credentialDataSet);
                     credentialProcedure.setCredentialStatus(CredentialStatusEnum.ISSUED);
                     credentialProcedure.setCredentialFormat(format);
@@ -146,6 +148,7 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
     public Mono<Void> updateCredentialDataSetByProcedureId(String procedureId, String credentialDataSet) {
         return credentialProcedureRepository.findById(UUID.fromString(procedureId))
                 .flatMap(credentialProcedure -> {
+                    validateTransition(credentialProcedure.getCredentialStatus(), CredentialStatusEnum.ISSUED);
                     credentialProcedure.setCredentialDataSet(credentialDataSet);
                     credentialProcedure.setCredentialStatus(CredentialStatusEnum.ISSUED);
 
@@ -205,6 +208,7 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
     public Mono<Void> updateCredentialProcedureCredentialStatusToValidByProcedureId(String procedureId) {
         return credentialProcedureRepository.findByProcedureId(UUID.fromString(procedureId))
                 .flatMap(credentialProcedure -> {
+                    validateTransition(credentialProcedure.getCredentialStatus(), CredentialStatusEnum.VALID);
                     log.debug("Updating credential status to VALID for procedureId: {}", procedureId);
                     credentialProcedure.setCredentialStatus(CredentialStatusEnum.VALID);
                     return credentialProcedureRepository.save(credentialProcedure)
@@ -215,10 +219,24 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
 
     @Override
     public Mono<Void> updateCredentialProcedureCredentialStatusToRevoke(CredentialProcedure credentialProcedure) {
+        validateTransition(credentialProcedure.getCredentialStatus(), CredentialStatusEnum.REVOKED);
         credentialProcedure.setCredentialStatus(CredentialStatusEnum.REVOKED);
         return credentialProcedureRepository.save(credentialProcedure)
                 .doOnSuccess(result -> log.info(UPDATED_CREDENTIAL))
                 .then();
+    }
+
+    @Override
+    public Mono<Void> withdrawCredentialProcedure(String procedureId) {
+        return credentialProcedureRepository.findByProcedureId(UUID.fromString(procedureId))
+                .flatMap(credentialProcedure -> {
+                    validateTransition(credentialProcedure.getCredentialStatus(), CredentialStatusEnum.WITHDRAWN);
+                    log.debug("Withdrawing credential procedure: {}", procedureId);
+                    credentialProcedure.setCredentialStatus(CredentialStatusEnum.WITHDRAWN);
+                    return credentialProcedureRepository.save(credentialProcedure)
+                            .doOnSuccess(result -> log.info("Credential procedure withdrawn: {}", procedureId))
+                            .then();
+                });
     }
 
     @Override
@@ -282,24 +300,13 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
     }
 
     @Override
-    public Mono<CredentialProcedure> getCredentialProcedureById(String procedureId) {
+    public Mono<CredentialProcedure> getProcedureById(String procedureId) {
         return credentialProcedureRepository.findByProcedureId(UUID.fromString(procedureId));
     }
 
     @Override
-    public Mono<CredentialProcedure> getCredentialProcedureByNotificationId(String notificationId) {
-        return credentialProcedureRepository.findByNotificationId(UUID.fromString(notificationId));
-    }
-
-    @Override
-    public Mono<String> getNotificationIdByProcedureId(String procedureId) {
-        return credentialProcedureRepository.findByProcedureId(UUID.fromString(procedureId))
-                .map(cp -> cp.getNotificationId().toString());
-    }
-
-    @Override
-    public Mono<CredentialProcedure> getCredentialProcedureByRefreshToken(String refreshToken) {
-        return credentialProcedureRepository.findByRefreshToken(refreshToken);
+    public Mono<CredentialProcedure> getProcedureByCredentialOfferRefreshToken(String credentialOfferRefreshToken) {
+        return credentialProcedureRepository.findByCredentialOfferRefreshToken(credentialOfferRefreshToken);
     }
 
     @Override
@@ -368,6 +375,12 @@ public class CredentialProcedureServiceImpl implements CredentialProcedureServic
             return profile.credentialType();
         }
         return credentialConfigurationId;
+    }
+
+    private void validateTransition(CredentialStatusEnum from, CredentialStatusEnum to) {
+        if (!from.canTransitionTo(to)) {
+            throw new InvalidCredentialStatusTransitionException(from, to);
+        }
     }
 
 }

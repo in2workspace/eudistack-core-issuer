@@ -3,6 +3,7 @@ package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 import es.in2.issuer.backend.oidc4vci.domain.model.NonceResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -20,6 +21,7 @@ public class NonceServiceImpl implements NonceService {
     private final CacheStore<String> nonceCacheStore;
 
     @Override
+    @Observed(name = "oid4vci.nonce", contextualName = "generate-nonce")
     public Mono<NonceResponse> generateNonce() {
         String nonce = UUID.randomUUID().toString();
 

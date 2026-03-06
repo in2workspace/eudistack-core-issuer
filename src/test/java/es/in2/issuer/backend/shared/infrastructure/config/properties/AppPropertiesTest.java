@@ -23,6 +23,12 @@ class AppPropertiesTest {
         AppProperties.KnowledgeBase knowledgeBase =
                 new AppProperties.KnowledgeBase(uploadGuideUrl, walletGuideUrl);
 
+        AppProperties.ManagementToken managementToken =
+                new AppProperties.ManagementToken(
+                        "vc.credentialSubject.mandate.mandator.organizationIdentifier",
+                        "Onboarding",
+                        "Execute");
+
         // Act
         AppProperties appProperties = new AppProperties(
                 appUrl,
@@ -33,7 +39,8 @@ class AppPropertiesTest {
                 walletFrontendUrl,
                 defaultLang,
                 adminOrganizationId,
-                sysTenant
+                sysTenant,
+                managementToken
         );
 
         // Assert
@@ -46,6 +53,7 @@ class AppPropertiesTest {
         assertEquals(defaultLang, appProperties.defaultLang());
         assertEquals(adminOrganizationId, appProperties.adminOrganizationId());
         assertEquals(sysTenant, appProperties.sysTenant());
+        assertEquals(managementToken, appProperties.managementToken());
     }
 
     @Test

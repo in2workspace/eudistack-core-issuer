@@ -10,6 +10,7 @@ import java.time.Instant;
 public record StatusList(
         @Id Long id,
         @Column("purpose") String purpose,
+        @Column("format") String format,
         @Column("encoded_list") String encodedList,
         @Column("signed_credential") String signedCredential,
         @Column("created_at") Instant createdAt,

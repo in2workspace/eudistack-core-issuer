@@ -4,6 +4,6 @@ import reactor.core.publisher.Mono;
 
 public interface CredentialOfferRefreshWorkflow {
 
-    Mono<Void> refreshCredentialOffer(String refreshToken);
+    Mono<Void> refreshCredentialOffer(String credentialOfferRefreshToken);
 
 }

@@ -32,7 +32,6 @@ class GetCredentialIssuerMetadataWorkflowImplTest {
         CredentialIssuerMetadata expectedCredentialIssuerMetadata = CredentialIssuerMetadata.builder()
                 .credentialIssuer("https://issuer.example.com")
                 .credentialEndpoint("https://issuer.example.com/oid4vci/v1/credential")
-                .deferredCredentialEndpoint("https://issuer.example.com/oid4vci/v1/deferred-credential")
                 .credentialConfigurationsSupported(Map.of(
                         "LEARCredentialEmployee", CredentialIssuerMetadata.CredentialConfiguration.builder()
                                 .format("jwt_vc_json")

@@ -2,8 +2,9 @@ package es.in2.issuer.backend.shared.application.workflow;
 
 import reactor.core.publisher.Mono;
 
-public interface CredentialSignerWorkflow {
-    Mono<String> signAndUpdateCredentialByProcedureId(String authorizationHeader, String procedureId, String format);
+import java.util.Map;
 
-    Mono<Void> retrySignUnsignedCredential(String processId, String authorizationHeader, String procedureId);
+public interface CredentialSignerWorkflow {
+    Mono<String> signCredential(String token, String enrichedDataSet, String credentialType,
+                                String format, Map<String, Object> cnf, String procedureId, String email);
 }

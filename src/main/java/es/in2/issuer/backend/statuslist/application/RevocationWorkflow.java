@@ -7,7 +7,7 @@ import es.in2.issuer.backend.statuslist.domain.service.LegacyCredentialStatusRev
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
-import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
+import es.in2.issuer.backend.shared.domain.service.ProcedureService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.statuslist.application.policies.StatusListPdpService;
 import es.in2.issuer.backend.statuslist.domain.exception.CredentialDecodedInvalidJsonException;
@@ -30,7 +30,7 @@ public class RevocationWorkflow {
     private final StatusListProvider statusListProvider;
     private final AccessTokenService accessTokenService;
     private final StatusListPdpService statusListPdpService;
-    private final CredentialProcedureService credentialProcedureService;
+    private final ProcedureService procedureService;
     private final ObjectMapper objectMapper;
     private final EmailService emailService;
     private final LegacyCredentialStatusRevocationService legacyCredentialStatusRevocationService;
@@ -82,7 +82,7 @@ public class RevocationWorkflow {
                         processId, action, credentialProcedureId, listId
                 ))
                 .flatMap(token ->
-                        credentialProcedureService.getCredentialProcedureById(credentialProcedureId)
+                        procedureService.getProcedureById(credentialProcedureId)
                                 .doOnSuccess(p -> log.debug(
                                         "processId={} action={} step=procedureLoaded procedureId={} credentialStatus={}",
                                         processId, action, credentialProcedureId, p != null ? p.getCredentialStatus() : null
@@ -104,14 +104,14 @@ public class RevocationWorkflow {
                     );
 
                     return routeRevocation(processId, credentialProcedureId, listId, credentialStatus, ctx.token)
-                            .then(credentialProcedureService.updateCredentialProcedureCredentialStatusToRevoke(ctx.procedure)
+                            .then(procedureService.updateCredentialProcedureCredentialStatusToRevoke(ctx.procedure)
                                     .doOnSuccess(v -> log.info(
                                             "processId={} action={} step=procedureUpdated procedureId={}",
                                             processId, action, credentialProcedureId
                                     ))
                             )
-                            .then(credentialProcedureService.getCredentialId(ctx.procedure)
-                                    .zipWith(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(credentialProcedureId))
+                            .then(procedureService.getCredentialId(ctx.procedure)
+                                    .zipWith(procedureService.getCredentialOfferEmailInfoByProcedureId(credentialProcedureId))
                                     .flatMap(idAndInfo -> emailService.sendCredentialStatusChangeNotification(
                                             idAndInfo.getT2().email(),
                                             idAndInfo.getT2().organization(),

@@ -26,7 +26,6 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -207,7 +206,7 @@ class GenericCredentialBuilderTest {
                 .id("did:key:issuer123")
                 .build();
 
-        when(issuerFactory.createDetailedIssuerAndNotifyOnError(anyString(), anyString()))
+        when(issuerFactory.createDetailedIssuer())
                 .thenReturn(Mono.just(detailedIssuer));
 
         StepVerifier.create(genericCredentialBuilder.bindIssuer(profile, credential, "proc-1", "admin@example.com"))
@@ -226,7 +225,7 @@ class GenericCredentialBuilderTest {
 
         SimpleIssuer simpleIssuer = new SimpleIssuer("did:key:simple-issuer");
 
-        when(issuerFactory.createSimpleIssuerAndNotifyOnError(anyString(), anyString()))
+        when(issuerFactory.createSimpleIssuer())
                 .thenReturn(Mono.just(simpleIssuer));
 
         StepVerifier.create(genericCredentialBuilder.bindIssuer(profile, credential, "proc-2", "admin@example.com"))

@@ -68,5 +68,7 @@ public class EndpointsConstants {
     //status list Endpoints
     public static final String STATUS_LIST_BASE = "/w3c/v1/credentials/status";
     public static final String STATUS_LIST_PATH = STATUS_LIST_BASE + "/**";
+    public static final String TOKEN_STATUS_LIST_BASE = "/token/v1/credentials/status";
+    public static final String TOKEN_STATUS_LIST_PATH = TOKEN_STATUS_LIST_BASE + "/**";
 
 }

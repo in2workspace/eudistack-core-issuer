@@ -1,22 +1,28 @@
 package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.JWSObject;
 import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.*;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.BindingInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
+import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuerMetadataService;
-import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
-import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
+import es.in2.issuer.backend.shared.domain.service.ProcedureService;
 import es.in2.issuer.backend.shared.domain.service.ProofValidationService;
-import es.in2.issuer.backend.shared.domain.service.VerifiableCredentialService;
+import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
+import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
+import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
+import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
 import io.micrometer.observation.annotation.Observed;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -26,82 +32,145 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-import static es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum.PEND_SIGNATURE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow {
 
-    private final VerifiableCredentialService verifiableCredentialService;
     private final CredentialSignerWorkflow credentialSignerWorkflow;
     private final ProofValidationService proofValidationService;
-    private final CredentialProcedureService credentialProcedureService;
-    private final DeferredCredentialMetadataService deferredCredentialMetadataService;
+    private final ProcedureService procedureService;
     private final CredentialIssuerMetadataService credentialIssuerMetadataService;
-    private final ObjectMapper objectMapper;
+    private final GenericCredentialBuilder genericCredentialBuilder;
+    private final CredentialProfileRegistry credentialProfileRegistry;
+    private final StatusListWorkflow statusListWorkflow;
+    private final CacheStore<String> enrichmentCacheStore;
+    private final CacheStore<String> notificationCacheStore;
 
+    public Oid4VciCredentialWorkflowImpl(
+            CredentialSignerWorkflow credentialSignerWorkflow,
+            ProofValidationService proofValidationService,
+            ProcedureService procedureService,
+            CredentialIssuerMetadataService credentialIssuerMetadataService,
+            GenericCredentialBuilder genericCredentialBuilder,
+            CredentialProfileRegistry credentialProfileRegistry,
+            StatusListWorkflow statusListWorkflow,
+            @Qualifier("enrichmentCacheStore") CacheStore<String> enrichmentCacheStore,
+            @Qualifier("notificationCacheStore") CacheStore<String> notificationCacheStore
+    ) {
+        this.credentialSignerWorkflow = credentialSignerWorkflow;
+        this.proofValidationService = proofValidationService;
+        this.procedureService = procedureService;
+        this.credentialIssuerMetadataService = credentialIssuerMetadataService;
+        this.genericCredentialBuilder = genericCredentialBuilder;
+        this.credentialProfileRegistry = credentialProfileRegistry;
+        this.statusListWorkflow = statusListWorkflow;
+        this.enrichmentCacheStore = enrichmentCacheStore;
+        this.notificationCacheStore = notificationCacheStore;
+    }
+
+    /**
+     * OID4VCI credential issuance flow:
+     * 1. Load procedure (verify DRAFT status)
+     * 2. Validate proof if required → extract BindingInfo (cnf)
+     * 3. Enrich credential in memory (bind issuer) — NOT persisted to DB
+     * 4. Allocate status list entry (revocation) and inject credentialStatus
+     * 5. Cache enriched dataSet for later persistence on credential_accepted
+     * 6. Sign credential (builds JWT/SD-JWT payload with cnf, signs)
+     * 7. Generate notification_id, cache mapping notificationId → procedureId
+     * 8. Return CredentialResponse with signed credential + notification_id
+     *
+     * Status stays DRAFT until wallet confirms via credential_accepted notification.
+     */
     @Override
     @Observed(name = "oid4vci.generate-vc-response", contextualName = "oid4vci-generate-vc-response")
-    public Mono<CredentialResponse> generateVerifiableCredentialResponse(
+    public Mono<CredentialResponse> createCredentialResponse(
             String processId,
             CredentialRequest credentialRequest,
             AccessTokenContext accessTokenContext) {
 
-        final String nonce = accessTokenContext.jti();
         final String procedureId = accessTokenContext.procedureId();
 
-        return credentialProcedureService.getCredentialProcedureById(procedureId)
-                .zipWhen(proc -> credentialIssuerMetadataService.getCredentialIssuerMetadata(processId))
-                .flatMap(tuple -> {
-                    CredentialProcedure proc = tuple.getT1();
-                    CredentialIssuerMetadata md = tuple.getT2();
-                    String email = proc.getEmail();
+        return procedureService.getProcedureById(procedureId)
+                .switchIfEmpty(Mono.error(new InvalidTokenException("Procedure not found: " + procedureId)))
+                .flatMap(proc -> validateProcedureState(proc)
+                        .then(Mono.fromCallable(credentialIssuerMetadataService::getCredentialIssuerMetadata))
+                        .flatMap(metadata -> {
+                            log.info("[{}] Processing credential request: procedureId={}, type={}, format={}",
+                                    processId, procedureId, proc.getCredentialType(), proc.getCredentialFormat());
 
-                    log.info("[{}] Loaded procedure: nonce={}, procedureId={}, type={}",
-                            processId, nonce, procedureId, proc.getCredentialType());
-
-                    Mono<BindingInfo> bindingInfoMono = validateAndDetermineBindingInfo(proc, md, credentialRequest)
-                            .doOnNext(bi -> log.info("[{}] Binding: subjectId={}", processId, bi.subjectId()));
-
-                    Mono<CredentialResponse> vcMono = bindingInfoMono
-                            .flatMap(bi -> storeCnfIfPresent(procedureId, bi)
-                                    .then(verifiableCredentialService.buildCredentialResponse(
-                                            processId, bi.subjectId(), nonce, email, procedureId
-                                    )))
-                            .switchIfEmpty(Mono.defer(() -> verifiableCredentialService.buildCredentialResponse(
-                                    processId, null, nonce, email, procedureId
-                            )));
-
-                    return vcMono.flatMap(cr ->
-                            signAndDeliverCredential(processId, cr, proc, accessTokenContext.rawToken())
-                    );
-                });
+                            return validateAndDetermineBindingInfo(proc, metadata, credentialRequest)
+                                    .defaultIfEmpty(new BindingInfo(null, null))
+                                    .flatMap(bindingInfo ->
+                                            enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken()));
+                        })
+                );
     }
 
-    @Override
-    @Observed(name = "oid4vci.generate-deferred-response", contextualName = "oid4vci-generate-deferred-response")
-    public Mono<CredentialResponse> generateVerifiableCredentialDeferredResponse(
+    private Mono<Void> validateProcedureState(CredentialProcedure proc) {
+        if (proc.getCredentialStatus() != CredentialStatusEnum.DRAFT) {
+            return Mono.error(new InvalidCredentialFormatException(
+                    "Credential procedure is not in DRAFT status: " + proc.getCredentialStatus()));
+        }
+        return Mono.empty();
+    }
+
+    private Mono<CredentialResponse> enrichAndSign(
             String processId,
-            DeferredCredentialRequest deferredCredentialRequest,
-            AccessTokenContext accessTokenContext) {
+            CredentialProcedure proc,
+            BindingInfo bindingInfo,
+            String rawToken) {
 
-        String transactionId = deferredCredentialRequest.transactionId();
-        log.debug("ProcessID: {} Generating deferred response for transactionId: {}", processId, transactionId);
+        String procedureId = proc.getProcedureId().toString();
+        String credentialType = proc.getCredentialType();
+        String email = proc.getEmail();
+        String credentialFormat = proc.getCredentialFormat() != null ? proc.getCredentialFormat() : JWT_VC_JSON;
 
-        return deferredCredentialMetadataService.getDeferredCredentialMetadataByAuthServerNonce(accessTokenContext.jti())
-                .flatMap(deferred ->
-                        credentialProcedureService.getCredentialProcedureById(deferred.getProcedureId().toString())
-                                .flatMap(procedure ->
-                                        verifiableCredentialService.generateDeferredCredentialResponse(procedure, transactionId)));
+        CredentialProfile profile = credentialProfileRegistry.getByCredentialType(credentialType);
+        if (profile == null) {
+            return Mono.error(new FormatUnsupportedException("No profile for credential type: " + credentialType));
+        }
+
+        Map<String, Object> cnf = bindingInfo.cnf();
+        String token = BEARER_PREFIX + rawToken;
+        StatusListFormat statusFormat = DC_SD_JWT.equals(credentialFormat)
+                ? StatusListFormat.TOKEN_JWT : StatusListFormat.BITSTRING_VC;
+
+        // Step 1: Bind issuer to the credential dataSet (in memory, NOT persisted)
+        return genericCredentialBuilder.bindIssuer(profile, proc.getCredentialDataSet(), procedureId, email)
+                // Step 2: Allocate status list entry and inject credentialStatus
+                .flatMap(enrichedDataSet ->
+                        statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, statusFormat, procedureId, token)
+                                .map(entry -> {
+                                    CredentialStatus status = CredentialStatus.fromStatusListEntry(entry);
+                                    return genericCredentialBuilder.injectCredentialStatus(
+                                            enrichedDataSet, status, credentialFormat);
+                                })
+                )
+                .flatMap(enrichedWithStatus ->
+                        // Step 3: Cache enriched dataSet for later persistence on credential_accepted
+                        enrichmentCacheStore.add(procedureId, enrichedWithStatus)
+                                // Step 4: Sign using enriched data directly (no DB read)
+                                .then(credentialSignerWorkflow.signCredential(
+                                        token, enrichedWithStatus, credentialType,
+                                        credentialFormat, cnf, procedureId, email))
+                )
+                .flatMap(signedCredential -> {
+                    // Step 5: Generate notification_id and cache mapping
+                    String notificationId = UUID.randomUUID().toString();
+                    return notificationCacheStore.add(notificationId, procedureId)
+                            .thenReturn(CredentialResponse.builder()
+                                    .credentials(List.of(CredentialResponse.Credential.builder()
+                                            .credential(signedCredential)
+                                            .build()))
+                                    .notificationId(notificationId)
+                                    .build());
+                })
+                .doOnSuccess(resp -> log.info("[{}] Credential signed successfully for procedureId={}", processId, procedureId));
     }
 
-    @Override
-    public Mono<Void> bindAccessTokenByPreAuthorizedCode(String processId, AuthServerNonceRequest authServerNonceRequest) {
-        return verifiableCredentialService.bindAccessTokenByPreAuthorizedCode(
-                processId, authServerNonceRequest.accessToken(), authServerNonceRequest.preAuthorizedCode());
-    }
+    // --- Proof validation logic (kept from existing implementation) ---
 
     private Mono<BindingInfo> validateAndDetermineBindingInfo(
             CredentialProcedure credentialProcedure,
@@ -143,13 +212,6 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             return Mono.empty();
         }
 
-        String cryptoBindingMethod = cryptoMethods.stream()
-                .findFirst()
-                .orElseThrow(() -> new InvalidCredentialFormatException(
-                        "No cryptographic binding method configured for " + credentialType));
-
-        log.debug("Crypto binding method for {}: {}", credentialType, cryptoBindingMethod);
-
         Set<String> proofSigningAlgs = resolveProofSigningAlgorithms(cfg);
         String jwtProof = extractFirstJwtProof(credentialRequest);
         String expectedAudience = metadata.credentialIssuer();
@@ -189,53 +251,6 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                         return Mono.error(new InvalidOrMissingProofException("Invalid proof"));
                     }
                     return extractBindingInfoFromJwtProof(jwtProof);
-                });
-    }
-
-    private Mono<Void> storeCnfIfPresent(String procedureId, BindingInfo bindingInfo) {
-        if (bindingInfo.cnf() == null) {
-            return Mono.empty();
-        }
-        return Mono.fromCallable(() -> objectMapper.writeValueAsString(bindingInfo.cnf()))
-                .flatMap(cnfJson -> deferredCredentialMetadataService.updateCnfByProcedureId(procedureId, cnfJson));
-    }
-
-    private Mono<CredentialResponse> signAndDeliverCredential(
-            String processId,
-            CredentialResponse cr,
-            CredentialProcedure proc,
-            String rawToken) {
-
-        return credentialProcedureService.getCredentialStatusByProcedureId(proc.getProcedureId().toString())
-                .flatMap(status -> {
-                    Mono<Void> upd = !PEND_SIGNATURE.toString().equals(status)
-                            ? credentialProcedureService.updateCredentialProcedureCredentialStatusToValidByProcedureId(
-                                    proc.getProcedureId().toString())
-                            : Mono.empty();
-
-                    String credentialFormat = proc.getCredentialFormat() != null
-                            ? proc.getCredentialFormat()
-                            : JWT_VC_JSON;
-
-                    return upd.then(
-                            credentialSignerWorkflow.signAndUpdateCredentialByProcedureId(
-                                            BEARER_PREFIX + rawToken,
-                                            proc.getProcedureId().toString(),
-                                            credentialFormat
-                                    )
-                                    .map(signedCredential -> CredentialResponse.builder()
-                                            .credentials(List.of(CredentialResponse.Credential.builder()
-                                                    .credential(signedCredential)
-                                                    .build()))
-                                            .build())
-                                    .onErrorResume(e -> {
-                                        if (e instanceof RemoteSignatureException || e instanceof IllegalArgumentException) {
-                                            log.warn("[{}] Signing failed ({}), falling back to deferred", processId, e.getMessage());
-                                            return Mono.just(cr);
-                                        }
-                                        return Mono.error(e);
-                                    })
-                    );
                 });
     }
 

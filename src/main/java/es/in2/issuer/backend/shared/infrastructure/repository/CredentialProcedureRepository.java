@@ -22,7 +22,9 @@ public interface CredentialProcedureRepository extends ReactiveCrudRepository<Cr
     @Query("SELECT credential_status FROM issuer.credential_procedure WHERE procedure_id = :procedureId")
     Mono<String> findCredentialStatusByProcedureId(UUID procedureId);
     Mono<CredentialProcedure> findByProcedureId(UUID procedureId);
-    Mono<CredentialProcedure> findByNotificationId(UUID notificationId);
-    Mono<CredentialProcedure> findByRefreshToken(String refreshToken);
+    Mono<CredentialProcedure> findByCredentialOfferRefreshToken(String credentialOfferRefreshToken);
     Flux<CredentialProcedure> findByCredentialStatusAndCreatedAtBefore(CredentialStatusEnum credentialStatus, Instant cutoff);
+
+    @Query("SELECT * FROM issuer.credential_procedure WHERE credential_status = :status AND (valid_from IS NULL OR valid_from <= :now)")
+    Flux<CredentialProcedure> findIssuedReadyForActivation(CredentialStatusEnum status, Instant now);
 }

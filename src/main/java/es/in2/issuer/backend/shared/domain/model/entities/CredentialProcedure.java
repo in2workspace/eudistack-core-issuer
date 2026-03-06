@@ -42,6 +42,9 @@ public class CredentialProcedure {
     @Column("credential_type")
     private String credentialType;
 
+    @Column("valid_from")
+    private Timestamp validFrom;
+
     @Column("valid_until")
     private Timestamp validUntil;
 
@@ -51,11 +54,12 @@ public class CredentialProcedure {
     @Column("delivery")
     private String delivery;
 
-    @Column("refresh_token")
-    private String refreshToken;
+    @Column("credential_offer_refresh_token")
+    private String credentialOfferRefreshToken;
 
-    @Column("notification_id")
-    private UUID notificationId;
+    @Column("signed_credential")
+    @Nullable
+    private String signedCredential;
 
     // --- Auditing fields (R2DBC auditing will fill these) ---
     @CreatedDate

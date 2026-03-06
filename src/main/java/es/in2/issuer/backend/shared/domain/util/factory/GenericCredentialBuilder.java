@@ -216,9 +216,9 @@ public class GenericCredentialBuilder {
     public Mono<String> bindIssuer(CredentialProfile profile, String decodedCredentialJson,
                                    String procedureId, String email) {
         return switch (profile.issuerType()) {
-            case DETAILED -> issuerFactory.createDetailedIssuerAndNotifyOnError(procedureId, email)
+            case DETAILED -> issuerFactory.createDetailedIssuer()
                     .flatMap(issuer -> setIssuerField(profile, decodedCredentialJson, issuer));
-            case SIMPLE -> issuerFactory.createSimpleIssuerAndNotifyOnError(procedureId, email)
+            case SIMPLE -> issuerFactory.createSimpleIssuer()
                     .flatMap(issuer -> setIssuerField(profile, decodedCredentialJson, issuer));
         };
     }
@@ -253,6 +253,28 @@ public class GenericCredentialBuilder {
             return "did:elsi:" + issuerNode.get("organizationIdentifier").asText();
         }
         return "";
+    }
+
+    /**
+     * Injects credentialStatus into an already-built credential JSON.
+     * Format-aware: W3C sets "credentialStatus" object, SD-JWT sets "status.status_list".
+     */
+    public String injectCredentialStatus(String credentialJson, CredentialStatus status, String format) {
+        try {
+            ObjectNode credential = (ObjectNode) objectMapper.readTree(credentialJson);
+
+            if (DC_SD_JWT.equals(format)) {
+                int idx = Integer.parseInt(status.statusListIndex());
+                credential.set("status", objectMapper.valueToTree(
+                        Map.of("status_list", Map.of("uri", status.statusListCredential(), "idx", idx))));
+            } else {
+                credential.set("credentialStatus", objectMapper.valueToTree(status));
+            }
+
+            return objectMapper.writeValueAsString(credential);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to inject credentialStatus", e);
+        }
     }
 
     /**

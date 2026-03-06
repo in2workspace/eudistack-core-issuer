@@ -26,6 +26,7 @@ public class BitstringStatusListRevocationService
         return new StatusList(
                 currentStatusList.id(),
                 currentStatusList.purpose(),
+                currentStatusList.format(),
                 updatedEncoded,
                 currentStatusList.signedCredential(),
                 currentStatusList.createdAt(),

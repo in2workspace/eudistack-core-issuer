@@ -8,7 +8,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotific
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
-import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
+import es.in2.issuer.backend.shared.domain.service.ProcedureService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.statuslist.application.policies.StatusListPdpService;
 import es.in2.issuer.backend.statuslist.domain.exception.CredentialDecodedInvalidJsonException;
@@ -40,7 +40,7 @@ class RevocationWorkflowTest {
     private StatusListPdpService statusListPdpService;
 
     @Mock
-    private CredentialProcedureService credentialProcedureService;
+    private ProcedureService procedureService;
 
     @Mock
     private ObjectMapper objectMapper;
@@ -78,12 +78,12 @@ class RevocationWorkflowTest {
         mockProcedure.setCredentialDataSet(credentialJson);
 
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
-        when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(procedureService.getProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure)).thenReturn(Mono.empty());
         when(statusListProvider.revoke(PROCEDURE_ID, CLEAN_TOKEN)).thenReturn(Mono.empty());
-        when(credentialProcedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
-        when(credentialProcedureService.getCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
-        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
+        when(procedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
+        when(procedureService.getCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(procedureService.getCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn(Mono.empty());
@@ -105,12 +105,12 @@ class RevocationWorkflowTest {
         mockProcedure.setCredentialDataSet(credentialJson);
 
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
-        when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(procedureService.getProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure)).thenReturn(Mono.empty());
         when(legacyCredentialStatusRevocationService.revoke(eq(LIST_ID), any(CredentialStatus.class))).thenReturn(Mono.empty());
-        when(credentialProcedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
-        when(credentialProcedureService.getCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
-        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
+        when(procedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
+        when(procedureService.getCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(procedureService.getCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn(Mono.empty());
@@ -132,7 +132,7 @@ class RevocationWorkflowTest {
         mockProcedure.setCredentialDataSet(credentialJson);
 
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
-        when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(procedureService.getProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure)).thenReturn(Mono.empty());
 
         JsonNode mockRoot = mock(JsonNode.class);
@@ -152,7 +152,7 @@ class RevocationWorkflowTest {
         mockProcedure.setCredentialDataSet(invalidJson);
 
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
-        when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(procedureService.getProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure)).thenReturn(Mono.empty());
         when(objectMapper.readTree(invalidJson)).thenThrow(new JsonProcessingException("Invalid JSON") {});
 
@@ -190,7 +190,7 @@ class RevocationWorkflowTest {
     void revoke_WithValidationFailure_ShouldPropagateError() {
         // Arrange
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
-        when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(procedureService.getProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure))
                 .thenReturn(Mono.error(new RuntimeException("Validation failed")));
 
@@ -209,12 +209,12 @@ class RevocationWorkflowTest {
         mockProcedure.setCredentialDataSet(credentialJson);
 
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
-        when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(procedureService.getProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure)).thenReturn(Mono.empty());
         when(statusListProvider.revoke(PROCEDURE_ID, CLEAN_TOKEN)).thenReturn(Mono.empty());
-        when(credentialProcedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
-        when(credentialProcedureService.getCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
-        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
+        when(procedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
+        when(procedureService.getCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(procedureService.getCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn(Mono.empty());
@@ -236,12 +236,12 @@ class RevocationWorkflowTest {
         mockProcedure.setCredentialDataSet(credentialJson);
 
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
-        when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(procedureService.getProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure)).thenReturn(Mono.empty());
         when(legacyCredentialStatusRevocationService.revoke(eq(LIST_ID), any(CredentialStatus.class))).thenReturn(Mono.empty());
-        when(credentialProcedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
-        when(credentialProcedureService.getCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
-        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
+        when(procedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
+        when(procedureService.getCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(procedureService.getCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn(Mono.empty());
@@ -259,7 +259,7 @@ class RevocationWorkflowTest {
     void revokeSystem_WithValidationFailure_ShouldPropagateError() {
         // Arrange
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
-        when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(procedureService.getProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure))
                 .thenReturn(Mono.error(new RuntimeException("System validation failed")));
 
@@ -277,7 +277,7 @@ class RevocationWorkflowTest {
         mockProcedure.setCredentialDataSet("{}");
 
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
-        when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(procedureService.getProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure)).thenReturn(Mono.empty());
 
         JsonNode mockRoot = mock(JsonNode.class);
@@ -299,12 +299,12 @@ class RevocationWorkflowTest {
         mockProcedure.setCredentialDataSet(credentialJson);
 
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
-        when(credentialProcedureService.getCredentialProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(procedureService.getProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure)).thenReturn(Mono.empty());
         when(legacyCredentialStatusRevocationService.revoke(eq(LIST_ID), any(CredentialStatus.class))).thenReturn(Mono.empty());
-        when(credentialProcedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
-        when(credentialProcedureService.getCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
-        when(credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
+        when(procedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
+        when(procedureService.getCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(procedureService.getCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn(Mono.empty());

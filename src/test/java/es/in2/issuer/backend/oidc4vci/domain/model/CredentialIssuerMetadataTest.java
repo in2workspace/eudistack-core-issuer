@@ -15,14 +15,13 @@ class CredentialIssuerMetadataTest {
         // Arrange
         String credentialIssuer = "https://issuer.example.com";
         String credentialEndpoint = "https://issuer.example.com/oid4vci/v1/credential";
-        String deferredCredentialEndpoint = "https://issuer.example.com/oid4vci/v1/deferrred-credential";
         String notificationEndpoint = "https://issuer.example.com/oid4vci/v1/notification";
 
         // Act
         CredentialIssuerMetadata metadata = new CredentialIssuerMetadata(
                 credentialIssuer,
                 credentialEndpoint,
-                deferredCredentialEndpoint,
+                null,
                 notificationEndpoint,
                 null,
                 null
@@ -31,7 +30,6 @@ class CredentialIssuerMetadataTest {
         // Assert
         assertThat(metadata.credentialIssuer()).isEqualTo(credentialIssuer);
         assertThat(metadata.credentialEndpoint()).isEqualTo(credentialEndpoint);
-        assertThat(metadata.deferredCredentialEndpoint()).isEqualTo(deferredCredentialEndpoint);
         assertThat(metadata.credentialConfigurationsSupported()).isNull();
     }
 
@@ -55,7 +53,6 @@ class CredentialIssuerMetadataTest {
         var metadata = CredentialIssuerMetadata.builder()
                 .credentialIssuer("https://issuer.example.com")
                 .credentialEndpoint("https://issuer.example.com/credential")
-                .deferredCredentialEndpoint("https://issuer.example.com/deferred")
                 .credentialConfigurationsSupported(Map.of("LEARCredentialEmployee", config))
                 .build();
 
@@ -79,13 +76,11 @@ class CredentialIssuerMetadataTest {
         var m1 = CredentialIssuerMetadata.builder()
                 .credentialIssuer("issuer")
                 .credentialEndpoint("credential")
-                .deferredCredentialEndpoint("deferred")
                 .build();
 
         var m2 = CredentialIssuerMetadata.builder()
                 .credentialIssuer("issuer")
                 .credentialEndpoint("credential")
-                .deferredCredentialEndpoint("deferred")
                 .build();
 
         // Assert

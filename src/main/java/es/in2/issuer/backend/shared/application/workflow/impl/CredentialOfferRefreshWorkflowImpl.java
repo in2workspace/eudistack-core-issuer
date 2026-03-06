@@ -2,72 +2,88 @@ package es.in2.issuer.backend.shared.application.workflow.impl;
 
 import es.in2.issuer.backend.backoffice.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialOfferRefreshWorkflow;
+import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.repository.CredentialOfferCacheRepository;
-import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
-import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
-import es.in2.issuer.backend.shared.domain.service.DeliveryService;
+import es.in2.issuer.backend.shared.domain.service.ProcedureService;
+import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.GrantsService;
+import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.DELIVERY_EMAIL;
+import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefreshWorkflow {
 
-    private final CredentialProcedureService credentialProcedureService;
-    private final DeferredCredentialMetadataService deferredCredentialMetadataService;
+    private final ProcedureService procedureService;
     private final GrantsService grantsService;
     private final CredentialOfferService credentialOfferService;
     private final CredentialOfferCacheRepository credentialOfferCacheRepository;
-    private final DeliveryService deliveryService;
+    private final EmailService emailService;
+    private final AppConfig appConfig;
 
     @Override
     @Observed(name = "issuance.refresh-offer", contextualName = "refresh-credential-offer")
-    public Mono<Void> refreshCredentialOffer(String refreshToken) {
-        log.info("Refreshing credential offer for refreshToken: {}", refreshToken);
+    public Mono<Void> refreshCredentialOffer(String credentialOfferRefreshToken) {
+        log.info("Refreshing credential offer for credentialOfferRefreshToken: {}", credentialOfferRefreshToken);
 
-        return credentialProcedureService.getCredentialProcedureByRefreshToken(refreshToken)
+        return procedureService.getProcedureByCredentialOfferRefreshToken(credentialOfferRefreshToken)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "Invalid or unknown refresh token")))
+                        HttpStatus.NOT_FOUND, "Invalid or unknown credential offer refresh token")))
                 .flatMap(this::validateDraftStatus)
-                .flatMap(procedure -> regenerateOfferAndDeliver(procedure, refreshToken))
-                .doOnSuccess(v -> log.info("Credential offer refreshed successfully for refreshToken: {}", refreshToken));
+                .flatMap(procedure -> regenerateOfferAndSendEmail(procedure, credentialOfferRefreshToken))
+                .doOnSuccess(v -> log.info("Credential offer refreshed successfully for credentialOfferRefreshToken: {}", credentialOfferRefreshToken));
     }
 
-    private Mono<Void> regenerateOfferAndDeliver(CredentialProcedure procedure, String refreshToken) {
+    private Mono<Void> regenerateOfferAndSendEmail(CredentialProcedure procedure, String credentialOfferRefreshToken) {
         String procedureId = procedure.getProcedureId().toString();
 
-        return deferredCredentialMetadataService.updateTransactionCodeInDeferredCredentialMetadata(procedureId)
-                .flatMap(transactionCode ->
-                        grantsService.generateGrants("refresh", Mono.just(procedureId))
-                                .flatMap(grantsResult ->
-                                        deferredCredentialMetadataService.updateAuthServerNonceByTransactionCode(
-                                                        transactionCode, grantsResult.grants().preAuthorizedCode().preAuthorizedCode())
-                                                .then(credentialOfferService.buildCredentialOffer(
-                                                        procedure.getCredentialType(),
-                                                        grantsResult.grants(),
-                                                        procedure.getEmail(),
-                                                        grantsResult.txCodeValue()))
-                                                .flatMap(credentialOfferCacheRepository::saveCustomCredentialOffer)
-                                                .flatMap(credentialOfferService::createCredentialOfferUriResponse)
-                                )
+        return grantsService.generateGrants("refresh", Mono.just(procedureId))
+                .flatMap(grantsResult ->
+                        credentialOfferService.buildCredentialOffer(
+                                        procedure.getCredentialType(),
+                                        grantsResult.grants(),
+                                        procedure.getEmail(),
+                                        grantsResult.txCodeValue())
+                                .flatMap(credentialOfferCacheRepository::saveCredentialOffer)
+                                .flatMap(credentialOfferService::createCredentialOfferUriResponse)
                 )
                 .flatMap(credentialOfferUri ->
-                        credentialProcedureService.getCredentialOfferEmailInfoByProcedureId(procedureId)
-                                .flatMap(emailInfo -> deliveryService.deliver(
-                                        DELIVERY_EMAIL, credentialOfferUri, refreshToken, emailInfo))
+                        procedureService.getCredentialOfferEmailInfoByProcedureId(procedureId)
+                                .flatMap(emailInfo -> {
+                                    String refreshUrl = buildRefreshUrl(credentialOfferRefreshToken);
+                                    return emailService.sendCredentialOfferEmail(
+                                                    emailInfo.email(),
+                                                    CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
+                                                    credentialOfferUri,
+                                                    refreshUrl,
+                                                    appConfig.getWalletFrontendUrl(),
+                                                    emailInfo.organization()
+                                            )
+                                            .doOnSuccess(v -> log.info("Refreshed credential offer email sent to: {}", emailInfo.email()))
+                                            .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE));
+                                })
                 )
                 .then();
+    }
+
+    private String buildRefreshUrl(String credentialOfferRefreshToken) {
+        return UriComponentsBuilder
+                .fromUriString(appConfig.getIssuerBackendUrl())
+                .path("/credential-offer/refresh/" + credentialOfferRefreshToken)
+                .build()
+                .toUriString();
     }
 
     private Mono<CredentialProcedure> validateDraftStatus(CredentialProcedure procedure) {

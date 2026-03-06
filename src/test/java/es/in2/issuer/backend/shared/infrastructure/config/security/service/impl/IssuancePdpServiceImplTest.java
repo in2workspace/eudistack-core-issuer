@@ -21,9 +21,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.core.context.ReactiveSecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
+import reactor.util.context.Context;
 
+import java.time.Instant;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -76,6 +81,16 @@ class IssuancePdpServiceImplTest {
         );
     }
 
+    private Context withSecurityContext(String tokenValue) {
+        Jwt jwt = Jwt.withTokenValue(tokenValue)
+                .header("alg", "none")
+                .claim("sub", "test")
+                .issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+        return ReactiveSecurityContextHolder.withAuthentication(new JwtAuthenticationToken(jwt));
+    }
+
     private PolicyContext buildContextFromPowers(List<Power> powers, String credentialType,
                                                  String orgId, boolean sysAdmin) {
         return new PolicyContext(
@@ -115,9 +130,10 @@ class IssuancePdpServiceImplTest {
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
                 .thenReturn(Mono.just(ctx));
 
-        Mono<Void> result = issuancePdpService.authorize(token, LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token");
-
-        StepVerifier.create(result).verifyComplete();
+        StepVerifier.create(
+                        issuancePdpService.authorize(LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token")
+                                .contextWrite(withSecurityContext(token)))
+                .verifyComplete();
     }
 
     @Test
@@ -129,9 +145,9 @@ class IssuancePdpServiceImplTest {
                 .thenReturn(Mono.error(new InsufficientPermissionException(
                         "Unauthorized: Credential type 'LEARCredentialEmployee' or 'LEARCredentialMachine' is required.")));
 
-        Mono<Void> result = issuancePdpService.authorize(token, LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token");
-
-        StepVerifier.create(result)
+        StepVerifier.create(
+                        issuancePdpService.authorize(LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token")
+                                .contextWrite(withSecurityContext(token)))
                 .expectErrorMatches(throwable ->
                         throwable instanceof InsufficientPermissionException &&
                                 throwable.getMessage().contains("Unauthorized: Credential type 'LEARCredentialEmployee' or 'LEARCredentialMachine' is required."))
@@ -151,9 +167,9 @@ class IssuancePdpServiceImplTest {
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(schema), any()))
                 .thenReturn(Mono.just(ctx));
 
-        Mono<Void> result = issuancePdpService.authorize(token, schema, payload, "dummy-id-token");
-
-        StepVerifier.create(result)
+        StepVerifier.create(
+                        issuancePdpService.authorize(schema, payload, "dummy-id-token")
+                                .contextWrite(withSecurityContext(token)))
                 .expectErrorMatches(throwable ->
                         throwable instanceof InsufficientPermissionException &&
                                 throwable.getMessage().contains("Unauthorized: Unsupported schema"))
@@ -168,9 +184,9 @@ class IssuancePdpServiceImplTest {
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
                 .thenReturn(Mono.error(new ParseErrorException("Invalid token")));
 
-        Mono<Void> result = issuancePdpService.authorize(token, LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token");
-
-        StepVerifier.create(result)
+        StepVerifier.create(
+                        issuancePdpService.authorize(LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token")
+                                .contextWrite(withSecurityContext(token)))
                 .expectErrorMatches(throwable ->
                         throwable instanceof ParseErrorException &&
                                 throwable.getMessage().contains("Invalid token"))
@@ -189,9 +205,9 @@ class IssuancePdpServiceImplTest {
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
                 .thenReturn(Mono.just(ctx));
 
-        Mono<Void> result = issuancePdpService.authorize(token, LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token");
-
-        StepVerifier.create(result)
+        StepVerifier.create(
+                        issuancePdpService.authorize(LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token")
+                                .contextWrite(withSecurityContext(token)))
                 .expectErrorMatches(throwable ->
                         throwable instanceof InsufficientPermissionException &&
                                 throwable.getMessage().contains("Unauthorized: LEARCredentialEmployee does not meet any issuance policies."))
@@ -204,15 +220,14 @@ class IssuancePdpServiceImplTest {
         String idToken = "dummy-id-token";
         JsonNode payload = mock(JsonNode.class);
 
-        // Signer has empty powers — short-circuits before idToken validation
         List<Power> emptyPowers = Collections.emptyList();
         PolicyContext ctx = buildContextFromPowers(emptyPowers, LEAR_CREDENTIAL_MACHINE, ADMIN_ORG_ID, true);
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LABEL_CREDENTIAL), any()))
                 .thenReturn(Mono.just(ctx));
 
-        Mono<Void> result = issuancePdpService.authorize(token, LABEL_CREDENTIAL, payload, idToken);
-
-        StepVerifier.create(result)
+        StepVerifier.create(
+                        issuancePdpService.authorize(LABEL_CREDENTIAL, payload, idToken)
+                                .contextWrite(withSecurityContext(token)))
                 .expectErrorMatches(throwable ->
                         throwable instanceof InsufficientPermissionException)
                 .verify();
@@ -231,7 +246,6 @@ class IssuancePdpServiceImplTest {
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LABEL_CREDENTIAL), any()))
                 .thenReturn(Mono.just(ctx));
 
-        // id_token mocks
         SignedJWT idTokenSignedJWT = mock(SignedJWT.class);
         Payload idTokenPayload = new Payload(new HashMap<>());
         when(idTokenSignedJWT.getPayload()).thenReturn(idTokenPayload);
@@ -239,7 +253,6 @@ class IssuancePdpServiceImplTest {
         when(jwtService.parseJWT(idToken)).thenReturn(idTokenSignedJWT);
         when(jwtService.getClaimFromPayload(idTokenPayload, "vc_json")).thenReturn("\"vcJson\"");
         when(objectMapper.readValue("\"vcJson\"", String.class)).thenReturn("vcJson");
-        // Mock DynamicCredentialParser for id_token VC
         com.fasterxml.jackson.databind.node.ObjectNode idTokenVcNode = new ObjectMapper().createObjectNode();
         CredentialProfile idTokenProfile = mock(CredentialProfile.class);
         Power certPower = Power.builder().function("Certification").action("Attest").build();
@@ -247,9 +260,10 @@ class IssuancePdpServiceImplTest {
         when(credentialParser.parse("vcJson")).thenReturn(parsed);
         when(credentialParser.extractPowers(idTokenVcNode, idTokenProfile)).thenReturn(List.of(certPower));
 
-        Mono<Void> result = issuancePdpService.authorize(token, LABEL_CREDENTIAL, payload, idToken);
-
-        StepVerifier.create(result).verifyComplete();
+        StepVerifier.create(
+                        issuancePdpService.authorize(LABEL_CREDENTIAL, payload, idToken)
+                                .contextWrite(withSecurityContext(token)))
+                .verifyComplete();
     }
 
     @Test
@@ -264,9 +278,9 @@ class IssuancePdpServiceImplTest {
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
                 .thenReturn(Mono.just(ctx));
 
-        Mono<Void> result = issuancePdpService.authorize(token, LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token");
-
-        StepVerifier.create(result)
+        StepVerifier.create(
+                        issuancePdpService.authorize(LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token")
+                                .contextWrite(withSecurityContext(token)))
                 .expectErrorMatches(throwable ->
                         throwable instanceof InsufficientPermissionException &&
                                 throwable.getMessage().contains("Unauthorized: LEARCredentialEmployee does not meet any issuance policies."))
@@ -277,7 +291,6 @@ class IssuancePdpServiceImplTest {
     void authorize_success_withMandatorIssuancePolicyValid() {
         String token = "valid-token";
 
-        // Build a real JsonNode payload with mandator and power array
         ObjectMapper realMapper = new ObjectMapper();
         com.fasterxml.jackson.databind.node.ObjectNode payload = realMapper.createObjectNode();
         com.fasterxml.jackson.databind.node.ObjectNode mandatorNode = payload.putObject("mandator");
@@ -288,18 +301,15 @@ class IssuancePdpServiceImplTest {
         com.fasterxml.jackson.databind.node.ArrayNode actionArray = powerNode.putArray("action");
         actionArray.add("Create").add("Update").add("Delete");
 
-        // Signer has Onboarding/Execute + ProductOffering powers
         List<Power> signerPowers = List.of(
                 Power.builder().function("Onboarding").action("Execute").build(),
                 Power.builder().function("ProductOffering").action(List.of("Create", "Update", "Delete")).build()
         );
 
-        // Context needs credential and profile for credentialParser.extractOrganizationId()
         JsonNode signerCredential = realMapper.createObjectNode();
         CredentialProfile signerProfile = mock(CredentialProfile.class);
         when(credentialParser.extractOrganizationId(signerCredential, signerProfile)).thenReturn("OTHER_ORGANIZATION");
 
-        // objectMapper.convertValue is still used on the power array node inside the rule
         when(objectMapper.convertValue(any(JsonNode.class), any(com.fasterxml.jackson.core.type.TypeReference.class)))
                 .thenAnswer(invocation -> {
                     JsonNode node = invocation.getArgument(0);
@@ -310,16 +320,16 @@ class IssuancePdpServiceImplTest {
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
                 .thenReturn(Mono.just(ctx));
 
-        Mono<Void> result = issuancePdpService.authorize(token, LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token");
-
-        StepVerifier.create(result).verifyComplete();
+        StepVerifier.create(
+                        issuancePdpService.authorize(LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token")
+                                .contextWrite(withSecurityContext(token)))
+                .verifyComplete();
     }
 
     @Test
     void authorize_failure_dueToInvalidPayloadPowers() {
         String token = "valid-token";
 
-        // Build a real JsonNode payload with mandator and power array with wrong function
         ObjectMapper realMapper = new ObjectMapper();
         com.fasterxml.jackson.databind.node.ObjectNode payload = realMapper.createObjectNode();
         com.fasterxml.jackson.databind.node.ObjectNode mandatorNode = payload.putObject("mandator");
@@ -329,17 +339,14 @@ class IssuancePdpServiceImplTest {
         powerNode.put("function", "OtherFunction");
         powerNode.put("action", "SomeAction");
 
-        // Signer has Onboarding/Execute power (needed to pass first check) but no ProductOffering
         List<Power> signerPowers = List.of(
                 Power.builder().function("Onboarding").action("Execute").build()
         );
 
-        // Context needs credential and profile for credentialParser.extractOrganizationId()
         JsonNode signerCredential = realMapper.createObjectNode();
         CredentialProfile signerProfile = mock(CredentialProfile.class);
         when(credentialParser.extractOrganizationId(signerCredential, signerProfile)).thenReturn("OTHER_ORGANIZATION");
 
-        // objectMapper.convertValue is still used on the power array node inside the rule
         when(objectMapper.convertValue(any(JsonNode.class), any(com.fasterxml.jackson.core.type.TypeReference.class)))
                 .thenAnswer(invocation -> {
                     JsonNode node = invocation.getArgument(0);
@@ -350,9 +357,9 @@ class IssuancePdpServiceImplTest {
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
                 .thenReturn(Mono.just(ctx));
 
-        Mono<Void> result = issuancePdpService.authorize(token, LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token");
-
-        StepVerifier.create(result)
+        StepVerifier.create(
+                        issuancePdpService.authorize(LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token")
+                                .contextWrite(withSecurityContext(token)))
                 .expectErrorMatches(throwable ->
                         throwable instanceof InsufficientPermissionException &&
                                 throwable.getMessage().contains("Unauthorized: LEARCredentialEmployee does not meet any issuance policies."))
@@ -371,9 +378,10 @@ class IssuancePdpServiceImplTest {
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_MACHINE), any()))
                 .thenReturn(Mono.just(ctx));
 
-        Mono<Void> result = issuancePdpService.authorize(token, LEAR_CREDENTIAL_MACHINE, payload, "dummy-id-token");
-
-        StepVerifier.create(result).verifyComplete();
+        StepVerifier.create(
+                        issuancePdpService.authorize(LEAR_CREDENTIAL_MACHINE, payload, "dummy-id-token")
+                                .contextWrite(withSecurityContext(token)))
+                .verifyComplete();
     }
 
     @Test
@@ -385,9 +393,9 @@ class IssuancePdpServiceImplTest {
                 .thenReturn(Mono.error(new InsufficientPermissionException(
                         "Unauthorized: Credential type 'LEARCredentialEmployee' is required for LEARCredentialMachine.")));
 
-        Mono<Void> result = issuancePdpService.authorize(token, "LEAR_CREDENTIAL_MACHINE", payload, "dummy-id-token");
-
-        StepVerifier.create(result)
+        StepVerifier.create(
+                        issuancePdpService.authorize("LEAR_CREDENTIAL_MACHINE", payload, "dummy-id-token")
+                                .contextWrite(withSecurityContext(token)))
                 .expectErrorMatches(InsufficientPermissionException.class::isInstance)
                 .verify();
     }
@@ -404,9 +412,10 @@ class IssuancePdpServiceImplTest {
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_MACHINE), any()))
                 .thenReturn(Mono.just(ctx));
 
-        Mono<Void> result = issuancePdpService.authorize(token, LEAR_CREDENTIAL_MACHINE, payload, "dummy-id-token");
-
-        StepVerifier.create(result).verifyComplete();
+        StepVerifier.create(
+                        issuancePdpService.authorize(LEAR_CREDENTIAL_MACHINE, payload, "dummy-id-token")
+                                .contextWrite(withSecurityContext(token)))
+                .verifyComplete();
     }
 
 }

@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.shared.infrastructure.controller;
 
+import es.in2.issuer.backend.oidc4vci.domain.model.NonceResponse;
+import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.domain.exception.*;
 import es.in2.issuer.backend.shared.domain.model.dto.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
@@ -19,20 +21,21 @@ import java.util.NoSuchElementException;
 import java.util.UUID;
 
 import static org.mockito.Mockito.*;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 
 //todo make recursive
 class GlobalExceptionHandlerTest {
 
     private ErrorResponseFactory errors;     // mock
+    private NonceService nonceService;       // mock
     private GlobalExceptionHandler handler;  // SUT
     private ServerHttpRequest request;
 
     @BeforeEach
     void setUp() {
         errors = mock(ErrorResponseFactory.class);
-        handler = new GlobalExceptionHandler(errors);
+        nonceService = mock(NonceService.class);
+        handler = new GlobalExceptionHandler(errors, nonceService);
         request = MockServerHttpRequest.get("/any").build();
     }
 
@@ -142,51 +145,29 @@ class GlobalExceptionHandlerTest {
     // -------------------- handleInvalidOrMissingProof --------------------
 
     @Test
-    void handleInvalidOrMissingProof_usesExceptionMessage_whenPresent() {
+    void handleInvalidOrMissingProof_includesNonceInResponse() {
         var ex = new InvalidOrMissingProofException("bad proof");
         var type = GlobalErrorTypes.INVALID_OR_MISSING_PROOF.getCode();
         var title = "Invalid or missing proof";
         var st = HttpStatus.BAD_REQUEST;
         var fallback = "Credential Request did not contain a proof, or proof was invalid, i.e. it was not bound to a Credential Issuer provided nonce.";
-        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
+        var baseGem = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
+        var nonce = NonceResponse.builder().cNonce("test-nonce-123").cNonceExpiresIn(600).build();
 
         when(errors.handleWith(ex, request, type, title, st, fallback))
-                .thenReturn(Mono.just(expected));
+                .thenReturn(Mono.just(baseGem));
+        when(nonceService.generateNonce()).thenReturn(Mono.just(nonce));
 
         StepVerifier.create(handler.handleInvalidOrMissingProof(ex, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, "bad proof"))
+                .assertNext(gem -> {
+                    assertGem(gem, type, title, st, "bad proof");
+                    assertEquals("test-nonce-123", gem.cNonce());
+                    assertEquals(600L, gem.cNonceExpiresIn());
+                })
                 .verifyComplete();
 
         verify(errors).handleWith(ex, request, type, title, st, fallback);
-    }
-
-    @Test
-    void handleInvalidOrMissingProof_usesFallback_whenMessageNullOrBlank() {
-        var type = GlobalErrorTypes.INVALID_OR_MISSING_PROOF.getCode();
-        var title = "Invalid or missing proof";
-        var st = HttpStatus.BAD_REQUEST;
-        var fallback = "Credential Request did not contain a proof, or proof was invalid, i.e. it was not bound to a Credential Issuer provided nonce.";
-
-        var exNull = new InvalidOrMissingProofException((String) null);
-        var exBlank = new InvalidOrMissingProofException(" ");
-
-        var expectedNull = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
-        var expectedBlank = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
-
-        when(errors.handleWith(exNull, request, type, title, st, fallback))
-                .thenReturn(Mono.just(expectedNull));
-        when(errors.handleWith(exBlank, request, type, title, st, fallback))
-                .thenReturn(Mono.just(expectedBlank));
-
-        StepVerifier.create(handler.handleInvalidOrMissingProof(exNull, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
-                .verifyComplete();
-        StepVerifier.create(handler.handleInvalidOrMissingProof(exBlank, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
-                .verifyComplete();
-
-        verify(errors).handleWith(exNull, request, type, title, st, fallback);
-        verify(errors).handleWith(exBlank, request, type, title, st, fallback);
+        verify(nonceService).generateNonce();
     }
 
     // -------------------- handleInvalidToken --------------------
@@ -489,7 +470,7 @@ class GlobalExceptionHandlerTest {
     @Test
     void handleFormatUnsupportedException() {
         var ex = new FormatUnsupportedException("format xyz not supported");
-        var type = GlobalErrorTypes.FORMAT_IS_NOT_SUPPORTED.getCode();
+        var type = GlobalErrorTypes.UNSUPPORTED_CREDENTIAL_FORMAT.getCode();
         var title = "Format not supported";
         var st = HttpStatus.BAD_REQUEST;
         var fallback = "Format is not supported";
@@ -717,6 +698,24 @@ class GlobalExceptionHandlerTest {
         verify(errors).handleWith(ex, request, type, title, st, fallback);
     }
 
+    // -------------------- handleInvalidCredentialRequest --------------------
 
+    @Test
+    void handleInvalidCredentialRequest() {
+        var ex = new InvalidCredentialRequestException("missing required field");
+        var type = GlobalErrorTypes.INVALID_CREDENTIAL_REQUEST.getCode();
+        var title = "Invalid credential request";
+        var st = HttpStatus.BAD_REQUEST;
+        var fallback = "The credential request is malformed or contains invalid parameters";
+        var expected = new GlobalErrorMessage(type, title, st.value(), "missing required field", UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleInvalidCredentialRequest(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, "missing required field"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
 
 }

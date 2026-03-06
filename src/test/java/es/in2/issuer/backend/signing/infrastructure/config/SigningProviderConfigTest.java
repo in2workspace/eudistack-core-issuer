@@ -1,7 +1,6 @@
 package es.in2.issuer.backend.signing.infrastructure.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import es.in2.issuer.backend.shared.domain.service.SigningRecoveryService;
 import es.in2.issuer.backend.signing.domain.service.JadesHeaderBuilderService;
 import es.in2.issuer.backend.signing.domain.service.JwsSignHashService;
 import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
@@ -44,7 +43,6 @@ class SigningProviderConfigTest {
     @Mock private RuntimeSigningConfig runtimeSigningConfig;
 
     @Mock private RemoteSignatureService remoteSignatureService;
-    @Mock private SigningRecoveryService signingRecoveryService;
 
     @Mock private QtspAuthClient qtspAuthClient;
     @Mock private QtspIssuerService qtspIssuerService;
@@ -96,7 +94,6 @@ class SigningProviderConfigTest {
         SigningProvider provider = config.signingProvider(
                 runtimeSigningConfig,
                 remoteSignatureService,
-                signingRecoveryService,
                 qtspAuthClient,
                 qtspIssuerService,
                 jwsSignHashService,
@@ -131,7 +128,6 @@ class SigningProviderConfigTest {
         SigningProvider provider = config.signingProvider(
                 runtimeSigningConfig,
                 remoteSignatureService,
-                signingRecoveryService,
                 qtspAuthClient,
                 qtspIssuerService,
                 jwsSignHashService,
@@ -148,7 +144,6 @@ class SigningProviderConfigTest {
         // csc-sign-doc wiring
         Object cscDoc = providersByKey.get("csc-sign-doc");
         assertSame(remoteSignatureService, ReflectionTestUtils.getField(cscDoc, "remoteSignatureService"));
-        assertSame(signingRecoveryService, ReflectionTestUtils.getField(cscDoc, "signingRecoveryService"));
 
         // csc-sign-hash wiring
         Object cscHash = providersByKey.get("csc-sign-hash");
@@ -167,7 +162,6 @@ class SigningProviderConfigTest {
         SigningProvider provider = config.signingProvider(
                 runtimeSigningConfig,
                 remoteSignatureService,
-                signingRecoveryService,
                 qtspAuthClient,
                 qtspIssuerService,
                 jwsSignHashService,

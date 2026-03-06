@@ -57,10 +57,10 @@ class CredentialControllerTest {
                 "proc-123"
         );
 
-        when(accessTokenService.validateAndResolveProcedure(authorizationHeader))
+        when(accessTokenService.resolveAccessTokenContext(authorizationHeader))
                 .thenReturn(Mono.just(accessTokenContext));
 
-        when(oid4VciCredentialWorkflow.generateVerifiableCredentialResponse(
+        when(oid4VciCredentialWorkflow.createCredentialResponse(
                 anyString(),
                 eq(credentialRequest),
                 eq(accessTokenContext)
@@ -101,10 +101,10 @@ class CredentialControllerTest {
                 "proc-123"
         );
 
-        when(accessTokenService.validateAndResolveProcedure(authorizationHeader))
+        when(accessTokenService.resolveAccessTokenContext(authorizationHeader))
                 .thenReturn(Mono.just(accessTokenContext));
 
-        when(oid4VciCredentialWorkflow.generateVerifiableCredentialResponse(
+        when(oid4VciCredentialWorkflow.createCredentialResponse(
                 anyString(),
                 eq(credentialRequest),
                 eq(accessTokenContext)

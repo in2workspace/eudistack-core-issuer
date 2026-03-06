@@ -5,10 +5,8 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.Credenti
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuerMetadataService;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Mono;
 
 import java.util.Map;
 import java.util.Set;
@@ -19,14 +17,12 @@ import static es.in2.issuer.backend.shared.domain.util.HttpUtils.ensureUrlHasPro
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class CredentialIssuerMetadataServiceImpl implements CredentialIssuerMetadataService {
 
-    private final IssuerProperties appConfig;
-    private final CredentialProfileRegistry credentialProfileRegistry;
+    private final CredentialIssuerMetadata cachedMetadata;
 
-    @Override
-    public Mono<CredentialIssuerMetadata> getCredentialIssuerMetadata(String processId) {
+    public CredentialIssuerMetadataServiceImpl(IssuerProperties appConfig,
+                                                CredentialProfileRegistry credentialProfileRegistry) {
         String credentialIssuerUrl = ensureUrlHasProtocol(appConfig.getIssuerBackendUrl());
 
         Map<String, CredentialIssuerMetadata.CredentialConfiguration> configs =
@@ -36,18 +32,24 @@ public class CredentialIssuerMetadataServiceImpl implements CredentialIssuerMeta
                                 entry -> mapProfileToConfiguration(entry.getValue())
                         ));
 
-        CredentialIssuerMetadata metadata = CredentialIssuerMetadata.builder()
+        this.cachedMetadata = CredentialIssuerMetadata.builder()
                 .credentialIssuer(credentialIssuerUrl)
                 .credentialEndpoint(credentialIssuerUrl + OID4VCI_CREDENTIAL_PATH)
-                .deferredCredentialEndpoint(credentialIssuerUrl + OID4VCI_DEFERRED_CREDENTIAL_PATH)
+                .nonceEndpoint(credentialIssuerUrl + OID4VCI_NONCE_PATH)
                 .notificationEndpoint(credentialIssuerUrl + OID4VCI_NOTIFICATION_PATH)
                 .credentialConfigurationsSupported(configs)
                 .build();
 
-        return Mono.just(metadata);
+        log.info("CredentialIssuerMetadata cached at startup: issuer={}, configurations={}",
+                credentialIssuerUrl, configs.keySet());
     }
 
-    private CredentialIssuerMetadata.CredentialConfiguration mapProfileToConfiguration(CredentialProfile profile) {
+    @Override
+    public CredentialIssuerMetadata getCredentialIssuerMetadata() {
+        return cachedMetadata;
+    }
+
+    private static CredentialIssuerMetadata.CredentialConfiguration mapProfileToConfiguration(CredentialProfile profile) {
         Set<String> bindingMethods = profile.cryptographicBindingMethodsSupported();
         if (bindingMethods != null && bindingMethods.isEmpty()) {
             bindingMethods = null;

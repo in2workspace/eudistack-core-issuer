@@ -15,7 +15,7 @@ public class GetCredentialIssuerMetadataWorkflowImpl implements GetCredentialIss
 
     @Override
     public Mono<CredentialIssuerMetadata> execute(String processId) {
-        return credentialIssuerMetadataService.getCredentialIssuerMetadata(processId);
+        return Mono.just(credentialIssuerMetadataService.getCredentialIssuerMetadata());
     }
 
 }

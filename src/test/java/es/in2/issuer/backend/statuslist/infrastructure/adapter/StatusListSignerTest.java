@@ -56,7 +56,7 @@ class StatusListSignerTest {
                 .thenReturn(Mono.just(signingResult));
 
         // Act + Assert
-        StepVerifier.create(signer.sign(payload, token, listId))
+        StepVerifier.create(signer.sign(payload, token, listId, null))
                 .expectNext("jwt-value")
                 .verifyComplete();
 
@@ -88,7 +88,7 @@ class StatusListSignerTest {
                 .thenReturn(Mono.error(providerError));
 
         // Act + Assert
-        StepVerifier.create(signer.sign(payload, token, listId))
+        StepVerifier.create(signer.sign(payload, token, listId, null))
                 .expectErrorSatisfies(ex -> {
                     assertThat(ex).isInstanceOf(RemoteSignatureException.class);
                     assertThat(ex.getMessage()).isEqualTo("StatusList signing failed; list ID: " + listId);
@@ -110,7 +110,7 @@ class StatusListSignerTest {
         when(objectMapper.writeValueAsString(payload)).thenThrow(jacksonEx);
 
         // Act + Assert
-        StepVerifier.create(signer.sign(payload, token, listId))
+        StepVerifier.create(signer.sign(payload, token, listId, null))
                 .expectErrorSatisfies(ex -> {
                     assertThat(ex).isInstanceOf(RemoteSignatureException.class);
                     assertThat(ex.getMessage()).isEqualTo("StatusList signing failed; list ID: " + listId);
@@ -141,7 +141,7 @@ class StatusListSignerTest {
                 .thenReturn(Mono.just(signingResult));
 
         // Act + Assert
-        StepVerifier.create(signer.sign(payload, token, listId))
+        StepVerifier.create(signer.sign(payload, token, listId, null))
                 .expectErrorSatisfies(ex -> {
                     assertThat(ex).isInstanceOf(RemoteSignatureException.class);
                     assertThat(ex.getMessage()).isEqualTo("Signer returned empty signingResult; list ID: " + listId);
@@ -153,14 +153,14 @@ class StatusListSignerTest {
     @Test
     void sign_shouldThrowImmediately_whenPayloadIsNull() {
         StatusListSigner signer = new StatusListSigner(signingProvider, objectMapper);
-        assertThrows(RuntimeException.class, () -> signer.sign(null, "token", 1L));
+        assertThrows(RuntimeException.class, () -> signer.sign(null, "token", 1L, null));
     }
 
     @Test
     void sign_shouldThrowImmediately_whenTokenIsNull() {
         StatusListSigner signer = new StatusListSigner(signingProvider, objectMapper);
 
-        assertThatThrownBy(() -> signer.sign(Map.of("a", 1), null, 1L))
+        assertThatThrownBy(() -> signer.sign(Map.of("a", 1), null, 1L, null))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("token");
     }

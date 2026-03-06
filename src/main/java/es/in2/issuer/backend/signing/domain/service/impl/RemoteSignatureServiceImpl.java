@@ -4,7 +4,6 @@ import es.in2.issuer.backend.shared.domain.exception.*;
 import java.util.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
 import es.in2.issuer.backend.shared.domain.util.HttpUtils;
 import es.in2.issuer.backend.shared.domain.util.JwtUtils;
 import es.in2.issuer.backend.signing.domain.exception.SignatureProcessingException;
@@ -46,7 +45,6 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
     private final RuntimeSigningConfig runtimeSigningConfig;
     private static final String SAD_NAME = "SAD";
     private static final String SERIALIZING_ERROR = "Error serializing request body to JSON";
-    private final DeferredCredentialMetadataService deferredCredentialMetadataService;
 
     private RemoteSignatureDto remoteCfgRequired() {
         RemoteSignatureDto cfg = runtimeSigningConfig.getRemoteSignature();
@@ -94,10 +92,7 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
 
         return signWithRetry(signingRequest, token, "signIssuedCredential")
                 .doOnSuccess(result -> {
-                    log.info("Successfully Signed");
-                    log.info("Procedure with id: {}", procedureId);
-                    log.info("at time: {}", new Date());
-                    deferredCredentialMetadataService.deleteDeferredCredentialMetadataById(procedureId);
+                    log.info("Successfully signed credential for procedureId: {}", procedureId);
                 });
     }
 

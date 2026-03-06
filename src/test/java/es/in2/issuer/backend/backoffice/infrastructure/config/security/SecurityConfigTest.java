@@ -228,14 +228,6 @@ class SecurityConfigTest {
         }
 
         @Test
-        void oid4vciDeferredCredential_post_shouldReturn401_whenNoAuth() {
-            MockServerWebExchange exchange = MockServerWebExchange.from(
-                    MockServerHttpRequest.post(OID4VCI_DEFERRED_CREDENTIAL_PATH).build()
-            );
-            assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
-        }
-
-        @Test
         void oid4vciNotification_post_shouldReturn401_whenNoAuth() {
             MockServerWebExchange exchange = MockServerWebExchange.from(
                     MockServerHttpRequest.post(OID4VCI_NOTIFICATION_PATH).build()
@@ -286,17 +278,6 @@ class SecurityConfigTest {
         void oid4vciCredential_post_shouldReturn200_whenAuthenticated() {
             MockServerWebExchange exchange = MockServerWebExchange.from(
                     MockServerHttpRequest.post(OID4VCI_CREDENTIAL_PATH)
-                            .header(HttpHeaders.AUTHORIZATION, "Bearer good-token")
-                            .build()
-            );
-            assertEquals(HttpStatus.OK, executeFilter(exchange));
-            verify(customAuthenticationManager).authenticate(any());
-        }
-
-        @Test
-        void oid4vciDeferredCredential_post_shouldReturn200_whenAuthenticated() {
-            MockServerWebExchange exchange = MockServerWebExchange.from(
-                    MockServerHttpRequest.post(OID4VCI_DEFERRED_CREDENTIAL_PATH)
                             .header(HttpHeaders.AUTHORIZATION, "Bearer good-token")
                             .build()
             );

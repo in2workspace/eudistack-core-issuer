@@ -1,19 +1,22 @@
 package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
-import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
-import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
-import lombok.RequiredArgsConstructor;
+import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
+import es.in2.issuer.backend.oidc4vci.domain.model.OAuthErrorResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import reactor.core.publisher.Mono;
 
 @Slf4j
 @RestControllerAdvice
-@RequiredArgsConstructor
 public class Oidc4vciExceptionHandler {
-    private final ErrorResponseFactory errors;
 
-    //todo remove when GlobalErrorTypes are used in more than one module
-    @SuppressWarnings("unused")
-    private static final Class<?> __arch_touch_global_error_types =
-            GlobalErrorTypes.class;
+    @ExceptionHandler(OAuthTokenException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<OAuthErrorResponse> handleOAuthTokenException(OAuthTokenException ex) {
+        log.warn("OAuth token error: error={}, description={}", ex.getErrorCode(), ex.getMessage());
+        return Mono.just(new OAuthErrorResponse(ex.getErrorCode(), ex.getMessage()));
+    }
 }
