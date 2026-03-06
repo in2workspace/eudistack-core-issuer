@@ -11,7 +11,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.service.HashGeneratorService;
 import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
-import es.in2.issuer.backend.shared.domain.util.HttpUtils;
+import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

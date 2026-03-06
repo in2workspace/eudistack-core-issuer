@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.shared.infrastructure.controller.error;
 
-import es.in2.issuer.backend.shared.domain.model.dto.GlobalErrorMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.RequestPath;

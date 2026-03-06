@@ -2,7 +2,7 @@ package es.in2.issuer.backend.backoffice.infrastructure.config.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.backoffice.infrastructure.config.security.SecurityProblemResolver.ProblemSpec;
-import es.in2.issuer.backend.shared.domain.model.dto.GlobalErrorMessage;
+import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

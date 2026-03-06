@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.shared.domain.model.dto;
+package es.in2.issuer.backend.shared.infrastructure.controller.error;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;

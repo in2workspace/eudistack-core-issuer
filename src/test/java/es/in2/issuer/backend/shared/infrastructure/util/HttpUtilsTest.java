@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.shared.domain.util;
+package es.in2.issuer.backend.shared.infrastructure.util;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

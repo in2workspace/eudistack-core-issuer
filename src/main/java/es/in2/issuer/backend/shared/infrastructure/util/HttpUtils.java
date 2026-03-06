@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.shared.domain.util;
+package es.in2.issuer.backend.shared.infrastructure.util;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;

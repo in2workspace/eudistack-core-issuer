@@ -4,7 +4,7 @@ import es.in2.issuer.backend.shared.domain.exception.*;
 import java.util.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import es.in2.issuer.backend.shared.domain.util.HttpUtils;
+import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
 import es.in2.issuer.backend.shared.domain.util.JwtUtils;
 import es.in2.issuer.backend.signing.domain.exception.SignatureProcessingException;
 import es.in2.issuer.backend.signing.domain.exception.SigningResultParsingException;

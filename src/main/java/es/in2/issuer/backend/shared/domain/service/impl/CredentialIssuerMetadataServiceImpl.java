@@ -13,7 +13,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.*;
-import static es.in2.issuer.backend.shared.domain.util.HttpUtils.ensureUrlHasProtocol;
+import static es.in2.issuer.backend.shared.infrastructure.util.HttpUtils.ensureUrlHasProtocol;
 
 @Slf4j
 @Service

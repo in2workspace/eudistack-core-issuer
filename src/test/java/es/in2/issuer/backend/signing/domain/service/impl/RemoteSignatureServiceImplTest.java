@@ -2,7 +2,7 @@ package es.in2.issuer.backend.signing.domain.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.SadException;
-import es.in2.issuer.backend.shared.domain.util.HttpUtils;
+import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
 import es.in2.issuer.backend.shared.domain.util.JwtUtils;
 import es.in2.issuer.backend.signing.domain.exception.SignatureProcessingException;
 import es.in2.issuer.backend.signing.domain.model.SigningType;

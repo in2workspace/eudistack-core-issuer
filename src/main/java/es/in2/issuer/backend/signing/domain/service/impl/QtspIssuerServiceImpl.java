@@ -9,7 +9,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
-import es.in2.issuer.backend.shared.domain.util.HttpUtils;
+import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
 import es.in2.issuer.backend.signing.domain.exception.OrganizationIdentifierNotFoundException;
 import es.in2.issuer.backend.signing.domain.model.dto.CacheEntry;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;

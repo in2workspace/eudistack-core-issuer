@@ -4,7 +4,7 @@ import java.util.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
-import es.in2.issuer.backend.shared.domain.util.HttpUtils;
+import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
 import es.in2.issuer.backend.signing.domain.spi.QtspSignHashPort;
 import es.in2.issuer.backend.signing.domain.model.dto.CscAuthorizeResponse;
 import es.in2.issuer.backend.signing.domain.model.dto.CscSignHashResponse;

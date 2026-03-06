@@ -2,7 +2,7 @@ package es.in2.issuer.backend.signing.infrastructure.qtsp.signhash;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
-import es.in2.issuer.backend.shared.domain.util.HttpUtils;
+import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import org.junit.jupiter.api.BeforeEach;
