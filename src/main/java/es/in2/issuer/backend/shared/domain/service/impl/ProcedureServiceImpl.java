@@ -25,6 +25,7 @@ import reactor.core.Exceptions;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -335,6 +336,21 @@ public class ProcedureServiceImpl implements ProcedureService {
             return profile.credentialType();
         }
         return credentialConfigurationId;
+    }
+
+    @Override
+    public Flux<CredentialProcedure> findIssuedReadyForActivation(Instant now) {
+        return credentialProcedureRepository.findIssuedReadyForActivation(CredentialStatusEnum.ISSUED, now);
+    }
+
+    @Override
+    public Flux<CredentialProcedure> findStaleDrafts(Instant cutoff) {
+        return credentialProcedureRepository.findByCredentialStatusAndCreatedAtBefore(CredentialStatusEnum.DRAFT, cutoff);
+    }
+
+    @Override
+    public Mono<CredentialProcedure> updateProcedure(CredentialProcedure procedure) {
+        return credentialProcedureRepository.save(procedure);
     }
 
     private void validateTransition(CredentialStatusEnum from, CredentialStatusEnum to) {

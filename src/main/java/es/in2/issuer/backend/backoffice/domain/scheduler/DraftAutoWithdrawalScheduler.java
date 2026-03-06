@@ -2,7 +2,7 @@ package es.in2.issuer.backend.backoffice.domain.scheduler;
 
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.backoffice.infrastructure.config.properties.ProcedureProperties;
-import es.in2.issuer.backend.shared.infrastructure.repository.CredentialProcedureRepository;
+import es.in2.issuer.backend.shared.domain.service.ProcedureService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -21,7 +21,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 @RequiredArgsConstructor
 public class DraftAutoWithdrawalScheduler {
 
-    private final CredentialProcedureRepository credentialProcedureRepository;
+    private final ProcedureService procedureService;
     private final ProcedureProperties procedureProperties;
 
     @Scheduled(cron = "${procedure.cleanup-cron}")
@@ -30,12 +30,12 @@ public class DraftAutoWithdrawalScheduler {
         log.info("Scheduled Task - Withdrawing DRAFT procedures older than {} days (cutoff: {})",
                 procedureProperties.draftMaxAgeDays(), cutoff);
 
-        return credentialProcedureRepository
-                .findByCredentialStatusAndCreatedAtBefore(CredentialStatusEnum.DRAFT, cutoff)
+        return procedureService
+                .findStaleDrafts(cutoff)
                 .flatMap(procedure -> {
                     log.info("Withdrawing stale DRAFT procedure: {}", procedure.getProcedureId());
                     procedure.setCredentialStatus(CredentialStatusEnum.WITHDRAWN);
-                    return credentialProcedureRepository.save(procedure);
+                    return procedureService.updateProcedure(procedure);
                 })
                 .then()
                 .doOnSuccess(v -> log.info("Scheduled Task - Draft auto-withdrawal completed"))

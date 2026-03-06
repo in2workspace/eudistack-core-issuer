@@ -9,6 +9,8 @@ import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.Instant;
+
 public interface ProcedureService {
     Mono<CredentialProcedure> createCredentialProcedure(CredentialProcedureCreationRequest credentialProcedureCreationRequest);
 
@@ -43,4 +45,10 @@ public interface ProcedureService {
     Mono<CredentialOfferEmailNotificationInfo> findCredentialOfferEmailInfoByProcedureId(String procedureId);
 
     Mono<Void> withdrawCredentialProcedure(String procedureId);
+
+    Flux<CredentialProcedure> findIssuedReadyForActivation(Instant now);
+
+    Flux<CredentialProcedure> findStaleDrafts(Instant cutoff);
+
+    Mono<CredentialProcedure> updateProcedure(CredentialProcedure procedure);
 }

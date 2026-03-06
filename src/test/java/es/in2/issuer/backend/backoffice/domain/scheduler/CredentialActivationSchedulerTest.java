@@ -2,7 +2,6 @@ package es.in2.issuer.backend.backoffice.domain.scheduler;
 
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
-import es.in2.issuer.backend.backoffice.infrastructure.config.properties.ProcedureProperties;
 import es.in2.issuer.backend.shared.domain.service.ProcedureService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -14,52 +13,45 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-class DraftAutoWithdrawalSchedulerTest {
+class CredentialActivationSchedulerTest {
 
     @Mock
     private ProcedureService procedureService;
 
-    @Mock
-    private ProcedureProperties procedureProperties;
-
     @InjectMocks
-    private DraftAutoWithdrawalScheduler scheduler;
+    private CredentialActivationScheduler scheduler;
 
     @Test
-    void shouldWithdrawStaleDrafts() {
-        CredentialProcedure staleDraft = CredentialProcedure.builder()
+    void shouldActivateIssuedCredentials() {
+        CredentialProcedure issuedCredential = CredentialProcedure.builder()
                 .procedureId(UUID.randomUUID())
-                .credentialStatus(CredentialStatusEnum.DRAFT)
-                .createdAt(Instant.now().minus(45, ChronoUnit.DAYS))
+                .credentialStatus(CredentialStatusEnum.ISSUED)
                 .build();
 
-        when(procedureProperties.draftMaxAgeDays()).thenReturn(30);
-        when(procedureService.findStaleDrafts(any(Instant.class)))
-                .thenReturn(Flux.just(staleDraft));
+        when(procedureService.findIssuedReadyForActivation(any(Instant.class)))
+                .thenReturn(Flux.just(issuedCredential));
         when(procedureService.updateProcedure(any(CredentialProcedure.class)))
-                .thenReturn(Mono.just(staleDraft));
+                .thenReturn(Mono.just(issuedCredential));
 
-        StepVerifier.create(scheduler.withdrawStaleDrafts())
+        StepVerifier.create(scheduler.activateIssuedCredentials())
                 .verifyComplete();
 
         verify(procedureService).updateProcedure(argThat(proc ->
-                proc.getCredentialStatus() == CredentialStatusEnum.WITHDRAWN));
+                proc.getCredentialStatus() == CredentialStatusEnum.VALID));
     }
 
     @Test
-    void shouldDoNothingWhenNoStaleDrafts() {
-        when(procedureProperties.draftMaxAgeDays()).thenReturn(30);
-        when(procedureService.findStaleDrafts(any(Instant.class)))
+    void shouldDoNothingWhenNoIssuedCredentialsReadyForActivation() {
+        when(procedureService.findIssuedReadyForActivation(any(Instant.class)))
                 .thenReturn(Flux.empty());
 
-        StepVerifier.create(scheduler.withdrawStaleDrafts())
+        StepVerifier.create(scheduler.activateIssuedCredentials())
                 .verifyComplete();
 
         verify(procedureService, never()).updateProcedure(any());
