@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.statuslist.infrastructure.adapter;
 
 import es.in2.issuer.backend.statuslist.domain.exception.IndexReservationExhaustedException;
+import es.in2.issuer.backend.statuslist.domain.model.StatusListIndexData;
 import es.in2.issuer.backend.statuslist.domain.spi.StatusListIndexAllocator;
 import es.in2.issuer.backend.statuslist.domain.spi.StatusListIndexReservation;
 import es.in2.issuer.backend.statuslist.domain.spi.UniqueViolationClassifier;
@@ -29,8 +30,9 @@ public class BitstringStatusListIndexReservation implements StatusListIndexReser
     private final UniqueViolationClassifier uniqueViolationClassifier;
 
     @Override
-    public Mono<StatusListIndex> reserve(Long statusListId, String procedureId) {
-        return reserveWithRetry(statusListId, procedureId);
+    public Mono<StatusListIndexData> reserve(Long statusListId, String procedureId) {
+        return reserveWithRetry(statusListId, procedureId)
+                .map(BitstringStatusListIndexReservation::toDomain);
     }
 
     private static final long MAX_ATTEMPTS = 15;
@@ -128,6 +130,16 @@ public class BitstringStatusListIndexReservation implements StatusListIndexReser
             return new IndexReservationExhaustedException("Too many collisions while reserving index", t);
         }
         return t;
+    }
+
+    private static StatusListIndexData toDomain(StatusListIndex entity) {
+        return new StatusListIndexData(
+                entity.id(),
+                entity.statusListId(),
+                entity.idx(),
+                entity.procedureId(),
+                entity.createdAt()
+        );
     }
 
 }

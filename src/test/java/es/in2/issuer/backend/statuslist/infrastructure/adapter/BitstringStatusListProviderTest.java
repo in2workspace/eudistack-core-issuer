@@ -9,6 +9,8 @@ import es.in2.issuer.backend.statuslist.domain.factory.BitstringStatusListCreden
 import es.in2.issuer.backend.statuslist.domain.factory.TokenStatusListCredentialFactory;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListEntry;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
+import es.in2.issuer.backend.statuslist.domain.model.StatusListData;
+import es.in2.issuer.backend.statuslist.domain.model.StatusListIndexData;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
 import es.in2.issuer.backend.statuslist.domain.service.impl.BitstringStatusListRevocationService;
 import es.in2.issuer.backend.statuslist.domain.util.BitstringEncoder;
@@ -193,7 +195,7 @@ class BitstringStatusListProviderTest {
                 Instant.now()
         );
 
-        StatusListIndex reservedIndex = new StatusListIndex(
+        StatusListIndexData reservedIndex = new StatusListIndexData(
                 1L,
                 TEST_LIST_ID,
                 5,
@@ -317,7 +319,7 @@ class BitstringStatusListProviderTest {
                 Instant.now()
         );
 
-        StatusListIndex reservedIndex = new StatusListIndex(
+        StatusListIndexData reservedIndex = new StatusListIndexData(
                 1L,
                 newListId,
                 0,
@@ -402,7 +404,7 @@ class BitstringStatusListProviderTest {
                 Instant.now()
         );
 
-        StatusListIndex reservedIndex = new StatusListIndex(
+        StatusListIndexData reservedIndex = new StatusListIndexData(
                 1L,
                 TEST_LIST_ID,
                 0,
@@ -653,7 +655,7 @@ class BitstringStatusListProviderTest {
                 Instant.now()
         );
 
-        StatusListIndex reservedIndex = new StatusListIndex(
+        StatusListIndexData reservedIndex = new StatusListIndexData(
                 1L,
                 newListId,
                 7,
@@ -778,7 +780,7 @@ class BitstringStatusListProviderTest {
                 Instant.now(), Instant.now()
         );
 
-        StatusListIndex reservedIndex = new StatusListIndex(
+        StatusListIndexData reservedIndex = new StatusListIndexData(
                 1L, TEST_LIST_ID, TEST_IDX, procedureUuid, Instant.now()
         );
 
@@ -830,7 +832,7 @@ class BitstringStatusListProviderTest {
                 Instant.now(), Instant.now()
         );
 
-        StatusListIndex reservedIndex = new StatusListIndex(
+        StatusListIndexData reservedIndex = new StatusListIndexData(
                 1L, newListId, 0, procedureUuid, Instant.now()
         );
 
@@ -930,8 +932,8 @@ class BitstringStatusListProviderTest {
         when(statusListRepository.findById(TEST_LIST_ID))
                 .thenReturn(Mono.just(currentRow));
 
-        when(revocationService.applyRevocation(currentRow, TEST_IDX))
-                .thenReturn(updatedRow);
+        when(revocationService.applyRevocation(any(StatusListData.class), eq(TEST_IDX)))
+                .thenReturn(new StatusListData(updatedRow.id(), updatedRow.purpose(), updatedRow.format(), updatedRow.encodedList(), updatedRow.signedCredential(), updatedRow.createdAt(), updatedRow.updatedAt()));
 
         when(issuerFactory.createSimpleIssuer())
                 .thenReturn(Mono.just(simpleIssuer));
@@ -955,7 +957,7 @@ class BitstringStatusListProviderTest {
 
         verify(statusListIndexRepository).findByProcedureId(procedureUuid);
         verify(statusListRepository).findById(TEST_LIST_ID);
-        verify(revocationService).applyRevocation(currentRow, TEST_IDX);
+        verify(revocationService).applyRevocation(any(StatusListData.class), eq(TEST_IDX));
         verify(statusListRepository).updateSignedAndEncodedIfUnchanged(eq(TEST_LIST_ID), anyString(), anyString(), eq(updatedAt));
     }
 
@@ -1034,7 +1036,9 @@ class BitstringStatusListProviderTest {
         // Use the real revocation logic once to produce a list with the bit set,
         // then feed that to the provider so resolveRevocationCandidate sees it as already revoked.
         BitstringStatusListRevocationService realRevocation = new BitstringStatusListRevocationService();
-        StatusList revokedRow = realRevocation.applyRevocation(baseRow, TEST_IDX);
+        StatusListData baseData = new StatusListData(baseRow.id(), baseRow.purpose(), baseRow.format(), baseRow.encodedList(), baseRow.signedCredential(), baseRow.createdAt(), baseRow.updatedAt());
+        StatusListData revokedData = realRevocation.applyRevocation(baseData, TEST_IDX);
+        StatusList revokedRow = new StatusList(revokedData.id(), revokedData.purpose(), revokedData.format(), revokedData.encodedList(), revokedData.signedCredential(), revokedData.createdAt(), revokedData.updatedAt());
 
         when(statusListIndexRepository.findByProcedureId(procedureUuid))
                 .thenReturn(Mono.just(listIndex));
@@ -1099,8 +1103,8 @@ class BitstringStatusListProviderTest {
         when(statusListRepository.findById(TEST_LIST_ID))
                 .thenReturn(Mono.just(currentRow), Mono.just(currentRow));
 
-        when(revocationService.applyRevocation(currentRow, TEST_IDX))
-                .thenReturn(updatedRow);
+        when(revocationService.applyRevocation(any(StatusListData.class), eq(TEST_IDX)))
+                .thenReturn(new StatusListData(updatedRow.id(), updatedRow.purpose(), updatedRow.format(), updatedRow.encodedList(), updatedRow.signedCredential(), updatedRow.createdAt(), updatedRow.updatedAt()));
 
         when(issuerFactory.createSimpleIssuer())
                 .thenReturn(Mono.just(simpleIssuer));
@@ -1192,8 +1196,8 @@ class BitstringStatusListProviderTest {
         when(statusListRepository.findById(TEST_LIST_ID))
                 .thenReturn(Mono.just(currentRow));
 
-        when(revocationService.applyRevocation(currentRow, TEST_IDX))
-                .thenReturn(updatedRow);
+        when(revocationService.applyRevocation(any(StatusListData.class), eq(TEST_IDX)))
+                .thenReturn(new StatusListData(updatedRow.id(), updatedRow.purpose(), updatedRow.format(), updatedRow.encodedList(), updatedRow.signedCredential(), updatedRow.createdAt(), updatedRow.updatedAt()));
 
         when(issuerFactory.createSimpleIssuer())
                 .thenReturn(Mono.just(simpleIssuer));

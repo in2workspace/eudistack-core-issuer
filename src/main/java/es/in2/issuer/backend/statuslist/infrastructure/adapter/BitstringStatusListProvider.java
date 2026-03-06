@@ -6,8 +6,10 @@ import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import es.in2.issuer.backend.statuslist.domain.exception.*;
 import es.in2.issuer.backend.statuslist.domain.factory.BitstringStatusListCredentialFactory;
 import es.in2.issuer.backend.statuslist.domain.factory.TokenStatusListCredentialFactory;
+import es.in2.issuer.backend.statuslist.domain.model.StatusListData;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListEntry;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
+import es.in2.issuer.backend.statuslist.domain.model.StatusListIndexData;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
 import es.in2.issuer.backend.statuslist.domain.service.impl.BitstringStatusListRevocationService;
 import es.in2.issuer.backend.statuslist.domain.spi.StatusListProvider;
@@ -159,7 +161,9 @@ public class BitstringStatusListProvider implements StatusListProvider {
                     return Mono.empty();
                 }))
                 .flatMap(row -> {
-                    StatusList updatedRow = revocationService.applyRevocation(row, idx);
+                    StatusListData domainRow = toDomain(row);
+                    StatusListData updatedDomain = revocationService.applyRevocation(domainRow, idx);
+                    StatusList updatedRow = toEntity(updatedDomain);
 
                     return getIssuerAndSignCredential(updatedRow, token)
                             .flatMap(signedJwt ->
@@ -299,7 +303,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
         return statusListIndexRepository.findByProcedureId(procedureUuid)
                 .map(existing -> {
                     log.debug("Found existing allocation in list {}, idx: {}", existing.statusListId(), existing.idx());
-                    return buildEntry(existing, format, purpose);
+                    return buildEntry(toIndexDomain(existing), format, purpose);
                 })
                 .doOnSuccess(v ->
                         log.debug("method=findExistingAllocation step=END procedureId={} statusListEntry={}", procedureId, v)
@@ -334,7 +338,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
 
     // --- Helpers ---
 
-    private StatusListEntry buildEntry(StatusListIndex reservedIndex, StatusListFormat format, StatusPurpose purpose) {
+    private StatusListEntry buildEntry(StatusListIndexData reservedIndex, StatusListFormat format, StatusPurpose purpose) {
         String listUrl = buildListUrl(reservedIndex.statusListId(), format);
         if (format == StatusListFormat.TOKEN_JWT) {
             return tokenFactory.buildStatusListEntry(listUrl, reservedIndex.idx(), purpose);
@@ -364,7 +368,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
                 });
     }
 
-    private Mono<StatusListIndex> reserveWithNewListFallback(
+    private Mono<StatusListIndexData> reserveWithNewListFallback(
             Long statusListId,
             StatusPurpose purpose,
             StatusListFormat format,
@@ -379,5 +383,41 @@ public class BitstringStatusListProvider implements StatusListProvider {
                                         statusListIndexReservationService.reserve(newList.id(), procedureId)
                                 )
                 );
+    }
+
+    // --- Mapping ---
+
+    private static StatusListData toDomain(StatusList entity) {
+        return new StatusListData(
+                entity.id(),
+                entity.purpose(),
+                entity.format(),
+                entity.encodedList(),
+                entity.signedCredential(),
+                entity.createdAt(),
+                entity.updatedAt()
+        );
+    }
+
+    private static StatusList toEntity(StatusListData domain) {
+        return new StatusList(
+                domain.id(),
+                domain.purpose(),
+                domain.format(),
+                domain.encodedList(),
+                domain.signedCredential(),
+                domain.createdAt(),
+                domain.updatedAt()
+        );
+    }
+
+    private static StatusListIndexData toIndexDomain(StatusListIndex entity) {
+        return new StatusListIndexData(
+                entity.id(),
+                entity.statusListId(),
+                entity.idx(),
+                entity.procedureId(),
+                entity.createdAt()
+        );
     }
 }
