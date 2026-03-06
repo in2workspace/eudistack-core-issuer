@@ -54,6 +54,6 @@ class RefreshTokenServiceImplTest {
     void generateRefreshTokenExpirationTime_ShouldReturnCorrectExpirationTime() {
         long actualExpirationTime = refreshTokenService.generateRefreshTokenExpirationTime(testIssueTime);
 
-        assertThat(actualExpirationTime).isEqualTo(testIssueTime.plusSeconds(REFRESH_TOKEN_EXPIRATION * 86400).getEpochSecond());
+        assertThat(actualExpirationTime).isEqualTo(testIssueTime.plusSeconds(REFRESH_TOKEN_EXPIRATION * 3600).getEpochSecond());
     }
 }

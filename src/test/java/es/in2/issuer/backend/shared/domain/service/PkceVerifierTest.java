@@ -27,7 +27,7 @@ class PkceVerifierTest {
 
         IllegalArgumentException ex = assertThrows(
                 IllegalArgumentException.class,
-                () -> pkceVerifier.verifyS256("wrong-verifier", codeChallenge)
+                () -> pkceVerifier.verifyS256("wrong-verifier-that-is-long-enough-to-pass-43-chars", codeChallenge)
         );
         assertEquals("PKCE verification failed", ex.getMessage());
     }
@@ -54,7 +54,7 @@ class PkceVerifierTest {
     void verifyS256_shouldThrowOnNullChallenge() {
         IllegalArgumentException ex = assertThrows(
                 IllegalArgumentException.class,
-                () -> pkceVerifier.verifyS256("some-verifier", null)
+                () -> pkceVerifier.verifyS256("some-verifier-that-is-long-enough-to-pass-43-chars-check", null)
         );
         assertEquals("Missing code_challenge", ex.getMessage());
     }
@@ -63,7 +63,7 @@ class PkceVerifierTest {
     void verifyS256_shouldThrowOnBlankChallenge() {
         IllegalArgumentException ex = assertThrows(
                 IllegalArgumentException.class,
-                () -> pkceVerifier.verifyS256("some-verifier", "  ")
+                () -> pkceVerifier.verifyS256("some-verifier-that-is-long-enough-to-pass-43-chars-check", "  ")
         );
         assertEquals("Missing code_challenge", ex.getMessage());
     }
