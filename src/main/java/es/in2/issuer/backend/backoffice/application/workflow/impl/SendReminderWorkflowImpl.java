@@ -30,7 +30,7 @@ public class SendReminderWorkflowImpl implements SendReminderWorkflow {
                 )
                 .flatMap(credentialProcedure ->
                     switch (credentialProcedure.getCredentialStatus()) {
-                        case DRAFT ->
+                        case DRAFT, WITHDRAWN ->
                             credentialOfferRefreshWorkflow.refreshCredentialOffer(
                                     credentialProcedure.getCredentialOfferRefreshToken());
 

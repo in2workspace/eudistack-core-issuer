@@ -145,7 +145,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                 appConfig.getWalletFrontendUrl(),
                                                 emailInfo.organization()
                                         )
-                                        .doOnSuccess(v -> log.info("Credential offer email sent to: {}", emailInfo.email()))
+                                        .doOnSuccess(v -> log.info("Credential offer email sent for procedureId={}", creationRequest.procedureId()))
                                         .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE))
                                         .thenReturn(IssuanceResponse.builder().build());
                             });

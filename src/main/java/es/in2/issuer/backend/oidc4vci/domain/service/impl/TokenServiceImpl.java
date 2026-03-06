@@ -31,7 +31,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
-import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.ACCESS_TOKEN_EXPIRATION_TIME_DAYS;
+import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.ACCESS_TOKEN_EXPIRATION_MINUTES;
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.AUTHORIZATION_CODE_GRANT_TYPE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.GRANT_TYPE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.REFRESH_TOKEN_GRANT_TYPE;
@@ -102,7 +102,7 @@ public class TokenServiceImpl implements TokenService {
                     if (data.TxCode().equals(txCode)) {
                         return Mono.empty();
                     }
-                    log.warn("Invalid tx_code for pre-authorized code: {}", preAuthorizedCode);
+                    log.warn("Invalid tx_code for pre-authorized code");
                     return Mono.error(OAuthTokenException.invalidGrant("Invalid tx code"));
                 });
     }
@@ -248,7 +248,7 @@ public class TokenServiceImpl implements TokenService {
     // ── Shared ────────────────────────────────────────────────────────────────
 
     private long computeAccessTokenExpiration(Instant issueTime) {
-        return issueTime.plus(ACCESS_TOKEN_EXPIRATION_TIME_DAYS, ChronoUnit.DAYS).getEpochSecond();
+        return issueTime.plus(ACCESS_TOKEN_EXPIRATION_MINUTES, ChronoUnit.MINUTES).getEpochSecond();
     }
 
     private Mono<Void> storeRefreshToken(String procedureId, String preAuthorizedCode, String refreshToken, long expiresAt) {

@@ -108,7 +108,7 @@ public class VerifierServiceImpl implements VerifierService {
         return switch (jwk.getKeyType().toString()) {
             case "RSA" -> new RSASSAVerifier(((RSAKey) jwk).toRSAPublicKey());
             case "EC" -> new ECDSAVerifier(((ECKey) jwk).toECPublicKey());
-            case "oct" -> new MACVerifier(((OctetSequenceKey) jwk).toByteArray());
+            case "oct" -> throw new JOSEException("Symmetric key type (oct) is not allowed for token verification");
             default -> throw new JOSEException("Unsupported JWK type: " + jwk.getKeyType());
         };
     }

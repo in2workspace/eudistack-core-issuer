@@ -16,11 +16,18 @@ public class CacheStore<T> {
     private final long expiryDuration;
     private final TimeUnit timeUnit;
 
+    private static final long DEFAULT_MAX_SIZE = 10_000;
+
     public CacheStore(long expiryDuration, TimeUnit timeUnit) {
+        this(expiryDuration, timeUnit, DEFAULT_MAX_SIZE);
+    }
+
+    public CacheStore(long expiryDuration, TimeUnit timeUnit, long maxSize) {
         this.expiryDuration = expiryDuration;
         this.timeUnit = timeUnit;
         this.cache = CacheBuilder.newBuilder()
                 .expireAfterWrite(expiryDuration, timeUnit)
+                .maximumSize(maxSize)
                 .concurrencyLevel(Runtime.getRuntime().availableProcessors())
                 .build();
     }

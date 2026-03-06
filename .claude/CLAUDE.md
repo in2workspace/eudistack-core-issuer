@@ -26,18 +26,12 @@ Each context follows: `domain/` (model, service, exception, util) → `applicati
 - **Authentication**: Unified filter chain — all endpoints via `CustomAuthenticationManager` (Verifier tokens + internal tokens)
 - **Credential definitions**: Hardcoded in Java Factory classes (LEARCredentialEmployee, LEARCredentialMachine, LabelCredential)
 
-## Documentation Index
+## Documentation
 
-All design & implementation documents are in `.claude/docs/issuer/`:
+Design & implementation documents have been consolidated in the `eudistack-dev-platform` repo:
 
-- [current-architecture.md](docs/issuer/current-architecture.md) - Complete codebase audit
-- [gap-analysis.md](docs/issuer/gap-analysis.md) - Current state vs OID4VCI 1.0 Final target
-- [keycloak-removal.md](docs/issuer/keycloak-removal.md) - Plan to eliminate Keycloak dependency
-- [policy-restructuring.md](docs/issuer/policy-restructuring.md) - PDP consolidation plan
-- [credential-json-schema.md](docs/issuer/credential-json-schema.md) - JSON Schema-driven credentials
-- [sd-jwt-implementation.md](docs/issuer/sd-jwt-implementation.md) - SD-JWT format implementation
-- [auth-code-flow.md](docs/issuer/auth-code-flow.md) - Authorization Code + Issuer-Initiated flow
-- [implementation-roadmap.md](docs/issuer/implementation-roadmap.md) - Execution order & dependencies
+- Active specs: `docs/` (e.g., spec-oid4vci.md, spec-issuance-api.md)
+- Archived issuer docs: `docs/archive/issuer/`
 
 ## Reference: fikua-lab
 

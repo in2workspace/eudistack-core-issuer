@@ -29,7 +29,7 @@ public class CacheStoreConfig {
 
     @Bean
     public CacheStore<String> cacheStoreForTransactionCode() {
-        return new CacheStore<>(72, TimeUnit.HOURS);
+        return new CacheStore<>(10, TimeUnit.MINUTES);
     }
     @Bean
     public CacheStore<String> cacheStoreForCTransactionCode() {

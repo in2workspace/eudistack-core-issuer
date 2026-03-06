@@ -8,7 +8,7 @@ class InMemoryBootstrapTokenServiceTest {
 
     @Test
     void shouldGenerateTokenOnConstruction() {
-        InMemoryBootstrapTokenService service = new InMemoryBootstrapTokenService();
+        InMemoryBootstrapTokenService service = new InMemoryBootstrapTokenService("");
         String token = service.getToken();
         assertNotNull(token);
         assertFalse(token.isBlank());
@@ -16,7 +16,7 @@ class InMemoryBootstrapTokenServiceTest {
 
     @Test
     void shouldConsumeValidToken() {
-        InMemoryBootstrapTokenService service = new InMemoryBootstrapTokenService();
+        InMemoryBootstrapTokenService service = new InMemoryBootstrapTokenService("");
         String token = service.getToken();
 
         assertTrue(service.consumeIfValid(token));
@@ -25,7 +25,7 @@ class InMemoryBootstrapTokenServiceTest {
 
     @Test
     void shouldRejectSecondConsumption() {
-        InMemoryBootstrapTokenService service = new InMemoryBootstrapTokenService();
+        InMemoryBootstrapTokenService service = new InMemoryBootstrapTokenService("");
         String token = service.getToken();
 
         assertTrue(service.consumeIfValid(token));
@@ -34,7 +34,7 @@ class InMemoryBootstrapTokenServiceTest {
 
     @Test
     void shouldConsumeTokenWithDifferentStringReference() {
-        InMemoryBootstrapTokenService service = new InMemoryBootstrapTokenService();
+        InMemoryBootstrapTokenService service = new InMemoryBootstrapTokenService("");
         String token = service.getToken();
         // Simulate a token arriving from HTTP header (different String object)
         String copy = new String(token);
@@ -46,7 +46,7 @@ class InMemoryBootstrapTokenServiceTest {
 
     @Test
     void shouldRejectInvalidToken() {
-        InMemoryBootstrapTokenService service = new InMemoryBootstrapTokenService();
+        InMemoryBootstrapTokenService service = new InMemoryBootstrapTokenService("");
 
         assertFalse(service.consumeIfValid("wrong-token"));
         assertNotNull(service.getToken());
@@ -54,7 +54,7 @@ class InMemoryBootstrapTokenServiceTest {
 
     @Test
     void shouldRejectNullToken() {
-        InMemoryBootstrapTokenService service = new InMemoryBootstrapTokenService();
+        InMemoryBootstrapTokenService service = new InMemoryBootstrapTokenService("");
 
         assertFalse(service.consumeIfValid(null));
         assertNotNull(service.getToken());
@@ -62,7 +62,7 @@ class InMemoryBootstrapTokenServiceTest {
 
     @Test
     void shouldRejectBlankToken() {
-        InMemoryBootstrapTokenService service = new InMemoryBootstrapTokenService();
+        InMemoryBootstrapTokenService service = new InMemoryBootstrapTokenService("");
 
         assertFalse(service.consumeIfValid(""));
         assertFalse(service.consumeIfValid("   "));

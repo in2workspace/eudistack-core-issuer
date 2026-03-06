@@ -71,7 +71,7 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
                                                     appConfig.getWalletFrontendUrl(),
                                                     emailInfo.organization()
                                             )
-                                            .doOnSuccess(v -> log.info("Refreshed credential offer email sent to: {}", emailInfo.email()))
+                                            .doOnSuccess(v -> log.info("Refreshed credential offer email sent for procedureId={}", procedure.getProcedureId()))
                                             .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE));
                                 })
                 )

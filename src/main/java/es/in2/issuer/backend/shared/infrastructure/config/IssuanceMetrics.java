@@ -36,13 +36,6 @@ public class IssuanceMetrics {
         counter(configurationId, delivery, "error").increment();
     }
 
-    public void recordValidationFailure(String reason) {
-        Counter.builder("issuance.validation.failures")
-                .tag("reason", reason)
-                .register(meterRegistry)
-                .increment();
-    }
-
     public void recordIdempotencyCacheHit() {
         Counter.builder("idempotency.cache.hits")
                 .register(meterRegistry)

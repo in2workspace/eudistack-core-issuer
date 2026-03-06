@@ -96,8 +96,9 @@ public final class Constants {
     public static final Integer VERIFIABLE_CREDENTIAL_JWT_CACHE_EXPIRATION_TIME = 10;
     public static final Integer CLIENT_ASSERTION_EXPIRATION_TIME = 2;
     public static final String CLIENT_ASSERTION_EXPIRATION_TIME_UNIT = "MINUTES";
-    public static final long REFRESH_TOKEN_EXPIRATION = 30;
-    public static final TimeUnit REFRESH_TOKEN_EXPIRATION_TIME_UNIT = TimeUnit.DAYS;
+    // SEC-02: Refresh token — 24 hours (was 30 days)
+    public static final long REFRESH_TOKEN_EXPIRATION = 24;
+    public static final TimeUnit REFRESH_TOKEN_EXPIRATION_TIME_UNIT = TimeUnit.HOURS;
     public static final long PRE_AUTH_CODE_EXPIRY_DURATION_MINUTES = 10;
     public static final Long DEFERRED_CREDENTIAL_POLLING_INTERVAL = 3600L;
 

@@ -12,9 +12,15 @@ import java.util.Base64;
 @Service
 public class PkceVerifier {
 
+    private static final int CODE_VERIFIER_MIN_LENGTH = 43;
+    private static final int CODE_VERIFIER_MAX_LENGTH = 128;
+
     public void verifyS256(String codeVerifier, String codeChallenge) {
         if (codeVerifier == null || codeVerifier.isBlank()) {
             throw new IllegalArgumentException("Missing code_verifier");
+        }
+        if (codeVerifier.length() < CODE_VERIFIER_MIN_LENGTH || codeVerifier.length() > CODE_VERIFIER_MAX_LENGTH) {
+            throw new IllegalArgumentException("code_verifier length must be between 43 and 128 characters (RFC 7636)");
         }
         if (codeChallenge == null || codeChallenge.isBlank()) {
             throw new IllegalArgumentException("Missing code_challenge");

@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationEvent;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationRequest;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
@@ -12,16 +11,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
-import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.util.UUID;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.CREDENTIAL_STATUS;
-import static es.in2.issuer.backend.shared.domain.util.Constants.STATUS_LIST_CREDENTIAL;
-import static es.in2.issuer.backend.shared.domain.util.Constants.VC;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -31,9 +26,6 @@ class HandleNotificationWorkflowImplTest {
 
     @Mock
     private ProcedureService procedureService;
-
-    @Spy
-    private ObjectMapper objectMapper = new ObjectMapper();
 
     @Mock
     private RevocationWorkflow revocationWorkflow;
@@ -53,7 +45,7 @@ class HandleNotificationWorkflowImplTest {
     @BeforeEach
     void setUp() {
         handleNotificationWorkflow = new HandleNotificationWorkflowImpl(
-                procedureService, objectMapper, revocationWorkflow,
+                procedureService, revocationWorkflow,
                 notificationCacheStore, enrichmentCacheStore
         );
 
@@ -121,24 +113,12 @@ class HandleNotificationWorkflowImplTest {
     @Test
     void handleNotification_deleted_draft_shouldWithdrawAndRevokeStatusList() {
         when(procedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.DRAFT);
-
-        String decoded = """
-                {
-                  "%s": {
-                    "%s": {
-                      "%s": "https://example/status/7"
-                    }
-                  }
-                }
-                """.formatted(VC, CREDENTIAL_STATUS, STATUS_LIST_CREDENTIAL);
-
-        when(procedure.getCredentialDataSet()).thenReturn(decoded);
         when(notificationCacheStore.get("nid-1")).thenReturn(Mono.just(procedureId.toString()));
         when(procedureService.getProcedureById(procedureId.toString()))
                 .thenReturn(Mono.just(procedure));
         when(procedureService.withdrawCredentialProcedure(procedureId.toString()))
                 .thenReturn(Mono.empty());
-        when(revocationWorkflow.revokeSystem(processId, bearerToken, procedureId.toString(), 7))
+        when(revocationWorkflow.revokeSystem(processId, bearerToken, procedureId.toString()))
                 .thenReturn(Mono.empty());
 
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_DELETED, "desc");
@@ -147,7 +127,7 @@ class HandleNotificationWorkflowImplTest {
                 .verifyComplete();
 
         verify(procedureService).withdrawCredentialProcedure(procedureId.toString());
-        verify(revocationWorkflow).revokeSystem(processId, bearerToken, procedureId.toString(), 7);
+        verify(revocationWorkflow).revokeSystem(processId, bearerToken, procedureId.toString());
     }
 
     @Test

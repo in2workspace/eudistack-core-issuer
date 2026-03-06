@@ -34,7 +34,7 @@ public class CredentialController {
                 .flatMap(token ->
                         oid4VciCredentialWorkflow.createCredentialResponse(processId, credentialRequest, token))
                 .map(verifiableCredentialResponse -> {
-                    log.info("Process ID: {} - Response: {}", processId, verifiableCredentialResponse);
+                    log.info("Process ID: {} - Credential response ready (deferred={})", processId, verifiableCredentialResponse.transactionId() != null);
                     if (verifiableCredentialResponse.transactionId() != null) {
                         return ResponseEntity.status(HttpStatus.ACCEPTED).body(verifiableCredentialResponse);
                     } else {

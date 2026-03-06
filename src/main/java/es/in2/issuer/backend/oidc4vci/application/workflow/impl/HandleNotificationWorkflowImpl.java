@@ -1,7 +1,5 @@
 package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.oidc4vci.application.workflow.HandleNotificationWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.exception.InvalidNotificationIdException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.InvalidNotificationRequestException;
@@ -24,20 +22,17 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflow {
 
     private final ProcedureService procedureService;
-    private final ObjectMapper objectMapper;
     private final RevocationWorkflow revocationWorkflow;
     private final CacheStore<String> notificationCacheStore;
     private final CacheStore<String> enrichmentCacheStore;
 
     public HandleNotificationWorkflowImpl(
             ProcedureService procedureService,
-            ObjectMapper objectMapper,
             RevocationWorkflow revocationWorkflow,
             @Qualifier("notificationCacheStore") CacheStore<String> notificationCacheStore,
             @Qualifier("enrichmentCacheStore") CacheStore<String> enrichmentCacheStore
     ) {
         this.procedureService = procedureService;
-        this.objectMapper = objectMapper;
         this.revocationWorkflow = revocationWorkflow;
         this.notificationCacheStore = notificationCacheStore;
         this.enrichmentCacheStore = enrichmentCacheStore;
@@ -110,7 +105,7 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     }
 
     /**
-     * credential_accepted: persist enriched data from cache → DRAFT → ISSUED
+     * credential_accepted: persist enriched data from cache -> DRAFT -> ISSUED
      */
     private Mono<Void> handleAccepted(String processId, CredentialProcedure procedure) {
         String procedureId = procedure.getProcedureId().toString();
@@ -141,7 +136,7 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     }
 
     /**
-     * credential_deleted: DRAFT → WITHDRAWN + revoke status list entry
+     * credential_deleted: DRAFT -> WITHDRAWN + revoke status list entry
      */
     private Mono<Void> handleDeleted(String processId, CredentialProcedure procedure, String bearerToken) {
         String procedureId = procedure.getProcedureId().toString();
@@ -159,43 +154,13 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     }
 
     private Mono<Void> revokeCredentialFromDecoded(String processId, CredentialProcedure procedure, String bearerToken) {
-        return extractListIdFromDecodedCredential(procedure)
-                .flatMap(listId -> revocationWorkflow.revokeSystem(
-                                processId,
-                                bearerToken,
-                                procedure.getProcedureId().toString(),
-                                listId
-                        )
-                        .then()
-                )
-                .doOnError(e -> log.warn("[{}] revokeCredentialFromDecoded failed: {}", processId, e.getMessage()));
-    }
-
-    private Mono<Integer> extractListIdFromDecodedCredential(CredentialProcedure procedure) {
-        return Mono.fromCallable(() -> {
-            JsonNode credential = objectMapper.readTree(procedure.getCredentialDataSet());
-
-            JsonNode statusNode = credential.has(VC)
-                    ? credential.path(VC).path(CREDENTIAL_STATUS)
-                    : credential.path(CREDENTIAL_STATUS);
-
-            if (statusNode.isMissingNode() || statusNode.isNull()) {
-                throw new IllegalArgumentException("Credential status node not found in decoded credential");
-            }
-
-            JsonNode slcNode = statusNode.path(STATUS_LIST_CREDENTIAL);
-            String slc = slcNode.asText();
-
-            if (slc == null || slc.isBlank()) {
-                throw new IllegalArgumentException("status_list_credential is missing/blank");
-            }
-
-            char lastChar = slc.charAt(slc.length() - 1);
-            if (!Character.isDigit(lastChar)) {
-                throw new IllegalArgumentException("Last character of status_list_credential is not a digit: " + slc);
-            }
-
-            return Character.getNumericValue(lastChar);
-        });
+        String procedureId = procedure.getProcedureId().toString();
+        return revocationWorkflow.revokeSystem(processId, bearerToken, procedureId)
+                .doFirst(() -> log.info("processId={} action=revokeCredential status=started procedureId={}",
+                        processId, procedureId))
+                .doOnSuccess(v -> log.info("processId={} action=revokeCredential status=completed procedureId={}",
+                        processId, procedureId))
+                .doOnError(e -> log.warn("processId={} action=revokeCredential status=failed procedureId={} error={}",
+                        processId, procedureId, e.getMessage(), e));
     }
 }

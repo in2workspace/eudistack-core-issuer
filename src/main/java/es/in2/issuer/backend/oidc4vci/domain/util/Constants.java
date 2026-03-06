@@ -8,7 +8,8 @@ public final class Constants {
 
     public static final int TX_CODE_SIZE = 6;
     public static final String TX_INPUT_MODE = "numeric";
-    public static final long ACCESS_TOKEN_EXPIRATION_TIME_DAYS = 30L;
+    // SEC-02: Reduced from 30 days to 15 minutes (ENS nivel alto / OWASP A07)
+    public static final long ACCESS_TOKEN_EXPIRATION_MINUTES = 15L;
 
     // Authorization Code Flow
     public static final long PAR_CACHE_EXPIRY_SECONDS = 60;

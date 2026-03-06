@@ -15,8 +15,8 @@ spring:
     context-propagation: auto
   r2dbc:
     url: ${SPRING_R2DBC_URL:r2dbc:postgresql://localhost:5432/issuer}
-    username: ${SPRING_R2DBC_USERNAME:issuer}
-    password: ${SPRING_R2DBC_PASSWORD:issuer}
+    username: ${SPRING_R2DBC_USERNAME}
+    password: ${SPRING_R2DBC_PASSWORD}
   flyway:
     url: ${SPRING_FLYWAY_URL:jdbc:postgresql://localhost:5432/issuer}
     locations: classpath:db/migration
@@ -40,7 +40,7 @@ logging:
     level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
   level:
     org.springframework.security: ${LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY:INFO}
-    es.in2.issuer: ${LOGGING_LEVEL_ES_IN2_ISSUER:DEBUG}
+    es.in2.issuer: ${LOGGING_LEVEL_ES_IN2_ISSUER:INFO}
 
 # Actuator & Observability
 management:
@@ -56,7 +56,7 @@ management:
   endpoint:
     health:
       enabled: true
-      show-details: always
+      show-details: ${MANAGEMENT_HEALTH_SHOW_DETAILS:when-authorized}
     prometheus:
       enabled: true
   tracing:

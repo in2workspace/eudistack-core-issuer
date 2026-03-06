@@ -70,17 +70,16 @@ class StatusListControllerUnitTest {
     void revokeCredential_whenOk_completesAndInvokesWorkflow() {
         String bearerToken = "Bearer test-token";
         String procedureId = UUID.randomUUID().toString();
-        int listId = 99;
 
-        RevokeCredentialRequest request = new RevokeCredentialRequest(procedureId, listId);
+        RevokeCredentialRequest request = new RevokeCredentialRequest(procedureId);
 
-        when(revocationWorkflow.revoke(anyString(), eq(bearerToken), eq(procedureId), eq(listId)))
+        when(revocationWorkflow.revoke(anyString(), eq(bearerToken), eq(procedureId)))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(controller.revokeCredential(bearerToken, request))
                 .verifyComplete();
 
-        verify(revocationWorkflow).revoke(anyString(), eq(bearerToken), eq(procedureId), eq(listId));
+        verify(revocationWorkflow).revoke(anyString(), eq(bearerToken), eq(procedureId));
         verifyNoInteractions(statusListWorkflow);
     }
 
@@ -88,18 +87,17 @@ class StatusListControllerUnitTest {
     void revokeCredential_whenWorkflowFails_propagatesError() {
         String bearerToken = "Bearer test-token";
         String procedureId = UUID.randomUUID().toString();
-        int listId = 99;
 
-        RevokeCredentialRequest request = new RevokeCredentialRequest(procedureId, listId);
+        RevokeCredentialRequest request = new RevokeCredentialRequest(procedureId);
 
-        when(revocationWorkflow.revoke(anyString(), eq(bearerToken), eq(procedureId), eq(listId)))
+        when(revocationWorkflow.revoke(anyString(), eq(bearerToken), eq(procedureId)))
                 .thenReturn(Mono.error(new RuntimeException("boom")));
 
         StepVerifier.create(controller.revokeCredential(bearerToken, request))
                 .expectError(RuntimeException.class)
                 .verify();
 
-        verify(revocationWorkflow).revoke(anyString(), eq(bearerToken), eq(procedureId), eq(listId));
+        verify(revocationWorkflow).revoke(anyString(), eq(bearerToken), eq(procedureId));
         verifyNoInteractions(statusListWorkflow);
     }
 }
