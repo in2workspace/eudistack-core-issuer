@@ -3,7 +3,7 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndTxCode;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferData;
 import es.in2.issuer.backend.shared.domain.model.dto.VerifiableCredentialJWT;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,19 +28,19 @@ class CacheStoreConfigTest {
 
     @Test
     void testCacheStoreDefault() {
-        CacheStore<String> stringCacheStore = cacheStoreConfig.cacheStoreDefault();
+        TransientStore<String> stringCacheStore = cacheStoreConfig.cacheStoreDefault();
         assertNotNull(stringCacheStore);
     }
 
     @Test
     void testCacheStoreForTransactionCode() {
-        CacheStore<String> cacheStoreForTransactionCode = cacheStoreConfig.cacheStoreForTransactionCode();
+        TransientStore<String> cacheStoreForTransactionCode = cacheStoreConfig.cacheStoreForTransactionCode();
         assertNotNull(cacheStoreForTransactionCode);
     }
 
     @Test
     void testCacheStoreForCTransactionCode() {
-        CacheStore<String> cacheStoreForTransactionCode = cacheStoreConfig.cacheStoreForCTransactionCode();
+        TransientStore<String> cacheStoreForTransactionCode = cacheStoreConfig.cacheStoreForCTransactionCode();
         assertNotNull(cacheStoreForTransactionCode);
     }
 
@@ -49,7 +49,7 @@ class CacheStoreConfigTest {
         long cacheLifetime = 30;
         when(cacheConfig.getCacheLifetimeForVerifiableCredential()).thenReturn(cacheLifetime);
 
-        CacheStore<VerifiableCredentialJWT> verifiableCredentialJWTCacheStore = cacheStoreConfig.cacheStoreForVerifiableCredentialJwt();
+        TransientStore<VerifiableCredentialJWT> verifiableCredentialJWTCacheStore = cacheStoreConfig.cacheStoreForVerifiableCredentialJwt();
         assertNotNull(verifiableCredentialJWTCacheStore);
     }
 
@@ -58,13 +58,13 @@ class CacheStoreConfigTest {
         long cacheLifetime = 60;
         when(cacheConfig.getCacheLifetimeForCredentialOffer()).thenReturn(cacheLifetime);
 
-        CacheStore<CredentialOfferData> customCredentialOfferCacheStore = cacheStoreConfig.cacheStoreForCredentialOffer();
+        TransientStore<CredentialOfferData> customCredentialOfferCacheStore = cacheStoreConfig.cacheStoreForCredentialOffer();
         assertNotNull(customCredentialOfferCacheStore);
     }
 
     @Test
     void testCacheStoreForCredentialIdAndTxCodeByPreAuthorizedCodeCacheStore() {
-        CacheStore<CredentialProcedureIdAndTxCode> customCredentialOfferCacheStore =
+        TransientStore<CredentialProcedureIdAndTxCode> customCredentialOfferCacheStore =
                 cacheStoreConfig.credentialProcedureIdAndTxCodeByPreAuthorizedCodeCacheStore();
         assertNotNull(customCredentialOfferCacheStore);
     }

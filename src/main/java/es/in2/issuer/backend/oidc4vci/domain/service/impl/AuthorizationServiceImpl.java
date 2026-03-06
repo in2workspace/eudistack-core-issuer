@@ -5,7 +5,7 @@ import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.oidc4vci.domain.service.AuthorizationService;
 import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,8 +22,8 @@ import static es.in2.issuer.backend.shared.domain.util.Utils.generateCustomNonce
 @RequiredArgsConstructor
 public class AuthorizationServiceImpl implements AuthorizationService {
 
-    private final CacheStore<PushedAuthorizationRequest> parCacheStore;
-    private final CacheStore<AuthorizationCodeData> authorizationCodeCacheStore;
+    private final TransientStore<PushedAuthorizationRequest> parCacheStore;
+    private final TransientStore<AuthorizationCodeData> authorizationCodeCacheStore;
     private final Oid4vciProfileProperties profileProperties;
     private final AppConfig appConfig;
 

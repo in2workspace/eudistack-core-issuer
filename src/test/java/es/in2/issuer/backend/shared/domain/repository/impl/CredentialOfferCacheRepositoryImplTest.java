@@ -2,7 +2,7 @@ package es.in2.issuer.backend.shared.domain.repository.impl;
 
 import es.in2.issuer.backend.shared.domain.exception.CredentialOfferNotFoundException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferData;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -20,7 +20,7 @@ import static org.mockito.Mockito.*;
 class CredentialOfferCacheRepositoryImplTest {
 
     @Mock
-    private CacheStore<CredentialOfferData> cacheStore;
+    private TransientStore<CredentialOfferData> cacheStore;
 
     @InjectMocks
     private CredentialOfferCacheRepositoryImpl service;

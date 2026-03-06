@@ -2,7 +2,7 @@ package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
 import es.in2.issuer.backend.oidc4vci.domain.model.NonceResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,7 +18,7 @@ import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.NONCE_CACHE_E
 @RequiredArgsConstructor
 public class NonceServiceImpl implements NonceService {
 
-    private final CacheStore<String> nonceCacheStore;
+    private final TransientStore<String> nonceCacheStore;
 
     @Override
     @Observed(name = "oid4vci.nonce", contextualName = "generate-nonce")

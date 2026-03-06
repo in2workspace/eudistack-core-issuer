@@ -6,7 +6,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.NotificationRequest;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.ProcedureService;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,10 +32,10 @@ class HandleNotificationWorkflowImplTest {
     private RevocationWorkflow revocationWorkflow;
 
     @Mock
-    private CacheStore<String> notificationCacheStore;
+    private TransientStore<String> notificationCacheStore;
 
     @Mock
-    private CacheStore<String> enrichmentCacheStore;
+    private TransientStore<String> enrichmentCacheStore;
 
     @Mock
     private AuditService auditService;

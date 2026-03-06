@@ -12,7 +12,7 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,7 +44,7 @@ class ProofValidationServiceImplTest {
     private JWTService jwtService;
 
     @Mock
-    private CacheStore<String> nonceCacheStore;
+    private TransientStore<String> nonceCacheStore;
 
     @InjectMocks
     private ProofValidationServiceImpl service;

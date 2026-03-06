@@ -5,7 +5,7 @@ import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.ProofValidationService;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
@@ -24,7 +24,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.SUPPORTED_PROOF
 public class ProofValidationServiceImpl implements ProofValidationService {
 
     private final JWTService jwtService;
-    private final CacheStore<String> nonceCacheStore;
+    private final TransientStore<String> nonceCacheStore;
 
 
     @Override

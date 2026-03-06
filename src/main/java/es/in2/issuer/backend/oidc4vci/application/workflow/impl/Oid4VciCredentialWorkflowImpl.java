@@ -16,7 +16,7 @@ import es.in2.issuer.backend.shared.domain.service.ProcedureService;
 import es.in2.issuer.backend.shared.domain.service.ProofValidationService;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
@@ -45,8 +45,8 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
     private final GenericCredentialBuilder genericCredentialBuilder;
     private final CredentialProfileRegistry credentialProfileRegistry;
     private final StatusListWorkflow statusListWorkflow;
-    private final CacheStore<String> enrichmentCacheStore;
-    private final CacheStore<String> notificationCacheStore;
+    private final TransientStore<String> enrichmentCacheStore;
+    private final TransientStore<String> notificationCacheStore;
 
     public Oid4VciCredentialWorkflowImpl(
             CredentialSignerWorkflow credentialSignerWorkflow,
@@ -56,8 +56,8 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             GenericCredentialBuilder genericCredentialBuilder,
             CredentialProfileRegistry credentialProfileRegistry,
             StatusListWorkflow statusListWorkflow,
-            @Qualifier("enrichmentCacheStore") CacheStore<String> enrichmentCacheStore,
-            @Qualifier("notificationCacheStore") CacheStore<String> notificationCacheStore
+            @Qualifier("enrichmentCacheStore") TransientStore<String> enrichmentCacheStore,
+            @Qualifier("notificationCacheStore") TransientStore<String> notificationCacheStore
     ) {
         this.credentialSignerWorkflow = credentialSignerWorkflow;
         this.proofValidationService = proofValidationService;

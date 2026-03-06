@@ -3,7 +3,7 @@ package es.in2.issuer.backend.shared.domain.repository.impl;
 import es.in2.issuer.backend.shared.domain.exception.CredentialOfferNotFoundException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferData;
 import es.in2.issuer.backend.shared.domain.repository.CredentialOfferCacheRepository;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -16,7 +16,7 @@ import static es.in2.issuer.backend.shared.domain.util.Utils.generateCustomNonce
 @RequiredArgsConstructor
 public class CredentialOfferCacheRepositoryImpl implements CredentialOfferCacheRepository {
 
-    private final CacheStore<CredentialOfferData> cacheStore;
+    private final TransientStore<CredentialOfferData> cacheStore;
 
     @Override
     public Mono<String> saveCredentialOffer(CredentialOfferData credentialOfferData) {

@@ -4,7 +4,7 @@ import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,10 +23,10 @@ import static org.mockito.Mockito.*;
 class AuthorizationServiceImplTest {
 
     @Mock
-    private CacheStore<PushedAuthorizationRequest> parCacheStore;
+    private TransientStore<PushedAuthorizationRequest> parCacheStore;
 
     @Mock
-    private CacheStore<AuthorizationCodeData> authorizationCodeCacheStore;
+    private TransientStore<AuthorizationCodeData> authorizationCodeCacheStore;
 
     @Mock
     private Oid4vciProfileProperties profileProperties;

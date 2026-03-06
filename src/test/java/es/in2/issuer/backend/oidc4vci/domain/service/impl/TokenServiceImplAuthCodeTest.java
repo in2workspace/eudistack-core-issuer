@@ -13,7 +13,7 @@ import es.in2.issuer.backend.shared.domain.service.PkceVerifier;
 import es.in2.issuer.backend.shared.domain.service.RefreshTokenService;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -41,11 +41,11 @@ class TokenServiceImplAuthCodeTest {
     private static final String TOKEN_ENDPOINT_URI = "https://issuer/token";
 
     @Mock
-    private CacheStore<CredentialProcedureIdAndTxCode> txCodeCacheStore;
+    private TransientStore<CredentialProcedureIdAndTxCode> txCodeCacheStore;
     @Mock
-    private CacheStore<CredentialProcedureIdAndRefreshToken> refreshTokenCacheStore;
+    private TransientStore<CredentialProcedureIdAndRefreshToken> refreshTokenCacheStore;
     @Mock
-    private CacheStore<AuthorizationCodeData> authorizationCodeCacheStore;
+    private TransientStore<AuthorizationCodeData> authorizationCodeCacheStore;
     @Mock
     private JWTService jwtService;
     @Mock

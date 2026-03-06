@@ -4,7 +4,7 @@ import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
 import es.in2.issuer.backend.shared.domain.service.ClientAttestationValidationService;
 import es.in2.issuer.backend.shared.domain.service.DpopValidationService;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -25,7 +25,7 @@ import static org.mockito.Mockito.*;
 class ParServiceImplTest {
 
     @Mock
-    private CacheStore<PushedAuthorizationRequest> parCacheStore;
+    private TransientStore<PushedAuthorizationRequest> parCacheStore;
 
     @Mock
     private Oid4vciProfileProperties profileProperties;

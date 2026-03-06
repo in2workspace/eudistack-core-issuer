@@ -1,7 +1,7 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
 import es.in2.issuer.backend.oidc4vci.domain.model.NonceResponse;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -18,7 +18,7 @@ import static org.mockito.Mockito.when;
 class NonceServiceImplTest {
 
     @Mock
-    private CacheStore<String> nonceCacheStore;
+    private TransientStore<String> nonceCacheStore;
 
     @InjectMocks
     private NonceServiceImpl nonceService;

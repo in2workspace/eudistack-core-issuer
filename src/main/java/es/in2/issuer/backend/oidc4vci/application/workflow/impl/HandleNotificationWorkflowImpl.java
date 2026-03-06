@@ -9,7 +9,7 @@ import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.ProcedureService;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import io.micrometer.observation.annotation.Observed;
 import lombok.extern.slf4j.Slf4j;
@@ -27,15 +27,15 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
 
     private final ProcedureService procedureService;
     private final RevocationWorkflow revocationWorkflow;
-    private final CacheStore<String> notificationCacheStore;
-    private final CacheStore<String> enrichmentCacheStore;
+    private final TransientStore<String> notificationCacheStore;
+    private final TransientStore<String> enrichmentCacheStore;
     private final AuditService auditService;
 
     public HandleNotificationWorkflowImpl(
             ProcedureService procedureService,
             RevocationWorkflow revocationWorkflow,
-            @Qualifier("notificationCacheStore") CacheStore<String> notificationCacheStore,
-            @Qualifier("enrichmentCacheStore") CacheStore<String> enrichmentCacheStore,
+            @Qualifier("notificationCacheStore") TransientStore<String> notificationCacheStore,
+            @Qualifier("enrichmentCacheStore") TransientStore<String> enrichmentCacheStore,
             AuditService auditService
     ) {
         this.procedureService = procedureService;

@@ -5,7 +5,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndTxC
 import es.in2.issuer.backend.shared.domain.model.dto.PreAuthorizedCodeResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.TxCode;
 import es.in2.issuer.backend.shared.domain.service.TranslationService;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
@@ -24,7 +24,7 @@ import static es.in2.issuer.backend.shared.domain.util.Utils.generateCustomNonce
 @RequiredArgsConstructor
 public class PreAuthorizedCodeServiceImpl implements PreAuthorizedCodeService {
     private final SecureRandom random;
-    private final CacheStore<CredentialProcedureIdAndTxCode> credentialProcedureIdAndTxCodeByPreAuthorizedCodeCacheStore;
+    private final TransientStore<CredentialProcedureIdAndTxCode> credentialProcedureIdAndTxCodeByPreAuthorizedCodeCacheStore;
     private final TranslationService translationService;
 
     @Override

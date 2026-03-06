@@ -4,7 +4,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndTxC
 import es.in2.issuer.backend.shared.domain.model.dto.PreAuthorizedCodeResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.TxCode;
 import es.in2.issuer.backend.shared.domain.service.TranslationService;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,7 +26,7 @@ class PreAuthorizedCodeServiceImplTest {
     @Mock
     private SecureRandom random; // Unused in these tests, needed by constructor
     @Mock
-    private CacheStore<CredentialProcedureIdAndTxCode> cacheStore; // Unused here
+    private TransientStore<CredentialProcedureIdAndTxCode> cacheStore; // Unused here
     @Mock
     private TranslationService translationService; // Unused here
 

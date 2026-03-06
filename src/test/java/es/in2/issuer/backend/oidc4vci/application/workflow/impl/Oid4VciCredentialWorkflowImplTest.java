@@ -14,7 +14,7 @@ import es.in2.issuer.backend.shared.domain.service.ProcedureService;
 import es.in2.issuer.backend.shared.domain.service.ProofValidationService;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListEntry;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
@@ -42,8 +42,8 @@ class Oid4VciCredentialWorkflowImplTest {
     private GenericCredentialBuilder genericCredentialBuilder;
     private CredentialProfileRegistry credentialProfileRegistry;
     private StatusListWorkflow statusListWorkflow;
-    private CacheStore<String> enrichmentCacheStore;
-    private CacheStore<String> notificationCacheStore;
+    private TransientStore<String> enrichmentCacheStore;
+    private TransientStore<String> notificationCacheStore;
 
     private Oid4VciCredentialWorkflowImpl workflow;
 
@@ -64,8 +64,8 @@ class Oid4VciCredentialWorkflowImplTest {
         genericCredentialBuilder = mock(GenericCredentialBuilder.class);
         credentialProfileRegistry = mock(CredentialProfileRegistry.class);
         statusListWorkflow = mock(StatusListWorkflow.class);
-        enrichmentCacheStore = mock(CacheStore.class);
-        notificationCacheStore = mock(CacheStore.class);
+        enrichmentCacheStore = mock(TransientStore.class);
+        notificationCacheStore = mock(TransientStore.class);
 
         workflow = new Oid4VciCredentialWorkflowImpl(
                 credentialSignerWorkflow,

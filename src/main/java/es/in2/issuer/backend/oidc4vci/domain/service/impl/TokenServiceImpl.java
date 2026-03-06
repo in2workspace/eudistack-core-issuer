@@ -16,7 +16,7 @@ import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.PkceVerifier;
 import es.in2.issuer.backend.shared.domain.service.RefreshTokenService;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
@@ -44,9 +44,9 @@ public class TokenServiceImpl implements TokenService {
     private static final String TOKEN_TYPE_BEARER = "bearer";
     private static final String TOKEN_TYPE_DPOP = "DPoP";
 
-    private final CacheStore<CredentialProcedureIdAndTxCode> txCodeCacheStore;
-    private final CacheStore<CredentialProcedureIdAndRefreshToken> refreshTokenCacheStore;
-    private final CacheStore<AuthorizationCodeData> authorizationCodeCacheStore;
+    private final TransientStore<CredentialProcedureIdAndTxCode> txCodeCacheStore;
+    private final TransientStore<CredentialProcedureIdAndRefreshToken> refreshTokenCacheStore;
+    private final TransientStore<AuthorizationCodeData> authorizationCodeCacheStore;
     private final JWTService jwtService;
     private final RefreshTokenService refreshTokenService;
     private final AppConfig appConfig;
