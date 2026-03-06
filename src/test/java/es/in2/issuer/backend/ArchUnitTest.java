@@ -27,7 +27,12 @@ class ArchUnitTest {
             Set.of(
                     BASE_PACKAGE + ".shared.domain.util.Constants",
                     BASE_PACKAGE + ".shared.infrastructure.config.SwaggerConfig",
-                    BASE_PACKAGE + ".shared.infrastructure.config.TenantDomainWebFilter");
+                    BASE_PACKAGE + ".shared.infrastructure.config.TenantDomainWebFilter",
+                    // Spring-managed beans discovered via component scanning (no direct class references)
+                    BASE_PACKAGE + ".shared.infrastructure.service.AuditServiceImpl",
+                    BASE_PACKAGE + ".shared.infrastructure.config.health.SigningServiceHealthIndicator",
+                    BASE_PACKAGE + ".shared.infrastructure.config.health.SmtpHealthIndicator",
+                    BASE_PACKAGE + ".shared.infrastructure.config.health.VerifierHealthIndicator");
 
 //todo
 //    @ArchTest
