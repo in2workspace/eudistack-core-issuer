@@ -60,6 +60,18 @@ public class PublicCORSConfig {
         source.registerCorsConfiguration(OAUTH_TOKEN_PATH, oid4vciConfig);
         source.registerCorsConfiguration(OID4VCI_CREDENTIAL_PATH, oid4vciConfig);
 
+        // Internal/backoffice routes: restricted to default (internal) origins
+        CorsConfiguration internalConfig = new CorsConfiguration();
+        internalConfig.setAllowedOrigins(appConfig.getDefaultCorsAllowedOrigins());
+        internalConfig.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", OPTIONS));
+        internalConfig.setAllowedHeaders(List.of("*"));
+        internalConfig.setAllowCredentials(false);
+        internalConfig.setMaxAge(1800L);
+
+        source.registerCorsConfiguration(BACKOFFICE_PATH, internalConfig);
+        source.registerCorsConfiguration(SIGNING_PROVIDERS_PATH, internalConfig);
+        source.registerCorsConfiguration(SIGNING_CONFIG_PATH, internalConfig);
+
         return source;
     }
 }

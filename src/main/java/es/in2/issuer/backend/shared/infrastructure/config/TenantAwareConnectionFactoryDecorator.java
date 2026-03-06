@@ -93,6 +93,8 @@ public class TenantAwareConnectionFactoryDecorator {
             dispose();
         }
 
+        // SEC-23: R2DBC PostgreSQL does not support parameterized SET commands ($1 placeholders).
+        // SQL injection is prevented by the sanitize() allowlist (alphanumeric, hyphens, dots, underscores).
         private Mono<Connection> setTenant(Connection connection, String tenant) {
             return Mono.from(connection.createStatement(
                             "SET app.current_tenant = '" + sanitize(tenant) + "'")

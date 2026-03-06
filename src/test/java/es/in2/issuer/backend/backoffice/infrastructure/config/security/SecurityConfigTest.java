@@ -36,6 +36,7 @@ class SecurityConfigTest {
 
     @Mock private CustomAuthenticationManager customAuthenticationManager;
     @Mock private InternalCORSConfig internalCORSConfig;
+    @Mock private PublicCORSConfig publicCORSConfig;
     @Mock private ProblemAuthenticationEntryPoint entryPoint;
     @Mock private ProblemAccessDeniedHandler deniedHandler;
 
@@ -48,12 +49,13 @@ class SecurityConfigTest {
                 internalCORSConfig
         );
 
-        when(internalCORSConfig.defaultCorsConfigurationSource()).thenReturn(minimalCorsSource());
+        when(publicCORSConfig.publicCorsConfigurationSource()).thenReturn(minimalCorsSource());
 
         SecurityWebFilterChain chain = securityConfig.unifiedFilterChain(
                 ServerHttpSecurity.http(),
                 entryPoint,
-                deniedHandler
+                deniedHandler,
+                publicCORSConfig
         );
 
         securityProxy = new WebFilterChainProxy(chain);
@@ -145,14 +147,6 @@ class SecurityConfigTest {
         }
 
         @Test
-        void signingProviders_get_shouldReturn200_withoutAuth() {
-            MockServerWebExchange exchange = MockServerWebExchange.from(
-                    MockServerHttpRequest.get(SIGNING_PROVIDERS_PATH).build()
-            );
-            assertEquals(HttpStatus.OK, executeFilter(exchange));
-        }
-
-        @Test
         void statusList_get_shouldReturn200_withoutAuth() {
             MockServerWebExchange exchange = MockServerWebExchange.from(
                     MockServerHttpRequest.get(STATUS_LIST_BASE).build()
@@ -177,24 +171,16 @@ class SecurityConfigTest {
         }
     }
 
-    // ── Public POST/PUT endpoints (permitAll) ───────────────────────────
+    // ── Public POST endpoints (permitAll) ────────────────────────────────
 
     @Nested
-    @DisplayName("Public POST/PUT endpoints — should be accessible without authentication")
-    class PublicPostPutEndpoints {
+    @DisplayName("Public POST endpoints — should be accessible without authentication")
+    class PublicPostEndpoints {
 
         @Test
         void oauthToken_post_shouldReturn200_withoutAuth() {
             MockServerWebExchange exchange = MockServerWebExchange.from(
                     MockServerHttpRequest.post(OAUTH_TOKEN_PATH).build()
-            );
-            assertEquals(HttpStatus.OK, executeFilter(exchange));
-        }
-
-        @Test
-        void signingConfig_put_shouldReturn200_withoutAuth() {
-            MockServerWebExchange exchange = MockServerWebExchange.from(
-                    MockServerHttpRequest.put(SIGNING_CONFIG_PATH).build()
             );
             assertEquals(HttpStatus.OK, executeFilter(exchange));
         }
@@ -247,6 +233,23 @@ class SecurityConfigTest {
         void backofficeDeferredCredentials_post_shouldReturn401_whenNoAuth() {
             MockServerWebExchange exchange = MockServerWebExchange.from(
                     MockServerHttpRequest.post(BACKOFFICE_DEFERRED_CREDENTIALS).build()
+            );
+            assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
+        }
+
+        // SEC-01: Signing endpoints now require authentication
+        @Test
+        void signingProviders_get_shouldReturn401_whenNoAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.get(SIGNING_PROVIDERS_PATH).build()
+            );
+            assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
+        }
+
+        @Test
+        void signingConfig_put_shouldReturn401_whenNoAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.put(SIGNING_CONFIG_PATH).build()
             );
             assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
         }

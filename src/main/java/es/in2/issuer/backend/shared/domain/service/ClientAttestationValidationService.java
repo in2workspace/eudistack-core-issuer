@@ -1,5 +1,8 @@
 package es.in2.issuer.backend.shared.domain.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.nimbusds.jose.JWSVerifier;
 import com.nimbusds.jose.crypto.factories.DefaultJWSVerifierFactory;
 import com.nimbusds.jose.jwk.AsymmetricJWK;
@@ -7,15 +10,17 @@ import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.util.Base64;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
+import java.security.KeyFactory;
 import java.security.PublicKey;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.security.spec.X509EncodedKeySpec;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -26,7 +31,6 @@ import java.util.Map;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ClientAttestationValidationService {
 
     public static final String HEADER_CLIENT_ATTESTATION = "OAuth-Client-Attestation";
@@ -36,6 +40,20 @@ public class ClientAttestationValidationService {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final TrustedWalletProvidersService trustedWalletProvidersService;
+    private final String issuerUrl;
+
+    // SEC-19: PoP jti replay detection cache
+    private final Cache<String, Boolean> usedPopJtis = Caffeine.newBuilder()
+            .expireAfterWrite(Duration.ofSeconds(MAX_AGE_SECONDS))
+            .maximumSize(100_000)
+            .build();
+
+    public ClientAttestationValidationService(
+            TrustedWalletProvidersService trustedWalletProvidersService,
+            @Value("${app.url:}") String issuerUrl) {
+        this.trustedWalletProvidersService = trustedWalletProvidersService;
+        this.issuerUrl = issuerUrl;
+    }
 
     /**
      * Validate WIA + PoP headers and return the extracted client_id.
@@ -60,20 +78,21 @@ public class ClientAttestationValidationService {
                     wia.getHeader().getAlgorithm(), wia.getHeader().getType(),
                     wiaClaims.getSubject(), wiaClaims.getIssuer());
 
-            // Verify WIA signature
-            verifyWiaSignature(wia);
+            // Validate WIA issuer against trusted wallet providers
+            String wiaIssuer = wiaClaims.getIssuer();
+            if (!trustedWalletProvidersService.isWalletProviderTrusted(wiaIssuer)) {
+                throw new IllegalArgumentException("WIA issuer is not a trusted wallet provider: " + wiaIssuer);
+            }
+
+            // SEC-09: Verify WIA signature against trusted provider's publicKeyPem (if configured),
+            // not against the key embedded in the WIA itself
+            verifyWiaSignature(wia, wiaIssuer);
 
             // Validate WIA expiration
             if (wiaClaims.getExpirationTime() != null) {
                 if (Instant.now().isAfter(wiaClaims.getExpirationTime().toInstant())) {
                     throw new IllegalArgumentException("Client Attestation JWT has expired");
                 }
-            }
-
-            // Validate WIA issuer against trusted wallet providers
-            String wiaIssuer = wiaClaims.getIssuer();
-            if (!trustedWalletProvidersService.isWalletProviderTrusted(wiaIssuer)) {
-                throw new IllegalArgumentException("WIA issuer is not a trusted wallet provider: " + wiaIssuer);
             }
 
             // Extract client_id from sub
@@ -103,19 +122,35 @@ public class ClientAttestationValidationService {
                 throw new IllegalArgumentException("PoP signature verification failed");
             }
 
-            // Validate PoP freshness
-            if (popClaims.getIssueTime() != null) {
-                long iat = popClaims.getIssueTime().getTime() / 1000;
-                long now = Instant.now().getEpochSecond();
-                if (Math.abs(now - iat) > MAX_AGE_SECONDS) {
-                    throw new IllegalArgumentException("PoP JWT expired (iat too old)");
-                }
+            // SEC-19: Validate PoP iat (mandatory)
+            if (popClaims.getIssueTime() == null) {
+                throw new IllegalArgumentException("PoP JWT missing mandatory iat claim");
+            }
+            long iat = popClaims.getIssueTime().getTime() / 1000;
+            long now = Instant.now().getEpochSecond();
+            if (Math.abs(now - iat) > MAX_AGE_SECONDS) {
+                throw new IllegalArgumentException("PoP JWT expired (iat too old)");
             }
 
             if (popClaims.getExpirationTime() != null) {
                 if (Instant.now().isAfter(popClaims.getExpirationTime().toInstant())) {
                     throw new IllegalArgumentException("PoP JWT has expired");
                 }
+            }
+
+            // SEC-19: Validate PoP aud (must match this issuer)
+            List<String> audience = popClaims.getAudience();
+            if (issuerUrl != null && !issuerUrl.isBlank() && (audience == null || !audience.contains(issuerUrl))) {
+                throw new IllegalArgumentException("PoP JWT aud does not match this issuer");
+            }
+
+            // SEC-19: PoP jti replay detection
+            String popJti = popClaims.getJWTID();
+            if (popJti != null) {
+                if (usedPopJtis.getIfPresent(popJti) != null) {
+                    throw new IllegalArgumentException("PoP jti replay detected");
+                }
+                usedPopJtis.put(popJti, Boolean.TRUE);
             }
 
             log.info("Client attestation validated: client_id={}, wia_iss={}", clientId, wiaIssuer);
@@ -129,28 +164,42 @@ public class ClientAttestationValidationService {
         }
     }
 
-    private void verifyWiaSignature(SignedJWT wia) throws Exception {
+    private void verifyWiaSignature(SignedJWT wia, String wiaIssuer) throws Exception {
         PublicKey wiaKey = null;
 
-        // Try x5c certificate chain first
-        List<Base64> x5c = wia.getHeader().getX509CertChain();
-        if (x5c != null && !x5c.isEmpty()) {
-            byte[] certBytes = x5c.getFirst().decode();
-            CertificateFactory cf = CertificateFactory.getInstance("X.509");
-            X509Certificate cert = (X509Certificate) cf.generateCertificate(new ByteArrayInputStream(certBytes));
-            wiaKey = cert.getPublicKey();
+        // SEC-09: Try trusted provider's configured publicKeyPem first
+        var providers = trustedWalletProvidersService.getAllTrustedProviders();
+        for (var provider : providers) {
+            if (provider.id().equals(wiaIssuer) && provider.publicKeyPem() != null && !provider.publicKeyPem().isBlank()) {
+                wiaKey = parsePemPublicKey(provider.publicKeyPem());
+                log.debug("WIA signature will be verified against trusted provider's configured key for: {}", wiaIssuer);
+                break;
+            }
         }
 
-        // Fallback to JWK in header
+        // Fallback: try x5c certificate chain
+        if (wiaKey == null) {
+            List<Base64> x5c = wia.getHeader().getX509CertChain();
+            if (x5c != null && !x5c.isEmpty()) {
+                byte[] certBytes = x5c.getFirst().decode();
+                CertificateFactory cf = CertificateFactory.getInstance("X.509");
+                X509Certificate cert = (X509Certificate) cf.generateCertificate(new ByteArrayInputStream(certBytes));
+                wiaKey = cert.getPublicKey();
+            }
+        }
+
+        // Last fallback: JWK in header (least secure — self-signed)
         if (wiaKey == null && wia.getHeader().getJWK() != null) {
             JWK headerJwk = wia.getHeader().getJWK();
             if (headerJwk instanceof AsymmetricJWK asymmetric) {
                 wiaKey = asymmetric.toPublicKey();
+                log.warn("WIA verified with self-signed key from header for issuer: {}. "
+                        + "Configure publicKeyPem in trusted-wallet-providers.yaml for production.", wiaIssuer);
             }
         }
 
         if (wiaKey == null) {
-            throw new IllegalArgumentException("Cannot verify WIA signature: no x5c or jwk in header");
+            throw new IllegalArgumentException("Cannot verify WIA signature: no trusted key, x5c or jwk available");
         }
 
         JWSVerifier wiaVerifier = new DefaultJWSVerifierFactory()
@@ -159,6 +208,21 @@ public class ClientAttestationValidationService {
             throw new IllegalArgumentException("Client Attestation JWT signature verification failed");
         }
         log.debug("WIA signature verified");
+    }
+
+    private PublicKey parsePemPublicKey(String pem) throws Exception {
+        String stripped = pem
+                .replace("-----BEGIN PUBLIC KEY-----", "")
+                .replace("-----END PUBLIC KEY-----", "")
+                .replaceAll("\\s+", "");
+        byte[] decoded = java.util.Base64.getDecoder().decode(stripped);
+        X509EncodedKeySpec keySpec = new X509EncodedKeySpec(decoded);
+        // Try EC first (most common for EUDI), fallback to RSA
+        try {
+            return KeyFactory.getInstance("EC").generatePublic(keySpec);
+        } catch (Exception e) {
+            return KeyFactory.getInstance("RSA").generatePublic(keySpec);
+        }
     }
 
     @SuppressWarnings("unchecked")

@@ -8,6 +8,7 @@ import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorRespons
 import es.in2.issuer.backend.signing.domain.exception.SigningResultParsingException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -87,7 +88,7 @@ public class GlobalExceptionHandler {
                 "Invalid or missing proof",
                 HttpStatus.BAD_REQUEST,
                 "Credential Request did not contain a proof, or proof was invalid, i.e. it was not bound to a Credential Issuer provided nonce."
-        ).flatMap(gem -> nonceService.generateNonce()
+        ).flatMap(gem -> nonceService.issueNonce()
                 .map(nonce -> gem.withNonce(nonce.cNonce(), nonce.cNonceExpiresIn())));
     }
 
@@ -452,6 +453,23 @@ public class GlobalExceptionHandler {
                 HttpStatus.BAD_REQUEST,
                 "The credential payload does not conform to the required schema",
                 violations
+        );
+    }
+
+    // SEC-13: Catch-all handler — never leaks internal details to the client
+    @ExceptionHandler(Exception.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    @Order
+    public Mono<GlobalErrorMessage> handleUnexpectedException(
+            Exception ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleSafe(
+                ex, request,
+                "INTERNAL_SERVER_ERROR",
+                "Internal server error",
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "An unexpected error occurred"
         );
     }
 

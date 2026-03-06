@@ -6,13 +6,18 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.SecurityWebFiltersOrder;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.authentication.AuthenticationWebFilter;
 import org.springframework.security.web.server.authentication.ServerAuthenticationEntryPointFailureHandler;
+import org.springframework.security.web.server.header.ReferrerPolicyServerHttpHeadersWriter;
+import org.springframework.security.web.server.header.XFrameOptionsServerHttpHeadersWriter;
 import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers;
+
+import java.time.Duration;
 
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.*;
 
@@ -74,7 +79,8 @@ public class SecurityConfig {
     public SecurityWebFilterChain unifiedFilterChain(
             ServerHttpSecurity http,
             ProblemAuthenticationEntryPoint entryPoint,
-            ProblemAccessDeniedHandler deniedH
+            ProblemAccessDeniedHandler deniedH,
+            PublicCORSConfig publicCORSConfig
     ) {
         log.debug("unifiedFilterChain - inside");
 
@@ -97,7 +103,22 @@ public class SecurityConfig {
                         PROMETHEUS_PATH,
                         SPRINGDOC_PATH
                 ))
-                .cors(cors -> cors.configurationSource(internalCORSConfig.defaultCorsConfigurationSource()))
+                // SEC-16: Use public CORS config with path-specific rules for OID4VCI/wallet endpoints
+                .cors(cors -> cors.configurationSource(publicCORSConfig.publicCorsConfigurationSource()))
+                .headers(headers -> headers
+                        // SEC-05: Security response headers
+                        .contentSecurityPolicy(csp -> csp.policyDirectives(
+                                "default-src 'none'; frame-ancestors 'none'"))
+                        .frameOptions(fo -> fo.mode(
+                                XFrameOptionsServerHttpHeadersWriter.Mode.DENY))
+                        .hsts(hsts -> hsts.includeSubdomains(true)
+                                .maxAge(Duration.ofDays(365)))
+                        .referrerPolicy(rp -> rp.policy(
+                                ReferrerPolicyServerHttpHeadersWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+                        .permissionsPolicy(pp -> pp.policy(
+                                "geolocation=(), camera=(), microphone=()"))
+                        .contentTypeOptions(Customizer.withDefaults())
+                )
                 .authorizeExchange(exchange -> exchange
                         // Public endpoints (no auth)
                         .pathMatchers(HttpMethod.GET,
@@ -111,17 +132,17 @@ public class SecurityConfig {
                                 SPRINGDOC_PATH,
                                 STATUS_LIST_PATH,
                                 TOKEN_STATUS_LIST_PATH,
-                                SIGNING_PROVIDERS_PATH,
                                 BACKOFFICE_STATUS_CREDENTIALS
                         ).permitAll()
                         .pathMatchers(HttpMethod.POST, OAUTH_TOKEN_PATH).permitAll()
                         .pathMatchers(HttpMethod.POST, OID4VCI_PAR_PATH).permitAll()
                         .pathMatchers(HttpMethod.GET, OID4VCI_AUTHORIZE_PATH).permitAll()
                         .pathMatchers(HttpMethod.POST, OID4VCI_NONCE_PATH).permitAll()
-                        .pathMatchers(HttpMethod.PUT, SIGNING_CONFIG_PATH).permitAll()
+                        // SEC-01: /internal/signing/** requires authentication (removed permitAll)
                         // Authenticated endpoints (all go through CustomAuthenticationManager)
                         .anyExchange().authenticated()
                 )
+                // CSRF disabled: all routes use Bearer token authentication (no cookies/sessions)
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .addFilterAt(customAuthenticationWebFilter(entryPoint), SecurityWebFiltersOrder.AUTHENTICATION)
                 .exceptionHandling(e -> e

@@ -22,6 +22,17 @@ public class ErrorResponseFactory {
         return Mono.fromSupplier(() -> buildError(type, title, status, detail, ex, request, null));
     }
 
+    /**
+     * Handles an exception without ever leaking the exception message to the client.
+     * Used for catch-all handlers where the exception message may contain internal details.
+     */
+    public Mono<GlobalErrorMessage> handleSafe(
+            Exception ex, ServerHttpRequest request,
+            String type, String title, HttpStatus status, String detail
+    ) {
+        return Mono.fromSupplier(() -> buildError(type, title, status, detail, ex, request, null));
+    }
+
     public Mono<GlobalErrorMessage> handleWithViolations(
             Exception ex, ServerHttpRequest request,
             String type, String title, HttpStatus status, String fallbackDetail,

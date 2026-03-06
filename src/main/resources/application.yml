@@ -11,6 +11,8 @@ spring:
     name: in2-issuer-backend
   main:
     web-application-type: reactive
+  codec:
+    max-in-memory-size: ${SPRING_CODEC_MAX_IN_MEMORY_SIZE:256KB}
   reactor:
     context-propagation: auto
   r2dbc:

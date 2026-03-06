@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.shared.domain.service;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.ECDSAVerifier;
@@ -10,9 +12,11 @@ import com.nimbusds.jwt.SignedJWT;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Duration;
 import java.time.Instant;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Base64;
 
 /**
  * DPoP proof validation per RFC 9449.
@@ -22,17 +26,35 @@ import java.util.concurrent.ConcurrentHashMap;
 public class DpopValidationService {
 
     private static final long MAX_AGE_SECONDS = 300;
-    private final Set<String> usedJtis = ConcurrentHashMap.newKeySet();
+
+    // SEC-03: Replace unbounded ConcurrentHashMap with Caffeine cache (TTL + max size)
+    private final Cache<String, Boolean> usedJtis = Caffeine.newBuilder()
+            .expireAfterWrite(Duration.ofSeconds(MAX_AGE_SECONDS))
+            .maximumSize(100_000)
+            .build();
 
     /**
      * Validate a DPoP proof JWT and return the public key thumbprint (jkt).
      *
      * @param dpopHeader the DPoP header value
      * @param httpMethod expected HTTP method
-     * @param httpUri expected HTTP URI
+     * @param httpUri    expected HTTP URI
      * @return the JWK thumbprint (SHA-256) of the DPoP key for cnf binding
      */
     public String validate(String dpopHeader, String httpMethod, String httpUri) {
+        return validate(dpopHeader, httpMethod, httpUri, null);
+    }
+
+    /**
+     * Validate a DPoP proof JWT, optionally bound to an access token.
+     *
+     * @param dpopHeader  the DPoP header value
+     * @param httpMethod  expected HTTP method
+     * @param httpUri     expected HTTP URI
+     * @param accessToken the access token to verify the ath claim against (nullable for token endpoint)
+     * @return the JWK thumbprint (SHA-256) of the DPoP key for cnf binding
+     */
+    public String validate(String dpopHeader, String httpMethod, String httpUri, String accessToken) {
         if (dpopHeader == null || dpopHeader.isBlank()) {
             throw new IllegalArgumentException("Missing DPoP proof");
         }
@@ -91,8 +113,21 @@ public class DpopValidationService {
 
             // Validate jti uniqueness
             String jti = claims.getJWTID();
-            if (jti == null || !usedJtis.add(jti)) {
+            if (jti == null || usedJtis.getIfPresent(jti) != null) {
                 throw new IllegalArgumentException("DPoP jti replay detected");
+            }
+            usedJtis.put(jti, Boolean.TRUE);
+
+            // SEC-22: Validate ath (access token hash) when an access token is bound
+            if (accessToken != null) {
+                String athClaim = claims.getStringClaim("ath");
+                if (athClaim == null) {
+                    throw new IllegalArgumentException("DPoP missing ath claim for token-bound proof");
+                }
+                String expectedAth = computeAth(accessToken);
+                if (!expectedAth.equals(athClaim)) {
+                    throw new IllegalArgumentException("DPoP ath mismatch");
+                }
             }
 
             // Return the JWK thumbprint for cnf.jkt binding
@@ -104,6 +139,20 @@ public class DpopValidationService {
             throw e;
         } catch (Exception e) {
             throw new IllegalArgumentException("Invalid DPoP proof: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Compute the access token hash per RFC 9449 §4.2:
+     * base64url(SHA-256(ASCII(access_token)))
+     */
+    private String computeAth(String accessToken) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(accessToken.getBytes(StandardCharsets.US_ASCII));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(hash);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to compute ath: " + e.getMessage(), e);
         }
     }
 }
