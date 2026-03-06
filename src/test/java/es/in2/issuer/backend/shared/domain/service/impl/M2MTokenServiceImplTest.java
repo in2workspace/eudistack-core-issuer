@@ -54,16 +54,16 @@ class M2MTokenServiceImplTest {
     }
 
     @Test
-    void getM2MToken_shouldReturnVerifierOauth2AccessToken() {
+    void fetchM2MToken_shouldReturnVerifierOauth2AccessToken() {
         // Arrange
         String vcMachineString = "vc_jwt_content";
 
         when(appConfig.getJwtCredential()).thenReturn(Base64.getEncoder().encodeToString(vcMachineString.getBytes()));
 
-        // Mock de jwtService.generateJWT()
+        // Mock de jwtService.issueJWT()
         String vpTokenJWTString = "vp_token_jwt_string";
         String clientAssertionJWT = "generated_client_assertion_jwt";
-        when(jwtService.generateJWT(anyString()))
+        when(jwtService.issueJWT(anyString()))
                 .thenReturn(vpTokenJWTString)  // Primero para vpTokenJWT
                 .thenReturn(clientAssertionJWT); // Luego para client assertion
 
@@ -78,7 +78,7 @@ class M2MTokenServiceImplTest {
         when(verifierService.performTokenRequest(expectedFormUrlEncodedBody)).thenReturn(Mono.just(expectedToken));
 
         // Act
-        Mono<VerifierOauth2AccessToken> result = m2MTokenService.getM2MToken();
+        Mono<VerifierOauth2AccessToken> result = m2MTokenService.fetchM2MToken();
 
         // Assert
         StepVerifier.create(result)
@@ -91,7 +91,7 @@ class M2MTokenServiceImplTest {
 
         verify(appConfig).getVerifierUrl();
 
-        verify(jwtService, times(2)).generateJWT(anyString());
+        verify(jwtService, times(2)).issueJWT(anyString());
 
         verify(verifierService).performTokenRequest(expectedFormUrlEncodedBody);
 
@@ -99,16 +99,16 @@ class M2MTokenServiceImplTest {
     }
 
     @Test
-    void getM2MToken_whenVerifierServiceReturnsError_shouldPropagateError() {
+    void fetchM2MToken_whenVerifierServiceReturnsError_shouldPropagateError() {
         // Arrange
         String vcMachineString = "vc_jwt_content";
 
         when(appConfig.getJwtCredential()).thenReturn(Base64.getEncoder().encodeToString(vcMachineString.getBytes()));
 
-        // Mock de jwtService.generateJWT()
+        // Mock de jwtService.issueJWT()
         String vpTokenJWTString = "vp_token_jwt_string";
         String clientAssertionJWT = "generated_client_assertion_jwt";
-        when(jwtService.generateJWT(anyString()))
+        when(jwtService.issueJWT(anyString()))
                 .thenReturn(vpTokenJWTString)
                 .thenReturn(clientAssertionJWT);
 
@@ -123,7 +123,7 @@ class M2MTokenServiceImplTest {
                 .thenReturn(Mono.error(new RuntimeException("Verifier service error")));
 
         // Act
-        Mono<VerifierOauth2AccessToken> result = m2MTokenService.getM2MToken();
+        Mono<VerifierOauth2AccessToken> result = m2MTokenService.fetchM2MToken();
 
         // Assert
         StepVerifier.create(result)

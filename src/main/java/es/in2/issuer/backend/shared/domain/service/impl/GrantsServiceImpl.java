@@ -22,8 +22,8 @@ public class GrantsServiceImpl implements GrantsService {
 
     @Override
     @Observed(name = "issuance.generate-grants", contextualName = "generate-credential-offer-grants")
-    public Mono<GrantsResult> generateGrants(String processId, Mono<String> procedureIdMono) {
-        Mono<PreAuthorizedCodeResponse> preAuthMono = preAuthorizedCodeService.generatePreAuthorizedCode(processId, procedureIdMono);
+    public Mono<GrantsResult> createGrants(String processId, Mono<String> procedureIdMono) {
+        Mono<PreAuthorizedCodeResponse> preAuthMono = preAuthorizedCodeService.issuePreAuthorizedCode(processId, procedureIdMono);
         Mono<String> issuerStateMono = generateCustomNonce();
 
         return Mono.zip(preAuthMono, issuerStateMono)

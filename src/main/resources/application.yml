@@ -59,7 +59,14 @@ management:
     health:
       enabled: true
       show-details: ${MANAGEMENT_HEALTH_SHOW_DETAILS:when-authorized}
+      probes:
+        enabled: true
     prometheus:
+      enabled: true
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
       enabled: true
   tracing:
     sampling:

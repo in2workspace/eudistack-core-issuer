@@ -54,7 +54,7 @@ class JWTServiceImplTest {
     private JWTServiceImpl jwtService;
 
     @Test
-    void generateJWT_throws_JWTCreationException() throws JsonProcessingException {
+    void issueJWT_throws_JWTCreationException() throws JsonProcessingException {
         String payload = "{\"sub\":\"1234567890\",\"name\":\"John Doe\",\"iat\":1516239022}";
 
         ECKey ecKey = mock(ECKey.class);
@@ -71,7 +71,7 @@ class JWTServiceImplTest {
         claimsMap .put("iat", 1516239022);
         when(objectMapper.convertValue(any(JsonNode.class), any(TypeReference.class))).thenReturn(claimsMap);
 
-        assertThrows(JWTCreationException.class, () -> jwtService.generateJWT(payload));
+        assertThrows(JWTCreationException.class, () -> jwtService.issueJWT(payload));
     }
     @Test
     void validateJwtSignatureReactive_validSignature_shouldReturnTrue() throws Exception {

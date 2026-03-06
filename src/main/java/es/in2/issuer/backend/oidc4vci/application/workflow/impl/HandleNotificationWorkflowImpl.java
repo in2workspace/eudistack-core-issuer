@@ -7,13 +7,17 @@ import es.in2.issuer.backend.shared.domain.model.dto.NotificationEvent;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationRequest;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.ProcedureService;
 import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
+import io.micrometer.observation.annotation.Observed;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
+
+import java.util.Map;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
@@ -25,20 +29,24 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     private final RevocationWorkflow revocationWorkflow;
     private final CacheStore<String> notificationCacheStore;
     private final CacheStore<String> enrichmentCacheStore;
+    private final AuditService auditService;
 
     public HandleNotificationWorkflowImpl(
             ProcedureService procedureService,
             RevocationWorkflow revocationWorkflow,
             @Qualifier("notificationCacheStore") CacheStore<String> notificationCacheStore,
-            @Qualifier("enrichmentCacheStore") CacheStore<String> enrichmentCacheStore
+            @Qualifier("enrichmentCacheStore") CacheStore<String> enrichmentCacheStore,
+            AuditService auditService
     ) {
         this.procedureService = procedureService;
         this.revocationWorkflow = revocationWorkflow;
         this.notificationCacheStore = notificationCacheStore;
         this.enrichmentCacheStore = enrichmentCacheStore;
+        this.auditService = auditService;
     }
 
     @Override
+    @Observed(name = "notification.handle", contextualName = "notification-handle")
     public Mono<Void> handleNotification(String processId, NotificationRequest request, String bearerToken) {
         return Mono.justOrEmpty(request)
                 .switchIfEmpty(Mono.error(new InvalidNotificationRequestException("Request body is required")))
@@ -48,9 +56,8 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
                     final NotificationEvent event = req.event();
                     final String eventDescription = req.eventDescription();
 
-                    log.info("AUDIT notification_received notificationId={} event={} eventDescription={}",
-                            notificationId, event, eventDescription
-                    );
+                    auditService.auditSuccess("notification.received", null, "notification", notificationId,
+                            Map.of("event", String.valueOf(event), "eventDescription", eventDescription != null ? eventDescription : ""));
 
                     return notificationCacheStore.get(notificationId)
                             .onErrorResume(e -> {

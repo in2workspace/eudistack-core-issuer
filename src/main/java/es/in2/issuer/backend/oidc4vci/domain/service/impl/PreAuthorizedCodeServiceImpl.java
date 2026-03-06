@@ -28,7 +28,7 @@ public class PreAuthorizedCodeServiceImpl implements PreAuthorizedCodeService {
     private final TranslationService translationService;
 
     @Override
-    public Mono<PreAuthorizedCodeResponse> generatePreAuthorizedCode(String processId, Mono<String> credentialProcedureIdMono) {
+    public Mono<PreAuthorizedCodeResponse> issuePreAuthorizedCode(String processId, Mono<String> credentialProcedureIdMono) {
         return generateCodes()
                 .doFirst(() -> log.debug("ProcessId: {} AuthServer: Generating PreAuthorizedCode response", processId))
                 .flatMap(tuple -> storeInCache(processId, credentialProcedureIdMono, tuple))
@@ -39,7 +39,7 @@ public class PreAuthorizedCodeServiceImpl implements PreAuthorizedCodeService {
     }
 
     private @NotNull Mono<Tuple2<String, String>> generateCodes() {
-        return Mono.zip(generatePreAuthorizedCode(), generateTxCode());
+        return Mono.zip(issuePreAuthorizedCode(), generateTxCode());
     }
 
     private @NotNull Mono<PreAuthorizedCodeResponse> storeInCache(String processId, Mono<String> credentialProcedureIdMono, Tuple2<String, String> codes) {
@@ -60,7 +60,7 @@ public class PreAuthorizedCodeServiceImpl implements PreAuthorizedCodeService {
                                         txCode)));
     }
 
-    private Mono<String> generatePreAuthorizedCode() {
+    private Mono<String> issuePreAuthorizedCode() {
         return generateCustomNonce();
     }
 

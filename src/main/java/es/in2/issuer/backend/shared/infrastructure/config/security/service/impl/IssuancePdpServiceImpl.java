@@ -3,6 +3,7 @@ package es.in2.issuer.backend.shared.infrastructure.config.security.service.impl
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
 import es.in2.issuer.backend.shared.domain.policy.PolicyEnforcer;
@@ -31,6 +32,7 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
     private final RequireCertificationIssuanceRule requireCertificationIssuanceRule;
     private final CredentialProfileRegistry credentialProfileRegistry;
     private final DynamicCredentialParser credentialParser;
+    private final AuditService auditService;
 
     @Observed(name = "issuance.pdp-authorize", contextualName = "issuance-pdp-authorize")
     @Override
@@ -46,18 +48,25 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
             return getTokenFromSecurityContext()
                     .flatMap(token -> policyContextFactory.fromTokenForIssuance(token, credentialType, tenantDomain))
                     .flatMap(ctx -> new RequireTenantMatchRule().evaluate(ctx, payload).thenReturn(ctx))
-                    .flatMap(ctx -> switch (credentialType) {
-                        case LEAR_CREDENTIAL_EMPLOYEE -> policyEnforcer.enforceAny(ctx, payload,
-                                "Unauthorized: LEARCredentialEmployee does not meet any issuance policies.",
-                                new RequireSignerIssuanceRule(),
-                                new RequireMandatorDelegationRule("ProductOffering", objectMapper, credentialParser));
-                        case LEAR_CREDENTIAL_MACHINE -> policyEnforcer.enforceAny(ctx, payload,
-                                "Unauthorized: LEARCredentialMachine does not meet any issuance policies.",
-                                new RequireSignerIssuanceRule(),
-                                new RequireMandatorDelegationRule("Onboarding", objectMapper, credentialParser));
-                        case LABEL_CREDENTIAL -> requireCertificationIssuanceRule.evaluate(ctx, idToken);
-                        default -> Mono.error(new InsufficientPermissionException(
-                                "Unauthorized: Unsupported schema"));
+                    .flatMap(ctx -> {
+                        Mono<Void> decision = switch (credentialType) {
+                            case LEAR_CREDENTIAL_EMPLOYEE -> policyEnforcer.enforceAny(ctx, payload,
+                                    "Unauthorized: LEARCredentialEmployee does not meet any issuance policies.",
+                                    new RequireSignerIssuanceRule(),
+                                    new RequireMandatorDelegationRule("ProductOffering", objectMapper, credentialParser));
+                            case LEAR_CREDENTIAL_MACHINE -> policyEnforcer.enforceAny(ctx, payload,
+                                    "Unauthorized: LEARCredentialMachine does not meet any issuance policies.",
+                                    new RequireSignerIssuanceRule(),
+                                    new RequireMandatorDelegationRule("Onboarding", objectMapper, credentialParser));
+                            case LABEL_CREDENTIAL -> requireCertificationIssuanceRule.evaluate(ctx, idToken);
+                            default -> Mono.error(new InsufficientPermissionException(
+                                    "Unauthorized: Unsupported schema"));
+                        };
+                        return decision
+                                .doOnSuccess(v -> auditService.auditSuccess("authorization.permit",
+                                        ctx.organizationIdentifier(), "issuance", credentialType, java.util.Map.of()))
+                                .doOnError(e -> auditService.auditFailure("authorization.deny",
+                                        ctx.organizationIdentifier(), e.getMessage(), java.util.Map.of("credentialType", credentialType)));
                     });
         });
     }

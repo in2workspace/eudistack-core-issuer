@@ -116,7 +116,7 @@ public class QtspAuthClient {
             authorizationDetails.put("type", SIGNATURE_REMOTE_SCOPE_CREDENTIAL);
             authorizationDetails.put(CREDENTIAL_ID, credentialID);
             authorizationDetails.put("credentialPassword", credentialPassword);
-            String hashedCredential = hashGeneratorService.generateHash(unsignedCredential, hashAlgorithmOID);
+            String hashedCredential = hashGeneratorService.computeHash(unsignedCredential, hashAlgorithmOID);
             List<Map<String, String>> documentDigests = null;
             if (hashedCredential != null) {
                 documentDigests = List.of(

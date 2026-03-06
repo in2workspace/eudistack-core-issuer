@@ -84,7 +84,7 @@ class QtspAuthClientTest {
 
     @Test
     void requestAccessToken_includesAuthorizationDetails_whenScopeIsCredential() throws Exception {
-        when(hashGeneratorService.generateHash(anyString(), anyString()))
+        when(hashGeneratorService.computeHash(anyString(), anyString()))
                 .thenReturn("HASHED");
 
         when(httpUtils.postRequest(anyString(), anyList(), anyString()))
@@ -124,7 +124,7 @@ class QtspAuthClientTest {
         assertTrue(hasAuth);
         assertTrue(hasCt);
 
-        verify(hashGeneratorService).generateHash("{\"vc\":1}", "2.16.840.1.101.3.4.2.1");
+        verify(hashGeneratorService).computeHash("{\"vc\":1}", "2.16.840.1.101.3.4.2.1");
     }
 
     @Test

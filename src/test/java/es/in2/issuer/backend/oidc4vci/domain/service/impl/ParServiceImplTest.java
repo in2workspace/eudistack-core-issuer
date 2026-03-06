@@ -40,7 +40,7 @@ class ParServiceImplTest {
     private ParServiceImpl parService;
 
     @Test
-    void processPar_shouldSucceedWithValidHaipRequest() {
+    void pushAuthorizationRequest_shouldSucceedWithValidHaipRequest() {
         PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
                 .responseType("code")
                 .clientId("wallet-client")
@@ -61,7 +61,7 @@ class ParServiceImplTest {
         when(parCacheStore.add(anyString(), any(PushedAuthorizationRequest.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0, String.class)));
 
-        StepVerifier.create(parService.processPar(request, "dpop-proof", "wia-jwt", "pop-jwt", "https://issuer/par"))
+        StepVerifier.create(parService.pushAuthorizationRequest(request, "dpop-proof", "wia-jwt", "pop-jwt", "https://issuer/par"))
                 .assertNext(response -> {
                     assertTrue(response.requestUri().startsWith(PAR_REQUEST_URI_PREFIX));
                     assertEquals(PAR_CACHE_EXPIRY_SECONDS, response.expiresIn());
@@ -70,19 +70,19 @@ class ParServiceImplTest {
     }
 
     @Test
-    void processPar_shouldFailWhenResponseTypeNotCode() {
+    void pushAuthorizationRequest_shouldFailWhenResponseTypeNotCode() {
         PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
                 .responseType("token")
                 .build();
 
-        StepVerifier.create(parService.processPar(request, null, null, null, "https://issuer/par"))
+        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par"))
                 .expectErrorMatches(e -> e instanceof IllegalArgumentException
                         && e.getMessage().equals("response_type must be 'code'"))
                 .verify();
     }
 
     @Test
-    void processPar_shouldFailWhenPkceRequiredButMissing() {
+    void pushAuthorizationRequest_shouldFailWhenPkceRequiredButMissing() {
         PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
                 .responseType("code")
                 .build();
@@ -95,14 +95,14 @@ class ParServiceImplTest {
 
         when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
 
-        StepVerifier.create(parService.processPar(request, null, null, null, "https://issuer/par"))
+        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par"))
                 .expectErrorMatches(e -> e instanceof IllegalArgumentException
                         && e.getMessage().equals("code_challenge is required"))
                 .verify();
     }
 
     @Test
-    void processPar_shouldSucceedWithPlainProfile() {
+    void pushAuthorizationRequest_shouldSucceedWithPlainProfile() {
         PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
                 .responseType("code")
                 .clientId("client")
@@ -121,7 +121,7 @@ class ParServiceImplTest {
         when(parCacheStore.add(anyString(), any(PushedAuthorizationRequest.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0, String.class)));
 
-        StepVerifier.create(parService.processPar(request, null, null, null, "https://issuer/par"))
+        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par"))
                 .assertNext(response -> assertNotNull(response.requestUri()))
                 .verifyComplete();
 

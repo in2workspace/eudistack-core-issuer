@@ -2,6 +2,7 @@ package es.in2.issuer.backend.backoffice.application.workflow.policies.impl;
 
 import es.in2.issuer.backend.shared.domain.exception.JWTParsingException;
 import es.in2.issuer.backend.shared.domain.exception.UnauthorizedRoleException;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContext;
@@ -33,13 +34,16 @@ class BackofficePdpServiceImplTest {
     @Mock
     private CredentialProcedureRepository credentialProcedureRepository;
 
+    @Mock
+    private AuditService auditService;
+
     private BackofficePdpServiceImpl backofficePdp;
 
     @BeforeEach
     void setUp() {
         // Use a real PolicyEnforcer since it's a stateless component
         PolicyEnforcer policyEnforcer = new PolicyEnforcer();
-        backofficePdp = new BackofficePdpServiceImpl(policyContextFactory, policyEnforcer, credentialProcedureRepository);
+        backofficePdp = new BackofficePdpServiceImpl(policyContextFactory, policyEnforcer, credentialProcedureRepository, auditService);
     }
 
     private PolicyContext buildContext(String orgId, boolean sysAdmin) {

@@ -11,7 +11,7 @@ import java.util.Optional;
 
 public interface JWTService {
 
-    String generateJWT(String payload);
+    String issueJWT(String payload);
 
     Mono<Boolean> validateJwtSignatureReactive(JWSObject jwsObject);
 

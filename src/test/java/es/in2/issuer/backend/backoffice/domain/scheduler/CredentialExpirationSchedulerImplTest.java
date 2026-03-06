@@ -54,9 +54,9 @@ class CredentialExpirationSchedulerImplTest {
                     cp.setUpdatedAt(Instant.now());
                     return Mono.just(cp);
                 });
-        when(procedureService.getCredentialId(any(CredentialProcedure.class)))
+        when(procedureService.extractCredentialId(any(CredentialProcedure.class)))
                 .thenReturn(Mono.just("cred-123"));
-        when(procedureService.getCredentialOfferEmailInfoByProcedureId(anyString()))
+        when(procedureService.findCredentialOfferEmailInfoByProcedureId(anyString()))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn(Mono.empty());
@@ -90,9 +90,9 @@ class CredentialExpirationSchedulerImplTest {
                     cp.setUpdatedAt(Instant.now());
                     return Mono.just(cp);
                 });
-        when(procedureService.getCredentialId(any(CredentialProcedure.class)))
+        when(procedureService.extractCredentialId(any(CredentialProcedure.class)))
                 .thenReturn(Mono.just("cred-123"));
-        when(procedureService.getCredentialOfferEmailInfoByProcedureId(anyString()))
+        when(procedureService.findCredentialOfferEmailInfoByProcedureId(anyString()))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn(Mono.empty());

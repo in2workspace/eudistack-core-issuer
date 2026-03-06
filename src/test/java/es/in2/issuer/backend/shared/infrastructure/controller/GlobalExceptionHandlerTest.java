@@ -156,7 +156,7 @@ class GlobalExceptionHandlerTest {
 
         when(errors.handleWith(ex, request, type, title, st, fallback))
                 .thenReturn(Mono.just(baseGem));
-        when(nonceService.generateNonce()).thenReturn(Mono.just(nonce));
+        when(nonceService.issueNonce()).thenReturn(Mono.just(nonce));
 
         StepVerifier.create(handler.handleInvalidOrMissingProof(ex, request))
                 .assertNext(gem -> {
@@ -167,7 +167,7 @@ class GlobalExceptionHandlerTest {
                 .verifyComplete();
 
         verify(errors).handleWith(ex, request, type, title, st, fallback);
-        verify(nonceService).generateNonce();
+        verify(nonceService).issueNonce();
     }
 
     // -------------------- handleInvalidToken --------------------

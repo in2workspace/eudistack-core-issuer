@@ -16,8 +16,6 @@ public interface ProcedureService {
 
     Mono<String> getCredentialStatusByProcedureId(String procedureId);
 
-    Mono<Void> updateCredentialDataSetByProcedureId(String procedureId, String credentialDataSet);
-
     Mono<Void> updateCredentialDataSetByProcedureId(String procedureId, String credentialDataSet, String format);
 
     Mono<String> getCredentialDataSetByProcedureId(String procedureId);
@@ -38,11 +36,11 @@ public interface ProcedureService {
 
     Mono<CredentialProcedure> getProcedureByCredentialOfferRefreshToken(String credentialOfferRefreshToken);
 
-    Mono<JsonNode> getCredentialNode(CredentialProcedure credentialProcedure);
+    Mono<JsonNode> extractCredentialNode(CredentialProcedure credentialProcedure);
 
-    Mono<String> getCredentialId(CredentialProcedure credentialProcedure);
+    Mono<String> extractCredentialId(CredentialProcedure credentialProcedure);
 
-    Mono<CredentialOfferEmailNotificationInfo> getCredentialOfferEmailInfoByProcedureId(String procedureId);
+    Mono<CredentialOfferEmailNotificationInfo> findCredentialOfferEmailInfoByProcedureId(String procedureId);
 
     Mono<Void> withdrawCredentialProcedure(String procedureId);
 }

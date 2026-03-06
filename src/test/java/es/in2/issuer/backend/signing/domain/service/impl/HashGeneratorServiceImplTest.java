@@ -35,7 +35,7 @@ class HashGeneratorServiceImplTest {
 
     @Test
     void testGenerateSHA256_Success() throws HashGenerationException {
-        String generatedHash = hashGeneratorService.generateSHA256(testDocument);
+        String generatedHash = hashGeneratorService.computeSHA256(testDocument);
         Assertions.assertNotNull(generatedHash);
         Assertions.assertEquals(generatedHash, expectedSHA256Base64);
     }
@@ -43,7 +43,7 @@ class HashGeneratorServiceImplTest {
     @Test
     void testGenerateSHA256_EmptyInput() {
         Exception exception = assertThrows(HashGenerationException.class, () -> {
-            hashGeneratorService.generateSHA256("");
+            hashGeneratorService.computeSHA256("");
         });
 
         Assertions.assertEquals("The document cannot be null or empty", exception.getMessage());
@@ -56,7 +56,7 @@ class HashGeneratorServiceImplTest {
                     .thenThrow(new NoSuchAlgorithmException("SHA-256 algorithm not available"));
 
             Exception exception = Assertions.assertThrows(HashGenerationException.class, () -> {
-                hashGeneratorService.generateSHA256(testDocument);
+                hashGeneratorService.computeSHA256(testDocument);
             });
 
             Assertions.assertEquals("SHA-256 algorithm not supported", exception.getMessage());
@@ -65,7 +65,7 @@ class HashGeneratorServiceImplTest {
 
     @Test
     void testGenerateHash_ValidAlgorithm() throws HashGenerationException {
-        String generatedHash = hashGeneratorService.generateHash(testDocument, "2.16.840.1.101.3.4.2.1");
+        String generatedHash = hashGeneratorService.computeHash(testDocument, "2.16.840.1.101.3.4.2.1");
 
         Assertions.assertNotNull(generatedHash);
         Assertions.assertEquals(generatedHash, expectedSHA256Base64);
@@ -74,7 +74,7 @@ class HashGeneratorServiceImplTest {
     @Test
     void testGenerateHash_InvalidAlgorithm() {
         Exception exception = assertThrows(HashGenerationException.class, () -> {
-            hashGeneratorService.generateHash("testDocument", "1.3.6.1.4.1.11129.2.4.2");
+            hashGeneratorService.computeHash("testDocument", "1.3.6.1.4.1.11129.2.4.2");
         });
 
         Assertions.assertEquals("Error generating hash: algorithm not supported", exception.getMessage());

@@ -24,11 +24,11 @@ class NonceServiceImplTest {
     private NonceServiceImpl nonceService;
 
     @Test
-    void generateNonce_shouldReturnNonceResponse() {
+    void issueNonce_shouldReturnNonceResponse() {
         when(nonceCacheStore.add(anyString(), anyString()))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0, String.class)));
 
-        StepVerifier.create(nonceService.generateNonce())
+        StepVerifier.create(nonceService.issueNonce())
                 .assertNext(response -> {
                     assert response instanceof NonceResponse;
                     assert response.cNonce() != null;

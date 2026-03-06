@@ -5,5 +5,5 @@ import reactor.core.publisher.Mono;
 import java.util.Set;
 
 public interface ProofValidationService {
-    Mono<Boolean> isProofValid(String jwtProof, Set<String> allowedAlgs, String expectedAudience);
+    Mono<Boolean> verifyProof(String jwtProof, Set<String> allowedAlgs, String expectedAudience);
 }

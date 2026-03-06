@@ -22,8 +22,8 @@ public class NonceController {
     private final NonceService nonceService;
 
     @PostMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-    public Mono<ResponseEntity<NonceResponse>> generateNonce() {
-        return nonceService.generateNonce()
+    public Mono<ResponseEntity<NonceResponse>> issueNonce() {
+        return nonceService.issueNonce()
                 .map(response -> ResponseEntity.status(HttpStatus.OK)
                         .header(HttpHeaders.CACHE_CONTROL, "no-store")
                         .body(response));

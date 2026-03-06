@@ -60,7 +60,7 @@ public class JWTServiceImpl implements JWTService {
      * The kid header is a JWK Thumbprint (RFC 7638) resolvable via jwks_uri.
      */
     @Override
-    public String generateJWT(String payload) {
+    public String issueJWT(String payload) {
         try {
             ECKey asKey = cryptoComponent.getECKey();
             JWSHeader jwsHeader = new JWSHeader.Builder(JWSAlgorithm.ES256)
@@ -238,7 +238,8 @@ public class JWTServiceImpl implements JWTService {
                 // Verify the signature
                 return signedJWT.verify(verifier);
             } catch (Exception e) {
-                return false; // In case of any exception, return false
+                log.warn("JWT signature validation failed for did:key resolution: {}", e.getMessage(), e);
+                return false;
             }
         });
     }

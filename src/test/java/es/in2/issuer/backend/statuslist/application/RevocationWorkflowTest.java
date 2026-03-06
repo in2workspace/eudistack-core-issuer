@@ -3,6 +3,7 @@ package es.in2.issuer.backend.statuslist.application;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotificationInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.ProcedureService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.statuslist.application.policies.StatusListPdpService;
@@ -38,6 +39,9 @@ class RevocationWorkflowTest {
     @Mock
     private EmailService emailService;
 
+    @Mock
+    private AuditService auditService;
+
     @InjectMocks
     private RevocationWorkflow revocationWorkflow;
 
@@ -61,8 +65,8 @@ class RevocationWorkflowTest {
         when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure)).thenReturn(Mono.empty());
         when(statusListProvider.revoke(PROCEDURE_ID, CLEAN_TOKEN)).thenReturn(Mono.empty());
         when(procedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
-        when(procedureService.getCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
-        when(procedureService.getCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
+        when(procedureService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(procedureService.findCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn(Mono.empty());
@@ -116,8 +120,8 @@ class RevocationWorkflowTest {
         when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure)).thenReturn(Mono.empty());
         when(statusListProvider.revoke(PROCEDURE_ID, CLEAN_TOKEN)).thenReturn(Mono.empty());
         when(procedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
-        when(procedureService.getCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
-        when(procedureService.getCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
+        when(procedureService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(procedureService.findCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn(Mono.empty());

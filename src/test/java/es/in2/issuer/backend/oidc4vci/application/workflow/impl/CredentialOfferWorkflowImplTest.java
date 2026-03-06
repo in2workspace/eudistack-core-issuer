@@ -72,7 +72,7 @@ class CredentialOfferWorkflowImplTest {
                 .thenReturn(Mono.empty());
 
         // Act
-        Mono<CredentialOffer> result = credentialOfferWorkflow.getCredentialOfferById(processId, credentialOfferId);
+        Mono<CredentialOffer> result = credentialOfferWorkflow.findCredentialOfferById(processId, credentialOfferId);
 
         // Assert using StepVerifier (non-blocking)
         StepVerifier.create(result)

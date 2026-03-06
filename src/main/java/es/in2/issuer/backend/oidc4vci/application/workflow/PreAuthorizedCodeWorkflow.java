@@ -4,5 +4,5 @@ import es.in2.issuer.backend.shared.domain.model.dto.PreAuthorizedCodeResponse;
 import reactor.core.publisher.Mono;
 
 public interface PreAuthorizedCodeWorkflow {
-    Mono<PreAuthorizedCodeResponse> generatePreAuthorizedCode(Mono<String> credentialProcedureIdMono);
+    Mono<PreAuthorizedCodeResponse> issuePreAuthorizedCode(Mono<String> credentialProcedureIdMono);
 }

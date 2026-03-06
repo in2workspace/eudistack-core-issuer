@@ -28,7 +28,7 @@ public class AuthorizationServiceImpl implements AuthorizationService {
     private final AppConfig appConfig;
 
     @Override
-    public Mono<URI> processAuthorization(
+    public Mono<URI> authorize(
             String requestUri,
             String clientId,
             String responseType,
@@ -41,7 +41,7 @@ public class AuthorizationServiceImpl implements AuthorizationService {
     ) {
         if (requestUri != null && !requestUri.isBlank()) {
             // PAR flow: resolve stored request
-            return processParAuthorization(requestUri, state);
+            return pushAuthorizationRequestAuthorization(requestUri, state);
         } else {
             // Direct authorization request
             return processDirectAuthorization(
@@ -51,7 +51,7 @@ public class AuthorizationServiceImpl implements AuthorizationService {
         }
     }
 
-    private Mono<URI> processParAuthorization(String requestUri, String state) {
+    private Mono<URI> pushAuthorizationRequestAuthorization(String requestUri, String state) {
         return parCacheStore.get(requestUri)
                 .flatMap(parRequest -> {
                     // Consume the PAR (one-time use)

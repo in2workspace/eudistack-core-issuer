@@ -22,7 +22,7 @@ public class NonceServiceImpl implements NonceService {
 
     @Override
     @Observed(name = "oid4vci.nonce", contextualName = "generate-nonce")
-    public Mono<NonceResponse> generateNonce() {
+    public Mono<NonceResponse> issueNonce() {
         String nonce = UUID.randomUUID().toString();
 
         return nonceCacheStore.add(nonce, nonce)

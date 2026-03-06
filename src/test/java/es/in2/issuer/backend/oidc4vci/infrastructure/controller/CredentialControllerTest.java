@@ -35,7 +35,7 @@ class CredentialControllerTest {
     private CredentialController credentialController;
 
     @Test
-    void createVerifiableCredential_whenTransactionIdPresent_returnsAccepted() {
+    void issueCredential_whenTransactionIdPresent_returnsAccepted() {
         // Arrange
         String authorizationHeader = "Bearer testToken";
 
@@ -68,7 +68,7 @@ class CredentialControllerTest {
 
         // Act
         Mono<ResponseEntity<CredentialResponse>> result =
-                credentialController.createVerifiableCredential(authorizationHeader, credentialRequest);
+                credentialController.issueCredential(authorizationHeader, credentialRequest);
 
         // Assert
         StepVerifier.create(result)
@@ -80,7 +80,7 @@ class CredentialControllerTest {
     }
 
     @Test
-    void createVerifiableCredential_whenNoTransactionId_returnsOk() {
+    void issueCredential_whenNoTransactionId_returnsOk() {
         String authorizationHeader = "Bearer testToken";
 
         CredentialRequest credentialRequest = CredentialRequest.builder()
@@ -111,7 +111,7 @@ class CredentialControllerTest {
         )).thenReturn(Mono.just(credentialResponse));
 
         Mono<ResponseEntity<CredentialResponse>> result =
-                credentialController.createVerifiableCredential(authorizationHeader, credentialRequest);
+                credentialController.issueCredential(authorizationHeader, credentialRequest);
 
         StepVerifier.create(result)
                 .assertNext(response -> {

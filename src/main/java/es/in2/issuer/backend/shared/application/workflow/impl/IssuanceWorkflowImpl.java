@@ -10,6 +10,7 @@ import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException
 import es.in2.issuer.backend.shared.domain.repository.CredentialOfferCacheRepository;
 import es.in2.issuer.backend.shared.domain.service.*;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import java.util.Map;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.config.security.service.IssuancePdpService;
@@ -40,10 +41,11 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private final PayloadSchemaValidator payloadSchemaValidator;
     private final CredentialProfileRegistry credentialProfileRegistry;
     private final IssuanceMetrics issuanceMetrics;
+    private final AuditService auditService;
 
     @Override
-    @Observed(name = "issuance.execute", contextualName = "issuance-execute")
-    public Mono<IssuanceResponse> execute(
+    @Observed(name = "issuance.issue-credential", contextualName = "issuance-issue-credential")
+    public Mono<IssuanceResponse> issueCredential(
             String processId,
             PreSubmittedCredentialDataRequest request,
             String idToken) {
@@ -55,20 +57,24 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         return validateRequest(request, idToken)
                 .then(payloadSchemaValidator.validate(configId, request.payload()))
                 .then(issuancePdpService.authorize(configId, request.payload(), idToken))
-                .then(issueCredential(processId, request))
-                .doOnSuccess(r -> issuanceMetrics.recordSuccess(sample, configId, delivery))
+                .then(performIssuanceFlow(processId, request))
+                .doOnSuccess(r -> {
+                    issuanceMetrics.recordSuccess(sample, configId, delivery);
+                    auditService.auditSuccess("credential.issued", null, "credential", configId,
+                            Map.of("processId", processId, "delivery", delivery));
+                })
                 .doOnError(e -> issuanceMetrics.recordError(sample, configId, delivery));
     }
 
     @Override
     @Observed(name = "issuance.execute-bootstrap", contextualName = "issuance-execute-bootstrap")
-    public Mono<IssuanceResponse> executeWithoutAuthorization(
+    public Mono<IssuanceResponse> issueCredentialWithoutAuthorization(
             String processId,
             PreSubmittedCredentialDataRequest request) {
 
         return validateRequest(request, null)
                 .then(payloadSchemaValidator.validate(request.credentialConfigurationId(), request.payload()))
-                .then(issueCredential(processId, request));
+                .then(performIssuanceFlow(processId, request));
     }
 
     private Mono<Void> validateRequest(PreSubmittedCredentialDataRequest request, String idToken) {
@@ -92,7 +98,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
      * 4. Build and cache credential offer
      * 5. Deliver (email or UI)
      */
-    private Mono<IssuanceResponse> issueCredential(String processId, PreSubmittedCredentialDataRequest request) {
+    private Mono<IssuanceResponse> performIssuanceFlow(String processId, PreSubmittedCredentialDataRequest request) {
         String procedureId = UUID.randomUUID().toString();
 
         return credentialDataSetBuilderService.buildDataSet(procedureId, request)
@@ -103,7 +109,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                     String credentialOfferRefreshToken = savedProcedure.getCredentialOfferRefreshToken();
                                     log.info("ProcessId: {} - Created procedure: {}", processId, savedProcedureId);
 
-                                    return grantsService.generateGrants(processId, Mono.just(savedProcedureId))
+                                    return grantsService.createGrants(processId, Mono.just(savedProcedureId))
                                             .flatMap(grantsResult ->
                                                     buildOfferAndDeliver(grantsResult, creationRequest, savedProcedureId, credentialOfferRefreshToken)
                                             );
@@ -134,7 +140,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                     }
 
                     log.info("Delivering credential offer via email for procedure: {}", procedureId);
-                    return procedureService.getCredentialOfferEmailInfoByProcedureId(procedureId)
+                    return procedureService.findCredentialOfferEmailInfoByProcedureId(procedureId)
                             .flatMap(emailInfo -> {
                                 String refreshUrl = buildRefreshUrl(credentialOfferRefreshToken);
                                 return emailService.sendCredentialOfferEmail(

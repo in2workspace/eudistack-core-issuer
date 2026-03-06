@@ -47,7 +47,7 @@ class AuthorizationServiceImplTest {
     }
 
     @Test
-    void processAuthorization_shouldHandleDirectAuthorizationWithPkce() {
+    void authorize_shouldHandleDirectAuthorizationWithPkce() {
         var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
                 false, true, List.of("S256"),
                 false, List.of("ES256"),
@@ -59,7 +59,7 @@ class AuthorizationServiceImplTest {
         when(authorizationCodeCacheStore.add(anyString(), any(AuthorizationCodeData.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0, String.class)));
 
-        StepVerifier.create(authorizationService.processAuthorization(
+        StepVerifier.create(authorizationService.authorize(
                         null, "client-id", "code", "openid",
                         "my-state", "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
                         "S256", "https://wallet/callback", null))
@@ -75,8 +75,8 @@ class AuthorizationServiceImplTest {
     }
 
     @Test
-    void processAuthorization_shouldRejectInvalidResponseType() {
-        StepVerifier.create(authorizationService.processAuthorization(
+    void authorize_shouldRejectInvalidResponseType() {
+        StepVerifier.create(authorizationService.authorize(
                         null, "client-id", "token", null,
                         null, null, null, "https://wallet/callback", null))
                 .expectErrorMatches(e -> e instanceof IllegalArgumentException
@@ -85,7 +85,7 @@ class AuthorizationServiceImplTest {
     }
 
     @Test
-    void processAuthorization_shouldRejectMissingPkceWhenRequired() {
+    void authorize_shouldRejectMissingPkceWhenRequired() {
         var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
                 false, true, List.of("S256"),
                 false, List.of("ES256"),
@@ -94,7 +94,7 @@ class AuthorizationServiceImplTest {
 
         when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
 
-        StepVerifier.create(authorizationService.processAuthorization(
+        StepVerifier.create(authorizationService.authorize(
                         null, "client-id", "code", null,
                         null, null, null, "https://wallet/callback", null))
                 .expectErrorMatches(e -> e instanceof IllegalArgumentException
@@ -103,7 +103,7 @@ class AuthorizationServiceImplTest {
     }
 
     @Test
-    void processAuthorization_shouldHandleParFlow() {
+    void authorize_shouldHandleParFlow() {
         PushedAuthorizationRequest parRequest = PushedAuthorizationRequest.builder()
                 .clientId("wallet-client")
                 .redirectUri("https://wallet/callback")
@@ -121,7 +121,7 @@ class AuthorizationServiceImplTest {
 
         String requestUri = "urn:ietf:params:oauth:request_uri:test-uuid";
 
-        StepVerifier.create(authorizationService.processAuthorization(
+        StepVerifier.create(authorizationService.authorize(
                         requestUri, "wallet-client", null, null,
                         null, null, null, null, null))
                 .assertNext(uri -> {
@@ -137,11 +137,11 @@ class AuthorizationServiceImplTest {
     }
 
     @Test
-    void processAuthorization_shouldFailWithInvalidPar() {
+    void authorize_shouldFailWithInvalidPar() {
         when(parCacheStore.get(anyString()))
                 .thenReturn(Mono.error(new java.util.NoSuchElementException("Not found")));
 
-        StepVerifier.create(authorizationService.processAuthorization(
+        StepVerifier.create(authorizationService.authorize(
                         "urn:ietf:params:oauth:request_uri:invalid", "client", null, null,
                         null, null, null, null, null))
                 .expectErrorMatches(e -> e instanceof IllegalArgumentException

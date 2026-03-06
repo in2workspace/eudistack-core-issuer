@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationEvent;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationRequest;
 import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
@@ -36,6 +37,9 @@ class HandleNotificationWorkflowImplTest {
     @Mock
     private CacheStore<String> enrichmentCacheStore;
 
+    @Mock
+    private AuditService auditService;
+
     private final String processId = "proc-123";
     private final String bearerToken = "Bearer token";
 
@@ -46,7 +50,8 @@ class HandleNotificationWorkflowImplTest {
     void setUp() {
         handleNotificationWorkflow = new HandleNotificationWorkflowImpl(
                 procedureService, revocationWorkflow,
-                notificationCacheStore, enrichmentCacheStore
+                notificationCacheStore, enrichmentCacheStore,
+                auditService
         );
 
         procedureId = UUID.randomUUID();

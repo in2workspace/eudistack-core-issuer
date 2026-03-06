@@ -20,6 +20,11 @@
             <encoder class="net.logstash.logback.encoder.LogstashEncoder">
                 <includeMdcKeyName>traceId</includeMdcKeyName>
                 <includeMdcKeyName>spanId</includeMdcKeyName>
+                <includeMdcKeyName>audit.event</includeMdcKeyName>
+                <includeMdcKeyName>audit.outcome</includeMdcKeyName>
+                <includeMdcKeyName>audit.userId</includeMdcKeyName>
+                <includeMdcKeyName>audit.resourceType</includeMdcKeyName>
+                <includeMdcKeyName>audit.resourceId</includeMdcKeyName>
             </encoder>
         </appender>
         <root level="info">

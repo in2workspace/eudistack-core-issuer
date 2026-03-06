@@ -33,6 +33,6 @@ public class ParController {
             ServerWebExchange exchange
     ) {
         String requestUri = exchange.getRequest().getURI().toString();
-        return parService.processPar(request, dpopHeader, wiaHeader, wiaPopHeader, requestUri);
+        return parService.pushAuthorizationRequest(request, dpopHeader, wiaHeader, wiaPopHeader, requestUri);
     }
 }

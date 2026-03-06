@@ -28,7 +28,7 @@ public class ParServiceImpl implements ParService {
     private final ClientAttestationValidationService clientAttestationValidationService;
 
     @Override
-    public Mono<PushedAuthorizationResponse> processPar(
+    public Mono<PushedAuthorizationResponse> pushAuthorizationRequest(
             PushedAuthorizationRequest request,
             String dpopHeader,
             String wiaHeader,

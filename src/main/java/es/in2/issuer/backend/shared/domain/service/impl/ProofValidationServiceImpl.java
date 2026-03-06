@@ -28,7 +28,7 @@ public class ProofValidationServiceImpl implements ProofValidationService {
 
 
     @Override
-    public Mono<Boolean> isProofValid(String jwtProof, Set<String> allowedAlgs, String expectedAudience) {
+    public Mono<Boolean> verifyProof(String jwtProof, Set<String> allowedAlgs, String expectedAudience) {
         return Mono.just(jwtProof)
                 .flatMap(jwt -> parseAndValidateJwt(jwt, expectedAudience, allowedAlgs))
                 .doOnNext(jws -> log.debug("JWT parsed successfully"))

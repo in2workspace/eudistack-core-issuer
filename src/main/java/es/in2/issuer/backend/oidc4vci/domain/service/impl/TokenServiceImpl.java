@@ -58,7 +58,7 @@ public class TokenServiceImpl implements TokenService {
 
     @Override
     @Observed(name = "oid4vci.token", contextualName = "oid4vci-handle-token")
-    public Mono<TokenResponse> handleToken(TokenRequest request, String dpopHeader, String tokenEndpointUri) {
+    public Mono<TokenResponse> exchangeToken(TokenRequest request, String dpopHeader, String tokenEndpointUri) {
         String grantType = request.grantType();
 
         Mono<TokenResponse> flow;
@@ -110,8 +110,8 @@ public class TokenServiceImpl implements TokenService {
     private Mono<TokenResponse> buildTokenResponse(String preAuthorizedCode) {
         Instant issueTime = Instant.now();
         long accessTokenExp = computeAccessTokenExpiration(issueTime);
-        long refreshTokenExp = refreshTokenService.generateRefreshTokenExpirationTime(issueTime);
-        String refreshToken = refreshTokenService.generateRefreshToken();
+        long refreshTokenExp = refreshTokenService.computeRefreshTokenExpirationTime(issueTime);
+        String refreshToken = refreshTokenService.issueRefreshToken();
 
         return txCodeCacheStore.get(preAuthorizedCode)
                 .map(CredentialProcedureIdAndTxCode::credentialProcedureId)
@@ -136,7 +136,7 @@ public class TokenServiceImpl implements TokenService {
                 "jti", UUID.randomUUID().toString(),
                 "pid", procedureId
         ));
-        return jwtService.generateJWT(payload.toString());
+        return jwtService.issueJWT(payload.toString());
     }
 
     // ── Refresh Token Flow ────────────────────────────────────────────────────
@@ -174,8 +174,8 @@ public class TokenServiceImpl implements TokenService {
     private Mono<TokenResponse> buildRefreshedTokenResponse(String procedureId) {
         Instant issueTime = Instant.now();
         long accessTokenExp = computeAccessTokenExpiration(issueTime);
-        long refreshTokenExp = refreshTokenService.generateRefreshTokenExpirationTime(issueTime);
-        String newRefreshToken = refreshTokenService.generateRefreshToken();
+        long refreshTokenExp = refreshTokenService.computeRefreshTokenExpirationTime(issueTime);
+        String newRefreshToken = refreshTokenService.issueRefreshToken();
         String accessToken = buildAccessToken(procedureId, issueTime.getEpochSecond(), accessTokenExp);
 
         return storeRefreshToken(procedureId, null, newRefreshToken, refreshTokenExp)
@@ -235,7 +235,7 @@ public class TokenServiceImpl implements TokenService {
             claims.put("cnf", Map.of("jkt", dpopJkt));
         }
 
-        String accessToken = jwtService.generateJWT(new Payload(claims).toString());
+        String accessToken = jwtService.issueJWT(new Payload(claims).toString());
 
         return TokenResponse.builder()
                 .accessToken(accessToken)

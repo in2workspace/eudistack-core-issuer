@@ -26,7 +26,7 @@ public class CredentialController {
 
     @PostMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
-    public Mono<ResponseEntity<CredentialResponse>> createVerifiableCredential(
+    public Mono<ResponseEntity<CredentialResponse>> issueCredential(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
             @RequestBody CredentialRequest credentialRequest) {
         String processId = UUID.randomUUID().toString();

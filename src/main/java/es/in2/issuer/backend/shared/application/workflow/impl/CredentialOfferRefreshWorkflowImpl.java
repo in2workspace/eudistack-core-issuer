@@ -49,7 +49,7 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
     private Mono<Void> regenerateOfferAndSendEmail(CredentialProcedure procedure, String credentialOfferRefreshToken) {
         String procedureId = procedure.getProcedureId().toString();
 
-        return grantsService.generateGrants("refresh", Mono.just(procedureId))
+        return grantsService.createGrants("refresh", Mono.just(procedureId))
                 .flatMap(grantsResult ->
                         credentialOfferService.buildCredentialOffer(
                                         procedure.getCredentialType(),
@@ -60,7 +60,7 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
                                 .flatMap(credentialOfferService::createCredentialOfferUriResponse)
                 )
                 .flatMap(credentialOfferUri ->
-                        procedureService.getCredentialOfferEmailInfoByProcedureId(procedureId)
+                        procedureService.findCredentialOfferEmailInfoByProcedureId(procedureId)
                                 .flatMap(emailInfo -> {
                                     String refreshUrl = buildRefreshUrl(credentialOfferRefreshToken);
                                     return emailService.sendCredentialOfferEmail(

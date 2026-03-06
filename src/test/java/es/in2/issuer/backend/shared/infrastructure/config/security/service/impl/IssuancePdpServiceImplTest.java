@@ -6,6 +6,7 @@ import com.nimbusds.jose.Payload;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
 import es.in2.issuer.backend.shared.domain.exception.ParseErrorException;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContext;
@@ -62,6 +63,9 @@ class IssuancePdpServiceImplTest {
     @Mock
     private CredentialProfileRegistry credentialProfileRegistry;
 
+    @Mock
+    private AuditService auditService;
+
     private IssuancePdpServiceImpl issuancePdpService;
 
     @BeforeEach
@@ -77,7 +81,8 @@ class IssuancePdpServiceImplTest {
                 objectMapper,
                 certificationRule,
                 credentialProfileRegistry,
-                credentialParser
+                credentialParser,
+                auditService
         );
     }
 

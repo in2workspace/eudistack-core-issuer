@@ -9,20 +9,27 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Date;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@ExtendWith(MockitoExtension.class)
 class DpopValidationServiceTest {
+
+    @Mock
+    private AuditService auditService;
 
     private DpopValidationService dpopValidationService;
     private ECKey ecKey;
 
     @BeforeEach
     void setUp() throws Exception {
-        dpopValidationService = new DpopValidationService();
+        dpopValidationService = new DpopValidationService(auditService);
         ecKey = new ECKeyGenerator(Curve.P_256).generate();
     }
 

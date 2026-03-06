@@ -2,6 +2,7 @@ package es.in2.issuer.backend.bootstrap.infrastructure.controller;
 
 import es.in2.issuer.backend.bootstrap.domain.service.BootstrapTokenService;
 import es.in2.issuer.backend.shared.application.workflow.IssuanceWorkflow;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,9 @@ class BootstrapControllerTest {
     @Mock
     private IssuanceWorkflow issuanceWorkflow;
 
+    @Mock
+    private AuditService auditService;
+
     @InjectMocks
     private BootstrapController bootstrapController;
 
@@ -41,7 +45,7 @@ class BootstrapControllerTest {
                 .build();
 
         when(bootstrapTokenService.consumeIfValid(token)).thenReturn(true);
-        when(issuanceWorkflow.executeWithoutAuthorization(anyString(), any(PreSubmittedCredentialDataRequest.class)))
+        when(issuanceWorkflow.issueCredentialWithoutAuthorization(anyString(), any(PreSubmittedCredentialDataRequest.class)))
                 .thenReturn(Mono.just(IssuanceResponse.builder().credentialOfferUri(credentialOfferUri).build()));
 
         StepVerifier.create(bootstrapController.bootstrapIssueCredential(token, request))
@@ -52,7 +56,7 @@ class BootstrapControllerTest {
                 .verifyComplete();
 
         verify(bootstrapTokenService).consumeIfValid(token);
-        verify(issuanceWorkflow).executeWithoutAuthorization(anyString(), eq(request));
+        verify(issuanceWorkflow).issueCredentialWithoutAuthorization(anyString(), eq(request));
     }
 
     @Test
@@ -70,7 +74,7 @@ class BootstrapControllerTest {
                                 && rse.getStatusCode() == HttpStatus.UNAUTHORIZED)
                 .verify();
 
-        verify(issuanceWorkflow, never()).executeWithoutAuthorization(anyString(), any());
+        verify(issuanceWorkflow, never()).issueCredentialWithoutAuthorization(anyString(), any());
     }
 
     @Test

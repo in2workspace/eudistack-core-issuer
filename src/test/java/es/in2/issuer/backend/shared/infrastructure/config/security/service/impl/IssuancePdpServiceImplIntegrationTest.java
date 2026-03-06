@@ -6,6 +6,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
 import es.in2.issuer.backend.shared.domain.policy.PolicyEnforcer;
 import es.in2.issuer.backend.shared.domain.policy.rules.RequireCertificationIssuanceRule;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.domain.service.impl.JWTServiceImpl;
@@ -55,6 +56,8 @@ class IssuancePdpServiceImplIntegrationTest {
     private DynamicCredentialParser credentialParser;
     @Mock
     private CredentialProfileRegistry credentialProfileRegistry;
+    @Mock
+    private AuditService auditService;
 
     private IssuancePdpServiceImpl issuancePdpService;
 
@@ -85,7 +88,8 @@ class IssuancePdpServiceImplIntegrationTest {
                 objectMapper,
                 certificationRule,
                 credentialProfileRegistry,
-                credentialParser
+                credentialParser,
+                auditService
         );
     }
 

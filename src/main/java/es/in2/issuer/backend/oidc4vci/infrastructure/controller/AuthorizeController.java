@@ -32,7 +32,7 @@ public class AuthorizeController {
             @RequestParam(value = "issuer_state", required = false) String issuerState,
             ServerHttpResponse response
     ) {
-        return authorizationService.processAuthorization(
+        return authorizationService.authorize(
                 requestUri, clientId, responseType, scope, state,
                 codeChallenge, codeChallengeMethod, redirectUri, issuerState
         ).flatMap(uri -> {

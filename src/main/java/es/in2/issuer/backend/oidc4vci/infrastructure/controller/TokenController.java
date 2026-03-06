@@ -25,12 +25,12 @@ public class TokenController {
             consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
-    public Mono<TokenResponse> handleTokenRequest(
+    public Mono<TokenResponse> exchangeToken(
             TokenRequest tokenRequest,
             @RequestHeader(value = "DPoP", required = false) String dpopHeader,
             ServerWebExchange exchange
     ) {
         String tokenEndpointUri = exchange.getRequest().getURI().toString();
-        return tokenService.handleToken(tokenRequest, dpopHeader, tokenEndpointUri);
+        return tokenService.exchangeToken(tokenRequest, dpopHeader, tokenEndpointUri);
     }
 }

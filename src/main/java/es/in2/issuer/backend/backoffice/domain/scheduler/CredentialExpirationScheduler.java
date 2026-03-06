@@ -35,8 +35,8 @@ public class CredentialExpirationScheduler {
                 .flatMap(credentialProcedure -> isExpiredAndNotAlreadyMarked(credentialProcedure)
                         .filter(Boolean::booleanValue)
                         .flatMap(expired -> expireCredential(credentialProcedure)
-                                .then(procedureService.getCredentialId(credentialProcedure)
-                                        .zipWith(procedureService.getCredentialOfferEmailInfoByProcedureId(credentialProcedure.getProcedureId().toString()))
+                                .then(procedureService.extractCredentialId(credentialProcedure)
+                                        .zipWith(procedureService.findCredentialOfferEmailInfoByProcedureId(credentialProcedure.getProcedureId().toString()))
                                         .flatMap(idAndInfo -> emailService.sendCredentialStatusChangeNotification(
                                                 idAndInfo.getT2().email(),
                                                 idAndInfo.getT2().organization(),

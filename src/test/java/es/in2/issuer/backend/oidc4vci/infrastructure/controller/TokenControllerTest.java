@@ -50,7 +50,7 @@ class TokenControllerTest {
                 3600L,
                 "1234");
 
-        when(tokenService.handleToken(any(TokenRequest.class), isNull(), any(String.class)))
+        when(tokenService.exchangeToken(any(TokenRequest.class), isNull(), any(String.class)))
                 .thenReturn(Mono.just(tokenResponse));
 
         webTestClient

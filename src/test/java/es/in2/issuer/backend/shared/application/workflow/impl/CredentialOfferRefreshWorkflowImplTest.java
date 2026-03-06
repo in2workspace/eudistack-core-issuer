@@ -67,7 +67,7 @@ class CredentialOfferRefreshWorkflowImplTest {
 
         when(procedureService.getProcedureByCredentialOfferRefreshToken(credentialOfferRefreshToken))
                 .thenReturn(Mono.just(procedure));
-        when(grantsService.generateGrants(anyString(), any()))
+        when(grantsService.createGrants(anyString(), any()))
                 .thenReturn(Mono.just(grantsResult));
         when(credentialOfferService.buildCredentialOffer(anyString(), any(), anyString(), anyString()))
                 .thenReturn(Mono.just(CredentialOfferData.builder().build()));
@@ -75,7 +75,7 @@ class CredentialOfferRefreshWorkflowImplTest {
                 .thenReturn(Mono.just("cache-nonce"));
         when(credentialOfferService.createCredentialOfferUriResponse(anyString()))
                 .thenReturn(Mono.just(credentialOfferUri));
-        when(procedureService.getCredentialOfferEmailInfoByProcedureId(procedureId.toString()))
+        when(procedureService.findCredentialOfferEmailInfoByProcedureId(procedureId.toString()))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("test@example.com", "Org")));
         when(appConfig.getIssuerBackendUrl()).thenReturn("https://issuer.example.com");
         when(appConfig.getWalletFrontendUrl()).thenReturn("https://wallet.example.com");
@@ -85,7 +85,7 @@ class CredentialOfferRefreshWorkflowImplTest {
         StepVerifier.create(workflow.refreshCredentialOffer(credentialOfferRefreshToken))
                 .verifyComplete();
 
-        verify(grantsService).generateGrants(anyString(), any());
+        verify(grantsService).createGrants(anyString(), any());
         verify(emailService).sendCredentialOfferEmail(eq("test@example.com"), anyString(), eq(credentialOfferUri), anyString(), eq("https://wallet.example.com"), eq("Org"));
     }
 

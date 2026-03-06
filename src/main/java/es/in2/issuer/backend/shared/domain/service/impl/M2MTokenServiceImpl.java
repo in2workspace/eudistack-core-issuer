@@ -33,7 +33,7 @@ public class M2MTokenServiceImpl implements M2MTokenService {
     private final VerifierService verifierService;
 
     @Override
-    public Mono<VerifierOauth2AccessToken> getM2MToken() {
+    public Mono<VerifierOauth2AccessToken> fetchM2MToken() {
         return Mono.fromCallable(this::getM2MFormUrlEncodeBodyValue)
                 .flatMap(verifierService::performTokenRequest);
     }
@@ -78,7 +78,7 @@ public class M2MTokenServiceImpl implements M2MTokenService {
                 "vp_token", vpTokenJWTBase64
         ));
 
-        return jwtService.generateJWT(payload.toString());
+        return jwtService.issueJWT(payload.toString());
     }
 
     private String createVPTokenJWT(String vcMachineString, String clientId, long iat, long exp) {
@@ -94,7 +94,7 @@ public class M2MTokenServiceImpl implements M2MTokenService {
                 "vp", vp
         ));
 
-        return jwtService.generateJWT(payload.toString());
+        return jwtService.issueJWT(payload.toString());
     }
 
     private Map<String, Object> createVP(String vcMachineString, String clientId) {

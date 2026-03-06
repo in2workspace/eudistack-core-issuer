@@ -4,6 +4,7 @@ import jakarta.annotation.Nullable;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jwt.SignedJWT;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
@@ -39,6 +40,7 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
     private final AppConfig appConfig;
     private final JWTService jwtService;
     private final CredentialProfileRegistry credentialProfileRegistry;
+    private final AuditService auditService;
 
     @Override
     public Mono<Authentication> authenticate(Authentication authentication) {
@@ -56,6 +58,10 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
                                 Collections.emptyList(),
                                 principalName
                         )))
+                .doOnSuccess(auth -> auditService.auditSuccess("auth.success", auth.getName(),
+                        null, null, Map.of()))
+                .doOnError(e -> auditService.auditFailure("auth.failure", null,
+                        e.getMessage(), Map.of()))
                 .onErrorMap(e -> (e instanceof AuthenticationException)
                         ? e
                         : new AuthenticationServiceException(e.getMessage(), e));

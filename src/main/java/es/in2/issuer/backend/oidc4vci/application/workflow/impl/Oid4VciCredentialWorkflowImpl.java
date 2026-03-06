@@ -245,7 +245,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                     "Missing proof for type " + credentialType));
         }
 
-        return proofValidationService.isProofValid(jwtProof, proofSigningAlgs, expectedAudience)
+        return proofValidationService.verifyProof(jwtProof, proofSigningAlgs, expectedAudience)
                 .flatMap(valid -> {
                     if (!Boolean.TRUE.equals(valid)) {
                         return Mono.error(new InvalidOrMissingProofException("Invalid proof"));

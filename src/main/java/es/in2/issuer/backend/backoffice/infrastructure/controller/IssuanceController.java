@@ -32,7 +32,7 @@ public class IssuanceController {
             @RequestHeader(name = "X-Id-Token", required = false) String idToken,
             @Valid @RequestBody PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest) {
         String processId = UUID.randomUUID().toString();
-        return issuanceWorkflow.execute(processId, preSubmittedCredentialDataRequest, idToken)
+        return issuanceWorkflow.issueCredential(processId, preSubmittedCredentialDataRequest, idToken)
                 .map(this::toResponseEntity);
     }
 

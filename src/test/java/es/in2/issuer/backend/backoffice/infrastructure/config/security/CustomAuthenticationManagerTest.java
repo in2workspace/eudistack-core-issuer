@@ -2,6 +2,7 @@ package es.in2.issuer.backend.backoffice.infrastructure.config.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jwt.SignedJWT;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
@@ -34,6 +35,7 @@ class CustomAuthenticationManagerTest {
     @Mock private JWTService jwtService;
     @Mock private AppConfig appConfig;
     @Mock private es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry credentialProfileRegistry;
+    @Mock private AuditService auditService;
 
     private es.in2.issuer.backend.backoffice.infrastructure.config.security.CustomAuthenticationManager authenticationManager;
 
@@ -44,7 +46,8 @@ class CustomAuthenticationManagerTest {
                 new ObjectMapper(),
                 appConfig,
                 jwtService,
-                credentialProfileRegistry
+                credentialProfileRegistry,
+                auditService
         );
         lenient().doReturn("principal@example.com")
                 .when(jwtService)

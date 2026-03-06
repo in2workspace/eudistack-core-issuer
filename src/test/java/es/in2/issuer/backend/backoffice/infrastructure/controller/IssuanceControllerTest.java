@@ -51,7 +51,7 @@ class IssuanceControllerTest {
                 .email("test@example.com")
                 .build();
 
-        when(issuanceWorkflow.execute(anyString(), eq(testRequest), isNull()))
+        when(issuanceWorkflow.issueCredential(anyString(), eq(testRequest), isNull()))
                 .thenReturn(Mono.just(IssuanceResponse.builder().credentialOfferUri(credentialOfferUri).build()));
 
         webTestClient.mutateWith(csrf())
@@ -74,7 +74,7 @@ class IssuanceControllerTest {
                 .email("test@example.com")
                 .build();
 
-        when(issuanceWorkflow.execute(anyString(), eq(testRequest), isNull()))
+        when(issuanceWorkflow.issueCredential(anyString(), eq(testRequest), isNull()))
                 .thenReturn(Mono.just(IssuanceResponse.builder().build()));
 
         webTestClient.mutateWith(csrf())
@@ -97,7 +97,7 @@ class IssuanceControllerTest {
                 .email("test@example.com")
                 .build();
 
-        when(issuanceWorkflow.execute(anyString(), eq(testRequest), eq(idToken)))
+        when(issuanceWorkflow.issueCredential(anyString(), eq(testRequest), eq(idToken)))
                 .thenReturn(Mono.just(IssuanceResponse.builder().build()));
 
         webTestClient.mutateWith(csrf())

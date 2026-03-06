@@ -26,6 +26,11 @@ import java.util.Base64;
 public class DpopValidationService {
 
     private static final long MAX_AGE_SECONDS = 300;
+    private final AuditService auditService;
+
+    public DpopValidationService(AuditService auditService) {
+        this.auditService = auditService;
+    }
 
     // SEC-03: Replace unbounded ConcurrentHashMap with Caffeine cache (TTL + max size)
     private final Cache<String, Boolean> usedJtis = Caffeine.newBuilder()
@@ -114,6 +119,8 @@ public class DpopValidationService {
             // Validate jti uniqueness
             String jti = claims.getJWTID();
             if (jti == null || usedJtis.getIfPresent(jti) != null) {
+                auditService.auditFailure("dpop.replay.detected", null,
+                        "jti replay: " + jti, java.util.Map.of("httpMethod", httpMethod, "httpUri", httpUri));
                 throw new IllegalArgumentException("DPoP jti replay detected");
             }
             usedJtis.put(jti, Boolean.TRUE);

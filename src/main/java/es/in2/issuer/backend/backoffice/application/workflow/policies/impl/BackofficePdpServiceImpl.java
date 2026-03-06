@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.backoffice.application.workflow.policies.impl;
 
 import es.in2.issuer.backend.backoffice.application.workflow.policies.BackofficePdpService;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
 import es.in2.issuer.backend.shared.domain.policy.PolicyEnforcer;
 import es.in2.issuer.backend.shared.domain.policy.rules.RequireOrganizationRule;
@@ -24,6 +25,7 @@ public class BackofficePdpServiceImpl implements BackofficePdpService {
     private final PolicyContextFactory policyContextFactory;
     private final PolicyEnforcer policyEnforcer;
     private final CredentialProcedureRepository credentialProcedureRepository;
+    private final AuditService auditService;
 
     @Override
     public Mono<Void> validateSignCredential(String processId, String token, String credentialProcedureId) {
@@ -45,8 +47,6 @@ public class BackofficePdpServiceImpl implements BackofficePdpService {
                     .flatMap(ctx ->
                             policyEnforcer.enforce(ctx, null, RequirePowerRule.of("Onboarding", "Execute"))
                                     .then(Mono.defer(() -> {
-                                        // Performance: skip DB lookup for sysAdmin. RequireOrganizationRule
-                                        // would also pass, but only after the findById roundtrip.
                                         if (ctx.sysAdmin()) {
                                             log.info("User belongs to admin organization. Skipping DB lookup.");
                                             return Mono.empty();
@@ -55,6 +55,11 @@ public class BackofficePdpServiceImpl implements BackofficePdpService {
                                                 .flatMap(proc -> new RequireOrganizationRule()
                                                         .evaluate(ctx, proc.getOrganizationIdentifier()));
                                     }))
+                                    .doOnSuccess(v -> auditService.auditSuccess("authorization.permit",
+                                            ctx.organizationIdentifier(), "backoffice", credentialProcedureId, java.util.Map.of()))
+                                    .doOnError(e -> auditService.auditFailure("authorization.deny",
+                                            ctx.organizationIdentifier(), e.getMessage(),
+                                            java.util.Map.of("credentialProcedureId", credentialProcedureId)))
                     );
         });
     }

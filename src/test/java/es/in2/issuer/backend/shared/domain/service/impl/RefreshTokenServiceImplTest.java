@@ -27,16 +27,16 @@ class RefreshTokenServiceImplTest {
     }
 
     @Test
-    void generateRefreshToken_ShouldReturnUniqueTokensOnMultipleCalls() {
-        String firstToken = refreshTokenService.generateRefreshToken();
-        String secondToken = refreshTokenService.generateRefreshToken();
+    void issueRefreshToken_ShouldReturnUniqueTokensOnMultipleCalls() {
+        String firstToken = refreshTokenService.issueRefreshToken();
+        String secondToken = refreshTokenService.issueRefreshToken();
 
         assertThat(firstToken).isNotEqualTo(secondToken);
     }
 
     @Test
-    void generateRefreshToken_ShouldReturnBase64EncodedToken() {
-        String refreshToken = refreshTokenService.generateRefreshToken();
+    void issueRefreshToken_ShouldReturnBase64EncodedToken() {
+        String refreshToken = refreshTokenService.issueRefreshToken();
         assertThatCode(() ->
                 Base64.getUrlDecoder().decode(refreshToken)
         ).doesNotThrowAnyException();
@@ -44,15 +44,15 @@ class RefreshTokenServiceImplTest {
     }
 
     @Test
-    void generateRefreshToken_ShouldReturnTokenWithMinimumLength() {
-        String refreshToken = refreshTokenService.generateRefreshToken();
+    void issueRefreshToken_ShouldReturnTokenWithMinimumLength() {
+        String refreshToken = refreshTokenService.issueRefreshToken();
 
         assertThat(refreshToken.length()).isGreaterThanOrEqualTo(40);
     }
 
     @Test
-    void generateRefreshTokenExpirationTime_ShouldReturnCorrectExpirationTime() {
-        long actualExpirationTime = refreshTokenService.generateRefreshTokenExpirationTime(testIssueTime);
+    void computeRefreshTokenExpirationTime_ShouldReturnCorrectExpirationTime() {
+        long actualExpirationTime = refreshTokenService.computeRefreshTokenExpirationTime(testIssueTime);
 
         assertThat(actualExpirationTime).isEqualTo(testIssueTime.plusSeconds(REFRESH_TOKEN_EXPIRATION * 3600).getEpochSecond());
     }

@@ -20,7 +20,6 @@ import javax.naming.OperationNotSupportedException;
 import java.text.ParseException;
 import java.util.NoSuchElementException;
 
-//todo make recursive
 @Slf4j
 @RestControllerAdvice
 @RequiredArgsConstructor
@@ -29,7 +28,20 @@ public class GlobalExceptionHandler {
     private final ErrorResponseFactory errors;
     private final NonceService nonceService;
 
-    //todo add handler for RemoteSignatureException
+    @ExceptionHandler(RemoteSignatureException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public Mono<GlobalErrorMessage> handleRemoteSignatureException(
+            RemoteSignatureException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.REMOTE_SIGNATURE.getCode(),
+                "Remote signature error",
+                HttpStatus.BAD_GATEWAY,
+                "An error occurred during remote signature operation"
+        );
+    }
 
     @ExceptionHandler(CredentialTypeUnsupportedException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)

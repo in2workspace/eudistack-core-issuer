@@ -50,7 +50,7 @@ class CredentialOfferControllerTest {
                 .grants(grants)
                 .build();
         // Mock
-        when(credentialOfferWorkflow.getCredentialOfferById(anyString(), anyString()))
+        when(credentialOfferWorkflow.findCredentialOfferById(anyString(), anyString()))
                 .thenReturn(Mono.just(credentialOffer));
         // Act
         Mono<CredentialOffer> result = credentialOfferController.getCredentialOfferByReference(

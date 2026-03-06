@@ -65,6 +65,21 @@ public class IssuanceMetrics {
                 .increment();
     }
 
+    public void recordNotificationHandled(String event, String outcome) {
+        Counter.builder("notification.handled")
+                .tag("event", event)
+                .tag("outcome", outcome)
+                .register(meterRegistry)
+                .increment();
+    }
+
+    public void recordRevocationRequest(String outcome) {
+        Counter.builder("revocation.requests")
+                .tag("outcome", outcome)
+                .register(meterRegistry)
+                .increment();
+    }
+
     private Counter counter(String configurationId, String delivery, String outcome) {
         return Counter.builder("issuance.requests")
                 .tag("configuration_id", configurationId)

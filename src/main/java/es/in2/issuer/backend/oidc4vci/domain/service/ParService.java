@@ -5,7 +5,7 @@ import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationResponse;
 import reactor.core.publisher.Mono;
 
 public interface ParService {
-    Mono<PushedAuthorizationResponse> processPar(
+    Mono<PushedAuthorizationResponse> pushAuthorizationRequest(
             PushedAuthorizationRequest request,
             String dpopHeader,
             String wiaHeader,

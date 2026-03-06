@@ -5,6 +5,6 @@ import reactor.core.publisher.Mono;
 
 public interface GrantsService {
 
-    Mono<GrantsResult> generateGrants(String processId, Mono<String> procedureIdMono);
+    Mono<GrantsResult> createGrants(String processId, Mono<String> procedureIdMono);
 
 }

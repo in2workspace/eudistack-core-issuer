@@ -35,10 +35,10 @@ class GrantsServiceImplTest {
                 .pin(pin)
                 .build();
 
-        when(preAuthorizedCodeService.generatePreAuthorizedCode(anyString(), any()))
+        when(preAuthorizedCodeService.issuePreAuthorizedCode(anyString(), any()))
                 .thenReturn(Mono.just(preAuthResponse));
 
-        StepVerifier.create(grantsService.generateGrants("test-process", Mono.just("procedure-id")))
+        StepVerifier.create(grantsService.createGrants("test-process", Mono.just("procedure-id")))
                 .assertNext(result -> {
                     assertNotNull(result.grants().authorizationCode());
                     assertNotNull(result.grants().authorizationCode().issuerState());

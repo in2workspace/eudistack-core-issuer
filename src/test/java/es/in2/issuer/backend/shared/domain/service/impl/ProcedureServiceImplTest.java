@@ -512,7 +512,7 @@ class ProcedureServiceImplTest {
     }
 
     @Test
-    void getCredentialNode_shouldReturnJsonNode_whenInputIsValid() throws Exception {
+    void extractCredentialNode_shouldReturnJsonNode_whenInputIsValid() throws Exception {
         // Given
         String credentialDataSet = "{\"vc\":{\"type\":[\"VerifiableCredential\",\"Employee\"]}}";
         CredentialProcedure cp = new CredentialProcedure();
@@ -522,7 +522,7 @@ class ProcedureServiceImplTest {
         when(objectMapper.readTree(credentialDataSet)).thenReturn(expectedNode);
 
         // When
-        Mono<JsonNode> result = procedureService.getCredentialNode(cp);
+        Mono<JsonNode> result = procedureService.extractCredentialNode(cp);
 
         // Then
         StepVerifier.create(result)
@@ -534,9 +534,9 @@ class ProcedureServiceImplTest {
     }
 
     @Test
-    void getCredentialNode_shouldError_whenCredentialProcedureIsNull() {
+    void extractCredentialNode_shouldError_whenCredentialProcedureIsNull() {
         // When
-        Mono<JsonNode> result = procedureService.getCredentialNode(null);
+        Mono<JsonNode> result = procedureService.extractCredentialNode(null);
 
         // Then
         StepVerifier.create(result)
@@ -547,12 +547,12 @@ class ProcedureServiceImplTest {
     }
 
     @Test
-    void getCredentialNode_shouldError_whenCredentialDataSetIsNull() {
+    void extractCredentialNode_shouldError_whenCredentialDataSetIsNull() {
         CredentialProcedure cp = new CredentialProcedure();
         cp.setCredentialDataSet(null);
 
         // When
-        Mono<JsonNode> result = procedureService.getCredentialNode(cp);
+        Mono<JsonNode> result = procedureService.extractCredentialNode(cp);
 
         // Then
         StepVerifier.create(result)
@@ -563,7 +563,7 @@ class ProcedureServiceImplTest {
     }
 
     @Test
-    void getCredentialNode_shouldError_whenJsonIsInvalid() throws Exception {
+    void extractCredentialNode_shouldError_whenJsonIsInvalid() throws Exception {
         String invalidJson = "{\"vc\":{\"type\":[\"VerifiableCredential\",\"Employee\"}";
         CredentialProcedure cp = new CredentialProcedure();
         cp.setCredentialDataSet(invalidJson);
@@ -572,7 +572,7 @@ class ProcedureServiceImplTest {
                 .when(objectMapper).readTree(invalidJson);
 
         // When
-        Mono<JsonNode> result = procedureService.getCredentialNode(cp);
+        Mono<JsonNode> result = procedureService.extractCredentialNode(cp);
 
         // Then
         StepVerifier.create(result)
@@ -808,7 +808,7 @@ class ProcedureServiceImplTest {
     }
 
     @Test
-    void getCredentialOfferEmailInfoByProcedureId_label_usesSysTenantForOrganization() {
+    void findCredentialOfferEmailInfoByProcedureId_label_usesSysTenantForOrganization() {
         // given
         String procedureId = UUID.randomUUID().toString();
         String email = "label.owner@in2.es";
@@ -827,7 +827,7 @@ class ProcedureServiceImplTest {
 
         // when
         Mono<CredentialOfferEmailNotificationInfo> mono =
-                procedureService.getCredentialOfferEmailInfoByProcedureId(procedureId);
+                procedureService.findCredentialOfferEmailInfoByProcedureId(procedureId);
 
         // then
         StepVerifier.create(mono)

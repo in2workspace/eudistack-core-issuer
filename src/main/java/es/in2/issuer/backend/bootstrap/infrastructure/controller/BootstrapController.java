@@ -2,6 +2,7 @@ package es.in2.issuer.backend.bootstrap.infrastructure.controller;
 
 import es.in2.issuer.backend.bootstrap.domain.service.BootstrapTokenService;
 import es.in2.issuer.backend.shared.application.workflow.IssuanceWorkflow;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,7 @@ import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
+import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -29,6 +31,7 @@ public class BootstrapController {
 
     private final BootstrapTokenService bootstrapTokenService;
     private final IssuanceWorkflow issuanceWorkflow;
+    private final AuditService auditService;
 
     @PostMapping("/bootstrap/v1/issuances")
     public Mono<ResponseEntity<Void>> bootstrapIssueCredential(
@@ -41,6 +44,7 @@ public class BootstrapController {
         }
 
         String processId = UUID.randomUUID().toString();
+        auditService.auditSuccess("bootstrap.token.used", null, "bootstrap", processId, Map.of());
         log.info("[{}] Bootstrap issuance initiated", processId);
 
         return issuanceWorkflow.issueCredentialWithoutAuthorization(processId, request)

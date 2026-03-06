@@ -20,7 +20,7 @@ public interface AuthorizationService {
      * @param issuerState issuer_state (optional)
      * @return redirect URI with code and state
      */
-    Mono<URI> processAuthorization(
+    Mono<URI> authorize(
             String requestUri,
             String clientId,
             String responseType,

@@ -18,7 +18,7 @@ public class CredentialOfferWorkflowImpl implements CredentialOfferWorkflow {
     private final EmailService emailService;
 
     @Override
-    public Mono<CredentialOffer> getCredentialOfferById(String processId, String id) {
+    public Mono<CredentialOffer> findCredentialOfferById(String processId, String id) {
         return credentialOfferCacheRepository.findCredentialOfferById(id)
                 .flatMap(credentialOfferData -> emailService
                     .sendTxCodeNotification(

@@ -17,11 +17,11 @@ package es.in2.issuer.backend.oidc4vci.application.workflow;
 //        PreAuthorizedCodeResponse expected = PreAuthorizedCodeResponseMother.dummy();
 //        UUID credentialId = UUID.fromString("cfcd6d7c-5cc2-4601-a992-86f96afb0706");
 //
-//        when(preAuthorizedCodeService.generatePreAuthorizedCode(anyString(), any()))
+//        when(preAuthorizedCodeService.issuePreAuthorizedCode(anyString(), any()))
 //                .thenReturn(Mono.just(expected));
 //
 //        Mono<PreAuthorizedCodeResponse> resultMono = preAuthorizedCodeWorkflow
-//                .generatePreAuthorizedCode(
+//                .issuePreAuthorizedCode(
 //                        Mono.just(credentialId));
 //
 //        StepVerifier
@@ -31,7 +31,7 @@ package es.in2.issuer.backend.oidc4vci.application.workflow;
 //                .verifyComplete();
 //
 //        verify(preAuthorizedCodeService, times(1))
-//                .generatePreAuthorizedCode(anyString(), credentialIdCaptor.capture());
+//                .issuePreAuthorizedCode(anyString(), credentialIdCaptor.capture());
 //        verifyNoMoreInteractions(preAuthorizedCodeService);
 //        StepVerifier
 //                .create(credentialIdCaptor.getValue())
