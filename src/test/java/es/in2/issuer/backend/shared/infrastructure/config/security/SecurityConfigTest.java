@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.issuance.infrastructure.config.security;
+package es.in2.issuer.backend.shared.infrastructure.config.security;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

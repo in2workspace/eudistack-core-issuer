@@ -1,6 +1,6 @@
-package es.in2.issuer.backend.issuance.infrastructure.config.security;
+package es.in2.issuer.backend.shared.infrastructure.config.security;
 
-import es.in2.issuer.backend.issuance.infrastructure.config.security.SecurityProblemResolver.ProblemSpec;
+import es.in2.issuer.backend.shared.infrastructure.config.security.SecurityProblemResolver.ProblemSpec;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;

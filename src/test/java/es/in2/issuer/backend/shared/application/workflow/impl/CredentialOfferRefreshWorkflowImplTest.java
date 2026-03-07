@@ -53,7 +53,7 @@ class CredentialOfferRefreshWorkflowImplTest {
         Issuance issuance = Issuance.builder()
                 .issuanceId(issuanceId)
                 .credentialStatus(CredentialStatusEnum.DRAFT)
-                .credentialType("LEARCredentialEmployee")
+                .credentialType("learcredential.employee.w3c.4")
                 .email("test@example.com")
                 .build();
 

@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.issuance.infrastructure.config.security;
+package es.in2.issuer.backend.shared.infrastructure.config.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jwt.SignedJWT;
@@ -37,11 +37,11 @@ class CustomAuthenticationManagerTest {
     @Mock private es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry credentialProfileRegistry;
     @Mock private AuditService auditService;
 
-    private es.in2.issuer.backend.issuance.infrastructure.config.security.CustomAuthenticationManager authenticationManager;
+    private es.in2.issuer.backend.shared.infrastructure.config.security.CustomAuthenticationManager authenticationManager;
 
     @BeforeEach
     void setUp() {
-        authenticationManager = new es.in2.issuer.backend.issuance.infrastructure.config.security.CustomAuthenticationManager(
+        authenticationManager = new es.in2.issuer.backend.shared.infrastructure.config.security.CustomAuthenticationManager(
                 verifierService,
                 new ObjectMapper(),
                 appConfig,
@@ -68,7 +68,7 @@ class CustomAuthenticationManagerTest {
     private String buildAccessTokenFromIssuer(String issuer, boolean includeLearVc) {
         String headerJson = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
         long now = Instant.now().getEpochSecond();
-        String vcPart = includeLearVc ? ",\"vc\":{\"type\":[\"LEARCredentialMachine\"]}" : "";
+        String vcPart = includeLearVc ? ",\"vc\":{\"type\":[\"learcredential.machine.w3c.3\"]}" : "";
         String payloadJson = "{\"iss\":\"" + issuer + "\",\"iat\":" + now + ",\"exp\":" + (now + 3600) + vcPart + "}";
         return buildToken(headerJson, payloadJson);
     }
@@ -86,7 +86,7 @@ class CustomAuthenticationManagerTest {
         String headerJson = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
         String payloadJson = "{\"iss\":\"http://verifier.local\",\"iat\":1633036800," +
                 "\"exp\":" + (Instant.now().getEpochSecond() + 3600) + "," +
-                "\"vc\":{\"type\":[\"LEARCredentialMachine\"]}}";
+                "\"vc\":{\"type\":[\"learcredential.machine.w3c.3\"]}}";
         String token = buildToken(headerJson, payloadJson);
 
         when(appConfig.getVerifierUrl()).thenReturn("http://verifier.local");
@@ -183,7 +183,7 @@ class CustomAuthenticationManagerTest {
     void authenticate_withVerifierServiceFailure_wrapsInAuthenticationServiceException() {
         String headerJson = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
         String payloadJson = "{\"iss\":\"http://verifier.local\",\"exp\":1633040400," +
-                "\"vc\":{\"type\":[\"LEARCredentialMachine\"]}}";
+                "\"vc\":{\"type\":[\"learcredential.machine.w3c.3\"]}}";
         String token = buildToken(headerJson, payloadJson);
 
         RuntimeException verifyException = new RuntimeException("Verification failed");
@@ -301,7 +301,7 @@ class CustomAuthenticationManagerTest {
             return "principal@example.com";
         });
 
-        Authentication authentication = new es.in2.issuer.backend.issuance.infrastructure.config.security.DualTokenAuthentication(accessToken, idToken);
+        Authentication authentication = new es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication(accessToken, idToken);
         Mono<Authentication> result = authenticationManager.authenticate(authentication);
 
         StepVerifier.create(result)
@@ -324,7 +324,7 @@ class CustomAuthenticationManagerTest {
             return "principal@example.com";
         });
 
-        Authentication authentication = new es.in2.issuer.backend.issuance.infrastructure.config.security.DualTokenAuthentication(accessToken, idToken);
+        Authentication authentication = new es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication(accessToken, idToken);
         Mono<Authentication> result = authenticationManager.authenticate(authentication);
 
         StepVerifier.create(result)
@@ -346,7 +346,7 @@ class CustomAuthenticationManagerTest {
             return "principal@example.com";
         });
 
-        Authentication authentication = new es.in2.issuer.backend.issuance.infrastructure.config.security.DualTokenAuthentication(accessToken, invalidIdToken);
+        Authentication authentication = new es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication(accessToken, invalidIdToken);
         Mono<Authentication> result = authenticationManager.authenticate(authentication);
 
         StepVerifier.create(result)
@@ -362,7 +362,7 @@ class CustomAuthenticationManagerTest {
         when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class))).thenReturn(Mono.just(true));
         when(jwtService.resolvePrincipal(any(Jwt.class))).thenReturn("principal-from-access@example.com");
 
-        Authentication authentication = new es.in2.issuer.backend.issuance.infrastructure.config.security.DualTokenAuthentication(accessToken, null);
+        Authentication authentication = new es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication(accessToken, null);
         Mono<Authentication> result = authenticationManager.authenticate(authentication);
 
         StepVerifier.create(result)

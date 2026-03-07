@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.issuance.infrastructure.config;
+package es.in2.issuer.backend.shared.infrastructure.config;
 
 import org.flywaydb.core.Flyway;
 import org.springframework.boot.autoconfigure.flyway.FlywayProperties;

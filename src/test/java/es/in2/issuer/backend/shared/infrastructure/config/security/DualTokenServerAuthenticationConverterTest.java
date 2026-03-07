@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.issuance.infrastructure.config.security;
+package es.in2.issuer.backend.shared.infrastructure.config.security;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
@@ -12,8 +12,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class DualTokenServerAuthenticationConverterTest {
 
-    private final es.in2.issuer.backend.issuance.infrastructure.config.security.DualTokenServerAuthenticationConverter converter =
-            new es.in2.issuer.backend.issuance.infrastructure.config.security.DualTokenServerAuthenticationConverter();
+    private final es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenServerAuthenticationConverter converter =
+            new es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenServerAuthenticationConverter();
 
     @Test
     void convert_withValidBearerAndIdToken_returnsDualTokenAuth() {
@@ -27,8 +27,8 @@ class DualTokenServerAuthenticationConverterTest {
 
         StepVerifier.create(result)
                 .assertNext(auth -> {
-                    assertTrue(auth instanceof es.in2.issuer.backend.issuance.infrastructure.config.security.DualTokenAuthentication);
-                    es.in2.issuer.backend.issuance.infrastructure.config.security.DualTokenAuthentication dual = (es.in2.issuer.backend.issuance.infrastructure.config.security.DualTokenAuthentication) auth;
+                    assertTrue(auth instanceof es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication);
+                    es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication dual = (es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication) auth;
                     // Access token is exposed via getCredentials()
                     assertEquals("access-123", dual.getCredentials());
                     assertEquals("id-456", dual.getIdToken());
@@ -48,7 +48,7 @@ class DualTokenServerAuthenticationConverterTest {
 
         StepVerifier.create(converter.convert(exchange))
                 .assertNext(auth -> {
-                    es.in2.issuer.backend.issuance.infrastructure.config.security.DualTokenAuthentication dual = (es.in2.issuer.backend.issuance.infrastructure.config.security.DualTokenAuthentication) auth;
+                    es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication dual = (es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication) auth;
                     assertEquals("access-123", dual.getCredentials());
                     assertNull(dual.getIdToken());
                 })
@@ -64,7 +64,7 @@ class DualTokenServerAuthenticationConverterTest {
 
         StepVerifier.create(converter.convert(exchange))
                 .assertNext(auth -> {
-                    es.in2.issuer.backend.issuance.infrastructure.config.security.DualTokenAuthentication dual = (es.in2.issuer.backend.issuance.infrastructure.config.security.DualTokenAuthentication) auth;
+                    es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication dual = (es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication) auth;
                     assertEquals("abc123", dual.getCredentials());
                     assertNull(dual.getIdToken());
                 })
@@ -100,7 +100,7 @@ class DualTokenServerAuthenticationConverterTest {
 
         StepVerifier.create(converter.convert(exchange))
                 .assertNext(auth -> {
-                    es.in2.issuer.backend.issuance.infrastructure.config.security.DualTokenAuthentication dual = (es.in2.issuer.backend.issuance.infrastructure.config.security.DualTokenAuthentication) auth;
+                    es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication dual = (es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication) auth;
                     // substring(7).trim() -> empty string
                     assertEquals("", dual.getCredentials());
                     assertNull(dual.getIdToken());

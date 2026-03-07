@@ -55,7 +55,7 @@ class RevocationWorkflowTest {
     @BeforeEach
     void setUp() {
         mockProcedure = new Issuance();
-        mockProcedure.setCredentialType("LEARCredentialEmployee");
+        mockProcedure.setCredentialType("learcredential.employee.w3c.4");
     }
 
     @Test

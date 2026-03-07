@@ -43,7 +43,7 @@ class CredentialExpirationSchedulerImplTest {
     void shouldExpireCredentialsWhenValidUntilHasPassed() {
         Issuance credential = new Issuance();
         credential.setIssuanceId(UUID.randomUUID());
-        credential.setCredentialType("LEARCredentialEmployee");
+        credential.setCredentialType("learcredential.employee.w3c.4");
         credential.setCredentialStatus(CredentialStatusEnum.VALID);
         credential.setValidUntil(Timestamp.from(Instant.now().minusSeconds(60)));
 
@@ -79,7 +79,7 @@ class CredentialExpirationSchedulerImplTest {
     void shouldSendEmailWhenCredentialExpires() {
         Issuance credential = new Issuance();
         credential.setIssuanceId(UUID.randomUUID());
-        credential.setCredentialType("LEARCredentialEmployee");
+        credential.setCredentialType("learcredential.employee.w3c.4");
         credential.setCredentialStatus(CredentialStatusEnum.VALID);
         credential.setValidUntil(Timestamp.from(Instant.now().minusSeconds(60)));
 
@@ -101,7 +101,7 @@ class CredentialExpirationSchedulerImplTest {
                 .verifyComplete();
 
         verify(emailService, times(1)).sendCredentialStatusChangeNotification(
-                "to@example.com", "ACME Corp", "cred-123", "LEARCredentialEmployee", "EXPIRED"
+                "to@example.com", "ACME Corp", "cred-123", "learcredential.employee.w3c.4", "EXPIRED"
         );
     }
 
@@ -109,7 +109,7 @@ class CredentialExpirationSchedulerImplTest {
     void shouldNotExpireCredentialsIfValidUntilHasNotPassed() {
         Issuance credential = new Issuance();
         credential.setIssuanceId(UUID.randomUUID());
-        credential.setCredentialType("LEARCredentialEmployee");
+        credential.setCredentialType("learcredential.employee.w3c.4");
         credential.setCredentialStatus(CredentialStatusEnum.VALID);
         credential.setValidUntil(Timestamp.from(Instant.now().plusSeconds(60)));
 

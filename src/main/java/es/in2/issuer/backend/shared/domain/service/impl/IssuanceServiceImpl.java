@@ -289,20 +289,24 @@ public class IssuanceServiceImpl implements IssuanceService {
         return issuanceRepository
                 .findByIssuanceId(UUID.fromString(issuanceId))
                 .flatMap(issuance -> {
-                    String credentialType = resolveCredentialType(issuance.getCredentialType());
-                    return switch (credentialType) {
-                        case LEAR_CREDENTIAL_EMPLOYEE, LEAR_CREDENTIAL_MACHINE ->
-                                extractOrganizationFromCredential(issuance, issuanceId);
-                        case LABEL_CREDENTIAL -> Mono.just(
-                                new CredentialOfferEmailNotificationInfo(
-                                        issuance.getEmail(),
-                                        appConfig.getSysTenant()
-                                )
-                        );
-                        default -> Mono.error(new FormatUnsupportedException(
-                                "Unknown credential type: " + credentialType + " (configId: " + issuance.getCredentialType() + ")"
-                        ));
-                    };
+                    String configId = issuance.getCredentialType();
+                    CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
+                    if (profile == null) {
+                        return Mono.error(new FormatUnsupportedException(
+                                "Unknown credential configuration: " + configId));
+                    }
+
+                    // If the profile has organization extraction, use it to get the org name
+                    if (profile.organizationExtraction() != null
+                            && !"none".equals(profile.organizationExtraction().strategy())) {
+                        return extractOrganizationFromCredential(issuance, issuanceId);
+                    }
+
+                    // No organization extraction (e.g., label credentials) → use system tenant
+                    return Mono.just(new CredentialOfferEmailNotificationInfo(
+                            issuance.getEmail(),
+                            appConfig.getSysTenant()
+                    ));
                 });
     }
 
@@ -328,14 +332,6 @@ public class IssuanceServiceImpl implements IssuanceService {
                                 "Error parsing credential for issuanceId: " + issuanceId
                         )
                 );
-    }
-
-    private String resolveCredentialType(String credentialConfigurationId) {
-        CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialConfigurationId);
-        if (profile != null) {
-            return profile.credentialType();
-        }
-        return credentialConfigurationId;
     }
 
     @Override

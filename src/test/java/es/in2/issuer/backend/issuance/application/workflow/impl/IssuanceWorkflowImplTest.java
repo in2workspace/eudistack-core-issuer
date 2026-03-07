@@ -70,7 +70,7 @@ class IssuanceWorkflowImplTest {
     @Test
     void executeShouldCompleteFullIssuanceFlow() {
         String processId = "test-process";
-        String configId = "LEARCredentialEmployee";
+        String configId = "learcredential.employee.w3c.4";
         String idToken = "id-token";
         JsonNode payload = new ObjectMapper().createObjectNode().put("name", "Test");
         UUID issuanceId = UUID.randomUUID();
@@ -85,7 +85,7 @@ class IssuanceWorkflowImplTest {
         CredentialProfile profile = CredentialProfile.builder()
                 .credentialConfigurationId(configId)
                 .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
-                        .type(List.of("VerifiableCredential", "LEARCredentialEmployee"))
+                        .type(List.of("VerifiableCredential", "learcredential.employee.w3c.4"))
                         .build())
                 .build();
 
@@ -159,7 +159,7 @@ class IssuanceWorkflowImplTest {
 
     @Test
     void issueCredentialWithoutAuthorizationShouldSkipPdp() {
-        String configId = "LEARCredentialEmployee";
+        String configId = "learcredential.employee.w3c.4";
         JsonNode payload = new ObjectMapper().createObjectNode();
         UUID issuanceId = UUID.randomUUID();
 
@@ -172,7 +172,7 @@ class IssuanceWorkflowImplTest {
         CredentialProfile profile = CredentialProfile.builder()
                 .credentialConfigurationId(configId)
                 .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
-                        .type(List.of("VerifiableCredential", "LEARCredentialEmployee"))
+                        .type(List.of("VerifiableCredential", "learcredential.employee.w3c.4"))
                         .build())
                 .build();
 

@@ -53,14 +53,14 @@ class CredentialIssuerMetadataTest {
         var metadata = CredentialIssuerMetadata.builder()
                 .credentialIssuer("https://issuer.example.com")
                 .credentialEndpoint("https://issuer.example.com/credential")
-                .credentialConfigurationsSupported(Map.of("LEARCredentialEmployee", config))
+                .credentialConfigurationsSupported(Map.of("learcredential.employee.w3c.4", config))
                 .build();
 
         // Assert
         assertThat(metadata.credentialIssuer()).isEqualTo("https://issuer.example.com");
-        assertThat(metadata.credentialConfigurationsSupported()).containsKey("LEARCredentialEmployee");
+        assertThat(metadata.credentialConfigurationsSupported()).containsKey("learcredential.employee.w3c.4");
 
-        var actualConfig = metadata.credentialConfigurationsSupported().get("LEARCredentialEmployee");
+        var actualConfig = metadata.credentialConfigurationsSupported().get("learcredential.employee.w3c.4");
         assertThat(actualConfig.format()).isEqualTo("jwt_vc_json");
         assertThat(actualConfig.scope()).isEqualTo("lear_credential_employee");
         assertThat(actualConfig.cryptographicBindingMethodsSupported()).containsExactly("did:key");

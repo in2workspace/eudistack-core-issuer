@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.shared.domain.util;
 
-import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public final class Constants {
@@ -10,15 +9,8 @@ public final class Constants {
     }
 
     // CREDENTIAL TYPES
-    public static final String LEAR_CREDENTIAL = "LEARCredential";
-    public static final String LEAR_CREDENTIAL_EMPLOYEE = "LEARCredentialEmployee";
-    public static final String LEAR_CREDENTIAL_MACHINE = "LEARCredentialMachine";
-    public static final String LABEL_CREDENTIAL = "gx:LabelCredential";
     public static final String VERIFIABLE_CREDENTIAL = "VerifiableCredential";
     public static final String VERIFIABLE_ATTESTATION = "VerifiableAttestation";
-    public static final String LEAR_CREDENTIAL_JWT = "LEARCredentialJWT";
-    public static final String LEAR_CREDENTIAL_CWT = "LEARCredentialCWT";
-    public static final List<String> LABEL_CREDENTIAL_TYPES = List.of(LABEL_CREDENTIAL, VERIFIABLE_CREDENTIAL);
 
     // CREDENTIAL FORMATS
     public static final String JWT_VC_JSON = "jwt_vc_json";
@@ -29,12 +21,6 @@ public final class Constants {
 
     // CREDENTIAL CONTEXTS
     public static final String CREDENTIALS_CONTEXT_V2 = "https://www.w3.org/ns/credentials/v2";
-    public static final String CREDENTIALS_EUDISTACK_CONTEXT = "https://credentials.eudistack.eu/.well-known/credentials";
-    public static final String CREDENTIALS_EUDISTACK_LEAR_CREDENTIAL_EMPLOYEE_CONTEXT = CREDENTIALS_EUDISTACK_CONTEXT + "/lear_credential_employee/w3c/v3";
-    public static final String CREDENTIALS_EUDISTACK_LEAR_CREDENTIAL_MACHINE_CONTEXT = CREDENTIALS_EUDISTACK_CONTEXT + "/lear_credential_machine/w3c/v2";
-    public static final List<String> LEAR_CREDENTIAL_EMPLOYEE_CONTEXT = List.of(CREDENTIALS_CONTEXT_V2, CREDENTIALS_EUDISTACK_LEAR_CREDENTIAL_EMPLOYEE_CONTEXT);
-    public static final List<String> CREDENTIAL_CONTEXT_LEAR_CREDENTIAL_MACHINE = List.of(CREDENTIALS_CONTEXT_V2, CREDENTIALS_EUDISTACK_LEAR_CREDENTIAL_MACHINE_CONTEXT);
-    public static final List<String> LABEL_CREDENTIAL_CONTEXT = List.of(CREDENTIALS_CONTEXT_V2, "https://w3id.org/gaia-x/development#");
 
     // CREDENTIAL JSON FIELDS
     public static final String CREDENTIAL_SUBJECT = "credentialSubject";
@@ -118,8 +104,6 @@ public final class Constants {
     public static final long MSBALL = 0xFFFFFF80L;
 
     // CREDENTIAL DESCRIPTIONS
-    public static final String LEAR_CREDENTIAL_EMPLOYEE_DESCRIPTION = "Verifiable Credential for employees of an organization";
-    public static final String LEAR_CREDENTIAL_MACHINE_DESCRIPTION = "Verifiable Credential for machines";
     public static final String DEFAULT_USER_NAME = "Cloud Provider";
     public static final String ENGLISH = "en";
 

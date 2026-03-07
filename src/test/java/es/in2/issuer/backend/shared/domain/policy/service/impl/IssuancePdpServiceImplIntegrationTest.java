@@ -29,7 +29,6 @@ import reactor.util.context.Context;
 import java.time.Instant;
 import java.util.List;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -148,7 +147,7 @@ class IssuancePdpServiceImplIntegrationTest {
         com.fasterxml.jackson.databind.node.ObjectNode vcNode = objectMapper.createObjectNode();
         es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile profile =
                 org.mockito.Mockito.mock(es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile.class);
-        var parsed = new DynamicCredentialParser.ParsedCredential(vcNode, profile, LEAR_CREDENTIAL_EMPLOYEE);
+        var parsed = new DynamicCredentialParser.ParsedCredential(vcNode, profile, "learcredential.employee.w3c.4");
         when(credentialParser.parse(any())).thenReturn(parsed);
         when(credentialParser.extractPowers(eq(vcNode), eq(profile)))
                 .thenReturn(signerPowers);
@@ -156,7 +155,7 @@ class IssuancePdpServiceImplIntegrationTest {
                 .thenReturn("VATES-B60645900");
 
         StepVerifier.create(
-                        issuancePdpService.authorize(LEAR_CREDENTIAL_EMPLOYEE, jsonNode, "dummy-id-token")
+                        issuancePdpService.authorize("learcredential.employee.w3c.4", jsonNode, "dummy-id-token")
                                 .contextWrite(withSecurityContext(token)))
                 .verifyComplete();
     }

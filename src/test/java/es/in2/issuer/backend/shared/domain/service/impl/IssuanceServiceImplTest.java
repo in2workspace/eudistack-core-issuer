@@ -16,8 +16,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.LABEL_CREDENTIAL;
-import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
 import static org.junit.jupiter.api.Assertions.*;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -73,7 +71,7 @@ class IssuanceServiceImplTest {
         String credentialDataSet = "{\"vc\":{\"type\":[\"VerifiableCredential\"]}}";
         String organizationIdentifier = "org-123";
         String expectedProcedureId = UUID.randomUUID().toString();
-        String expectedCredentialType = LEAR_CREDENTIAL_EMPLOYEE;
+        String expectedCredentialType = "learcredential.employee.w3c.4";
         String expectedSubject = "TestSubject";
         String expectedEmail = "test@example.com";
         Timestamp expectedValidUntil = new Timestamp(Instant.now().toEpochMilli() + 1000);
@@ -83,7 +81,7 @@ class IssuanceServiceImplTest {
                 .organizationIdentifier(organizationIdentifier)
                 .credentialDataSet(credentialDataSet)
                 .subject(expectedSubject)
-                .credentialType(LEAR_CREDENTIAL_EMPLOYEE)
+                .credentialType("learcredential.employee.w3c.4")
                 .credentialFormat("jwt_vc_json")
                 .validUntil(expectedValidUntil)
                 .email(expectedEmail)
@@ -816,7 +814,7 @@ class IssuanceServiceImplTest {
 
         Issuance cp = new Issuance();
         cp.setIssuanceId(UUID.fromString(issuanceId));
-        cp.setCredentialType(LABEL_CREDENTIAL);
+        cp.setCredentialType("gx.labelcredential.w3c.1");
         cp.setEmail(email);
         // For LABEL, decoded JSON is not used, so it can be null
         cp.setCredentialDataSet(null);

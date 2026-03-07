@@ -2,9 +2,6 @@ package es.in2.issuer.backend.shared.domain.model.dto;
 
 import org.junit.jupiter.api.Test;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.LABEL_CREDENTIAL;
-import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
-
 import java.sql.Timestamp;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -20,7 +17,7 @@ class IssuanceCreationRequestTest {
                 .issuanceId("proc-123")
                 .organizationIdentifier("org-456")
                 .credentialDataSet("decoded-credential")
-                .credentialType(LEAR_CREDENTIAL_EMPLOYEE)
+                .credentialType("learcredential.employee.w3c.4")
                 .credentialFormat("jwt_vc")
                 .subject("did:example:subject")
                 .validUntil(validUntil)
@@ -33,7 +30,7 @@ class IssuanceCreationRequestTest {
                 .returns("proc-123", IssuanceCreationRequest::issuanceId)
                 .returns("org-456", IssuanceCreationRequest::organizationIdentifier)
                 .returns("decoded-credential", IssuanceCreationRequest::credentialDataSet)
-                .returns(LEAR_CREDENTIAL_EMPLOYEE, IssuanceCreationRequest::credentialType)
+                .returns("learcredential.employee.w3c.4", IssuanceCreationRequest::credentialType)
                 .returns("jwt_vc", IssuanceCreationRequest::credentialFormat)
                 .returns("did:example:subject", IssuanceCreationRequest::subject)
                 .returns(validUntil, IssuanceCreationRequest::validUntil)
@@ -50,7 +47,7 @@ class IssuanceCreationRequestTest {
                 .issuanceId("proc-1")
                 .organizationIdentifier("org-1")
                 .credentialDataSet("cred")
-                .credentialType(LABEL_CREDENTIAL)
+                .credentialType("gx.labelcredential.w3c.1")
                 .credentialFormat("jwt_vc")
                 .subject("subj")
                 .validUntil(validUntil)
@@ -62,7 +59,7 @@ class IssuanceCreationRequestTest {
                 .issuanceId("proc-1")
                 .organizationIdentifier("org-1")
                 .credentialDataSet("cred")
-                .credentialType(LABEL_CREDENTIAL)
+                .credentialType("gx.labelcredential.w3c.1")
                 .credentialFormat("jwt_vc")
                 .subject("subj")
                 .validUntil(validUntil)
@@ -74,7 +71,7 @@ class IssuanceCreationRequestTest {
                 .issuanceId("proc-2")
                 .organizationIdentifier("org-1")
                 .credentialDataSet("cred")
-                .credentialType(LABEL_CREDENTIAL)
+                .credentialType("gx.labelcredential.w3c.1")
                 .credentialFormat("jwt_vc")
                 .subject("subj")
                 .validUntil(validUntil)

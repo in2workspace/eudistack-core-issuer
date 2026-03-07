@@ -134,9 +134,8 @@ public class GenericCredentialBuilder {
 
         credential.put("vct", profile.sdJwt().vct());
 
-        // iss and sub are placeholders — bound later by bindIssuer/bindSubjectId
+        // iss is a placeholder — bound later by bindIssuer
         credential.put("iss", "");
-        credential.put("sub", "");
 
         long iat = parseDateToUnixTime(validFrom);
         long exp = parseDateToUnixTime(validUntil);
@@ -182,34 +181,6 @@ public class GenericCredentialBuilder {
     }
 
     /**
-     * Binds a DID to the credential subject.
-     * Format-aware: W3C sets credentialSubject.id, SD-JWT sets sub + mandate.mandatee.id.
-     */
-    public Mono<String> bindSubjectId(CredentialProfile profile, String decodedCredentialJson, String subjectDid) {
-        try {
-            ObjectNode credential = (ObjectNode) objectMapper.readTree(decodedCredentialJson);
-
-            if (DC_SD_JWT.equals(profile.format())) {
-                credential.put("sub", subjectDid);
-                JsonNode mandate = credential.get("mandate");
-                if (mandate != null && mandate.has("mandatee")) {
-                    ((ObjectNode) mandate.get("mandatee")).put("id", subjectDid);
-                }
-            } else {
-                ObjectNode credentialSubject = (ObjectNode) credential.get("credentialSubject");
-                if (credentialSubject == null) {
-                    return Mono.error(new IllegalStateException("Missing credentialSubject in credential"));
-                }
-                credentialSubject.put("id", subjectDid);
-            }
-
-            return Mono.just(objectMapper.writeValueAsString(credential));
-        } catch (Exception e) {
-            return Mono.error(new IllegalStateException("Failed to bind subject ID", e));
-        }
-    }
-
-    /**
      * Creates and binds an Issuer to the decoded credential.
      * Format-aware: W3C sets issuer object, SD-JWT sets iss string.
      */
@@ -248,10 +219,10 @@ public class GenericCredentialBuilder {
 
     private String extractIssuerIdFromNode(JsonNode issuerNode) {
         if (issuerNode.isTextual()) return issuerNode.asText();
-        if (issuerNode.has("id")) return issuerNode.get("id").asText();
         if (issuerNode.has("organizationIdentifier")) {
-            return "did:elsi:" + issuerNode.get("organizationIdentifier").asText();
+            return issuerNode.get("organizationIdentifier").asText();
         }
+        if (issuerNode.has("id")) return issuerNode.get("id").asText();
         return "";
     }
 
@@ -369,16 +340,18 @@ public class GenericCredentialBuilder {
     private String extractIssuerId(JsonNode credential) {
         JsonNode issuer = credential.get("issuer");
         if (issuer == null) {
-            return "";
+            // SD-JWT: iss is set directly at top level
+            JsonNode iss = credential.get("iss");
+            return iss != null && iss.isTextual() ? iss.asText() : "";
         }
         if (issuer.isTextual()) {
             return issuer.asText();
         }
+        if (issuer.has("organizationIdentifier")) {
+            return issuer.get("organizationIdentifier").asText();
+        }
         if (issuer.has("id")) {
             return issuer.get("id").asText();
-        }
-        if (issuer.has("organizationIdentifier")) {
-            return "did:elsi:" + issuer.get("organizationIdentifier").asText();
         }
         return "";
     }
@@ -387,11 +360,6 @@ public class GenericCredentialBuilder {
         JsonNode subject = credential.path("credentialSubject").path("id");
         if (!subject.isMissingNode() && subject.isTextual()) {
             return subject.asText();
-        }
-        // Fallback for machine credentials: mandatee.id
-        JsonNode mandateeId = credential.path("credentialSubject").path("mandate").path("mandatee").path("id");
-        if (!mandateeId.isMissingNode() && mandateeId.isTextual()) {
-            return mandateeId.asText();
         }
         return "";
     }

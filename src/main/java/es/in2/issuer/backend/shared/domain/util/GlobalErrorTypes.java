@@ -32,7 +32,12 @@ public enum GlobalErrorTypes {
     ISSUANCE_NOT_FOUND("issuance_not_found"),
     PAYLOAD_VALIDATION("payload_validation_error"),
     TENANT_MISMATCH("tenant_mismatch"),
-    REMOTE_SIGNATURE("remote_signature_error");
+    REMOTE_SIGNATURE("remote_signature_error"),
+    NO_SUCH_ENTITY("no_such_entity"),
+    TEMPLATE_READ_ERROR("template_read_error"),
+    ORGANIZATION_ID_MISMATCH("organization_id_mismatch"),
+    MISSING_REQUIRED_DATA("missing_required_data"),
+    INVALID_STATUS("invalid_status");
 
     private final String code;
 

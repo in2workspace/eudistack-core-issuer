@@ -17,7 +17,7 @@ class IssuanceTest {
         String credentialDataSet = "testDataSet";
         CredentialStatusEnum credentialStatusEnum = CredentialStatusEnum.VALID;
         String organizationIdentifier = "testOrganizationIdentifier";
-        String credentialType = "LEARCredentialEmployee";
+        String credentialType = "learcredential.employee.w3c.4";
         Timestamp validUntil = new Timestamp(System.currentTimeMillis() + 1000);
         String email = "test@example.com";
         String delivery = "email";
@@ -53,7 +53,7 @@ class IssuanceTest {
         String credentialDataSet = "dataSet";
         CredentialStatusEnum credentialStatusEnum = CredentialStatusEnum.VALID;
         String organizationIdentifier = "orgId";
-        String credentialType = "LEARCredentialEmployee";
+        String credentialType = "learcredential.employee.w3c.4";
         Timestamp validUntil = new Timestamp(System.currentTimeMillis() + 1000);
         String email = "test@example.com";
 

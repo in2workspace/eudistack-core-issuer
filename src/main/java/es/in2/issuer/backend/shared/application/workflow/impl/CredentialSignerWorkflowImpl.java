@@ -50,7 +50,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                                        String format, Map<String, Object> cnf, String issuanceId, String email) {
         log.debug("signCredential issuanceId={} format={}", issuanceId, format);
 
-        CredentialProfile profile = credentialProfileRegistry.getByCredentialType(credentialType);
+        CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialType);
         if (profile == null) {
             log.error("Unsupported credential type: {}", credentialType);
             return Mono.error(new IllegalArgumentException("Unsupported credential type: " + credentialType));

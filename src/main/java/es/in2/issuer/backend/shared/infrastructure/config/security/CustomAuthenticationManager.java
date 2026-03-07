@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.issuance.infrastructure.config.security;
+package es.in2.issuer.backend.shared.infrastructure.config.security;
 
 import jakarta.annotation.Nullable;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -46,7 +46,7 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
     public Mono<Authentication> authenticate(Authentication authentication) {
         log.debug("CustomAuthenticationManager - authenticate - start");
         final String accessToken = String.valueOf(authentication.getCredentials());
-        final String maybeIdToken = (authentication instanceof es.in2.issuer.backend.issuance.infrastructure.config.security.DualTokenAuthentication dta)
+        final String maybeIdToken = (authentication instanceof es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication dta)
                 ? dta.getIdToken()
                 : null;
 

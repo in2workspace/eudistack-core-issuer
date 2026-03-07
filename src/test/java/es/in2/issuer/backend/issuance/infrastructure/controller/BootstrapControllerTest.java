@@ -40,7 +40,7 @@ class BootstrapControllerTest {
         String token = "valid-bootstrap-token";
         String credentialOfferUri = "openid-credential-offer://example.com/offer";
         PreSubmittedCredentialDataRequest request = PreSubmittedCredentialDataRequest.builder()
-                .credentialConfigurationId("LEARCredentialEmployee")
+                .credentialConfigurationId("learcredential.employee.w3c.4")
                 .delivery("immediate")
                 .build();
 
@@ -63,7 +63,7 @@ class BootstrapControllerTest {
     void shouldReturnUnauthorizedWhenInvalidToken() {
         String token = "invalid-token";
         PreSubmittedCredentialDataRequest request = PreSubmittedCredentialDataRequest.builder()
-                .credentialConfigurationId("LEARCredentialEmployee")
+                .credentialConfigurationId("learcredential.employee.w3c.4")
                 .build();
 
         when(bootstrapTokenService.consumeIfValid(token)).thenReturn(false);
@@ -81,7 +81,7 @@ class BootstrapControllerTest {
     void shouldReturnUnauthorizedWhenTokenAlreadyConsumed() {
         String token = "consumed-token";
         PreSubmittedCredentialDataRequest request = PreSubmittedCredentialDataRequest.builder()
-                .credentialConfigurationId("LEARCredentialEmployee")
+                .credentialConfigurationId("learcredential.employee.w3c.4")
                 .build();
 
         when(bootstrapTokenService.consumeIfValid(token)).thenReturn(false);

@@ -36,12 +36,12 @@ class CredentialOfferServiceImplTest {
                 .build();
 
         StepVerifier.create(credentialOfferService.buildCredentialOffer(
-                        "LEARCredentialEmployee", grants, "user@example.com", null))
+                        "learcredential.employee.w3c.4", grants, "user@example.com", null))
                 .assertNext(offerData -> {
                     assertNotNull(offerData.credentialOffer());
                     assertEquals("https://issuer.example.com", offerData.credentialOffer().credentialIssuer());
                     assertEquals(1, offerData.credentialOffer().credentialConfigurationIds().size());
-                    assertEquals("LEARCredentialEmployee", offerData.credentialOffer().credentialConfigurationIds().getFirst());
+                    assertEquals("learcredential.employee.w3c.4", offerData.credentialOffer().credentialConfigurationIds().getFirst());
                     assertNotNull(offerData.credentialOffer().grants().authorizationCode());
                     assertEquals("issuer-state-123", offerData.credentialOffer().grants().authorizationCode().issuerState());
                     assertEquals("user@example.com", offerData.credentialEmail());
@@ -62,7 +62,7 @@ class CredentialOfferServiceImplTest {
                 .build();
 
         StepVerifier.create(credentialOfferService.buildCredentialOffer(
-                        "LEARCredentialEmployee", grants, "user@example.com", "1234"))
+                        "learcredential.employee.w3c.4", grants, "user@example.com", "1234"))
                 .assertNext(offerData -> {
                     assertNotNull(offerData.credentialOffer());
                     assertNotNull(offerData.credentialOffer().grants().preAuthorizedCode());

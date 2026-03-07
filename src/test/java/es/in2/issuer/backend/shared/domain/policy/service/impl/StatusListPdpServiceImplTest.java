@@ -19,7 +19,6 @@ import reactor.test.StepVerifier;
 import java.util.Collections;
 
 import static es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum.VALID;
-import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -43,14 +42,14 @@ class StatusListPdpServiceImplTest {
                 Collections.singletonList(Power.builder().function("Onboarding").action("Execute").domain(orgId).build()),
                 null,
                 null,
-                LEAR_CREDENTIAL_EMPLOYEE,
+                "learcredential.employee.w3c.4",
                 sysAdmin,
                 orgId
         );
     }
 
     private PolicyContext buildContextNoPowers(String orgId, boolean sysAdmin) {
-        return new PolicyContext(orgId, Collections.emptyList(), null, null, LEAR_CREDENTIAL_EMPLOYEE, sysAdmin, orgId);
+        return new PolicyContext(orgId, Collections.emptyList(), null, null, "learcredential.employee.w3c.4", sysAdmin, orgId);
     }
 
     @Test

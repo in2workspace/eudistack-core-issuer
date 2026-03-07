@@ -26,7 +26,7 @@ class CredentialProfileRegistryTest {
 
         CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
-        CredentialProfile profile = registry.getByConfigurationId("LEARCredentialEmployeeSdJwt");
+        CredentialProfile profile = registry.getByConfigurationId("learcredential.employee.w3c.4");
         assertThat(profile).isNotNull();
         assertThat(profile.format()).isEqualTo("jwt_vc_json");
         assertThat(profile.scope()).isEqualTo("lear_credential_employee");
@@ -41,9 +41,9 @@ class CredentialProfileRegistryTest {
 
         CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
-        CredentialProfile profile = registry.getByCredentialType("LEARCredentialEmployee");
+        CredentialProfile profile = registry.getByCredentialType("learcredential.employee.w3c.4");
         assertThat(profile).isNotNull();
-        assertThat(profile.credentialConfigurationId()).isEqualTo("LEARCredentialEmployeeSdJwt");
+        assertThat(profile.credentialConfigurationId()).isEqualTo("learcredential.employee.w3c.4");
     }
 
     @Test
@@ -63,8 +63,8 @@ class CredentialProfileRegistryTest {
         CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
         assertThat(registry.getAllProfiles()).hasSize(2);
-        assertThat(registry.getByConfigurationId("LEARCredentialEmployeeSdJwt")).isNotNull();
-        assertThat(registry.getByConfigurationId("LEARCredentialMachineSdJwt")).isNotNull();
+        assertThat(registry.getByConfigurationId("learcredential.employee.w3c.4")).isNotNull();
+        assertThat(registry.getByConfigurationId("learcredential.machine.w3c.3")).isNotNull();
     }
 
     @Test
@@ -73,10 +73,10 @@ class CredentialProfileRegistryTest {
 
         CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
-        CredentialProfile profile = registry.getByConfigurationId("LEARCredentialEmployeeSdJwt");
-        assertThat(profile.credentialType()).isEqualTo("LEARCredentialEmployee");
+        CredentialProfile profile = registry.getByConfigurationId("learcredential.employee.w3c.4");
+        assertThat(profile.credentialType()).isEqualTo("learcredential.employee.w3c.4");
         assertThat(profile.credentialDefinition().type())
-                .containsExactly("VerifiableCredential", "LEARCredentialEmployee");
+                .containsExactly("VerifiableCredential", "learcredential.employee.w3c.4");
     }
 
     @Test
@@ -85,7 +85,7 @@ class CredentialProfileRegistryTest {
 
         CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
-        CredentialProfile profile = registry.getByConfigurationId("LEARCredentialEmployeeSdJwt");
+        CredentialProfile profile = registry.getByConfigurationId("learcredential.employee.w3c.4");
         assertThat(profile.credentialMetadata()).isNotNull();
         assertThat(profile.credentialMetadata().display()).hasSize(1);
         assertThat(profile.credentialMetadata().display().getFirst().name()).isEqualTo("LEAR Credential Employee");
@@ -98,7 +98,7 @@ class CredentialProfileRegistryTest {
 
         CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
-        CredentialProfile profile = registry.getByConfigurationId("LEARCredentialEmployeeSdJwt");
+        CredentialProfile profile = registry.getByConfigurationId("learcredential.employee.w3c.4");
         assertThat(profile.subjectExtraction()).isNotNull();
         assertThat(profile.subjectExtraction().strategy()).isEqualTo("concat");
         assertThat(profile.subjectExtraction().fields())
@@ -112,7 +112,7 @@ class CredentialProfileRegistryTest {
 
         CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
-        CredentialProfile profile = registry.getByConfigurationId("LEARCredentialEmployeeSdJwt");
+        CredentialProfile profile = registry.getByConfigurationId("learcredential.employee.w3c.4");
         assertThat(profile.organizationExtraction()).isNotNull();
         assertThat(profile.organizationExtraction().strategy()).isEqualTo("field");
         assertThat(profile.organizationExtraction().field()).isEqualTo("mandate.mandator.organizationIdentifier");
@@ -153,7 +153,7 @@ class CredentialProfileRegistryTest {
                   "credential_configuration_id": "DifferentId",
                   "credential_format": "jwt_vc_json",
                   "credential_definition": {
-                    "type": ["VerifiableCredential", "LEARCredentialEmployee"]
+                    "type": ["VerifiableCredential", "learcredential.employee.w3c.4"]
                   },
                   "validity_days": 365,
                   "issuer_type": "DETAILED",
@@ -167,9 +167,9 @@ class CredentialProfileRegistryTest {
         CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
         assertThat(registry.getAllProfiles()).hasSize(2);
-        CredentialProfile typeResult = registry.getByCredentialType("LEARCredentialEmployee");
+        CredentialProfile typeResult = registry.getByCredentialType("learcredential.employee.w3c.4");
         assertThat(typeResult).isNotNull();
-        assertThat(typeResult.credentialConfigurationId()).isEqualTo("LEARCredentialEmployeeSdJwt");
+        assertThat(typeResult.credentialConfigurationId()).isEqualTo("learcredential.employee.w3c.4");
     }
 
     @Test
@@ -207,12 +207,12 @@ class CredentialProfileRegistryTest {
     private Resource validMachineProfile() {
         return namedResource("lear-credential-machine.json", """
                 {
-                  "credential_configuration_id": "LEARCredentialMachineSdJwt",
+                  "credential_configuration_id": "learcredential.machine.w3c.3",
                   "credential_format": "jwt_vc_json",
                   "scope": "lear_credential_machine",
                   "credential_definition": {
                     "context": ["https://www.w3.org/ns/credentials/v2"],
-                    "type": ["VerifiableCredential", "LEARCredentialMachine"]
+                    "type": ["VerifiableCredential", "learcredential.machine.w3c.3"]
                   },
                   "credential_metadata": {
                     "display": [{"name": "LEAR Credential Machine", "locale": "en"}],
@@ -236,7 +236,7 @@ class CredentialProfileRegistryTest {
     private String validEmployeeProfileJson() {
         return """
                 {
-                  "credential_configuration_id": "LEARCredentialEmployeeSdJwt",
+                  "credential_configuration_id": "learcredential.employee.w3c.4",
                   "credential_format": "jwt_vc_json",
                   "scope": "lear_credential_employee",
                   "credential_definition": {
@@ -244,7 +244,7 @@ class CredentialProfileRegistryTest {
                       "https://www.w3.org/ns/credentials/v2",
                       "https://credentials.eudistack.eu/.well-known/credentials/lear_credential_employee/w3c/v3"
                     ],
-                    "type": ["VerifiableCredential", "LEARCredentialEmployee"]
+                    "type": ["VerifiableCredential", "learcredential.employee.w3c.4"]
                   },
                   "cryptographic_binding_methods_supported": ["did:key"],
                   "credential_signing_alg_values_supported": ["ES256"],

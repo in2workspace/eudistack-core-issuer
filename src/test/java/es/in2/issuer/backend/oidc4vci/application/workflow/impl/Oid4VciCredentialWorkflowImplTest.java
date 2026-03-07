@@ -51,8 +51,8 @@ class Oid4VciCredentialWorkflowImplTest {
     private static final String RAW_TOKEN = "raw-access-token";
     private static final UUID ISSUANCE_UUID = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
     private static final String ISSUANCE_ID = ISSUANCE_UUID.toString();
-    private static final String CREDENTIAL_TYPE = "LEARCredentialEmployee";
-    private static final String CREDENTIAL_DATA_SET = "{\"type\":[\"VerifiableCredential\",\"LEARCredentialEmployee\"]}";
+    private static final String CREDENTIAL_TYPE = "learcredential.employee.w3c.4";
+    private static final String CREDENTIAL_DATA_SET = "{\"type\":[\"VerifiableCredential\",\"learcredential.employee.w3c.4\"]}";
 
     @SuppressWarnings("unchecked")
     @BeforeEach

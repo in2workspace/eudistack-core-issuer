@@ -52,7 +52,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         var sample = issuanceMetrics.startTimer();
         String configId = request.credentialConfigurationId();
-        String delivery = request.delivery() != null ? request.delivery() : DELIVERY_EMAIL;
+        String delivery = request.delivery() != null ? request.delivery() : DELIVERY_UI;
 
         return validateRequest(request, idToken)
                 .then(payloadSchemaValidator.validate(configId, request.payload()))
@@ -83,7 +83,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
             return Mono.error(new CredentialTypeUnsupportedException(
                     "Unknown credential_configuration_id: " + request.credentialConfigurationId()));
         }
-        if (profile.credentialType().equals(LABEL_CREDENTIAL) && idToken == null) {
+        if (requiresIdToken(profile) && idToken == null) {
             return Mono.error(new MissingIdTokenHeaderException(
                     "Missing required ID Token header for VerifiableCertification issuance."));
         }
@@ -156,6 +156,12 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                         .thenReturn(IssuanceResponse.builder().build());
                             });
                 });
+    }
+
+    private boolean requiresIdToken(CredentialProfile profile) {
+        return profile.issuancePolicy() != null
+                && profile.issuancePolicy().rules() != null
+                && profile.issuancePolicy().rules().contains("RequireCertificationIssuance");
     }
 
     private String buildRefreshUrl(String credentialOfferRefreshToken) {

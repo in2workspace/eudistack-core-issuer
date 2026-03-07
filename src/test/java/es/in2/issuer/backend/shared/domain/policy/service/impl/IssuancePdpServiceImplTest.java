@@ -34,7 +34,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -131,12 +130,12 @@ class IssuancePdpServiceImplTest {
         List<Power> signerPowers = List.of(
                 Power.builder().function("Onboarding").action("Execute").build()
         );
-        PolicyContext ctx = buildContextFromPowers(signerPowers, LEAR_CREDENTIAL_EMPLOYEE, ADMIN_ORG_ID, true);
-        when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
+        PolicyContext ctx = buildContextFromPowers(signerPowers, "learcredential.employee.w3c.4", ADMIN_ORG_ID, true);
+        when(policyContextFactory.fromTokenForIssuance(eq(token), eq("learcredential.employee.w3c.4"), any()))
                 .thenReturn(Mono.just(ctx));
 
         StepVerifier.create(
-                        issuancePdpService.authorize(LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token")
+                        issuancePdpService.authorize("learcredential.employee.w3c.4", payload, "dummy-id-token")
                                 .contextWrite(withSecurityContext(token)))
                 .verifyComplete();
     }
@@ -146,16 +145,16 @@ class IssuancePdpServiceImplTest {
         String token = "valid-token";
         JsonNode payload = mock(JsonNode.class);
 
-        when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
+        when(policyContextFactory.fromTokenForIssuance(eq(token), eq("learcredential.employee.w3c.4"), any()))
                 .thenReturn(Mono.error(new InsufficientPermissionException(
-                        "Unauthorized: Credential type 'LEARCredentialEmployee' or 'LEARCredentialMachine' is required.")));
+                        "Unauthorized: Emitter credential type")));
 
         StepVerifier.create(
-                        issuancePdpService.authorize(LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token")
+                        issuancePdpService.authorize("learcredential.employee.w3c.4", payload, "dummy-id-token")
                                 .contextWrite(withSecurityContext(token)))
                 .expectErrorMatches(throwable ->
                         throwable instanceof InsufficientPermissionException &&
-                                throwable.getMessage().contains("Unauthorized: Credential type 'LEARCredentialEmployee' or 'LEARCredentialMachine' is required."))
+                                throwable.getMessage().contains("Unauthorized: Emitter credential type"))
                 .verify();
     }
 
@@ -168,7 +167,7 @@ class IssuancePdpServiceImplTest {
         List<Power> signerPowers = List.of(
                 Power.builder().function("Onboarding").action("Execute").build()
         );
-        PolicyContext ctx = buildContextFromPowers(signerPowers, LEAR_CREDENTIAL_EMPLOYEE, ADMIN_ORG_ID, true);
+        PolicyContext ctx = buildContextFromPowers(signerPowers, "learcredential.employee.w3c.4", ADMIN_ORG_ID, true);
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq(schema), any()))
                 .thenReturn(Mono.just(ctx));
 
@@ -186,11 +185,11 @@ class IssuancePdpServiceImplTest {
         String token = "invalid-token";
         JsonNode payload = mock(JsonNode.class);
 
-        when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
+        when(policyContextFactory.fromTokenForIssuance(eq(token), eq("learcredential.employee.w3c.4"), any()))
                 .thenReturn(Mono.error(new ParseErrorException("Invalid token")));
 
         StepVerifier.create(
-                        issuancePdpService.authorize(LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token")
+                        issuancePdpService.authorize("learcredential.employee.w3c.4", payload, "dummy-id-token")
                                 .contextWrite(withSecurityContext(token)))
                 .expectErrorMatches(throwable ->
                         throwable instanceof ParseErrorException &&
@@ -206,16 +205,16 @@ class IssuancePdpServiceImplTest {
         List<Power> signerPowers = List.of(
                 Power.builder().function("Onboarding").action("Execute").build()
         );
-        PolicyContext ctx = buildContextFromPowers(signerPowers, LEAR_CREDENTIAL_EMPLOYEE, "OTHER_ORGANIZATION", false);
-        when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
+        PolicyContext ctx = buildContextFromPowers(signerPowers, "learcredential.employee.w3c.4", "OTHER_ORGANIZATION", false);
+        when(policyContextFactory.fromTokenForIssuance(eq(token), eq("learcredential.employee.w3c.4"), any()))
                 .thenReturn(Mono.just(ctx));
 
         StepVerifier.create(
-                        issuancePdpService.authorize(LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token")
+                        issuancePdpService.authorize("learcredential.employee.w3c.4", payload, "dummy-id-token")
                                 .contextWrite(withSecurityContext(token)))
                 .expectErrorMatches(throwable ->
                         throwable instanceof InsufficientPermissionException &&
-                                throwable.getMessage().contains("Unauthorized: LEARCredentialEmployee does not meet any issuance policies."))
+                                throwable.getMessage().contains("Unauthorized: learcredential.employee.w3c.4 does not meet any issuance policies."))
                 .verify();
     }
 
@@ -226,12 +225,12 @@ class IssuancePdpServiceImplTest {
         JsonNode payload = mock(JsonNode.class);
 
         List<Power> emptyPowers = Collections.emptyList();
-        PolicyContext ctx = buildContextFromPowers(emptyPowers, LEAR_CREDENTIAL_MACHINE, ADMIN_ORG_ID, true);
-        when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LABEL_CREDENTIAL), any()))
+        PolicyContext ctx = buildContextFromPowers(emptyPowers, "learcredential.machine.w3c.3", ADMIN_ORG_ID, true);
+        when(policyContextFactory.fromTokenForIssuance(eq(token), eq("gx.labelcredential.w3c.1"), any()))
                 .thenReturn(Mono.just(ctx));
 
         StepVerifier.create(
-                        issuancePdpService.authorize(LABEL_CREDENTIAL, payload, idToken)
+                        issuancePdpService.authorize("gx.labelcredential.w3c.1", payload, idToken)
                                 .contextWrite(withSecurityContext(token)))
                 .expectErrorMatches(throwable ->
                         throwable instanceof InsufficientPermissionException)
@@ -247,8 +246,8 @@ class IssuancePdpServiceImplTest {
         List<Power> certificationPowers = List.of(
                 Power.builder().function("Certification").action("Attest").build()
         );
-        PolicyContext ctx = buildContextFromPowers(certificationPowers, LEAR_CREDENTIAL_MACHINE, "SomeOrganization", false);
-        when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LABEL_CREDENTIAL), any()))
+        PolicyContext ctx = buildContextFromPowers(certificationPowers, "learcredential.machine.w3c.3", "SomeOrganization", false);
+        when(policyContextFactory.fromTokenForIssuance(eq(token), eq("gx.labelcredential.w3c.1"), any()))
                 .thenReturn(Mono.just(ctx));
 
         SignedJWT idTokenSignedJWT = mock(SignedJWT.class);
@@ -261,12 +260,12 @@ class IssuancePdpServiceImplTest {
         com.fasterxml.jackson.databind.node.ObjectNode idTokenVcNode = new ObjectMapper().createObjectNode();
         CredentialProfile idTokenProfile = mock(CredentialProfile.class);
         Power certPower = Power.builder().function("Certification").action("Attest").build();
-        var parsed = new DynamicCredentialParser.ParsedCredential(idTokenVcNode, idTokenProfile, "LEARCredentialEmployee");
+        var parsed = new DynamicCredentialParser.ParsedCredential(idTokenVcNode, idTokenProfile, "learcredential.employee.w3c.4");
         when(credentialParser.parse("vcJson")).thenReturn(parsed);
         when(credentialParser.extractPowers(idTokenVcNode, idTokenProfile)).thenReturn(List.of(certPower));
 
         StepVerifier.create(
-                        issuancePdpService.authorize(LABEL_CREDENTIAL, payload, idToken)
+                        issuancePdpService.authorize("gx.labelcredential.w3c.1", payload, idToken)
                                 .contextWrite(withSecurityContext(token)))
                 .verifyComplete();
     }
@@ -279,16 +278,16 @@ class IssuancePdpServiceImplTest {
         List<Power> certificationPowers = List.of(
                 Power.builder().function("Certification").action("Attest").build()
         );
-        PolicyContext ctx = buildContextFromPowers(certificationPowers, LEAR_CREDENTIAL_EMPLOYEE, "SomeOrganization", false);
-        when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
+        PolicyContext ctx = buildContextFromPowers(certificationPowers, "learcredential.employee.w3c.4", "SomeOrganization", false);
+        when(policyContextFactory.fromTokenForIssuance(eq(token), eq("learcredential.employee.w3c.4"), any()))
                 .thenReturn(Mono.just(ctx));
 
         StepVerifier.create(
-                        issuancePdpService.authorize(LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token")
+                        issuancePdpService.authorize("learcredential.employee.w3c.4", payload, "dummy-id-token")
                                 .contextWrite(withSecurityContext(token)))
                 .expectErrorMatches(throwable ->
                         throwable instanceof InsufficientPermissionException &&
-                                throwable.getMessage().contains("Unauthorized: LEARCredentialEmployee does not meet any issuance policies."))
+                                throwable.getMessage().contains("Unauthorized: learcredential.employee.w3c.4 does not meet any issuance policies."))
                 .verify();
     }
 
@@ -321,12 +320,12 @@ class IssuancePdpServiceImplTest {
                     return realMapper.convertValue(node, new com.fasterxml.jackson.core.type.TypeReference<List<Power>>() {});
                 });
 
-        PolicyContext ctx = buildContextWithCredential(signerPowers, LEAR_CREDENTIAL_EMPLOYEE, "OTHER_ORGANIZATION", false, signerCredential, signerProfile);
-        when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
+        PolicyContext ctx = buildContextWithCredential(signerPowers, "learcredential.employee.w3c.4", "OTHER_ORGANIZATION", false, signerCredential, signerProfile);
+        when(policyContextFactory.fromTokenForIssuance(eq(token), eq("learcredential.employee.w3c.4"), any()))
                 .thenReturn(Mono.just(ctx));
 
         StepVerifier.create(
-                        issuancePdpService.authorize(LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token")
+                        issuancePdpService.authorize("learcredential.employee.w3c.4", payload, "dummy-id-token")
                                 .contextWrite(withSecurityContext(token)))
                 .verifyComplete();
     }
@@ -358,16 +357,16 @@ class IssuancePdpServiceImplTest {
                     return realMapper.convertValue(node, new com.fasterxml.jackson.core.type.TypeReference<List<Power>>() {});
                 });
 
-        PolicyContext ctx = buildContextWithCredential(signerPowers, LEAR_CREDENTIAL_EMPLOYEE, "OTHER_ORGANIZATION", false, signerCredential, signerProfile);
-        when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_EMPLOYEE), any()))
+        PolicyContext ctx = buildContextWithCredential(signerPowers, "learcredential.employee.w3c.4", "OTHER_ORGANIZATION", false, signerCredential, signerProfile);
+        when(policyContextFactory.fromTokenForIssuance(eq(token), eq("learcredential.employee.w3c.4"), any()))
                 .thenReturn(Mono.just(ctx));
 
         StepVerifier.create(
-                        issuancePdpService.authorize(LEAR_CREDENTIAL_EMPLOYEE, payload, "dummy-id-token")
+                        issuancePdpService.authorize("learcredential.employee.w3c.4", payload, "dummy-id-token")
                                 .contextWrite(withSecurityContext(token)))
                 .expectErrorMatches(throwable ->
                         throwable instanceof InsufficientPermissionException &&
-                                throwable.getMessage().contains("Unauthorized: LEARCredentialEmployee does not meet any issuance policies."))
+                                throwable.getMessage().contains("Unauthorized: learcredential.employee.w3c.4 does not meet any issuance policies."))
                 .verify();
     }
 
@@ -379,12 +378,12 @@ class IssuancePdpServiceImplTest {
         List<Power> signerPowers = List.of(
                 Power.builder().function("Onboarding").action("Execute").build()
         );
-        PolicyContext ctx = buildContextFromPowers(signerPowers, LEAR_CREDENTIAL_EMPLOYEE, ADMIN_ORG_ID, true);
-        when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_MACHINE), any()))
+        PolicyContext ctx = buildContextFromPowers(signerPowers, "learcredential.employee.w3c.4", ADMIN_ORG_ID, true);
+        when(policyContextFactory.fromTokenForIssuance(eq(token), eq("learcredential.machine.w3c.3"), any()))
                 .thenReturn(Mono.just(ctx));
 
         StepVerifier.create(
-                        issuancePdpService.authorize(LEAR_CREDENTIAL_MACHINE, payload, "dummy-id-token")
+                        issuancePdpService.authorize("learcredential.machine.w3c.3", payload, "dummy-id-token")
                                 .contextWrite(withSecurityContext(token)))
                 .verifyComplete();
     }
@@ -394,12 +393,12 @@ class IssuancePdpServiceImplTest {
         String token = "valid-token";
         JsonNode payload = mock(JsonNode.class);
 
-        when(policyContextFactory.fromTokenForIssuance(eq(token), eq("LEAR_CREDENTIAL_MACHINE"), any()))
+        when(policyContextFactory.fromTokenForIssuance(eq(token), eq(""learcredential.machine.w3c.3""), any()))
                 .thenReturn(Mono.error(new InsufficientPermissionException(
-                        "Unauthorized: Credential type 'LEARCredentialEmployee' is required for LEARCredentialMachine.")));
+                        "Unauthorized: Emitter credential type")));
 
         StepVerifier.create(
-                        issuancePdpService.authorize("LEAR_CREDENTIAL_MACHINE", payload, "dummy-id-token")
+                        issuancePdpService.authorize(""learcredential.machine.w3c.3"", payload, "dummy-id-token")
                                 .contextWrite(withSecurityContext(token)))
                 .expectErrorMatches(InsufficientPermissionException.class::isInstance)
                 .verify();
@@ -413,12 +412,12 @@ class IssuancePdpServiceImplTest {
         List<Power> signerPowers = List.of(
                 Power.builder().function("Onboarding").action("Execute").build()
         );
-        PolicyContext ctx = buildContextFromPowers(signerPowers, LEAR_CREDENTIAL_EMPLOYEE, ADMIN_ORG_ID, true);
-        when(policyContextFactory.fromTokenForIssuance(eq(token), eq(LEAR_CREDENTIAL_MACHINE), any()))
+        PolicyContext ctx = buildContextFromPowers(signerPowers, "learcredential.employee.w3c.4", ADMIN_ORG_ID, true);
+        when(policyContextFactory.fromTokenForIssuance(eq(token), eq("learcredential.machine.w3c.3"), any()))
                 .thenReturn(Mono.just(ctx));
 
         StepVerifier.create(
-                        issuancePdpService.authorize(LEAR_CREDENTIAL_MACHINE, payload, "dummy-id-token")
+                        issuancePdpService.authorize("learcredential.machine.w3c.3", payload, "dummy-id-token")
                                 .contextWrite(withSecurityContext(token)))
                 .verifyComplete();
     }

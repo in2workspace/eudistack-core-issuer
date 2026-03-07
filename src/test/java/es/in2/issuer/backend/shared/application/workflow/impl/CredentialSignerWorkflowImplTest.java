@@ -23,8 +23,6 @@ import java.util.Map;
 
 import static org.mockito.Mockito.*;
 import static es.in2.issuer.backend.shared.domain.util.Constants.JWT_VC_JSON;
-import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
-import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_MACHINE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -68,8 +66,8 @@ class CredentialSignerWorkflowImplTest {
         String unsignedPayload = "{\"vc\":{\"credentialSubject\":{\"name\":\"Test\"}}}";
         String signedCredential = "signed-jwt";
 
-        CredentialProfile profile = buildProfile(LEAR_CREDENTIAL_EMPLOYEE);
-        when(credentialProfileRegistry.getByCredentialType(LEAR_CREDENTIAL_EMPLOYEE)).thenReturn(profile);
+        CredentialProfile profile = buildProfile("learcredential.employee.w3c.4");
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4")).thenReturn(profile);
 
         when(genericCredentialBuilder.buildJwtPayload(eq(profile), eq(enrichedDataSet), any()))
                 .thenReturn(Mono.just(unsignedPayload));
@@ -78,7 +76,7 @@ class CredentialSignerWorkflowImplTest {
 
         StepVerifier.create(
                         credentialSignerWorkflow.signCredential(
-                                token, enrichedDataSet, LEAR_CREDENTIAL_EMPLOYEE,
+                                token, enrichedDataSet, "learcredential.employee.w3c.4",
                                 JWT_VC_JSON, Collections.emptyMap(), issuanceId, email)
                 )
                 .assertNext(result -> assertEquals(signedCredential, result))
@@ -90,7 +88,7 @@ class CredentialSignerWorkflowImplTest {
 
     @Test
     void signCredential_unsupportedCredentialType_throwsError() {
-        when(credentialProfileRegistry.getByCredentialType("UNKNOWN_TYPE")).thenReturn(null);
+        when(credentialProfileRegistry.getByConfigurationId("UNKNOWN_TYPE")).thenReturn(null);
 
         StepVerifier.create(
                         credentialSignerWorkflow.signCredential(
@@ -108,15 +106,15 @@ class CredentialSignerWorkflowImplTest {
     void signCredential_unsupportedFormat_throwsError() {
         String enrichedDataSet = "enrichedData";
 
-        CredentialProfile profile = buildProfile(LEAR_CREDENTIAL_EMPLOYEE);
-        when(credentialProfileRegistry.getByCredentialType(LEAR_CREDENTIAL_EMPLOYEE)).thenReturn(profile);
+        CredentialProfile profile = buildProfile("learcredential.employee.w3c.4");
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4")).thenReturn(profile);
 
         when(genericCredentialBuilder.buildJwtPayload(eq(profile), eq(enrichedDataSet), any()))
                 .thenReturn(Mono.just("{\"vc\":{}}"));
 
         StepVerifier.create(
                         credentialSignerWorkflow.signCredential(
-                                token, enrichedDataSet, LEAR_CREDENTIAL_EMPLOYEE,
+                                token, enrichedDataSet, "learcredential.employee.w3c.4",
                                 "unsupported_format", Collections.emptyMap(), issuanceId, email)
                 )
                 .expectErrorMatches(throwable ->
@@ -132,8 +130,8 @@ class CredentialSignerWorkflowImplTest {
         String unsignedPayload = "{\"vc\":{\"credentialSubject\":{\"name\":\"Test\"}}}";
         String signedCredential = "signed-jwt";
 
-        CredentialProfile profile = buildProfile(LEAR_CREDENTIAL_MACHINE);
-        when(credentialProfileRegistry.getByCredentialType(LEAR_CREDENTIAL_MACHINE)).thenReturn(profile);
+        CredentialProfile profile = buildProfile("learcredential.machine.w3c.3");
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.machine.w3c.3")).thenReturn(profile);
 
         when(genericCredentialBuilder.buildJwtPayload(eq(profile), eq(enrichedDataSet), any()))
                 .thenReturn(Mono.just(unsignedPayload));
@@ -142,7 +140,7 @@ class CredentialSignerWorkflowImplTest {
 
         StepVerifier.create(
                         credentialSignerWorkflow.signCredential(
-                                token, enrichedDataSet, LEAR_CREDENTIAL_MACHINE,
+                                token, enrichedDataSet, "learcredential.machine.w3c.3",
                                 JWT_VC_JSON, null, issuanceId, email)
                 )
                 .assertNext(result -> assertEquals(signedCredential, result))
@@ -155,8 +153,8 @@ class CredentialSignerWorkflowImplTest {
         String unsignedPayload = "{\"vc\":{\"credentialSubject\":{\"id\":\"did:example:123\",\"name\":\"Test\"}}}";
         String signedCredential = "signed-jwt-with-sub";
 
-        CredentialProfile profile = buildProfile(LEAR_CREDENTIAL_EMPLOYEE);
-        when(credentialProfileRegistry.getByCredentialType(LEAR_CREDENTIAL_EMPLOYEE)).thenReturn(profile);
+        CredentialProfile profile = buildProfile("learcredential.employee.w3c.4");
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4")).thenReturn(profile);
 
         when(genericCredentialBuilder.buildJwtPayload(eq(profile), eq(enrichedDataSet), any()))
                 .thenReturn(Mono.just(unsignedPayload));
@@ -165,7 +163,7 @@ class CredentialSignerWorkflowImplTest {
 
         StepVerifier.create(
                         credentialSignerWorkflow.signCredential(
-                                token, enrichedDataSet, LEAR_CREDENTIAL_EMPLOYEE,
+                                token, enrichedDataSet, "learcredential.employee.w3c.4",
                                 JWT_VC_JSON, Map.of(), issuanceId, email)
                 )
                 .assertNext(result -> assertEquals(signedCredential, result))

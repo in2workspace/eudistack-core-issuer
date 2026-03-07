@@ -13,7 +13,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Map;
 import java.util.Set;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
@@ -35,7 +34,7 @@ class CredentialIssuerMetadataServiceImplTest {
         when(appConfig.getIssuerBackendUrl()).thenReturn(ISSUER_URL);
 
         CredentialProfile learProfile = CredentialProfile.builder()
-                .credentialConfigurationId(LEAR_CREDENTIAL_EMPLOYEE)
+                .credentialConfigurationId("learcredential.employee.w3c.4")
                 .format(Constants.JWT_VC_JSON)
                 .scope("lear_credential_employee")
                 .cryptographicBindingMethodsSupported(Set.of("did:key"))
@@ -45,7 +44,7 @@ class CredentialIssuerMetadataServiceImplTest {
                         .build()))
                 .build();
 
-        when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of(LEAR_CREDENTIAL_EMPLOYEE, learProfile));
+        when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of("learcredential.employee.w3c.4", learProfile));
 
         // Construct service (metadata is built in the constructor)
         var service = new CredentialIssuerMetadataServiceImpl(appConfig, credentialProfileRegistry);
@@ -59,9 +58,9 @@ class CredentialIssuerMetadataServiceImplTest {
         assertThat(metadata.nonceEndpoint()).isEqualTo(ISSUER_URL + OID4VCI_NONCE_PATH);
 
         Map<String, CredentialIssuerMetadata.CredentialConfiguration> configs = metadata.credentialConfigurationsSupported();
-        assertThat(configs).containsKeys(LEAR_CREDENTIAL_EMPLOYEE);
+        assertThat(configs).containsKeys("learcredential.employee.w3c.4");
 
-        CredentialIssuerMetadata.CredentialConfiguration learCredentialEmployeeConfig = configs.get(LEAR_CREDENTIAL_EMPLOYEE);
+        CredentialIssuerMetadata.CredentialConfiguration learCredentialEmployeeConfig = configs.get("learcredential.employee.w3c.4");
         assertThat(learCredentialEmployeeConfig.format()).isEqualTo(Constants.JWT_VC_JSON);
         assertThat(learCredentialEmployeeConfig.scope()).isEqualTo("lear_credential_employee");
         assertThat(learCredentialEmployeeConfig.cryptographicBindingMethodsSupported()).containsExactly("did:key");

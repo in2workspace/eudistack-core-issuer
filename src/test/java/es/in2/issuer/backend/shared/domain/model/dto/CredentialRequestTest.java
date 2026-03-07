@@ -9,7 +9,7 @@ class CredentialRequestTest {
     @Test
     void testConstructorAndGetters() {
         // Arrange
-        String credentialConfigurationId = "LEARCredentialEmployee";
+        String credentialConfigurationId = "learcredential.employee.w3c.4";
         String expectedFormat = "jwt_vc_json";
         Proof expectedProof = new Proof("jwt", "eyJhbGciOiJFUzI1NiIsInR5cCI6Im9wZW5pZDR2Y2ktcHJvb2Yrand0Iiwia2lkIjoiZGlkOmtleTp6Nk1rdC4uLiJ9");
         // Act
@@ -23,7 +23,7 @@ class CredentialRequestTest {
     @Test
     void lombokGeneratedMethodsTest() {
         // Arrange
-        String credentialConfigurationId = "LEARCredentialEmployee";
+        String credentialConfigurationId = "learcredential.employee.w3c.4";
         String expectedFormat = "jwt_vc_json";
         Proof expectedProof = new Proof("jwt", "eyJhbGciOiJFUzI1NiIsInR5cCI6Im9wZW5pZDR2Y2ktcHJvb2Yrand0Iiwia2lkIjoiZGlkOmtleTp6Nk1rdC4uLiJ9");
         // Act

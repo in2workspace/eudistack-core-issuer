@@ -65,15 +65,20 @@ public class CredentialDataSetBuilderServiceImpl implements CredentialDataSetBui
         }
 
         // credentialSubject
-        JsonNode credentialSubjectNode;
+        ObjectNode credentialSubjectNode;
         if ("direct".equals(profile.credentialSubjectStrategy())) {
             JsonNode cs = payload.get("credentialSubject");
-            credentialSubjectNode = (cs != null) ? cs : payload;
+            credentialSubjectNode = (cs != null) ? cs.deepCopy() : payload.deepCopy();
         } else {
-            ObjectNode mandateWrapper = objectMapper.createObjectNode();
-            mandateWrapper.set("mandate", payload);
-            credentialSubjectNode = mandateWrapper;
+            credentialSubjectNode = objectMapper.createObjectNode();
+            credentialSubjectNode.set("mandate", payload);
         }
+
+        // W3C VCDM 2.0: credentialSubject.id is required for jwt_vc_json
+        if (!"dc+sd-jwt".equals(profile.format())) {
+            credentialSubjectNode.put("id", "urn:uuid:" + UUID.randomUUID());
+        }
+
         credential.set("credentialSubject", credentialSubjectNode);
 
         // validFrom / validUntil
@@ -119,11 +124,7 @@ public class CredentialDataSetBuilderServiceImpl implements CredentialDataSetBui
     }
 
     private CredentialProfile resolveProfile(String configId) {
-        CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
-        if (profile == null) {
-            profile = credentialProfileRegistry.getByCredentialType(configId);
-        }
-        return profile;
+        return credentialProfileRegistry.getByConfigurationId(configId);
     }
 
     private String extractSubject(CredentialProfile profile, JsonNode payload) {

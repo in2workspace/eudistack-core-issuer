@@ -4,9 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.util.DynamicCredentialParser;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -30,6 +32,7 @@ public class PolicyContextFactory {
     private final ObjectMapper objectMapper;
     private final IssuerProperties appConfig;
     private final DynamicCredentialParser credentialParser;
+    private final CredentialProfileRegistry credentialProfileRegistry;
 
     /**
      * Creates a PolicyContext from a JWT token for Issuance and StatusList PDPs.
@@ -64,14 +67,15 @@ public class PolicyContextFactory {
 
     /**
      * Creates a PolicyContext from a JWT token for IssuancePdpService.
-     * The VC may be Employee or Machine type; the allowed type depends on the schema being issued.
+     * Validates that the emitter's credential type is allowed to issue the target credential,
+     * using the target profile's issuance_policy.required_emitter_config_ids.
      */
-    public Mono<PolicyContext> fromTokenForIssuance(String token, String credentialType, String tenantDomain) {
+    public Mono<PolicyContext> fromTokenForIssuance(String token, String credentialConfigurationId, String tenantDomain) {
         return Mono.fromCallable(() -> jwtService.parseJWT(token))
                 .flatMap(signedJWT -> {
                     String vcClaim = jwtService.getClaimFromPayload(signedJWT.getPayload(), VC);
 
-                    return checkIfCredentialTypeIsAllowedToIssue(vcClaim, credentialType)
+                    return checkIfEmitterIsAllowedToIssue(vcClaim, credentialConfigurationId)
                             .map(resolvedType -> {
                                 var parsed = credentialParser.parse(vcClaim);
                                 List<Power> powers = credentialParser.extractPowers(parsed.node(), parsed.profile());
@@ -94,14 +98,51 @@ public class PolicyContextFactory {
                 });
     }
 
-    private Mono<String> checkIfCredentialTypeIsAllowedToIssue(String vcClaim, String credentialType) {
+    /**
+     * Checks that the emitter's credential type is in the target profile's required_emitter_config_ids.
+     * If no issuance_policy is defined, falls back to accepting any known credential type.
+     */
+    private Mono<String> checkIfEmitterIsAllowedToIssue(String vcClaim, String credentialConfigurationId) {
         try {
             JsonNode vcJsonNode = objectMapper.readTree(vcClaim);
-            List<String> types = extractCredentialTypes(vcJsonNode);
-            return determineAllowedCredentialType(types, credentialType);
+            List<String> emitterTypes = extractCredentialTypes(vcJsonNode);
+
+            CredentialProfile targetProfile = credentialProfileRegistry.getByConfigurationId(credentialConfigurationId);
+            if (targetProfile != null && targetProfile.issuancePolicy() != null
+                    && targetProfile.issuancePolicy().requiredEmitterConfigIds() != null) {
+                return determineAllowedEmitterType(emitterTypes, targetProfile.issuancePolicy().requiredEmitterConfigIds(), credentialConfigurationId);
+            }
+
+            // Fallback: accept any known credential type from the emitter
+            return findFirstKnownType(emitterTypes);
         } catch (Exception e) {
             return Mono.error(new InsufficientPermissionException("Error extracting credential type"));
         }
+    }
+
+    private Mono<String> determineAllowedEmitterType(List<String> emitterTypes, List<String> requiredEmitterConfigIds, String targetConfigId) {
+        return Mono.fromCallable(() -> {
+            for (String emitterType : emitterTypes) {
+                if (requiredEmitterConfigIds.contains(emitterType)) {
+                    return emitterType;
+                }
+            }
+            throw new InsufficientPermissionException(
+                    "Unauthorized: Emitter credential type " + emitterTypes + " is not allowed to issue " + targetConfigId
+                            + ". Required: " + requiredEmitterConfigIds);
+        });
+    }
+
+    private Mono<String> findFirstKnownType(List<String> types) {
+        return Mono.fromCallable(() -> {
+            for (String type : types) {
+                if (!VERIFIABLE_CREDENTIAL.equals(type) && !VERIFIABLE_ATTESTATION.equals(type)) {
+                    return type;
+                }
+            }
+            throw new InsufficientPermissionException(
+                    "Unauthorized: No recognized credential type found in emitter credential.");
+        });
     }
 
     private List<String> extractCredentialTypes(JsonNode vcJsonNode) {
@@ -124,34 +165,5 @@ public class PolicyContextFactory {
     private boolean hasOnboardingExecutePower(List<Power> powers) {
         return powers.stream().anyMatch(p ->
                 "Onboarding".equals(p.function()) && PolicyContext.hasAction(p, "Execute"));
-    }
-
-    private Mono<String> determineAllowedCredentialType(List<String> types, String credentialType) {
-        return Mono.fromCallable(() -> {
-            if (LABEL_CREDENTIAL.equals(credentialType)) {
-                if (types.contains(LEAR_CREDENTIAL_MACHINE)) {
-                    return LEAR_CREDENTIAL_MACHINE;
-                } else {
-                    throw new InsufficientPermissionException(
-                            "Unauthorized: Credential type 'LEARCredentialMachine' is required for verifiable certification.");
-                }
-            } else if (LEAR_CREDENTIAL_MACHINE.equals(credentialType)) {
-                if (types.contains(LEAR_CREDENTIAL_EMPLOYEE)) {
-                    return LEAR_CREDENTIAL_EMPLOYEE;
-                } else {
-                    throw new InsufficientPermissionException(
-                            "Unauthorized: Credential type 'LEARCredentialEmployee' is required for LEARCredentialMachine.");
-                }
-            } else {
-                if (types.contains(LEAR_CREDENTIAL_EMPLOYEE)) {
-                    return LEAR_CREDENTIAL_EMPLOYEE;
-                } else if (types.contains(LEAR_CREDENTIAL_MACHINE)) {
-                    return LEAR_CREDENTIAL_MACHINE;
-                } else {
-                    throw new InsufficientPermissionException(
-                            "Unauthorized: Credential type 'LEARCredentialEmployee' or 'LEARCredentialMachine' is required.");
-                }
-            }
-        });
     }
 }

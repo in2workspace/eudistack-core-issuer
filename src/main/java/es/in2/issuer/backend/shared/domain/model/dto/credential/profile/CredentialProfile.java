@@ -28,7 +28,9 @@ public record CredentialProfile(
         @JsonProperty("sd_jwt") SdJwtConfig sdJwt,
         @JsonProperty("credential_subject_strategy") String credentialSubjectStrategy,
         @JsonProperty("json_schema") String jsonSchema,
-        @JsonProperty("policy_extraction") PolicyExtraction policyExtraction
+        @JsonProperty("policy_extraction") PolicyExtraction policyExtraction,
+        @JsonProperty("issuance_policy") IssuancePolicy issuancePolicy,
+        @JsonProperty("token_claims_mapping") TokenClaimsMapping tokenClaimsMapping
 ) {
 
     @Builder
@@ -97,8 +99,25 @@ public record CredentialProfile(
             @JsonProperty("org_id_field") String orgIdField
     ) {}
 
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record IssuancePolicy(
+            @JsonProperty("policy_group") String policyGroup,
+            @JsonProperty("required_emitter_config_ids") List<String> requiredEmitterConfigIds,
+            @JsonProperty("rules") List<String> rules,
+            @JsonProperty("delegation_function") String delegationFunction
+    ) {}
+
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record TokenClaimsMapping(
+            @JsonProperty("id_token") Map<String, String> idToken,
+            @JsonProperty("access_token") Map<String, String> accessToken,
+            @JsonProperty("scope") String scope
+    ) {}
+
     /**
-     * Returns the credential type name (e.g., "LEARCredentialEmployee").
+     * Returns the credential type name (e.g., "learcredential.employee.w3c.4").
      * Derived from the second element in credential_definition.type,
      * or the first element if only one type is defined.
      */

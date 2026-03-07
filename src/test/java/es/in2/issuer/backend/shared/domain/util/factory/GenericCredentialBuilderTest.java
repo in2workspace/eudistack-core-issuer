@@ -9,7 +9,6 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -55,7 +54,7 @@ class GenericCredentialBuilderTest {
                         profile, "proc-1", payload, status, "test@example.com"))
                 .assertNext(request -> {
                     assertThat(request.issuanceId()).isEqualTo("proc-1");
-                    assertThat(request.credentialType()).isEqualTo(LEAR_CREDENTIAL_EMPLOYEE);
+                    assertThat(request.credentialType()).isEqualTo("learcredential.employee.w3c.4");
                     assertThat(request.email()).isEqualTo("test@example.com");
                     assertThat(request.subject()).isEqualTo("John Doe");
                     assertThat(request.organizationIdentifier()).isEqualTo("VATES-B12345678");
@@ -64,7 +63,7 @@ class GenericCredentialBuilderTest {
                     // Verify credential JSON structure
                     assertThat(request.credentialDataSet()).contains("\"@context\"");
                     assertThat(request.credentialDataSet()).contains("\"VerifiableCredential\"");
-                    assertThat(request.credentialDataSet()).contains("\"LEARCredentialEmployee\"");
+                    assertThat(request.credentialDataSet()).contains("\"learcredential.employee.w3c.4\"");
                     assertThat(request.credentialDataSet()).contains("\"credentialSubject\"");
                     assertThat(request.credentialDataSet()).contains("\"mandate\"");
                     assertThat(request.credentialDataSet()).contains("\"validFrom\"");
@@ -151,44 +150,6 @@ class GenericCredentialBuilderTest {
                 .assertNext(request ->
                         assertThat(request.credentialDataSet()).contains("\"description\""))
                 .verifyComplete();
-    }
-
-    // --- bindSubjectId ---
-
-    @Test
-    void bindSubjectId_shouldSetCredentialSubjectId() {
-        String credential = """
-                {
-                  "credentialSubject": {
-                    "mandate": {}
-                  }
-                }
-                """;
-
-        CredentialProfile profile = employeeProfile();
-
-        StepVerifier.create(genericCredentialBuilder.bindSubjectId(profile, credential, "did:key:z123"))
-                .assertNext(result -> {
-                    assertThat(result).contains("\"id\":\"did:key:z123\"");
-                    assertThat(result).contains("\"mandate\"");
-                })
-                .verifyComplete();
-    }
-
-    @Test
-    void bindSubjectId_shouldFailWhenCredentialSubjectMissing() {
-        String credential = """
-                {
-                  "type": "VerifiableCredential"
-                }
-                """;
-
-        CredentialProfile profile = employeeProfile();
-
-        StepVerifier.create(genericCredentialBuilder.bindSubjectId(profile, credential, "did:key:z123"))
-                .expectErrorMatches(e -> e instanceof IllegalStateException
-                        && e.getMessage().contains("Missing credentialSubject"))
-                .verify();
     }
 
     // --- bindIssuer ---
@@ -359,12 +320,12 @@ class GenericCredentialBuilderTest {
 
     private CredentialProfile employeeProfile() {
         return CredentialProfile.builder()
-                .credentialConfigurationId("LEARCredentialEmployee")
+                .credentialConfigurationId("learcredential.employee.w3c.4")
                 .format("jwt_vc_json")
                 .scope("lear_credential_employee")
                 .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
                         .context(List.of("https://www.w3.org/ns/credentials/v2"))
-                        .type(List.of("VerifiableCredential", "LEARCredentialEmployee"))
+                        .type(List.of("VerifiableCredential", "learcredential.employee.w3c.4"))
                         .build())
                 .cryptographicBindingMethodsSupported(Set.of("did:key"))
                 .credentialSigningAlgValuesSupported(Set.of("ES256"))
@@ -386,11 +347,11 @@ class GenericCredentialBuilderTest {
 
     private CredentialProfile machineProfile() {
         return CredentialProfile.builder()
-                .credentialConfigurationId("LEARCredentialMachine")
+                .credentialConfigurationId("learcredential.machine.w3c.3")
                 .format("jwt_vc_json")
                 .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
                         .context(List.of("https://www.w3.org/ns/credentials/v2"))
-                        .type(List.of("VerifiableCredential", "LEARCredentialMachine"))
+                        .type(List.of("VerifiableCredential", "learcredential.machine.w3c.3"))
                         .build())
                 .validityDays(365)
                 .issuerType(CredentialProfile.IssuerType.DETAILED)
@@ -408,11 +369,11 @@ class GenericCredentialBuilderTest {
 
     private CredentialProfile labelProfile() {
         return CredentialProfile.builder()
-                .credentialConfigurationId("gx:LabelCredential")
+                .credentialConfigurationId("gx.labelcredential.w3c.1")
                 .format("jwt_vc_json")
                 .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
                         .context(List.of("https://www.w3.org/ns/credentials/v2"))
-                        .type(List.of("gx:LabelCredential", "VerifiableCredential"))
+                        .type(List.of("gx.labelcredential.w3c.1", "VerifiableCredential"))
                         .build())
                 .validityDays(0)
                 .issuerType(CredentialProfile.IssuerType.SIMPLE)

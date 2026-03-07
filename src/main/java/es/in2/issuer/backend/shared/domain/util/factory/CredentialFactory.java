@@ -25,7 +25,6 @@ public class CredentialFactory {
         String credentialConfigurationId = preSubmittedCredentialRequest.credentialConfigurationId();
         JsonNode credential = preSubmittedCredentialRequest.payload();
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialConfigurationId);
-        if (profile == null) profile = credentialProfileRegistry.getByCredentialType(credentialConfigurationId);
         if (profile == null) {
             return Mono.error(new CredentialTypeUnsupportedException(credentialConfigurationId));
         }

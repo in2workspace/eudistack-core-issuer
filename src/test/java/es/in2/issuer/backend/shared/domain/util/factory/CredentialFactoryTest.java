@@ -17,8 +17,6 @@ import reactor.test.StepVerifier;
 
 import java.sql.Timestamp;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_EMPLOYEE;
-import static es.in2.issuer.backend.shared.domain.util.Constants.LEAR_CREDENTIAL_MACHINE;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -50,18 +48,18 @@ class CredentialFactoryTest {
                 .build();
 
         PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest = PreSubmittedCredentialDataRequest.builder()
-                .credentialConfigurationId(LEAR_CREDENTIAL_EMPLOYEE)
+                .credentialConfigurationId("learcredential.employee.w3c.4")
                 .payload(jsonNode)
                 .build();
 
         CredentialProfile profile = mock(CredentialProfile.class);
-        when(credentialProfileRegistry.getByConfigurationId(LEAR_CREDENTIAL_EMPLOYEE)).thenReturn(profile);
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4")).thenReturn(profile);
 
         IssuanceCreationRequest expectedResponse = IssuanceCreationRequest.builder()
                 .issuanceId(issuanceId)
                 .organizationIdentifier("org123")
                 .credentialDataSet("decoded")
-                .credentialType(LEAR_CREDENTIAL_EMPLOYEE)
+                .credentialType("learcredential.employee.w3c.4")
                 .subject("subject")
                 .validUntil(new Timestamp(System.currentTimeMillis()))
                 .email(email)
@@ -96,18 +94,18 @@ class CredentialFactoryTest {
                 .build();
 
         PreSubmittedCredentialDataRequest preSubmittedCredentialDataRequest = PreSubmittedCredentialDataRequest.builder()
-                .credentialConfigurationId(LEAR_CREDENTIAL_MACHINE)
+                .credentialConfigurationId("learcredential.machine.w3c.3")
                 .payload(jsonNode)
                 .build();
 
         CredentialProfile profile = mock(CredentialProfile.class);
-        when(credentialProfileRegistry.getByConfigurationId(LEAR_CREDENTIAL_MACHINE)).thenReturn(profile);
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.machine.w3c.3")).thenReturn(profile);
 
         IssuanceCreationRequest expectedResponse = IssuanceCreationRequest.builder()
                 .issuanceId(issuanceId)
                 .organizationIdentifier("org789")
                 .credentialDataSet("decoded")
-                .credentialType(LEAR_CREDENTIAL_MACHINE)
+                .credentialType("learcredential.machine.w3c.3")
                 .subject("machine-subject")
                 .validUntil(new Timestamp(System.currentTimeMillis()))
                 .email(email)

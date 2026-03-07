@@ -46,7 +46,7 @@ class CredentialOfferControllerTest {
                 .build();
         CredentialOffer credentialOffer = CredentialOffer.builder()
                 .credentialIssuer("https://credential-issuer.example.com")
-                .credentialConfigurationIds(List.of("LEARCredentialEmployee"))
+                .credentialConfigurationIds(List.of("learcredential.employee.w3c.4"))
                 .grants(grants)
                 .build();
         // Mock

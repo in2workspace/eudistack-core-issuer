@@ -15,7 +15,7 @@ class IssuanceSummaryTest {
         UUID uuid = UUID.randomUUID();
         String expectedSubject = "John Doe";
         String expectedStatus = "In Progress";
-        String expectedCredentialType = "LEAR_CREDENTIAL_EMPLOYEE";
+        String expectedCredentialType = "learcredential.employee.w3c.4";
         Instant timestamp = Instant.parse("2023-01-01T12:00:00Z");
         String organizationIdentifier = "ORG";
 
@@ -72,7 +72,7 @@ class IssuanceSummaryTest {
         String expectedFullName = "John Doe";
         String expectedStatus = "In Progress";
         Instant timestamp = Instant.parse("2023-01-01T12:00:00Z");
-        String expectedCredentialType = "LEAR_CREDENTIAL_EMPLOYEE";
+        String expectedCredentialType = "learcredential.employee.w3c.4";
         String organizationIdentifier = "VATES-AAAAAA";
 
         IssuanceSummary procedureBasicInfo1 = new IssuanceSummary(

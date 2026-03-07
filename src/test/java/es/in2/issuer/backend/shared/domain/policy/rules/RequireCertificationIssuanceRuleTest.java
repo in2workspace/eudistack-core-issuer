@@ -50,7 +50,7 @@ class RequireCertificationIssuanceRuleTest {
     @Test
     void evaluate_succeedsWhenBothSignerAndIdTokenHaveCertificationAttest() throws Exception {
         List<Power> signerPowers = buildPowers("Certification", "Attest");
-        PolicyContext ctx = new PolicyContext("Org", signerPowers, null, null, "LEARCredentialMachine", false, null);
+        PolicyContext ctx = new PolicyContext("Org", signerPowers, null, null, "learcredential.machine.w3c.3", false, null);
 
         String idToken = "dummy-id-token";
 
@@ -65,7 +65,7 @@ class RequireCertificationIssuanceRuleTest {
         com.fasterxml.jackson.databind.node.ObjectNode idTokenVcNode = new ObjectMapper().createObjectNode();
         CredentialProfile idTokenProfile = mock(CredentialProfile.class);
         Power idTokenPower = Power.builder().function("Certification").action("Attest").build();
-        var parsed = new DynamicCredentialParser.ParsedCredential(idTokenVcNode, idTokenProfile, "LEARCredentialEmployee");
+        var parsed = new DynamicCredentialParser.ParsedCredential(idTokenVcNode, idTokenProfile, "learcredential.employee.w3c.4");
         when(credentialParser.parse("vcJson")).thenReturn(parsed);
         when(credentialParser.extractPowers(idTokenVcNode, idTokenProfile)).thenReturn(List.of(idTokenPower));
 
@@ -76,7 +76,7 @@ class RequireCertificationIssuanceRuleTest {
     @Test
     void evaluate_failsWhenSignerLacksCertificationPower() {
         List<Power> signerPowers = buildPowers("Onboarding", "Execute");
-        PolicyContext ctx = new PolicyContext("Org", signerPowers, null, null, "LEARCredentialMachine", false, null);
+        PolicyContext ctx = new PolicyContext("Org", signerPowers, null, null, "learcredential.machine.w3c.3", false, null);
 
         StepVerifier.create(rule.evaluate(ctx, "dummy-id-token"))
                 .expectErrorMatches(e ->
@@ -88,7 +88,7 @@ class RequireCertificationIssuanceRuleTest {
     @Test
     void evaluate_failsWhenIdTokenLacksCertificationPower() throws Exception {
         List<Power> signerPowers = buildPowers("Certification", "Attest");
-        PolicyContext ctx = new PolicyContext("Org", signerPowers, null, null, "LEARCredentialMachine", false, null);
+        PolicyContext ctx = new PolicyContext("Org", signerPowers, null, null, "learcredential.machine.w3c.3", false, null);
 
         String idToken = "dummy-id-token";
 
@@ -103,7 +103,7 @@ class RequireCertificationIssuanceRuleTest {
         com.fasterxml.jackson.databind.node.ObjectNode idTokenVcNode = new ObjectMapper().createObjectNode();
         CredentialProfile idTokenProfile = mock(CredentialProfile.class);
         Power idTokenPower = Power.builder().function("Onboarding").action("Execute").build();
-        var parsed = new DynamicCredentialParser.ParsedCredential(idTokenVcNode, idTokenProfile, "LEARCredentialEmployee");
+        var parsed = new DynamicCredentialParser.ParsedCredential(idTokenVcNode, idTokenProfile, "learcredential.employee.w3c.4");
         when(credentialParser.parse("vcJson")).thenReturn(parsed);
         when(credentialParser.extractPowers(idTokenVcNode, idTokenProfile)).thenReturn(List.of(idTokenPower));
 

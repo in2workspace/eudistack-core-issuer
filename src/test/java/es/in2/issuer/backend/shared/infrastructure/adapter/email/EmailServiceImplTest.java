@@ -148,7 +148,7 @@ class EmailServiceImplTest {
                 .thenReturn("htmlContent");
 
         StepVerifier.create(emailService.sendCredentialStatusChangeNotification(
-                "to@example.com", "ACME Corp", "cred-123", "LEARCredentialEmployee", "EXPIRED"
+                "to@example.com", "ACME Corp", "cred-123", "learcredential.employee.w3c.4", "EXPIRED"
         )).verifyComplete();
 
         verify(javaMailSender).send(mimeMessage);
@@ -160,7 +160,7 @@ class EmailServiceImplTest {
         assertEquals("email.expired.title", ctx.getVariable("title"));
         assertEquals("ACME Corp", ctx.getVariable("organization"));
         assertEquals("cred-123", ctx.getVariable("credentialId"));
-        assertEquals("LEARCredentialEmployee", ctx.getVariable("type"));
+        assertEquals("learcredential.employee.w3c.4", ctx.getVariable("type"));
         assertEquals("EXPIRED", ctx.getVariable("credentialStatus"));
     }
 
@@ -172,7 +172,7 @@ class EmailServiceImplTest {
                 .thenReturn("htmlContent");
 
         StepVerifier.create(emailService.sendCredentialStatusChangeNotification(
-                "to@example.com", "Umbrella Inc", "cred-999", "LEARCredentialEmployee", "REVOKED"
+                "to@example.com", "Umbrella Inc", "cred-999", "learcredential.employee.w3c.4", "REVOKED"
         )).verifyComplete();
 
         verify(javaMailSender).send(mimeMessage);
@@ -184,7 +184,7 @@ class EmailServiceImplTest {
         assertEquals("email.revoked.title", ctx.getVariable("title"));
         assertEquals("Umbrella Inc", ctx.getVariable("organization"));
         assertEquals("cred-999", ctx.getVariable("credentialId"));
-        assertEquals("LEARCredentialEmployee", ctx.getVariable("type"));
+        assertEquals("learcredential.employee.w3c.4", ctx.getVariable("type"));
         assertEquals("REVOKED", ctx.getVariable("credentialStatus"));
     }
 
@@ -193,7 +193,7 @@ class EmailServiceImplTest {
         when(javaMailSender.createMimeMessage()).thenThrow(new RuntimeException("Mail server error"));
 
         StepVerifier.create(emailService.sendCredentialStatusChangeNotification(
-                "to@example.com", "ACME Corp", "cred-123", "LEARCredentialEmployee", "REVOKED"
+                "to@example.com", "ACME Corp", "cred-123", "learcredential.employee.w3c.4", "REVOKED"
         )).expectError(EmailCommunicationException.class)
                 .verify();
     }

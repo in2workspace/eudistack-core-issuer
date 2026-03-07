@@ -16,7 +16,7 @@ class IssuanceListTest {
         IssuanceSummary procedureBasicInfo = new IssuanceSummary(
                 UUID.randomUUID(),
                 "John Doe",
-                "LEAR_CREDENTIAL_EMPLOYEE",
+                "learcredential.employee.w3c.4",
                 "In Progress",
                 Instant.parse("2023-01-01T12:00:00Z"),
                 "or"
@@ -37,7 +37,7 @@ class IssuanceListTest {
         IssuanceSummary procedureBasicInfo = new IssuanceSummary(
                 UUID.randomUUID(),
                 "Jane Doe",
-                "LEAR_CREDENTIAL_EMPLOYEE",
+                "learcredential.employee.w3c.4",
                 "Completed",
                 Instant.parse("2024-01-01T12:00:00Z"),
                 "org"
@@ -60,7 +60,7 @@ class IssuanceListTest {
         IssuanceSummary procedureBasicInfo = new IssuanceSummary(
                 UUID.randomUUID(),
                 "John Doe",
-                "LEAR_CREDENTIAL_EMPLOYEE",
+                "learcredential.employee.w3c.4",
                 "In Progress",
                 Instant.parse("2023-01-01T12:00:00Z"),
                 "org"

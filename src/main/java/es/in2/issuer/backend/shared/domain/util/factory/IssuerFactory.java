@@ -61,7 +61,6 @@ public class IssuerFactory {
 
     private DetailedIssuer buildLocalDetailedIssuer() {
         return DetailedIssuer.builder()
-                .id(DID_ELSI + signerConfig.getOrganizationIdentifier())
                 .organizationIdentifier(signerConfig.getOrganizationIdentifier())
                 .organization(signerConfig.getOrganization())
                 .country(signerConfig.getCountry())
@@ -72,7 +71,7 @@ public class IssuerFactory {
 
     private SimpleIssuer buildLocalSimpleIssuer() {
         return SimpleIssuer.builder()
-                .id(DID_ELSI + signerConfig.getOrganizationIdentifier())
+                .id(signerConfig.getOrganizationIdentifier())
                 .build();
     }
 

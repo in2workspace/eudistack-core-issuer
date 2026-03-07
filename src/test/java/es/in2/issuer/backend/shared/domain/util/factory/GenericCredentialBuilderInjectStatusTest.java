@@ -54,7 +54,7 @@ class GenericCredentialBuilderInjectStatusTest {
     @Test
     void injectCredentialStatus_sdJwtFormat_setsStatusListObject() throws Exception {
         String credentialJson = """
-                {"vct":"LEARCredentialEmployee","iss":"did:elsi:VATES-12345","sub":"","iat":1000,"exp":2000}
+                {"vct":"learcredential.employee.w3c.4","iss":"did:elsi:VATES-12345","sub":"","iat":1000,"exp":2000}
                 """;
 
         CredentialStatus status = CredentialStatus.builder()

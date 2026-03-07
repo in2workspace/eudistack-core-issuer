@@ -79,8 +79,8 @@ public class SdJwtPayloadBuilder {
                 payload.put("status", objectMapper.convertValue(statusNode, Object.class));
             }
 
-            // Add cnf (key binding)
-            if (cnf != null && !cnf.isEmpty()) {
+            // Add cnf (key binding) only when required by the profile
+            if (profile.cnfRequired() && cnf != null && !cnf.isEmpty()) {
                 payload.put("cnf", cnf);
             }
 

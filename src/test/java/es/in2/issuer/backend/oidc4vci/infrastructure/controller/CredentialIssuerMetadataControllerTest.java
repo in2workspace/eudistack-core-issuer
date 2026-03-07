@@ -47,7 +47,7 @@ class CredentialIssuerMetadataControllerTest {
                 .credentialIssuer("https://issuer.example.com")
                 .credentialEndpoint("https://issuer.example.com/oid4vci/v1/credential")
                 .credentialConfigurationsSupported(Map.of(
-                        "LEARCredentialEmployee", CredentialIssuerMetadata.CredentialConfiguration.builder()
+                        "learcredential.employee.w3c.4", CredentialIssuerMetadata.CredentialConfiguration.builder()
                                 .format("jwt_vc_json")
                                 .scope("lear_credential_employee")
                                 .cryptographicBindingMethodsSupported(Set.of("did:key"))
@@ -58,7 +58,7 @@ class CredentialIssuerMetadataControllerTest {
                                 .credentialMetadata(null)
                                 .vct(null)
                                 .build(),
-                        "LEARCredentialMachine", CredentialIssuerMetadata.CredentialConfiguration.builder()
+                        "learcredential.machine.w3c.3", CredentialIssuerMetadata.CredentialConfiguration.builder()
                                 .format("jwt_vc_json")
                                 .scope("lear_credential_machine")
                                 .credentialSigningAlgValuesSupported(Set.of("ES256"))
