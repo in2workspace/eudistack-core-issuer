@@ -1,7 +1,7 @@
 package es.in2.issuer.backend.issuance.infrastructure.controller;
 
 import es.in2.issuer.backend.issuance.domain.model.dtos.UpdateIssuanceStatusRequest;
-import es.in2.issuer.backend.shared.application.workflow.IssuanceWorkflow;
+import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialDetails;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceResponse;

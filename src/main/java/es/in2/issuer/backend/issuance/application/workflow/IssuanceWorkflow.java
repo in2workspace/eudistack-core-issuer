@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.shared.application.workflow;
+package es.in2.issuer.backend.issuance.application.workflow;
 
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;

@@ -1,7 +1,7 @@
 package es.in2.issuer.backend.issuance.infrastructure.controller;
 
 import es.in2.issuer.backend.issuance.domain.service.BootstrapTokenService;
-import es.in2.issuer.backend.shared.application.workflow.IssuanceWorkflow;
+import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
 import jakarta.validation.Valid;

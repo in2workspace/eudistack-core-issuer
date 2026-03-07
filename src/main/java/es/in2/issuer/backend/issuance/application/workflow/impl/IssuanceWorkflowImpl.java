@@ -1,7 +1,7 @@
-package es.in2.issuer.backend.shared.application.workflow.impl;
+package es.in2.issuer.backend.issuance.application.workflow.impl;
 
+import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.issuance.domain.service.CredentialOfferService;
-import es.in2.issuer.backend.shared.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.MissingIdTokenHeaderException;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
@@ -13,7 +13,7 @@ import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import java.util.Map;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
-import es.in2.issuer.backend.shared.infrastructure.config.security.service.IssuancePdpService;
+import es.in2.issuer.backend.shared.domain.policy.service.IssuancePdpService;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
