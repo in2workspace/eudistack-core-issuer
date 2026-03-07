@@ -81,4 +81,9 @@ public class CacheStoreConfig {
     public TransientStore<String> enrichmentCacheStore() {
         return new CacheStore<>(NOTIFICATION_CACHE_EXPIRY_HOURS, TimeUnit.HOURS);
     }
+
+    @Bean
+    public TransientStore<String> issuerStateCacheStore() {
+        return new CacheStore<>(PRE_AUTH_CODE_EXPIRY_DURATION_MINUTES, TimeUnit.MINUTES);
+    }
 }

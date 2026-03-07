@@ -28,12 +28,20 @@ public class AccessTokenServiceImpl implements AccessTokenService {
     private final ObjectMapper objectMapper;
     private final IssuerProperties appConfig;
 
+    private static final String DPOP_PREFIX = "DPoP ";
+
     @Override
     public Mono<String> getCleanBearerToken(String authorizationHeader) {
         return Mono.just(authorizationHeader)
-                .map(header -> header.startsWith(BEARER_PREFIX)
-                        ? header.substring(BEARER_PREFIX.length()).trim()
-                        : header);
+                .map(header -> {
+                    if (header.regionMatches(true, 0, BEARER_PREFIX, 0, BEARER_PREFIX.length())) {
+                        return header.substring(BEARER_PREFIX.length()).trim();
+                    }
+                    if (header.regionMatches(true, 0, DPOP_PREFIX, 0, DPOP_PREFIX.length())) {
+                        return header.substring(DPOP_PREFIX.length()).trim();
+                    }
+                    return header;
+                });
     }
 
     @Override

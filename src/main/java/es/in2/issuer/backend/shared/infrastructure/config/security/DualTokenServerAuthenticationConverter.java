@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.issuance.infrastructure.config.security;
+package es.in2.issuer.backend.shared.infrastructure.config.security;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -21,12 +21,19 @@ public final class DualTokenServerAuthenticationConverter implements ServerAuthe
                 path);
 
         String auth = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
-        if (auth == null || !auth.regionMatches(true, 0, "Bearer ", 0, 7)) {
+        if (auth == null) {
             return Mono.empty();
         }
-        String accessToken = auth.substring(7).trim();
+        String accessToken;
+        if (auth.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            accessToken = auth.substring(7).trim();
+        } else if (auth.regionMatches(true, 0, "DPoP ", 0, 5)) {
+            accessToken = auth.substring(5).trim();
+        } else {
+            return Mono.empty();
+        }
         String idToken = request.getHeaders().getFirst(ID_TOKEN_HEADER);
-        return Mono.just(new es.in2.issuer.backend.issuance.infrastructure.config.security.DualTokenAuthentication(accessToken, (idToken == null || idToken.isBlank()) ? null : idToken));
+        return Mono.just(new es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication(accessToken, (idToken == null || idToken.isBlank()) ? null : idToken));
     }
 }
 

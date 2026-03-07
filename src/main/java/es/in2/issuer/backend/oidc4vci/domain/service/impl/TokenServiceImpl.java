@@ -55,6 +55,7 @@ public class TokenServiceImpl implements TokenService {
     private final DpopValidationService dpopValidationService;
     private final Oid4vciProfilePort profileProperties;
     private final IssuanceMetrics issuanceMetrics;
+    private final TransientStore<String> issuerStateCacheStore;
 
     @Override
     @Observed(name = "oid4vci.token", contextualName = "oid4vci-handle-token")
@@ -217,10 +218,13 @@ public class TokenServiceImpl implements TokenService {
                 ? dpopValidationService.validate(dpopHeader, "POST", tokenEndpointUri)
                 : null;
 
-        return Mono.just(buildAuthCodeTokenResponse(dpopJkt));
+        return issuerStateCacheStore.get(codeData.issuerState())
+                .map(issuanceId -> buildAuthCodeTokenResponse(dpopJkt, issuanceId))
+                .onErrorMap(NoSuchElementException.class, ex ->
+                        OAuthTokenException.invalidGrant("Invalid or expired issuer_state"));
     }
 
-    private TokenResponse buildAuthCodeTokenResponse(String dpopJkt) {
+    private TokenResponse buildAuthCodeTokenResponse(String dpopJkt, String issuanceId) {
         Instant issueTime = Instant.now();
         long accessTokenExp = computeAccessTokenExpiration(issueTime);
         boolean isDpop = dpopJkt != null;
@@ -231,6 +235,7 @@ public class TokenServiceImpl implements TokenService {
         claims.put("iat", issueTime.getEpochSecond());
         claims.put("exp", accessTokenExp);
         claims.put("jti", UUID.randomUUID().toString());
+        claims.put("pid", issuanceId);
         if (isDpop) {
             claims.put("cnf", Map.of("jkt", dpopJkt));
         }
