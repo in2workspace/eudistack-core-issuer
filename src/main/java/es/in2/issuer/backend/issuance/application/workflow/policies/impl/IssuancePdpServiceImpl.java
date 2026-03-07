@@ -33,12 +33,6 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
         return validateCommon(token, issuanceId);
     }
 
-    @Override
-    public Mono<Void> validateSendReminder(String processId, String token, String issuanceId) {
-        log.info("Validating 'send reminder' action for processId={} and issuanceId={}", processId, issuanceId);
-        return validateCommon(token, issuanceId);
-    }
-
     private Mono<Void> validateCommon(String token, String issuanceId) {
         return Mono.deferContextual(reactorCtx -> {
             String tenantDomain = reactorCtx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null);

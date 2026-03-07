@@ -80,7 +80,7 @@ class IssuancePdpServiceImplTest {
     }
 
     @Test
-    void validateSendReminder_nonAdmin_orgMismatch_denied() {
+    void validateSignCredential_nonAdmin_orgMismatch_denied() {
         String token = "token";
         String userOrgId = "org-123";
         String issuanceId = UUID.randomUUID().toString();
@@ -94,7 +94,7 @@ class IssuancePdpServiceImplTest {
         when(issuanceRepository.findById(UUID.fromString(issuanceId)))
                 .thenReturn(Mono.just(issuance));
 
-        Mono<Void> result = issuancePdp.validateSendReminder("process", token, issuanceId);
+        Mono<Void> result = issuancePdp.validateSignCredential("process", token, issuanceId);
 
         StepVerifier.create(result)
                 .expectError(UnauthorizedRoleException.class)
