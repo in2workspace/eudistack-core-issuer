@@ -69,35 +69,35 @@ class StatusListControllerUnitTest {
     @Test
     void revokeCredential_whenOk_completesAndInvokesWorkflow() {
         String bearerToken = "Bearer test-token";
-        String procedureId = UUID.randomUUID().toString();
+        String issuanceId = UUID.randomUUID().toString();
 
-        RevokeCredentialRequest request = new RevokeCredentialRequest(procedureId);
+        RevokeCredentialRequest request = new RevokeCredentialRequest(issuanceId);
 
-        when(revocationWorkflow.revoke(anyString(), eq(bearerToken), eq(procedureId)))
+        when(revocationWorkflow.revoke(anyString(), eq(bearerToken), eq(issuanceId)))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(controller.revokeCredential(bearerToken, request))
                 .verifyComplete();
 
-        verify(revocationWorkflow).revoke(anyString(), eq(bearerToken), eq(procedureId));
+        verify(revocationWorkflow).revoke(anyString(), eq(bearerToken), eq(issuanceId));
         verifyNoInteractions(statusListWorkflow);
     }
 
     @Test
     void revokeCredential_whenWorkflowFails_propagatesError() {
         String bearerToken = "Bearer test-token";
-        String procedureId = UUID.randomUUID().toString();
+        String issuanceId = UUID.randomUUID().toString();
 
-        RevokeCredentialRequest request = new RevokeCredentialRequest(procedureId);
+        RevokeCredentialRequest request = new RevokeCredentialRequest(issuanceId);
 
-        when(revocationWorkflow.revoke(anyString(), eq(bearerToken), eq(procedureId)))
+        when(revocationWorkflow.revoke(anyString(), eq(bearerToken), eq(issuanceId)))
                 .thenReturn(Mono.error(new RuntimeException("boom")));
 
         StepVerifier.create(controller.revokeCredential(bearerToken, request))
                 .expectError(RuntimeException.class)
                 .verify();
 
-        verify(revocationWorkflow).revoke(anyString(), eq(bearerToken), eq(procedureId));
+        verify(revocationWorkflow).revoke(anyString(), eq(bearerToken), eq(issuanceId));
         verifyNoInteractions(statusListWorkflow);
     }
 }

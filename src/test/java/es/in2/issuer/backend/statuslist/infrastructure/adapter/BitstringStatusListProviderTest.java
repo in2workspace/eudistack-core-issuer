@@ -74,7 +74,7 @@ class BitstringStatusListProviderTest {
 
     private static final Long TEST_LIST_ID = 1L;
     private static final String TEST_SIGNED_CREDENTIAL = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...";
-    private static final String TEST_PROCEDURE_ID = "550e8400-e29b-41d4-a716-446655440000";
+    private static final String TEST_ISSUANCE_ID = "550e8400-e29b-41d4-a716-446655440000";
     private static final String TEST_TOKEN = "test-token";
     private static final String TEST_ISSUER_URL = "https://issuer.example.com";
     private static final String TEST_ISSUER_DID = "did:example:issuer";
@@ -143,7 +143,7 @@ class BitstringStatusListProviderTest {
     @Test
     void allocateEntry_shouldReturnExistingEntry_whenProcedureAlreadyAllocated() {
         // Arrange
-        UUID procedureUuid = UUID.fromString(TEST_PROCEDURE_ID);
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
         StatusPurpose purpose = StatusPurpose.REVOCATION;
 
         StatusListIndex existingIndex = new StatusListIndex(
@@ -164,25 +164,25 @@ class BitstringStatusListProviderTest {
                 .statusListCredential(expectedListUrl)
                 .build();
 
-        when(statusListIndexRepository.findByProcedureId(procedureUuid))
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
                 .thenReturn(Mono.just(existingIndex));
 
         when(statusListBuilder.buildStatusListEntry(expectedListUrl, 10, purpose))
                 .thenReturn(expectedEntry);
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_PROCEDURE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN))
                 .expectNext(expectedEntry)
                 .verifyComplete();
 
-        verify(statusListIndexRepository).findByProcedureId(procedureUuid);
+        verify(statusListIndexRepository).findByIssuanceId(procedureUuid);
         verify(statusListBuilder).buildStatusListEntry(expectedListUrl, 10, purpose);
     }
 
     @Test
     void allocateEntry_shouldAllocateNewEntry_whenNoPreviousAllocation() {
         // Arrange
-        UUID procedureUuid = UUID.fromString(TEST_PROCEDURE_ID);
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
         StatusPurpose purpose = StatusPurpose.REVOCATION;
 
         StatusList existingList = new StatusList(
@@ -213,7 +213,7 @@ class BitstringStatusListProviderTest {
                 .statusListCredential(expectedListUrl)
                 .build();
 
-        when(statusListIndexRepository.findByProcedureId(procedureUuid))
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
                 .thenReturn(Mono.empty());
 
         when(statusListRepository.findLatestByPurposeAndFormat("revocation", "bitstring_vc"))
@@ -222,28 +222,28 @@ class BitstringStatusListProviderTest {
         when(statusListIndexRepository.countByStatusListId(TEST_LIST_ID))
                 .thenReturn(Mono.just(100L));
 
-        when(statusListIndexReservationService.reserve(TEST_LIST_ID, TEST_PROCEDURE_ID))
+        when(statusListIndexReservationService.reserve(TEST_LIST_ID, TEST_ISSUANCE_ID))
                 .thenReturn(Mono.just(reservedIndex));
 
         when(statusListBuilder.buildStatusListEntry(expectedListUrl, 5, purpose))
                 .thenReturn(expectedEntry);
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_PROCEDURE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN))
                 .expectNext(expectedEntry)
                 .verifyComplete();
 
-        verify(statusListIndexRepository).findByProcedureId(procedureUuid);
+        verify(statusListIndexRepository).findByIssuanceId(procedureUuid);
         verify(statusListRepository).findLatestByPurposeAndFormat("revocation", "bitstring_vc");
         verify(statusListIndexRepository).countByStatusListId(TEST_LIST_ID);
-        verify(statusListIndexReservationService).reserve(TEST_LIST_ID, TEST_PROCEDURE_ID);
+        verify(statusListIndexReservationService).reserve(TEST_LIST_ID, TEST_ISSUANCE_ID);
         verify(statusListBuilder).buildStatusListEntry(expectedListUrl, 5, purpose);
     }
 
     @Test
     void allocateEntry_shouldThrowException_whenPurposeIsNull() {
         Mono<StatusListEntry> mono = monoFromCall(() ->
-                bitstringStatusListProvider.allocateEntry(null, StatusListFormat.BITSTRING_VC, TEST_PROCEDURE_ID, TEST_TOKEN)
+                bitstringStatusListProvider.allocateEntry(null, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN)
         );
 
         assertThatThrownBy(mono::block)
@@ -261,7 +261,7 @@ class BitstringStatusListProviderTest {
 
         assertThatThrownBy(mono::block)
                 .isInstanceOf(NullPointerException.class)
-                .hasMessageContaining("procedureId");
+                .hasMessageContaining("issuanceId");
 
         verifyNoInteractions(statusListIndexRepository);
     }
@@ -270,7 +270,7 @@ class BitstringStatusListProviderTest {
     @Test
     void allocateEntry_shouldThrowException_whenTokenIsNull() {
         Mono<StatusListEntry> mono = monoFromCall(() ->
-                bitstringStatusListProvider.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, TEST_PROCEDURE_ID, null)
+                bitstringStatusListProvider.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, null)
         );
 
         assertThatThrownBy(mono::block)
@@ -295,7 +295,7 @@ class BitstringStatusListProviderTest {
     @Test
     void allocateEntry_shouldCreateNewList_whenExistingListIsNearCapacity() {
         // Arrange
-        UUID procedureUuid = UUID.fromString(TEST_PROCEDURE_ID);
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
         StatusPurpose purpose = StatusPurpose.REVOCATION;
         Long newListId = 2L;
 
@@ -341,7 +341,7 @@ class BitstringStatusListProviderTest {
                 .id(TEST_ISSUER_DID)
                 .build();
 
-        when(statusListIndexRepository.findByProcedureId(procedureUuid))
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
                 .thenReturn(Mono.empty());
 
         when(statusListRepository.findLatestByPurposeAndFormat("revocation", "bitstring_vc"))
@@ -367,31 +367,31 @@ class BitstringStatusListProviderTest {
         when(statusListRepository.updateSignedCredential(newListId, "newSignedJwt"))
                 .thenReturn(Mono.just(1));
 
-        when(statusListIndexReservationService.reserve(newListId, TEST_PROCEDURE_ID))
+        when(statusListIndexReservationService.reserve(newListId, TEST_ISSUANCE_ID))
                 .thenReturn(Mono.just(reservedIndex));
 
         when(statusListBuilder.buildStatusListEntry(newListUrl, 0, purpose))
                 .thenReturn(expectedEntry);
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_PROCEDURE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN))
                 .expectNext(expectedEntry)
                 .verifyComplete();
 
-        verify(statusListIndexRepository).findByProcedureId(procedureUuid);
+        verify(statusListIndexRepository).findByIssuanceId(procedureUuid);
         verify(statusListRepository).findLatestByPurposeAndFormat("revocation", "bitstring_vc");
         verify(statusListIndexRepository).countByStatusListId(TEST_LIST_ID);
         verify(statusListRepository, atLeastOnce()).save(any(StatusList.class));
         verify(issuerFactory, atLeastOnce()).createSimpleIssuer();
         verify(statusListSigner, atLeastOnce()).sign(anyMap(), eq(TEST_TOKEN), eq(newListId), isNull());
         verify(statusListRepository, atLeastOnce()).updateSignedCredential(eq(newListId), anyString());
-        verify(statusListIndexReservationService).reserve(newListId, TEST_PROCEDURE_ID);
+        verify(statusListIndexReservationService).reserve(newListId, TEST_ISSUANCE_ID);
     }
 
     @Test
     void allocateEntry_shouldAllocateNewEntry_whenNoListExists() {
         // Arrange
-        UUID procedureUuid = UUID.fromString(TEST_PROCEDURE_ID);
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
         StatusPurpose purpose = StatusPurpose.REVOCATION;
 
         StatusList newList = new StatusList(
@@ -426,7 +426,7 @@ class BitstringStatusListProviderTest {
                 .id(TEST_ISSUER_DID)
                 .build();
 
-        when(statusListIndexRepository.findByProcedureId(procedureUuid))
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
                 .thenReturn(Mono.empty());
 
         when(statusListRepository.findLatestByPurposeAndFormat("revocation", "bitstring_vc"))
@@ -451,14 +451,14 @@ class BitstringStatusListProviderTest {
         when(statusListIndexRepository.countByStatusListId(TEST_LIST_ID))
                 .thenReturn(Mono.just(0L));
 
-        when(statusListIndexReservationService.reserve(TEST_LIST_ID, TEST_PROCEDURE_ID))
+        when(statusListIndexReservationService.reserve(TEST_LIST_ID, TEST_ISSUANCE_ID))
                 .thenReturn(Mono.just(reservedIndex));
 
         when(statusListBuilder.buildStatusListEntry(expectedListUrl, 0, purpose))
                 .thenReturn(expectedEntry);
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_PROCEDURE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN))
                 .expectNext(expectedEntry)
                 .verifyComplete();
 
@@ -467,14 +467,14 @@ class BitstringStatusListProviderTest {
         verify(issuerFactory, atLeastOnce()).createSimpleIssuer();
         verify(statusListSigner, atLeastOnce()).sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), isNull());
         verify(statusListIndexRepository).countByStatusListId(TEST_LIST_ID);
-        verify(statusListIndexReservationService).reserve(TEST_LIST_ID, TEST_PROCEDURE_ID);
+        verify(statusListIndexReservationService).reserve(TEST_LIST_ID, TEST_ISSUANCE_ID);
     }
 
     @Test
     void allocateEntry_shouldRollbackDeleteAndPropagateError_whenSigningFailsDuringCreateNewList() {
         // Arrange
         StatusPurpose purpose = StatusPurpose.REVOCATION;
-        UUID procedureUuid = UUID.fromString(TEST_PROCEDURE_ID);
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
 
         StatusList savedList = new StatusList(
                 TEST_LIST_ID,
@@ -492,7 +492,7 @@ class BitstringStatusListProviderTest {
 
         String expectedListUrl = TEST_ISSUER_URL + "/w3c/v1/credentials/status/" + TEST_LIST_ID;
 
-        when(statusListIndexRepository.findByProcedureId(procedureUuid))
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
                 .thenReturn(Mono.empty());
 
         when(statusListRepository.findLatestByPurposeAndFormat("revocation", "bitstring_vc"))
@@ -515,7 +515,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.empty());
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_PROCEDURE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN))
                 .expectErrorMatches(e -> e == signError)
                 .verify();
 
@@ -526,7 +526,7 @@ class BitstringStatusListProviderTest {
     void allocateEntry_shouldPropagateOriginalError_whenRollbackDeleteAlsoFails() {
         // Arrange
         StatusPurpose purpose = StatusPurpose.REVOCATION;
-        UUID procedureUuid = UUID.fromString(TEST_PROCEDURE_ID);
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
 
         StatusList savedList = new StatusList(
                 TEST_LIST_ID,
@@ -544,7 +544,7 @@ class BitstringStatusListProviderTest {
 
         String expectedListUrl = TEST_ISSUER_URL + "/w3c/v1/credentials/status/" + TEST_LIST_ID;
 
-        when(statusListIndexRepository.findByProcedureId(procedureUuid))
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
                 .thenReturn(Mono.empty());
 
         when(statusListRepository.findLatestByPurposeAndFormat("revocation", "bitstring_vc"))
@@ -567,7 +567,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.error(new RuntimeException("delete failed")));
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_PROCEDURE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN))
                 .expectErrorMatches(e -> e == signError)
                 .verify();
 
@@ -578,7 +578,7 @@ class BitstringStatusListProviderTest {
     void allocateEntry_shouldRollbackAndThrowStatusListSigningPersistenceException_whenUpdateSignedCredentialIsZero() {
         // Arrange
         StatusPurpose purpose = StatusPurpose.REVOCATION;
-        UUID procedureUuid = UUID.fromString(TEST_PROCEDURE_ID);
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
 
         StatusList savedList = new StatusList(
                 TEST_LIST_ID,
@@ -596,7 +596,7 @@ class BitstringStatusListProviderTest {
 
         String expectedListUrl = TEST_ISSUER_URL + "/w3c/v1/credentials/status/" + TEST_LIST_ID;
 
-        when(statusListIndexRepository.findByProcedureId(procedureUuid))
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
                 .thenReturn(Mono.empty());
 
         when(statusListRepository.findLatestByPurposeAndFormat("revocation", "bitstring_vc"))
@@ -621,7 +621,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.empty());
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_PROCEDURE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN))
                 .expectError(StatusListSigningPersistenceException.class)
                 .verify();
 
@@ -632,7 +632,7 @@ class BitstringStatusListProviderTest {
     void allocateEntry_shouldCreateNewListAndRetryReserve_whenIndexReservationExhausted() {
         // Arrange
         StatusPurpose purpose = StatusPurpose.REVOCATION;
-        UUID procedureUuid = UUID.fromString(TEST_PROCEDURE_ID);
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
 
         StatusList existingList = new StatusList(
                 TEST_LIST_ID,
@@ -677,7 +677,7 @@ class BitstringStatusListProviderTest {
                 .id(TEST_ISSUER_DID)
                 .build();
 
-        when(statusListIndexRepository.findByProcedureId(procedureUuid))
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
                 .thenReturn(Mono.empty());
 
         when(statusListRepository.findLatestByPurposeAndFormat("revocation", "bitstring_vc"))
@@ -687,7 +687,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.just(0L));
 
         // First reserve fails with exhausted
-        when(statusListIndexReservationService.reserve(TEST_LIST_ID, TEST_PROCEDURE_ID))
+        when(statusListIndexReservationService.reserve(TEST_LIST_ID, TEST_ISSUANCE_ID))
                 .thenReturn(Mono.error(new IndexReservationExhaustedException("", new Exception())));
 
         // Create new list
@@ -707,19 +707,19 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.just(1));
 
         // Second reserve succeeds on the new list
-        when(statusListIndexReservationService.reserve(newListId, TEST_PROCEDURE_ID))
+        when(statusListIndexReservationService.reserve(newListId, TEST_ISSUANCE_ID))
                 .thenReturn(Mono.just(reservedIndex));
 
         when(statusListBuilder.buildStatusListEntry(newListUrl, 7, purpose))
                 .thenReturn(expectedEntry);
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_PROCEDURE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN))
                 .expectNext(expectedEntry)
                 .verifyComplete();
 
-        verify(statusListIndexReservationService).reserve(TEST_LIST_ID, TEST_PROCEDURE_ID);
-        verify(statusListIndexReservationService).reserve(newListId, TEST_PROCEDURE_ID);
+        verify(statusListIndexReservationService).reserve(TEST_LIST_ID, TEST_ISSUANCE_ID);
+        verify(statusListIndexReservationService).reserve(newListId, TEST_ISSUANCE_ID);
     }
 
     @Test
@@ -770,7 +770,7 @@ class BitstringStatusListProviderTest {
     @Test
     void allocateEntry_tokenJwtFormat_shouldUseTokenFactoryAndTokenStatusListBase() {
         // Arrange
-        UUID procedureUuid = UUID.fromString(TEST_PROCEDURE_ID);
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
         StatusPurpose purpose = StatusPurpose.REVOCATION;
 
         String tokenListUrl = TEST_ISSUER_URL + "/token/v1/credentials/status/" + TEST_LIST_ID;
@@ -792,7 +792,7 @@ class BitstringStatusListProviderTest {
                 tokenListUrl
         );
 
-        when(statusListIndexRepository.findByProcedureId(procedureUuid))
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
                 .thenReturn(Mono.empty());
 
         when(statusListRepository.findLatestByPurposeAndFormat("revocation", "token_jwt"))
@@ -801,14 +801,14 @@ class BitstringStatusListProviderTest {
         when(statusListIndexRepository.countByStatusListId(TEST_LIST_ID))
                 .thenReturn(Mono.just(0L));
 
-        when(statusListIndexReservationService.reserve(TEST_LIST_ID, TEST_PROCEDURE_ID))
+        when(statusListIndexReservationService.reserve(TEST_LIST_ID, TEST_ISSUANCE_ID))
                 .thenReturn(Mono.just(reservedIndex));
 
         when(tokenStatusListBuilder.buildStatusListEntry(tokenListUrl, TEST_IDX, purpose))
                 .thenReturn(expectedEntry);
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.TOKEN_JWT, TEST_PROCEDURE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.TOKEN_JWT, TEST_ISSUANCE_ID, TEST_TOKEN))
                 .expectNext(expectedEntry)
                 .verifyComplete();
 
@@ -820,7 +820,7 @@ class BitstringStatusListProviderTest {
     @Test
     void allocateEntry_tokenJwtFormat_shouldCreateListWithStatuslistJwtTyp() {
         // Arrange
-        UUID procedureUuid = UUID.fromString(TEST_PROCEDURE_ID);
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
         StatusPurpose purpose = StatusPurpose.REVOCATION;
         Long newListId = 99L;
         String tokenListUrl = TEST_ISSUER_URL + "/token/v1/credentials/status/" + newListId;
@@ -844,7 +844,7 @@ class BitstringStatusListProviderTest {
                 tokenListUrl
         );
 
-        when(statusListIndexRepository.findByProcedureId(procedureUuid))
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
                 .thenReturn(Mono.empty());
 
         // No existing TOKEN_JWT list → creates new one
@@ -869,14 +869,14 @@ class BitstringStatusListProviderTest {
         when(statusListIndexRepository.countByStatusListId(newListId))
                 .thenReturn(Mono.just(0L));
 
-        when(statusListIndexReservationService.reserve(newListId, TEST_PROCEDURE_ID))
+        when(statusListIndexReservationService.reserve(newListId, TEST_ISSUANCE_ID))
                 .thenReturn(Mono.just(reservedIndex));
 
         when(tokenStatusListBuilder.buildStatusListEntry(tokenListUrl, 0, purpose))
                 .thenReturn(expectedEntry);
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.TOKEN_JWT, TEST_PROCEDURE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.TOKEN_JWT, TEST_ISSUANCE_ID, TEST_TOKEN))
                 .expectNext(expectedEntry)
                 .verifyComplete();
 
@@ -890,7 +890,7 @@ class BitstringStatusListProviderTest {
     @Test
     void revoke_shouldComplete_whenRevocationSucceeds() {
         // Arrange
-        UUID procedureUuid = UUID.fromString(TEST_PROCEDURE_ID);
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
 
         StatusListIndex listIndex = new StatusListIndex(
                 1L,
@@ -926,7 +926,7 @@ class BitstringStatusListProviderTest {
 
         String listUrl = TEST_ISSUER_URL + "/w3c/v1/credentials/status/" + TEST_LIST_ID;
 
-        when(statusListIndexRepository.findByProcedureId(procedureUuid))
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
                 .thenReturn(Mono.just(listIndex));
 
         when(statusListRepository.findById(TEST_LIST_ID))
@@ -952,10 +952,10 @@ class BitstringStatusListProviderTest {
         )).thenReturn(Mono.just(1));
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_PROCEDURE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN))
                 .verifyComplete();
 
-        verify(statusListIndexRepository).findByProcedureId(procedureUuid);
+        verify(statusListIndexRepository).findByIssuanceId(procedureUuid);
         verify(statusListRepository).findById(TEST_LIST_ID);
         verify(revocationService).applyRevocation(any(StatusListData.class), eq(TEST_IDX));
         verify(statusListRepository).updateSignedAndEncodedIfUnchanged(eq(TEST_LIST_ID), anyString(), anyString(), eq(updatedAt));
@@ -964,24 +964,24 @@ class BitstringStatusListProviderTest {
     @Test
     void revoke_shouldThrowStatusListIndexNotFoundException_whenNoIndexExists() {
         // Arrange
-        UUID procedureUuid = UUID.fromString(TEST_PROCEDURE_ID);
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
 
-        when(statusListIndexRepository.findByProcedureId(procedureUuid))
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
                 .thenReturn(Mono.empty());
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_PROCEDURE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN))
                 .expectError(StatusListIndexNotFoundException.class)
                 .verify();
 
-        verify(statusListIndexRepository).findByProcedureId(procedureUuid);
+        verify(statusListIndexRepository).findByIssuanceId(procedureUuid);
         verifyNoInteractions(statusListRepository);
     }
 
     @Test
     void revoke_shouldThrowStatusListNotFoundException_whenStatusListDoesNotExist() {
         // Arrange
-        UUID procedureUuid = UUID.fromString(TEST_PROCEDURE_ID);
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
 
         StatusListIndex listIndex = new StatusListIndex(
                 1L,
@@ -991,14 +991,14 @@ class BitstringStatusListProviderTest {
                 Instant.now()
         );
 
-        when(statusListIndexRepository.findByProcedureId(procedureUuid))
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
                 .thenReturn(Mono.just(listIndex));
 
         when(statusListRepository.findById(TEST_LIST_ID))
                 .thenReturn(Mono.empty());
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_PROCEDURE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN))
                 .expectError(StatusListNotFoundException.class)
                 .verify();
 
@@ -1009,7 +1009,7 @@ class BitstringStatusListProviderTest {
     @Test
     void revoke_shouldCompleteWithoutUpdating_whenAlreadyRevoked() {
         // Arrange
-        UUID procedureUuid = UUID.fromString(TEST_PROCEDURE_ID);
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
 
         StatusListIndex listIndex = new StatusListIndex(
                 1L,
@@ -1040,17 +1040,17 @@ class BitstringStatusListProviderTest {
         StatusListData revokedData = realRevocation.applyRevocation(baseData, TEST_IDX);
         StatusList revokedRow = new StatusList(revokedData.id(), revokedData.purpose(), revokedData.format(), revokedData.encodedList(), revokedData.signedCredential(), revokedData.createdAt(), revokedData.updatedAt());
 
-        when(statusListIndexRepository.findByProcedureId(procedureUuid))
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
                 .thenReturn(Mono.just(listIndex));
 
         when(statusListRepository.findById(TEST_LIST_ID))
                 .thenReturn(Mono.just(revokedRow));
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_PROCEDURE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN))
                 .verifyComplete();
 
-        verify(statusListIndexRepository).findByProcedureId(procedureUuid);
+        verify(statusListIndexRepository).findByIssuanceId(procedureUuid);
         verify(statusListRepository).findById(TEST_LIST_ID);
 
         verifyNoInteractions(statusListSigner);
@@ -1061,7 +1061,7 @@ class BitstringStatusListProviderTest {
     @Test
     void revoke_shouldRetryAndSucceed_whenOptimisticUpdateHappens() {
         // Arrange
-        UUID procedureUuid = UUID.fromString(TEST_PROCEDURE_ID);
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
 
         StatusListIndex listIndex = new StatusListIndex(
                 1L,
@@ -1096,7 +1096,7 @@ class BitstringStatusListProviderTest {
         SimpleIssuer simpleIssuer = SimpleIssuer.builder().id(TEST_ISSUER_DID).build();
         String listUrl = TEST_ISSUER_URL + "/w3c/v1/credentials/status/" + TEST_LIST_ID;
 
-        when(statusListIndexRepository.findByProcedureId(procedureUuid))
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
                 .thenReturn(Mono.just(listIndex));
 
         // Will be called at least twice because of retry
@@ -1125,7 +1125,7 @@ class BitstringStatusListProviderTest {
         )).thenReturn(Mono.just(0), Mono.just(1));
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_PROCEDURE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN))
                 .verifyComplete();
 
         verify(statusListRepository, times(2)).updateSignedAndEncodedIfUnchanged(
@@ -1154,7 +1154,7 @@ class BitstringStatusListProviderTest {
     @Test
     void revoke_shouldFailAfterMaxRetries_whenOptimisticUpdateNeverSucceeds() {
         // Arrange
-        UUID procedureUuid = UUID.fromString(TEST_PROCEDURE_ID);
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
 
         StatusListIndex listIndex = new StatusListIndex(
                 1L,
@@ -1189,7 +1189,7 @@ class BitstringStatusListProviderTest {
         SimpleIssuer simpleIssuer = SimpleIssuer.builder().id(TEST_ISSUER_DID).build();
         String listUrl = TEST_ISSUER_URL + "/w3c/v1/credentials/status/" + TEST_LIST_ID;
 
-        when(statusListIndexRepository.findByProcedureId(procedureUuid))
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
                 .thenReturn(Mono.just(listIndex));
 
         // Will be called once per attempt
@@ -1217,7 +1217,7 @@ class BitstringStatusListProviderTest {
         )).thenReturn(Mono.just(0));
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_PROCEDURE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN))
                 .expectErrorMatches(e ->
                         e.getClass().getName().contains("RetryExhaustedException")
                                 && e.getCause() instanceof OptimisticUpdateException

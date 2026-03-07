@@ -3,7 +3,7 @@ package es.in2.issuer.backend.shared.domain.util.factory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureCreationRequest;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceCreationRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
@@ -37,9 +37,9 @@ public class GenericCredentialBuilder {
      * Builds an unsigned credential from a profile definition and input payload.
      * Dispatches by format: W3C VCDM for jwt_vc_json/cwt_vc, flat structure for dc+sd-jwt.
      */
-    public Mono<CredentialProcedureCreationRequest> buildCredential(
+    public Mono<IssuanceCreationRequest> buildCredential(
             CredentialProfile profile,
-            String procedureId,
+            String issuanceId,
             JsonNode payload,
             CredentialStatus credentialStatus,
             String email) {
@@ -71,8 +71,8 @@ public class GenericCredentialBuilder {
         String subject = extractSubject(profile, payload);
 
         return extractOrganizationIdentifier(profile, payload)
-                .map(orgId -> CredentialProcedureCreationRequest.builder()
-                        .procedureId(procedureId)
+                .map(orgId -> IssuanceCreationRequest.builder()
+                        .issuanceId(issuanceId)
                         .organizationIdentifier(orgId)
                         .credentialDataSet(credentialJson)
                         .credentialType(profile.credentialConfigurationId())
@@ -214,7 +214,7 @@ public class GenericCredentialBuilder {
      * Format-aware: W3C sets issuer object, SD-JWT sets iss string.
      */
     public Mono<String> bindIssuer(CredentialProfile profile, String decodedCredentialJson,
-                                   String procedureId, String email) {
+                                   String issuanceId, String email) {
         return switch (profile.issuerType()) {
             case DETAILED -> issuerFactory.createDetailedIssuer()
                     .flatMap(issuer -> setIssuerField(profile, decodedCredentialJson, issuer));

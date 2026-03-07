@@ -11,7 +11,7 @@ public class EndpointsConstants {
     public static final String PROMETHEUS_PATH = "/prometheus";
     public static final String SPRINGDOC_BASE_PATH = "/springdoc";
     public static final String SPRINGDOC_PATH = SPRINGDOC_BASE_PATH+"/**";
-    public static final String BACKOFFICE_BASE_PATH = "/backoffice/v1";
+    public static final String ISSUANCE_BASE_PATH = "/issuance/v1";
     public static final String OID4VCI_BASE_PATH = "/oid4vci/v1";
     public static final String WELL_KNOWN_BASE_PATH ="/.well-known";
     public static final String VCI_BASE_PATH = "/vci/v1";
@@ -51,13 +51,13 @@ public class EndpointsConstants {
     public static final String OAUTH_PATH ="/oauth/**";
     public static final String OAUTH_TOKEN_PATH = "/oauth/token";
 
-    //backoffice Endpoints
-    public static final String BACKOFFICE_PATH = "/backoffice/**";
-    public static final String BACKOFFICE_STATUS_CREDENTIALS = BACKOFFICE_BASE_PATH+"/credentials/status/**";
-    public static final String BACKOFFICE_RETRY_SIGN_CREDENTIALS = BACKOFFICE_BASE_PATH+"/retry-sign-credential/{id}";
-    public static final String BACKOFFICE_DEFERRED_CREDENTIALS = BACKOFFICE_BASE_PATH + "/deferred-credentials";
+    // Issuance Endpoints
+    public static final String ISSUANCE_PATH = "/issuance/**";
+    public static final String ISSUANCE_STATUS_CREDENTIALS = ISSUANCE_BASE_PATH+"/credentials/status/**";
+    public static final String ISSUANCE_RETRY_SIGN_CREDENTIALS = ISSUANCE_BASE_PATH+"/retry-sign-credential/{id}";
+    public static final String ISSUANCE_DEFERRED_CREDENTIALS = ISSUANCE_BASE_PATH + "/deferred-credentials";
 
-    // Bootstrap Endpoints
+    // Bootstrap Endpoints (under issuance)
     public static final String BOOTSTRAP_BASE_PATH = "/bootstrap/v1";
     public static final String BOOTSTRAP_PATH = BOOTSTRAP_BASE_PATH + "/**";
     public static final String BOOTSTRAP_ISSUANCES_PATH = BOOTSTRAP_BASE_PATH + "/issuances";

@@ -9,10 +9,10 @@ import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.BindingInfo;
-import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
+import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuerMetadataService;
-import es.in2.issuer.backend.shared.domain.service.ProcedureService;
+import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.ProofValidationService;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
@@ -40,7 +40,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
 
     private final CredentialSignerWorkflow credentialSignerWorkflow;
     private final ProofValidationService proofValidationService;
-    private final ProcedureService procedureService;
+    private final IssuanceService issuanceService;
     private final CredentialIssuerMetadataService credentialIssuerMetadataService;
     private final GenericCredentialBuilder genericCredentialBuilder;
     private final CredentialProfileRegistry credentialProfileRegistry;
@@ -51,7 +51,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
     public Oid4VciCredentialWorkflowImpl(
             CredentialSignerWorkflow credentialSignerWorkflow,
             ProofValidationService proofValidationService,
-            ProcedureService procedureService,
+            IssuanceService issuanceService,
             CredentialIssuerMetadataService credentialIssuerMetadataService,
             GenericCredentialBuilder genericCredentialBuilder,
             CredentialProfileRegistry credentialProfileRegistry,
@@ -61,7 +61,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
     ) {
         this.credentialSignerWorkflow = credentialSignerWorkflow;
         this.proofValidationService = proofValidationService;
-        this.procedureService = procedureService;
+        this.issuanceService = issuanceService;
         this.credentialIssuerMetadataService = credentialIssuerMetadataService;
         this.genericCredentialBuilder = genericCredentialBuilder;
         this.credentialProfileRegistry = credentialProfileRegistry;
@@ -72,13 +72,13 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
 
     /**
      * OID4VCI credential issuance flow:
-     * 1. Load procedure (verify DRAFT status)
+     * 1. Load issuance (verify DRAFT status)
      * 2. Validate proof if required → extract BindingInfo (cnf)
      * 3. Enrich credential in memory (bind issuer) — NOT persisted to DB
      * 4. Allocate status list entry (revocation) and inject credentialStatus
      * 5. Cache enriched dataSet for later persistence on credential_accepted
      * 6. Sign credential (builds JWT/SD-JWT payload with cnf, signs)
-     * 7. Generate notification_id, cache mapping notificationId → procedureId
+     * 7. Generate notification_id, cache mapping notificationId → issuanceId
      * 8. Return CredentialResponse with signed credential + notification_id
      *
      * Status stays DRAFT until wallet confirms via credential_accepted notification.
@@ -90,15 +90,15 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             CredentialRequest credentialRequest,
             AccessTokenContext accessTokenContext) {
 
-        final String procedureId = accessTokenContext.procedureId();
+        final String issuanceId = accessTokenContext.issuanceId();
 
-        return procedureService.getProcedureById(procedureId)
-                .switchIfEmpty(Mono.error(new InvalidTokenException("Procedure not found: " + procedureId)))
+        return issuanceService.getIssuanceById(issuanceId)
+                .switchIfEmpty(Mono.error(new InvalidTokenException("Procedure not found: " + issuanceId)))
                 .flatMap(proc -> validateProcedureState(proc)
                         .then(Mono.fromCallable(credentialIssuerMetadataService::getCredentialIssuerMetadata))
                         .flatMap(metadata -> {
-                            log.info("[{}] Processing credential request: procedureId={}, type={}, format={}",
-                                    processId, procedureId, proc.getCredentialType(), proc.getCredentialFormat());
+                            log.info("[{}] Processing credential request: issuanceId={}, type={}, format={}",
+                                    processId, issuanceId, proc.getCredentialType(), proc.getCredentialFormat());
 
                             return validateAndDetermineBindingInfo(proc, metadata, credentialRequest)
                                     .defaultIfEmpty(new BindingInfo(null, null))
@@ -108,26 +108,26 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                 );
     }
 
-    private Mono<Void> validateProcedureState(CredentialProcedure proc) {
+    private Mono<Void> validateProcedureState(Issuance proc) {
         if (proc.getCredentialStatus() != CredentialStatusEnum.DRAFT) {
             return Mono.error(new InvalidCredentialFormatException(
-                    "Credential procedure is not in DRAFT status: " + proc.getCredentialStatus()));
+                    "Issuance is not in DRAFT status: " + proc.getCredentialStatus()));
         }
         return Mono.empty();
     }
 
     private Mono<CredentialResponse> enrichAndSign(
             String processId,
-            CredentialProcedure proc,
+            Issuance proc,
             BindingInfo bindingInfo,
             String rawToken) {
 
-        String procedureId = proc.getProcedureId().toString();
+        String issuanceId = proc.getIssuanceId().toString();
         String credentialType = proc.getCredentialType();
         String email = proc.getEmail();
         String credentialFormat = proc.getCredentialFormat() != null ? proc.getCredentialFormat() : JWT_VC_JSON;
 
-        CredentialProfile profile = credentialProfileRegistry.getByCredentialType(credentialType);
+        CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialType);
         if (profile == null) {
             return Mono.error(new FormatUnsupportedException("No profile for credential type: " + credentialType));
         }
@@ -138,10 +138,10 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                 ? StatusListFormat.TOKEN_JWT : StatusListFormat.BITSTRING_VC;
 
         // Step 1: Bind issuer to the credential dataSet (in memory, NOT persisted)
-        return genericCredentialBuilder.bindIssuer(profile, proc.getCredentialDataSet(), procedureId, email)
+        return genericCredentialBuilder.bindIssuer(profile, proc.getCredentialDataSet(), issuanceId, email)
                 // Step 2: Allocate status list entry and inject credentialStatus
                 .flatMap(enrichedDataSet ->
-                        statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, statusFormat, procedureId, token)
+                        statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, statusFormat, issuanceId, token)
                                 .map(entry -> {
                                     CredentialStatus status = CredentialStatus.fromStatusListEntry(entry);
                                     return genericCredentialBuilder.injectCredentialStatus(
@@ -150,16 +150,16 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                 )
                 .flatMap(enrichedWithStatus ->
                         // Step 3: Cache enriched dataSet for later persistence on credential_accepted
-                        enrichmentCacheStore.add(procedureId, enrichedWithStatus)
+                        enrichmentCacheStore.add(issuanceId, enrichedWithStatus)
                                 // Step 4: Sign using enriched data directly (no DB read)
                                 .then(credentialSignerWorkflow.signCredential(
                                         token, enrichedWithStatus, credentialType,
-                                        credentialFormat, cnf, procedureId, email))
+                                        credentialFormat, cnf, issuanceId, email))
                 )
                 .flatMap(signedCredential -> {
                     // Step 5: Generate notification_id and cache mapping
                     String notificationId = UUID.randomUUID().toString();
-                    return notificationCacheStore.add(notificationId, procedureId)
+                    return notificationCacheStore.add(notificationId, issuanceId)
                             .thenReturn(CredentialResponse.builder()
                                     .credentials(List.of(CredentialResponse.Credential.builder()
                                             .credential(signedCredential)
@@ -167,26 +167,26 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                                     .notificationId(notificationId)
                                     .build());
                 })
-                .doOnSuccess(resp -> log.info("[{}] Credential signed successfully for procedureId={}", processId, procedureId));
+                .doOnSuccess(resp -> log.info("[{}] Credential signed successfully for issuanceId={}", processId, issuanceId));
     }
 
     // --- Proof validation logic (kept from existing implementation) ---
 
     private Mono<BindingInfo> validateAndDetermineBindingInfo(
-            CredentialProcedure credentialProcedure,
+            Issuance issuance,
             CredentialIssuerMetadata metadata,
             CredentialRequest credentialRequest) {
 
-        return resolveConfigurationId(credentialProcedure)
+        return resolveConfigurationId(issuance)
                 .flatMap(configId -> findIssuerConfig(metadata, configId)
                         .flatMap(cfg -> evaluateCryptographicBinding(cfg, configId, metadata, credentialRequest))
                 );
     }
 
-    private Mono<String> resolveConfigurationId(CredentialProcedure credentialProcedure) {
-        String configId = credentialProcedure.getCredentialType();
+    private Mono<String> resolveConfigurationId(Issuance issuance) {
+        String configId = issuance.getCredentialType();
         if (configId == null || configId.isBlank()) {
-            return Mono.error(new FormatUnsupportedException("Missing credential type in procedure"));
+            return Mono.error(new FormatUnsupportedException("Missing credential type in issuance"));
         }
         return Mono.just(configId);
     }

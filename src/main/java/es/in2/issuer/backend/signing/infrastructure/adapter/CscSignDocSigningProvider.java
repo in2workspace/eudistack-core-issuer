@@ -25,17 +25,17 @@ public class CscSignDocSigningProvider implements SigningProvider {
             SigningContext ctx = request.context();
 
             String token = ctx.token();
-            String procedureId = ctx.procedureId();
+            String issuanceId = ctx.issuanceId();
             String email = ctx.email();
 
-            boolean isIssued = procedureId != null && !procedureId.isBlank();
+            boolean isIssued = issuanceId != null && !issuanceId.isBlank();
 
-            log.debug("Signing request received. type={}, issued={}, procedureId={}",
-                    request.type(), isIssued, procedureId);
+            log.debug("Signing request received. type={}, issued={}, issuanceId={}",
+                    request.type(), isIssued, issuanceId);
 
             Mono<SigningResult> signingMono =
                     isIssued
-                            ? remoteSignatureService.signIssuedCredential(request, token, procedureId, email)
+                            ? remoteSignatureService.signIssuedCredential(request, token, issuanceId, email)
                             : remoteSignatureService.signSystemCredential(request, token);
 
             Mono<SigningResult> resultMono = signingMono

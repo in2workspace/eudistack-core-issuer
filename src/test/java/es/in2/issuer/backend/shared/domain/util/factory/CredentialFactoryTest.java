@@ -2,7 +2,7 @@ package es.in2.issuer.backend.shared.domain.util.factory;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureCreationRequest;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceCreationRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
@@ -34,10 +34,10 @@ class CredentialFactoryTest {
     private CredentialFactory credentialFactory;
 
     @Test
-    void testMapCredentialIntoACredentialProcedureRequest_LEAREmployee_Success() {
+    void testMapCredentialIntoAIssuanceRequest_LEAREmployee_Success() {
         //Arrange
         String processId = "processId";
-        String procedureId = "procedureId";
+        String issuanceId = "issuanceId";
         String email = "test@example.com";
         JsonNode jsonNode = mock(JsonNode.class);
 
@@ -57,8 +57,8 @@ class CredentialFactoryTest {
         CredentialProfile profile = mock(CredentialProfile.class);
         when(credentialProfileRegistry.getByConfigurationId(LEAR_CREDENTIAL_EMPLOYEE)).thenReturn(profile);
 
-        CredentialProcedureCreationRequest expectedResponse = CredentialProcedureCreationRequest.builder()
-                .procedureId(procedureId)
+        IssuanceCreationRequest expectedResponse = IssuanceCreationRequest.builder()
+                .issuanceId(issuanceId)
                 .organizationIdentifier("org123")
                 .credentialDataSet("decoded")
                 .credentialType(LEAR_CREDENTIAL_EMPLOYEE)
@@ -67,23 +67,23 @@ class CredentialFactoryTest {
                 .email(email)
                 .build();
 
-        when(genericCredentialBuilder.buildCredential(profile, procedureId, jsonNode, credentialStatus, email))
+        when(genericCredentialBuilder.buildCredential(profile, issuanceId, jsonNode, credentialStatus, email))
                 .thenReturn(Mono.just(expectedResponse));
 
         //Act & Assert
-        StepVerifier.create(credentialFactory.mapCredentialIntoACredentialProcedureRequest(
-                        processId, procedureId, preSubmittedCredentialDataRequest, credentialStatus, email))
+        StepVerifier.create(credentialFactory.mapCredentialIntoAIssuanceRequest(
+                        processId, issuanceId, preSubmittedCredentialDataRequest, credentialStatus, email))
                 .expectNext(expectedResponse)
                 .verifyComplete();
 
-        verify(genericCredentialBuilder).buildCredential(profile, procedureId, jsonNode, credentialStatus, email);
+        verify(genericCredentialBuilder).buildCredential(profile, issuanceId, jsonNode, credentialStatus, email);
     }
 
     @Test
-    void testMapCredentialIntoACredentialProcedureRequest_LEARMachine_Success() {
+    void testMapCredentialIntoAIssuanceRequest_LEARMachine_Success() {
         //Arrange
         String processId = "processId";
-        String procedureId = "procedureId";
+        String issuanceId = "issuanceId";
         String email = "test@example.com";
         JsonNode jsonNode = mock(JsonNode.class);
 
@@ -103,8 +103,8 @@ class CredentialFactoryTest {
         CredentialProfile profile = mock(CredentialProfile.class);
         when(credentialProfileRegistry.getByConfigurationId(LEAR_CREDENTIAL_MACHINE)).thenReturn(profile);
 
-        CredentialProcedureCreationRequest expectedResponse = CredentialProcedureCreationRequest.builder()
-                .procedureId(procedureId)
+        IssuanceCreationRequest expectedResponse = IssuanceCreationRequest.builder()
+                .issuanceId(issuanceId)
                 .organizationIdentifier("org789")
                 .credentialDataSet("decoded")
                 .credentialType(LEAR_CREDENTIAL_MACHINE)
@@ -113,23 +113,23 @@ class CredentialFactoryTest {
                 .email(email)
                 .build();
 
-        when(genericCredentialBuilder.buildCredential(profile, procedureId, jsonNode, credentialStatus, email))
+        when(genericCredentialBuilder.buildCredential(profile, issuanceId, jsonNode, credentialStatus, email))
                 .thenReturn(Mono.just(expectedResponse));
 
         //Act & Assert
-        StepVerifier.create(credentialFactory.mapCredentialIntoACredentialProcedureRequest(
-                        processId, procedureId, preSubmittedCredentialDataRequest, credentialStatus, email))
+        StepVerifier.create(credentialFactory.mapCredentialIntoAIssuanceRequest(
+                        processId, issuanceId, preSubmittedCredentialDataRequest, credentialStatus, email))
                 .expectNext(expectedResponse)
                 .verifyComplete();
 
-        verify(genericCredentialBuilder).buildCredential(profile, procedureId, jsonNode, credentialStatus, email);
+        verify(genericCredentialBuilder).buildCredential(profile, issuanceId, jsonNode, credentialStatus, email);
     }
 
     @Test
-    void testMapCredentialIntoACredentialProcedureRequest_UnsupportedCredential_Failure() {
+    void testMapCredentialIntoAIssuanceRequest_UnsupportedCredential_Failure() {
         //Arrange
         String processId = "processId";
-        String procedureId = "procedureId";
+        String issuanceId = "issuanceId";
         String email = "test@example.com";
 
         CredentialStatus credentialStatus = CredentialStatus.builder()
@@ -149,8 +149,8 @@ class CredentialFactoryTest {
         when(credentialProfileRegistry.getByCredentialType("UNSUPPORTED_CREDENTIAL")).thenReturn(null);
 
         //Act & Assert
-        StepVerifier.create(credentialFactory.mapCredentialIntoACredentialProcedureRequest(
-                        processId, procedureId, preSubmittedCredentialDataRequest, credentialStatus, email))
+        StepVerifier.create(credentialFactory.mapCredentialIntoAIssuanceRequest(
+                        processId, issuanceId, preSubmittedCredentialDataRequest, credentialStatus, email))
                 .expectError(CredentialTypeUnsupportedException.class)
                 .verify();
 

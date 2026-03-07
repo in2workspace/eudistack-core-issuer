@@ -7,6 +7,6 @@ public record StatusListIndexData(
         Long id,
         Long statusListId,
         Integer idx,
-        UUID procedureId,
+        UUID issuanceId,
         Instant createdAt
 ) { }

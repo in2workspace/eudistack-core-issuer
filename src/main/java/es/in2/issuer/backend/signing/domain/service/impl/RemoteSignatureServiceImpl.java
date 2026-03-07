@@ -82,17 +82,17 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
     public Mono<SigningResult> signIssuedCredential(
             SigningRequest signingRequest,
             String token,
-            String procedureId,
+            String issuanceId,
             String email
     ) {
         log.debug(
-                "RemoteSignatureServiceImpl - signIssuedCredential, signingRequest: {}, token: {}, procedureId: {}, email: {}",
-                signingRequest, token, procedureId, email
+                "RemoteSignatureServiceImpl - signIssuedCredential, signingRequest: {}, token: {}, issuanceId: {}, email: {}",
+                signingRequest, token, issuanceId, email
         );
 
         return signWithRetry(signingRequest, token, "signIssuedCredential")
                 .doOnSuccess(result -> {
-                    log.info("Successfully signed credential for procedureId: {}", procedureId);
+                    log.info("Successfully signed credential for issuanceId: {}", issuanceId);
                 });
     }
 
@@ -108,7 +108,7 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
      * <ul>
      *   <li>No deferred signing</li>
      *   <li>No async recovery flow</li>
-     *   <li>No post-signature handling (email, procedure tracking, etc.)</li>
+     *   <li>No post-signature handling (email, issuance tracking, etc.)</li>
      * </ul>
      *
      * <p>

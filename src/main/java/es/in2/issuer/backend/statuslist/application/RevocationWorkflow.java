@@ -1,9 +1,9 @@
 package es.in2.issuer.backend.statuslist.application;
 
-import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
+import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
-import es.in2.issuer.backend.shared.domain.service.ProcedureService;
+import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.statuslist.application.policies.StatusListPdpService;
 import es.in2.issuer.backend.statuslist.domain.spi.StatusListProvider;
@@ -26,35 +26,35 @@ public class RevocationWorkflow {
     private final StatusListProvider statusListProvider;
     private final AccessTokenService accessTokenService;
     private final StatusListPdpService statusListPdpService;
-    private final ProcedureService procedureService;
+    private final IssuanceService issuanceService;
     private final EmailService emailService;
     private final AuditService auditService;
 
-    private record RevocationContext(String token, CredentialProcedure procedure) { }
+    private record RevocationContext(String token, Issuance issuance) { }
 
     @FunctionalInterface
     private interface RevocationValidator {
-        Mono<Void> validate(String processId, String token, CredentialProcedure procedure);
+        Mono<Void> validate(String processId, String token, Issuance issuance);
     }
 
     @Observed(name = "revocation.revoke", contextualName = "revocation-revoke")
-    public Mono<Void> revoke(String processId, String bearerToken, String credentialProcedureId) {
+    public Mono<Void> revoke(String processId, String bearerToken, String issuanceId) {
         return revokeInternal(
                 processId,
                 bearerToken,
-                credentialProcedureId,
+                issuanceId,
                 statusListPdpService::validateRevokeCredential,
                 "revokeCredential"
         );
     }
 
     @Observed(name = "revocation.revoke-system", contextualName = "revocation-revoke-system")
-    public Mono<Void> revokeSystem(String processId, String bearerToken, String credentialProcedureId) {
+    public Mono<Void> revokeSystem(String processId, String bearerToken, String issuanceId) {
         return revokeInternal(
                 processId,
                 bearerToken,
-                credentialProcedureId,
-                (pid, token, procedure) -> statusListPdpService.validateRevokeCredentialSystem(pid, procedure),
+                issuanceId,
+                (pid, token, issuance) -> statusListPdpService.validateRevokeCredentialSystem(pid, issuance),
                 "revokeSystemCredential"
         );
     }
@@ -62,66 +62,66 @@ public class RevocationWorkflow {
     private Mono<Void> revokeInternal(
             String processId,
             String bearerToken,
-            String credentialProcedureId,
+            String issuanceId,
             RevocationValidator validator,
             String action
     ) {
         requireNonNullParam(processId, "processId");
         requireNonNullParam(bearerToken, "bearerToken");
-        requireNonNullParam(credentialProcedureId, "credentialProcedureId");
+        requireNonNullParam(issuanceId, "issuanceId");
 
         return accessTokenService.getCleanBearerToken(bearerToken)
                 .doFirst(() -> log.info(
-                        "processId={} action={} status=started procedureId={}",
-                        processId, action, credentialProcedureId
+                        "processId={} action={} status=started issuanceId={}",
+                        processId, action, issuanceId
                 ))
                 .flatMap(token ->
-                        procedureService.getProcedureById(credentialProcedureId)
+                        issuanceService.getIssuanceById(issuanceId)
                                 .doOnSuccess(p -> log.debug(
-                                        "processId={} action={} step=procedureLoaded procedureId={} credentialStatus={}",
-                                        processId, action, credentialProcedureId, p != null ? p.getCredentialStatus() : null
+                                        "processId={} action={} step=issuanceLoaded issuanceId={} credentialStatus={}",
+                                        processId, action, issuanceId, p != null ? p.getCredentialStatus() : null
                                 ))
-                                .flatMap(procedure ->
-                                        validator.validate(processId, token, procedure)
+                                .flatMap(issuance ->
+                                        validator.validate(processId, token, issuance)
                                                 .doOnSuccess(v -> log.info(
-                                                        "processId={} action={} step=validationPassed procedureId={}",
-                                                        processId, action, credentialProcedureId
+                                                        "processId={} action={} step=validationPassed issuanceId={}",
+                                                        processId, action, issuanceId
                                                 ))
-                                                .thenReturn(new RevocationContext(token, procedure))
+                                                .thenReturn(new RevocationContext(token, issuance))
                                 )
                 )
                 .flatMap(ctx ->
-                        statusListProvider.revoke(credentialProcedureId, ctx.token)
-                                .then(procedureService.updateCredentialProcedureCredentialStatusToRevoke(ctx.procedure)
+                        statusListProvider.revoke(issuanceId, ctx.token)
+                                .then(issuanceService.updateIssuanceStatusToRevoked(ctx.issuance)
                                         .doOnSuccess(v -> log.info(
-                                                "processId={} action={} step=procedureUpdated procedureId={}",
-                                                processId, action, credentialProcedureId
+                                                "processId={} action={} step=issuanceUpdated issuanceId={}",
+                                                processId, action, issuanceId
                                         ))
                                 )
-                                .then(procedureService.extractCredentialId(ctx.procedure)
-                                        .zipWith(procedureService.findCredentialOfferEmailInfoByProcedureId(credentialProcedureId))
+                                .then(issuanceService.extractCredentialId(ctx.issuance)
+                                        .zipWith(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId))
                                         .flatMap(idAndInfo -> emailService.sendCredentialStatusChangeNotification(
                                                 idAndInfo.getT2().email(),
                                                 idAndInfo.getT2().organization(),
                                                 idAndInfo.getT1(),
-                                                ctx.procedure.getCredentialType(),
+                                                ctx.issuance.getCredentialType(),
                                                 REVOKED
                                         ))
                                         .doOnSuccess(v -> log.debug(
-                                                "processId={} action={} step=emailNotificationTriggered procedureId={} newStatus={}",
-                                                processId, action, credentialProcedureId, REVOKED
+                                                "processId={} action={} step=emailNotificationTriggered issuanceId={} newStatus={}",
+                                                processId, action, issuanceId, REVOKED
                                         ))
                                 )
                 )
                 .doOnSuccess(v -> {
-                    log.info("processId={} action={} status=completed procedureId={}",
-                            processId, action, credentialProcedureId);
-                    auditService.auditSuccess("credential.revoked", null, "credential", credentialProcedureId,
+                    log.info("processId={} action={} status=completed issuanceId={}",
+                            processId, action, issuanceId);
+                    auditService.auditSuccess("credential.revoked", null, "credential", issuanceId,
                             Map.of("processId", processId, "action", action));
                 })
                 .doOnError(e -> log.warn(
-                        "processId={} action={} status=failed procedureId={} error={}",
-                        processId, action, credentialProcedureId, e.toString()
+                        "processId={} action={} status=failed issuanceId={} error={}",
+                        processId, action, issuanceId, e.toString()
                 ));
     }
 }

@@ -47,7 +47,7 @@ public class StatusListController {
     ) {
         String processId = UUID.randomUUID().toString();
 
-        return revocationWorkflow.revoke(processId, bearerToken, request.procedureId())
+        return revocationWorkflow.revoke(processId, bearerToken, request.issuanceId())
                 .doFirst(() -> log.info("Process ID: {} - Revoking Credential...", processId))
                 .doOnSuccess(v -> log.info("Process ID: {} - Credential revoked successfully.", processId))
                 .doOnError(e -> log.warn("Process ID: {} - Revoking credential failed: {}", processId, e.toString()));

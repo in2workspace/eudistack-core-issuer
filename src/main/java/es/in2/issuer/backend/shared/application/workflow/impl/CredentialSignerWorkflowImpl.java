@@ -47,8 +47,8 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
     @Observed(name = "issuance.sign-credential", contextualName = "issuance-sign-credential")
     @Override
     public Mono<String> signCredential(String token, String enrichedDataSet, String credentialType,
-                                       String format, Map<String, Object> cnf, String procedureId, String email) {
-        log.debug("signCredential procedureId={} format={}", procedureId, format);
+                                       String format, Map<String, Object> cnf, String issuanceId, String email) {
+        log.debug("signCredential issuanceId={} format={}", issuanceId, format);
 
         CredentialProfile profile = credentialProfileRegistry.getByCredentialType(credentialType);
         if (profile == null) {
@@ -60,17 +60,17 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
 
         // SD-JWT path
         if (DC_SD_JWT.equals(format) && profile.sdJwt() != null) {
-            return buildSdJwtCredential(profile, enrichedDataSet, cnfMap, token, procedureId, email);
+            return buildSdJwtCredential(profile, enrichedDataSet, cnfMap, token, issuanceId, email);
         }
 
         return genericCredentialBuilder.buildJwtPayload(
                         profile, enrichedDataSet, profile.cnfRequired() ? cnfMap : null)
                 .flatMap(unsignedCredential ->
-                        signCredentialOnRequestedFormat(unsignedCredential, format, token, procedureId, email)
+                        signCredentialOnRequestedFormat(unsignedCredential, format, token, issuanceId, email)
                 );
     }
 
-    private Mono<String> signCredentialOnRequestedFormat(String unsignedCredential, String format, String token, String procedureId, String email) {
+    private Mono<String> signCredentialOnRequestedFormat(String unsignedCredential, String format, String token, String issuanceId, String email) {
         return Mono.defer(() -> {
             if (format.equals(JWT_VC_JSON)) {
                 return setSubIfCredentialSubjectIdPresent(unsignedCredential)
@@ -79,7 +79,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                             SigningRequest signingRequest = SigningRequest.builder()
                                     .type(SigningType.JADES)
                                     .data(payloadToSign)
-                                    .context(new SigningContext(token, procedureId, email))
+                                    .context(new SigningContext(token, issuanceId, email))
                                     .build();
 
                             return signingProvider.sign(signingRequest)
@@ -88,7 +88,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
 
             } else if (format.equals(CWT_VC)) {
                 return generateCborFromJson(unsignedCredential)
-                        .flatMap(cbor -> generateCOSEBytesFromCBOR(cbor, token, email, procedureId))
+                        .flatMap(cbor -> generateCOSEBytesFromCBOR(cbor, token, email, issuanceId))
                         .flatMap(this::compressAndConvertToBase45FromCOSE);
             } else {
                 return Mono.error(new IllegalArgumentException("Unsupported credential format: " + format));
@@ -157,13 +157,13 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
         return Mono.fromCallable(() -> CBORObject.FromJSONString(edgcJson).EncodeToBytes());
     }
 
-    private Mono<byte[]> generateCOSEBytesFromCBOR(byte[] cbor, String token, String email, String procedureId) {
+    private Mono<byte[]> generateCOSEBytesFromCBOR(byte[] cbor, String token, String email, String issuanceId) {
         log.info("Signing credential in COSE format remotely ...");
         String cborBase64 = Base64.getEncoder().encodeToString(cbor);
         SigningRequest signingRequest = SigningRequest.builder()
                 .type(SigningType.COSE)
                 .data(cborBase64)
-                .context(new SigningContext(token, procedureId, email))
+                .context(new SigningContext(token, issuanceId, email))
                 .build();
         return signingProvider.sign(signingRequest)
                 .map(SigningResult::data)
@@ -186,15 +186,15 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
     }
 
     private Mono<String> buildSdJwtCredential(CredentialProfile profile, String decodedCredentialJson,
-            Map<String, Object> cnfMap, String token, String procedureId, String email) {
+            Map<String, Object> cnfMap, String token, String issuanceId, String email) {
         return Mono.fromCallable(() -> sdJwtPayloadBuilder.build(decodedCredentialJson, profile, cnfMap))
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMap(components -> {
-                    log.info("Signing SD-JWT credential for procedureId={}", procedureId);
+                    log.info("Signing SD-JWT credential for issuanceId={}", issuanceId);
                     SigningRequest signingRequest = SigningRequest.builder()
                             .type(SigningType.JADES)
                             .data(components.payloadJson())
-                            .context(new SigningContext(token, procedureId, email))
+                            .context(new SigningContext(token, issuanceId, email))
                             .typ(DC_SD_JWT)
                             .build();
                     return signingProvider.sign(signingRequest)

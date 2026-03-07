@@ -3,9 +3,9 @@ package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationEvent;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationRequest;
-import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
+import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
-import es.in2.issuer.backend.shared.domain.service.ProcedureService;
+import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,7 +26,7 @@ class HandleNotificationWorkflowImplTest {
     private HandleNotificationWorkflowImpl handleNotificationWorkflow;
 
     @Mock
-    private ProcedureService procedureService;
+    private IssuanceService issuanceService;
 
     @Mock
     private RevocationWorkflow revocationWorkflow;
@@ -43,33 +43,33 @@ class HandleNotificationWorkflowImplTest {
     private final String processId = "proc-123";
     private final String bearerToken = "Bearer token";
 
-    private UUID procedureId;
-    private CredentialProcedure procedure;
+    private UUID issuanceId;
+    private Issuance issuance;
 
     @BeforeEach
     void setUp() {
         handleNotificationWorkflow = new HandleNotificationWorkflowImpl(
-                procedureService, revocationWorkflow,
+                issuanceService, revocationWorkflow,
                 notificationCacheStore, enrichmentCacheStore,
                 auditService
         );
 
-        procedureId = UUID.randomUUID();
-        procedure = mock(CredentialProcedure.class);
+        issuanceId = UUID.randomUUID();
+        issuance = mock(Issuance.class);
 
-        when(procedure.getProcedureId()).thenReturn(procedureId);
+        when(issuance.getIssuanceId()).thenReturn(issuanceId);
     }
 
     @Test
     void handleNotification_accepted_draft_shouldPersistEnrichedDataAndTransitionToIssued() {
-        when(procedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.DRAFT);
-        when(procedure.getCredentialFormat()).thenReturn("jwt_vc_json");
-        when(notificationCacheStore.get("nid-1")).thenReturn(Mono.just(procedureId.toString()));
-        when(procedureService.getProcedureById(procedureId.toString()))
-                .thenReturn(Mono.just(procedure));
-        when(enrichmentCacheStore.get(procedureId.toString())).thenReturn(Mono.just("{\"enriched\":true}"));
-        when(procedureService.updateCredentialDataSetByProcedureId(
-                procedureId.toString(), "{\"enriched\":true}", "jwt_vc_json"))
+        when(issuance.getCredentialStatus()).thenReturn(CredentialStatusEnum.DRAFT);
+        when(issuance.getCredentialFormat()).thenReturn("jwt_vc_json");
+        when(notificationCacheStore.get("nid-1")).thenReturn(Mono.just(issuanceId.toString()));
+        when(issuanceService.getIssuanceById(issuanceId.toString()))
+                .thenReturn(Mono.just(issuance));
+        when(enrichmentCacheStore.get(issuanceId.toString())).thenReturn(Mono.just("{\"enriched\":true}"));
+        when(issuanceService.updateCredentialDataSetByIssuanceId(
+                issuanceId.toString(), "{\"enriched\":true}", "jwt_vc_json"))
                 .thenReturn(Mono.empty());
 
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_ACCEPTED, "desc");
@@ -77,53 +77,53 @@ class HandleNotificationWorkflowImplTest {
         StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
                 .verifyComplete();
 
-        verify(procedureService).updateCredentialDataSetByProcedureId(
-                procedureId.toString(), "{\"enriched\":true}", "jwt_vc_json");
+        verify(issuanceService).updateCredentialDataSetByIssuanceId(
+                issuanceId.toString(), "{\"enriched\":true}", "jwt_vc_json");
         verifyNoInteractions(revocationWorkflow);
     }
 
     @Test
     void handleNotification_accepted_notDraft_shouldBeIgnored() {
-        when(procedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.ISSUED);
-        when(notificationCacheStore.get("nid-1")).thenReturn(Mono.just(procedureId.toString()));
-        when(procedureService.getProcedureById(procedureId.toString()))
-                .thenReturn(Mono.just(procedure));
+        when(issuance.getCredentialStatus()).thenReturn(CredentialStatusEnum.ISSUED);
+        when(notificationCacheStore.get("nid-1")).thenReturn(Mono.just(issuanceId.toString()));
+        when(issuanceService.getIssuanceById(issuanceId.toString()))
+                .thenReturn(Mono.just(issuance));
 
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_ACCEPTED, "desc");
 
         StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
                 .verifyComplete();
 
-        verify(procedureService, never()).updateCredentialDataSetByProcedureId(any(), any(), any());
+        verify(issuanceService, never()).updateCredentialDataSetByIssuanceId(any(), any(), any());
         verifyNoInteractions(revocationWorkflow);
     }
 
     @Test
     void handleNotification_failure_draft_shouldLogOnlyAndStayDraft() {
-        when(procedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.DRAFT);
-        when(notificationCacheStore.get("nid-1")).thenReturn(Mono.just(procedureId.toString()));
-        when(procedureService.getProcedureById(procedureId.toString()))
-                .thenReturn(Mono.just(procedure));
+        when(issuance.getCredentialStatus()).thenReturn(CredentialStatusEnum.DRAFT);
+        when(notificationCacheStore.get("nid-1")).thenReturn(Mono.just(issuanceId.toString()));
+        when(issuanceService.getIssuanceById(issuanceId.toString()))
+                .thenReturn(Mono.just(issuance));
 
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_FAILURE, "wallet error");
 
         StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
                 .verifyComplete();
 
-        verify(procedureService, never()).updateCredentialDataSetByProcedureId(any(), any(), any());
-        verify(procedureService, never()).withdrawCredentialProcedure(any());
+        verify(issuanceService, never()).updateCredentialDataSetByIssuanceId(any(), any(), any());
+        verify(issuanceService, never()).withdrawIssuance(any());
         verifyNoInteractions(revocationWorkflow);
     }
 
     @Test
     void handleNotification_deleted_draft_shouldWithdrawAndRevokeStatusList() {
-        when(procedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.DRAFT);
-        when(notificationCacheStore.get("nid-1")).thenReturn(Mono.just(procedureId.toString()));
-        when(procedureService.getProcedureById(procedureId.toString()))
-                .thenReturn(Mono.just(procedure));
-        when(procedureService.withdrawCredentialProcedure(procedureId.toString()))
+        when(issuance.getCredentialStatus()).thenReturn(CredentialStatusEnum.DRAFT);
+        when(notificationCacheStore.get("nid-1")).thenReturn(Mono.just(issuanceId.toString()));
+        when(issuanceService.getIssuanceById(issuanceId.toString()))
+                .thenReturn(Mono.just(issuance));
+        when(issuanceService.withdrawIssuance(issuanceId.toString()))
                 .thenReturn(Mono.empty());
-        when(revocationWorkflow.revokeSystem(processId, bearerToken, procedureId.toString()))
+        when(revocationWorkflow.revokeSystem(processId, bearerToken, issuanceId.toString()))
                 .thenReturn(Mono.empty());
 
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_DELETED, "desc");
@@ -131,23 +131,23 @@ class HandleNotificationWorkflowImplTest {
         StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
                 .verifyComplete();
 
-        verify(procedureService).withdrawCredentialProcedure(procedureId.toString());
-        verify(revocationWorkflow).revokeSystem(processId, bearerToken, procedureId.toString());
+        verify(issuanceService).withdrawIssuance(issuanceId.toString());
+        verify(revocationWorkflow).revokeSystem(processId, bearerToken, issuanceId.toString());
     }
 
     @Test
     void handleNotification_deleted_notDraft_shouldBeIgnored() {
-        when(procedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.VALID);
-        when(notificationCacheStore.get("nid-1")).thenReturn(Mono.just(procedureId.toString()));
-        when(procedureService.getProcedureById(procedureId.toString()))
-                .thenReturn(Mono.just(procedure));
+        when(issuance.getCredentialStatus()).thenReturn(CredentialStatusEnum.VALID);
+        when(notificationCacheStore.get("nid-1")).thenReturn(Mono.just(issuanceId.toString()));
+        when(issuanceService.getIssuanceById(issuanceId.toString()))
+                .thenReturn(Mono.just(issuance));
 
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_DELETED, "desc");
 
         StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
                 .verifyComplete();
 
-        verify(procedureService, never()).withdrawCredentialProcedure(any());
+        verify(issuanceService, never()).withdrawIssuance(any());
         verifyNoInteractions(revocationWorkflow);
     }
 }

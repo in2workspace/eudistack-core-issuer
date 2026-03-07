@@ -5,6 +5,6 @@ import lombok.Builder;
 @Builder
 public record SigningContext(
         String token,
-        String procedureId,
+        String issuanceId,
         String email
 ) {}

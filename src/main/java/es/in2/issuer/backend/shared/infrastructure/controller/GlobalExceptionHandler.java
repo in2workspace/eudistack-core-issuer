@@ -404,33 +404,33 @@ public class GlobalExceptionHandler {
         );
     }
 
-    @ExceptionHandler(CredentialProcedureInvalidStatusException.class)
+    @ExceptionHandler(IssuanceInvalidStatusException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
-    public Mono<GlobalErrorMessage> handleCredentialProcedureInvalidStatusException(
-            CredentialProcedureInvalidStatusException ex,
+    public Mono<GlobalErrorMessage> handleIssuanceInvalidStatusException(
+            IssuanceInvalidStatusException ex,
             ServerHttpRequest request
     ) {
         return errors.handleWith(
                 ex, request,
-                GlobalErrorTypes.CREDENTIAL_PROCEDURE_INVALID_STATUS.getCode(),
-                "Invalid credential procedure status",
+                GlobalErrorTypes.ISSUANCE_INVALID_STATUS.getCode(),
+                "Invalid issuance status",
                 HttpStatus.CONFLICT,
-                "The credential procedure is not in a status that allows signing."
+                "The issuance is not in a status that allows signing."
         );
     }
 
-    @ExceptionHandler(CredentialProcedureNotFoundException.class)
+    @ExceptionHandler(IssuanceNotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
-    public Mono<GlobalErrorMessage> handleCredentialProcedureNotFoundException(
-            CredentialProcedureNotFoundException ex,
+    public Mono<GlobalErrorMessage> handleIssuanceNotFoundException(
+            IssuanceNotFoundException ex,
             ServerHttpRequest request
     ) {
         return errors.handleWith(
                 ex, request,
-                GlobalErrorTypes.CREDENTIAL_PROCEDURE_NOT_FOUND.getCode(),
-                "Credential procedure not found",
+                GlobalErrorTypes.ISSUANCE_NOT_FOUND.getCode(),
+                "Issuance not found",
                 HttpStatus.NOT_FOUND,
-                "The requested credential procedure was not found"
+                "The requested issuance was not found"
         );
     }
 

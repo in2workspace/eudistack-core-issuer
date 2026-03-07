@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndTxCode;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndTxCode;
 import es.in2.issuer.backend.shared.domain.model.dto.PreAuthorizedCodeResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.TxCode;
 import es.in2.issuer.backend.shared.domain.service.TranslationService;
@@ -26,7 +26,7 @@ class PreAuthorizedCodeServiceImplTest {
     @Mock
     private SecureRandom random; // Unused in these tests, needed by constructor
     @Mock
-    private TransientStore<CredentialProcedureIdAndTxCode> cacheStore; // Unused here
+    private TransientStore<IssuanceIdAndTxCode> cacheStore; // Unused here
     @Mock
     private TranslationService translationService; // Unused here
 

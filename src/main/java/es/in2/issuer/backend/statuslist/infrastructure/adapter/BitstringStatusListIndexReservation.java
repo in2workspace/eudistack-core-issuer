@@ -30,8 +30,8 @@ public class BitstringStatusListIndexReservation implements StatusListIndexReser
     private final UniqueViolationClassifier uniqueViolationClassifier;
 
     @Override
-    public Mono<StatusListIndexData> reserve(Long statusListId, String procedureId) {
-        return reserveWithRetry(statusListId, procedureId)
+    public Mono<StatusListIndexData> reserve(Long statusListId, String issuanceId) {
+        return reserveWithRetry(statusListId, issuanceId)
                 .map(BitstringStatusListIndexReservation::toDomain);
     }
 
@@ -39,12 +39,12 @@ public class BitstringStatusListIndexReservation implements StatusListIndexReser
     private static final long EARLY_ESCAPE_AFTER = 8;
     private static final double EARLY_ESCAPE_FILL_RATIO = 0.95;
 
-    private Mono<StatusListIndex> reserveWithRetry(Long statusListId, String procedureId) {
-        log.info("reserveOnSpecificList - statusListId: {} - procedureId: {}", statusListId, procedureId);
+    private Mono<StatusListIndex> reserveWithRetry(Long statusListId, String issuanceId) {
+        log.info("reserveOnSpecificList - statusListId: {} - issuanceId: {}", statusListId, issuanceId);
         requireNonNullParam(statusListId, "statusListId");
-        requireNonNullParam(procedureId, "procedureId");
+        requireNonNullParam(issuanceId, "issuanceId");
 
-        return Mono.defer(() -> tryReserveOnce(statusListId, procedureId))
+        return Mono.defer(() -> tryReserveOnce(statusListId, issuanceId))
                 .retryWhen(
                         Retry.backoff(MAX_ATTEMPTS - 1L, Duration.ofMillis(5))
                                 .maxBackoff(Duration.ofMillis(100))
@@ -55,8 +55,8 @@ public class BitstringStatusListIndexReservation implements StatusListIndexReser
                                 .doBeforeRetry(rs -> {
                                     long attempt = rs.totalRetries() + 2;
                                     log.debug(
-                                            "action=reserveStatusListIndex retryReason=uniqueCollision statusListId={} procedureId={} attempt={}/{}",
-                                        statusListId, procedureId, attempt, MAX_ATTEMPTS
+                                            "action=reserveStatusListIndex retryReason=uniqueCollision statusListId={} issuanceId={} attempt={}/{}",
+                                        statusListId, issuanceId, attempt, MAX_ATTEMPTS
                                 );
                                 })
                 )
@@ -86,35 +86,35 @@ public class BitstringStatusListIndexReservation implements StatusListIndexReser
                 });
     }
 
-    private Mono<StatusListIndex> tryReserveOnce(Long statusListId, String procedureId) {
+    private Mono<StatusListIndex> tryReserveOnce(Long statusListId, String issuanceId) {
         int idx = indexAllocator.proposeIndex(CAPACITY_BITS);
 
         StatusListIndex row = new StatusListIndex(
                 null,
                 statusListId,
                 idx,
-                UUID.fromString(procedureId),
+                UUID.fromString(issuanceId),
                 Instant.now()
         );
 
         return statusListIndexRepository.save(row)
                 .doOnNext(saved -> log.debug(
-                        "Saved StatusListIndex: id={}, statusListId={}, idx={}, procedureId={}, createdAt={}",
+                        "Saved StatusListIndex: id={}, statusListId={}, idx={}, issuanceId={}, createdAt={}",
                         saved.id(),
                         saved.statusListId(),
                         saved.idx(),
-                        saved.procedureId(),
+                        saved.issuanceId(),
                         saved.createdAt()
                 ))
                 .onErrorResume(t -> {
                     UniqueViolationClassifier.Kind k = uniqueViolationClassifier.classify(t);
                     log.debug(
-                            "action=tryReserveOnce constraintKind={} statusListId={} idx={} procedureId={}",
-                            k, statusListId, idx, procedureId
+                            "action=tryReserveOnce constraintKind={} statusListId={} idx={} issuanceId={}",
+                            k, statusListId, idx, issuanceId
                     );
 
-                    if (k == UniqueViolationClassifier.Kind.PROCEDURE_ID) {
-                        return statusListIndexRepository.findByProcedureId(UUID.fromString(procedureId))
+                    if (k == UniqueViolationClassifier.Kind.ISSUANCE_ID) {
+                        return statusListIndexRepository.findByIssuanceId(UUID.fromString(issuanceId))
                                 .switchIfEmpty(Mono.error(t));
                     }
 
@@ -137,7 +137,7 @@ public class BitstringStatusListIndexReservation implements StatusListIndexReser
                 entity.id(),
                 entity.statusListId(),
                 entity.idx(),
-                entity.procedureId(),
+                entity.issuanceId(),
                 entity.createdAt()
         );
     }

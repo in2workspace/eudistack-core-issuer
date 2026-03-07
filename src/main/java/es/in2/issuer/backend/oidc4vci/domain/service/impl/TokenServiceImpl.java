@@ -7,10 +7,10 @@ import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.TokenService;
 import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndRefreshToken;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndTxCode;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndRefreshToken;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndTxCode;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
-import es.in2.issuer.backend.shared.domain.service.ProcedureService;
+import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.DpopValidationService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.PkceVerifier;
@@ -44,13 +44,13 @@ public class TokenServiceImpl implements TokenService {
     private static final String TOKEN_TYPE_BEARER = "bearer";
     private static final String TOKEN_TYPE_DPOP = "DPoP";
 
-    private final TransientStore<CredentialProcedureIdAndTxCode> txCodeCacheStore;
-    private final TransientStore<CredentialProcedureIdAndRefreshToken> refreshTokenCacheStore;
+    private final TransientStore<IssuanceIdAndTxCode> txCodeCacheStore;
+    private final TransientStore<IssuanceIdAndRefreshToken> refreshTokenCacheStore;
     private final TransientStore<AuthorizationCodeData> authorizationCodeCacheStore;
     private final JWTService jwtService;
     private final RefreshTokenService refreshTokenService;
     private final IssuerProperties appConfig;
-    private final ProcedureService procedureService;
+    private final IssuanceService issuanceService;
     private final PkceVerifier pkceVerifier;
     private final DpopValidationService dpopValidationService;
     private final Oid4vciProfilePort profileProperties;
@@ -114,10 +114,10 @@ public class TokenServiceImpl implements TokenService {
         String refreshToken = refreshTokenService.issueRefreshToken();
 
         return txCodeCacheStore.get(preAuthorizedCode)
-                .map(CredentialProcedureIdAndTxCode::credentialProcedureId)
-                .flatMap(procedureId -> {
-                    String accessToken = buildAccessToken(procedureId, issueTime.getEpochSecond(), accessTokenExp);
-                    return storeRefreshToken(procedureId, preAuthorizedCode, refreshToken, refreshTokenExp)
+                .map(IssuanceIdAndTxCode::issuanceId)
+                .flatMap(issuanceId -> {
+                    String accessToken = buildAccessToken(issuanceId, issueTime.getEpochSecond(), accessTokenExp);
+                    return storeRefreshToken(issuanceId, preAuthorizedCode, refreshToken, refreshTokenExp)
                             .thenReturn(TokenResponse.builder()
                                     .accessToken(accessToken)
                                     .tokenType(TOKEN_TYPE_BEARER)
@@ -127,14 +127,14 @@ public class TokenServiceImpl implements TokenService {
                 });
     }
 
-    private String buildAccessToken(String procedureId, long iat, long exp) {
+    private String buildAccessToken(String issuanceId, long iat, long exp) {
         Payload payload = new Payload(Map.of(
                 "iss", appConfig.getIssuerBackendUrl(),
                 "aud", appConfig.getIssuerBackendUrl(),
                 "iat", iat,
                 "exp", exp,
                 "jti", UUID.randomUUID().toString(),
-                "pid", procedureId
+                "pid", issuanceId
         ));
         return jwtService.issueJWT(payload.toString());
     }
@@ -149,12 +149,12 @@ public class TokenServiceImpl implements TokenService {
                         OAuthTokenException.invalidGrant("Invalid refresh token"))
                 .flatMap(data -> validateRefreshTokenData(data, refreshToken)
                         .then(refreshTokenCacheStore.delete(refreshToken))
-                        .then(Mono.defer(() -> buildRefreshedTokenResponse(data.credentialProcedureId()))));
+                        .then(Mono.defer(() -> buildRefreshedTokenResponse(data.issuanceId()))));
     }
 
-    private Mono<Void> validateRefreshTokenData(CredentialProcedureIdAndRefreshToken data, String refreshToken) {
-        return procedureService
-                .getCredentialStatusByProcedureId(data.credentialProcedureId())
+    private Mono<Void> validateRefreshTokenData(IssuanceIdAndRefreshToken data, String refreshToken) {
+        return issuanceService
+                .getCredentialStatusByIssuanceId(data.issuanceId())
                 .map(CredentialStatusEnum::valueOf)
                 .flatMap(status -> {
                     if (CredentialStatusEnum.VALID.equals(status)) {
@@ -171,14 +171,14 @@ public class TokenServiceImpl implements TokenService {
                 });
     }
 
-    private Mono<TokenResponse> buildRefreshedTokenResponse(String procedureId) {
+    private Mono<TokenResponse> buildRefreshedTokenResponse(String issuanceId) {
         Instant issueTime = Instant.now();
         long accessTokenExp = computeAccessTokenExpiration(issueTime);
         long refreshTokenExp = refreshTokenService.computeRefreshTokenExpirationTime(issueTime);
         String newRefreshToken = refreshTokenService.issueRefreshToken();
-        String accessToken = buildAccessToken(procedureId, issueTime.getEpochSecond(), accessTokenExp);
+        String accessToken = buildAccessToken(issuanceId, issueTime.getEpochSecond(), accessTokenExp);
 
-        return storeRefreshToken(procedureId, null, newRefreshToken, refreshTokenExp)
+        return storeRefreshToken(issuanceId, null, newRefreshToken, refreshTokenExp)
                 .thenReturn(TokenResponse.builder()
                         .accessToken(accessToken)
                         .tokenType(TOKEN_TYPE_BEARER)
@@ -251,10 +251,10 @@ public class TokenServiceImpl implements TokenService {
         return issueTime.plus(ACCESS_TOKEN_EXPIRATION_MINUTES, ChronoUnit.MINUTES).getEpochSecond();
     }
 
-    private Mono<Void> storeRefreshToken(String procedureId, String preAuthorizedCode, String refreshToken, long expiresAt) {
-        CredentialProcedureIdAndRefreshToken entry = CredentialProcedureIdAndRefreshToken.builder()
+    private Mono<Void> storeRefreshToken(String issuanceId, String preAuthorizedCode, String refreshToken, long expiresAt) {
+        IssuanceIdAndRefreshToken entry = IssuanceIdAndRefreshToken.builder()
                 .preAuthorizedCode(preAuthorizedCode)
-                .credentialProcedureId(procedureId)
+                .issuanceId(issuanceId)
                 .refreshTokenJti(refreshToken)
                 .refreshTokenExpiresAt(expiresAt)
                 .build();

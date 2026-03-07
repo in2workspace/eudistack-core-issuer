@@ -18,7 +18,7 @@ public interface StatusListProvider {
      * - BITSTRING_VC: W3C BitstringStatusListCredential
      * - TOKEN_JWT: Token Status List (draft-ietf-oauth-status-list)
      */
-    Mono<StatusListEntry> allocateEntry(StatusPurpose purpose, StatusListFormat format, String procedureId, String token);
+    Mono<StatusListEntry> allocateEntry(StatusPurpose purpose, StatusListFormat format, String issuanceId, String token);
 
     /**
      * Returns the signed status list credential (JWT) for the given list.
@@ -28,6 +28,6 @@ public interface StatusListProvider {
     /**
      * Revokes a credential by setting the corresponding bit to 1 in the Status List.
      */
-    Mono<Void> revoke(String procedureId, String token);
+    Mono<Void> revoke(String issuanceId, String token);
 
 }

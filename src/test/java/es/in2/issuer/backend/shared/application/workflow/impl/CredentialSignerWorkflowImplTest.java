@@ -51,7 +51,7 @@ class CredentialSignerWorkflowImplTest {
     private CredentialSignerWorkflowImpl credentialSignerWorkflow;
 
     private final String token = "some-token";
-    private final String procedureId = "d290f1ee-6c54-4b01-90e6-d701748f0851";
+    private final String issuanceId = "d290f1ee-6c54-4b01-90e6-d701748f0851";
     private final String email = "alice@example.com";
 
     private CredentialProfile buildProfile(String credentialType) {
@@ -79,7 +79,7 @@ class CredentialSignerWorkflowImplTest {
         StepVerifier.create(
                         credentialSignerWorkflow.signCredential(
                                 token, enrichedDataSet, LEAR_CREDENTIAL_EMPLOYEE,
-                                JWT_VC_JSON, Collections.emptyMap(), procedureId, email)
+                                JWT_VC_JSON, Collections.emptyMap(), issuanceId, email)
                 )
                 .assertNext(result -> assertEquals(signedCredential, result))
                 .verifyComplete();
@@ -95,7 +95,7 @@ class CredentialSignerWorkflowImplTest {
         StepVerifier.create(
                         credentialSignerWorkflow.signCredential(
                                 token, "dataSet", "UNKNOWN_TYPE",
-                                JWT_VC_JSON, Collections.emptyMap(), procedureId, email)
+                                JWT_VC_JSON, Collections.emptyMap(), issuanceId, email)
                 )
                 .expectErrorMatches(throwable ->
                         throwable instanceof IllegalArgumentException &&
@@ -117,7 +117,7 @@ class CredentialSignerWorkflowImplTest {
         StepVerifier.create(
                         credentialSignerWorkflow.signCredential(
                                 token, enrichedDataSet, LEAR_CREDENTIAL_EMPLOYEE,
-                                "unsupported_format", Collections.emptyMap(), procedureId, email)
+                                "unsupported_format", Collections.emptyMap(), issuanceId, email)
                 )
                 .expectErrorMatches(throwable ->
                         throwable instanceof IllegalArgumentException &&
@@ -143,7 +143,7 @@ class CredentialSignerWorkflowImplTest {
         StepVerifier.create(
                         credentialSignerWorkflow.signCredential(
                                 token, enrichedDataSet, LEAR_CREDENTIAL_MACHINE,
-                                JWT_VC_JSON, null, procedureId, email)
+                                JWT_VC_JSON, null, issuanceId, email)
                 )
                 .assertNext(result -> assertEquals(signedCredential, result))
                 .verifyComplete();
@@ -166,7 +166,7 @@ class CredentialSignerWorkflowImplTest {
         StepVerifier.create(
                         credentialSignerWorkflow.signCredential(
                                 token, enrichedDataSet, LEAR_CREDENTIAL_EMPLOYEE,
-                                JWT_VC_JSON, Map.of(), procedureId, email)
+                                JWT_VC_JSON, Map.of(), issuanceId, email)
                 )
                 .assertNext(result -> assertEquals(signedCredential, result))
                 .verifyComplete();

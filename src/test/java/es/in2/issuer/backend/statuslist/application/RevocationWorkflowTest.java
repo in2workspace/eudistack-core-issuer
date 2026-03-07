@@ -1,10 +1,10 @@
 package es.in2.issuer.backend.statuslist.application;
 
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotificationInfo;
-import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
+import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
-import es.in2.issuer.backend.shared.domain.service.ProcedureService;
+import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.statuslist.application.policies.StatusListPdpService;
 import es.in2.issuer.backend.statuslist.domain.spi.StatusListProvider;
@@ -34,7 +34,7 @@ class RevocationWorkflowTest {
     private StatusListPdpService statusListPdpService;
 
     @Mock
-    private ProcedureService procedureService;
+    private IssuanceService issuanceService;
 
     @Mock
     private EmailService emailService;
@@ -48,40 +48,40 @@ class RevocationWorkflowTest {
     private static final String PROCESS_ID = "process-123";
     private static final String BEARER_TOKEN = "Bearer token123";
     private static final String CLEAN_TOKEN = "token123";
-    private static final String PROCEDURE_ID = "procedure-456";
+    private static final String ISSUANCE_ID = "procedure-456";
 
-    private CredentialProcedure mockProcedure;
+    private Issuance mockProcedure;
 
     @BeforeEach
     void setUp() {
-        mockProcedure = new CredentialProcedure();
+        mockProcedure = new Issuance();
         mockProcedure.setCredentialType("LEARCredentialEmployee");
     }
 
     @Test
     void revoke_ShouldSucceed() {
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
-        when(procedureService.getProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure)).thenReturn(Mono.empty());
-        when(statusListProvider.revoke(PROCEDURE_ID, CLEAN_TOKEN)).thenReturn(Mono.empty());
-        when(procedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
-        when(procedureService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
-        when(procedureService.findCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
+        when(statusListProvider.revoke(ISSUANCE_ID, CLEAN_TOKEN)).thenReturn(Mono.empty());
+        when(issuanceService.updateIssuanceCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
+        when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(ISSUANCE_ID))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn(Mono.empty());
 
-        StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, PROCEDURE_ID))
+        StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID))
                 .verifyComplete();
 
-        verify(statusListProvider).revoke(PROCEDURE_ID, CLEAN_TOKEN);
+        verify(statusListProvider).revoke(ISSUANCE_ID, CLEAN_TOKEN);
     }
 
     @Test
     void revoke_WithNullProcessId_ShouldThrowException() {
         assertThrows(
                 NullPointerException.class,
-                () -> revocationWorkflow.revoke(null, BEARER_TOKEN, PROCEDURE_ID)
+                () -> revocationWorkflow.revoke(null, BEARER_TOKEN, ISSUANCE_ID)
         );
     }
 
@@ -89,7 +89,7 @@ class RevocationWorkflowTest {
     void revoke_WithNullBearerToken_ShouldThrowException() {
         assertThrows(
                 NullPointerException.class,
-                () -> revocationWorkflow.revoke(PROCESS_ID, null, PROCEDURE_ID)
+                () -> revocationWorkflow.revoke(PROCESS_ID, null, ISSUANCE_ID)
         );
     }
 
@@ -104,11 +104,11 @@ class RevocationWorkflowTest {
     @Test
     void revoke_WithValidationFailure_ShouldPropagateError() {
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
-        when(procedureService.getProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure))
                 .thenReturn(Mono.error(new RuntimeException("Validation failed")));
 
-        StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, PROCEDURE_ID))
+        StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID))
                 .expectError(RuntimeException.class)
                 .verify();
     }
@@ -116,31 +116,31 @@ class RevocationWorkflowTest {
     @Test
     void revokeSystem_ShouldSucceed() {
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
-        when(procedureService.getProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure)).thenReturn(Mono.empty());
-        when(statusListProvider.revoke(PROCEDURE_ID, CLEAN_TOKEN)).thenReturn(Mono.empty());
-        when(procedureService.updateCredentialProcedureCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
-        when(procedureService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
-        when(procedureService.findCredentialOfferEmailInfoByProcedureId(PROCEDURE_ID))
+        when(statusListProvider.revoke(ISSUANCE_ID, CLEAN_TOKEN)).thenReturn(Mono.empty());
+        when(issuanceService.updateIssuanceCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
+        when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(ISSUANCE_ID))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
                 .thenReturn(Mono.empty());
 
-        StepVerifier.create(revocationWorkflow.revokeSystem(PROCESS_ID, BEARER_TOKEN, PROCEDURE_ID))
+        StepVerifier.create(revocationWorkflow.revokeSystem(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID))
                 .verifyComplete();
 
         verify(statusListPdpService).validateRevokeCredentialSystem(PROCESS_ID, mockProcedure);
-        verify(statusListProvider).revoke(PROCEDURE_ID, CLEAN_TOKEN);
+        verify(statusListProvider).revoke(ISSUANCE_ID, CLEAN_TOKEN);
     }
 
     @Test
     void revokeSystem_WithValidationFailure_ShouldPropagateError() {
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
-        when(procedureService.getProcedureById(PROCEDURE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure))
                 .thenReturn(Mono.error(new RuntimeException("System validation failed")));
 
-        StepVerifier.create(revocationWorkflow.revokeSystem(PROCESS_ID, BEARER_TOKEN, PROCEDURE_ID))
+        StepVerifier.create(revocationWorkflow.revokeSystem(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID))
                 .expectError(RuntimeException.class)
                 .verify();
     }

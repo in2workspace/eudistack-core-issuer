@@ -2,15 +2,15 @@ package es.in2.issuer.backend.shared.application.workflow.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import es.in2.issuer.backend.backoffice.domain.service.CredentialOfferService;
+import es.in2.issuer.backend.issuance.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
-import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
+import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.repository.CredentialOfferCacheRepository;
 import es.in2.issuer.backend.shared.domain.service.CredentialDataSetBuilderService;
-import es.in2.issuer.backend.shared.domain.service.ProcedureService;
+import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.GrantsService;
 import es.in2.issuer.backend.shared.domain.service.PayloadSchemaValidator;
@@ -42,7 +42,7 @@ class IssuanceWorkflowImplTest {
     @Mock
     private CredentialDataSetBuilderService credentialDataSetBuilderService;
     @Mock
-    private ProcedureService procedureService;
+    private IssuanceService issuanceService;
     @Mock
     private GrantsService grantsService;
     @Mock
@@ -73,7 +73,7 @@ class IssuanceWorkflowImplTest {
         String configId = "LEARCredentialEmployee";
         String idToken = "id-token";
         JsonNode payload = new ObjectMapper().createObjectNode().put("name", "Test");
-        UUID procedureId = UUID.randomUUID();
+        UUID issuanceId = UUID.randomUUID();
 
         PreSubmittedCredentialDataRequest request = PreSubmittedCredentialDataRequest.builder()
                 .credentialConfigurationId(configId)
@@ -89,15 +89,15 @@ class IssuanceWorkflowImplTest {
                         .build())
                 .build();
 
-        CredentialProcedureCreationRequest creationRequest = CredentialProcedureCreationRequest.builder()
-                .procedureId(procedureId.toString())
+        IssuanceCreationRequest creationRequest = IssuanceCreationRequest.builder()
+                .issuanceId(issuanceId.toString())
                 .credentialType(configId)
                 .email("test@example.com")
                 .delivery("email")
                 .build();
 
-        CredentialProcedure savedProcedure = CredentialProcedure.builder()
-                .procedureId(procedureId)
+        Issuance savedProcedure = Issuance.builder()
+                .issuanceId(issuanceId)
                 .credentialStatus(CredentialStatusEnum.DRAFT)
                 .credentialOfferRefreshToken("refresh-token-123")
                 .build();
@@ -115,13 +115,13 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(anyString(), any())).thenReturn(Mono.empty());
         when(issuancePdpService.authorize(anyString(), any(), anyString())).thenReturn(Mono.empty());
         when(credentialDataSetBuilderService.buildDataSet(anyString(), eq(request))).thenReturn(Mono.just(creationRequest));
-        when(procedureService.createCredentialProcedure(creationRequest)).thenReturn(Mono.just(savedProcedure));
+        when(issuanceService.createIssuance(creationRequest)).thenReturn(Mono.just(savedProcedure));
         when(grantsService.createGrants(anyString(), any())).thenReturn(Mono.just(grantsResult));
         when(credentialOfferService.buildCredentialOffer(anyString(), any(), anyString(), anyString()))
                 .thenReturn(Mono.just(CredentialOfferData.builder().build()));
         when(credentialOfferCacheRepository.saveCredentialOffer(any())).thenReturn(Mono.just("cache-nonce"));
         when(credentialOfferService.createCredentialOfferUriResponse(anyString())).thenReturn(Mono.just("offer-uri"));
-        when(procedureService.findCredentialOfferEmailInfoByProcedureId(procedureId.toString()))
+        when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId.toString()))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("test@example.com", "Org")));
         when(appConfig.getIssuerBackendUrl()).thenReturn("https://issuer.example.com");
         when(appConfig.getWalletFrontendUrl()).thenReturn("https://wallet.example.com");
@@ -134,7 +134,7 @@ class IssuanceWorkflowImplTest {
                 .verifyComplete();
 
         verify(credentialDataSetBuilderService).buildDataSet(anyString(), eq(request));
-        verify(procedureService).createCredentialProcedure(creationRequest);
+        verify(issuanceService).createIssuance(creationRequest);
         verify(grantsService).createGrants(anyString(), any());
         verify(emailService).sendCredentialOfferEmail(eq("test@example.com"), anyString(), eq("offer-uri"), anyString(), eq("https://wallet.example.com"), eq("Org"));
     }
@@ -161,7 +161,7 @@ class IssuanceWorkflowImplTest {
     void issueCredentialWithoutAuthorizationShouldSkipPdp() {
         String configId = "LEARCredentialEmployee";
         JsonNode payload = new ObjectMapper().createObjectNode();
-        UUID procedureId = UUID.randomUUID();
+        UUID issuanceId = UUID.randomUUID();
 
         PreSubmittedCredentialDataRequest request = PreSubmittedCredentialDataRequest.builder()
                 .credentialConfigurationId(configId)
@@ -176,15 +176,15 @@ class IssuanceWorkflowImplTest {
                         .build())
                 .build();
 
-        CredentialProcedureCreationRequest creationRequest = CredentialProcedureCreationRequest.builder()
-                .procedureId(procedureId.toString())
+        IssuanceCreationRequest creationRequest = IssuanceCreationRequest.builder()
+                .issuanceId(issuanceId.toString())
                 .credentialType(configId)
                 .email("test@example.com")
                 .delivery("email")
                 .build();
 
-        CredentialProcedure savedProcedure = CredentialProcedure.builder()
-                .procedureId(procedureId)
+        Issuance savedProcedure = Issuance.builder()
+                .issuanceId(issuanceId)
                 .credentialOfferRefreshToken("refresh-123")
                 .build();
 
@@ -198,13 +198,13 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(configId)).thenReturn(profile);
         when(payloadSchemaValidator.validate(anyString(), any())).thenReturn(Mono.empty());
         when(credentialDataSetBuilderService.buildDataSet(anyString(), eq(request))).thenReturn(Mono.just(creationRequest));
-        when(procedureService.createCredentialProcedure(creationRequest)).thenReturn(Mono.just(savedProcedure));
+        when(issuanceService.createIssuance(creationRequest)).thenReturn(Mono.just(savedProcedure));
         when(grantsService.createGrants(anyString(), any())).thenReturn(Mono.just(new GrantsResult(grants, "5678")));
         when(credentialOfferService.buildCredentialOffer(anyString(), any(), anyString(), anyString()))
                 .thenReturn(Mono.just(CredentialOfferData.builder().build()));
         when(credentialOfferCacheRepository.saveCredentialOffer(any())).thenReturn(Mono.just("nonce"));
         when(credentialOfferService.createCredentialOfferUriResponse(anyString())).thenReturn(Mono.just("offer-uri"));
-        when(procedureService.findCredentialOfferEmailInfoByProcedureId(procedureId.toString()))
+        when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId.toString()))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("test@example.com", "Org")));
         when(appConfig.getIssuerBackendUrl()).thenReturn("https://issuer.example.com");
         when(appConfig.getWalletFrontendUrl()).thenReturn("https://wallet.example.com");

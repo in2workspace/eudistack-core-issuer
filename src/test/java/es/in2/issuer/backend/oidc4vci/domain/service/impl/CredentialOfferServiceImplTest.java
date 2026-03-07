@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
-import es.in2.issuer.backend.backoffice.domain.service.impl.CredentialOfferServiceImpl;
+import es.in2.issuer.backend.issuance.domain.service.impl.CredentialOfferServiceImpl;
 import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationCodeGrant;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferGrants;
 import es.in2.issuer.backend.shared.domain.model.dto.PreAuthorizedCodeGrant;

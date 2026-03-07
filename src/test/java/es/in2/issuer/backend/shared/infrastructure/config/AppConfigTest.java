@@ -1,7 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
 import es.in2.issuer.backend.shared.infrastructure.config.properties.AppProperties;
-import es.in2.issuer.backend.shared.infrastructure.config.properties.CorsProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.properties.IssuerIdentityProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -9,13 +8,9 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.Collections;
-import java.util.List;
-
 import static es.in2.issuer.backend.shared.domain.util.Constants.CREDENTIAL_OFFER_CACHE_EXPIRATION_TIME;
 import static es.in2.issuer.backend.shared.domain.util.Constants.VERIFIABLE_CREDENTIAL_JWT_CACHE_EXPIRATION_TIME;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -27,9 +22,6 @@ class AppConfigTest {
 
     @Mock
     private IssuerIdentityProperties issuerIdentityProperties;
-
-    @Mock
-    private CorsProperties corsProperties;
 
     @InjectMocks
     private AppConfig appConfig;
@@ -76,36 +68,6 @@ class AppConfigTest {
     @Test
     void testGetCacheLifetimeForVerifiableCredential() {
         assertEquals(10L, (long) VERIFIABLE_CREDENTIAL_JWT_CACHE_EXPIRATION_TIME);
-    }
-
-    @Test
-    void getExternalCorsAllowedOrigins_returnsConfiguredOrigins() {
-        List<String> expected = List.of("https://example.com", "https://another.com");
-        when(corsProperties.externalAllowedOrigins()).thenReturn(expected);
-
-        assertEquals(expected, appConfig.getExternalCorsAllowedOrigins());
-    }
-
-    @Test
-    void getDefaultCorsAllowedOrigins_returnsConfiguredOrigins() {
-        List<String> expected = List.of("https://default.com", "https://default2.com");
-        when(corsProperties.defaultAllowedOrigins()).thenReturn(expected);
-
-        assertEquals(expected, appConfig.getDefaultCorsAllowedOrigins());
-    }
-
-    @Test
-    void getExternalCorsAllowedOrigins_whenNoOriginsConfigured_returnsEmptyList() {
-        when(corsProperties.externalAllowedOrigins()).thenReturn(Collections.emptyList());
-
-        assertTrue(appConfig.getExternalCorsAllowedOrigins().isEmpty());
-    }
-
-    @Test
-    void getDefaultCorsAllowedOrigins_whenNoOriginsConfigured_returnsEmptyList() {
-        when(corsProperties.defaultAllowedOrigins()).thenReturn(Collections.emptyList());
-
-        assertTrue(appConfig.getDefaultCorsAllowedOrigins().isEmpty());
     }
 
     @Test

@@ -32,7 +32,7 @@ public class PolicyContextFactory {
     private final DynamicCredentialParser credentialParser;
 
     /**
-     * Creates a PolicyContext from a JWT token for Backoffice and StatusList PDPs.
+     * Creates a PolicyContext from a JWT token for Issuance and StatusList PDPs.
      */
     public Mono<PolicyContext> fromTokenSimple(String token, String tenantDomain) {
         return Mono.fromCallable(() -> jwtService.parseJWT(token))

@@ -92,23 +92,6 @@ springdoc:
 server:
   port: ${SERVER_PORT:8080}
 
-openapi:
-  server:
-    url: ${OPENAPI_SERVER_URL:https://localhost:8080}
-    description: ${OPENAPI_SERVER_DESCRIPTION:Server Description}
-  info:
-    title: "Issuer API"
-    version: "0.0.1-SNAPSHOT"
-    description: "Issuer API Web Server"
-    termsOfService: "https://example.com/terms-of-service"
-    license:
-      name: "Apache 2.0"
-      url: "https://www.apache.org/licenses/LICENSE-2.0.html"
-    contact:
-      email: "test@example.com"
-      name: "Test Name"
-      url: "https://example.com"
-
 # Credential profiles
 credential:
   profiles:
@@ -170,12 +153,7 @@ oid4vci:
 wallet-provider-trust:
   providers-path: ${WALLET_PROVIDER_TRUST_PATH:classpath:trusted-wallet-providers.yaml}
 
-# Procedure lifecycle
-procedure:
-  draft-max-age-days: ${PROCEDURE_DRAFT_MAX_AGE_DAYS:30}
-  cleanup-cron: ${PROCEDURE_CLEANUP_CRON:0 0 2 * * *}
-
-# CORS
-cors:
-  default-allowed-origins: ${CORS_DEFAULT_ALLOWED_ORIGINS:http://localhost:4200}
-  external-allowed-origins: ${CORS_EXTERNAL_ALLOWED_ORIGINS:http://localhost:4200}
+# Issuance lifecycle
+issuance:
+  draft-max-age-days: ${ISSUANCE_DRAFT_MAX_AGE_DAYS:30}
+  cleanup-cron: ${ISSUANCE_CLEANUP_CRON:0 0 2 * * *}

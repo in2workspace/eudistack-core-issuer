@@ -41,7 +41,7 @@ public class StatusListSigner implements CredentialPayloadSigner {
 
             SigningContext context = SigningContext.builder()
                     .token(token)
-                    .procedureId(null)
+                    .issuanceId(null)
                     .email(null)
                     .build();
 

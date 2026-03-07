@@ -1,10 +1,10 @@
 package es.in2.issuer.backend.statuslist.application.policies.impl;
 
-import es.in2.issuer.backend.backoffice.domain.exception.InvalidStatusException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
 import es.in2.issuer.backend.shared.domain.exception.JWTParsingException;
 import es.in2.issuer.backend.shared.domain.exception.UnauthorizedRoleException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
-import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
+import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContext;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
@@ -58,18 +58,18 @@ class StatusListPdpServiceImplTest {
         // Arrange
         String processId = "p-1";
         String token = "token";
-        String procedureOrg = "ORG_1";
+        String issuanceOrg = "ORG_1";
         String userOrg = "ORG_1";
 
-        CredentialProcedure procedure = mock(CredentialProcedure.class);
-        when(procedure.getCredentialStatus()).thenReturn(VALID);
-        when(procedure.getOrganizationIdentifier()).thenReturn(procedureOrg);
+        Issuance issuance = mock(Issuance.class);
+        when(issuance.getCredentialStatus()).thenReturn(VALID);
+        when(issuance.getOrganizationIdentifier()).thenReturn(issuanceOrg);
 
         PolicyContext ctx = buildContext(userOrg, false);
         when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
         // Act + Assert
-        StepVerifier.create(service.validateRevokeCredential(processId, token, procedure))
+        StepVerifier.create(service.validateRevokeCredential(processId, token, issuance))
                 .verifyComplete();
 
         verify(policyContextFactory).fromTokenSimple(eq(token), any());
@@ -80,29 +80,29 @@ class StatusListPdpServiceImplTest {
         // Arrange
         String processId = "p-2";
         String token = "token";
-        String procedureOrg = "ORG_2";
+        String issuanceOrg = "ORG_2";
         String adminOrg = "ADMIN";
 
-        CredentialProcedure procedure = mock(CredentialProcedure.class);
-        when(procedure.getCredentialStatus()).thenReturn(VALID);
-        when(procedure.getOrganizationIdentifier()).thenReturn(procedureOrg);
+        Issuance issuance = mock(Issuance.class);
+        when(issuance.getCredentialStatus()).thenReturn(VALID);
+        when(issuance.getOrganizationIdentifier()).thenReturn(issuanceOrg);
 
         PolicyContext ctx = buildContext(adminOrg, true);
         when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
         // Act + Assert
-        StepVerifier.create(service.validateRevokeCredential(processId, token, procedure))
+        StepVerifier.create(service.validateRevokeCredential(processId, token, issuance))
                 .verifyComplete();
     }
 
     @Test
     void validateRevokeCredential_shouldErrorInvalidStatus_whenStatusIsNotValid() {
         // Arrange
-        CredentialProcedure procedure = mock(CredentialProcedure.class);
-        when(procedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.REVOKED);
+        Issuance issuance = mock(Issuance.class);
+        when(issuance.getCredentialStatus()).thenReturn(CredentialStatusEnum.REVOKED);
 
         // Act + Assert
-        StepVerifier.create(service.validateRevokeCredential("p-3", "token", procedure))
+        StepVerifier.create(service.validateRevokeCredential("p-3", "token", issuance))
                 .expectError(InvalidStatusException.class)
                 .verify();
 
@@ -114,14 +114,14 @@ class StatusListPdpServiceImplTest {
         // Arrange
         String token = "token";
 
-        CredentialProcedure procedure = mock(CredentialProcedure.class);
-        when(procedure.getCredentialStatus()).thenReturn(VALID);
+        Issuance issuance = mock(Issuance.class);
+        when(issuance.getCredentialStatus()).thenReturn(VALID);
 
         PolicyContext ctx = buildContextNoPowers("ORG_1", false);
         when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
         // Act + Assert
-        StepVerifier.create(service.validateRevokeCredential("p-4", token, procedure))
+        StepVerifier.create(service.validateRevokeCredential("p-4", token, issuance))
                 .expectError(UnauthorizedRoleException.class)
                 .verify();
 
@@ -133,14 +133,14 @@ class StatusListPdpServiceImplTest {
         // Arrange
         String token = "token";
 
-        CredentialProcedure procedure = mock(CredentialProcedure.class);
-        when(procedure.getCredentialStatus()).thenReturn(VALID);
+        Issuance issuance = mock(Issuance.class);
+        when(issuance.getCredentialStatus()).thenReturn(VALID);
 
         when(policyContextFactory.fromTokenSimple(eq(token), any()))
                 .thenReturn(Mono.error(new JWTParsingException("boom")));
 
         // Act + Assert
-        StepVerifier.create(service.validateRevokeCredential("p-5", token, procedure))
+        StepVerifier.create(service.validateRevokeCredential("p-5", token, issuance))
                 .expectError(JWTParsingException.class)
                 .verify();
 
@@ -151,18 +151,18 @@ class StatusListPdpServiceImplTest {
     void validateRevokeCredential_shouldErrorUnauthorizedRole_whenOrganizationDiffersAndNotSysAdmin() {
         // Arrange
         String token = "token";
-        String procedureOrg = "ORG_A";
+        String issuanceOrg = "ORG_A";
         String userOrg = "ORG_B";
 
-        CredentialProcedure procedure = mock(CredentialProcedure.class);
-        when(procedure.getCredentialStatus()).thenReturn(VALID);
-        when(procedure.getOrganizationIdentifier()).thenReturn(procedureOrg);
+        Issuance issuance = mock(Issuance.class);
+        when(issuance.getCredentialStatus()).thenReturn(VALID);
+        when(issuance.getOrganizationIdentifier()).thenReturn(issuanceOrg);
 
         PolicyContext ctx = buildContext(userOrg, false);
         when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
         // Act + Assert
-        StepVerifier.create(service.validateRevokeCredential("p-6", token, procedure))
+        StepVerifier.create(service.validateRevokeCredential("p-6", token, issuance))
                 .expectError(UnauthorizedRoleException.class)
                 .verify();
     }
@@ -170,11 +170,11 @@ class StatusListPdpServiceImplTest {
     @Test
     void validateRevokeCredentialSystem_shouldComplete_whenValidStatus() {
         // Arrange
-        CredentialProcedure procedure = mock(CredentialProcedure.class);
-        when(procedure.getCredentialStatus()).thenReturn(VALID);
+        Issuance issuance = mock(Issuance.class);
+        when(issuance.getCredentialStatus()).thenReturn(VALID);
 
         // Act + Assert
-        StepVerifier.create(service.validateRevokeCredentialSystem("p-7", procedure))
+        StepVerifier.create(service.validateRevokeCredentialSystem("p-7", issuance))
                 .verifyComplete();
 
         verifyNoInteractions(policyContextFactory);
@@ -183,11 +183,11 @@ class StatusListPdpServiceImplTest {
     @Test
     void validateRevokeCredentialSystem_shouldErrorInvalidStatus_whenNotValid() {
         // Arrange
-        CredentialProcedure procedure = mock(CredentialProcedure.class);
-        when(procedure.getCredentialStatus()).thenReturn(CredentialStatusEnum.REVOKED);
+        Issuance issuance = mock(Issuance.class);
+        when(issuance.getCredentialStatus()).thenReturn(CredentialStatusEnum.REVOKED);
 
         // Act + Assert
-        StepVerifier.create(service.validateRevokeCredentialSystem("p-8", procedure))
+        StepVerifier.create(service.validateRevokeCredentialSystem("p-8", issuance))
                 .expectError(InvalidStatusException.class)
                 .verify();
 

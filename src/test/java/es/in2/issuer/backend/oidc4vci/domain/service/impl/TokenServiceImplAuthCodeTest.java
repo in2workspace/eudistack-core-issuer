@@ -5,9 +5,9 @@ import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
 import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndRefreshToken;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndTxCode;
-import es.in2.issuer.backend.shared.domain.service.ProcedureService;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndRefreshToken;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndTxCode;
+import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.DpopValidationService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.PkceVerifier;
@@ -42,9 +42,9 @@ class TokenServiceImplAuthCodeTest {
     private static final String TOKEN_ENDPOINT_URI = "https://issuer/token";
 
     @Mock
-    private TransientStore<CredentialProcedureIdAndTxCode> txCodeCacheStore;
+    private TransientStore<IssuanceIdAndTxCode> txCodeCacheStore;
     @Mock
-    private TransientStore<CredentialProcedureIdAndRefreshToken> refreshTokenCacheStore;
+    private TransientStore<IssuanceIdAndRefreshToken> refreshTokenCacheStore;
     @Mock
     private TransientStore<AuthorizationCodeData> authorizationCodeCacheStore;
     @Mock
@@ -54,7 +54,7 @@ class TokenServiceImplAuthCodeTest {
     @Mock
     private IssuerProperties appConfig;
     @Mock
-    private ProcedureService procedureService;
+    private IssuanceService issuanceService;
     @Mock
     private PkceVerifier pkceVerifier;
     @Mock
@@ -75,7 +75,7 @@ class TokenServiceImplAuthCodeTest {
                 jwtService,
                 refreshTokenService,
                 appConfig,
-                procedureService,
+                issuanceService,
                 pkceVerifier,
                 dpopValidationService,
                 profileProperties,

@@ -28,8 +28,8 @@ public enum GlobalErrorTypes {
     UNAUTHORIZED_ROLE("unauthorized_role"),
     EMAIL_COMMUNICATION("email_communication_error"),
     CREDENTIAL_SERIALIZATION("credential_serialization"),
-    CREDENTIAL_PROCEDURE_INVALID_STATUS("credential_procedure_invalid_status"),
-    CREDENTIAL_PROCEDURE_NOT_FOUND("credential_procedure_not_found"),
+    ISSUANCE_INVALID_STATUS("issuance_invalid_status"),
+    ISSUANCE_NOT_FOUND("issuance_not_found"),
     PAYLOAD_VALIDATION("payload_validation_error"),
     TENANT_MISMATCH("tenant_mismatch"),
     REMOTE_SIGNATURE("remote_signature_error");

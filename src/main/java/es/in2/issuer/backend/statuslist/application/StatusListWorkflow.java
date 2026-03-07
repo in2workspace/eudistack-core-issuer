@@ -20,23 +20,23 @@ public class StatusListWorkflow {
     private final StatusListProvider statusListProvider;
 
     @Observed(name = "statuslist.allocate-entry", contextualName = "statuslist-allocate-entry")
-    public Mono<StatusListEntry> allocateEntry(StatusPurpose purpose, StatusListFormat format, String procedureId, String token) {
+    public Mono<StatusListEntry> allocateEntry(StatusPurpose purpose, StatusListFormat format, String issuanceId, String token) {
         log.info(
-                "action=allocateStatusListEntry status=started purpose={} format={} procedureId={}",
-                purpose, format, procedureId
+                "action=allocateStatusListEntry status=started purpose={} format={} issuanceId={}",
+                purpose, format, issuanceId
         );
         requireNonNullParam(purpose, "purpose");
         requireNonNullParam(format, "format");
 
-        return statusListProvider.allocateEntry(purpose, format, procedureId, token)
+        return statusListProvider.allocateEntry(purpose, format, issuanceId, token)
                 .doOnSuccess(entry -> log.info(
-                        "action=allocateStatusListEntry status=completed purpose={} format={} procedureId={} listId={} idx={}",
-                        purpose, format, procedureId,
+                        "action=allocateStatusListEntry status=completed purpose={} format={} issuanceId={} listId={} idx={}",
+                        purpose, format, issuanceId,
                         extractListId(entry), entry.statusListIndex()
                 ))
                 .doOnError(e -> log.warn(
-                        "action=allocateStatusListEntry status=failed purpose={} format={} procedureId={} error={}",
-                        purpose, format, procedureId, e.toString()
+                        "action=allocateStatusListEntry status=failed purpose={} format={} issuanceId={} error={}",
+                        purpose, format, issuanceId, e.toString()
                 ));
     }
 

@@ -7,7 +7,7 @@ import java.util.UUID;
 
 public interface StatusListIndexRepository extends ReactiveCrudRepository<StatusListIndex, Long> {
 
-    Mono<StatusListIndex> findByProcedureId(UUID procedureId);
+    Mono<StatusListIndex> findByIssuanceId(UUID issuanceId);
 
     Mono<Long> countByStatusListId(Long statusListId);
 }

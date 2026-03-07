@@ -1,0 +1,57 @@
+package es.in2.issuer.backend.issuance.domain.service.impl;
+
+import es.in2.issuer.backend.issuance.domain.service.CredentialOfferService;
+import es.in2.issuer.backend.shared.domain.model.dto.CredentialOffer;
+import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferData;
+import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferGrants;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Mono;
+
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+
+import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.OID4VCI_CREDENTIAL_OFFER_PATH;
+import static es.in2.issuer.backend.shared.infrastructure.util.HttpUtils.ensureUrlHasProtocol;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class CredentialOfferServiceImpl implements CredentialOfferService {
+
+    private final IssuerProperties appConfig;
+
+    @Override
+    public Mono<CredentialOfferData> buildCredentialOffer(
+            String credentialType,
+            CredentialOfferGrants grants,
+            String credentialEmail,
+            String pin) {
+
+        CredentialOffer offer = CredentialOffer.builder()
+                .credentialIssuer(appConfig.getIssuerBackendUrl())
+                .credentialConfigurationIds(List.of(credentialType))
+                .grants(grants)
+                .build();
+
+        CredentialOfferData data = CredentialOfferData.builder()
+                .credentialOffer(offer)
+                .credentialEmail(credentialEmail)
+                .pin(pin)
+                .build();
+
+        return Mono.just(data);
+    }
+
+    @Override
+    public Mono<String> createCredentialOfferUriResponse(String nonce) {
+        String url = ensureUrlHasProtocol(appConfig.getIssuerBackendUrl() + OID4VCI_CREDENTIAL_OFFER_PATH + "/" + nonce);
+        String encodedUrl = URLEncoder.encode(url, StandardCharsets.UTF_8);
+        String credentialOfferPrefix = "openid-credential-offer://?credential_offer_uri=";
+        return Mono.just(credentialOfferPrefix + encodedUrl);
+    }
+
+}

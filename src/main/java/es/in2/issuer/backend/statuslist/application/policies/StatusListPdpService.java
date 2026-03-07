@@ -1,11 +1,11 @@
 package es.in2.issuer.backend.statuslist.application.policies;
 
-import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
+import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import reactor.core.publisher.Mono;
 
 public interface StatusListPdpService {
 
-    Mono<Void> validateRevokeCredential(String processId, String token, CredentialProcedure procedure);
-    Mono<Void> validateRevokeCredentialSystem(String processId, CredentialProcedure procedure);
+    Mono<Void> validateRevokeCredential(String processId, String token, Issuance issuance);
+    Mono<Void> validateRevokeCredentialSystem(String processId, Issuance issuance);
 }
 

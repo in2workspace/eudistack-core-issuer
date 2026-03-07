@@ -2,7 +2,7 @@ package es.in2.issuer.backend.shared.domain.util.factory;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureCreationRequest;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceCreationRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
@@ -54,7 +54,7 @@ class GenericCredentialBuilderTest {
         StepVerifier.create(genericCredentialBuilder.buildCredential(
                         profile, "proc-1", payload, status, "test@example.com"))
                 .assertNext(request -> {
-                    assertThat(request.procedureId()).isEqualTo("proc-1");
+                    assertThat(request.issuanceId()).isEqualTo("proc-1");
                     assertThat(request.credentialType()).isEqualTo(LEAR_CREDENTIAL_EMPLOYEE);
                     assertThat(request.email()).isEqualTo("test@example.com");
                     assertThat(request.subject()).isEqualTo("John Doe");

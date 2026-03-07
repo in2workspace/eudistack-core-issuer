@@ -1,12 +1,12 @@
 package es.in2.issuer.backend.shared.application.workflow.impl;
 
-import es.in2.issuer.backend.backoffice.domain.service.CredentialOfferService;
+import es.in2.issuer.backend.issuance.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialOfferRefreshWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
-import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
+import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.repository.CredentialOfferCacheRepository;
-import es.in2.issuer.backend.shared.domain.service.ProcedureService;
+import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.GrantsService;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
@@ -26,7 +26,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 @RequiredArgsConstructor
 public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefreshWorkflow {
 
-    private final ProcedureService procedureService;
+    private final IssuanceService issuanceService;
     private final GrantsService grantsService;
     private final CredentialOfferService credentialOfferService;
     private final CredentialOfferCacheRepository credentialOfferCacheRepository;
@@ -38,29 +38,29 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
     public Mono<Void> refreshCredentialOffer(String credentialOfferRefreshToken) {
         log.info("Refreshing credential offer for credentialOfferRefreshToken: {}", credentialOfferRefreshToken);
 
-        return procedureService.getProcedureByCredentialOfferRefreshToken(credentialOfferRefreshToken)
+        return issuanceService.getIssuanceByCredentialOfferRefreshToken(credentialOfferRefreshToken)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Invalid or unknown credential offer refresh token")))
                 .flatMap(this::validateDraftStatus)
-                .flatMap(procedure -> regenerateOfferAndSendEmail(procedure, credentialOfferRefreshToken))
+                .flatMap(issuance -> regenerateOfferAndSendEmail(issuance, credentialOfferRefreshToken))
                 .doOnSuccess(v -> log.info("Credential offer refreshed successfully for credentialOfferRefreshToken: {}", credentialOfferRefreshToken));
     }
 
-    private Mono<Void> regenerateOfferAndSendEmail(CredentialProcedure procedure, String credentialOfferRefreshToken) {
-        String procedureId = procedure.getProcedureId().toString();
+    private Mono<Void> regenerateOfferAndSendEmail(Issuance issuance, String credentialOfferRefreshToken) {
+        String issuanceId = issuance.getIssuanceId().toString();
 
-        return grantsService.createGrants("refresh", Mono.just(procedureId))
+        return grantsService.createGrants("refresh", Mono.just(issuanceId))
                 .flatMap(grantsResult ->
                         credentialOfferService.buildCredentialOffer(
-                                        procedure.getCredentialType(),
+                                        issuance.getCredentialType(),
                                         grantsResult.grants(),
-                                        procedure.getEmail(),
+                                        issuance.getEmail(),
                                         grantsResult.txCodeValue())
                                 .flatMap(credentialOfferCacheRepository::saveCredentialOffer)
                                 .flatMap(credentialOfferService::createCredentialOfferUriResponse)
                 )
                 .flatMap(credentialOfferUri ->
-                        procedureService.findCredentialOfferEmailInfoByProcedureId(procedureId)
+                        issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId)
                                 .flatMap(emailInfo -> {
                                     String refreshUrl = buildRefreshUrl(credentialOfferRefreshToken);
                                     return emailService.sendCredentialOfferEmail(
@@ -71,7 +71,7 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
                                                     appConfig.getWalletFrontendUrl(),
                                                     emailInfo.organization()
                                             )
-                                            .doOnSuccess(v -> log.info("Refreshed credential offer email sent for procedureId={}", procedure.getProcedureId()))
+                                            .doOnSuccess(v -> log.info("Refreshed credential offer email sent for issuanceId={}", issuance.getIssuanceId()))
                                             .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE));
                                 })
                 )
@@ -86,13 +86,13 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
                 .toUriString();
     }
 
-    private Mono<CredentialProcedure> validateDraftStatus(CredentialProcedure procedure) {
-        if (procedure.getCredentialStatus() != CredentialStatusEnum.DRAFT) {
-            log.warn("Refresh rejected: procedure {} is in status {}", procedure.getProcedureId(), procedure.getCredentialStatus());
+    private Mono<Issuance> validateDraftStatus(Issuance issuance) {
+        if (issuance.getCredentialStatus() != CredentialStatusEnum.DRAFT) {
+            log.warn("Refresh rejected: procedure {} is in status {}", issuance.getIssuanceId(), issuance.getCredentialStatus());
             return Mono.error(new ResponseStatusException(
                     HttpStatus.GONE, "This credential offer can no longer be refreshed"));
         }
-        return Mono.just(procedure);
+        return Mono.just(issuance);
     }
 
 }

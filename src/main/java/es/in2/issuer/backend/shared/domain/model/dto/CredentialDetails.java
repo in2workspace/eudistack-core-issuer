@@ -7,7 +7,7 @@ import lombok.Builder;
 import java.util.UUID;
 @Builder
 public record CredentialDetails(
-        @JsonProperty("procedure_id") UUID procedureId,
+        @JsonProperty("procedure_id") UUID issuanceId,
         @JsonProperty("lifeCycleStatus") String lifeCycleStatus,
         @JsonProperty("credential") JsonNode credential,
         @JsonProperty("email") String email

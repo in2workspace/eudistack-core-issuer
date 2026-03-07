@@ -2,12 +2,9 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.properties.AppProperties;
-import es.in2.issuer.backend.shared.infrastructure.config.properties.CorsProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.properties.IssuerIdentityProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
-
-import java.util.List;
 
 @Configuration
 @RequiredArgsConstructor
@@ -15,7 +12,6 @@ public class AppConfig implements IssuerProperties {
 
     private final AppProperties appProperties;
     private final IssuerIdentityProperties issuerIdentityProperties;
-    private final CorsProperties corsProperties;
 
     public String getIssuerBackendUrl() {
         return appProperties.url();
@@ -52,14 +48,6 @@ public class AppConfig implements IssuerProperties {
 
     public String getCryptoPrivateKey() {
         return issuerIdentityProperties.crypto().privateKey();
-    }
-
-    public List<String> getExternalCorsAllowedOrigins() {
-        return corsProperties.externalAllowedOrigins();
-    }
-
-    public List<String> getDefaultCorsAllowedOrigins() {
-        return corsProperties.defaultAllowedOrigins();
     }
 
     public String getVerifierUrl() {

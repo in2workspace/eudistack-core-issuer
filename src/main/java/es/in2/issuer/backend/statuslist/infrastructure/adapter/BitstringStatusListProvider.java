@@ -81,51 +81,51 @@ public class BitstringStatusListProvider implements StatusListProvider {
 
     @Override
     @Observed(name = "statuslist.provider.allocate-entry", contextualName = "statuslist-provider-allocate-entry")
-    public Mono<StatusListEntry> allocateEntry(StatusPurpose purpose, StatusListFormat format, String procedureId, String token) {
+    public Mono<StatusListEntry> allocateEntry(StatusPurpose purpose, StatusListFormat format, String issuanceId, String token) {
         requireNonNullParam(purpose, "purpose");
         requireNonNullParam(format, "format");
-        requireNonNullParam(procedureId, "procedureId");
+        requireNonNullParam(issuanceId, "issuanceId");
         requireNonNullParam(token, TOKEN);
 
-        log.debug("method=allocateEntry step=START purpose={} format={} procedureId={}", purpose, format, procedureId);
+        log.debug("method=allocateEntry step=START purpose={} format={} issuanceId={}", purpose, format, issuanceId);
 
-        return findExistingAllocation(purpose, format, procedureId)
-                .switchIfEmpty(Mono.defer(() -> allocateNewEntry(purpose, format, procedureId, token)))
+        return findExistingAllocation(purpose, format, issuanceId)
+                .switchIfEmpty(Mono.defer(() -> allocateNewEntry(purpose, format, issuanceId, token)))
                 .map(entry -> {
                     log.debug(
-                            "method=allocateEntry step=END purpose={} format={} procedureId={} statusListId={} idx={}",
-                            purpose, format, procedureId, entry.statusListCredential(), entry.statusListIndex()
+                            "method=allocateEntry step=END purpose={} format={} issuanceId={} statusListId={} idx={}",
+                            purpose, format, issuanceId, entry.statusListCredential(), entry.statusListIndex()
                     );
                     return entry;
                 })
                 .doOnError(e -> log.warn(
-                        "method=allocateEntry step=ERROR purpose={} format={} procedureId={} error={}",
-                        purpose, format, procedureId, e.toString()
+                        "method=allocateEntry step=ERROR purpose={} format={} issuanceId={} error={}",
+                        purpose, format, issuanceId, e.toString()
                 ));
     }
 
     @Override
     @Observed(name = "statuslist.provider.revoke", contextualName = "statuslist-provider-revoke")
-    public Mono<Void> revoke(String procedureId, String token) {
-        requireNonNullParam(procedureId, "procedureId");
+    public Mono<Void> revoke(String issuanceId, String token) {
+        requireNonNullParam(issuanceId, "issuanceId");
         requireNonNullParam(token, TOKEN);
 
-        log.debug("method=revoke step=START procedureId={}", procedureId);
+        log.debug("method=revoke step=START issuanceId={}", issuanceId);
 
-        return statusListIndexRepository.findByProcedureId(UUID.fromString(procedureId))
-                .switchIfEmpty(Mono.error(new StatusListIndexNotFoundException(procedureId)))
+        return statusListIndexRepository.findByIssuanceId(UUID.fromString(issuanceId))
+                .switchIfEmpty(Mono.error(new StatusListIndexNotFoundException(issuanceId)))
                 .flatMap(listIndex -> {
                     log.debug(
-                            "method=revoke step=indexResolved procedureId={} statusListId={} idx={}",
-                            procedureId, listIndex.statusListId(), listIndex.idx()
+                            "method=revoke step=indexResolved issuanceId={} statusListId={} idx={}",
+                            issuanceId, listIndex.statusListId(), listIndex.idx()
                     );
                     return revokeWithRetry(listIndex.statusListId(), listIndex.idx(), token);
                 })
                 .doOnSuccess(v ->
-                        log.debug("method=revoke step=END procedureId={}", procedureId)
+                        log.debug("method=revoke step=END issuanceId={}", issuanceId)
                 )
                 .doOnError(e ->
-                        log.warn("method=revoke step=ERROR procedureId={} error={}", procedureId, e.toString())
+                        log.warn("method=revoke step=ERROR issuanceId={} error={}", issuanceId, e.toString())
                 );
     }
 
@@ -191,16 +191,16 @@ public class BitstringStatusListProvider implements StatusListProvider {
 
     // --- Allocation internals ---
 
-    private Mono<StatusListEntry> allocateNewEntry(StatusPurpose purpose, StatusListFormat format, String procedureId, String token) {
-        log.debug("method=allocateNewEntry step=START purpose={} format={} procedureId={}", purpose, format, procedureId);
+    private Mono<StatusListEntry> allocateNewEntry(StatusPurpose purpose, StatusListFormat format, String issuanceId, String token) {
+        log.debug("method=allocateNewEntry step=START purpose={} format={} issuanceId={}", purpose, format, issuanceId);
 
         return pickListForAllocation(purpose, format, token)
                 .flatMap(list ->
-                        reserveWithNewListFallback(list.id(), purpose, format, procedureId, token)
+                        reserveWithNewListFallback(list.id(), purpose, format, issuanceId, token)
                 )
                 .map(reservedIndex -> buildEntry(reservedIndex, format, purpose))
                 .doOnSuccess(e ->
-                        log.debug("method=allocateNewEntry step=END procedureId={}", procedureId)
+                        log.debug("method=allocateNewEntry step=END issuanceId={}", issuanceId)
                 );
     }
 
@@ -296,17 +296,17 @@ public class BitstringStatusListProvider implements StatusListProvider {
                 );
     }
 
-    private Mono<StatusListEntry> findExistingAllocation(StatusPurpose purpose, StatusListFormat format, String procedureId) {
-        log.debug("method=findExistingAllocation step=START procedureId={}", procedureId);
-        UUID procedureUuid = UUID.fromString(procedureId);
+    private Mono<StatusListEntry> findExistingAllocation(StatusPurpose purpose, StatusListFormat format, String issuanceId) {
+        log.debug("method=findExistingAllocation step=START issuanceId={}", issuanceId);
+        UUID procedureUuid = UUID.fromString(issuanceId);
 
-        return statusListIndexRepository.findByProcedureId(procedureUuid)
+        return statusListIndexRepository.findByIssuanceId(procedureUuid)
                 .map(existing -> {
                     log.debug("Found existing allocation in list {}, idx: {}", existing.statusListId(), existing.idx());
                     return buildEntry(toIndexDomain(existing), format, purpose);
                 })
                 .doOnSuccess(v ->
-                        log.debug("method=findExistingAllocation step=END procedureId={} statusListEntry={}", procedureId, v)
+                        log.debug("method=findExistingAllocation step=END issuanceId={} statusListEntry={}", issuanceId, v)
                 );
     }
 
@@ -372,15 +372,15 @@ public class BitstringStatusListProvider implements StatusListProvider {
             Long statusListId,
             StatusPurpose purpose,
             StatusListFormat format,
-            String procedureId,
+            String issuanceId,
             String token
     ) {
-        return statusListIndexReservationService.reserve(statusListId, procedureId)
+        return statusListIndexReservationService.reserve(statusListId, issuanceId)
                 .onErrorResume(
                         IndexReservationExhaustedException.class,
                         ex -> createNewList(purpose, format, token)
                                 .flatMap(newList ->
-                                        statusListIndexReservationService.reserve(newList.id(), procedureId)
+                                        statusListIndexReservationService.reserve(newList.id(), issuanceId)
                                 )
                 );
     }
@@ -416,7 +416,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
                 entity.id(),
                 entity.statusListId(),
                 entity.idx(),
-                entity.procedureId(),
+                entity.issuanceId(),
                 entity.createdAt()
         );
     }

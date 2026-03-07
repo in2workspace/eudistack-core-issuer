@@ -39,12 +39,12 @@ class ArchUnitTest {
 //    static final ArchRule packageDependenciesAreRespected = layeredArchitecture()
 //            .consideringOnlyDependenciesInLayers()
 //            // Define layers
-//            .layer("Backoffice").definedBy(BASE_PACKAGE + ".backoffice..")
+//            .layer("Issuance").definedBy(BASE_PACKAGE + ".issuance..")
 //            .layer("OIDC4VCI").definedBy(BASE_PACKAGE + ".oidc4vci..")
 //            .layer("OIDC4VCI-Workflow").definedBy(BASE_PACKAGE + ".oidc4vci.application.workflow..")
 //            .layer("Shared").definedBy(BASE_PACKAGE + ".shared..")
 //            // Add constraints
-//            .whereLayer("Backoffice").mayOnlyAccessLayers("OIDC4VCI-Workflow", "Shared")
+//            .whereLayer("Issuance").mayOnlyAccessLayers("OIDC4VCI-Workflow", "Shared")
 //            .whereLayer("OIDC4VCI").mayOnlyAccessLayers("Shared")
 //            .whereLayer("Shared").mayNotAccessAnyLayer();
 
@@ -75,7 +75,7 @@ class ArchUnitTest {
                     });
 
     private static String getLayerForPackage(String packageName) {
-        if (packageName.startsWith(BASE_PACKAGE + ".backoffice")) return "Backoffice";
+        if (packageName.startsWith(BASE_PACKAGE + ".issuance")) return "Issuance";
         if (packageName.startsWith(BASE_PACKAGE + ".oidc4vci.application.workflow")) return "OIDC4VCI-Workflow";
         if (packageName.startsWith(BASE_PACKAGE + ".oidc4vci")) return "OIDC4VCI";
         if (packageName.startsWith(BASE_PACKAGE + ".shared")) return "Shared";
@@ -87,7 +87,7 @@ class ArchUnitTest {
             GeneralCodingRules.testClassesShouldResideInTheSamePackageAsImplementation();
 
     @Test
-    void classesInSharedMustBeUsedBySharedOrByBothBackofficeAndOidc4vci() {
+    void classesInSharedMustBeUsedBySharedOrByBothIssuanceAndOidc4vci() {
         var classes = new ClassFileImporter().importPackages(BASE_PACKAGE);
 
         Set<JavaClass> sharedClasses = classes.stream()
@@ -101,16 +101,16 @@ class ArchUnitTest {
                 .filter(this::isNotAnonymousClass)
                 .collect(Collectors.toSet());
 
-        Set<JavaClass> backofficeClasses = filterClassesByPackage(classes, ".backoffice");
+        Set<JavaClass> issuanceClasses = filterClassesByPackage(classes, ".issuance");
         Set<JavaClass> oidcClasses = filterClassesByPackage(classes, ".oidc4vci");
 
 
         for (JavaClass sharedClass : sharedClassesToCheck) {
-            boolean usedByBackoffice = backofficeClasses.stream().anyMatch(user -> usesClass(user, sharedClass));
+            boolean usedByIssuance = issuanceClasses.stream().anyMatch(user -> usesClass(user, sharedClass));
             boolean usedByOidc4vci = oidcClasses.stream().anyMatch(user -> usesClass(user, sharedClass));
             boolean usedByShared = sharedClasses.stream().anyMatch(user -> usesClass(user, sharedClass));
 
-            boolean isShared = ((usedByBackoffice && usedByOidc4vci) || usedByShared);
+            boolean isShared = ((usedByIssuance && usedByOidc4vci) || usedByShared);
             assertThat(isShared)
                     .withFailMessage("The class " + sharedClass.getName() +
                             " is not used by both packages nor shared.")

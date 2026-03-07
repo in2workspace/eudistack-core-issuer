@@ -3,8 +3,8 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferData;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndRefreshToken;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndTxCode;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndRefreshToken;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndTxCode;
 import es.in2.issuer.backend.shared.domain.model.dto.VerifiableCredentialJWT;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
@@ -48,12 +48,12 @@ public class CacheStoreConfig {
     }
 
     @Bean
-    public TransientStore<CredentialProcedureIdAndTxCode> credentialProcedureIdAndTxCodeByPreAuthorizedCodeCacheStore() {
+    public TransientStore<IssuanceIdAndTxCode> issuanceIdAndTxCodeByPreAuthorizedCodeCacheStore() {
         return new CacheStore<>(PRE_AUTH_CODE_EXPIRY_DURATION_MINUTES, TimeUnit.MINUTES);
     }
 
     @Bean
-    public TransientStore<CredentialProcedureIdAndRefreshToken> refreshTokenCacheStore() {
+    public TransientStore<IssuanceIdAndRefreshToken> refreshTokenCacheStore() {
         return new CacheStore<>(REFRESH_TOKEN_EXPIRATION, REFRESH_TOKEN_EXPIRATION_TIME_UNIT);
     }
 

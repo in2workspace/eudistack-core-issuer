@@ -6,5 +6,5 @@ import java.util.Map;
 
 public interface CredentialSignerWorkflow {
     Mono<String> signCredential(String token, String enrichedDataSet, String credentialType,
-                                String format, Map<String, Object> cnf, String procedureId, String email);
+                                String format, Map<String, Object> cnf, String issuanceId, String email);
 }

@@ -10,7 +10,7 @@ Package: `es.in2.issuer`, version 2.2.19. Java 25, Gradle, PostgreSQL (R2DBC), F
 Hexagonal (Ports & Adapters) + DDD. Four bounded contexts:
 
 - **oidc4vci/** - OID4VCI protocol endpoints (metadata, token, credential, offer, deferred, notification)
-- **backoffice/** - Admin UI backend (issuance management, signature config, security config)
+- **issuance/** - Operator-side issuance management (create, query, bootstrap, signature config, security config)
 - **signing/** - Pluggable signing SPI (InMemory, CscSignHash, CscSignDoc)
 - **statuslist/** - Credential revocation via Bitstring Status Lists
 - **shared/** - Cross-cutting: models, crypto, factories, security services

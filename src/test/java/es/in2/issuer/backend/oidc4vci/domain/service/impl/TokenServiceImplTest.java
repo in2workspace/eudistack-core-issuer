@@ -4,9 +4,9 @@ import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndRefreshToken;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndTxCode;
-import es.in2.issuer.backend.shared.domain.service.ProcedureService;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndRefreshToken;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndTxCode;
+import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.DpopValidationService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.PkceVerifier;
@@ -39,7 +39,7 @@ class TokenServiceImplTest {
 
     private static final String TEST_PRE_AUTHORIZED_CODE = "test-pre-auth-code-123";
     private static final String TEST_TX_CODE = "1234";
-    private static final String TEST_CREDENTIAL_PROCEDURE_ID = "credential-procedure-123";
+    private static final String TEST_CREDENTIAL_ISSUANCE_ID = "credential-issuance-123";
     private static final String TEST_ISSUER_URL = "https://issuer.example.com";
     private static final String TEST_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...";
     private static final String TEST_REFRESH_TOKEN = "refresh-token-123";
@@ -49,9 +49,9 @@ class TokenServiceImplTest {
     private static final String TOKEN_ENDPOINT_URI = "https://issuer.example.com/oauth/token";
 
     @Mock
-    private TransientStore<CredentialProcedureIdAndTxCode> txCodeCacheStore;
+    private TransientStore<IssuanceIdAndTxCode> txCodeCacheStore;
     @Mock
-    private TransientStore<CredentialProcedureIdAndRefreshToken> refreshTokenCacheStore;
+    private TransientStore<IssuanceIdAndRefreshToken> refreshTokenCacheStore;
     @Mock
     private TransientStore<AuthorizationCodeData> authorizationCodeCacheStore;
     @Mock
@@ -61,7 +61,7 @@ class TokenServiceImplTest {
     @Mock
     private IssuerProperties appConfig;
     @Mock
-    private ProcedureService procedureService;
+    private IssuanceService issuanceService;
     @Mock
     private PkceVerifier pkceVerifier;
     @Mock
@@ -72,7 +72,7 @@ class TokenServiceImplTest {
     private IssuanceMetrics issuanceMetrics;
 
     private TokenServiceImpl tokenService;
-    private CredentialProcedureIdAndTxCode testCredentialProcedureIdAndTxCode;
+    private IssuanceIdAndTxCode testIssuanceIdAndTxCode;
 
     @BeforeEach
     void setUp() {
@@ -83,15 +83,15 @@ class TokenServiceImplTest {
                 jwtService,
                 refreshTokenService,
                 appConfig,
-                procedureService,
+                issuanceService,
                 pkceVerifier,
                 dpopValidationService,
                 profileProperties,
                 issuanceMetrics
         );
 
-        testCredentialProcedureIdAndTxCode = new CredentialProcedureIdAndTxCode(
-                TEST_CREDENTIAL_PROCEDURE_ID,
+        testIssuanceIdAndTxCode = new IssuanceIdAndTxCode(
+                TEST_CREDENTIAL_ISSUANCE_ID,
                 TEST_TX_CODE
         );
     }
@@ -107,7 +107,7 @@ class TokenServiceImplTest {
     @Test
     void exchangeToken_WhenValidPreAuthInputs_ShouldReturnTokenResponse() {
         when(txCodeCacheStore.get(TEST_PRE_AUTHORIZED_CODE))
-                .thenReturn(Mono.just(testCredentialProcedureIdAndTxCode));
+                .thenReturn(Mono.just(testIssuanceIdAndTxCode));
         when(appConfig.getIssuerBackendUrl()).thenReturn(TEST_ISSUER_URL);
         when(jwtService.issueJWT(anyString())).thenReturn(TEST_ACCESS_TOKEN);
         when(refreshTokenService.computeRefreshTokenExpirationTime(any(Instant.class)))
@@ -131,7 +131,7 @@ class TokenServiceImplTest {
         verify(txCodeCacheStore, times(2)).get(TEST_PRE_AUTHORIZED_CODE);
         verify(jwtService).issueJWT(anyString());
         verify(refreshTokenService).issueRefreshToken();
-        verify(refreshTokenCacheStore).add(eq(TEST_REFRESH_TOKEN), any(CredentialProcedureIdAndRefreshToken.class));
+        verify(refreshTokenCacheStore).add(eq(TEST_REFRESH_TOKEN), any(IssuanceIdAndRefreshToken.class));
     }
 
     @Test
@@ -166,7 +166,7 @@ class TokenServiceImplTest {
     @Test
     void exchangeToken_WhenInvalidTxCode_ShouldReturnInvalidGrant() {
         when(txCodeCacheStore.get(TEST_PRE_AUTHORIZED_CODE))
-                .thenReturn(Mono.just(testCredentialProcedureIdAndTxCode));
+                .thenReturn(Mono.just(testIssuanceIdAndTxCode));
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, INVALID_TX_CODE);
 
@@ -199,13 +199,13 @@ class TokenServiceImplTest {
     @Test
     void exchangeToken_WhenRefreshTokenCacheFails_ShouldReturnError() {
         when(txCodeCacheStore.get(TEST_PRE_AUTHORIZED_CODE))
-                .thenReturn(Mono.just(testCredentialProcedureIdAndTxCode));
+                .thenReturn(Mono.just(testIssuanceIdAndTxCode));
         when(appConfig.getIssuerBackendUrl()).thenReturn(TEST_ISSUER_URL);
         when(jwtService.issueJWT(anyString())).thenReturn(TEST_ACCESS_TOKEN);
         when(refreshTokenService.computeRefreshTokenExpirationTime(any(Instant.class)))
                 .thenReturn(TEST_REFRESH_TOKEN_EXPIRES_AT);
         when(refreshTokenService.issueRefreshToken()).thenReturn(TEST_REFRESH_TOKEN);
-        when(refreshTokenCacheStore.add(eq(TEST_REFRESH_TOKEN), any(CredentialProcedureIdAndRefreshToken.class)))
+        when(refreshTokenCacheStore.add(eq(TEST_REFRESH_TOKEN), any(IssuanceIdAndRefreshToken.class)))
                 .thenReturn(Mono.error(new RuntimeException("Refresh token cache error")));
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
@@ -214,13 +214,13 @@ class TokenServiceImplTest {
                 .expectError(RuntimeException.class)
                 .verify();
 
-        verify(refreshTokenCacheStore).add(eq(TEST_REFRESH_TOKEN), any(CredentialProcedureIdAndRefreshToken.class));
+        verify(refreshTokenCacheStore).add(eq(TEST_REFRESH_TOKEN), any(IssuanceIdAndRefreshToken.class));
     }
 
     @Test
     void exchangeToken_WhenJWTServiceFails_ShouldReturnError() {
         when(txCodeCacheStore.get(TEST_PRE_AUTHORIZED_CODE))
-                .thenReturn(Mono.just(testCredentialProcedureIdAndTxCode));
+                .thenReturn(Mono.just(testIssuanceIdAndTxCode));
         when(appConfig.getIssuerBackendUrl()).thenReturn(TEST_ISSUER_URL);
         when(jwtService.issueJWT(anyString())).thenThrow(new RuntimeException("JWT generation failed"));
 

@@ -31,7 +31,7 @@ class CredentialDetailsTest {
         CredentialDetails credentialDetails = new CredentialDetails(uuid, expectedCredentialStatus, jsonNode, email);
 
         // Assert
-        assertEquals(uuid, credentialDetails.procedureId());
+        assertEquals(uuid, credentialDetails.issuanceId());
         assertEquals(expectedCredentialStatus, credentialDetails.lifeCycleStatus());
         assertEquals(jsonNode, credentialDetails.credential());
         assertEquals(email, credentialDetails.email());
@@ -46,13 +46,13 @@ class CredentialDetailsTest {
 
         // Act
         CredentialDetails credentialDetails = CredentialDetails.builder()
-                .procedureId(uuid)
+                .issuanceId(uuid)
                 .lifeCycleStatus(newCredentialStatus)
                 .credential(jsonNode)
                 .build();
 
         // Assert
-        assertEquals(uuid, credentialDetails.procedureId());
+        assertEquals(uuid, credentialDetails.issuanceId());
         assertEquals(newCredentialStatus, credentialDetails.lifeCycleStatus());
         assertEquals(jsonNode, credentialDetails.credential());
     }

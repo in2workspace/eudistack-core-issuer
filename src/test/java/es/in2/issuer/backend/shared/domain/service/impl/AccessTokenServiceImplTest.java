@@ -186,7 +186,7 @@ class AccessTokenServiceImplTest {
         String authorizationHeader = "Bearer " + validToken;
 
         String jti = "jti123";
-        String procedureId = UUID.randomUUID().toString();
+        String issuanceId = UUID.randomUUID().toString();
         long exp = Instant.now().plusSeconds(3600).getEpochSecond();
 
         JWSObject mockJwsObject = mock(JWSObject.class);
@@ -195,7 +195,7 @@ class AccessTokenServiceImplTest {
         when(mockJwsObject.getPayload()).thenReturn(mockPayload);
         when(mockPayload.toJSONObject()).thenReturn(Map.of(
                 "jti", jti,
-                "pid", procedureId,
+                "pid", issuanceId,
                 "exp", exp
         ));
 
@@ -213,7 +213,7 @@ class AccessTokenServiceImplTest {
                     .expectNextMatches(context ->
                             validToken.equals(context.rawToken())
                                     && jti.equals(context.jti())
-                                    && procedureId.equals(context.procedureId())
+                                    && issuanceId.equals(context.issuanceId())
                     )
                     .verifyComplete();
         }

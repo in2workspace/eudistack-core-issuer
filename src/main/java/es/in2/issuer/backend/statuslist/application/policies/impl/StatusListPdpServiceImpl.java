@@ -1,7 +1,7 @@
 package es.in2.issuer.backend.statuslist.application.policies.impl;
 
-import es.in2.issuer.backend.backoffice.domain.exception.InvalidStatusException;
-import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
+import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
 import es.in2.issuer.backend.shared.domain.policy.rules.RequireOrganizationRule;
@@ -26,28 +26,28 @@ public class StatusListPdpServiceImpl implements StatusListPdpService {
     @Override
     public Mono<Void> validateRevokeCredential(String processId,
                                                String token,
-                                               CredentialProcedure procedure) {
+                                               Issuance issuance) {
 
         return Mono.deferContextual(reactorCtx -> {
             String tenantDomain = reactorCtx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null);
             log.info("Process ID: {} - Validating 'revoke' action...", processId);
-            return validateStatus(procedure.getCredentialStatus())
+            return validateStatus(issuance.getCredentialStatus())
                     .then(Mono.defer(() -> policyContextFactory.fromTokenSimple(token, tenantDomain)))
                     .flatMap(ctx -> new RequireTenantMatchRule().evaluate(ctx, null).thenReturn(ctx))
                     .flatMap(ctx ->
                             RequirePowerRule.<Void>of("Onboarding", "Execute")
                                     .evaluate(ctx, null)
                                     .then(new RequireOrganizationRule()
-                                            .evaluate(ctx, procedure.getOrganizationIdentifier()))
+                                            .evaluate(ctx, issuance.getOrganizationIdentifier()))
                     );
         });
     }
 
     @Override
-    public Mono<Void> validateRevokeCredentialSystem(String processId, CredentialProcedure procedure) {
+    public Mono<Void> validateRevokeCredentialSystem(String processId, Issuance issuance) {
         return Mono.defer(() -> {
             log.info("Process ID: {} - Validating 'revoke' action (system)...", processId);
-            return validateStatus(procedure.getCredentialStatus());
+            return validateStatus(issuance.getCredentialStatus());
         });
     }
 

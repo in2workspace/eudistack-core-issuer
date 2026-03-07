@@ -81,19 +81,19 @@ public class AccessTokenServiceImpl implements AccessTokenService {
                                     var payload = jws.getPayload().toJSONObject();
 
                                     String jti = (String) payload.get("jti");
-                                    String procedureId = (String) payload.get("pid");
+                                    String issuanceId = (String) payload.get("pid");
                                     Number expValue = (Number) payload.get("exp");
 
                                     if (jti == null || jti.isBlank())
                                         return Mono.error(new InvalidTokenException("Access token without jti"));
-                                    if (procedureId == null || procedureId.isBlank())
+                                    if (issuanceId == null || issuanceId.isBlank())
                                         return Mono.error(new InvalidTokenException("Access token without pid"));
                                     if (expValue == null)
                                         return Mono.error(new InvalidTokenException("Access token without exp"));
                                     if (Instant.ofEpochSecond(expValue.longValue()).isBefore(Instant.now()))
                                         return Mono.error(new InvalidTokenException("Access token expired"));
 
-                                    return Mono.just(new AccessTokenContext(rawToken, jti, procedureId));
+                                    return Mono.just(new AccessTokenContext(rawToken, jti, issuanceId));
                                 })
                 );
     }

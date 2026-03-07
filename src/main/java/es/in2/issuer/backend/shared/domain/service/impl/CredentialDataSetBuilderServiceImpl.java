@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureCreationRequest;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceCreationRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
@@ -37,8 +37,8 @@ public class CredentialDataSetBuilderServiceImpl implements CredentialDataSetBui
 
     @Override
     @Observed(name = "issuance.build-dataset", contextualName = "build-credential-data-set")
-    public Mono<CredentialProcedureCreationRequest> buildDataSet(
-            String procedureId,
+    public Mono<IssuanceCreationRequest> buildDataSet(
+            String issuanceId,
             PreSubmittedCredentialDataRequest request) {
 
         String configId = request.credentialConfigurationId();
@@ -104,8 +104,8 @@ public class CredentialDataSetBuilderServiceImpl implements CredentialDataSetBui
         String delivery = request.delivery() != null ? request.delivery() : DEFAULT_DELIVERY;
 
         return extractOrganizationIdentifier(profile, payload)
-                .map(orgId -> CredentialProcedureCreationRequest.builder()
-                        .procedureId(procedureId)
+                .map(orgId -> IssuanceCreationRequest.builder()
+                        .issuanceId(issuanceId)
                         .organizationIdentifier(orgId)
                         .credentialDataSet(credentialJson)
                         .credentialType(profile.credentialConfigurationId())
@@ -115,7 +115,7 @@ public class CredentialDataSetBuilderServiceImpl implements CredentialDataSetBui
                         .email(request.email())
                         .delivery(delivery)
                         .build())
-                .doOnSuccess(req -> log.info("Built credential dataset for procedureId: {}, type: {}", procedureId, configId));
+                .doOnSuccess(req -> log.info("Built credential dataset for issuanceId: {}, type: {}", issuanceId, configId));
     }
 
     private CredentialProfile resolveProfile(String configId) {

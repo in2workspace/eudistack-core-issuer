@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndTxCode;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndTxCode;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferData;
 import es.in2.issuer.backend.shared.domain.model.dto.VerifiableCredentialJWT;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
@@ -64,8 +64,8 @@ class CacheStoreConfigTest {
 
     @Test
     void testCacheStoreForCredentialIdAndTxCodeByPreAuthorizedCodeCacheStore() {
-        TransientStore<CredentialProcedureIdAndTxCode> customCredentialOfferCacheStore =
-                cacheStoreConfig.credentialProcedureIdAndTxCodeByPreAuthorizedCodeCacheStore();
+        TransientStore<IssuanceIdAndTxCode> customCredentialOfferCacheStore =
+                cacheStoreConfig.issuanceIdAndTxCodeByPreAuthorizedCodeCacheStore();
         assertNotNull(customCredentialOfferCacheStore);
     }
 }
