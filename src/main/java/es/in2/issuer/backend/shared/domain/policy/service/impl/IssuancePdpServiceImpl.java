@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.shared.infrastructure.config.security.service.impl;
+package es.in2.issuer.backend.shared.domain.policy.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -8,9 +8,9 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.Credenti
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
 import es.in2.issuer.backend.shared.domain.policy.PolicyEnforcer;
 import es.in2.issuer.backend.shared.domain.policy.rules.*;
+import es.in2.issuer.backend.shared.domain.policy.service.IssuancePdpService;
 import es.in2.issuer.backend.shared.domain.util.DynamicCredentialParser;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
-import es.in2.issuer.backend.shared.infrastructure.config.security.service.IssuancePdpService;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,8 +40,6 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
         return Mono.deferContextual(reactorCtx -> {
             String tenantDomain = reactorCtx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null);
 
-            // Resolve the logical credential type from the configuration ID so that
-            // all format variants of the same type use the same authorization policy.
             CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialConfigurationId);
             String credentialType = profile != null ? profile.credentialType() : credentialConfigurationId;
 

@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.shared.infrastructure.config.security.service.impl;
+package es.in2.issuer.backend.shared.domain.policy.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -422,5 +422,4 @@ class IssuancePdpServiceImplTest {
                                 .contextWrite(withSecurityContext(token)))
                 .verifyComplete();
     }
-
 }

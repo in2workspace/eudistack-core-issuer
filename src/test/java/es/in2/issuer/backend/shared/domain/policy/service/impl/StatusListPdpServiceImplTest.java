@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.statuslist.application.policies.impl;
+package es.in2.issuer.backend.shared.domain.policy.service.impl;
 
 import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
 import es.in2.issuer.backend.shared.domain.exception.JWTParsingException;
@@ -55,7 +55,6 @@ class StatusListPdpServiceImplTest {
 
     @Test
     void validateRevokeCredential_shouldComplete_whenValidStatus_roleLear_andSameOrganization() {
-        // Arrange
         String processId = "p-1";
         String token = "token";
         String issuanceOrg = "ORG_1";
@@ -68,7 +67,6 @@ class StatusListPdpServiceImplTest {
         PolicyContext ctx = buildContext(userOrg, false);
         when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
-        // Act + Assert
         StepVerifier.create(service.validateRevokeCredential(processId, token, issuance))
                 .verifyComplete();
 
@@ -77,7 +75,6 @@ class StatusListPdpServiceImplTest {
 
     @Test
     void validateRevokeCredential_shouldComplete_whenUserIsSysAdmin_evenIfOrganizationDiffers() {
-        // Arrange
         String processId = "p-2";
         String token = "token";
         String issuanceOrg = "ORG_2";
@@ -90,18 +87,15 @@ class StatusListPdpServiceImplTest {
         PolicyContext ctx = buildContext(adminOrg, true);
         when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
-        // Act + Assert
         StepVerifier.create(service.validateRevokeCredential(processId, token, issuance))
                 .verifyComplete();
     }
 
     @Test
     void validateRevokeCredential_shouldErrorInvalidStatus_whenStatusIsNotValid() {
-        // Arrange
         Issuance issuance = mock(Issuance.class);
         when(issuance.getCredentialStatus()).thenReturn(CredentialStatusEnum.REVOKED);
 
-        // Act + Assert
         StepVerifier.create(service.validateRevokeCredential("p-3", "token", issuance))
                 .expectError(InvalidStatusException.class)
                 .verify();
@@ -111,7 +105,6 @@ class StatusListPdpServiceImplTest {
 
     @Test
     void validateRevokeCredential_shouldErrorUnauthorizedRole_whenNoPower() {
-        // Arrange
         String token = "token";
 
         Issuance issuance = mock(Issuance.class);
@@ -120,7 +113,6 @@ class StatusListPdpServiceImplTest {
         PolicyContext ctx = buildContextNoPowers("ORG_1", false);
         when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
-        // Act + Assert
         StepVerifier.create(service.validateRevokeCredential("p-4", token, issuance))
                 .expectError(UnauthorizedRoleException.class)
                 .verify();
@@ -130,7 +122,6 @@ class StatusListPdpServiceImplTest {
 
     @Test
     void validateRevokeCredential_shouldErrorJwtParsingException_whenClaimsCannotBeParsed() {
-        // Arrange
         String token = "token";
 
         Issuance issuance = mock(Issuance.class);
@@ -139,7 +130,6 @@ class StatusListPdpServiceImplTest {
         when(policyContextFactory.fromTokenSimple(eq(token), any()))
                 .thenReturn(Mono.error(new JWTParsingException("boom")));
 
-        // Act + Assert
         StepVerifier.create(service.validateRevokeCredential("p-5", token, issuance))
                 .expectError(JWTParsingException.class)
                 .verify();
@@ -149,7 +139,6 @@ class StatusListPdpServiceImplTest {
 
     @Test
     void validateRevokeCredential_shouldErrorUnauthorizedRole_whenOrganizationDiffersAndNotSysAdmin() {
-        // Arrange
         String token = "token";
         String issuanceOrg = "ORG_A";
         String userOrg = "ORG_B";
@@ -161,7 +150,6 @@ class StatusListPdpServiceImplTest {
         PolicyContext ctx = buildContext(userOrg, false);
         when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
-        // Act + Assert
         StepVerifier.create(service.validateRevokeCredential("p-6", token, issuance))
                 .expectError(UnauthorizedRoleException.class)
                 .verify();
@@ -169,11 +157,9 @@ class StatusListPdpServiceImplTest {
 
     @Test
     void validateRevokeCredentialSystem_shouldComplete_whenValidStatus() {
-        // Arrange
         Issuance issuance = mock(Issuance.class);
         when(issuance.getCredentialStatus()).thenReturn(VALID);
 
-        // Act + Assert
         StepVerifier.create(service.validateRevokeCredentialSystem("p-7", issuance))
                 .verifyComplete();
 
@@ -182,11 +168,9 @@ class StatusListPdpServiceImplTest {
 
     @Test
     void validateRevokeCredentialSystem_shouldErrorInvalidStatus_whenNotValid() {
-        // Arrange
         Issuance issuance = mock(Issuance.class);
         when(issuance.getCredentialStatus()).thenReturn(CredentialStatusEnum.REVOKED);
 
-        // Act + Assert
         StepVerifier.create(service.validateRevokeCredentialSystem("p-8", issuance))
                 .expectError(InvalidStatusException.class)
                 .verify();

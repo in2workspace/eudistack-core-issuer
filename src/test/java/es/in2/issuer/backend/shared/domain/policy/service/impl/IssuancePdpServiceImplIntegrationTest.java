@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.shared.infrastructure.config.security.service.impl;
+package es.in2.issuer.backend.shared.domain.policy.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -141,7 +141,6 @@ class IssuancePdpServiceImplIntegrationTest {
                 }
                 """;
         JsonNode jsonNode = objectMapper.readTree(json);
-        // Mock DynamicCredentialParser for the VC claim extracted from token
         List<Power> signerPowers = List.of(
                 Power.builder().function("Onboarding").action("Execute").domain("DOME").type("Domain").build(),
                 Power.builder().function("ProductOffering").action(List.of("Create", "Update")).domain("DOME").type("Domain").build()

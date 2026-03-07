@@ -5,7 +5,7 @@ import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
-import es.in2.issuer.backend.statuslist.application.policies.StatusListPdpService;
+import es.in2.issuer.backend.shared.domain.policy.service.StatusListPdpService;
 import es.in2.issuer.backend.statuslist.domain.spi.StatusListProvider;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
