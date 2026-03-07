@@ -12,7 +12,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
@@ -21,9 +20,10 @@ import java.net.URI;
 import java.util.Map;
 import java.util.UUID;
 
+import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.BOOTSTRAP_PATH;
+
 @Slf4j
 @RestController
-@RequestMapping
 @RequiredArgsConstructor
 public class BootstrapController {
 
@@ -33,7 +33,7 @@ public class BootstrapController {
     private final IssuanceWorkflow issuanceWorkflow;
     private final AuditService auditService;
 
-    @PostMapping("/bootstrap/v1/issuances")
+    @PostMapping(BOOTSTRAP_PATH)
     public Mono<ResponseEntity<Void>> bootstrapIssueCredential(
             @RequestHeader(BOOTSTRAP_TOKEN_HEADER) String bootstrapToken,
             @Valid @RequestBody PreSubmittedCredentialDataRequest request) {

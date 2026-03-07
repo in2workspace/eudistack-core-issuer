@@ -2,11 +2,15 @@ package es.in2.issuer.backend.issuance.infrastructure.controller;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.issuance.domain.model.dtos.UpdateIssuanceStatusRequest;
 import es.in2.issuer.backend.shared.application.workflow.IssuanceWorkflow;
-import es.in2.issuer.backend.shared.domain.model.dto.IssuanceResponse;
-import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
+import es.in2.issuer.backend.shared.domain.model.dto.*;
+import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
+import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
+import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
@@ -16,6 +20,10 @@ import org.springframework.security.authentication.ReactiveAuthenticationManager
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.when;
@@ -39,11 +47,19 @@ class IssuanceControllerTest {
     private IssuanceWorkflow issuanceWorkflow;
 
     @MockBean
+    private IssuanceService issuanceService;
+
+    @MockBean
+    private AccessTokenService accessTokenService;
+
+    @MockBean
+    private RevocationWorkflow revocationWorkflow;
+
+    @MockBean
     private IssuanceMetrics issuanceMetrics;
 
     @Test
-    void issueCredential_UiDelivery_Returns200WithBody() throws JsonProcessingException {
-
+    void createIssuance_UiDelivery_Returns200WithBody() throws JsonProcessingException {
         String credentialOfferUri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fserver.example.com%2Fcredential-offer%2Fabc123";
         var testRequest = PreSubmittedCredentialDataRequest.builder()
                 .credentialConfigurationId("test-schema")
@@ -56,7 +72,7 @@ class IssuanceControllerTest {
 
         webTestClient.mutateWith(csrf())
                 .post()
-                .uri("/v1/issuances")
+                .uri("/api/v1/issuances")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(objectMapper.writeValueAsString(testRequest))
                 .exchange()
@@ -66,8 +82,7 @@ class IssuanceControllerTest {
     }
 
     @Test
-    void issueCredential_Deferred_Returns202Accepted() throws JsonProcessingException {
-
+    void createIssuance_Deferred_Returns202Accepted() throws JsonProcessingException {
         var testRequest = PreSubmittedCredentialDataRequest.builder()
                 .credentialConfigurationId("test-schema")
                 .payload(objectMapper.createObjectNode().put("key", "value"))
@@ -79,7 +94,7 @@ class IssuanceControllerTest {
 
         webTestClient.mutateWith(csrf())
                 .post()
-                .uri("/v1/issuances")
+                .uri("/api/v1/issuances")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(objectMapper.writeValueAsString(testRequest))
                 .exchange()
@@ -88,8 +103,7 @@ class IssuanceControllerTest {
     }
 
     @Test
-    void issueCredential_WithIdToken_PassesIdTokenToWorkflow() throws JsonProcessingException {
-
+    void createIssuance_WithIdToken_PassesIdTokenToWorkflow() throws JsonProcessingException {
         String idToken = "id-token-value";
         var testRequest = PreSubmittedCredentialDataRequest.builder()
                 .credentialConfigurationId("test-schema")
@@ -102,12 +116,122 @@ class IssuanceControllerTest {
 
         webTestClient.mutateWith(csrf())
                 .post()
-                .uri("/v1/issuances")
+                .uri("/api/v1/issuances")
                 .header("X-Id-Token", idToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(objectMapper.writeValueAsString(testRequest))
                 .exchange()
                 .expectStatus().isAccepted()
                 .expectBody().isEmpty();
+    }
+
+    @Test
+    void getAllIssuances_ReturnsIssuanceList() {
+        String orgId = "testOrganizationId";
+        OrgContext orgContext = new OrgContext(orgId, false);
+
+        IssuanceSummary summary = IssuanceSummary.builder()
+                .issuanceId(UUID.randomUUID())
+                .subject("testFullName")
+                .status("testStatus")
+                .updated(Instant.now())
+                .organizationIdentifier(orgId)
+                .build();
+
+        IssuanceList issuanceList = IssuanceList.builder()
+                .credentialProcedures(List.of(new IssuanceList.IssuanceEntry(summary)))
+                .build();
+
+        when(accessTokenService.getOrganizationContext(anyString()))
+                .thenReturn(Mono.just(orgContext));
+        when(issuanceService.getAllIssuancesVisibleFor(orgId, false))
+                .thenReturn(Mono.just(issuanceList));
+
+        webTestClient
+                .get()
+                .uri("/api/v1/issuances")
+                .header("Authorization", "Bearer testToken")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.credential_procedures").isArray();
+    }
+
+    @Test
+    void getIssuance_ReturnsCredentialDetails() {
+        String orgId = "testOrganizationId";
+        String issuanceId = "test-issuance-id";
+        OrgContext orgContext = new OrgContext(orgId, false);
+
+        CredentialDetails details = CredentialDetails.builder()
+                .issuanceId(UUID.randomUUID())
+                .lifeCycleStatus("VALID")
+                .credential(null)
+                .build();
+
+        when(accessTokenService.getOrganizationContext(anyString()))
+                .thenReturn(Mono.just(orgContext));
+        when(issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(orgId, issuanceId, false))
+                .thenReturn(Mono.just(details));
+
+        webTestClient
+                .get()
+                .uri("/api/v1/issuances/{id}", issuanceId)
+                .header("Authorization", "Bearer testToken")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.lifeCycleStatus").isEqualTo("VALID");
+    }
+
+    @Test
+    void updateIssuanceStatus_Withdrawn_Returns204() throws JsonProcessingException {
+        String issuanceId = UUID.randomUUID().toString();
+        var request = new UpdateIssuanceStatusRequest(CredentialStatusEnum.WITHDRAWN);
+
+        when(issuanceService.withdrawIssuance(issuanceId))
+                .thenReturn(Mono.empty());
+
+        webTestClient.mutateWith(csrf())
+                .patch()
+                .uri("/api/v1/issuances/{id}", issuanceId)
+                .header("Authorization", "Bearer testToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(objectMapper.writeValueAsString(request))
+                .exchange()
+                .expectStatus().isNoContent();
+    }
+
+    @Test
+    void updateIssuanceStatus_Revoked_Returns204() throws JsonProcessingException {
+        String issuanceId = UUID.randomUUID().toString();
+        var request = new UpdateIssuanceStatusRequest(CredentialStatusEnum.REVOKED);
+
+        when(revocationWorkflow.revoke(anyString(), eq("Bearer testToken"), eq(issuanceId)))
+                .thenReturn(Mono.empty());
+
+        webTestClient.mutateWith(csrf())
+                .patch()
+                .uri("/api/v1/issuances/{id}", issuanceId)
+                .header("Authorization", "Bearer testToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(objectMapper.writeValueAsString(request))
+                .exchange()
+                .expectStatus().isNoContent();
+    }
+
+    @Test
+    void updateIssuanceStatus_UnsupportedStatus_Returns400() throws JsonProcessingException {
+        String issuanceId = UUID.randomUUID().toString();
+        var request = new UpdateIssuanceStatusRequest(CredentialStatusEnum.VALID);
+
+        webTestClient.mutateWith(csrf())
+                .patch()
+                .uri("/api/v1/issuances/{id}", issuanceId)
+                .header("Authorization", "Bearer testToken")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(objectMapper.writeValueAsString(request))
+                .exchange()
+                .expectStatus().isBadRequest();
     }
 }

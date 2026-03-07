@@ -24,7 +24,8 @@ public class EndpointsConstants {
     public static final String VCI_PATH = VCI_BASE_PATH+"/**";
 
     // Issuance Endpoint (unified)
-    public static final String ISSUANCES_PATH = "/v1/issuances";
+    public static final String ISSUANCES_PATH = "/api/v1/issuances";
+    public static final String ISSUANCES_WILDCARD_PATH = "/api/v1/issuances/**";
 
     // OIDC4VCI Endpoints
     public static final String CORS_OID4VCI_PATH = "/oid4vci/**";
@@ -57,10 +58,8 @@ public class EndpointsConstants {
     public static final String ISSUANCE_RETRY_SIGN_CREDENTIALS = ISSUANCE_BASE_PATH+"/retry-sign-credential/{id}";
     public static final String ISSUANCE_DEFERRED_CREDENTIALS = ISSUANCE_BASE_PATH + "/deferred-credentials";
 
-    // Bootstrap Endpoints (under issuance)
-    public static final String BOOTSTRAP_BASE_PATH = "/bootstrap/v1";
-    public static final String BOOTSTRAP_PATH = BOOTSTRAP_BASE_PATH + "/**";
-    public static final String BOOTSTRAP_ISSUANCES_PATH = BOOTSTRAP_BASE_PATH + "/issuances";
+    // Bootstrap Endpoint
+    public static final String BOOTSTRAP_PATH = "/api/v1/bootstrap";
 
     // Credential Offer Refresh
     public static final String CREDENTIAL_OFFER_REFRESH_PATH = "/credential-offer/refresh/**";

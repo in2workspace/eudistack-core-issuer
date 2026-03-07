@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.issuance.infrastructure.config.security;
+package es.in2.issuer.backend.shared.infrastructure.config.security;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,14 +36,14 @@ public class SecurityConfig {
 
         authenticationWebFilter.setRequiresAuthenticationMatcher(
                 ServerWebExchangeMatchers.pathMatchers(
-                        // Issuance endpoint (unified)
+                        // Issuance endpoints (unified)
                         ISSUANCES_PATH,
+                        ISSUANCES_WILDCARD_PATH,
                         // OID4VCI paths
                         OAUTH_TOKEN_PATH,
                         OID4VCI_CREDENTIAL_PATH,
                         OID4VCI_NOTIFICATION_PATH,
-                        // Issuance paths
-                        ISSUANCE_PATH,
+                        // Other authenticated paths
                         STATUS_LIST_PATH,
                         SIGNING_PROVIDERS_PATH,
                         SIGNING_CONFIG_PATH)
@@ -85,15 +85,15 @@ public class SecurityConfig {
 
         http
                 .securityMatcher(ServerWebExchangeMatchers.pathMatchers(
-                        // Issuance endpoint (unified)
+                        // Issuance endpoints (unified)
                         ISSUANCES_PATH,
+                        ISSUANCES_WILDCARD_PATH,
                         // Public OID4VCI paths
                         CORS_OID4VCI_PATH,
                         VCI_PATH,
                         WELL_KNOWN_PATH,
                         OAUTH_PATH,
-                        // Issuance paths
-                        ISSUANCE_PATH,
+                        // Other paths
                         STATUS_LIST_PATH,
                         TOKEN_STATUS_LIST_PATH,
                         SIGNING_PROVIDERS_PATH,
