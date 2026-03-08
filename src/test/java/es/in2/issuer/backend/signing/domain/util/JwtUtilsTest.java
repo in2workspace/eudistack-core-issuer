@@ -1,6 +1,4 @@
-package es.in2.issuer.backend.shared.domain.util;
-
-import es.in2.issuer.backend.signing.domain.util.JwtUtils;
+package es.in2.issuer.backend.signing.domain.util;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;

@@ -64,7 +64,7 @@ class RevocationWorkflowTest {
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure)).thenReturn(Mono.empty());
         when(statusListProvider.revoke(ISSUANCE_ID, CLEAN_TOKEN)).thenReturn(Mono.empty());
-        when(issuanceService.updateIssuanceCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
+        when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure)).thenReturn(Mono.empty());
         when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
         when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(ISSUANCE_ID))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
@@ -119,7 +119,7 @@ class RevocationWorkflowTest {
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure)).thenReturn(Mono.empty());
         when(statusListProvider.revoke(ISSUANCE_ID, CLEAN_TOKEN)).thenReturn(Mono.empty());
-        when(issuanceService.updateIssuanceCredentialStatusToRevoke(mockProcedure)).thenReturn(Mono.empty());
+        when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure)).thenReturn(Mono.empty());
         when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
         when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(ISSUANCE_ID))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));

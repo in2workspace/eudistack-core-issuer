@@ -68,13 +68,13 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                             });
                 })
                 .flatMap(ref -> buildCredentialOfferUri(ref.id)
-                        .flatMap(uri -> deliverOffer(uri, issuanceId, credentialOfferRefreshToken, delivery, ref.txCode)));
+                        .flatMap(uri -> deliverOffer(uri, issuanceId, credentialOfferRefreshToken, grantType, delivery, ref.txCode)));
     }
 
     private Mono<CredentialOfferResult> deliverOffer(String credentialOfferUri, String issuanceId,
-                                                      String credentialOfferRefreshToken, String delivery, String txCode) {
-        if (DELIVERY_UI.equals(delivery)) {
-            log.info("Delivering credential offer via UI for issuance: {}", issuanceId);
+                                                      String credentialOfferRefreshToken, String grantType, String delivery, String txCode) {
+        if (DELIVERY_UI.equals(delivery) || !GRANT_TYPE_PRE_AUTHORIZED_CODE.equals(grantType)) {
+            log.info("Delivering credential offer via URI for issuance: {}", issuanceId);
             return Mono.just(CredentialOfferResult.builder()
                     .credentialOfferUri(credentialOfferUri)
                     .build());

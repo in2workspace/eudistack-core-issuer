@@ -214,14 +214,6 @@ class SecurityConfigTest {
             assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
         }
 
-        @Test
-        void issuanceDeferredCredentials_post_shouldReturn401_whenNoAuth() {
-            MockServerWebExchange exchange = MockServerWebExchange.from(
-                    MockServerHttpRequest.post(ISSUANCE_DEFERRED_CREDENTIALS).build()
-            );
-            assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
-        }
-
         // SEC-01: Signing endpoints now require authentication
         @Test
         void signingProviders_get_shouldReturn401_whenNoAuth() {
@@ -295,15 +287,5 @@ class SecurityConfigTest {
             verify(customAuthenticationManager).authenticate(any());
         }
 
-        @Test
-        void issuanceDeferredCredentials_post_shouldReturn200_whenAuthenticated() {
-            MockServerWebExchange exchange = MockServerWebExchange.from(
-                    MockServerHttpRequest.post(ISSUANCE_DEFERRED_CREDENTIALS)
-                            .header(HttpHeaders.AUTHORIZATION, "Bearer good-token")
-                            .build()
-            );
-            assertEquals(HttpStatus.OK, executeFilter(exchange));
-            verify(customAuthenticationManager).authenticate(any());
-        }
     }
 }

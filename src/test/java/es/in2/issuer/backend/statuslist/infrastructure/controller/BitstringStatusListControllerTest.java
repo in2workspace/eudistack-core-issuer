@@ -17,17 +17,17 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
-class StatusListControllerUnitTest {
+class BitstringStatusListControllerUnitTest {
 
     private StatusListWorkflow statusListWorkflow;
     private RevocationWorkflow revocationWorkflow;
-    private StatusListController controller;
+    private BitstringStatusListController controller;
 
     @BeforeEach
     void setUp() {
         statusListWorkflow = mock(StatusListWorkflow.class);
         revocationWorkflow = mock(RevocationWorkflow.class);
-        controller = new StatusListController(statusListWorkflow, revocationWorkflow);
+        controller = new BitstringStatusListController(statusListWorkflow, revocationWorkflow);
     }
 
     @Test

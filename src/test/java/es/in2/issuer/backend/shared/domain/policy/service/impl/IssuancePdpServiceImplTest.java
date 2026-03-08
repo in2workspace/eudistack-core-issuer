@@ -85,6 +85,19 @@ class IssuancePdpServiceImplTest {
         );
     }
 
+    /**
+     * Creates a CredentialProfile with the given issuance policy rules.
+     */
+    private CredentialProfile buildProfile(String configId, List<String> rules, String delegationFunction) {
+        return CredentialProfile.builder()
+                .credentialConfigurationId(configId)
+                .issuancePolicy(CredentialProfile.IssuancePolicy.builder()
+                        .rules(rules)
+                        .delegationFunction(delegationFunction)
+                        .build())
+                .build();
+    }
+
     private Context withSecurityContext(String tokenValue) {
         Jwt jwt = Jwt.withTokenValue(tokenValue)
                 .header("alg", "none")
@@ -127,6 +140,10 @@ class IssuancePdpServiceImplTest {
         String token = "valid-token";
         JsonNode payload = mock(JsonNode.class);
 
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4"))
+                .thenReturn(buildProfile("learcredential.employee.w3c.4",
+                        List.of("RequireSignerIssuance", "RequireMandatorDelegation"), "ProductOffering"));
+
         List<Power> signerPowers = List.of(
                 Power.builder().function("Onboarding").action("Execute").build()
         );
@@ -144,6 +161,10 @@ class IssuancePdpServiceImplTest {
     void authorize_failure_dueToInvalidCredentialType() {
         String token = "valid-token";
         JsonNode payload = mock(JsonNode.class);
+
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4"))
+                .thenReturn(buildProfile("learcredential.employee.w3c.4",
+                        List.of("RequireSignerIssuance", "RequireMandatorDelegation"), "ProductOffering"));
 
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq("learcredential.employee.w3c.4"), any()))
                 .thenReturn(Mono.error(new InsufficientPermissionException(
@@ -164,19 +185,15 @@ class IssuancePdpServiceImplTest {
         String schema = "UnsupportedSchema";
         JsonNode payload = mock(JsonNode.class);
 
-        List<Power> signerPowers = List.of(
-                Power.builder().function("Onboarding").action("Execute").build()
-        );
-        PolicyContext ctx = buildContextFromPowers(signerPowers, "learcredential.employee.w3c.4", ADMIN_ORG_ID, true);
-        when(policyContextFactory.fromTokenForIssuance(eq(token), eq(schema), any()))
-                .thenReturn(Mono.just(ctx));
+        // Registry returns null for unknown schema, so authorize rejects before calling policyContextFactory
+        when(credentialProfileRegistry.getByConfigurationId(schema)).thenReturn(null);
 
         StepVerifier.create(
                         issuancePdpService.authorize(schema, payload, "dummy-id-token")
                                 .contextWrite(withSecurityContext(token)))
                 .expectErrorMatches(throwable ->
                         throwable instanceof InsufficientPermissionException &&
-                                throwable.getMessage().contains("Unauthorized: Unsupported schema"))
+                                throwable.getMessage().contains("No profile found for UnsupportedSchema"))
                 .verify();
     }
 
@@ -184,6 +201,10 @@ class IssuancePdpServiceImplTest {
     void authorize_failure_dueToInvalidToken() {
         String token = "invalid-token";
         JsonNode payload = mock(JsonNode.class);
+
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4"))
+                .thenReturn(buildProfile("learcredential.employee.w3c.4",
+                        List.of("RequireSignerIssuance", "RequireMandatorDelegation"), "ProductOffering"));
 
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq("learcredential.employee.w3c.4"), any()))
                 .thenReturn(Mono.error(new ParseErrorException("Invalid token")));
@@ -201,6 +222,10 @@ class IssuancePdpServiceImplTest {
     void authorize_failure_dueToIssuancePoliciesNotMet() {
         String token = "valid-token";
         JsonNode payload = mock(JsonNode.class);
+
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4"))
+                .thenReturn(buildProfile("learcredential.employee.w3c.4",
+                        List.of("RequireSignerIssuance", "RequireMandatorDelegation"), "ProductOffering"));
 
         List<Power> signerPowers = List.of(
                 Power.builder().function("Onboarding").action("Execute").build()
@@ -224,6 +249,10 @@ class IssuancePdpServiceImplTest {
         String idToken = "dummy-id-token";
         JsonNode payload = mock(JsonNode.class);
 
+        when(credentialProfileRegistry.getByConfigurationId("gx.labelcredential.w3c.1"))
+                .thenReturn(buildProfile("gx.labelcredential.w3c.1",
+                        List.of("RequireCertificationIssuance"), null));
+
         List<Power> emptyPowers = Collections.emptyList();
         PolicyContext ctx = buildContextFromPowers(emptyPowers, "learcredential.machine.w3c.3", ADMIN_ORG_ID, true);
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq("gx.labelcredential.w3c.1"), any()))
@@ -242,6 +271,10 @@ class IssuancePdpServiceImplTest {
         String token = "valid-token";
         String idToken = "dummy-id-token";
         JsonNode payload = mock(JsonNode.class);
+
+        when(credentialProfileRegistry.getByConfigurationId("gx.labelcredential.w3c.1"))
+                .thenReturn(buildProfile("gx.labelcredential.w3c.1",
+                        List.of("RequireCertificationIssuance"), null));
 
         List<Power> certificationPowers = List.of(
                 Power.builder().function("Certification").action("Attest").build()
@@ -275,6 +308,10 @@ class IssuancePdpServiceImplTest {
         String token = "valid-token";
         JsonNode payload = mock(JsonNode.class);
 
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4"))
+                .thenReturn(buildProfile("learcredential.employee.w3c.4",
+                        List.of("RequireSignerIssuance", "RequireMandatorDelegation"), "ProductOffering"));
+
         List<Power> certificationPowers = List.of(
                 Power.builder().function("Certification").action("Attest").build()
         );
@@ -294,6 +331,10 @@ class IssuancePdpServiceImplTest {
     @Test
     void authorize_success_withMandatorIssuancePolicyValid() {
         String token = "valid-token";
+
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4"))
+                .thenReturn(buildProfile("learcredential.employee.w3c.4",
+                        List.of("RequireSignerIssuance", "RequireMandatorDelegation"), "ProductOffering"));
 
         ObjectMapper realMapper = new ObjectMapper();
         com.fasterxml.jackson.databind.node.ObjectNode payload = realMapper.createObjectNode();
@@ -333,6 +374,10 @@ class IssuancePdpServiceImplTest {
     @Test
     void authorize_failure_dueToInvalidPayloadPowers() {
         String token = "valid-token";
+
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4"))
+                .thenReturn(buildProfile("learcredential.employee.w3c.4",
+                        List.of("RequireSignerIssuance", "RequireMandatorDelegation"), "ProductOffering"));
 
         ObjectMapper realMapper = new ObjectMapper();
         com.fasterxml.jackson.databind.node.ObjectNode payload = realMapper.createObjectNode();
@@ -375,6 +420,10 @@ class IssuancePdpServiceImplTest {
         String token = "valid-token";
         JsonNode payload = mock(JsonNode.class);
 
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.machine.w3c.3"))
+                .thenReturn(buildProfile("learcredential.machine.w3c.3",
+                        List.of("RequireSignerIssuance"), null));
+
         List<Power> signerPowers = List.of(
                 Power.builder().function("Onboarding").action("Execute").build()
         );
@@ -393,6 +442,10 @@ class IssuancePdpServiceImplTest {
         String token = "valid-token";
         JsonNode payload = mock(JsonNode.class);
 
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.machine.w3c.3"))
+                .thenReturn(buildProfile("learcredential.machine.w3c.3",
+                        List.of("RequireSignerIssuance"), null));
+
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq("learcredential.machine.w3c.3"), any()))
                 .thenReturn(Mono.error(new InsufficientPermissionException(
                         "Unauthorized: Emitter credential type")));
@@ -408,6 +461,10 @@ class IssuancePdpServiceImplTest {
     void authorize_machine_success_whenMandatorAllowed_and_OnboardingExecute() {
         String token = "valid-token";
         JsonNode payload = mock(JsonNode.class);
+
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.machine.w3c.3"))
+                .thenReturn(buildProfile("learcredential.machine.w3c.3",
+                        List.of("RequireSignerIssuance"), null));
 
         List<Power> signerPowers = List.of(
                 Power.builder().function("Onboarding").action("Execute").build()

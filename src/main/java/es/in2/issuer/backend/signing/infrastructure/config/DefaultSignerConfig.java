@@ -9,7 +9,7 @@ import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.style.BCStyle;
-import org.bouncycastle.asn1.x500.style.IETFUtils;
+
 
 import java.io.FileInputStream;
 import java.io.InputStream;
@@ -95,6 +95,8 @@ public class DefaultSignerConfig implements SignerConfig {
         if (rdns.length == 0) {
             return null;
         }
-        return IETFUtils.valueToString(rdns[0].getFirst().getValue());
+        // IETFUtils.valueToString() escapes special characters (e.g. commas → \,).
+        // We use the raw ASN.1 string value to get the unescaped form.
+        return rdns[0].getFirst().getValue().toString();
     }
 }

@@ -8,13 +8,13 @@ import java.util.List;
 @Builder
 public record IssuanceList(
 
-        @JsonProperty("credential_procedures") List<IssuanceList.IssuanceEntry> credentialProcedures
+        @JsonProperty("credential_procedures") List<IssuanceList.IssuanceEntry> issuances
 ) {
 
     @Builder
     public record IssuanceEntry(
             @JsonProperty("credential_procedure")
-            IssuanceSummary credentialProcedure
+            IssuanceSummary issuance
     ){}
 
 }

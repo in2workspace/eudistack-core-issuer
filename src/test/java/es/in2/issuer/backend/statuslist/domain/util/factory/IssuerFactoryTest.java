@@ -1,6 +1,4 @@
-package es.in2.issuer.backend.shared.domain.util.factory;
-
-import es.in2.issuer.backend.statuslist.domain.util.factory.IssuerFactory;
+package es.in2.issuer.backend.statuslist.domain.util.factory;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.signing.domain.model.port.SignerConfig;

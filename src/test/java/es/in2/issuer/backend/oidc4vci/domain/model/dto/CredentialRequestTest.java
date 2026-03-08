@@ -1,6 +1,6 @@
-package es.in2.issuer.backend.shared.domain.model.dto;
+package es.in2.issuer.backend.oidc4vci.domain.model.dto;
 
-import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialRequest;
+import es.in2.issuer.backend.shared.domain.model.dto.Proof;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

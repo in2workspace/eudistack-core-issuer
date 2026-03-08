@@ -10,6 +10,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.Credenti
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.util.DynamicCredentialParser;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
+import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,12 +40,15 @@ class PolicyContextFactoryTest {
     @Mock
     private DynamicCredentialParser credentialParser;
 
+    @Mock
+    private CredentialProfileRegistry credentialProfileRegistry;
+
     private PolicyContextFactory factory;
 
     @BeforeEach
     void setUp() {
         factory = new PolicyContextFactory(
-                jwtService, objectMapper, appConfig, credentialParser
+                jwtService, objectMapper, appConfig, credentialParser, credentialProfileRegistry
         );
     }
 
@@ -178,6 +182,15 @@ class PolicyContextFactoryTest {
         // VC contains learcredential.employee.w3c.4 but "gx.labelcredential.w3c.1" requires learcredential.machine.w3c.3
         String vcJson = "{\"type\":[\"learcredential.employee.w3c.4\"]}";
         when(jwtService.getClaimFromPayload(payload, "vc")).thenReturn(vcJson);
+
+        // Mock the registry to return a profile requiring learcredential.machine.w3c.3
+        CredentialProfile labelProfile = CredentialProfile.builder()
+                .credentialConfigurationId("gx.labelcredential.w3c.1")
+                .issuancePolicy(CredentialProfile.IssuancePolicy.builder()
+                        .requiredEmitterConfigIds(List.of("learcredential.machine.w3c.3"))
+                        .build())
+                .build();
+        when(credentialProfileRegistry.getByConfigurationId("gx.labelcredential.w3c.1")).thenReturn(labelProfile);
 
         StepVerifier.create(factory.fromTokenForIssuance(TOKEN, "gx.labelcredential.w3c.1", "DOME"))
                 .expectErrorMatches(e ->

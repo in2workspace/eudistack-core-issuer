@@ -60,8 +60,10 @@ public class IssuerFactory {
     }
 
     private DetailedIssuer buildLocalDetailedIssuer() {
+        String orgId = signerConfig.getOrganizationIdentifier();
         return DetailedIssuer.builder()
-                .organizationIdentifier(signerConfig.getOrganizationIdentifier())
+                .id(DID_ELSI + orgId)
+                .organizationIdentifier(orgId)
                 .organization(signerConfig.getOrganization())
                 .country(signerConfig.getCountry())
                 .commonName(signerConfig.getCommonName())
@@ -71,7 +73,7 @@ public class IssuerFactory {
 
     private SimpleIssuer buildLocalSimpleIssuer() {
         return SimpleIssuer.builder()
-                .id(signerConfig.getOrganizationIdentifier())
+                .id(DID_ELSI + signerConfig.getOrganizationIdentifier())
                 .build();
     }
 

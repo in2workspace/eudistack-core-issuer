@@ -10,6 +10,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.repository.IssuanceRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -804,6 +805,13 @@ class IssuanceServiceImplTest {
         // For LABEL, decoded JSON is not used, so it can be null
         cp.setCredentialDataSet(null);
 
+        CredentialProfile labelProfile = CredentialProfile.builder()
+                .credentialConfigurationId("gx.labelcredential.w3c.1")
+                .format("jwt_vc_json")
+                .organizationExtraction(null)
+                .build();
+        when(credentialProfileRegistry.getByConfigurationId("gx.labelcredential.w3c.1"))
+                .thenReturn(labelProfile);
         when(issuanceRepository.findByIssuanceId(UUID.fromString(issuanceId)))
                 .thenReturn(Mono.just(cp));
         when(appConfig.getSysTenant()).thenReturn(sysTenant);

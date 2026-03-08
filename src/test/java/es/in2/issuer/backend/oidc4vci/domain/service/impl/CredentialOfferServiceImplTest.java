@@ -85,14 +85,38 @@ class CredentialOfferServiceImplTest {
     }
 
     @Test
-    void createAndDeliverCredentialOffer_withEmailDelivery_shouldSendEmail() {
+    void createAndDeliverCredentialOffer_withAuthorizationCodeAndEmailDelivery_shouldReturnUriWithoutSendingEmail() {
+        String issuanceId = "test-issuance-id";
+        String configId = "learcredential.employee.w3c.4";
+
+        when(appConfig.getIssuerBackendUrl()).thenReturn("https://example.com");
+        when(issuerStateCacheStore.add(anyString(), eq(issuanceId)))
+                .thenReturn(Mono.just("cached"));
+        when(credentialOfferCacheRepository.saveCredentialOffer(any()))
+                .thenReturn(Mono.just("cache-nonce"));
+
+        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
+                        issuanceId, configId, "authorization_code", "test@example.com", "email", "refresh-token"))
+                .assertNext(result -> {
+                    assertThat(result.credentialOfferUri()).startsWith("openid-credential-offer://");
+                    assertThat(result.credentialOfferUri()).contains("credential_offer_uri=");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void createAndDeliverCredentialOffer_withPreAuthorizedCodeAndEmailDelivery_shouldSendEmail() {
         String issuanceId = "test-issuance-id";
         String configId = "learcredential.employee.w3c.4";
 
         when(appConfig.getIssuerBackendUrl()).thenReturn("https://example.com");
         when(appConfig.getWalletFrontendUrl()).thenReturn("https://wallet.example.com");
-        when(issuerStateCacheStore.add(anyString(), eq(issuanceId)))
-                .thenReturn(Mono.just("cached"));
+        when(preAuthorizedCodeService.issuePreAuthorizedCode(anyString(), any()))
+                .thenReturn(Mono.just(PreAuthorizedCodeResponse.builder()
+                        .preAuthorizedCode("pre-auth-code-123")
+                        .txCode(TxCode.builder().length(6).inputMode("numeric").build())
+                        .pin("1234")
+                        .build()));
         when(credentialOfferCacheRepository.saveCredentialOffer(any()))
                 .thenReturn(Mono.just("cache-nonce"));
         when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId))
@@ -102,7 +126,7 @@ class CredentialOfferServiceImplTest {
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
-                        issuanceId, configId, "authorization_code", "test@example.com", "email", "refresh-token"))
+                        issuanceId, configId, "pre-authorized_code", "test@example.com", "email", "refresh-token"))
                 .assertNext(result -> assertThat(result.credentialOfferUri()).isNull())
                 .verifyComplete();
     }

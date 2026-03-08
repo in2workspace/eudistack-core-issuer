@@ -70,6 +70,8 @@ class TokenServiceImplTest {
     private Oid4vciProfilePort profileProperties;
     @Mock
     private IssuanceMetrics issuanceMetrics;
+    @Mock
+    private TransientStore<String> issuerStateCacheStore;
 
     private TokenServiceImpl tokenService;
     private IssuanceIdAndTxCode testIssuanceIdAndTxCode;
@@ -87,7 +89,8 @@ class TokenServiceImplTest {
                 pkceVerifier,
                 dpopValidationService,
                 profileProperties,
-                issuanceMetrics
+                issuanceMetrics,
+                issuerStateCacheStore
         );
 
         testIssuanceIdAndTxCode = new IssuanceIdAndTxCode(

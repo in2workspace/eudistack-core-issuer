@@ -109,7 +109,7 @@ class Oid4VciCredentialWorkflowImplTest {
 
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
         when(credentialIssuerMetadataService.getCredentialIssuerMetadata()).thenReturn(metadata);
-        when(credentialProfileRegistry.getByCredentialType(CREDENTIAL_TYPE)).thenReturn(profile);
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
         when(genericCredentialBuilder.bindIssuer(eq(profile), eq(CREDENTIAL_DATA_SET), eq(ISSUANCE_ID), anyString()))
                 .thenReturn(Mono.just(enrichedDataSet));
         when(statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, ISSUANCE_ID, BEARER_PREFIX + RAW_TOKEN))
@@ -170,7 +170,7 @@ class Oid4VciCredentialWorkflowImplTest {
 
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
         when(credentialIssuerMetadataService.getCredentialIssuerMetadata()).thenReturn(metadata);
-        when(credentialProfileRegistry.getByCredentialType(CREDENTIAL_TYPE)).thenReturn(profile);
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
         when(genericCredentialBuilder.bindIssuer(eq(profile), eq(CREDENTIAL_DATA_SET), eq(ISSUANCE_ID), anyString()))
                 .thenReturn(Mono.just(enrichedDataSet));
         when(statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.TOKEN_JWT, ISSUANCE_ID, BEARER_PREFIX + RAW_TOKEN))

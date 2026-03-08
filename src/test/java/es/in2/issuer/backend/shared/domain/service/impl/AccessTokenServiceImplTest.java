@@ -76,7 +76,7 @@ class AccessTokenServiceImplTest {
             ObjectMapper realObjectMapper = new ObjectMapper();
             JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
             when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
-
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("vc.credentialSubject.mandate.mandator.organizationIdentifier");
 
             Mono<String> result = accessTokenServiceImpl.getOrganizationId("Bearer " + validJwtToken);
 
@@ -92,6 +92,7 @@ class AccessTokenServiceImplTest {
 
         try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
             mockedJwtStatic.when(() -> SignedJWT.parse(anyString())).thenThrow(new ParseException("Invalid token", 0));
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("vc.credentialSubject.mandate.mandator.organizationIdentifier");
 
             Mono<String> result = accessTokenServiceImpl.getOrganizationId("Bearer " + invalidJwtToken);
 
@@ -126,6 +127,7 @@ class AccessTokenServiceImplTest {
             ObjectMapper realObjectMapper = new ObjectMapper();
             JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
             when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("vc.credentialSubject.mandate.mandator.organizationIdentifier");
 
             Mono<String> result = accessTokenServiceImpl.getOrganizationIdFromCurrentSession();
 
@@ -155,6 +157,7 @@ class AccessTokenServiceImplTest {
                     .thenReturn(Mono.just(securityContext));
 
             mockedJwtStatic.when(() -> SignedJWT.parse(invalidJwtToken)).thenThrow(new ParseException("Invalid token", 0));
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("vc.credentialSubject.mandate.mandator.organizationIdentifier");
 
             Mono<String> result = accessTokenServiceImpl.getOrganizationIdFromCurrentSession();
 
@@ -336,6 +339,9 @@ class AccessTokenServiceImplTest {
             ObjectMapper realObjectMapper = new ObjectMapper();
             JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
             when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("vc.credentialSubject.mandate.mandator.organizationIdentifier");
+            when(mockAppConfig.getManagementTokenAdminPowerFunction()).thenReturn("Onboarding");
+            when(mockAppConfig.getManagementTokenAdminPowerAction()).thenReturn("Execute");
             when(mockAppConfig.getAdminOrganizationId()).thenReturn(adminOrgId);
 
             Mono<OrgContext> result = accessTokenServiceImpl.getOrganizationContext("Bearer " + validJwtToken);
@@ -359,6 +365,9 @@ class AccessTokenServiceImplTest {
             ObjectMapper realObjectMapper = new ObjectMapper();
             JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
             when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("vc.credentialSubject.mandate.mandator.organizationIdentifier");
+            when(mockAppConfig.getManagementTokenAdminPowerFunction()).thenReturn("Onboarding");
+            when(mockAppConfig.getManagementTokenAdminPowerAction()).thenReturn("Execute");
             when(mockAppConfig.getAdminOrganizationId()).thenReturn(adminOrgId);
 
             Mono<OrgContext> result = accessTokenServiceImpl.getOrganizationContext("Bearer " + validJwtToken);
@@ -382,6 +391,9 @@ class AccessTokenServiceImplTest {
             ObjectMapper realObjectMapper = new ObjectMapper();
             JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
             when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("vc.credentialSubject.mandate.mandator.organizationIdentifier");
+            when(mockAppConfig.getManagementTokenAdminPowerFunction()).thenReturn("Onboarding");
+            when(mockAppConfig.getManagementTokenAdminPowerAction()).thenReturn("Execute");
             when(mockAppConfig.getAdminOrganizationId()).thenReturn("ADMIN_ORG_123");
 
             Mono<OrgContext> result = accessTokenServiceImpl.getOrganizationContext("Bearer " + validJwtToken);

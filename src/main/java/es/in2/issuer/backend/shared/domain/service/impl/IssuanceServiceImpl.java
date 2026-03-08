@@ -238,7 +238,7 @@ public class IssuanceServiceImpl implements IssuanceService {
                     }
                 })
                 .map(info -> IssuanceList.IssuanceEntry.builder()
-                        .credentialProcedure(info)
+                        .issuance(info)
                         .build())
                 .collectList()
                 .map(IssuanceList::new);

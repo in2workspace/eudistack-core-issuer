@@ -63,6 +63,8 @@ class TokenServiceImplAuthCodeTest {
     private Oid4vciProfilePort profileProperties;
     @Mock
     private IssuanceMetrics issuanceMetrics;
+    @Mock
+    private TransientStore<String> issuerStateCacheStore;
 
     private TokenServiceImpl tokenService;
 
@@ -79,7 +81,8 @@ class TokenServiceImplAuthCodeTest {
                 pkceVerifier,
                 dpopValidationService,
                 profileProperties,
-                issuanceMetrics
+                issuanceMetrics,
+                issuerStateCacheStore
         );
     }
 
@@ -99,6 +102,7 @@ class TokenServiceImplAuthCodeTest {
                 .redirectUri("https://wallet/callback")
                 .codeChallenge("challenge")
                 .codeChallengeMethod("S256")
+                .issuerState("issuer-state-1")
                 .build();
 
         var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
@@ -111,6 +115,7 @@ class TokenServiceImplAuthCodeTest {
         when(authorizationCodeCacheStore.delete("auth-code-123")).thenReturn(Mono.empty());
         when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
         doNothing().when(pkceVerifier).verifyS256("verifier", "challenge");
+        when(issuerStateCacheStore.get("issuer-state-1")).thenReturn(Mono.just("issuance-id-1"));
         when(appConfig.getIssuerBackendUrl()).thenReturn("https://issuer.example.com");
         when(jwtService.issueJWT(anyString())).thenReturn("signed-jwt-token");
 
@@ -136,6 +141,7 @@ class TokenServiceImplAuthCodeTest {
                 .redirectUri("https://wallet/callback")
                 .codeChallenge("challenge")
                 .codeChallengeMethod("S256")
+                .issuerState("issuer-state-2")
                 .build();
 
         var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
@@ -150,6 +156,7 @@ class TokenServiceImplAuthCodeTest {
         doNothing().when(pkceVerifier).verifyS256("verifier", "challenge");
         when(dpopValidationService.validate("dpop-proof", "POST", TOKEN_ENDPOINT_URI))
                 .thenReturn("dpop-jkt-thumbprint");
+        when(issuerStateCacheStore.get("issuer-state-2")).thenReturn(Mono.just("issuance-id-2"));
         when(appConfig.getIssuerBackendUrl()).thenReturn("https://issuer.example.com");
         when(jwtService.issueJWT(anyString())).thenReturn("signed-dpop-jwt");
 

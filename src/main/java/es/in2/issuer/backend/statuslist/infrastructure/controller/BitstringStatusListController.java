@@ -20,7 +20,7 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.STATUS
 @RequiredArgsConstructor
 @RestController
 @RequestMapping(STATUS_LIST_BASE)
-public class StatusListController {
+public class BitstringStatusListController {
 
     private static final String VC_JWT_VALUE = "application/vc+jwt";
     private static final MediaType VC_JWT = MediaType.parseMediaType(VC_JWT_VALUE);

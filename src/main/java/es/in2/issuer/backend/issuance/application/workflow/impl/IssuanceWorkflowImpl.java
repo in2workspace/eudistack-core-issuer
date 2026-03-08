@@ -53,9 +53,9 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         String delivery = request.delivery() != null ? request.delivery() : DEFAULT_DELIVERY;
 
         return validateRequest(request, idToken)
-                .then(payloadSchemaValidator.validate(configId, request.payload()))
-                .then(issuancePdpService.authorize(configId, request.payload(), idToken))
-                .then(performIssuanceFlow(processId, request))
+                .then(Mono.defer(() -> payloadSchemaValidator.validate(configId, request.payload())))
+                .then(Mono.defer(() -> issuancePdpService.authorize(configId, request.payload(), idToken)))
+                .then(Mono.defer(() -> performIssuanceFlow(processId, request)))
                 .doOnSuccess(r -> {
                     issuanceMetrics.recordSuccess(sample, configId, delivery);
                     auditService.auditSuccess("credential.issued", null, "credential", configId,
@@ -71,8 +71,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
             IssuanceRequest request) {
 
         return validateRequest(request, null)
-                .then(payloadSchemaValidator.validate(request.credentialConfigurationId(), request.payload()))
-                .then(performIssuanceFlow(processId, request));
+                .then(Mono.defer(() -> payloadSchemaValidator.validate(request.credentialConfigurationId(), request.payload())))
+                .then(Mono.defer(() -> performIssuanceFlow(processId, request)));
     }
 
     private Mono<Void> validateRequest(IssuanceRequest request, String idToken) {
