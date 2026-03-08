@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.issuance.domain.model.dtos.UpdateIssuanceStatusRequest;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
+import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
+import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
@@ -61,7 +63,7 @@ class IssuanceControllerTest {
     @Test
     void createIssuance_UiDelivery_Returns200WithBody() throws JsonProcessingException {
         String credentialOfferUri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fserver.example.com%2Fcredential-offer%2Fabc123";
-        var testRequest = PreSubmittedCredentialDataRequest.builder()
+        var testRequest = IssuanceRequest.builder()
                 .credentialConfigurationId("test-schema")
                 .payload(objectMapper.createObjectNode().put("key", "value"))
                 .email("test@example.com")
@@ -83,7 +85,7 @@ class IssuanceControllerTest {
 
     @Test
     void createIssuance_Deferred_Returns202Accepted() throws JsonProcessingException {
-        var testRequest = PreSubmittedCredentialDataRequest.builder()
+        var testRequest = IssuanceRequest.builder()
                 .credentialConfigurationId("test-schema")
                 .payload(objectMapper.createObjectNode().put("key", "value"))
                 .email("test@example.com")
@@ -105,7 +107,7 @@ class IssuanceControllerTest {
     @Test
     void createIssuance_WithIdToken_PassesIdTokenToWorkflow() throws JsonProcessingException {
         String idToken = "id-token-value";
-        var testRequest = PreSubmittedCredentialDataRequest.builder()
+        var testRequest = IssuanceRequest.builder()
                 .credentialConfigurationId("test-schema")
                 .payload(objectMapper.createObjectNode().put("key", "value"))
                 .email("test@example.com")

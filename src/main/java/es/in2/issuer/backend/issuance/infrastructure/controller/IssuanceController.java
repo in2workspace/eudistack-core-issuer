@@ -4,8 +4,8 @@ import es.in2.issuer.backend.issuance.domain.model.dtos.UpdateIssuanceStatusRequ
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialDetails;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
-import es.in2.issuer.backend.shared.domain.model.dto.IssuanceResponse;
-import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
+import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
+import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
@@ -40,7 +40,7 @@ public class IssuanceController {
             produces = MediaType.APPLICATION_JSON_VALUE)
     public Mono<ResponseEntity<IssuanceResponse>> createIssuance(
             @RequestHeader(name = "X-Id-Token", required = false) String idToken,
-            @Valid @RequestBody PreSubmittedCredentialDataRequest request) {
+            @Valid @RequestBody IssuanceRequest request) {
         String processId = UUID.randomUUID().toString();
         return issuanceWorkflow.issueCredential(processId, request, idToken)
                 .map(this::toResponseEntity);

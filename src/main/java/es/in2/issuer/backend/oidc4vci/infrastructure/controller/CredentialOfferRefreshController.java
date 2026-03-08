@@ -1,6 +1,6 @@
-package es.in2.issuer.backend.shared.infrastructure.controller;
+package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
-import es.in2.issuer.backend.shared.application.workflow.CredentialOfferRefreshWorkflow;
+import es.in2.issuer.backend.oidc4vci.application.workflow.CredentialOfferRefreshWorkflow;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Controller;
@@ -27,5 +27,4 @@ public class CredentialOfferRefreshController {
                             .build());
                 });
     }
-
 }

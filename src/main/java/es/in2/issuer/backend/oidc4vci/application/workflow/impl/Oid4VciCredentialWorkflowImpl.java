@@ -5,6 +5,8 @@ import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWork
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.*;
+import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialRequest;
+import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;

@@ -1,7 +1,7 @@
 package es.in2.issuer.backend.statuslist.infrastructure.adapter;
 
 
-import es.in2.issuer.backend.shared.domain.util.factory.IssuerFactory;
+import es.in2.issuer.backend.statuslist.domain.util.factory.IssuerFactory;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import es.in2.issuer.backend.statuslist.domain.exception.*;
 import es.in2.issuer.backend.statuslist.domain.factory.BitstringStatusListCredentialFactory;

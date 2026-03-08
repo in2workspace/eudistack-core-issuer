@@ -6,6 +6,6 @@ import lombok.Builder;
 public record CredentialOfferData(
         CredentialOffer credentialOffer,
         String credentialEmail,
-        String pin
+        String txCode
 ) {
 }

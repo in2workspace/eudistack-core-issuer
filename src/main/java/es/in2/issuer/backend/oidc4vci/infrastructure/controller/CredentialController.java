@@ -1,8 +1,8 @@
 package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
 import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWorkflow;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialRequest;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialResponse;
+import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialRequest;
+import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialResponse;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

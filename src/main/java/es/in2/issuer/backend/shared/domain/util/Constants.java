@@ -16,7 +16,6 @@ public final class Constants {
     public static final String JWT_VC_JSON = "jwt_vc_json";
     public static final String DC_SD_JWT = "dc+sd-jwt";
     public static final String CWT_VC = "cwt_vc";
-    public static final String CWT_VC_JSON = "cwt_vc_json";
     public static final String VC = "vc";
 
     // CREDENTIAL CONTEXTS
@@ -25,7 +24,6 @@ public final class Constants {
     // CREDENTIAL JSON FIELDS
     public static final String CREDENTIAL_SUBJECT = "credentialSubject";
     public static final String MANDATE = "mandate";
-    public static final String MANDATEE = "mandatee";
     public static final String MANDATOR = "mandator";
     public static final String ORGANIZATION = "organization";
     public static final String ORGANIZATION_IDENTIFIER = "organizationIdentifier";
@@ -45,8 +43,6 @@ public final class Constants {
 
     // PERSON FIELDS
     public static final String EMAIL = "email";
-    public static final String COMMON_NAME = "commonName";
-    public static final String EMAIL_ADDRESS = "emailAddress";
     public static final String FIRST_NAME = "firstName";
     public static final String LAST_NAME = "lastName";
 

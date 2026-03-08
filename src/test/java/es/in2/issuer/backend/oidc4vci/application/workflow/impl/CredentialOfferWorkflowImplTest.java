@@ -5,7 +5,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferData;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferGrants;
 import es.in2.issuer.backend.shared.domain.model.dto.PreAuthorizedCodeGrant;
 import es.in2.issuer.backend.shared.domain.model.dto.TxCode;
-import es.in2.issuer.backend.shared.domain.repository.CredentialOfferCacheRepository;
+import es.in2.issuer.backend.oidc4vci.domain.repository.CredentialOfferCacheRepository;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -60,7 +60,7 @@ class CredentialOfferWorkflowImplTest {
         CredentialOfferData credentialOfferData = CredentialOfferData.builder()
                 .credentialOffer(credentialOffer)
                 .credentialEmail(credentialEmail)
-                .pin(txCode)
+                .txCode(txCode)
                 .build();
 
         // Mock repository returns the offer data

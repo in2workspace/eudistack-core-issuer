@@ -393,12 +393,12 @@ class IssuancePdpServiceImplTest {
         String token = "valid-token";
         JsonNode payload = mock(JsonNode.class);
 
-        when(policyContextFactory.fromTokenForIssuance(eq(token), eq(""learcredential.machine.w3c.3""), any()))
+        when(policyContextFactory.fromTokenForIssuance(eq(token), eq("learcredential.machine.w3c.3"), any()))
                 .thenReturn(Mono.error(new InsufficientPermissionException(
                         "Unauthorized: Emitter credential type")));
 
         StepVerifier.create(
-                        issuancePdpService.authorize(""learcredential.machine.w3c.3"", payload, "dummy-id-token")
+                        issuancePdpService.authorize("learcredential.machine.w3c.3", payload, "dummy-id-token")
                                 .contextWrite(withSecurityContext(token)))
                 .expectErrorMatches(InsufficientPermissionException.class::isInstance)
                 .verify();

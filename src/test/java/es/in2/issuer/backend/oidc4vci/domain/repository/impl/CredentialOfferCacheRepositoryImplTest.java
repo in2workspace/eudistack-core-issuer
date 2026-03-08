@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.shared.domain.repository.impl;
+package es.in2.issuer.backend.oidc4vci.domain.repository.impl;
 
 import es.in2.issuer.backend.shared.domain.exception.CredentialOfferNotFoundException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferData;
@@ -27,7 +27,7 @@ class CredentialOfferCacheRepositoryImplTest {
 
     @Test
     void testSaveCredentialOffer() {
-        CredentialOfferData credentialOfferData = CredentialOfferData.builder().build(); // You should populate it as necessary
+        CredentialOfferData credentialOfferData = CredentialOfferData.builder().build();
         String expectedNonce = "testNonce";
 
         when(cacheStore.add(any(String.class), eq(credentialOfferData))).thenReturn(Mono.just(expectedNonce));
@@ -42,7 +42,7 @@ class CredentialOfferCacheRepositoryImplTest {
     @Test
     void testFindCredentialOfferById() {
         String nonce = "testNonce";
-        CredentialOfferData credentialOfferData = CredentialOfferData.builder().build(); // You should populate it as necessary
+        CredentialOfferData credentialOfferData = CredentialOfferData.builder().build();
 
         when(cacheStore.get(nonce)).thenReturn(Mono.just(credentialOfferData));
         when(cacheStore.delete(nonce)).thenReturn(Mono.empty());
@@ -67,5 +67,4 @@ class CredentialOfferCacheRepositoryImplTest {
 
         verify(cacheStore, never()).delete(anyString());
     }
-
 }

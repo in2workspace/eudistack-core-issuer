@@ -1,6 +1,6 @@
-package es.in2.issuer.backend.shared.infrastructure.controller;
+package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
-import es.in2.issuer.backend.shared.application.workflow.CredentialOfferRefreshWorkflow;
+import es.in2.issuer.backend.oidc4vci.application.workflow.CredentialOfferRefreshWorkflow;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

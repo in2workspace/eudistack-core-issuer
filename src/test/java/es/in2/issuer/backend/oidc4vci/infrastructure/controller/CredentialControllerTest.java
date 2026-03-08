@@ -2,8 +2,8 @@ package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
 import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialRequest;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialResponse;
+import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialRequest;
+import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialResponse;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

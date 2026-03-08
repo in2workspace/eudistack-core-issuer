@@ -119,7 +119,7 @@ public class EmailServiceImpl implements EmailService {
     @Observed(name = "issuance.send-email", contextualName = "issuance-send-email")
     @Override
     public Mono<Void> sendCredentialOfferEmail(String to, String subject, String credentialOfferUri,
-                                                String reissueUrl, String walletUrl, String organization) {
+                                                String reissueUrl, String walletUrl, String organization, String txCode) {
         return Mono.fromCallable(() -> {
             MimeMessage mimeMessage = javaMailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
@@ -138,6 +138,9 @@ public class EmailServiceImpl implements EmailService {
             context.setVariable("qrImageCid", "cid:qr-credential-offer.png");
             context.setVariable("walletDeepLink", walletDeepLink);
             context.setVariable("reissueUrl", reissueUrl);
+            if (txCode != null) {
+                context.setVariable("txCode", txCode);
+            }
 
             String htmlContent = templateEngine.process("credential-offer-email-" + translationService.getLocale(), context);
             helper.setText(htmlContent, true);

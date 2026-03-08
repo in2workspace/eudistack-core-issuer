@@ -3,7 +3,7 @@ package es.in2.issuer.backend.issuance.infrastructure.controller;
 import es.in2.issuer.backend.issuance.domain.service.BootstrapTokenService;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
-import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
+import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,7 +36,7 @@ public class BootstrapController {
     @PostMapping(BOOTSTRAP_PATH)
     public Mono<ResponseEntity<Void>> bootstrapIssueCredential(
             @RequestHeader(BOOTSTRAP_TOKEN_HEADER) String bootstrapToken,
-            @Valid @RequestBody PreSubmittedCredentialDataRequest request) {
+            @Valid @RequestBody IssuanceRequest request) {
 
         if (!bootstrapTokenService.consumeIfValid(bootstrapToken)) {
             return Mono.error(new ResponseStatusException(

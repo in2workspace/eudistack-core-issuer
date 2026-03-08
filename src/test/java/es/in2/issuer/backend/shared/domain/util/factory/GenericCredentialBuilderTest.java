@@ -2,8 +2,8 @@ package es.in2.issuer.backend.shared.domain.util.factory;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import es.in2.issuer.backend.shared.domain.model.dto.IssuanceCreationRequest;
-import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
+import es.in2.issuer.backend.statuslist.domain.util.factory.IssuerFactory;
+import es.in2.issuer.backend.shared.domain.model.dto.CredentialBuildResult;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
@@ -48,27 +48,22 @@ class GenericCredentialBuilderTest {
     void buildCredential_shouldBuildW3cVcdmWithCorrectStructure() {
         CredentialProfile profile = employeeProfile();
         JsonNode payload = mandatePayload();
-        CredentialStatus status = credentialStatus();
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(
-                        profile, "proc-1", payload, status, "test@example.com"))
-                .assertNext(request -> {
-                    assertThat(request.issuanceId()).isEqualTo("proc-1");
-                    assertThat(request.credentialType()).isEqualTo("learcredential.employee.w3c.4");
-                    assertThat(request.email()).isEqualTo("test@example.com");
-                    assertThat(request.subject()).isEqualTo("John Doe");
-                    assertThat(request.organizationIdentifier()).isEqualTo("VATES-B12345678");
-                    assertThat(request.validUntil()).isNotNull();
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+                .assertNext(result -> {
+                    assertThat(result.subject()).isEqualTo("John Doe");
+                    assertThat(result.organizationIdentifier()).isEqualTo("VATES-B12345678");
+                    assertThat(result.validFrom()).isNotNull();
+                    assertThat(result.validUntil()).isNotNull();
 
                     // Verify credential JSON structure
-                    assertThat(request.credentialDataSet()).contains("\"@context\"");
-                    assertThat(request.credentialDataSet()).contains("\"VerifiableCredential\"");
-                    assertThat(request.credentialDataSet()).contains("\"learcredential.employee.w3c.4\"");
-                    assertThat(request.credentialDataSet()).contains("\"credentialSubject\"");
-                    assertThat(request.credentialDataSet()).contains("\"mandate\"");
-                    assertThat(request.credentialDataSet()).contains("\"validFrom\"");
-                    assertThat(request.credentialDataSet()).contains("\"validUntil\"");
-                    assertThat(request.credentialDataSet()).contains("\"credentialStatus\"");
+                    assertThat(result.credentialDataSet()).contains("\"@context\"");
+                    assertThat(result.credentialDataSet()).contains("\"VerifiableCredential\"");
+                    assertThat(result.credentialDataSet()).contains("\"learcredential.employee.w3c.4\"");
+                    assertThat(result.credentialDataSet()).contains("\"credentialSubject\"");
+                    assertThat(result.credentialDataSet()).contains("\"mandate\"");
+                    assertThat(result.credentialDataSet()).contains("\"validFrom\"");
+                    assertThat(result.credentialDataSet()).contains("\"validUntil\"");
                 })
                 .verifyComplete();
     }
@@ -85,11 +80,10 @@ class GenericCredentialBuilderTest {
 
         when(accessTokenService.getOrganizationIdFromCurrentSession()).thenReturn(Mono.just("ORG-123"));
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(
-                        profile, "proc-2", payload, credentialStatus(), "test@example.com"))
-                .assertNext(request -> {
-                    assertThat(request.credentialDataSet()).contains(fixedFrom);
-                    assertThat(request.credentialDataSet()).contains(fixedUntil);
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+                .assertNext(result -> {
+                    assertThat(result.credentialDataSet()).contains(fixedFrom);
+                    assertThat(result.credentialDataSet()).contains(fixedUntil);
                 })
                 .verifyComplete();
     }
@@ -101,10 +95,9 @@ class GenericCredentialBuilderTest {
 
         when(accessTokenService.getOrganizationIdFromCurrentSession()).thenReturn(Mono.just("SESSION-ORG-ID"));
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(
-                        profile, "proc-3", payload, credentialStatus(), "test@example.com"))
-                .assertNext(request ->
-                        assertThat(request.organizationIdentifier()).isEqualTo("SESSION-ORG-ID"))
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+                .assertNext(result ->
+                        assertThat(result.organizationIdentifier()).isEqualTo("SESSION-ORG-ID"))
                 .verifyComplete();
     }
 
@@ -113,10 +106,9 @@ class GenericCredentialBuilderTest {
         CredentialProfile profile = employeeProfile();
         JsonNode payload = mandatePayload();
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(
-                        profile, "proc-4", payload, credentialStatus(), "test@example.com"))
-                .assertNext(request ->
-                        assertThat(request.subject()).isEqualTo("John Doe"))
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+                .assertNext(result ->
+                        assertThat(result.subject()).isEqualTo("John Doe"))
                 .verifyComplete();
     }
 
@@ -133,10 +125,9 @@ class GenericCredentialBuilderTest {
         payloadRoot.set("mandate", mandateNode);
         JsonNode payload = payloadRoot;
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(
-                        profile, "proc-5", payload, credentialStatus(), "test@example.com"))
-                .assertNext(request ->
-                        assertThat(request.subject()).isEqualTo("api.example.com"))
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+                .assertNext(result ->
+                        assertThat(result.subject()).isEqualTo("api.example.com"))
                 .verifyComplete();
     }
 
@@ -145,10 +136,9 @@ class GenericCredentialBuilderTest {
         CredentialProfile profile = employeeProfile();
         JsonNode payload = mandatePayload();
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(
-                        profile, "proc-6", payload, credentialStatus(), "test@example.com"))
-                .assertNext(request ->
-                        assertThat(request.credentialDataSet()).contains("\"description\""))
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+                .assertNext(result ->
+                        assertThat(result.credentialDataSet()).contains("\"description\""))
                 .verifyComplete();
     }
 
@@ -395,15 +385,5 @@ class GenericCredentialBuilderTest {
         com.fasterxml.jackson.databind.node.ObjectNode root = objectMapper.createObjectNode();
         root.set("mandate", mandateNode);
         return root;
-    }
-
-    private CredentialStatus credentialStatus() {
-        return CredentialStatus.builder()
-                .id("https://example.com/status/1")
-                .type("StatusList2021Entry")
-                .statusPurpose("revocation")
-                .statusListIndex("12345")
-                .statusListCredential("https://example.com/credentials/status/1")
-                .build();
     }
 }

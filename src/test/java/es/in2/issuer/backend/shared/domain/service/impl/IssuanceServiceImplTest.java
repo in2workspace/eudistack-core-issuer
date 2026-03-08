@@ -66,54 +66,39 @@ class IssuanceServiceImplTest {
     }
 
     @Test
-    void createIssuance_shouldSaveProcedureAndReturnIssuance() {
+    void saveIssuance_shouldPersistAndReturnIssuance() {
         // Given
         String credentialDataSet = "{\"vc\":{\"type\":[\"VerifiableCredential\"]}}";
         String organizationIdentifier = "org-123";
-        String expectedProcedureId = UUID.randomUUID().toString();
-        String expectedCredentialType = "learcredential.employee.w3c.4";
-        String expectedSubject = "TestSubject";
-        String expectedEmail = "test@example.com";
-        Timestamp expectedValidUntil = new Timestamp(Instant.now().toEpochMilli() + 1000);
+        UUID issuanceId = UUID.randomUUID();
 
-        IssuanceCreationRequest request = IssuanceCreationRequest.builder()
-                .issuanceId(expectedProcedureId)
-                .organizationIdentifier(organizationIdentifier)
-                .credentialDataSet(credentialDataSet)
-                .subject(expectedSubject)
-                .credentialType("learcredential.employee.w3c.4")
-                .credentialFormat("jwt_vc_json")
-                .validUntil(expectedValidUntil)
-                .email(expectedEmail)
-                .delivery("push")
-                .build();
-
-        Issuance savedIssuance = Issuance.builder()
-                .issuanceId(UUID.fromString(expectedProcedureId))
+        Issuance issuance = Issuance.builder()
+                .issuanceId(issuanceId)
                 .credentialStatus(CredentialStatusEnum.DRAFT)
                 .credentialDataSet(credentialDataSet)
+                .credentialFormat("jwt_vc_json")
                 .organizationIdentifier(organizationIdentifier)
-                .credentialType(expectedCredentialType)
-                .subject(expectedSubject)
-                .validUntil(expectedValidUntil)
-                .email(expectedEmail)
-                .delivery("push")
+                .credentialType("learcredential.employee.w3c.4")
+                .subject("TestSubject")
+                .validUntil(new Timestamp(Instant.now().toEpochMilli() + 1000))
+                .email("test@example.com")
+                .delivery("email")
+                .credentialOfferRefreshToken(UUID.randomUUID().toString())
                 .build();
 
-        // Mock
         when(r2dbcEntityTemplate.insert(any(Issuance.class)))
-                .thenReturn(Mono.just(savedIssuance));
+                .thenReturn(Mono.just(issuance));
 
         // When
-        Mono<Issuance> result = issuanceService.createIssuance(request);
+        Mono<Issuance> result = issuanceService.saveIssuance(issuance);
 
         // Then
         StepVerifier.create(result)
-                .expectNextMatches(cp ->
-                        cp.getIssuanceId().equals(UUID.fromString(expectedProcedureId)) &&
-                                cp.getCredentialStatus() == CredentialStatusEnum.DRAFT &&
-                                cp.getCredentialDataSet().equals(credentialDataSet) &&
-                                cp.getOrganizationIdentifier().equals(organizationIdentifier))
+                .expectNextMatches(saved ->
+                        saved.getIssuanceId().equals(issuanceId) &&
+                                saved.getCredentialStatus() == CredentialStatusEnum.DRAFT &&
+                                saved.getCredentialDataSet().equals(credentialDataSet) &&
+                                saved.getOrganizationIdentifier().equals(organizationIdentifier))
                 .verifyComplete();
 
         verify(r2dbcEntityTemplate, times(1)).insert(any(Issuance.class));

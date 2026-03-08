@@ -44,20 +44,7 @@ public class IssuanceServiceImpl implements IssuanceService {
     private final CredentialProfileRegistry credentialProfileRegistry;
 
     @Override
-    public Mono<Issuance> createIssuance(IssuanceCreationRequest request) {
-        Issuance issuance = Issuance.builder()
-                .issuanceId(UUID.fromString(request.issuanceId()))
-                .credentialStatus(CredentialStatusEnum.DRAFT)
-                .credentialDataSet(request.credentialDataSet())
-                .credentialFormat(request.credentialFormat())
-                .organizationIdentifier(request.organizationIdentifier())
-                .credentialType(request.credentialType())
-                .subject(request.subject())
-                .validUntil(request.validUntil())
-                .email(request.email())
-                .delivery(request.delivery())
-                .credentialOfferRefreshToken(UUID.randomUUID().toString())
-                .build();
+    public Mono<Issuance> saveIssuance(Issuance issuance) {
         return r2dbcEntityTemplate.insert(issuance)
                 .doOnSuccess(saved -> log.info("Created issuance: {}", saved.getIssuanceId()))
                 .doOnError(e -> log.error("Error saving issuance", e));
@@ -316,12 +303,12 @@ public class IssuanceServiceImpl implements IssuanceService {
                         objectMapper.readTree(issuance.getCredentialDataSet())
                 )
                 .map(credential -> {
-                    String org = credential
-                            .get(CREDENTIAL_SUBJECT)
-                            .get(MANDATE)
-                            .get(MANDATOR)
-                            .get(ORGANIZATION)
-                            .asText();
+                    // W3C: credentialSubject.mandate.mandator.organization
+                    // SD-JWT: mandator.organization (top-level claim)
+                    JsonNode mandator = credential.has(CREDENTIAL_SUBJECT)
+                            ? credential.get(CREDENTIAL_SUBJECT).get(MANDATE).get(MANDATOR)
+                            : credential.get(MANDATOR);
+                    String org = mandator.get(ORGANIZATION).asText();
                     return new CredentialOfferEmailNotificationInfo(
                             issuance.getEmail(),
                             org

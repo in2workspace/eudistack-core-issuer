@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.shared.domain.util;
+package es.in2.issuer.backend.signing.domain.util;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;

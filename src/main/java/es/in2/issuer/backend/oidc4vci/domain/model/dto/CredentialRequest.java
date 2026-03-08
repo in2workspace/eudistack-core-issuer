@@ -1,6 +1,7 @@
-package es.in2.issuer.backend.shared.domain.model.dto;
+package es.in2.issuer.backend.oidc4vci.domain.model.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import es.in2.issuer.backend.shared.domain.model.dto.Proof;
 import lombok.Builder;
 
 @Builder

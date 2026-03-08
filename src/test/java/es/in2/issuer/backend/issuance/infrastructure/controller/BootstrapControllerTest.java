@@ -3,8 +3,8 @@ package es.in2.issuer.backend.issuance.infrastructure.controller;
 import es.in2.issuer.backend.issuance.domain.service.BootstrapTokenService;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
-import es.in2.issuer.backend.shared.domain.model.dto.IssuanceResponse;
-import es.in2.issuer.backend.shared.domain.model.dto.PreSubmittedCredentialDataRequest;
+import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
+import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -39,13 +39,13 @@ class BootstrapControllerTest {
     void shouldReturnCreatedWhenValidToken() {
         String token = "valid-bootstrap-token";
         String credentialOfferUri = "openid-credential-offer://example.com/offer";
-        PreSubmittedCredentialDataRequest request = PreSubmittedCredentialDataRequest.builder()
+        IssuanceRequest request = IssuanceRequest.builder()
                 .credentialConfigurationId("learcredential.employee.w3c.4")
                 .delivery("immediate")
                 .build();
 
         when(bootstrapTokenService.consumeIfValid(token)).thenReturn(true);
-        when(issuanceWorkflow.issueCredentialWithoutAuthorization(anyString(), any(PreSubmittedCredentialDataRequest.class)))
+        when(issuanceWorkflow.issueCredentialWithoutAuthorization(anyString(), any(IssuanceRequest.class)))
                 .thenReturn(Mono.just(IssuanceResponse.builder().credentialOfferUri(credentialOfferUri).build()));
 
         StepVerifier.create(bootstrapController.bootstrapIssueCredential(token, request))
@@ -62,7 +62,7 @@ class BootstrapControllerTest {
     @Test
     void shouldReturnUnauthorizedWhenInvalidToken() {
         String token = "invalid-token";
-        PreSubmittedCredentialDataRequest request = PreSubmittedCredentialDataRequest.builder()
+        IssuanceRequest request = IssuanceRequest.builder()
                 .credentialConfigurationId("learcredential.employee.w3c.4")
                 .build();
 
@@ -80,7 +80,7 @@ class BootstrapControllerTest {
     @Test
     void shouldReturnUnauthorizedWhenTokenAlreadyConsumed() {
         String token = "consumed-token";
-        PreSubmittedCredentialDataRequest request = PreSubmittedCredentialDataRequest.builder()
+        IssuanceRequest request = IssuanceRequest.builder()
                 .credentialConfigurationId("learcredential.employee.w3c.4")
                 .build();
 

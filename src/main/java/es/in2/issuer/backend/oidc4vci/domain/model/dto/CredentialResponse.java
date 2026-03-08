@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.shared.domain.model.dto;
+package es.in2.issuer.backend.oidc4vci.domain.model.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
