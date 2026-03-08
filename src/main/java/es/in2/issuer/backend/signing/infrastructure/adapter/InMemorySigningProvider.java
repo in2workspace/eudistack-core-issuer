@@ -22,6 +22,12 @@ import reactor.core.publisher.Mono;
 import java.nio.charset.StandardCharsets;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * In-memory signing provider backed by a certificate (X.509) and private key loaded from PEM files.
@@ -37,6 +43,8 @@ import java.util.Base64;
  */
 @Slf4j
 public class InMemorySigningProvider implements SigningProvider {
+
+    private static final ObjectMapper HEADER_MAPPER = new ObjectMapper();
 
     private final PrivateKey privateKey;
     private final String signatureAlgorithm;
@@ -92,9 +100,20 @@ public class InMemorySigningProvider implements SigningProvider {
 
     // ── JWS signing (with x5c certificate) ─────────────────────────────────
 
-    private String signAsJws(String payloadJson, String typ) {
-        String headerJson = "{\"alg\":\"" + jwsAlgorithm + "\",\"typ\":\"" + typ + "\",\"x5c\":[\"" + x5cBase64 + "\"]}";
+    private String buildJwsHeader(String typ) {
+        Map<String, Object> header = new LinkedHashMap<>();
+        header.put("alg", jwsAlgorithm);
+        header.put("typ", typ);
+        header.put("x5c", List.of(x5cBase64));
+        try {
+            return HEADER_MAPPER.writeValueAsString(header);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialize JWS header", e);
+        }
+    }
 
+    private String signAsJws(String payloadJson, String typ) {
+        String headerJson = buildJwsHeader(typ);
         String headerB64u = base64Url(headerJson.getBytes(StandardCharsets.UTF_8));
         String payloadB64u = base64Url(payloadJson.getBytes(StandardCharsets.UTF_8));
 

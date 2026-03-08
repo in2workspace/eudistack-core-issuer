@@ -138,57 +138,66 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
     public Mono<DetailedIssuer> extractIssuerFromCertificateInfo(String certificateInfo) {
         try {
             log.info("Starting extraction of issuer from certificate info");
-            JsonNode certificateInfoNode = objectMapper.readTree(certificateInfo);
-            String subjectDN = certificateInfoNode.get("cert").get("subjectDN").asText();
-            String serialNumber = certificateInfoNode.get("cert").get("serialNumber").asText();
-            LdapName ldapDN = new LdapName(subjectDN);
-            Map<String, String> dnAttributes = new HashMap<>();
-
-            for (Rdn rdn : ldapDN.getRdns()) {
-                dnAttributes.put(rdn.getType(), rdn.getValue().toString());
+            JsonNode certNode = objectMapper.readTree(certificateInfo).get("cert");
+            if (certNode == null) {
+                return Mono.error(new OrganizationIdentifierNotFoundException("Missing 'cert' section in certificate info"));
             }
-            JsonNode certificatesArray = certificateInfoNode.get("cert").get(CERTIFICATES);
+            String subjectDN = certNode.get("subjectDN").asText();
+            String serialNumber = certNode.get("serialNumber").asText();
+            Map<String, String> dnAttributes = parseDnAttributes(subjectDN);
+            JsonNode certificatesArray = certNode.get(CERTIFICATES);
 
-            Mono<String> organizationIdentifierMono = (certificatesArray != null && certificatesArray.isArray())
-                    ? Flux.fromIterable(certificatesArray)
-                    .concatMap(certNode -> {
-                        String base64Cert = certNode.asText();
-                        byte[] decodedBytes = Base64.getDecoder().decode(base64Cert);
-                        String decodedCert = new String(decodedBytes, StandardCharsets.UTF_8);
-                        Pattern pattern = Pattern.compile("organizationIdentifier\\s*=\\s*([\\w\\-]+)");
-                        Matcher matcher = pattern.matcher(decodedCert);
-                        if (matcher.find()) {
-                            return Mono.just(matcher.group(1));
-                        } else {
-                            return extractOrgFromX509(decodedBytes);
-                        }
-                    })
-                    .next()
-                    : Mono.empty();
-
-            return organizationIdentifierMono
+            return extractOrganizationIdentifier(certificatesArray)
                     .switchIfEmpty(Mono.error(new OrganizationIdentifierNotFoundException("organizationIdentifier not found in the certificate.")))
-                    .flatMap(orgId -> {
-                        if (orgId == null || orgId.isEmpty()) {
-                            return Mono.error(new OrganizationIdentifierNotFoundException("organizationIdentifier not found in the certificate."));
-                        }
-                        DetailedIssuer detailedIssuer = DetailedIssuer.builder()
-                                .id(DID_ELSI + orgId)
-                                .organizationIdentifier(orgId)
-                                .organization(dnAttributes.get("O"))
-                                .country(dnAttributes.get("C"))
-                                .commonName(dnAttributes.get("CN"))
-                                .serialNumber(serialNumber)
-                                .build();
-                        return Mono.just(detailedIssuer);
-                    });
+                    .map(orgId -> DetailedIssuer.builder()
+                            .id(DID_ELSI + orgId)
+                            .organizationIdentifier(orgId)
+                            .organization(dnAttributes.get("O"))
+                            .country(dnAttributes.get("C"))
+                            .commonName(dnAttributes.get("CN"))
+                            .serialNumber(serialNumber)
+                            .build());
         } catch (JsonProcessingException e) {
-            return Mono.error(new RuntimeException("Error parsing certificate info", e));
+            return Mono.error(new OrganizationIdentifierNotFoundException("Error parsing certificate info: " + e.getMessage()));
         } catch (InvalidNameException e) {
-            return Mono.error(new RuntimeException("Error parsing subjectDN", e));
-        } catch (Exception e) {
-            return Mono.error(new RuntimeException("Unexpected error", e));
+            return Mono.error(new OrganizationIdentifierNotFoundException("Error parsing subjectDN: " + e.getMessage()));
         }
+    }
+
+    private Map<String, String> parseDnAttributes(String subjectDN) throws InvalidNameException {
+        LdapName ldapDN = new LdapName(subjectDN);
+        Map<String, String> dnAttributes = new HashMap<>();
+        for (Rdn rdn : ldapDN.getRdns()) {
+            dnAttributes.put(rdn.getType(), rdn.getValue().toString());
+        }
+        return dnAttributes;
+    }
+
+    private Mono<String> extractOrganizationIdentifier(JsonNode certificatesArray) {
+        if (certificatesArray == null || !certificatesArray.isArray()) {
+            return Mono.empty();
+        }
+        return Flux.fromIterable(certificatesArray)
+                .concatMap(certNodeEntry -> extractOrgFromCertEntry(certNodeEntry.asText()))
+                .next();
+    }
+
+    private Mono<String> extractOrgFromCertEntry(String base64Cert) {
+        byte[] decodedBytes;
+        try {
+            decodedBytes = Base64.getDecoder().decode(base64Cert);
+        } catch (IllegalArgumentException e) {
+            log.warn("Skipping certificate with invalid Base64 encoding: {}", e.getMessage());
+            return Mono.empty();
+        }
+
+        String decodedCert = new String(decodedBytes, StandardCharsets.UTF_8);
+        Pattern pattern = Pattern.compile("organizationIdentifier\\s*=\\s*([\\w\\-]+)");
+        Matcher matcher = pattern.matcher(decodedCert);
+        if (matcher.find()) {
+            return Mono.just(matcher.group(1));
+        }
+        return extractOrgFromX509(decodedBytes);
     }
 
     @Override

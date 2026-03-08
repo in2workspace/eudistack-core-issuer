@@ -32,12 +32,12 @@ public class ProofValidationServiceImpl implements ProofValidationService {
         return Mono.just(jwtProof)
                 .flatMap(jwt -> parseAndValidateJwt(jwt, expectedAudience, allowedAlgs))
                 .doOnNext(jws -> log.debug("JWT parsed successfully"))
-                .flatMap(signedJWT -> validateSignatureAccordingToHeader(signedJWT)
-                        .flatMap(signatureValid -> {
-                            if (!signatureValid) {
+                .flatMap(signedJWT -> validateNonce(signedJWT)
+                        .flatMap(nonceValid -> {
+                            if (!nonceValid) {
                                 return Mono.just(false);
                             }
-                            return validateNonce(signedJWT);
+                            return validateSignatureAccordingToHeader(signedJWT);
                         }))
                 .defaultIfEmpty(false)
                 .doOnSuccess(result -> log.debug("Final validation result: {}", result))

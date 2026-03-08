@@ -367,7 +367,7 @@ public class JWTServiceImpl implements JWTService {
             try {
                 return objectMapper.readValue(s, new com.fasterxml.jackson.core.type.TypeReference<Map<String,Object>>(){});
             } catch (Exception e) {
-                log.warn("Failed to parse vc_json string", e);
+                log.warn("Failed to parse vc_json string; email extraction will fall back to top-level claims", e);
                 return Map.of();
             }
         }
