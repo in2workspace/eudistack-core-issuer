@@ -20,13 +20,17 @@ public class CredentialOfferWorkflowImpl implements CredentialOfferWorkflow {
     @Override
     public Mono<CredentialOffer> findCredentialOfferById(String processId, String id) {
         return credentialOfferCacheRepository.findCredentialOfferById(id)
-                .flatMap(credentialOfferData -> emailService
-                    .sendTxCodeNotification(
-                        credentialOfferData.credentialEmail(),
-                        "email.pin-code",
-                        credentialOfferData.txCode())
-                    .then(Mono.just(credentialOfferData.credentialOffer()))
-                );
+                .flatMap(credentialOfferData -> {
+                    if (credentialOfferData.txCode() != null) {
+                        return emailService
+                            .sendTxCodeNotification(
+                                credentialOfferData.credentialEmail(),
+                                "email.tx-code",
+                                credentialOfferData.txCode())
+                            .then(Mono.just(credentialOfferData.credentialOffer()));
+                    }
+                    return Mono.just(credentialOfferData.credentialOffer());
+                });
     }
 
 }

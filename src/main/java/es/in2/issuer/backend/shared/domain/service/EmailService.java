@@ -3,7 +3,7 @@ package es.in2.issuer.backend.shared.domain.service;
 import reactor.core.publisher.Mono;
 
 public interface EmailService {
-    Mono<Void> sendTxCodeNotification(String to, String subject, String pin);
+    Mono<Void> sendTxCodeNotification(String to, String subject, String txCode);
     Mono<Void> sendCredentialActivationEmail(String to, String subject, String link, String knowledgebaseWalletUrl, String organization);
     Mono<Void> sendCredentialOfferEmail(String to, String subject, String credentialOfferUri, String reissueUrl, String walletUrl, String organization, String txCode);
     Mono<Void> sendPendingCredentialNotification(String to, String subject);

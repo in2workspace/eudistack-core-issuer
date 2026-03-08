@@ -50,7 +50,7 @@ class PreAuthorizedCodeServiceImplTest {
         StepVerifier.create(mono)
                 .assertNext(resp -> {
                     assertNotNull(resp, "Response must not be null");
-                    assertEquals(txCode, resp.pin(), "pin in response must match input txCode");
+                    assertEquals(txCode, resp.txCodeValue(), "txCodeValue in response must match input txCode");
                     assertEquals(preAuthorizedCode, resp.preAuthorizedCode(),
                             "preAuthorizedCode in response must match input");
 

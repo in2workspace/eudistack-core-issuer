@@ -50,7 +50,7 @@ class CredentialOfferServiceImplTest {
                 .thenReturn(Mono.just(PreAuthorizedCodeResponse.builder()
                         .preAuthorizedCode("pre-auth-code-123")
                         .txCode(TxCode.builder().length(6).inputMode("numeric").build())
-                        .pin("1234")
+                        .txCodeValue("1234")
                         .build()));
         when(credentialOfferCacheRepository.saveCredentialOffer(any()))
                 .thenReturn(Mono.just("cache-nonce"));
@@ -115,7 +115,7 @@ class CredentialOfferServiceImplTest {
                 .thenReturn(Mono.just(PreAuthorizedCodeResponse.builder()
                         .preAuthorizedCode("pre-auth-code-123")
                         .txCode(TxCode.builder().length(6).inputMode("numeric").build())
-                        .pin("1234")
+                        .txCodeValue("1234")
                         .build()));
         when(credentialOfferCacheRepository.saveCredentialOffer(any()))
                 .thenReturn(Mono.just("cache-nonce"));

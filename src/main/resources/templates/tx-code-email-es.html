@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Your PIN Code</title>
+    <title>Tu código de activación</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -40,7 +40,7 @@
         .content p {
             margin: 0 0 10px;
         }
-        .pin {
+        .tx-code {
             display: inline-block;
             padding: 10px 20px;
             font-size: 32px;
@@ -62,16 +62,16 @@
 <body>
 <div class="container">
     <div class="header">
-        <h1>Your PIN Code</h1>
+        <h1>Tu código de activación</h1>
     </div>
     <div class="content">
-        <p>Hello,</p>
-        <p>Your PIN code is:</p>
-        <p><strong class="pin" th:text="${pin}">1234</strong></p>
-        <p>Please enter this PIN code in your Wallet App.</p>
+        <p>Hola,</p>
+        <p>Tu código de activación es:</p>
+        <p><strong class="tx-code" th:text="${txCode}">1234</strong></p>
+        <p>Por favor, introduce este código de activación en tu aplicación Wallet.</p>
     </div>
     <div class="footer">
-        <p>If you did not request this PIN, please ignore this email.</p>
+        <p>Si no has solicitado este código, por favor ignora este correo electrónico.</p>
     </div>
 </div>
 </body>

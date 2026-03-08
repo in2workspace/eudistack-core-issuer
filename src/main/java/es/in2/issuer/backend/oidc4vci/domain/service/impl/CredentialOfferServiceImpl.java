@@ -132,7 +132,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                             .preAuthorizedCode(preAuthGrant)
                             .build();
 
-                    return new GrantResult(grants, preAuthResponse.pin());
+                    return new GrantResult(grants, preAuthResponse.txCodeValue());
                 });
     }
 

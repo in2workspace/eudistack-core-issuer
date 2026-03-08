@@ -6,6 +6,6 @@ import lombok.Builder;
 public record PreAuthorizedCodeResponse(
         String preAuthorizedCode,
         TxCode txCode,
-        String pin
+        String txCodeValue
 ) {
 }

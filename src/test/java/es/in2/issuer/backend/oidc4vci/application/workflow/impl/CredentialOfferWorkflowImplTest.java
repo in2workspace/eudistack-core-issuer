@@ -67,8 +67,8 @@ class CredentialOfferWorkflowImplTest {
         when(credentialOfferCacheRepository.findCredentialOfferById(credentialOfferId))
                 .thenReturn(Mono.just(credentialOfferData));
 
-        // IMPORTANT: match the template key used in the implementation ("email.pin-code")
-        when(emailService.sendTxCodeNotification(credentialEmail, "email.pin-code", txCode))
+        // IMPORTANT: match the template key used in the implementation ("email.tx-code")
+        when(emailService.sendTxCodeNotification(credentialEmail, "email.tx-code", txCode))
                 .thenReturn(Mono.empty());
 
         // Act
@@ -82,7 +82,47 @@ class CredentialOfferWorkflowImplTest {
         // Verify interactions happen in the expected order
         InOrder inOrder = inOrder(credentialOfferCacheRepository, emailService);
         inOrder.verify(credentialOfferCacheRepository).findCredentialOfferById(credentialOfferId);
-        inOrder.verify(emailService).sendTxCodeNotification(credentialEmail, "email.pin-code", txCode);
+        inOrder.verify(emailService).sendTxCodeNotification(credentialEmail, "email.tx-code", txCode);
         inOrder.verifyNoMoreInteractions();
+    }
+
+    @Test
+    void testGetCredentialOffer_authorizationCodeFlow_doesNotSendTxCodeNotification() {
+        // Arrange
+        String processId = "b731b463-7473-4f97-be7a-658ec0b5dbc9";
+        String credentialOfferId = "e0e2c6ab-8fe7-4709-82f0-4a771aaee841";
+        String credentialEmail = "employee1@example.com";
+
+        CredentialOfferGrants grants = CredentialOfferGrants.builder()
+                .authorizationCode(es.in2.issuer.backend.shared.domain.model.dto.AuthorizationCodeGrant.builder()
+                        .issuerState("some-issuer-state")
+                        .build())
+                .build();
+
+        CredentialOffer credentialOffer = CredentialOffer.builder()
+                .credentialIssuer("https://credential-issuer.example.com")
+                .credentialConfigurationIds(List.of("learcredential.employee.w3c.4"))
+                .grants(grants)
+                .build();
+
+        CredentialOfferData credentialOfferData = CredentialOfferData.builder()
+                .credentialOffer(credentialOffer)
+                .credentialEmail(credentialEmail)
+                .txCode(null)
+                .build();
+
+        when(credentialOfferCacheRepository.findCredentialOfferById(credentialOfferId))
+                .thenReturn(Mono.just(credentialOfferData));
+
+        // Act
+        Mono<CredentialOffer> result = credentialOfferWorkflow.findCredentialOfferById(processId, credentialOfferId);
+
+        // Assert
+        StepVerifier.create(result)
+                .expectNext(credentialOffer)
+                .verifyComplete();
+
+        verify(credentialOfferCacheRepository).findCredentialOfferById(credentialOfferId);
+        verifyNoInteractions(emailService);
     }
 }

@@ -14,15 +14,15 @@ public final class PreAuthorizedCodeResponseMother {
         return new PreAuthorizedCodeResponse(
                 "preAuthorizedCode",
                 new TxCode(5, "inputMode", "description"),
-                "pin"
+                "txCodeValue"
         );
     }
 
-    public static PreAuthorizedCodeResponse withPreAuthorizedCodeAndPin(String preAuthorizedCode, String pin) {
+    public static PreAuthorizedCodeResponse withPreAuthorizedCodeAndTxCode(String preAuthorizedCode, String txCodeValue) {
         return new PreAuthorizedCodeResponse(
                 preAuthorizedCode,
                 new TxCode(TX_CODE_SIZE, TX_INPUT_MODE, null),
-                pin
+                txCodeValue
         );
     }
 }

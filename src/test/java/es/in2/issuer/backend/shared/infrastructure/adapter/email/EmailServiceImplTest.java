@@ -42,7 +42,7 @@ class EmailServiceImplTest {
     void testSendTxCodeNotification() {
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq("pin-email-en"), any(Context.class))).thenReturn("htmlContent");
+        when(templateEngine.process(eq("tx-code-email-en"), any(Context.class))).thenReturn("htmlContent");
 
         StepVerifier.create(emailService.sendTxCodeNotification("to@example.com", "subject.key", "1234"))
                 .verifyComplete();

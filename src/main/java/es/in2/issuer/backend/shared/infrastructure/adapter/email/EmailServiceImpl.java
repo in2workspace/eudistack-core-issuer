@@ -57,7 +57,7 @@ public class EmailServiceImpl implements EmailService {
     }
 
     @Override
-    public Mono<Void> sendTxCodeNotification(String to, String subject, String pin) {
+    public Mono<Void> sendTxCodeNotification(String to, String subject, String txCode) {
         return Mono.fromCallable(() -> {
             MimeMessage mimeMessage = javaMailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
@@ -70,8 +70,8 @@ public class EmailServiceImpl implements EmailService {
             helper.setSubject(encodedSubject);
 
             Context context = new Context();
-            context.setVariable("pin", pin);
-            String htmlContent = templateEngine.process("pin-email-" + translationService.getLocale(), context);
+            context.setVariable("txCode", txCode);
+            String htmlContent = templateEngine.process("tx-code-email-" + translationService.getLocale(), context);
             helper.setText(htmlContent, true);
 
             javaMailSender.send(mimeMessage);
