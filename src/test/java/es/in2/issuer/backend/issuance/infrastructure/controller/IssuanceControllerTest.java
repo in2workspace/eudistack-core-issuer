@@ -11,6 +11,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
+import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import org.junit.jupiter.api.Test;
@@ -41,6 +42,9 @@ class IssuanceControllerTest {
 
     @MockBean
     ErrorResponseFactory errorResponseFactory;
+
+    @MockBean
+    private NonceService nonceService;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -141,7 +145,7 @@ class IssuanceControllerTest {
                 .build();
 
         IssuanceList issuanceList = IssuanceList.builder()
-                .credentialProcedures(List.of(new IssuanceList.IssuanceEntry(summary)))
+                .issuances(List.of(new IssuanceList.IssuanceEntry(summary)))
                 .build();
 
         when(accessTokenService.getOrganizationContext(anyString()))

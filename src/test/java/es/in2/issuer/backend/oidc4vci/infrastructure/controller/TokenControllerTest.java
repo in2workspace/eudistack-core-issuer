@@ -2,6 +2,7 @@ package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenResponse;
+import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.oidc4vci.domain.service.TokenService;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
@@ -36,6 +37,9 @@ class TokenControllerTest {
 
     @MockBean
     ErrorResponseFactory errorResponseFactory;
+
+    @MockBean
+    NonceService nonceService;
 
     @MockBean
     IssuanceMetrics issuanceMetrics;

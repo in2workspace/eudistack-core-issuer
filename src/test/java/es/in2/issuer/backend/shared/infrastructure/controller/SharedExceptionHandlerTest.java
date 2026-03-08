@@ -1,8 +1,5 @@
 package es.in2.issuer.backend.shared.infrastructure.controller;
 
-import es.in2.issuer.backend.oidc4vci.domain.model.NonceResponse;
-import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
-import es.in2.issuer.backend.issuance.domain.exception.*;
 import es.in2.issuer.backend.shared.domain.exception.*;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
@@ -18,24 +15,23 @@ import reactor.test.StepVerifier;
 
 import javax.naming.OperationNotSupportedException;
 import java.text.ParseException;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
 import static org.mockito.Mockito.*;
 import static org.junit.jupiter.api.Assertions.*;
 
-class GlobalExceptionHandlerTest {
+class SharedExceptionHandlerTest {
 
-    private ErrorResponseFactory errors;     // mock
-    private NonceService nonceService;       // mock
-    private GlobalExceptionHandler handler;  // SUT
+    private ErrorResponseFactory errors;
+    private SharedExceptionHandler handler;
     private ServerHttpRequest request;
 
     @BeforeEach
     void setUp() {
         errors = mock(ErrorResponseFactory.class);
-        nonceService = mock(NonceService.class);
-        handler = new GlobalExceptionHandler(errors, nonceService);
+        handler = new SharedExceptionHandler(errors);
         request = MockServerHttpRequest.get("/any").build();
     }
 
@@ -44,7 +40,6 @@ class GlobalExceptionHandlerTest {
                            String expectedTitle,
                            HttpStatus expectedStatus,
                            String expectedDetail) {
-        // accessors de record: type(), title(), status(), detail(), instance()
         assertEquals(expectedType, gem.type());
         assertEquals(expectedTitle, gem.title());
         assertEquals(expectedStatus.value(), gem.status());
@@ -140,34 +135,6 @@ class GlobalExceptionHandlerTest {
                 .verifyComplete();
 
         verify(errors).handleWith(exBlank, request, type, title, st, fallback);
-    }
-
-    // -------------------- handleInvalidOrMissingProof --------------------
-
-    @Test
-    void handleInvalidOrMissingProof_includesNonceInResponse() {
-        var ex = new InvalidOrMissingProofException("bad proof");
-        var type = GlobalErrorTypes.INVALID_OR_MISSING_PROOF.getCode();
-        var title = "Invalid or missing proof";
-        var st = HttpStatus.BAD_REQUEST;
-        var fallback = "Credential Request did not contain a proof, or proof was invalid, i.e. it was not bound to a Credential Issuer provided nonce.";
-        var baseGem = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
-        var nonce = NonceResponse.builder().cNonce("test-nonce-123").cNonceExpiresIn(600).build();
-
-        when(errors.handleWith(ex, request, type, title, st, fallback))
-                .thenReturn(Mono.just(baseGem));
-        when(nonceService.issueNonce()).thenReturn(Mono.just(nonce));
-
-        StepVerifier.create(handler.handleInvalidOrMissingProof(ex, request))
-                .assertNext(gem -> {
-                    assertGem(gem, type, title, st, "bad proof");
-                    assertEquals("test-nonce-123", gem.cNonce());
-                    assertEquals(600L, gem.cNonceExpiresIn());
-                })
-                .verifyComplete();
-
-        verify(errors).handleWith(ex, request, type, title, st, fallback);
-        verify(nonceService).issueNonce();
     }
 
     // -------------------- handleInvalidToken --------------------
@@ -320,26 +287,6 @@ class GlobalExceptionHandlerTest {
 
         StepVerifier.create(handler.handleParseCredentialJsonException(ex, request))
                 .assertNext(gem -> assertGem(gem, type, title, st, "bad json"))
-                .verifyComplete();
-
-        verify(errors).handleWith(ex, request, type, title, st, fallback);
-    }
-
-    // -------------------- handleProofValidationException --------------------
-
-    @Test
-    void handleProofValidationException() {
-        var ex = new ProofValidationException("proof invalid");
-        var type = GlobalErrorTypes.PROOF_VALIDATION_ERROR.getCode();
-        var title = "Proof validation error";
-        var st = HttpStatus.BAD_REQUEST;
-        var fallback = "The provided proof is invalid.";
-        var expected = new GlobalErrorMessage(type, title, st.value(), "proof invalid", UUID.randomUUID().toString());
-
-        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
-
-        StepVerifier.create(handler.handleProofValidationException(ex, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, "proof invalid"))
                 .verifyComplete();
 
         verify(errors).handleWith(ex, request, type, title, st, fallback);
@@ -615,7 +562,7 @@ class GlobalExceptionHandlerTest {
     }
 
     // -------------------- handleJWTParsingExceptionTest --------------------
-  
+
     @Test
     void handleJWTParsingExceptionTest() {
         var ex = new JWTParsingException("jwt parsing exception");
@@ -648,9 +595,9 @@ class GlobalExceptionHandlerTest {
     void handleIssuanceInvalidStatusException() {
         var ex = new IssuanceInvalidStatusException("procedure status exception");
         var type = GlobalErrorTypes.ISSUANCE_INVALID_STATUS.getCode();
-        var title = "Invalid credential procedure status";
+        var title = "Invalid issuance status";
         var st = HttpStatus.CONFLICT;
-        var fallback = "The credential procedure is not in a status that allows signing.";
+        var fallback = "The issuance is not in a status that allows signing.";
 
         var expected = new GlobalErrorMessage(
                 type,
@@ -676,9 +623,9 @@ class GlobalExceptionHandlerTest {
     void handleIssuanceNotFoundException() {
         var ex = new IssuanceNotFoundException("procedure not found");
         var type = GlobalErrorTypes.ISSUANCE_NOT_FOUND.getCode();
-        var title = "Credential procedure not found";
+        var title = "Issuance not found";
         var st = HttpStatus.NOT_FOUND;
-        var fallback = "The requested credential procedure was not found";
+        var fallback = "The requested issuance was not found";
 
         var expected = new GlobalErrorMessage(
                 type,
@@ -718,304 +665,103 @@ class GlobalExceptionHandlerTest {
         verify(errors).handleWith(ex, request, type, title, st, fallback);
     }
 
-    // ------------------- AuthenticSourcesUserParsingException -------------------
+    // -------------------- handleRemoteSignatureException --------------------
 
     @Test
-    void handleAuthenticSourcesUserParsingException_usesExceptionMessage_whenPresent() {
-        var ex = new AuthenticSourcesUserParsingException("auth sources parse failed");
+    void handleRemoteSignatureException() {
+        var ex = new RemoteSignatureException("signature service error");
+        var type = GlobalErrorTypes.REMOTE_SIGNATURE.getCode();
+        var title = "Remote signature error";
+        var st = HttpStatus.BAD_GATEWAY;
+        var fallback = "An error occurred during remote signature operation";
+        var expected = new GlobalErrorMessage(type, title, st.value(), "signature service error", UUID.randomUUID().toString());
 
-        String type   = GlobalErrorTypes.PARSE_ERROR.getCode();
-        String title  = "Authentic sources user parsing error";
-        HttpStatus st = HttpStatus.INTERNAL_SERVER_ERROR;
-        String fallback = "An internal authentic-sources user parsing error occurred.";
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
 
-        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
-        when(errors.handleWith(ex, request, type, title, st, fallback))
-                .thenReturn(Mono.just(expected));
-
-        StepVerifier.create(handler.handleAuthenticSourcesUserParsingException(ex, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, "auth sources parse failed"))
+        StepVerifier.create(handler.handleRemoteSignatureException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, "signature service error"))
                 .verifyComplete();
 
         verify(errors).handleWith(ex, request, type, title, st, fallback);
     }
 
-    @Test
-    void handleAuthenticSourcesUserParsingException_usesFallback_whenMessageNullOrBlank() {
-        var exNull  = new AuthenticSourcesUserParsingException((String) null);
-        var exBlank = new AuthenticSourcesUserParsingException("");
-
-        String type   = GlobalErrorTypes.PARSE_ERROR.getCode();
-        String title  = "Authentic sources user parsing error";
-        HttpStatus st = HttpStatus.INTERNAL_SERVER_ERROR;
-        String fallback = "An internal authentic-sources user parsing error occurred.";
-
-        var expectedNull  = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
-        var expectedBlank = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
-
-        when(errors.handleWith(exNull,  request, type, title, st, fallback)).thenReturn(Mono.just(expectedNull));
-        when(errors.handleWith(exBlank, request, type, title, st, fallback)).thenReturn(Mono.just(expectedBlank));
-
-        StepVerifier.create(handler.handleAuthenticSourcesUserParsingException(exNull, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
-                .verifyComplete();
-
-        StepVerifier.create(handler.handleAuthenticSourcesUserParsingException(exBlank, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
-                .verifyComplete();
-
-        verify(errors).handleWith(exNull,  request, type, title, st, fallback);
-        verify(errors).handleWith(exBlank, request, type, title, st, fallback);
-    }
-
-    // ------------------- TemplateReadException -------------------
+    // -------------------- handleTenantMismatchException --------------------
 
     @Test
-    void handleTemplateReadException_usesExceptionMessage_whenPresent() {
-        var ex = new TemplateReadException("cannot read template");
+    void handleTenantMismatchException() {
+        var ex = new TenantMismatchException("tenant does not match");
+        var type = GlobalErrorTypes.TENANT_MISMATCH.getCode();
+        var title = "Tenant mismatch";
+        var st = HttpStatus.FORBIDDEN;
+        var fallback = "The token's organization does not match the requested tenant";
+        var expected = new GlobalErrorMessage(type, title, st.value(), "tenant does not match", UUID.randomUUID().toString());
 
-        String type   = GlobalErrorTypes.TEMPLATE_READ_ERROR.getCode();
-        String title  = "Template read error";
-        HttpStatus st = HttpStatus.INTERNAL_SERVER_ERROR;
-        String fallback = "An internal template read error occurred.";
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
 
-        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
-        when(errors.handleWith(ex, request, type, title, st, fallback))
-                .thenReturn(Mono.just(expected));
-
-        StepVerifier.create(handler.handleTemplateReadException(ex, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, "cannot read template"))
+        StepVerifier.create(handler.handleTenantMismatchException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, "tenant does not match"))
                 .verifyComplete();
 
         verify(errors).handleWith(ex, request, type, title, st, fallback);
     }
 
-    @Test
-    void handleTemplateReadException_usesFallback_whenMessageNullOrBlank() {
-        var exNull  = new TemplateReadException((String) null);
-        var exBlank = new TemplateReadException("");
-
-        String type   = GlobalErrorTypes.TEMPLATE_READ_ERROR.getCode();
-        String title  = "Template read error";
-        HttpStatus st = HttpStatus.INTERNAL_SERVER_ERROR;
-        String fallback = "An internal template read error occurred.";
-
-        var expectedNull  = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
-        var expectedBlank = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
-
-        when(errors.handleWith(exNull,  request, type, title, st, fallback)).thenReturn(Mono.just(expectedNull));
-        when(errors.handleWith(exBlank, request, type, title, st, fallback)).thenReturn(Mono.just(expectedBlank));
-
-        StepVerifier.create(handler.handleTemplateReadException(exNull, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
-                .verifyComplete();
-
-        StepVerifier.create(handler.handleTemplateReadException(exBlank, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
-                .verifyComplete();
-
-        verify(errors).handleWith(exNull,  request, type, title, st, fallback);
-        verify(errors).handleWith(exBlank, request, type, title, st, fallback);
-    }
-
-    // ------------------- OrganizationIdentifierMismatchException -------------------
+    // -------------------- handlePayloadValidationException --------------------
 
     @Test
-    void handleOrganizationIdentifierMismatchException_usesExceptionMessage_whenPresent() {
-        var ex = new OrganizationIdentifierMismatchException("org mismatch");
+    void handlePayloadValidationException() {
+        var violations = List.of(
+                new PayloadValidationException.Violation("field1", "must not be null"),
+                new PayloadValidationException.Violation("field2", "must be positive")
+        );
+        var ex = new PayloadValidationException("validation failed", violations);
+        var type = GlobalErrorTypes.PAYLOAD_VALIDATION.getCode();
+        var title = "Payload validation failed";
+        var st = HttpStatus.BAD_REQUEST;
+        var fallback = "The credential payload does not conform to the required schema";
 
-        String type   = GlobalErrorTypes.ORGANIZATION_ID_MISMATCH.getCode();
-        String title  = "Forbidden";
-        HttpStatus st = HttpStatus.FORBIDDEN;
-        String fallback = "Organization identifier mismatch";
+        var expectedViolations = List.of(
+                new GlobalErrorMessage.FieldViolation("field1", "must not be null"),
+                new GlobalErrorMessage.FieldViolation("field2", "must be positive")
+        );
+        var expected = new GlobalErrorMessage(type, title, st.value(), "validation failed", UUID.randomUUID().toString(), expectedViolations);
 
-        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
-        when(errors.handleWith(ex, request, type, title, st, fallback))
+        when(errors.handleWithViolations(ex, request, type, title, st, fallback, expectedViolations))
                 .thenReturn(Mono.just(expected));
 
-        StepVerifier.create(handler.handleOrganizationIdentifierMismatchException(ex, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, "org mismatch"))
+        StepVerifier.create(handler.handlePayloadValidationException(ex, request))
+                .assertNext(gem -> {
+                    assertGem(gem, type, title, st, "validation failed");
+                    assertEquals(2, gem.violations().size());
+                    assertEquals("field1", gem.violations().get(0).field());
+                    assertEquals("must not be null", gem.violations().get(0).message());
+                })
                 .verifyComplete();
 
-        verify(errors).handleWith(ex, request, type, title, st, fallback);
+        verify(errors).handleWithViolations(ex, request, type, title, st, fallback, expectedViolations);
     }
 
-    @Test
-    void handleOrganizationIdentifierMismatchException_usesFallback_whenMessageNullOrBlank() {
-        var exNull  = new OrganizationIdentifierMismatchException((String) null);
-        var exBlank = new OrganizationIdentifierMismatchException("");
-
-        String type   = GlobalErrorTypes.ORGANIZATION_ID_MISMATCH.getCode();
-        String title  = "Forbidden";
-        HttpStatus st = HttpStatus.FORBIDDEN;
-        String fallback = "Organization identifier mismatch";
-
-        var expectedNull  = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
-        var expectedBlank = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
-
-        when(errors.handleWith(exNull,  request, type, title, st, fallback)).thenReturn(Mono.just(expectedNull));
-        when(errors.handleWith(exBlank, request, type, title, st, fallback)).thenReturn(Mono.just(expectedBlank));
-
-        StepVerifier.create(handler.handleOrganizationIdentifierMismatchException(exNull, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
-                .verifyComplete();
-
-        StepVerifier.create(handler.handleOrganizationIdentifierMismatchException(exBlank, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
-                .verifyComplete();
-
-        verify(errors).handleWith(exNull,  request, type, title, st, fallback);
-        verify(errors).handleWith(exBlank, request, type, title, st, fallback);
-    }
-
-    // ------------------- NoSuchEntityException -------------------
+    // -------------------- handleUnexpectedException --------------------
 
     @Test
-    void handleNoSuchEntityException_usesExceptionMessage_whenPresent() {
-        var ex = new NoSuchEntityException("entity not found");
+    void handleUnexpectedException_neverLeaksInternalDetails() {
+        var ex = new RuntimeException("sensitive internal details");
+        var type = "INTERNAL_SERVER_ERROR";
+        var title = "Internal server error";
+        var st = HttpStatus.INTERNAL_SERVER_ERROR;
+        var detail = "An unexpected error occurred";
+        var expected = new GlobalErrorMessage(type, title, st.value(), detail, UUID.randomUUID().toString());
 
-        String type   = GlobalErrorTypes.NO_SUCH_ENTITY.getCode();
-        String title  = "Not Found";
-        HttpStatus st = HttpStatus.NOT_FOUND;
-        String fallback = "Requested entity was not found";
-
-        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
-        when(errors.handleWith(ex, request, type, title, st, fallback))
+        when(errors.handleSafe(ex, request, type, title, st, detail))
                 .thenReturn(Mono.just(expected));
 
-        StepVerifier.create(handler.handleNoSuchEntityException(ex, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, "entity not found"))
+        StepVerifier.create(handler.handleUnexpectedException(ex, request))
+                .assertNext(gem -> {
+                    assertGem(gem, type, title, st, detail);
+                    assertFalse(gem.detail().contains("sensitive"));
+                })
                 .verifyComplete();
 
-        verify(errors).handleWith(ex, request, type, title, st, fallback);
-    }
-
-    @Test
-    void handleNoSuchEntityException_usesFallback_whenMessageNullOrBlank() {
-        var exNull  = new NoSuchEntityException((String) null);
-        var exBlank = new NoSuchEntityException(" ");
-
-        String type   = GlobalErrorTypes.NO_SUCH_ENTITY.getCode();
-        String title  = "Not Found";
-        HttpStatus st = HttpStatus.NOT_FOUND;
-        String fallback = "Requested entity was not found";
-
-        var expectedNull  = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
-        var expectedBlank = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
-
-        when(errors.handleWith(exNull,  request, type, title, st, fallback)).thenReturn(Mono.just(expectedNull));
-        when(errors.handleWith(exBlank, request, type, title, st, fallback)).thenReturn(Mono.just(expectedBlank));
-
-        StepVerifier.create(handler.handleNoSuchEntityException(exNull, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
-                .verifyComplete();
-
-        StepVerifier.create(handler.handleNoSuchEntityException(exBlank, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
-                .verifyComplete();
-
-        verify(errors).handleWith(exNull,  request, type, title, st, fallback);
-        verify(errors).handleWith(exBlank, request, type, title, st, fallback);
-    }
-
-    // ------------------- MissingRequiredDataException -------------------
-
-    @Test
-    void handleMissingRequiredDataException_usesExceptionMessage_whenPresent() {
-        var ex = new MissingRequiredDataException("missing field X");
-
-        String type   = GlobalErrorTypes.MISSING_REQUIRED_DATA.getCode();
-        String title  = "Bad Request";
-        HttpStatus st = HttpStatus.BAD_REQUEST;
-        String fallback = "Missing required data";
-
-        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
-        when(errors.handleWith(ex, request, type, title, st, fallback))
-                .thenReturn(Mono.just(expected));
-
-        StepVerifier.create(handler.handleMissingRequiredDataException(ex, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, "missing field X"))
-                .verifyComplete();
-
-        verify(errors).handleWith(ex, request, type, title, st, fallback);
-    }
-
-    @Test
-    void handleMissingRequiredDataException_usesFallback_whenMessageNullOrBlank() {
-        var exNull  = new MissingRequiredDataException((String) null);
-        var exBlank = new MissingRequiredDataException("");
-
-        String type   = GlobalErrorTypes.MISSING_REQUIRED_DATA.getCode();
-        String title  = "Bad Request";
-        HttpStatus st = HttpStatus.BAD_REQUEST;
-        String fallback = "Missing required data";
-
-        var expectedNull  = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
-        var expectedBlank = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
-
-        when(errors.handleWith(exNull,  request, type, title, st, fallback)).thenReturn(Mono.just(expectedNull));
-        when(errors.handleWith(exBlank, request, type, title, st, fallback)).thenReturn(Mono.just(expectedBlank));
-
-        StepVerifier.create(handler.handleMissingRequiredDataException(exNull, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
-                .verifyComplete();
-
-        StepVerifier.create(handler.handleMissingRequiredDataException(exBlank, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
-                .verifyComplete();
-
-        verify(errors).handleWith(exNull,  request, type, title, st, fallback);
-        verify(errors).handleWith(exBlank, request, type, title, st, fallback);
-    }
-
-    // ------------------- InvalidStatusException -------------------
-
-    @Test
-    void handleInvalidStatusException_usesExceptionMessage_whenPresent() {
-        var ex = new InvalidStatusException("invalid status: REVOKED");
-
-        String type   = GlobalErrorTypes.INVALID_STATUS.getCode();
-        String title  = "Invalid status";
-        HttpStatus st = HttpStatus.CONFLICT;
-        String fallback = "The entity is not in a valid status for this operation";
-
-        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
-        when(errors.handleWith(ex, request, type, title, st, fallback))
-                .thenReturn(Mono.just(expected));
-
-        StepVerifier.create(handler.handleInvalidStatusException(ex, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, "invalid status: REVOKED"))
-                .verifyComplete();
-
-        verify(errors).handleWith(ex, request, type, title, st, fallback);
-    }
-
-    @Test
-    void handleInvalidStatusException_usesFallback_whenMessageNullOrBlank() {
-        var exNull  = new InvalidStatusException(null);
-        var exBlank = new InvalidStatusException("");
-
-        String type   = GlobalErrorTypes.INVALID_STATUS.getCode();
-        String title  = "Invalid status";
-        HttpStatus st = HttpStatus.CONFLICT;
-        String fallback = "The entity is not in a valid status for this operation";
-
-        var expectedNull  = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
-        var expectedBlank = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
-
-        when(errors.handleWith(exNull,  request, type, title, st, fallback)).thenReturn(Mono.just(expectedNull));
-        when(errors.handleWith(exBlank, request, type, title, st, fallback)).thenReturn(Mono.just(expectedBlank));
-
-        StepVerifier.create(handler.handleInvalidStatusException(exNull, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
-                .verifyComplete();
-
-        StepVerifier.create(handler.handleInvalidStatusException(exBlank, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
-                .verifyComplete();
-
-        verify(errors).handleWith(exNull,  request, type, title, st, fallback);
-        verify(errors).handleWith(exBlank, request, type, title, st, fallback);
+        verify(errors).handleSafe(ex, request, type, title, st, detail);
     }
 
 }
