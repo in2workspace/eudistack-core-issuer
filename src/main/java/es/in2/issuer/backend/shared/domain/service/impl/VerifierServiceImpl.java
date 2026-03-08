@@ -3,17 +3,14 @@ package es.in2.issuer.backend.shared.domain.service.impl;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSVerifier;
 import com.nimbusds.jose.crypto.ECDSAVerifier;
-import com.nimbusds.jose.crypto.MACVerifier;
 import com.nimbusds.jose.crypto.RSASSAVerifier;
 import com.nimbusds.jose.jwk.*;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.JWTParsingException;
 import es.in2.issuer.backend.shared.domain.exception.JWTVerificationException;
-import es.in2.issuer.backend.shared.domain.exception.TokenFetchException;
 import es.in2.issuer.backend.shared.domain.exception.WellKnownInfoFetchException;
 import es.in2.issuer.backend.shared.domain.model.dto.OpenIDProviderMetadata;
-import es.in2.issuer.backend.shared.domain.model.dto.VerifierOauth2AccessToken;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import lombok.RequiredArgsConstructor;
@@ -25,8 +22,6 @@ import reactor.core.publisher.Mono;
 import java.text.ParseException;
 import java.util.Date;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.CONTENT_TYPE;
-import static es.in2.issuer.backend.shared.domain.util.Constants.CONTENT_TYPE_URL_ENCODED_FORM;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH;
 
 @Service
@@ -146,15 +141,4 @@ public class VerifierServiceImpl implements VerifierService {
                 .onErrorMap(e -> new WellKnownInfoFetchException("Error fetching OpenID Provider Metadata", e));
     }
 
-    @Override
-    public Mono<VerifierOauth2AccessToken> performTokenRequest(String body) {
-        return getWellKnownInfo()
-                .flatMap(metadata -> oauth2VerifierWebClient.post()
-                        .uri(metadata.tokenEndpoint())
-                        .header(CONTENT_TYPE, CONTENT_TYPE_URL_ENCODED_FORM)
-                        .bodyValue(body)
-                        .retrieve()
-                        .bodyToMono(VerifierOauth2AccessToken.class)
-                        .onErrorMap(e -> new TokenFetchException("Error fetching the token", e)));
-    }
 }

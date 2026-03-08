@@ -54,8 +54,6 @@ public final class Constants {
     public static final String REFRESH_TOKEN_GRANT_TYPE = "refresh_token";
     public static final String PRE_AUTHORIZATION_CODE = "pre-authorization_code";
     public static final String AUTHORIZATION_CODE = "authorization_code";
-    public static final String CLIENT_CREDENTIALS_GRANT_TYPE_VALUE = "client_credentials";
-    public static final String CLIENT_ASSERTION_TYPE_VALUE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 
     // DELIVERY MODES
     public static final String DELIVERY_UI = "ui";
@@ -76,8 +74,6 @@ public final class Constants {
     // EXPIRATION TIMES
     public static final Integer CREDENTIAL_OFFER_CACHE_EXPIRATION_TIME = 10;
     public static final Integer VERIFIABLE_CREDENTIAL_JWT_CACHE_EXPIRATION_TIME = 10;
-    public static final Integer CLIENT_ASSERTION_EXPIRATION_TIME = 2;
-    public static final String CLIENT_ASSERTION_EXPIRATION_TIME_UNIT = "MINUTES";
     // SEC-02: Refresh token — 24 hours (was 30 days)
     public static final long REFRESH_TOKEN_EXPIRATION = 24;
     public static final TimeUnit REFRESH_TOKEN_EXPIRATION_TIME_UNIT = TimeUnit.HOURS;
