@@ -61,18 +61,14 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                             .txCode(grantResult.txCode)
                             .build();
 
-                    return credentialOfferCacheRepository.saveCredentialOffer(data)
-                            .map(nonce -> new Object() {
-                                final String id = nonce;
-                                final String txCode = grantResult.txCode;
-                            });
+                    return credentialOfferCacheRepository.saveCredentialOffer(data);
                 })
-                .flatMap(ref -> buildCredentialOfferUri(ref.id)
-                        .flatMap(uri -> deliverOffer(uri, issuanceId, credentialOfferRefreshToken, grantType, delivery, ref.txCode)));
+                .flatMap(nonce -> buildCredentialOfferUri(nonce)
+                        .flatMap(uri -> deliverOffer(uri, issuanceId, credentialOfferRefreshToken, delivery)));
     }
 
     private Mono<CredentialOfferResult> deliverOffer(String credentialOfferUri, String issuanceId,
-                                                      String credentialOfferRefreshToken, String grantType, String delivery, String txCode) {
+                                                      String credentialOfferRefreshToken, String delivery) {
         if (DELIVERY_UI.equals(delivery)) {
             log.info("Delivering credential offer via URI for issuance: {}", issuanceId);
             return Mono.just(CredentialOfferResult.builder()
@@ -91,7 +87,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                                     refreshUrl,
                                     appConfig.getWalletFrontendUrl(),
                                     emailInfo.organization(),
-                                    txCode
+                                    null
                             )
                             .doOnSuccess(v -> log.info("Credential offer email sent for issuanceId={}", issuanceId))
                             .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE))

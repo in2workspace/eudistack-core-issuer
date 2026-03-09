@@ -19,7 +19,7 @@ import reactor.test.StepVerifier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class CredentialOfferServiceImplTest {
@@ -85,27 +85,33 @@ class CredentialOfferServiceImplTest {
     }
 
     @Test
-    void createAndDeliverCredentialOffer_withAuthorizationCodeAndEmailDelivery_shouldReturnUriWithoutSendingEmail() {
+    void createAndDeliverCredentialOffer_withAuthorizationCodeAndEmailDelivery_shouldSendEmailWithoutTxCode() {
         String issuanceId = "test-issuance-id";
         String configId = "learcredential.employee.w3c.4";
 
         when(appConfig.getIssuerBackendUrl()).thenReturn("https://example.com");
+        when(appConfig.getWalletFrontendUrl()).thenReturn("https://wallet.example.com");
         when(issuerStateCacheStore.add(anyString(), eq(issuanceId)))
                 .thenReturn(Mono.just("cached"));
         when(credentialOfferCacheRepository.saveCredentialOffer(any()))
                 .thenReturn(Mono.just("cache-nonce"));
+        when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId))
+                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("test@example.com", "TestOrg")));
+        when(emailService.sendCredentialOfferEmail(
+                anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), isNull()))
+                .thenReturn(Mono.empty());
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
                         issuanceId, configId, "authorization_code", "test@example.com", "email", "refresh-token"))
-                .assertNext(result -> {
-                    assertThat(result.credentialOfferUri()).startsWith("openid-credential-offer://");
-                    assertThat(result.credentialOfferUri()).contains("credential_offer_uri=");
-                })
+                .assertNext(result -> assertThat(result.credentialOfferUri()).isNull())
                 .verifyComplete();
+
+        verify(emailService).sendCredentialOfferEmail(
+                eq("test@example.com"), anyString(), anyString(), anyString(), anyString(), eq("TestOrg"), isNull());
     }
 
     @Test
-    void createAndDeliverCredentialOffer_withPreAuthorizedCodeAndEmailDelivery_shouldSendEmail() {
+    void createAndDeliverCredentialOffer_withPreAuthorizedCodeAndEmailDelivery_shouldSendEmailWithoutTxCode() {
         String issuanceId = "test-issuance-id";
         String configId = "learcredential.employee.w3c.4";
 
@@ -122,12 +128,15 @@ class CredentialOfferServiceImplTest {
         when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("test@example.com", "TestOrg")));
         when(emailService.sendCredentialOfferEmail(
-                anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), any()))
+                anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), isNull()))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
                         issuanceId, configId, "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "email", "refresh-token"))
                 .assertNext(result -> assertThat(result.credentialOfferUri()).isNull())
                 .verifyComplete();
+
+        verify(emailService).sendCredentialOfferEmail(
+                eq("test@example.com"), anyString(), anyString(), anyString(), anyString(), eq("TestOrg"), isNull());
     }
 }
