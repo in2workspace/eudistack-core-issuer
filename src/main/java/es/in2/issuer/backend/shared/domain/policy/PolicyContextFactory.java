@@ -1,12 +1,14 @@
 package es.in2.issuer.backend.shared.domain.policy;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
+import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialFormatException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
-import es.in2.issuer.backend.shared.domain.util.DynamicCredentialParser;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import lombok.RequiredArgsConstructor;
@@ -14,24 +16,26 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
+import java.util.Collections;
 import java.util.List;
-import java.util.stream.StreamSupport;
-
-import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 /**
- * Creates a PolicyContext from a JWT token. This is the SINGLE place where token parsing happens.
- * Uses DynamicCredentialParser to extract fields via profile-driven paths.
+ * Creates a PolicyContext from a JWT access token with flat claims.
+ * The access token contains top-level claims: credential_type, mandator, power, tenant.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class PolicyContextFactory {
 
+    private static final String CREDENTIAL_TYPE_CLAIM = "credential_type";
+    private static final String POWER_CLAIM = "power";
+    private static final String MANDATOR_CLAIM = "mandator";
+    private static final String ORG_ID_FIELD = "organizationIdentifier";
+
     private final JWTService jwtService;
     private final ObjectMapper objectMapper;
     private final IssuerProperties appConfig;
-    private final DynamicCredentialParser credentialParser;
     private final CredentialProfileRegistry credentialProfileRegistry;
 
     /**
@@ -40,12 +44,11 @@ public class PolicyContextFactory {
     public Mono<PolicyContext> fromTokenSimple(String token, String tenantDomain) {
         return Mono.fromCallable(() -> jwtService.parseJWT(token))
                 .flatMap(signedJWT -> {
-                    String vcClaim = jwtService.getClaimFromPayload(signedJWT.getPayload(), VC);
-                    log.debug("VC claim: {}", vcClaim);
-
-                    var parsed = credentialParser.parse(vcClaim);
-                    List<Power> powers = credentialParser.extractPowers(parsed.node(), parsed.profile());
-                    String orgId = credentialParser.extractOrganizationId(parsed.node(), parsed.profile());
+                    String credentialType = extractCredentialType(signedJWT.getPayload());
+                    CredentialProfile profile = resolveProfile(credentialType);
+                    List<Power> powers = extractPowers(signedJWT.getPayload());
+                    String orgId = extractOrganizationId(signedJWT.getPayload());
+                    JsonNode credential = buildCredentialNode(signedJWT.getPayload());
 
                     log.info("User organization identifier: {}", orgId);
 
@@ -56,9 +59,9 @@ public class PolicyContextFactory {
                     return Mono.just(new PolicyContext(
                             orgId,
                             powers,
-                            parsed.node(),
-                            parsed.profile(),
-                            parsed.credentialType(),
+                            credential,
+                            profile,
+                            credentialType,
                             isSysAdmin,
                             tenantDomain
                     ));
@@ -73,13 +76,14 @@ public class PolicyContextFactory {
     public Mono<PolicyContext> fromTokenForIssuance(String token, String credentialConfigurationId, String tenantDomain) {
         return Mono.fromCallable(() -> jwtService.parseJWT(token))
                 .flatMap(signedJWT -> {
-                    String vcClaim = jwtService.getClaimFromPayload(signedJWT.getPayload(), VC);
+                    String credentialType = extractCredentialType(signedJWT.getPayload());
 
-                    return checkIfEmitterIsAllowedToIssue(vcClaim, credentialConfigurationId)
+                    return checkIfEmitterIsAllowedToIssue(credentialType, credentialConfigurationId)
                             .map(resolvedType -> {
-                                var parsed = credentialParser.parse(vcClaim);
-                                List<Power> powers = credentialParser.extractPowers(parsed.node(), parsed.profile());
-                                String orgId = credentialParser.extractOrganizationId(parsed.node(), parsed.profile());
+                                CredentialProfile profile = resolveProfile(credentialType);
+                                List<Power> powers = extractPowers(signedJWT.getPayload());
+                                String orgId = extractOrganizationId(signedJWT.getPayload());
+                                JsonNode credential = buildCredentialNode(signedJWT.getPayload());
 
                                 boolean isSysAdmin = orgId != null
                                         && orgId.equals(appConfig.getAdminOrganizationId())
@@ -88,8 +92,8 @@ public class PolicyContextFactory {
                                 return new PolicyContext(
                                         orgId,
                                         powers,
-                                        parsed.node(),
-                                        parsed.profile(),
+                                        credential,
+                                        profile,
                                         resolvedType,
                                         isSysAdmin,
                                         tenantDomain
@@ -99,67 +103,110 @@ public class PolicyContextFactory {
     }
 
     /**
-     * Checks that the emitter's credential type is in the target profile's required_emitter_config_ids.
-     * If no issuance_policy is defined, falls back to accepting any known credential type.
+     * Extracts the credential_type claim from the token payload.
+     * The claim is a plain string like "learcredential.employee.w3c.1".
+     * getClaimFromPayload serializes via ObjectMapper, so strings come back with surrounding quotes.
      */
-    private Mono<String> checkIfEmitterIsAllowedToIssue(String vcClaim, String credentialConfigurationId) {
+    private String extractCredentialType(com.nimbusds.jose.Payload payload) {
+        String raw = jwtService.getClaimFromPayload(payload, CREDENTIAL_TYPE_CLAIM);
+        return stripJsonQuotes(raw);
+    }
+
+    /**
+     * Extracts the power array from the token payload and deserializes to List of Power.
+     */
+    private List<Power> extractPowers(com.nimbusds.jose.Payload payload) {
         try {
-            JsonNode vcJsonNode = objectMapper.readTree(vcClaim);
-            List<String> emitterTypes = extractCredentialTypes(vcJsonNode);
-
-            CredentialProfile targetProfile = credentialProfileRegistry.getByConfigurationId(credentialConfigurationId);
-            if (targetProfile != null && targetProfile.issuancePolicy() != null
-                    && targetProfile.issuancePolicy().requiredEmitterConfigIds() != null) {
-                return determineAllowedEmitterType(emitterTypes, targetProfile.issuancePolicy().requiredEmitterConfigIds(), credentialConfigurationId);
-            }
-
-            // Fallback: accept any known credential type from the emitter
-            return findFirstKnownType(emitterTypes);
+            String powerJson = jwtService.getClaimFromPayload(payload, POWER_CLAIM);
+            return objectMapper.readValue(powerJson, new TypeReference<>() {});
         } catch (Exception e) {
-            return Mono.error(new InsufficientPermissionException("Error extracting credential type"));
+            log.debug("No power claim found in token or failed to parse: {}", e.getMessage());
+            return Collections.emptyList();
         }
     }
 
-    private Mono<String> determineAllowedEmitterType(List<String> emitterTypes, List<String> requiredEmitterConfigIds, String targetConfigId) {
-        return Mono.fromCallable(() -> {
-            for (String emitterType : emitterTypes) {
-                if (requiredEmitterConfigIds.contains(emitterType)) {
-                    return emitterType;
-                }
+    /**
+     * Extracts the organization identifier from the mandator claim.
+     * The mandator is a JSON object with an organizationIdentifier field.
+     */
+    private String extractOrganizationId(com.nimbusds.jose.Payload payload) {
+        try {
+            String mandatorJson = jwtService.getClaimFromPayload(payload, MANDATOR_CLAIM);
+            JsonNode mandatorNode = objectMapper.readTree(mandatorJson);
+            JsonNode orgIdNode = mandatorNode.path(ORG_ID_FIELD);
+            return orgIdNode.isMissingNode() || orgIdNode.isNull() ? null : orgIdNode.asText();
+        } catch (Exception e) {
+            log.debug("No mandator claim found in token or failed to parse: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Builds a JsonNode from the flat token claims to serve as the credential field in PolicyContext.
+     * Includes credential_type, mandator, and power claims.
+     */
+    private JsonNode buildCredentialNode(com.nimbusds.jose.Payload payload) {
+        ObjectNode node = objectMapper.createObjectNode();
+        try {
+            String credentialType = jwtService.getClaimFromPayload(payload, CREDENTIAL_TYPE_CLAIM);
+            node.put(CREDENTIAL_TYPE_CLAIM, stripJsonQuotes(credentialType));
+        } catch (Exception e) {
+            // credential_type missing, leave empty
+        }
+        try {
+            String mandatorJson = jwtService.getClaimFromPayload(payload, MANDATOR_CLAIM);
+            node.set(MANDATOR_CLAIM, objectMapper.readTree(mandatorJson));
+        } catch (Exception e) {
+            // mandator missing, leave empty
+        }
+        try {
+            String powerJson = jwtService.getClaimFromPayload(payload, POWER_CLAIM);
+            node.set(POWER_CLAIM, objectMapper.readTree(powerJson));
+        } catch (Exception e) {
+            // power missing, leave empty
+        }
+        return node;
+    }
+
+    private CredentialProfile resolveProfile(String credentialType) {
+        CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialType);
+        if (profile == null) {
+            throw new InvalidCredentialFormatException(
+                    "No profile found for credential type: " + credentialType);
+        }
+        return profile;
+    }
+
+    /**
+     * Checks that the emitter's credential type is in the target profile's required_emitter_config_ids.
+     * If no issuance_policy is defined, accepts the emitter type directly.
+     */
+    private Mono<String> checkIfEmitterIsAllowedToIssue(String emitterCredentialType, String credentialConfigurationId) {
+        CredentialProfile targetProfile = credentialProfileRegistry.getByConfigurationId(credentialConfigurationId);
+        if (targetProfile != null && targetProfile.issuancePolicy() != null
+                && targetProfile.issuancePolicy().requiredEmitterConfigIds() != null) {
+            List<String> required = targetProfile.issuancePolicy().requiredEmitterConfigIds();
+            if (required.contains(emitterCredentialType)) {
+                return Mono.just(emitterCredentialType);
             }
-            throw new InsufficientPermissionException(
-                    "Unauthorized: Emitter credential type " + emitterTypes + " is not allowed to issue " + targetConfigId
-                            + ". Required: " + requiredEmitterConfigIds);
-        });
+            return Mono.error(new InsufficientPermissionException(
+                    "Unauthorized: Emitter credential type [" + emitterCredentialType
+                            + "] is not allowed to issue " + credentialConfigurationId
+                            + ". Required: " + required));
+        }
+        // No issuance policy restriction: accept the emitter type
+        return Mono.just(emitterCredentialType);
     }
 
-    private Mono<String> findFirstKnownType(List<String> types) {
-        return Mono.fromCallable(() -> {
-            for (String type : types) {
-                if (!VERIFIABLE_CREDENTIAL.equals(type) && !VERIFIABLE_ATTESTATION.equals(type)) {
-                    return type;
-                }
-            }
-            throw new InsufficientPermissionException(
-                    "Unauthorized: No recognized credential type found in emitter credential.");
-        });
-    }
-
-    private List<String> extractCredentialTypes(JsonNode vcJsonNode) {
-        JsonNode typeNode = vcJsonNode.get("type");
-        if (typeNode == null) {
-            throw new IllegalArgumentException(
-                    "The credential type is missing, the credential is invalid.");
+    /**
+     * Strips surrounding JSON quotes from a serialized string value.
+     * getClaimFromPayload returns "\"value\"" for string claims.
+     */
+    private String stripJsonQuotes(String value) {
+        if (value != null && value.startsWith("\"") && value.endsWith("\"")) {
+            return value.substring(1, value.length() - 1);
         }
-        if (typeNode.isTextual()) {
-            return List.of(typeNode.asText());
-        } else if (typeNode.isArray()) {
-            return StreamSupport.stream(typeNode.spliterator(), false)
-                    .map(JsonNode::asText)
-                    .toList();
-        } else {
-            throw new IllegalArgumentException("Invalid format for credential type.");
-        }
+        return value;
     }
 
     private boolean hasOnboardingExecutePower(List<Power> powers) {

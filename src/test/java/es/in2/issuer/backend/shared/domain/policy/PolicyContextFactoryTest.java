@@ -1,14 +1,11 @@
 package es.in2.issuer.backend.shared.domain.policy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nimbusds.jose.Payload;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
-import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
-import es.in2.issuer.backend.shared.domain.util.DynamicCredentialParser;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,6 +25,7 @@ class PolicyContextFactoryTest {
 
     private static final String ADMIN_ORG_ID = "ADMIN_ORG";
     private static final String TOKEN = "test-token";
+    private static final String CREDENTIAL_TYPE = "learcredential.employee.w3c.1";
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -38,9 +36,6 @@ class PolicyContextFactoryTest {
     private IssuerProperties appConfig;
 
     @Mock
-    private DynamicCredentialParser credentialParser;
-
-    @Mock
     private CredentialProfileRegistry credentialProfileRegistry;
 
     private PolicyContextFactory factory;
@@ -48,8 +43,33 @@ class PolicyContextFactoryTest {
     @BeforeEach
     void setUp() {
         factory = new PolicyContextFactory(
-                jwtService, objectMapper, appConfig, credentialParser, credentialProfileRegistry
+                jwtService, objectMapper, appConfig, credentialProfileRegistry
         );
+    }
+
+    private void setupFlatTokenClaims(Payload payload, String credentialType, String orgId) {
+        // credential_type claim: getClaimFromPayload serializes strings with quotes
+        when(jwtService.getClaimFromPayload(payload, "credential_type"))
+                .thenReturn("\"" + credentialType + "\"");
+
+        // power claim: JSON array
+        String powerJson = "[{\"function\":\"Onboarding\",\"action\":\"Execute\",\"domain\":\"DOME\",\"type\":\"Domain\"}]";
+        when(jwtService.getClaimFromPayload(payload, "power")).thenReturn(powerJson);
+
+        // mandator claim: JSON object
+        String mandatorJson = "{\"organizationIdentifier\":\"" + orgId + "\",\"organization\":\"Test Org\"}";
+        when(jwtService.getClaimFromPayload(payload, "mandator")).thenReturn(mandatorJson);
+    }
+
+    private CredentialProfile buildProfile(String configId) {
+        return CredentialProfile.builder()
+                .credentialConfigurationId(configId)
+                .policyExtraction(CredentialProfile.PolicyExtraction.builder()
+                        .powersPath("power")
+                        .mandatorPath("mandator")
+                        .orgIdField("organizationIdentifier")
+                        .build())
+                .build();
     }
 
     // --- fromTokenSimple ---
@@ -62,25 +82,22 @@ class PolicyContextFactoryTest {
         when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
         when(signedJWT.getPayload()).thenReturn(payload);
 
-        String vcJson = "{\"type\":[\"learcredential.employee.w3c.4\"]}";
-        when(jwtService.getClaimFromPayload(payload, "vc")).thenReturn(vcJson);
+        setupFlatTokenClaims(payload, CREDENTIAL_TYPE, "ORG-123");
 
-        ObjectNode vcNode = objectMapper.createObjectNode();
-        CredentialProfile profile = mock(CredentialProfile.class);
-        Power power = Power.builder().function("Onboarding").action("Execute").build();
-        var parsed = new DynamicCredentialParser.ParsedCredential(vcNode, profile, "learcredential.employee.w3c.4");
-        when(credentialParser.parse(vcJson)).thenReturn(parsed);
-        when(credentialParser.extractPowers(vcNode, profile)).thenReturn(List.of(power));
-        when(credentialParser.extractOrganizationId(vcNode, profile)).thenReturn("ORG-123");
+        CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
         when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
 
         StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
                 .assertNext(ctx -> {
                     assertThat(ctx.organizationIdentifier()).isEqualTo("ORG-123");
-                    assertThat(ctx.credentialType()).isEqualTo("learcredential.employee.w3c.4");
+                    assertThat(ctx.credentialType()).isEqualTo(CREDENTIAL_TYPE);
                     assertThat(ctx.sysAdmin()).isFalse();
                     assertThat(ctx.powers()).hasSize(1);
+                    assertThat(ctx.powers().getFirst().function()).isEqualTo("Onboarding");
                     assertThat(ctx.tenantDomain()).isEqualTo("DOME");
+                    assertThat(ctx.profile()).isEqualTo(profile);
+                    assertThat(ctx.credential()).isNotNull();
                 })
                 .verifyComplete();
     }
@@ -93,16 +110,10 @@ class PolicyContextFactoryTest {
         when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
         when(signedJWT.getPayload()).thenReturn(payload);
 
-        String vcJson = "{\"type\":[\"learcredential.employee.w3c.4\"]}";
-        when(jwtService.getClaimFromPayload(payload, "vc")).thenReturn(vcJson);
+        setupFlatTokenClaims(payload, CREDENTIAL_TYPE, ADMIN_ORG_ID);
 
-        ObjectNode vcNode = objectMapper.createObjectNode();
-        CredentialProfile profile = mock(CredentialProfile.class);
-        Power power = Power.builder().function("Onboarding").action("Execute").build();
-        var parsed = new DynamicCredentialParser.ParsedCredential(vcNode, profile, "learcredential.employee.w3c.4");
-        when(credentialParser.parse(vcJson)).thenReturn(parsed);
-        when(credentialParser.extractPowers(vcNode, profile)).thenReturn(List.of(power));
-        when(credentialParser.extractOrganizationId(vcNode, profile)).thenReturn(ADMIN_ORG_ID);
+        CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
         when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
 
         StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
@@ -121,16 +132,20 @@ class PolicyContextFactoryTest {
         when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
         when(signedJWT.getPayload()).thenReturn(payload);
 
-        String vcJson = "{\"type\":[\"learcredential.employee.w3c.4\"]}";
-        when(jwtService.getClaimFromPayload(payload, "vc")).thenReturn(vcJson);
+        // credential_type
+        when(jwtService.getClaimFromPayload(payload, "credential_type"))
+                .thenReturn("\"" + CREDENTIAL_TYPE + "\"");
 
-        ObjectNode vcNode = objectMapper.createObjectNode();
-        CredentialProfile profile = mock(CredentialProfile.class);
-        Power power = Power.builder().function("ProductOffering").action("Execute").build();
-        var parsed = new DynamicCredentialParser.ParsedCredential(vcNode, profile, "learcredential.employee.w3c.4");
-        when(credentialParser.parse(vcJson)).thenReturn(parsed);
-        when(credentialParser.extractPowers(vcNode, profile)).thenReturn(List.of(power));
-        when(credentialParser.extractOrganizationId(vcNode, profile)).thenReturn(ADMIN_ORG_ID);
+        // power with non-Onboarding function
+        String powerJson = "[{\"function\":\"ProductOffering\",\"action\":\"Execute\",\"domain\":\"DOME\",\"type\":\"Domain\"}]";
+        when(jwtService.getClaimFromPayload(payload, "power")).thenReturn(powerJson);
+
+        // mandator
+        String mandatorJson = "{\"organizationIdentifier\":\"" + ADMIN_ORG_ID + "\",\"organization\":\"Test Org\"}";
+        when(jwtService.getClaimFromPayload(payload, "mandator")).thenReturn(mandatorJson);
+
+        CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
         when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
 
         StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
@@ -151,22 +166,17 @@ class PolicyContextFactoryTest {
         when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
         when(signedJWT.getPayload()).thenReturn(payload);
 
-        String vcJson = "{\"type\":[\"learcredential.employee.w3c.4\"]}";
-        when(jwtService.getClaimFromPayload(payload, "vc")).thenReturn(vcJson);
+        setupFlatTokenClaims(payload, CREDENTIAL_TYPE, "ORG-123");
 
-        ObjectNode vcNode = objectMapper.createObjectNode();
-        CredentialProfile profile = mock(CredentialProfile.class);
-        Power power = Power.builder().function("Onboarding").action("Execute").build();
-        var parsed = new DynamicCredentialParser.ParsedCredential(vcNode, profile, "learcredential.employee.w3c.4");
-        when(credentialParser.parse(vcJson)).thenReturn(parsed);
-        when(credentialParser.extractPowers(vcNode, profile)).thenReturn(List.of(power));
-        when(credentialParser.extractOrganizationId(vcNode, profile)).thenReturn("ORG-123");
+        CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
         when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
 
-        StepVerifier.create(factory.fromTokenForIssuance(TOKEN, "learcredential.employee.w3c.4", "DOME"))
+        StepVerifier.create(factory.fromTokenForIssuance(TOKEN, CREDENTIAL_TYPE, "DOME"))
                 .assertNext(ctx -> {
-                    assertThat(ctx.credentialType()).isEqualTo("learcredential.employee.w3c.4");
+                    assertThat(ctx.credentialType()).isEqualTo(CREDENTIAL_TYPE);
                     assertThat(ctx.tenantDomain()).isEqualTo("DOME");
+                    assertThat(ctx.powers()).hasSize(1);
                 })
                 .verifyComplete();
     }
@@ -179,15 +189,15 @@ class PolicyContextFactoryTest {
         when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
         when(signedJWT.getPayload()).thenReturn(payload);
 
-        // VC contains learcredential.employee.w3c.4 but "gx.labelcredential.w3c.1" requires learcredential.machine.w3c.3
-        String vcJson = "{\"type\":[\"learcredential.employee.w3c.4\"]}";
-        when(jwtService.getClaimFromPayload(payload, "vc")).thenReturn(vcJson);
+        // Emitter has learcredential.employee.w3c.1
+        when(jwtService.getClaimFromPayload(payload, "credential_type"))
+                .thenReturn("\"" + CREDENTIAL_TYPE + "\"");
 
-        // Mock the registry to return a profile requiring learcredential.machine.w3c.3
+        // Target profile requires learcredential.machine.w3c.1
         CredentialProfile labelProfile = CredentialProfile.builder()
                 .credentialConfigurationId("gx.labelcredential.w3c.1")
                 .issuancePolicy(CredentialProfile.IssuancePolicy.builder()
-                        .requiredEmitterConfigIds(List.of("learcredential.machine.w3c.3"))
+                        .requiredEmitterConfigIds(List.of("learcredential.machine.w3c.1"))
                         .build())
                 .build();
         when(credentialProfileRegistry.getByConfigurationId("gx.labelcredential.w3c.1")).thenReturn(labelProfile);
@@ -195,24 +205,68 @@ class PolicyContextFactoryTest {
         StepVerifier.create(factory.fromTokenForIssuance(TOKEN, "gx.labelcredential.w3c.1", "DOME"))
                 .expectErrorMatches(e ->
                         e instanceof InsufficientPermissionException &&
-                                e.getMessage().contains("learcredential.machine.w3c.3"))
+                                e.getMessage().contains("learcredential.machine.w3c.1"))
                 .verify();
     }
 
     @Test
-    void fromTokenForIssuance_failsWhenVcTypeMissing() {
+    void fromTokenForIssuance_succeedsWhenEmitterTypeMatchesRequiredConfigId() {
         SignedJWT signedJWT = mock(SignedJWT.class);
         Payload payload = mock(Payload.class);
 
         when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
         when(signedJWT.getPayload()).thenReturn(payload);
 
-        // VC without type field
-        String vcJson = "{\"id\":\"something\"}";
-        when(jwtService.getClaimFromPayload(payload, "vc")).thenReturn(vcJson);
+        String machineType = "learcredential.machine.w3c.1";
+        setupFlatTokenClaims(payload, machineType, "ORG-456");
 
-        StepVerifier.create(factory.fromTokenForIssuance(TOKEN, "learcredential.employee.w3c.4", "DOME"))
-                .expectError(InsufficientPermissionException.class)
-                .verify();
+        // Target profile requires learcredential.machine.w3c.1 and emitter has it
+        CredentialProfile labelProfile = CredentialProfile.builder()
+                .credentialConfigurationId("gx.labelcredential.w3c.1")
+                .issuancePolicy(CredentialProfile.IssuancePolicy.builder()
+                        .requiredEmitterConfigIds(List.of(machineType))
+                        .build())
+                .build();
+        when(credentialProfileRegistry.getByConfigurationId("gx.labelcredential.w3c.1")).thenReturn(labelProfile);
+
+        CredentialProfile machineProfile = buildProfile(machineType);
+        when(credentialProfileRegistry.getByConfigurationId(machineType)).thenReturn(machineProfile);
+        when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
+
+        StepVerifier.create(factory.fromTokenForIssuance(TOKEN, "gx.labelcredential.w3c.1", "DOME"))
+                .assertNext(ctx -> {
+                    assertThat(ctx.credentialType()).isEqualTo(machineType);
+                    assertThat(ctx.organizationIdentifier()).isEqualTo("ORG-456");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void fromTokenForIssuance_acceptsAnyTypeWhenNoIssuancePolicy() {
+        SignedJWT signedJWT = mock(SignedJWT.class);
+        Payload payload = mock(Payload.class);
+
+        when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
+        when(signedJWT.getPayload()).thenReturn(payload);
+
+        setupFlatTokenClaims(payload, CREDENTIAL_TYPE, "ORG-789");
+
+        // Target profile without issuance policy
+        CredentialProfile targetProfile = CredentialProfile.builder()
+                .credentialConfigurationId(CREDENTIAL_TYPE)
+                .build();
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(targetProfile);
+
+        CredentialProfile emitterProfile = buildProfile(CREDENTIAL_TYPE);
+        // getByConfigurationId is called twice: once for checkIfEmitterIsAllowedToIssue, once for resolveProfile
+        // Since both use the same key, one stub covers both
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(emitterProfile);
+        when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
+
+        StepVerifier.create(factory.fromTokenForIssuance(TOKEN, CREDENTIAL_TYPE, "DOME"))
+                .assertNext(ctx -> {
+                    assertThat(ctx.credentialType()).isEqualTo(CREDENTIAL_TYPE);
+                })
+                .verifyComplete();
     }
 }
