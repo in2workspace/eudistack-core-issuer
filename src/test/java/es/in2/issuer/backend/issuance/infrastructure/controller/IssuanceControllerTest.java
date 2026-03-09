@@ -171,6 +171,7 @@ class IssuanceControllerTest {
 
         CredentialDetails details = CredentialDetails.builder()
                 .issuanceId(UUID.randomUUID())
+                .credentialConfigurationId("learcredential.employee.w3c.4")
                 .lifeCycleStatus("VALID")
                 .credential(null)
                 .build();

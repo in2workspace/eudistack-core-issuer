@@ -28,10 +28,12 @@ class CredentialDetailsTest {
         }
 
         // Act
-        CredentialDetails credentialDetails = new CredentialDetails(uuid, expectedCredentialStatus, jsonNode, email);
+        String configId = "learcredential.employee.w3c.4";
+        CredentialDetails credentialDetails = new CredentialDetails(uuid, configId, expectedCredentialStatus, jsonNode, email);
 
         // Assert
         assertEquals(uuid, credentialDetails.issuanceId());
+        assertEquals(configId, credentialDetails.credentialConfigurationId());
         assertEquals(expectedCredentialStatus, credentialDetails.lifeCycleStatus());
         assertEquals(jsonNode, credentialDetails.credential());
         assertEquals(email, credentialDetails.email());
@@ -45,8 +47,10 @@ class CredentialDetailsTest {
         JsonNode jsonNode = objectMapper.readTree("{\"key\": \"value\"}");
 
         // Act
+        String configId = "learcredential.employee.w3c.4";
         CredentialDetails credentialDetails = CredentialDetails.builder()
                 .issuanceId(uuid)
+                .credentialConfigurationId(configId)
                 .lifeCycleStatus(newCredentialStatus)
                 .credential(jsonNode)
                 .build();
@@ -65,8 +69,9 @@ class CredentialDetailsTest {
         JsonNode jsonNode = objectMapper.readTree("{\"key\": \"value\"}");
         String email = "email";
 
-        CredentialDetails credentialDetails = new CredentialDetails(uuid, expectedCredentialStatus, jsonNode, email);
-        CredentialDetails credentialDetails2 = new CredentialDetails(uuid, expectedCredentialStatus, jsonNode, email);
+        String configId = "learcredential.employee.w3c.4";
+        CredentialDetails credentialDetails = new CredentialDetails(uuid, configId, expectedCredentialStatus, jsonNode, email);
+        CredentialDetails credentialDetails2 = new CredentialDetails(uuid, configId, expectedCredentialStatus, jsonNode, email);
 
         // Assert
         assertEquals(credentialDetails, credentialDetails2);

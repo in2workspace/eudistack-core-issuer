@@ -167,6 +167,7 @@ public class IssuanceServiceImpl implements IssuanceService {
                     try {
                         return Mono.just(CredentialDetails.builder()
                                 .issuanceId(issuance.getIssuanceId())
+                                .credentialConfigurationId(issuance.getCredentialType())
                                 .lifeCycleStatus(String.valueOf(issuance.getCredentialStatus()))
                                 .credential(objectMapper.readTree(issuance.getCredentialDataSet()))
                                 .email(issuance.getEmail())
