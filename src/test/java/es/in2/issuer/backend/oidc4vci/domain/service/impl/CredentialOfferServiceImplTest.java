@@ -56,7 +56,7 @@ class CredentialOfferServiceImplTest {
                 .thenReturn(Mono.just("cache-nonce"));
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
-                        issuanceId, configId, "pre-authorized_code", "test@example.com", "ui", "refresh-token"))
+                        issuanceId, configId, "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "ui", "refresh-token"))
                 .assertNext(result -> {
                     assertThat(result.credentialOfferUri()).startsWith("openid-credential-offer://");
                     assertThat(result.credentialOfferUri()).contains("credential_offer_uri=");
@@ -126,7 +126,7 @@ class CredentialOfferServiceImplTest {
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
-                        issuanceId, configId, "pre-authorized_code", "test@example.com", "email", "refresh-token"))
+                        issuanceId, configId, "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "email", "refresh-token"))
                 .assertNext(result -> assertThat(result.credentialOfferUri()).isNull())
                 .verifyComplete();
     }

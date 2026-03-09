@@ -32,7 +32,7 @@ import static es.in2.issuer.backend.shared.infrastructure.util.HttpUtils.ensureU
 @RequiredArgsConstructor
 public class CredentialOfferServiceImpl implements CredentialOfferService {
 
-    private static final String GRANT_TYPE_PRE_AUTHORIZED_CODE = "pre-authorized_code";
+    private static final String GRANT_TYPE_PRE_AUTHORIZED_CODE = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
 
     private final IssuerProperties appConfig;
     private final PreAuthorizedCodeService preAuthorizedCodeService;
