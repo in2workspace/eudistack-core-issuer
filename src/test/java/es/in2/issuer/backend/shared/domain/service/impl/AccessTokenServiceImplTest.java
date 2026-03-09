@@ -68,7 +68,7 @@ class AccessTokenServiceImplTest {
     void testGetOrganizationId_ValidToken() throws JsonProcessingException {
         String validJwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25JZGVudGlmaWVyIjoib3JnMTIzIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
         String expectedOrganizationId = "org123";
-        String jwtPayload = "{\"vc\":{\"credentialSubject\":{\"mandate\":{\"mandator\":{\"organizationIdentifier\":\"" + expectedOrganizationId + "\"}}}}}";
+        String jwtPayload = "{\"mandator\":{\"organizationIdentifier\":\"" + expectedOrganizationId + "\"}}";
 
         try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
             mockedJwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(mockSignedJwt);
@@ -76,7 +76,7 @@ class AccessTokenServiceImplTest {
             ObjectMapper realObjectMapper = new ObjectMapper();
             JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
             when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
-            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("vc.credentialSubject.mandate.mandator.organizationIdentifier");
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
 
             Mono<String> result = accessTokenServiceImpl.getOrganizationId("Bearer " + validJwtToken);
 
@@ -92,7 +92,7 @@ class AccessTokenServiceImplTest {
 
         try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
             mockedJwtStatic.when(() -> SignedJWT.parse(anyString())).thenThrow(new ParseException("Invalid token", 0));
-            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("vc.credentialSubject.mandate.mandator.organizationIdentifier");
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
 
             Mono<String> result = accessTokenServiceImpl.getOrganizationId("Bearer " + invalidJwtToken);
 
@@ -106,7 +106,7 @@ class AccessTokenServiceImplTest {
     void testGetOrganizationIdFromCurrentSession_ValidToken() throws ParseException, JsonProcessingException {
         String validJwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25JZGVudGlmaWVyIjoib3JnMTIzIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
         String expectedOrganizationId = "org123";
-        String jwtPayload = "{\"vc\":{\"credentialSubject\":{\"mandate\":{\"mandator\":{\"organizationIdentifier\":\"" + expectedOrganizationId + "\"}}}}}";
+        String jwtPayload = "{\"mandator\":{\"organizationIdentifier\":\"" + expectedOrganizationId + "\"}}";
 
         Jwt jwt = Jwt.withTokenValue(validJwtToken).header("alg", "HS256").claim("organizationIdentifier", expectedOrganizationId).build();
         JwtAuthenticationToken jwtAuthenticationToken = new JwtAuthenticationToken(jwt);
@@ -127,7 +127,7 @@ class AccessTokenServiceImplTest {
             ObjectMapper realObjectMapper = new ObjectMapper();
             JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
             when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
-            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("vc.credentialSubject.mandate.mandator.organizationIdentifier");
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
 
             Mono<String> result = accessTokenServiceImpl.getOrganizationIdFromCurrentSession();
 
@@ -157,7 +157,7 @@ class AccessTokenServiceImplTest {
                     .thenReturn(Mono.just(securityContext));
 
             mockedJwtStatic.when(() -> SignedJWT.parse(invalidJwtToken)).thenThrow(new ParseException("Invalid token", 0));
-            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("vc.credentialSubject.mandate.mandator.organizationIdentifier");
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
 
             Mono<String> result = accessTokenServiceImpl.getOrganizationIdFromCurrentSession();
 
@@ -331,7 +331,7 @@ class AccessTokenServiceImplTest {
     void testGetOrganizationContext_AdminOrgWithOnboardingPower() throws JsonProcessingException {
         String validJwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25JZGVudGlmaWVyIjoib3JnMTIzIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
         String adminOrgId = "ADMIN_ORG_123";
-        String jwtPayload = "{\"vc\":{\"credentialSubject\":{\"mandate\":{\"mandator\":{\"organizationIdentifier\":\"" + adminOrgId + "\"},\"power\":[{\"function\":\"Onboarding\",\"action\":\"Execute\"}]}}}}";
+        String jwtPayload = "{\"mandator\":{\"organizationIdentifier\":\"" + adminOrgId + "\"},\"power\":[{\"function\":\"Onboarding\",\"action\":\"Execute\"}]}";
 
         try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
             mockedJwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(mockSignedJwt);
@@ -339,7 +339,7 @@ class AccessTokenServiceImplTest {
             ObjectMapper realObjectMapper = new ObjectMapper();
             JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
             when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
-            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("vc.credentialSubject.mandate.mandator.organizationIdentifier");
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
             when(mockAppConfig.getManagementTokenAdminPowerFunction()).thenReturn("Onboarding");
             when(mockAppConfig.getManagementTokenAdminPowerAction()).thenReturn("Execute");
             when(mockAppConfig.getAdminOrganizationId()).thenReturn(adminOrgId);
@@ -357,7 +357,7 @@ class AccessTokenServiceImplTest {
     void testGetOrganizationContext_AdminOrgWithoutOnboardingPower_notSysAdmin() throws JsonProcessingException {
         String validJwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25JZGVudGlmaWVyIjoib3JnMTIzIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
         String adminOrgId = "ADMIN_ORG_123";
-        String jwtPayload = "{\"vc\":{\"credentialSubject\":{\"mandate\":{\"mandator\":{\"organizationIdentifier\":\"" + adminOrgId + "\"},\"power\":[{\"function\":\"ProductOffering\",\"action\":\"Execute\"}]}}}}";
+        String jwtPayload = "{\"mandator\":{\"organizationIdentifier\":\"" + adminOrgId + "\"},\"power\":[{\"function\":\"ProductOffering\",\"action\":\"Execute\"}]}";
 
         try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
             mockedJwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(mockSignedJwt);
@@ -365,7 +365,7 @@ class AccessTokenServiceImplTest {
             ObjectMapper realObjectMapper = new ObjectMapper();
             JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
             when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
-            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("vc.credentialSubject.mandate.mandator.organizationIdentifier");
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
             when(mockAppConfig.getManagementTokenAdminPowerFunction()).thenReturn("Onboarding");
             when(mockAppConfig.getManagementTokenAdminPowerAction()).thenReturn("Execute");
             when(mockAppConfig.getAdminOrganizationId()).thenReturn(adminOrgId);
@@ -383,7 +383,7 @@ class AccessTokenServiceImplTest {
     void testGetOrganizationContext_RegularOrg() throws JsonProcessingException {
         String validJwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25JZGVudGlmaWVyIjoib3JnMTIzIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
         String orgId = "org123";
-        String jwtPayload = "{\"vc\":{\"credentialSubject\":{\"mandate\":{\"mandator\":{\"organizationIdentifier\":\"" + orgId + "\"},\"power\":[{\"function\":\"Onboarding\",\"action\":\"Execute\"}]}}}}";
+        String jwtPayload = "{\"mandator\":{\"organizationIdentifier\":\"" + orgId + "\"},\"power\":[{\"function\":\"Onboarding\",\"action\":\"Execute\"}]}";
 
         try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
             mockedJwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(mockSignedJwt);
@@ -391,7 +391,7 @@ class AccessTokenServiceImplTest {
             ObjectMapper realObjectMapper = new ObjectMapper();
             JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
             when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
-            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("vc.credentialSubject.mandate.mandator.organizationIdentifier");
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
             when(mockAppConfig.getManagementTokenAdminPowerFunction()).thenReturn("Onboarding");
             when(mockAppConfig.getManagementTokenAdminPowerAction()).thenReturn("Execute");
             when(mockAppConfig.getAdminOrganizationId()).thenReturn("ADMIN_ORG_123");

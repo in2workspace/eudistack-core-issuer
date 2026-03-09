@@ -112,7 +112,7 @@ app:
   admin-organization-id: ${APP_ADMIN_ORGANIZATION_ID:VATES-B60645900}
   sys-tenant: ${APP_SYS_TENANT:SYSTEM}
   management-token:
-    org-id-json-path: ${APP_MGMT_TOKEN_ORG_ID_PATH:vc.credentialSubject.mandate.mandator.organizationIdentifier}
+    org-id-json-path: ${APP_MGMT_TOKEN_ORG_ID_PATH:mandator.organizationIdentifier}
     admin-power-function: ${APP_MGMT_TOKEN_ADMIN_POWER_FUNCTION:Onboarding}
     admin-power-action: ${APP_MGMT_TOKEN_ADMIN_POWER_ACTION:Execute}
 

@@ -111,8 +111,8 @@ public record CredentialProfile(
     @Builder
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record TokenClaimsMapping(
-            @JsonProperty("id_token") Map<String, String> idToken,
-            @JsonProperty("access_token") Map<String, String> accessToken,
+            @JsonProperty("id_token") Map<String, Object> idToken,
+            @JsonProperty("access_token") Map<String, Object> accessToken,
             @JsonProperty("scope") String scope
     ) {}
 

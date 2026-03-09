@@ -1,7 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
 import jakarta.annotation.Nullable;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
@@ -28,7 +27,6 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.StreamSupport;
 
 @Configuration
 @RequiredArgsConstructor
@@ -167,7 +165,7 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
                 });
     }
 
-    private Mono<Jwt> parseAndValidateJwt(String token, boolean validateVcClaim) {
+    private Mono<Jwt> parseAndValidateJwt(String token, boolean shouldValidateCredentialType) {
         return Mono.fromCallable(() -> {
             log.debug("parseAndValidateJwt");
             String[] parts = token.split("\\.");
@@ -183,8 +181,8 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
             String payloadJson = new String(Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8);
             Map<String, Object> claims = objectMapper.readValue(payloadJson, Map.class);
 
-            // Validate 'vc' claim
-            if (validateVcClaim) validateVcClaim(claims);
+            // Validate credential_type claim
+            if (shouldValidateCredentialType) validateCredentialType(claims);
 
             // Extract issuedAt and expiresAt times if present
             Instant issuedAt = claims.containsKey("iat") ? Instant.ofEpochSecond(((Number) claims.get("iat")).longValue()) : Instant.now();
@@ -200,36 +198,17 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
                 .collect(java.util.stream.Collectors.toSet());
     }
 
-    private void validateVcClaim(Map<String, Object> claims) {
-        Object vcObj = claims.get("vc");
-        log.debug("validateVcClaim");
-        if (vcObj == null) {
-            log.error("The 'vc' claim is required but not present.");
-            throw new BadCredentialsException("The 'vc' claim is required but not present.");
+    private void validateCredentialType(Map<String, Object> claims) {
+        Object credentialType = claims.get("credential_type");
+        log.debug("validateCredentialType");
+        if (credentialType == null) {
+            log.error("The 'credential_type' claim is required but not present.");
+            throw new BadCredentialsException("The 'credential_type' claim is required but not present.");
         }
-        String vcJson;
-        if (vcObj instanceof String vc) {
-            vcJson = vc;
-        } else {
-            try {
-                vcJson = objectMapper.writeValueAsString(vcObj);
-            } catch (Exception e) {
-                log.error("Error processing 'vc' claim.", e);
-                throw new BadCredentialsException("Error processing 'vc' claim", e);
-            }
-        }
-        JsonNode vcNode;
-        try {
-            vcNode = objectMapper.readTree(vcJson);
-        } catch (Exception e) {
-            log.error("Error parsing 'vc' claim.", e);
-            throw new BadCredentialsException("Error parsing 'vc' claim", e);
-        }
-        JsonNode typeNode = vcNode.get("type");
+        String typeStr = credentialType.toString();
         Set<String> acceptedTypes = getAcceptedVcTypes();
-        if (typeNode == null || !typeNode.isArray() || StreamSupport.stream(typeNode.spliterator(), false)
-                .noneMatch(node -> acceptedTypes.contains(node.asText()))) {
-            log.error("Credential type required: one of {}.", acceptedTypes);
+        if (!acceptedTypes.contains(typeStr)) {
+            log.error("Credential type '{}' not accepted. Accepted: {}", typeStr, acceptedTypes);
             throw new BadCredentialsException("Credential type required: one of " + acceptedTypes);
         }
     }

@@ -65,18 +65,18 @@ class CustomAuthenticationManagerTest {
         return header + "." + payload + "." + signature;
     }
 
-    private String buildAccessTokenFromIssuer(String issuer, boolean includeLearVc) {
+    private String buildAccessTokenFromIssuer(String issuer, boolean includeCredentialType) {
         String headerJson = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
         long now = Instant.now().getEpochSecond();
-        String vcPart = includeLearVc ? ",\"vc\":{\"type\":[\"learcredential.machine.w3c.3\"]}" : "";
-        String payloadJson = "{\"iss\":\"" + issuer + "\",\"iat\":" + now + ",\"exp\":" + (now + 3600) + vcPart + "}";
+        String ctPart = includeCredentialType ? ",\"credential_type\":\"learcredential.machine.w3c.1\"" : "";
+        String payloadJson = "{\"iss\":\"" + issuer + "\",\"iat\":" + now + ",\"exp\":" + (now + 3600) + ctPart + "}";
         return buildToken(headerJson, payloadJson);
     }
 
     private String buildIdTokenSimple(String subjectEmail) {
         String headerJson = "{\"alg\":\"none\",\"typ\":\"JWT\"}";
         long now = Instant.now().getEpochSecond();
-        // No 'vc' claim required for id token parsing path in resolvePrincipal...
+        // No credential_type claim required for id token parsing path in resolvePrincipal...
         String payloadJson = "{\"sub\":\"" + subjectEmail + "\",\"iat\":" + now + ",\"exp\":" + (now + 3600) + "}";
         return buildToken(headerJson, payloadJson);
     }
@@ -86,7 +86,7 @@ class CustomAuthenticationManagerTest {
         String headerJson = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
         String payloadJson = "{\"iss\":\"http://verifier.local\",\"iat\":1633036800," +
                 "\"exp\":" + (Instant.now().getEpochSecond() + 3600) + "," +
-                "\"vc\":{\"type\":[\"learcredential.machine.w3c.3\"]}}";
+                "\"credential_type\":\"learcredential.machine.w3c.1\"}";
         String token = buildToken(headerJson, payloadJson);
 
         when(appConfig.getVerifierUrl()).thenReturn("http://verifier.local");
@@ -120,7 +120,7 @@ class CustomAuthenticationManagerTest {
     }
 
     @Test
-    void authenticate_withVerifierToken_missingVcClaim_returnsAuthentication() {
+    void authenticate_withVerifierToken_missingCredentialType_returnsAuthentication() {
         String headerJson = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
         String payloadJson = "{\"iss\":\"http://verifier.local\",\"iat\":1633036800,\"exp\":1633040400}";
         String token = buildToken(headerJson, payloadJson);
@@ -141,10 +141,10 @@ class CustomAuthenticationManagerTest {
     }
 
     @Test
-    void authenticate_withVerifierToken_invalidVcType_returnsAuthentication() {
+    void authenticate_withVerifierToken_unknownCredentialType_returnsAuthentication() {
         String headerJson = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
         String payloadJson = "{\"iss\":\"http://verifier.local\",\"iat\":1633036800,\"exp\":1633040400," +
-                "\"vc\":{\"type\":[\"SomeOtherType\"]}}";
+                "\"credential_type\":\"SomeOtherType\"}";
         String token = buildToken(headerJson, payloadJson);
 
         when(appConfig.getVerifierUrl()).thenReturn("http://verifier.local");
@@ -183,7 +183,7 @@ class CustomAuthenticationManagerTest {
     void authenticate_withVerifierServiceFailure_wrapsInAuthenticationServiceException() {
         String headerJson = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
         String payloadJson = "{\"iss\":\"http://verifier.local\",\"exp\":1633040400," +
-                "\"vc\":{\"type\":[\"learcredential.machine.w3c.3\"]}}";
+                "\"credential_type\":\"learcredential.machine.w3c.1\"}";
         String token = buildToken(headerJson, payloadJson);
 
         RuntimeException verifyException = new RuntimeException("Verification failed");
@@ -227,7 +227,7 @@ class CustomAuthenticationManagerTest {
     }
 
     @Test
-    void authenticate_withInternalIssuerToken_missingVcClaim_returnsAuthentication() {
+    void authenticate_withInternalIssuerToken_missingCredentialType_returnsAuthentication() {
         String token = buildAccessTokenFromIssuer("http://issuer.local", false);
 
         when(appConfig.getIssuerBackendUrl()).thenReturn("http://issuer.local");
@@ -246,11 +246,11 @@ class CustomAuthenticationManagerTest {
     }
 
     @Test
-    void authenticate_withInternalIssuerToken_invalidVcType_returnsAuthentication() {
+    void authenticate_withInternalIssuerToken_unknownCredentialType_returnsAuthentication() {
         String headerJson = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
         long now = Instant.now().getEpochSecond();
         String payloadJson = "{\"iss\":\"http://issuer.local\",\"iat\":" + now + ",\"exp\":" +
-                (now + 3600) + ",\"vc\":{\"type\":[\"OtherType\"]}}";
+                (now + 3600) + ",\"credential_type\":\"OtherType\"}";
         String token = buildToken(headerJson, payloadJson);
 
         when(appConfig.getIssuerBackendUrl()).thenReturn("http://issuer.local");

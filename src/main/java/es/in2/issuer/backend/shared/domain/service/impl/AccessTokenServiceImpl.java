@@ -144,25 +144,10 @@ public class AccessTokenServiceImpl implements AccessTokenService {
 
     /**
      * Searches for a power entry with the given function and action in the token payload.
-     * Looks for the "power" array at the path derived from the org-id path's parent (mandate level).
+     * With flat access token structure, "power" is a top-level claim.
      */
     private boolean hasPowerInPayload(JsonNode root, String function, String action) {
-        // Navigate to the parent of the org-id path to find the mandate-level node containing "power"
-        String orgIdPath = appConfig.getManagementTokenOrgIdJsonPath();
-        String[] segments = orgIdPath.split("\\.");
-
-        // Walk up two levels from the org-id leaf to reach the mandate-level node
-        // e.g. from "vc.credentialSubject.mandate.mandator.organizationIdentifier"
-        //   → go to "vc.credentialSubject.mandate" (remove last 2 segments)
-        JsonNode mandateNode = root;
-        int mandateDepth = Math.max(0, segments.length - 2);
-        for (int i = 0; i < mandateDepth; i++) {
-            if (mandateNode == null) return false;
-            mandateNode = mandateNode.get(segments[i]);
-        }
-        if (mandateNode == null) return false;
-
-        JsonNode powerNode = mandateNode.get("power");
+        JsonNode powerNode = root.get("power");
         if (powerNode == null || !powerNode.isArray()) {
             return false;
         }
