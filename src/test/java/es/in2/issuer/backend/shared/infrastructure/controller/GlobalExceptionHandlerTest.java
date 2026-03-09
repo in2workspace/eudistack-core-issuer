@@ -607,7 +607,6 @@ class GlobalExceptionHandlerTest {
     // -------------------- handleCredentialSerializationException --------------------
 
     @Test
-
     void handleCredentialSerializationException() {
         var ex = new CredentialSerializationException("Credential serialization err");
         var type = GlobalErrorTypes.CREDENTIAL_SERIALIZATION.getCode();
@@ -634,7 +633,7 @@ class GlobalExceptionHandlerTest {
     }
 
     // -------------------- handleJWTParsingExceptionTest --------------------
-  
+
     @Test
     void handleJWTParsingExceptionTest() {
         var ex = new JWTParsingException("jwt parsing exception");
@@ -717,6 +716,33 @@ class GlobalExceptionHandlerTest {
         verify(errors).handleWith(ex, request, type, title, st, fallback);
     }
 
+// -------------------- handleInvalidCredentialFormatException --------------------
 
+    @Test
+    void handleInvalidCredentialFormatException() {
+        var ex = new InvalidCredentialFormatException("invalid format");
+        var type = GlobalErrorTypes.INVALID_CREDENTIAL_FORMAT.getCode();
+        var title = "Invalid credential format";
+        var st = HttpStatus.BAD_REQUEST;
+        var fallback = "The provided credential format is invalid.";
+
+        var expected = new GlobalErrorMessage(
+                type,
+                title,
+                st.value(),
+                "invalid format",
+                UUID.randomUUID().toString()
+        );
+
+        when(errors.handleWith(ex, request, type, title, st, fallback))
+                .thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleInvalidCredentialFormatException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, "invalid format"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+
+    }
 
 }
