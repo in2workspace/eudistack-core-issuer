@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v2.2.20](https://github.com/in2workspace/in2-issuer-api/releases/tag/v2.2.20)
 ### Added
-- Add exception handling for invalid credential format
+- Add support for sign hash implementation.
+- Add configuration signing endpoint.
 
 ## [v2.2.19](https://github.com/in2workspace/in2-issuer-api/releases/tag/v2.2.19)
 ### Added
