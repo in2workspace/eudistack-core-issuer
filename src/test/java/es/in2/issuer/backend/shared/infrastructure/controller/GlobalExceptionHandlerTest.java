@@ -724,7 +724,7 @@ class GlobalExceptionHandlerTest {
         var type = GlobalErrorTypes.INVALID_CREDENTIAL_FORMAT.getCode();
         var title = "Invalid credential format";
         var st = HttpStatus.BAD_REQUEST;
-        var fallback = "The provided credential format is invalid.";
+        var fallback = "The given credential format is invalid";
 
         var expected = new GlobalErrorMessage(
                 type,
