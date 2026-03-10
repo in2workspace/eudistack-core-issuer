@@ -88,18 +88,25 @@ public class IssuanceServiceImpl implements IssuanceService {
     @Override
     public Mono<String> extractCredentialId(Issuance issuance) {
         return extractCredentialNode(issuance)
-                .map(node -> {
+                .handle((node, sink) -> {
+                    // W3C: vc.id
                     String credentialId = node.path(VC).path(ID).asText(null);
 
+                    // Fallback: top-level id (W3C without vc wrapper)
                     if (credentialId == null || credentialId.isBlank()) {
                         credentialId = node.path(ID).asText(null);
                     }
 
-                    return credentialId;
-                })
-                .filter(id -> id != null && !id.isBlank())
-                .switchIfEmpty(Mono.error(new ParseCredentialJsonException(
-                        "Missing credential id (expected vc.id or id)")));
+                    // SD-JWT: jti claim
+                    if (credentialId == null || credentialId.isBlank()) {
+                        credentialId = node.path("jti").asText(null);
+                    }
+
+                    if (credentialId != null && !credentialId.isBlank()) {
+                        sink.next(credentialId);
+                    }
+                    // else: complete empty → callers use .defaultIfEmpty()
+                });
     }
 
     private Optional<String> extractCredentialType(JsonNode typeNode) {

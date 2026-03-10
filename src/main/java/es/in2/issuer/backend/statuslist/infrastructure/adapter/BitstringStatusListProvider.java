@@ -349,7 +349,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
     private String buildListUrl(Long listId, StatusListFormat format) {
         requireNonNullParam(listId, "listId");
         String base = (format == StatusListFormat.TOKEN_JWT) ? TOKEN_STATUS_LIST_BASE : STATUS_LIST_BASE;
-        return appConfig.getIssuerInternalUrl() + base + "/" + listId;
+        return appConfig.getIssuerBackendUrl() + base + "/" + listId;
     }
 
     private Mono<StatusList> resolveRevocationCandidate(Long statusListId, Integer idx) {

@@ -99,11 +99,10 @@ public class RevocationWorkflow {
                                         ))
                                 )
                                 .then(issuanceService.extractCredentialId(ctx.issuance)
-                                        .zipWith(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId))
-                                        .flatMap(idAndInfo -> emailService.sendCredentialStatusChangeNotification(
-                                                idAndInfo.getT2().email(),
-                                                idAndInfo.getT2().organization(),
-                                                idAndInfo.getT1(),
+                                        .defaultIfEmpty(issuanceId)
+                                        .flatMap(credentialId -> emailService.sendCredentialStatusChangeNotification(
+                                                ctx.issuance.getEmail(),
+                                                credentialId,
                                                 ctx.issuance.getCredentialType(),
                                                 REVOKED
                                         ))
@@ -111,6 +110,13 @@ public class RevocationWorkflow {
                                                 "processId={} action={} step=emailNotificationTriggered issuanceId={} newStatus={}",
                                                 processId, action, issuanceId, REVOKED
                                         ))
+                                        .onErrorResume(e -> {
+                                            log.warn(
+                                                    "processId={} action={} step=emailNotificationFailed issuanceId={} error={}",
+                                                    processId, action, issuanceId, e.toString()
+                                            );
+                                            return Mono.empty();
+                                        })
                                 )
                 )
                 .doOnSuccess(v -> {

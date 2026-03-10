@@ -36,14 +36,18 @@ public class CredentialExpirationScheduler {
                         .filter(Boolean::booleanValue)
                         .flatMap(expired -> expireCredential(issuance)
                                 .then(issuanceService.extractCredentialId(issuance)
-                                        .zipWith(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuance.getIssuanceId().toString()))
-                                        .flatMap(idAndInfo -> emailService.sendCredentialStatusChangeNotification(
-                                                idAndInfo.getT2().email(),
-                                                idAndInfo.getT2().organization(),
-                                                idAndInfo.getT1(),
+                                        .defaultIfEmpty(issuance.getIssuanceId().toString())
+                                        .flatMap(credentialId -> emailService.sendCredentialStatusChangeNotification(
+                                                issuance.getEmail(),
+                                                credentialId,
                                                 issuance.getCredentialType(),
                                                 EXPIRED.toString()
-                                        )))))
+                                        ))
+                                        .onErrorResume(e -> {
+                                            log.warn("Failed to send expiration email for issuanceId={}: {}",
+                                                    issuance.getIssuanceId(), e.toString());
+                                            return Mono.empty();
+                                        }))))
                 .then()
                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "*"));
     }

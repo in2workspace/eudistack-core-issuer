@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.statuslist.application;
 
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotificationInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
@@ -56,6 +55,8 @@ class RevocationWorkflowTest {
     void setUp() {
         mockProcedure = new Issuance();
         mockProcedure.setCredentialType("learcredential.employee.w3c.4");
+        mockProcedure.setEmail("to@example.com");
+        mockProcedure.setOrganizationIdentifier("VATES-A15456585");
     }
 
     @Test
@@ -66,9 +67,7 @@ class RevocationWorkflowTest {
         when(statusListProvider.revoke(ISSUANCE_ID, CLEAN_TOKEN)).thenReturn(Mono.empty());
         when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure)).thenReturn(Mono.empty());
         when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
-        when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(ISSUANCE_ID))
-                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
-        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
+        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID))
@@ -121,9 +120,7 @@ class RevocationWorkflowTest {
         when(statusListProvider.revoke(ISSUANCE_ID, CLEAN_TOKEN)).thenReturn(Mono.empty());
         when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure)).thenReturn(Mono.empty());
         when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
-        when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(ISSUANCE_ID))
-                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
-        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
+        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(revocationWorkflow.revokeSystem(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID))

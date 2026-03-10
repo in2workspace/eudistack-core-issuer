@@ -17,6 +17,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.Map;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
@@ -112,7 +114,7 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     }
 
     /**
-     * credential_accepted: persist enriched data from cache -> DRAFT -> ISSUED
+     * credential_accepted: persist enriched data from cache -> DRAFT -> ISSUED (-> VALID if ready)
      */
     private Mono<Void> handleAccepted(String processId, Issuance issuance) {
         String issuanceId = issuance.getIssuanceId().toString();
@@ -126,11 +128,28 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
                 )
                 .doOnSuccess(v -> log.info("[{}] credential_accepted: issuanceId={} transitioned to ISSUED",
                         processId, issuanceId))
+                .then(activateIfReady(processId, issuance))
                 .onErrorResume(e -> {
                     log.warn("[{}] credential_accepted: failed to persist enriched data for issuanceId={}: {}",
                             processId, issuanceId, e.getMessage());
                     return Mono.empty();
                 });
+    }
+
+    /**
+     * If validFrom is null or already in the past, transition immediately from ISSUED to VALID
+     * instead of waiting for the scheduled activation job.
+     */
+    private Mono<Void> activateIfReady(String processId, Issuance issuance) {
+        Timestamp validFrom = issuance.getValidFrom();
+        if (validFrom != null && validFrom.toInstant().isAfter(Instant.now())) {
+            log.info("[{}] credential_accepted: issuanceId={} validFrom={} is in the future, staying ISSUED",
+                    processId, issuance.getIssuanceId(), validFrom);
+            return Mono.empty();
+        }
+        log.info("[{}] credential_accepted: issuanceId={} activating immediately (validFrom={})",
+                processId, issuance.getIssuanceId(), validFrom);
+        return issuanceService.updateIssuanceStatusToValidByIssuanceId(issuance.getIssuanceId().toString());
     }
 
     /**

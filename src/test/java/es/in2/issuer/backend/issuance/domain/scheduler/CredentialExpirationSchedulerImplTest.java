@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.issuance.domain.scheduler;
 
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotificationInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
@@ -45,6 +44,8 @@ class CredentialExpirationSchedulerImplTest {
         credential.setIssuanceId(UUID.randomUUID());
         credential.setCredentialType("learcredential.employee.w3c.4");
         credential.setCredentialStatus(CredentialStatusEnum.VALID);
+        credential.setEmail("to@example.com");
+        credential.setOrganizationIdentifier("VATES-A15456585");
         credential.setValidUntil(Timestamp.from(Instant.now().minusSeconds(60)));
 
         when(issuanceRepository.findAll()).thenReturn(Flux.just(credential));
@@ -56,9 +57,7 @@ class CredentialExpirationSchedulerImplTest {
                 });
         when(issuanceService.extractCredentialId(any(Issuance.class)))
                 .thenReturn(Mono.just("cred-123"));
-        when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(anyString()))
-                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
-        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
+        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.empty());
 
         Instant baseline = Instant.now();
@@ -81,6 +80,8 @@ class CredentialExpirationSchedulerImplTest {
         credential.setIssuanceId(UUID.randomUUID());
         credential.setCredentialType("learcredential.employee.w3c.4");
         credential.setCredentialStatus(CredentialStatusEnum.VALID);
+        credential.setEmail("to@example.com");
+        credential.setOrganizationIdentifier("VATES-A15456585");
         credential.setValidUntil(Timestamp.from(Instant.now().minusSeconds(60)));
 
         when(issuanceRepository.findAll()).thenReturn(Flux.just(credential));
@@ -92,16 +93,14 @@ class CredentialExpirationSchedulerImplTest {
                 });
         when(issuanceService.extractCredentialId(any(Issuance.class)))
                 .thenReturn(Mono.just("cred-123"));
-        when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(anyString()))
-                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("to@example.com", "ACME Corp")));
-        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), any(), anyString()))
+        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(credentialExpirationScheduler.checkAndExpireCredentials())
                 .verifyComplete();
 
         verify(emailService, times(1)).sendCredentialStatusChangeNotification(
-                "to@example.com", "ACME Corp", "cred-123", "learcredential.employee.w3c.4", "EXPIRED"
+                "to@example.com", "cred-123", "learcredential.employee.w3c.4", "EXPIRED"
         );
     }
 
@@ -120,7 +119,7 @@ class CredentialExpirationSchedulerImplTest {
                 .verifyComplete();
 
         verify(issuanceRepository, never()).save(any(Issuance.class));
-        verify(emailService, never()).sendCredentialStatusChangeNotification(any(), any(), any(), any(), any());
+        verify(emailService, never()).sendCredentialStatusChangeNotification(any(), any(), any(), any());
 
         assertEquals(CredentialStatusEnum.VALID, credential.getCredentialStatus());
         assertNull(credential.getUpdatedAt(), "updatedAt should remain null because save() was never called");

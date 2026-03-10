@@ -2,7 +2,6 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndTxCode;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferData;
-import es.in2.issuer.backend.shared.domain.model.dto.VerifiableCredentialJWT;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,15 +41,6 @@ class CacheStoreConfigTest {
     void testCacheStoreForCTransactionCode() {
         TransientStore<String> cacheStoreForTransactionCode = cacheStoreConfig.cacheStoreForCTransactionCode();
         assertNotNull(cacheStoreForTransactionCode);
-    }
-
-    @Test
-    void testCacheStoreForVerifiableCredentialJwt() {
-        long cacheLifetime = 30;
-        when(cacheConfig.getCacheLifetimeForVerifiableCredential()).thenReturn(cacheLifetime);
-
-        TransientStore<VerifiableCredentialJWT> verifiableCredentialJWTCacheStore = cacheStoreConfig.cacheStoreForVerifiableCredentialJwt();
-        assertNotNull(verifiableCredentialJWTCacheStore);
     }
 
     @Test
