@@ -1,10 +1,10 @@
 CREATE SCHEMA IF NOT EXISTS issuer;
 
 -- =============================================================================
--- credential_procedure: core table tracking each credential issuance lifecycle
+-- issuance: core table tracking each credential issuance lifecycle
 -- =============================================================================
-CREATE TABLE IF NOT EXISTS issuer.credential_procedure (
-    procedure_id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+CREATE TABLE IF NOT EXISTS issuer.issuance (
+    issuance_id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     credential_id                   UUID,
     credential_format               VARCHAR(20),
     credential_data_set             TEXT,
@@ -24,33 +24,22 @@ CREATE TABLE IF NOT EXISTS issuer.credential_procedure (
     updated_by                      VARCHAR(320)
 );
 
-CREATE UNIQUE INDEX idx_credential_procedure_credential_offer_refresh_token
-    ON issuer.credential_procedure (credential_offer_refresh_token)
+CREATE UNIQUE INDEX idx_issuance_credential_offer_refresh_token
+    ON issuer.issuance (credential_offer_refresh_token)
     WHERE credential_offer_refresh_token IS NOT NULL;
 
-CREATE INDEX idx_credential_procedure_org_id
-    ON issuer.credential_procedure (organization_identifier);
+CREATE INDEX idx_issuance_org_id
+    ON issuer.issuance (organization_identifier);
 
 -- Row-Level Security for tenant isolation
-ALTER TABLE issuer.credential_procedure ENABLE ROW LEVEL SECURITY;
-ALTER TABLE issuer.credential_procedure FORCE ROW LEVEL SECURITY;
+ALTER TABLE issuer.issuance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE issuer.issuance FORCE ROW LEVEL SECURITY;
 
-CREATE POLICY tenant_isolation ON issuer.credential_procedure
+CREATE POLICY tenant_isolation ON issuer.issuance
     USING (
         current_setting('app.current_tenant', true) = organization_identifier
         OR current_setting('app.current_tenant', true) = '*'
     );
-
--- =============================================================================
--- configuration: key-value settings per organization
--- =============================================================================
-CREATE TABLE IF NOT EXISTS issuer.configuration (
-    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_identifier VARCHAR(255) NOT NULL,
-    config_key              VARCHAR(255) NOT NULL,
-    config_value            VARCHAR(255) NOT NULL,
-    CONSTRAINT unique_org_key UNIQUE (organization_identifier, config_key)
-);
 
 -- =============================================================================
 -- status_list: BitstringStatusList (W3C) / TokenStatusList (SD-JWT)
@@ -75,7 +64,7 @@ CREATE TABLE IF NOT EXISTS issuer.status_list_index (
     id             BIGSERIAL PRIMARY KEY,
     status_list_id BIGINT      NOT NULL,
     idx            INTEGER     NOT NULL,
-    procedure_id   UUID        NOT NULL,
+    issuance_id    UUID        NOT NULL,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT fk_status_list_index_status_list
@@ -83,8 +72,8 @@ CREATE TABLE IF NOT EXISTS issuer.status_list_index (
         REFERENCES issuer.status_list (id)
         ON DELETE RESTRICT,
 
-    CONSTRAINT uq_status_list_index_procedure_id
-        UNIQUE (procedure_id),
+    CONSTRAINT uq_status_list_index_issuance_id
+        UNIQUE (issuance_id),
 
     CONSTRAINT uq_status_list_index_list_id_idx
         UNIQUE (status_list_id, idx)

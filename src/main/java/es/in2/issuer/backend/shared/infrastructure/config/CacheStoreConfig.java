@@ -5,7 +5,6 @@ import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferData;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndRefreshToken;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndTxCode;
-import es.in2.issuer.backend.shared.domain.model.dto.VerifiableCredentialJWT;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
 import lombok.RequiredArgsConstructor;
@@ -35,11 +34,6 @@ public class CacheStoreConfig {
     @Bean
     public TransientStore<String> cacheStoreForCTransactionCode() {
         return new CacheStore<>(10, TimeUnit.MINUTES);
-    }
-
-    @Bean
-    public TransientStore<VerifiableCredentialJWT> cacheStoreForVerifiableCredentialJwt() {
-        return new CacheStore<>(cacheConfig.getCacheLifetimeForVerifiableCredential(), TimeUnit.MINUTES);
     }
 
     @Bean
