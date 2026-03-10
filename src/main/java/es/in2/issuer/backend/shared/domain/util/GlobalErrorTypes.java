@@ -29,7 +29,20 @@ public enum GlobalErrorTypes {
     CREDENTIAL_SERIALIZATION("credential_serialization"),
     CREDENTIAL_PROCEDURE_INVALID_STATUS("credential_procedure_invalid_status"),
     CREDENTIAL_PROCEDURE_NOT_FOUND("credential_procedure_not_found"),
-    INVALID_CREDENTIAL_FORMAT("invalid_credential_format");
+    INVALID_CREDENTIAL_FORMAT("invalid_credential_format"),
+    DID_KEY_CREATION_ERROR("did_key_creation_error"),
+    EC_KEY_CREATION_ERROR("ec_key_creation_error"),
+    JWT_CLAIM_MISSING_ERROR("jwt_claim_missing_error"),
+    JWT_CREATION_ERROR("jwt_creation_error"),
+    MISSING_CREDENTIAL_TYPE_ERROR("missing_credential_type_error"),
+    MISSING_EMAIL_OWNER_ERROR("missing_email_owner_error"),
+    PARSE_ERROR_EXCEPTION("parse_error_exception"),
+    REMOTE_SIGNATURE_ERROR("remote_signature_error"),
+    TOKEN_FETCH_ERROR("token_fetch_error"),
+    WELL_KNOWN_INFO_FETCH_ERROR("well_known_info_fetch_error");
+
+
+
 
     private final String code;
 
