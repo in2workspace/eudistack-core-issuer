@@ -8,10 +8,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.CREDENTIAL_OFFER_CACHE_EXPIRATION_TIME;
-import static es.in2.issuer.backend.shared.domain.util.Constants.VERIFIABLE_CREDENTIAL_JWT_CACHE_EXPIRATION_TIME;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -43,31 +40,11 @@ class AppConfigTest {
     }
 
     @Test
-    void testGetKnowledgeBaseUploadCertificationGuideUrl() {
-        String expected = "https://knowledge.example.com";
-        AppProperties.KnowledgeBase knowledgeBase = mock(AppProperties.KnowledgeBase.class);
-        when(appProperties.knowledgeBase()).thenReturn(knowledgeBase);
-        when(knowledgeBase.uploadCertificationGuideUrl()).thenReturn(expected);
-
-        assertEquals(expected, appConfig.getKnowledgeBaseUploadCertificationGuideUrl());
-    }
-
-    @Test
     void testGetWalletFrontendUrl() {
         String expected = "https://wallet.example.com";
         when(appProperties.walletUrl()).thenReturn(expected);
 
         assertEquals(expected, appConfig.getWalletFrontendUrl());
-    }
-
-    @Test
-    void testGetCacheLifetimeForCredentialOffer() {
-        assertEquals(10L, (long) CREDENTIAL_OFFER_CACHE_EXPIRATION_TIME);
-    }
-
-    @Test
-    void testGetCacheLifetimeForVerifiableCredential() {
-        assertEquals(10L, (long) VERIFIABLE_CREDENTIAL_JWT_CACHE_EXPIRATION_TIME);
     }
 
     @Test

@@ -26,16 +26,8 @@ public class AppConfig implements IssuerProperties {
         return appProperties.issuerFrontendUrl();
     }
 
-    public String getKnowledgebaseWalletUrl() {
-        return appProperties.knowledgeBase().walletGuideUrl();
-    }
-
     public String getWalletFrontendUrl() {
         return appProperties.walletUrl();
-    }
-
-    public String getKnowledgeBaseUploadCertificationGuideUrl() {
-        return appProperties.knowledgeBase().uploadCertificationGuideUrl();
     }
 
     public String getCredentialSubjectDidKey() {

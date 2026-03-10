@@ -5,7 +5,6 @@ public interface IssuerProperties {
     String getIssuerInternalUrl();
     String getIssuerFrontendUrl();
     String getWalletFrontendUrl();
-    String getKnowledgebaseWalletUrl();
     String getVerifierUrl();
     String getDefaultLang();
     String getAdminOrganizationId();

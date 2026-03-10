@@ -15,22 +15,20 @@ import io.micrometer.observation.annotation.Observed;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.InputStreamSource;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeTypeUtils;
-import org.springframework.util.StreamUtils;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.Map;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE;
@@ -69,9 +67,9 @@ public class EmailServiceImpl implements EmailService {
 
             helper.setSubject(encodedSubject);
 
-            Context context = new Context();
+            Context context = createLocalizedContext();
             context.setVariable("txCode", txCode);
-            String htmlContent = templateEngine.process("tx-code-email-" + translationService.getLocale(), context);
+            String htmlContent = templateEngine.process("tx-code-email", context);
             helper.setText(htmlContent, true);
 
             javaMailSender.send(mimeMessage);
@@ -79,41 +77,6 @@ public class EmailServiceImpl implements EmailService {
         })
                 .subscribeOn(Schedulers.boundedElastic()).then()
                 .onErrorMap(ex -> new EmailCommunicationException("Error when sending tx code notification"));
-    }
-
-    @Override
-    public Mono<Void> sendCredentialActivationEmail(String to, String subject, String link, String knowledgebaseWalletUrl, String organization) {
-        return Mono.fromCallable(() -> {
-            MimeMessage mimeMessage = javaMailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
-            helper.setFrom(mailFrom);
-            helper.setTo(to);
-            helper.setSubject(translationService.translate(subject));
-
-            ClassPathResource imgResource = new ClassPathResource("static/images/qr-wallet.png");
-            String imageResourceName = imgResource.getFilename();
-
-            InputStream imageStream = imgResource.getInputStream();
-            byte[] imageBytes = StreamUtils.copyToByteArray(imageStream);
-
-            Context context = new Context();
-            context.setVariable("link", link);
-            context.setVariable("organization", organization);
-            context.setVariable("knowledgebaseWalletUrl", knowledgebaseWalletUrl);
-            context.setVariable("imageResourceName", "cid:" + imageResourceName);
-
-            String htmlContent = templateEngine.process("activate-credential-email-" + translationService.getLocale(), context);
-            helper.setText(htmlContent, true);
-
-            final InputStreamSource imageSource = new ByteArrayResource(imageBytes);
-            if (imageResourceName != null) {
-                helper.addInline(imageResourceName, imageSource, MimeTypeUtils.IMAGE_PNG_VALUE);
-            }
-
-            javaMailSender.send(mimeMessage);
-
-            return null;
-        }).subscribeOn(Schedulers.boundedElastic()).then();
     }
 
     @Observed(name = "issuance.send-email", contextualName = "issuance-send-email")
@@ -133,7 +96,7 @@ public class EmailServiceImpl implements EmailService {
             // Build wallet deep link: extract the HTTPS URL from the openid-credential-offer:// URI
             String walletDeepLink = buildWalletDeepLink(credentialOfferUri, walletUrl);
 
-            Context context = new Context();
+            Context context = createLocalizedContext();
             context.setVariable("organization", organization);
             context.setVariable("qrImageCid", "cid:qr-credential-offer.png");
             context.setVariable("walletDeepLink", walletDeepLink);
@@ -142,7 +105,7 @@ public class EmailServiceImpl implements EmailService {
                 context.setVariable("txCode", txCode);
             }
 
-            String htmlContent = templateEngine.process("credential-offer-email-" + translationService.getLocale(), context);
+            String htmlContent = templateEngine.process("credential-offer-email", context);
             helper.setText(htmlContent, true);
 
             InputStreamSource qrImageSource = new ByteArrayResource(qrImageBytes);
@@ -180,103 +143,12 @@ public class EmailServiceImpl implements EmailService {
     }
 
     @Override
-    public Mono<Void> sendPendingCredentialNotification(String to, String subject) {
-        return Mono.fromCallable(() -> {
-            MimeMessage mimeMessage = javaMailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
-            helper.setFrom(mailFrom);
-            helper.setTo(to);
-            helper.setSubject(translationService.translate(subject));
-
-            Context context = new Context();
-            String htmlContent = templateEngine.process("credential-pending-notification-" + translationService.getLocale(), context);
-            helper.setText(htmlContent, true);
-
-            javaMailSender.send(mimeMessage);
-            return null;
-        }).subscribeOn(Schedulers.boundedElastic()).then();
-    }
-    @Override
-    public Mono<Void> sendPendingSignatureCredentialNotification(String to, String subject, String id, String domain){
-        return Mono.fromCallable(() -> {
-            MimeMessage mimeMessage = javaMailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
-            helper.setFrom(mailFrom);
-            helper.setTo(to);
-            helper.setSubject(translationService.translate(subject));
-
-            Context context = new Context();
-            context.setVariable("id", id);
-            context.setVariable("domain", domain);
-            String htmlContent = templateEngine.process("credential-pending-signature-notification-" + translationService.getLocale(), context);
-            helper.setText(htmlContent, true);
-
-            javaMailSender.send(mimeMessage);
-            return null;
-        }).subscribeOn(Schedulers.boundedElastic()).then();
-    }
-    @Override
-    public Mono<Void> sendCredentialSignedNotification(String to, String subject, String additionalInfo) {
-        return Mono.fromCallable(() -> {
-            MimeMessage mimeMessage = javaMailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-            helper.setFrom(mailFrom);
-            helper.setTo(to);
-            helper.setSubject(translationService.translate(subject));
-
-            Context context = new Context();
-            context.setVariable("additionalInfo", translationService.translate(additionalInfo));
-            String htmlContent = templateEngine.process("credential-signed-notification-"  + translationService.getLocale(), context);
-            helper.setText(htmlContent, true);
-
-            javaMailSender.send(mimeMessage);
-            return null;
-        }).subscribeOn(Schedulers.boundedElastic()).then();
-    }
-
-    @Override
-    public Mono<Void> sendResponseUriFailed(String to, String productId, String guideUrl) {
-        return Mono.fromCallable(() -> {
-            MimeMessage mimeMessage = javaMailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
-            helper.setFrom(mailFrom);
-            helper.setTo(to);
-            helper.setSubject(translationService.translate("email.unsuccessful-submission"));
-
-            Context context = new Context();
-            context.setVariable("productId", productId);
-            context.setVariable("guideUrl", guideUrl);
-            String htmlContent = templateEngine.process("response-uri-failed-" + translationService.getLocale(), context);
-            helper.setText(htmlContent, true);
-
-            javaMailSender.send(mimeMessage);
-            return null;
-        }).subscribeOn(Schedulers.boundedElastic()).then();
-    }
-
-    @Override
-    public Mono<Void> sendResponseUriAcceptedWithHtml(String to, String productId, String htmlContent) {
-        return Mono.fromCallable(() -> {
-            MimeMessage mimeMessage = javaMailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
-            helper.setFrom(mailFrom);
-            helper.setTo(to);
-            helper.setSubject(translationService.translate("email.missing-documents-certification") + productId);
-
-            helper.setText(htmlContent, true);
-
-            javaMailSender.send(mimeMessage);
-            return null;
-        }).subscribeOn(Schedulers.boundedElastic()).then();
-    }
-
-    @Override
-    public Mono<Void> sendCredentialStatusChangeNotification(String to, String organization, String credentialId, String type, String status) {
-        return sendCredentialRevokedOrExpiredNotificationEmail(to, organization, credentialId, type, status)
+    public Mono<Void> sendCredentialStatusChangeNotification(String to, String credentialId, String type, String status) {
+        return sendCredentialRevokedOrExpiredNotificationEmail(to, credentialId, type, status)
                 .onErrorMap(e -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE));
     }
 
-    private Mono<Void> sendCredentialRevokedOrExpiredNotificationEmail(String to, String organization, String credentialId, String type, String credentialStatus){
+    private Mono<Void> sendCredentialRevokedOrExpiredNotificationEmail(String to, String credentialId, String type, String credentialStatus){
         return Mono.fromCallable(() -> {
             try {
                 MimeMessage mimeMessage = javaMailSender.createMimeMessage();
@@ -285,7 +157,7 @@ public class EmailServiceImpl implements EmailService {
                 helper.setFrom(mailFrom);
                 helper.setTo(to);
 
-                Context context = buildEmailContext(organization, credentialId, type, credentialStatus);
+                Context context = buildStatusChangeEmailContext(credentialId, type, credentialStatus);
 
                 switch (credentialStatus) {
                     case "REVOKED" -> {
@@ -299,7 +171,7 @@ public class EmailServiceImpl implements EmailService {
                     default -> helper.setSubject(translationService.translate("email.default-status.subject"));
 
                 }
-                String htmlContent = templateEngine.process("revoked-expired-credential-email-"  + translationService.getLocale(), context);
+                String htmlContent = templateEngine.process("revoked-expired-credential-email", context);
                 helper.setText(htmlContent, true);
 
                 javaMailSender.send(mimeMessage);
@@ -311,12 +183,17 @@ public class EmailServiceImpl implements EmailService {
         }).subscribeOn(Schedulers.boundedElastic()).then();
     }
 
-    private Context buildEmailContext(String organization, String credentialId, String type, String credentialStatus) {
-        Context context = new Context();
-        context.setVariable("organization", organization);
+    private Context buildStatusChangeEmailContext(String credentialId, String type, String credentialStatus) {
+        Context context = createLocalizedContext();
         context.setVariable("credentialId", credentialId);
         context.setVariable("type", type);
         context.setVariable("credentialStatus", credentialStatus);
+        return context;
+    }
+
+    private Context createLocalizedContext() {
+        Context context = new Context();
+        context.setLocale(Locale.forLanguageTag(translationService.getLocale()));
         return context;
     }
 
