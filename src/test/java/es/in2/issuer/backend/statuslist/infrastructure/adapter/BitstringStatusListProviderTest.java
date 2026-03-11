@@ -82,7 +82,7 @@ class BitstringStatusListProviderTest {
 
     @BeforeEach
     void setUp() {
-        lenient().when(appConfig.getIssuerInternalUrl()).thenReturn(TEST_ISSUER_URL);
+        lenient().when(appConfig.getIssuerBackendUrl()).thenReturn(TEST_ISSUER_URL);
     }
 
     // ========== Tests for getSignedStatusListCredential ==========

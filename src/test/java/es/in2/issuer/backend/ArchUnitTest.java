@@ -47,7 +47,11 @@ class ArchUnitTest {
                     BASE_PACKAGE + ".shared.domain.service.ClientAttestationValidationService",
                     BASE_PACKAGE + ".shared.domain.model.entities.BindingInfo",
                     // Test object mothers
-                    BASE_PACKAGE + ".shared.objectmother.PreAuthorizedCodeResponseMother");
+                    BASE_PACKAGE + ".shared.objectmother.PreAuthorizedCodeResponseMother",
+                    // Spring-managed bean discovered via component scanning (no direct class references)
+                    BASE_PACKAGE + ".shared.infrastructure.config.SecureRandomConfig",
+                    // Utility class whose static final String constants are inlined by javac (invisible to ArchUnit)
+                    BASE_PACKAGE + ".shared.domain.util.EndpointsConstants");
 
 //todo
 //    @ArchTest

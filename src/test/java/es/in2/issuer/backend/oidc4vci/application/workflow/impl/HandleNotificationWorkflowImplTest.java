@@ -71,6 +71,8 @@ class HandleNotificationWorkflowImplTest {
         when(issuanceService.updateCredentialDataSetByIssuanceId(
                 issuanceId.toString(), "{\"enriched\":true}", "jwt_vc_json"))
                 .thenReturn(Mono.empty());
+        when(issuanceService.updateIssuanceStatusToValidByIssuanceId(issuanceId.toString()))
+                .thenReturn(Mono.empty());
 
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_ACCEPTED, "desc");
 
