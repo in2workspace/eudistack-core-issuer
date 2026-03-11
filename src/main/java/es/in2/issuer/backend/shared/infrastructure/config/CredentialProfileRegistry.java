@@ -2,6 +2,7 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,8 +12,10 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -34,8 +37,24 @@ public class CredentialProfileRegistry {
 
         try {
             Resource[] resources = resourcePatternResolver.getResources(profilesPattern);
+
+            List<Resource> coreResources = new ArrayList<>();
+            Map<String, JsonNode> profileOverrides = new LinkedHashMap<>();
+
             for (Resource resource : resources) {
-                loadProfile(objectMapper, resource, configIdMap, typeMap, rawMap);
+                String filename = resource.getFilename();
+                if (filename != null && filename.endsWith(".profile.json")) {
+                    JsonNode profileJson = readJsonResource(objectMapper, resource);
+                    String configId = extractConfigurationId(profileJson, filename);
+                    profileOverrides.put(configId, profileJson);
+                    log.debug("Loaded profile overlay '{}' from {}", configId, filename);
+                } else {
+                    coreResources.add(resource);
+                }
+            }
+
+            for (Resource resource : coreResources) {
+                loadCoreWithOptionalProfile(objectMapper, resource, profileOverrides, configIdMap, typeMap, rawMap);
             }
         } catch (IOException e) {
             throw new IllegalStateException("Failed to load credential profiles from " + profilesPattern, e);
@@ -52,20 +71,45 @@ public class CredentialProfileRegistry {
         this.rawProfilesByConfigurationId = Collections.unmodifiableMap(rawMap);
     }
 
-    private void loadProfile(ObjectMapper objectMapper, Resource resource,
-                             Map<String, CredentialProfile> configIdMap,
-                             Map<String, CredentialProfile> typeMap,
-                             Map<String, JsonNode> rawMap) {
+    private JsonNode readJsonResource(ObjectMapper objectMapper, Resource resource) {
         String filename = resource.getFilename();
         try (InputStream is = resource.getInputStream()) {
-            JsonNode rawJson = objectMapper.readTree(is);
-            CredentialProfile profile = objectMapper.treeToValue(rawJson, CredentialProfile.class);
+            return objectMapper.readTree(is);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to parse JSON from " + filename, e);
+        }
+    }
 
-            String configId = profile.credentialConfigurationId();
-            if (configId == null || configId.isBlank()) {
-                throw new IllegalStateException(
-                        "Profile in " + filename + " has no credential_configuration_id");
-            }
+    private String extractConfigurationId(JsonNode json, String filename) {
+        JsonNode idNode = json.get("credential_configuration_id");
+        if (idNode == null || idNode.asText().isBlank()) {
+            throw new IllegalStateException(
+                    "Profile in " + filename + " has no credential_configuration_id");
+        }
+        return idNode.asText();
+    }
+
+    private void loadCoreWithOptionalProfile(ObjectMapper objectMapper, Resource resource,
+                                             Map<String, JsonNode> profileOverrides,
+                                             Map<String, CredentialProfile> configIdMap,
+                                             Map<String, CredentialProfile> typeMap,
+                                             Map<String, JsonNode> rawMap) {
+        String filename = resource.getFilename();
+        JsonNode coreJson = readJsonResource(objectMapper, resource);
+        String configId = extractConfigurationId(coreJson, filename);
+
+        JsonNode profileOverlay = profileOverrides.get(configId);
+        JsonNode mergedJson;
+        if (profileOverlay != null) {
+            ((ObjectNode) coreJson).setAll((ObjectNode) profileOverlay);
+            mergedJson = coreJson;
+            log.debug("Merged profile overlay onto core '{}' from {}", configId, filename);
+        } else {
+            mergedJson = coreJson;
+        }
+
+        try {
+            CredentialProfile profile = objectMapper.treeToValue(mergedJson, CredentialProfile.class);
 
             if (configIdMap.containsKey(configId)) {
                 throw new IllegalStateException(
@@ -81,7 +125,7 @@ public class CredentialProfileRegistry {
             }
 
             configIdMap.put(configId, profile);
-            rawMap.put(configId, rawJson);
+            rawMap.put(configId, mergedJson);
 
             log.info("Loaded credential profile '{}' (type: {}) from {}", configId, credentialType, filename);
         } catch (IOException e) {

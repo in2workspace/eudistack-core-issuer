@@ -192,6 +192,117 @@ class CredentialProfileRegistryTest {
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
+    @Test
+    void shouldMergeProfileOverlayOntoCoreSchema() throws IOException {
+        String coreJson = """
+                {
+                  "credential_configuration_id": "learcredential.employee.w3c.4",
+                  "credential_format": "jwt_vc_json",
+                  "credential_definition": {
+                    "type": ["VerifiableCredential", "learcredential.employee.w3c.4"]
+                  },
+                  "validity_days": 180,
+                  "issuer_type": "DETAILED",
+                  "cnf_required": false
+                }
+                """;
+        String profileJson = """
+                {
+                  "credential_configuration_id": "learcredential.employee.w3c.4",
+                  "validity_days": 365,
+                  "cnf_required": true,
+                  "scope": "lear_credential_employee"
+                }
+                """;
+        ResourcePatternResolver resolver = mockResolver(
+                namedResource("lear-credential-employee.json", coreJson),
+                namedResource("lear-credential-employee.profile.json", profileJson));
+
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
+
+        CredentialProfile profile = registry.getByConfigurationId("learcredential.employee.w3c.4");
+        assertThat(profile).isNotNull();
+        assertThat(profile.format()).isEqualTo("jwt_vc_json");
+        assertThat(profile.validityDays()).isEqualTo(365);
+        assertThat(profile.cnfRequired()).isTrue();
+        assertThat(profile.scope()).isEqualTo("lear_credential_employee");
+    }
+
+    @Test
+    void shouldUseCoreAsIsWhenNoProfileOverlayExists() throws IOException {
+        String coreJson = """
+                {
+                  "credential_configuration_id": "learcredential.employee.w3c.4",
+                  "credential_format": "jwt_vc_json",
+                  "credential_definition": {
+                    "type": ["VerifiableCredential", "learcredential.employee.w3c.4"]
+                  },
+                  "validity_days": 180,
+                  "issuer_type": "DETAILED",
+                  "cnf_required": false
+                }
+                """;
+        ResourcePatternResolver resolver = mockResolver(
+                namedResource("lear-credential-employee.json", coreJson));
+
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
+
+        CredentialProfile profile = registry.getByConfigurationId("learcredential.employee.w3c.4");
+        assertThat(profile).isNotNull();
+        assertThat(profile.validityDays()).isEqualTo(180);
+        assertThat(profile.cnfRequired()).isFalse();
+    }
+
+    @Test
+    void shouldNotTreatProfileFileAsCoreDuringLoading() throws IOException {
+        String profileJson = """
+                {
+                  "credential_configuration_id": "orphan.profile",
+                  "credential_format": "jwt_vc_json",
+                  "credential_definition": {
+                    "type": ["VerifiableCredential", "orphan.profile"]
+                  },
+                  "validity_days": 365,
+                  "issuer_type": "DETAILED",
+                  "cnf_required": true
+                }
+                """;
+        ResourcePatternResolver resolver = mockResolver(
+                namedResource("orphan.profile.json", profileJson));
+
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
+
+        assertThat(registry.getAllProfiles()).isEmpty();
+    }
+
+    @Test
+    void shouldFailWhenProfileOverlayHasNoConfigurationId() throws IOException {
+        String coreJson = """
+                {
+                  "credential_configuration_id": "some.core",
+                  "credential_format": "jwt_vc_json",
+                  "credential_definition": {
+                    "type": ["VerifiableCredential", "some.core"]
+                  },
+                  "validity_days": 365,
+                  "issuer_type": "DETAILED",
+                  "cnf_required": true
+                }
+                """;
+        String badProfileJson = """
+                {
+                  "validity_days": 999
+                }
+                """;
+        ResourcePatternResolver resolver = mockResolver(
+                namedResource("some-core.json", coreJson),
+                namedResource("bad-overlay.profile.json", badProfileJson));
+
+        assertThatThrownBy(() -> new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no credential_configuration_id");
+    }
+
     // --- Helper methods ---
 
     private ResourcePatternResolver mockResolver(Resource... resources) throws IOException {
