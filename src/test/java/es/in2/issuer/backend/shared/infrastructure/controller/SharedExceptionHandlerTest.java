@@ -535,7 +535,6 @@ class SharedExceptionHandlerTest {
     // -------------------- handleCredentialSerializationException --------------------
 
     @Test
-
     void handleCredentialSerializationException() {
         var ex = new CredentialSerializationException("Credential serialization err");
         var type = GlobalErrorTypes.CREDENTIAL_SERIALIZATION.getCode();
@@ -764,4 +763,206 @@ class SharedExceptionHandlerTest {
         verify(errors).handleSafe(ex, request, type, title, st, detail);
     }
 
+    // -------------------- handleInvalidCredentialFormatException --------------------
+
+    @Test
+    void handleInvalidCredentialFormatException() {
+        var ex = new InvalidCredentialFormatException("invalid format");
+        var type = GlobalErrorTypes.INVALID_CREDENTIAL_FORMAT.getCode();
+        var title = "Invalid credential format";
+        var st = HttpStatus.BAD_REQUEST;
+        var fallback = "The given credential format is invalid";
+        var expected = new GlobalErrorMessage(type, title, st.value(), "invalid format", UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleInvalidCredentialFormatException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, "invalid format"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    // -------------------- handleDidKeyCreationException --------------------
+
+    @Test
+    void handleDidKeyCreationException() {
+        var ex = new DidKeyCreationException("did key creation failed");
+        var type = GlobalErrorTypes.DID_KEY_CREATION_ERROR.getCode();
+        var title = "DID key creation error";
+        var st = HttpStatus.UNPROCESSABLE_ENTITY;
+        var fallback = "An error occurred during DID key creation";
+        var expected = new GlobalErrorMessage(type, title, st.value(), "did key creation failed", UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleDidKeyCreationException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, "did key creation failed"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    // -------------------- handleECKeyCreationException --------------------
+
+    @Test
+    void handleECKeyCreationException() {
+        var ex = new ECKeyCreationException("ec key creation failed");
+        var type = GlobalErrorTypes.EC_KEY_CREATION_ERROR.getCode();
+        var title = "EC key creation error";
+        var st = HttpStatus.UNPROCESSABLE_ENTITY;
+        var fallback = "An error occurred during EC key creation";
+        var expected = new GlobalErrorMessage(type, title, st.value(), "ec key creation failed", UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleECKeyCreationException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, "ec key creation failed"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    // -------------------- handleJWTClaimMissingException --------------------
+
+    @Test
+    void handleJWTClaimMissingException() {
+        var ex = new JWTClaimMissingException("missing sub claim");
+        var type = GlobalErrorTypes.JWT_CLAIM_MISSING_ERROR.getCode();
+        var title = "JWT claim missing error";
+        var st = HttpStatus.BAD_REQUEST;
+        var fallback = "A required claim is missing in the provided JWT.";
+        var expected = new GlobalErrorMessage(type, title, st.value(), "missing sub claim", UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleJWTClaimMissingException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, "missing sub claim"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    // -------------------- handleJWTCreationException --------------------
+
+    @Test
+    void handleJWTCreationException() {
+        var ex = new JWTCreationException("jwt creation failed");
+        var type = GlobalErrorTypes.JWT_CREATION_ERROR.getCode();
+        var title = "JWT creation error";
+        var st = HttpStatus.UNPROCESSABLE_ENTITY;
+        var fallback = "An error occurred during JWT creation.";
+        var expected = new GlobalErrorMessage(type, title, st.value(), "jwt creation failed", UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleJWTCreationException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, "jwt creation failed"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    // -------------------- handleMissingCredentialTypeException --------------------
+
+    @Test
+    void handleMissingCredentialTypeException() {
+        var ex = new MissingCredentialTypeException("credential type is null");
+        var type = GlobalErrorTypes.MISSING_CREDENTIAL_TYPE_ERROR.getCode();
+        var title = "Missing credential type error";
+        var st = HttpStatus.BAD_REQUEST;
+        var fallback = "The credential type is missing in the request.";
+        var expected = new GlobalErrorMessage(type, title, st.value(), "credential type is null", UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleMissingCredentialTypeException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, "credential type is null"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    // -------------------- handleMissingEmailOwnerException --------------------
+
+    @Test
+    void handleMissingEmailOwnerException() {
+        var ex = new MissingEmailOwnerException("email owner not found");
+        var type = GlobalErrorTypes.MISSING_EMAIL_OWNER_ERROR.getCode();
+        var title = "Missing email owner error";
+        var st = HttpStatus.BAD_REQUEST;
+        var fallback = "The email owner is missing in the request.";
+        var expected = new GlobalErrorMessage(type, title, st.value(), "email owner not found", UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleMissingEmailOwnerException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, "email owner not found"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    // -------------------- handleParseErrorException --------------------
+
+    @Test
+    void handleParseErrorException() {
+        var ex = new ParseErrorException("parsing failed due to invalid syntax");
+        var type = GlobalErrorTypes.PARSE_ERROR_EXCEPTION.getCode();
+        var title = "Parse error exception";
+        var st = HttpStatus.BAD_REQUEST;
+        var fallback = "An internal parsing error occurred.";
+        var expected = new GlobalErrorMessage(type, title, st.value(), "parsing failed due to invalid syntax", UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleParseErrorException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, "parsing failed due to invalid syntax"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    // -------------------- handleTokenFetchException --------------------
+
+    @Test
+    void handleTokenFetchException() {
+        var ex = new TokenFetchException("token endpoint unreachable", new RuntimeException("connection refused"));
+        var type = GlobalErrorTypes.TOKEN_FETCH_ERROR.getCode();
+        var title = "Token fetch error";
+        var st = HttpStatus.BAD_GATEWAY;
+        var fallback = "An error occurred while fetching token.";
+        var expected = new GlobalErrorMessage(type, title, st.value(), "token endpoint unreachable", UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleTokenFetchException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, "token endpoint unreachable"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    // -------------------- handleWellKnownInfoFetchException --------------------
+
+    @Test
+    void handleWellKnownInfoFetchException() {
+        var cause = new RuntimeException("Timeout from upstream server");
+        var ex = new WellKnownInfoFetchException(".well-known endpoint failing", cause);
+        var type = GlobalErrorTypes.WELL_KNOWN_INFO_FETCH_ERROR.getCode();
+        var title = "Well-known info fetch error";
+        var st = HttpStatus.BAD_GATEWAY;
+        var fallback = "An error occurred while fetching well-known information.";
+        var expected = new GlobalErrorMessage(type, title, st.value(), ".well-known endpoint failing", UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleWellKnownInfoFetchException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, ".well-known endpoint failing"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
 }
+

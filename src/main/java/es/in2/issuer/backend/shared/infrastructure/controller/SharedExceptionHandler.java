@@ -505,4 +505,153 @@ public class SharedExceptionHandler {
         );
     }
 
+    @ExceptionHandler(InvalidCredentialFormatException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleInvalidCredentialFormatException(
+            InvalidCredentialFormatException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.INVALID_CREDENTIAL_FORMAT.getCode(),
+                "Invalid credential format",
+                HttpStatus.BAD_REQUEST,
+                "The given credential format is invalid"
+        );
+    }
+
+    @ExceptionHandler(DidKeyCreationException.class)
+    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+    public Mono<GlobalErrorMessage> handleDidKeyCreationException(
+            DidKeyCreationException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.DID_KEY_CREATION_ERROR.getCode(),
+                "DID key creation error",
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                "An error occurred during DID key creation"
+        );
+    }
+
+    @ExceptionHandler(ECKeyCreationException.class)
+    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+    public Mono<GlobalErrorMessage> handleECKeyCreationException(
+            ECKeyCreationException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.EC_KEY_CREATION_ERROR.getCode(),
+                "EC key creation error",
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                "An error occurred during EC key creation"
+        );
+    }
+
+    @ExceptionHandler(JWTClaimMissingException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleJWTClaimMissingException(
+            JWTClaimMissingException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.JWT_CLAIM_MISSING_ERROR.getCode(),
+                "JWT claim missing error",
+                HttpStatus.BAD_REQUEST,
+                "A required claim is missing in the provided JWT."
+        );
+    }
+
+    @ExceptionHandler(JWTCreationException.class)
+    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+    public Mono<GlobalErrorMessage> handleJWTCreationException(
+            JWTCreationException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.JWT_CREATION_ERROR.getCode(),
+                "JWT creation error",
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                "An error occurred during JWT creation."
+        );
+    }
+
+    @ExceptionHandler(MissingCredentialTypeException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleMissingCredentialTypeException(
+            MissingCredentialTypeException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.MISSING_CREDENTIAL_TYPE_ERROR.getCode(),
+                "Missing credential type error",
+                HttpStatus.BAD_REQUEST,
+                "The credential type is missing in the request."
+        );
+    }
+
+    @ExceptionHandler(MissingEmailOwnerException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleMissingEmailOwnerException(
+            MissingEmailOwnerException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.MISSING_EMAIL_OWNER_ERROR.getCode(),
+                "Missing email owner error",
+                HttpStatus.BAD_REQUEST,
+                "The email owner is missing in the request."
+        );
+    }
+
+    @ExceptionHandler(ParseErrorException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleParseErrorException(
+            ParseErrorException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.PARSE_ERROR_EXCEPTION.getCode(),
+                "Parse error exception",
+                HttpStatus.BAD_REQUEST,
+                "An internal parsing error occurred."
+        );
+    }
+
+    @ExceptionHandler(TokenFetchException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public Mono<GlobalErrorMessage> handleTokenFetchException(
+            TokenFetchException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.TOKEN_FETCH_ERROR.getCode(),
+                "Token fetch error",
+                HttpStatus.BAD_GATEWAY,
+                "An error occurred while fetching token."
+        );
+    }
+
+    @ExceptionHandler(WellKnownInfoFetchException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public Mono<GlobalErrorMessage> handleWellKnownInfoFetchException(
+            WellKnownInfoFetchException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.WELL_KNOWN_INFO_FETCH_ERROR.getCode(),
+                "Well-known info fetch error",
+                HttpStatus.BAD_GATEWAY,
+                "An error occurred while fetching well-known information."
+        );
+    }
 }

@@ -13,7 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Update EmailServiceImpl to use locale-aware Thymeleaf context instead of language-suffix template names.
 - Clean up messages.properties: remove orphaned keys and add new i18n keys for all email templates.
 
-## [v2.2.19](https://github.com/in2workspace/in2-issuer-api/releases/tag/v2.2.17)
+## [v2.2.21](https://github.com/in2workspace/in2-issuer-api/releases/tag/v2.2.21)
+### Added
+- Add handling for missing exceptions in "GlobalExceptionHandler".
+- Add tests for the new exception handling.
+
+## [v2.2.20](https://github.com/in2workspace/in2-issuer-api/releases/tag/v2.2.20)
+### Added
+- Add support for sign hash implementation.
+- Add configuration signing endpoint.
+
+## [v2.2.19](https://github.com/in2workspace/in2-issuer-api/releases/tag/v2.2.19)
 ### Added
 - Add support for sign hash implementation.
 - Add configuration signing endpoint.

@@ -39,7 +39,17 @@ public enum GlobalErrorTypes {
     MISSING_REQUIRED_DATA("missing_required_data"),
     INVALID_STATUS("invalid_status"),
     STATUS_LIST_NOT_FOUND("status_list_not_found"),
-    STATUS_LIST_NOT_AVAILABLE("status_list_not_available");
+    STATUS_LIST_NOT_AVAILABLE("status_list_not_available"),
+    INVALID_CREDENTIAL_FORMAT("invalid_credential_format"),
+    DID_KEY_CREATION_ERROR("did_key_creation_error"),
+    EC_KEY_CREATION_ERROR("ec_key_creation_error"),
+    JWT_CLAIM_MISSING_ERROR("jwt_claim_missing_error"),
+    JWT_CREATION_ERROR("jwt_creation_error"),
+    MISSING_CREDENTIAL_TYPE_ERROR("missing_credential_type_error"),
+    MISSING_EMAIL_OWNER_ERROR("missing_email_owner_error"),
+    PARSE_ERROR_EXCEPTION("parse_error_exception"),
+    TOKEN_FETCH_ERROR("token_fetch_error"),
+    WELL_KNOWN_INFO_FETCH_ERROR("well_known_info_fetch_error");
 
     private final String code;
 
