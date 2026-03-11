@@ -5,6 +5,8 @@ import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorM
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import es.in2.issuer.backend.signing.domain.exception.SigningResultParsingException;
+import es.in2.issuer.backend.statuslist.domain.exception.SignedStatusListCredentialNotAvailableException;
+import es.in2.issuer.backend.statuslist.domain.exception.StatusListNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
@@ -454,6 +456,36 @@ public class SharedExceptionHandler {
                 status,
                 ex.getReason() != null ? ex.getReason() : status.getReasonPhrase()
         ).map(body -> org.springframework.http.ResponseEntity.status(finalStatus).body(body));
+    }
+
+    @ExceptionHandler(StatusListNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Mono<GlobalErrorMessage> handleStatusListNotFoundException(
+            StatusListNotFoundException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.STATUS_LIST_NOT_FOUND.getCode(),
+                "Status list not found",
+                HttpStatus.NOT_FOUND,
+                "The requested status list was not found"
+        );
+    }
+
+    @ExceptionHandler(SignedStatusListCredentialNotAvailableException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Mono<GlobalErrorMessage> handleSignedStatusListNotAvailable(
+            SignedStatusListCredentialNotAvailableException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.STATUS_LIST_NOT_AVAILABLE.getCode(),
+                "Status list credential not available",
+                HttpStatus.NOT_FOUND,
+                "The signed status list credential is not yet available"
+        );
     }
 
     // SEC-13: Catch-all handler — never leaks internal details to the client

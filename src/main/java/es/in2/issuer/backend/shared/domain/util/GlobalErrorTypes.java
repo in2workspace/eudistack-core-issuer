@@ -37,7 +37,9 @@ public enum GlobalErrorTypes {
     TEMPLATE_READ_ERROR("template_read_error"),
     ORGANIZATION_ID_MISMATCH("organization_id_mismatch"),
     MISSING_REQUIRED_DATA("missing_required_data"),
-    INVALID_STATUS("invalid_status");
+    INVALID_STATUS("invalid_status"),
+    STATUS_LIST_NOT_FOUND("status_list_not_found"),
+    STATUS_LIST_NOT_AVAILABLE("status_list_not_available");
 
     private final String code;
 
