@@ -1,7 +1,7 @@
 package es.in2.issuer.backend.statuslist.domain.service;
 
-import es.in2.issuer.backend.statuslist.infrastructure.repository.StatusList;
+import es.in2.issuer.backend.statuslist.domain.model.StatusListData;
 
 public interface StatusListRevocationService {
-    StatusList applyRevocation(StatusList current, int index);
+    StatusListData applyRevocation(StatusListData current, int index);
 }

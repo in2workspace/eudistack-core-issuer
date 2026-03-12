@@ -1,3 +1,5 @@
 package es.in2.issuer.backend.shared.domain.model.entities;
 
-public record BindingInfo(String subjectId, Object cnf) {}
+import java.util.Map;
+
+public record BindingInfo(String subjectId, Map<String, Object> cnf) {}

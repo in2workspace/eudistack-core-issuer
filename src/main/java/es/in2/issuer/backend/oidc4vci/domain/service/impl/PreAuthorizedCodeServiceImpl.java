@@ -1,11 +1,11 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
 import es.in2.issuer.backend.oidc4vci.domain.service.PreAuthorizedCodeService;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialProcedureIdAndTxCode;
-import es.in2.issuer.backend.shared.domain.model.dto.Grants;
+import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndTxCode;
 import es.in2.issuer.backend.shared.domain.model.dto.PreAuthorizedCodeResponse;
+import es.in2.issuer.backend.shared.domain.model.dto.TxCode;
 import es.in2.issuer.backend.shared.domain.service.TranslationService;
-import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
@@ -24,14 +24,14 @@ import static es.in2.issuer.backend.shared.domain.util.Utils.generateCustomNonce
 @RequiredArgsConstructor
 public class PreAuthorizedCodeServiceImpl implements PreAuthorizedCodeService {
     private final SecureRandom random;
-    private final CacheStore<CredentialProcedureIdAndTxCode> credentialProcedureIdAndTxCodeByPreAuthorizedCodeCacheStore;
+    private final TransientStore<IssuanceIdAndTxCode> issuanceIdAndTxCodeByPreAuthorizedCodeCacheStore;
     private final TranslationService translationService;
 
     @Override
-    public Mono<PreAuthorizedCodeResponse> generatePreAuthorizedCode(String processId, Mono<String> credentialProcedureIdMono) {
+    public Mono<PreAuthorizedCodeResponse> issuePreAuthorizedCode(String processId, Mono<String> issuanceIdMono) {
         return generateCodes()
                 .doFirst(() -> log.debug("ProcessId: {} AuthServer: Generating PreAuthorizedCode response", processId))
-                .flatMap(tuple -> storeInCache(processId, credentialProcedureIdMono, tuple))
+                .flatMap(tuple -> storeInCache(processId, issuanceIdMono, tuple))
                 .doOnSuccess(preAuthorizedCodeResponse ->
                         log.debug(
                                 "ProcessId: {} AuthServer: Generated PreAuthorizedCode response successfully",
@@ -39,17 +39,17 @@ public class PreAuthorizedCodeServiceImpl implements PreAuthorizedCodeService {
     }
 
     private @NotNull Mono<Tuple2<String, String>> generateCodes() {
-        return Mono.zip(generatePreAuthorizedCode(), generateTxCode());
+        return Mono.zip(issuePreAuthorizedCode(), generateTxCode());
     }
 
-    private @NotNull Mono<PreAuthorizedCodeResponse> storeInCache(String processId, Mono<String> credentialProcedureIdMono, Tuple2<String, String> codes) {
+    private @NotNull Mono<PreAuthorizedCodeResponse> storeInCache(String processId, Mono<String> issuanceIdMono, Tuple2<String, String> codes) {
         String preAuthorizedCode = codes.getT1();
         String txCode = codes.getT2();
 
-        return credentialProcedureIdMono
-                .flatMap(credentialProcedureId ->
-                        credentialProcedureIdAndTxCodeByPreAuthorizedCodeCacheStore
-                                .add(preAuthorizedCode, new CredentialProcedureIdAndTxCode(credentialProcedureId, txCode))
+        return issuanceIdMono
+                .flatMap(issuanceId ->
+                        issuanceIdAndTxCodeByPreAuthorizedCodeCacheStore
+                                .add(preAuthorizedCode, new IssuanceIdAndTxCode(issuanceId, txCode))
                                 .doOnSuccess(preAuthorizedCodeSaved ->
                                         log.debug(
                                                 "ProcessId: {} AuthServer: Saved TxCode and CredentialId by " +
@@ -60,7 +60,7 @@ public class PreAuthorizedCodeServiceImpl implements PreAuthorizedCodeService {
                                         txCode)));
     }
 
-    private Mono<String> generatePreAuthorizedCode() {
+    private Mono<String> issuePreAuthorizedCode() {
         return generateCustomNonce();
     }
 
@@ -72,11 +72,10 @@ public class PreAuthorizedCodeServiceImpl implements PreAuthorizedCodeService {
     }
 
     private Mono<PreAuthorizedCodeResponse> buildPreAuthorizedCodeResponse(String preAuthorizedCode, String txCode) {
-        Grants.TxCode grantTxCode = Grants.TxCode.builder()
+        TxCode grantTxCode = TxCode.builder()
                 .length(TX_CODE_SIZE)
                 .inputMode(TX_INPUT_MODE)
                 .build();
-        Grants grants = new Grants(preAuthorizedCode, grantTxCode);
-        return Mono.just(new PreAuthorizedCodeResponse(grants, txCode));
+        return Mono.just(new PreAuthorizedCodeResponse(preAuthorizedCode, grantTxCode, txCode));
     }
 }

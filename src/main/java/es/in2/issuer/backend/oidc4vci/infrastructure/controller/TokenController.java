@@ -7,9 +7,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 @RestController
@@ -23,11 +25,12 @@ public class TokenController {
             consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
-    public Mono<TokenResponse> getCredentialIssuerMetadata(TokenRequest tokenRequest) {
-        return tokenService.generateTokenResponse(
-                tokenRequest.grantType(),
-                tokenRequest.preAuthorizedCode(),
-                tokenRequest.txCode(),
-                tokenRequest.refreshToken());
+    public Mono<TokenResponse> exchangeToken(
+            TokenRequest tokenRequest,
+            @RequestHeader(value = "DPoP", required = false) String dpopHeader,
+            ServerWebExchange exchange
+    ) {
+        String tokenEndpointUri = exchange.getRequest().getURI().toString();
+        return tokenService.exchangeToken(tokenRequest, dpopHeader, tokenEndpointUri);
     }
 }

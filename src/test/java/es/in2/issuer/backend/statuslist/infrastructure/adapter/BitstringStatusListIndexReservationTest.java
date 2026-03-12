@@ -50,7 +50,7 @@ class BitstringStatusListIndexReservationTest {
     void reserve_success_first_try() {
         long statusListId = 10L;
         UUID procedureUuid = UUID.randomUUID();
-        String procedureId = procedureUuid.toString();
+        String issuanceId = procedureUuid.toString();
 
         when(indexAllocator.proposeIndex(anyInt())).thenReturn(123);
 
@@ -64,12 +64,12 @@ class BitstringStatusListIndexReservationTest {
 
         when(statusListIndexRepository.save(any(StatusListIndex.class))).thenReturn(Mono.just(saved));
 
-        StepVerifier.create(service.reserve(statusListId, procedureId))
+        StepVerifier.create(service.reserve(statusListId, issuanceId))
                 .assertNext(result -> {
                     assertEquals(1L, result.id());
                     assertEquals(statusListId, result.statusListId());
                     assertEquals(123, result.idx());
-                    assertEquals(procedureUuid, result.procedureId());
+                    assertEquals(procedureUuid, result.issuanceId());
                     assertNotNull(result.createdAt());
                 })
                 .verifyComplete();
@@ -83,7 +83,7 @@ class BitstringStatusListIndexReservationTest {
     void reserve_retries_on_idx_collision_then_success() {
         long statusListId = 99L;
         UUID procedureUuid = UUID.randomUUID();
-        String procedureId = procedureUuid.toString();
+        String issuanceId = procedureUuid.toString();
 
         // Provide indexes for each attempt (not strictly required, but helps to see multiple calls).
         when(indexAllocator.proposeIndex(anyInt()))
@@ -112,13 +112,13 @@ class BitstringStatusListIndexReservationTest {
             return Mono.just(saved);
         });
 
-        StepVerifier.withVirtualTime(() -> service.reserve(statusListId, procedureId))
+        StepVerifier.withVirtualTime(() -> service.reserve(statusListId, issuanceId))
                 // Backoff is small (5ms..100ms), this is more than enough.
                 .thenAwait(Duration.ofSeconds(1))
                 .assertNext(result -> {
                     assertEquals(77L, result.id());
                     assertEquals(statusListId, result.statusListId());
-                    assertEquals(procedureUuid, result.procedureId());
+                    assertEquals(procedureUuid, result.issuanceId());
                 })
                 .verifyComplete();
 
@@ -131,14 +131,14 @@ class BitstringStatusListIndexReservationTest {
     void reserve_when_procedure_unique_violation_returns_existing_reservation() {
         long statusListId = 5L;
         UUID procedureUuid = UUID.randomUUID();
-        String procedureId = procedureUuid.toString();
+        String issuanceId = procedureUuid.toString();
 
         when(indexAllocator.proposeIndex(anyInt())).thenReturn(42);
 
         RuntimeException duplicateProcedure = new RuntimeException("duplicate procedure");
 
         when(uniqueViolationClassifier.classify(any(Throwable.class)))
-                .thenReturn(UniqueViolationClassifier.Kind.PROCEDURE_ID);
+                .thenReturn(UniqueViolationClassifier.Kind.ISSUANCE_ID);
 
         StatusListIndex existing = new StatusListIndex(
                 999L,
@@ -149,19 +149,19 @@ class BitstringStatusListIndexReservationTest {
         );
 
         when(statusListIndexRepository.save(any(StatusListIndex.class))).thenReturn(Mono.error(duplicateProcedure));
-        when(statusListIndexRepository.findByProcedureId(procedureUuid)).thenReturn(Mono.just(existing));
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid)).thenReturn(Mono.just(existing));
 
-        StepVerifier.create(service.reserve(statusListId, procedureId))
+        StepVerifier.create(service.reserve(statusListId, issuanceId))
                 .assertNext(result -> {
                     assertEquals(999L, result.id());
                     assertEquals(statusListId, result.statusListId());
                     assertEquals(888, result.idx());
-                    assertEquals(procedureUuid, result.procedureId());
+                    assertEquals(procedureUuid, result.issuanceId());
                 })
                 .verifyComplete();
 
         verify(statusListIndexRepository, times(1)).save(any(StatusListIndex.class));
-        verify(statusListIndexRepository, times(1)).findByProcedureId(procedureUuid);
+        verify(statusListIndexRepository, times(1)).findByIssuanceId(procedureUuid);
         // No retry should happen because onErrorResume returns a value.
         verify(indexAllocator, times(1)).proposeIndex(anyInt());
     }
@@ -170,24 +170,24 @@ class BitstringStatusListIndexReservationTest {
     void reserve_when_procedure_unique_violation_and_not_found_propagates_original_error() {
         long statusListId = 6L;
         UUID procedureUuid = UUID.randomUUID();
-        String procedureId = procedureUuid.toString();
+        String issuanceId = procedureUuid.toString();
 
         when(indexAllocator.proposeIndex(anyInt())).thenReturn(7);
 
         RuntimeException duplicateProcedure = new RuntimeException("duplicate procedure");
 
         when(uniqueViolationClassifier.classify(any(Throwable.class)))
-                .thenReturn(UniqueViolationClassifier.Kind.PROCEDURE_ID);
+                .thenReturn(UniqueViolationClassifier.Kind.ISSUANCE_ID);
 
         when(statusListIndexRepository.save(any(StatusListIndex.class))).thenReturn(Mono.error(duplicateProcedure));
-        when(statusListIndexRepository.findByProcedureId(procedureUuid)).thenReturn(Mono.empty());
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid)).thenReturn(Mono.empty());
 
-        StepVerifier.create(service.reserve(statusListId, procedureId))
+        StepVerifier.create(service.reserve(statusListId, issuanceId))
                 .expectErrorSatisfies(t -> assertSame(duplicateProcedure, t))
                 .verify();
 
         verify(statusListIndexRepository, times(1)).save(any(StatusListIndex.class));
-        verify(statusListIndexRepository, times(1)).findByProcedureId(procedureUuid);
+        verify(statusListIndexRepository, times(1)).findByIssuanceId(procedureUuid);
         verify(indexAllocator, times(1)).proposeIndex(anyInt());
     }
 
@@ -195,7 +195,7 @@ class BitstringStatusListIndexReservationTest {
     void reserve_fail_fast_on_not_unique_and_does_not_wrap() {
         long statusListId = 77L;
         UUID procedureUuid = UUID.randomUUID();
-        String procedureId = procedureUuid.toString();
+        String issuanceId = procedureUuid.toString();
 
         when(indexAllocator.proposeIndex(anyInt())).thenReturn(11);
 
@@ -205,7 +205,7 @@ class BitstringStatusListIndexReservationTest {
 
         when(statusListIndexRepository.save(any(StatusListIndex.class))).thenReturn(Mono.error(notUnique));
 
-        StepVerifier.create(service.reserve(statusListId, procedureId))
+        StepVerifier.create(service.reserve(statusListId, issuanceId))
                 .expectErrorSatisfies(t -> assertSame(notUnique, t))
                 .verify();
 
@@ -219,7 +219,7 @@ class BitstringStatusListIndexReservationTest {
     void reserve_exhausts_retries_and_wraps_as_IndexReservationExhaustedException_for_idx_or_unknown() {
         long statusListId = 123L;
         UUID procedureUuid = UUID.randomUUID();
-        String procedureId = procedureUuid.toString();
+        String issuanceId = procedureUuid.toString();
 
         when(indexAllocator.proposeIndex(anyInt())).thenReturn(1);
 
@@ -229,27 +229,58 @@ class BitstringStatusListIndexReservationTest {
         when(uniqueViolationClassifier.classify(any(Throwable.class)))
                 .thenReturn(UniqueViolationClassifier.Kind.IDX);
 
-        StepVerifier.withVirtualTime(() -> service.reserve(statusListId, procedureId))
+        // Early escape checks fill ratio — low count means no early escape
+        when(statusListIndexRepository.countByStatusListId(statusListId)).thenReturn(Mono.just(100L));
+
+        StepVerifier.withVirtualTime(() -> service.reserve(statusListId, issuanceId))
                 .thenAwait(Duration.ofSeconds(10))
                 .expectErrorSatisfies(t -> {
-                    assertTrue(t instanceof IndexReservationExhaustedException);
-
-                    Throwable c1 = t.getCause();
-                    assertNotNull(c1);
-
-                    // RetryExhaustedException is package-private, so check by class name.
-                    assertEquals("RetryExhaustedException", c1.getClass().getSimpleName());
-                    assertTrue(c1.getMessage() != null && c1.getMessage().contains("Retries exhausted"));
-
-                    // Original failure is nested as the cause of the retry-exhausted error.
-                    Throwable c2 = c1.getCause();
-                    assertSame(duplicateIdx, c2);
+                    assertInstanceOf(IndexReservationExhaustedException.class, t);
+                    assertTrue(t.getMessage().contains("Too many collisions"));
                 })
                 .verify();
 
-        verify(statusListIndexRepository, times(30)).save(any(StatusListIndex.class));
-        verify(indexAllocator, times(30)).proposeIndex(anyInt());
+        verify(statusListIndexRepository, times(15)).save(any(StatusListIndex.class));
+        verify(indexAllocator, times(15)).proposeIndex(anyInt());
         verify(uniqueViolationClassifier, atLeast(1)).classify(any(Throwable.class));
+    }
+
+    @Test
+    void reserve_earlyEscape_whenListNearlyFull_signalsExhausted() {
+        long statusListId = 200L;
+        UUID procedureUuid = UUID.randomUUID();
+        String issuanceId = procedureUuid.toString();
+
+        when(indexAllocator.proposeIndex(anyInt())).thenReturn(1);
+
+        RuntimeException duplicateIdx = new RuntimeException("duplicate idx");
+        when(statusListIndexRepository.save(any(StatusListIndex.class))).thenReturn(Mono.error(duplicateIdx));
+
+        // Classify IDX for original errors, NOT_UNIQUE for our own exception
+        // so maybeWrapAsExhausted doesn't re-wrap the early escape error
+        when(uniqueViolationClassifier.classify(any(Throwable.class))).thenAnswer(invocation -> {
+            Throwable t = invocation.getArgument(0);
+            if (t instanceof IndexReservationExhaustedException) {
+                return UniqueViolationClassifier.Kind.NOT_UNIQUE;
+            }
+            return UniqueViolationClassifier.Kind.IDX;
+        });
+
+        // Early escape: list is 96% full (> 95% threshold)
+        long nearlyFullCount = (long) (131072 * 0.96);
+        when(statusListIndexRepository.countByStatusListId(statusListId)).thenReturn(Mono.just(nearlyFullCount));
+
+        StepVerifier.withVirtualTime(() -> service.reserve(statusListId, issuanceId))
+                .thenAwait(Duration.ofSeconds(10))
+                .expectErrorSatisfies(t -> {
+                    assertInstanceOf(IndexReservationExhaustedException.class, t);
+                    assertTrue(t.getMessage().contains("nearly full") || t.getMessage().contains("skipping to new list"),
+                            "Expected early escape message, got: " + t.getMessage());
+                })
+                .verify();
+
+        verify(statusListIndexRepository, times(15)).save(any(StatusListIndex.class));
+        verify(statusListIndexRepository).countByStatusListId(statusListId);
     }
 
 
@@ -267,7 +298,7 @@ class BitstringStatusListIndexReservationTest {
                 NullPointerException.class,
                 () -> service.reserve(1L, null)
         );
-        assertTrue(ex2.getMessage().contains("procedureId"));
+        assertTrue(ex2.getMessage().contains("issuanceId"));
 
         verifyNoInteractions(statusListIndexRepository, indexAllocator, uniqueViolationClassifier);
     }
@@ -277,7 +308,7 @@ class BitstringStatusListIndexReservationTest {
     void reserve_sends_correct_row_to_repository_save() {
         long statusListId = 333L;
         UUID procedureUuid = UUID.randomUUID();
-        String procedureId = procedureUuid.toString();
+        String issuanceId = procedureUuid.toString();
 
         when(indexAllocator.proposeIndex(anyInt())).thenReturn(55);
 
@@ -292,7 +323,7 @@ class BitstringStatusListIndexReservationTest {
 
         ArgumentCaptor<StatusListIndex> captor = ArgumentCaptor.forClass(StatusListIndex.class);
 
-        StepVerifier.create(service.reserve(statusListId, procedureId))
+        StepVerifier.create(service.reserve(statusListId, issuanceId))
                 .expectNextCount(1)
                 .verifyComplete();
 
@@ -302,7 +333,7 @@ class BitstringStatusListIndexReservationTest {
         assertNull(toSave.id());
         assertEquals(statusListId, toSave.statusListId());
         assertEquals(55, toSave.idx());
-        assertEquals(procedureUuid, toSave.procedureId());
+        assertEquals(procedureUuid, toSave.issuanceId());
         assertNotNull(toSave.createdAt());
     }
 }

@@ -54,7 +54,7 @@ class JWTServiceImplTest {
     private JWTServiceImpl jwtService;
 
     @Test
-    void generateJWT_throws_JWTCreationException() throws JsonProcessingException {
+    void issueJWT_throws_JWTCreationException() throws JsonProcessingException {
         String payload = "{\"sub\":\"1234567890\",\"name\":\"John Doe\",\"iat\":1516239022}";
 
         ECKey ecKey = mock(ECKey.class);
@@ -71,12 +71,17 @@ class JWTServiceImplTest {
         claimsMap .put("iat", 1516239022);
         when(objectMapper.convertValue(any(JsonNode.class), any(TypeReference.class))).thenReturn(claimsMap);
 
-        assertThrows(JWTCreationException.class, () -> jwtService.generateJWT(payload));
+        assertThrows(JWTCreationException.class, () -> jwtService.issueJWT(payload));
     }
     @Test
     void validateJwtSignatureReactive_validSignature_shouldReturnTrue() throws Exception {
         String token = "eyJraWQiOiJkaWQ6a2V5OnpEbmFlZjZUaGprUE1pNXRiNkFoTEo4VHU4WnkzbWhHUUpiZlQ4YXhoSHNIN1NEZHoiLCJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJkaWQ6a2V5OnpEbmFlZjZUaGprUE1pNXRiNkFoTEo4VHU4WnkzbWhHUUpiZlQ4YXhoSHNIN1NEZHoiLCJzdWIiOiJkaWQ6a2V5OnpEbmFlZjZUaGprUE1pNXRiNkFoTEo4VHU4WnkzbWhHUUpiZlQ4YXhoSHNIN1NEZHoiLCJleHAiOjE3NjAwNzkxMzQsImlhdCI6MTcyNTk1MTEzNH0.5dHXb028Vt9PGai2FBluccJVxO3WXsjnreXGuSOSvUpKzzyCRKYGgWK2nMIBindKonxkOAgUkqaasSYby-gGpg";
         SignedJWT signedJWT = SignedJWT.parse(token);
+
+        // Mock cryptoComponent so the AS key check doesn't NPE (kid won't match, falls through to did:key)
+        ECKey mockECKey = mock(ECKey.class);
+        when(mockECKey.getKeyID()).thenReturn("not-matching-kid");
+        when(cryptoComponent.getECKey()).thenReturn(mockECKey);
 
         Mono<Boolean> result = jwtService.validateJwtSignatureReactive(signedJWT);
 
@@ -92,6 +97,10 @@ class JWTServiceImplTest {
         when(jwtObjectMock.getHeader()).thenReturn(headerMock);
         when(headerMock.getKeyID()).thenReturn("did:key:zDnaef3ThjkPMi5tb6AhLJ4Tu8Zy3mhGQJbfT8axhHsH7SDda");
 
+        ECKey mockECKey = mock(ECKey.class);
+        when(mockECKey.getKeyID()).thenReturn("not-matching-kid");
+        when(cryptoComponent.getECKey()).thenReturn(mockECKey);
+
         Mono<Boolean> result = jwtService.validateJwtSignatureReactive(jwtObjectMock);
 
         StepVerifier.create(result)
@@ -106,6 +115,10 @@ class JWTServiceImplTest {
         when(jwtObjectMock.getHeader()).thenReturn(headerMock);
         when(headerMock.getKeyID()).thenReturn("did:key#testEncodedKey");
 
+        ECKey mockECKey = mock(ECKey.class);
+        when(mockECKey.getKeyID()).thenReturn("not-matching-kid");
+        when(cryptoComponent.getECKey()).thenReturn(mockECKey);
+
         Mono<Boolean> result = jwtService.validateJwtSignatureReactive(jwtObjectMock);
 
         StepVerifier.create(result)
@@ -119,6 +132,10 @@ class JWTServiceImplTest {
         JWSHeader headerMock = mock(JWSHeader.class);
         when(jwtObjectMock.getHeader()).thenReturn(headerMock);
         when(headerMock.getKeyID()).thenReturn("did:key:testEncodedKey");
+
+        ECKey mockECKey = mock(ECKey.class);
+        when(mockECKey.getKeyID()).thenReturn("not-matching-kid");
+        when(cryptoComponent.getECKey()).thenReturn(mockECKey);
 
         Mono<Boolean> result = jwtService.validateJwtSignatureReactive(jwtObjectMock);
 

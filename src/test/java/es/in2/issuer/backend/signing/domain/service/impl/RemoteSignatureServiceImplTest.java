@@ -2,9 +2,8 @@ package es.in2.issuer.backend.signing.domain.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.SadException;
-import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
-import es.in2.issuer.backend.shared.domain.util.HttpUtils;
-import es.in2.issuer.backend.shared.domain.util.JwtUtils;
+import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
+import es.in2.issuer.backend.signing.domain.util.JwtUtils;
 import es.in2.issuer.backend.signing.domain.exception.SignatureProcessingException;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
@@ -12,7 +11,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
-import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
+import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -31,18 +30,17 @@ import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
+import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 
 @ExtendWith(MockitoExtension.class)
 class RemoteSignatureServiceImplTest {
 
     @Mock private ObjectMapper objectMapper;
-    @Mock private QtspAuthClient qtspAuthClient;
+    @Mock private QtspAuthPort qtspAuthClient;
     @Mock private HttpUtils httpUtils;
     @Mock private JwtUtils jwtUtils;
     @Mock private RuntimeSigningConfig runtimeSigningConfig;
-    @Mock private DeferredCredentialMetadataService deferredCredentialMetadataService;
 
     @InjectMocks
     private RemoteSignatureServiceImpl remoteSignatureService;
@@ -60,7 +58,7 @@ class RemoteSignatureServiceImplTest {
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
 
         SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.COSE, "data", context);
+        SigningRequest req = new SigningRequest(SigningType.COSE, "data", context, null);
 
         String endpoint = "http://remote-signature-dss.com/api/v1/sign";
         String reqJson = "{\"req\":true}";
@@ -75,8 +73,6 @@ class RemoteSignatureServiceImplTest {
         StepVerifier.create(remoteSignatureService.signIssuedCredential(req, "token", "proc", "email"))
                 .expectNext(signingResult)
                 .verifyComplete();
-
-        verify(deferredCredentialMetadataService).deleteDeferredCredentialMetadataById("proc");
     }
 
     @Test
@@ -93,7 +89,7 @@ class RemoteSignatureServiceImplTest {
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
 
         SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context);
+        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context, null);
 
         when(qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
                 .thenReturn(Mono.just("access-token"));
@@ -124,8 +120,6 @@ class RemoteSignatureServiceImplTest {
         StepVerifier.create(remoteSignatureService.signSystemCredential(req, "ignored-token-here"))
                 .expectNext(expected)
                 .verifyComplete();
-
-        verify(deferredCredentialMetadataService, never()).deleteDeferredCredentialMetadataById(anyString());
     }
 
     @Test
@@ -141,7 +135,7 @@ class RemoteSignatureServiceImplTest {
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
 
         SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context);
+        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context, null);
 
         when(qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
                 .thenReturn(Mono.just("access-token"));
@@ -166,7 +160,7 @@ class RemoteSignatureServiceImplTest {
     @Test
     void processSignatureResponse_shouldFail_whenNoSignature() throws Exception {
         SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context);
+        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context, null);
 
         String responseJson = "{\"DocumentWithSignature\":[]}";
         when(objectMapper.readValue(responseJson, Map.class))
@@ -180,7 +174,7 @@ class RemoteSignatureServiceImplTest {
     @Test
     void processSignatureResponse_shouldFail_whenPayloadMismatch() throws Exception {
         SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context);
+        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context, null);
 
         String signedJwt = "signed-jwt";
         String base64Signed = Base64.getEncoder().encodeToString(signedJwt.getBytes(StandardCharsets.UTF_8));
@@ -213,7 +207,7 @@ class RemoteSignatureServiceImplTest {
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
 
         SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context);
+        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context, null);
 
         when(qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
                 .thenReturn(Mono.just("access-token"));
@@ -256,6 +250,5 @@ class RemoteSignatureServiceImplTest {
 
         verify(httpUtils, times(3))
                 .postRequest(eq("https://api.external.com/csc/v2/signatures/signDoc"), anyList(), anyString());
-        verify(deferredCredentialMetadataService).deleteDeferredCredentialMetadataById("proc-1");
     }
 }

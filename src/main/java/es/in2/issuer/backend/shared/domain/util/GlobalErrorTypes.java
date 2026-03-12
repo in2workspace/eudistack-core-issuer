@@ -12,7 +12,8 @@ public enum GlobalErrorTypes {
     UNSUPPORTED_CREDENTIAL_TYPE("unsupported_credential_type"),
     INVALID_OR_MISSING_PROOF("invalid_or_missing_proof"),
     OPERATION_NOT_SUPPORTED("operation_not_supported"),
-    FORMAT_IS_NOT_SUPPORTED("format_is_not_supported"),
+    UNSUPPORTED_CREDENTIAL_FORMAT("unsupported_credential_format"),
+    INVALID_CREDENTIAL_REQUEST("invalid_credential_request"),
     INSUFFICIENT_PERMISSION("insufficient_permission"),
     MISSING_HEADER("missing_header"),
     SAD_ERROR("sad_error"),
@@ -27,8 +28,18 @@ public enum GlobalErrorTypes {
     UNAUTHORIZED_ROLE("unauthorized_role"),
     EMAIL_COMMUNICATION("email_communication_error"),
     CREDENTIAL_SERIALIZATION("credential_serialization"),
-    CREDENTIAL_PROCEDURE_INVALID_STATUS("credential_procedure_invalid_status"),
-    CREDENTIAL_PROCEDURE_NOT_FOUND("credential_procedure_not_found"),
+    ISSUANCE_INVALID_STATUS("issuance_invalid_status"),
+    ISSUANCE_NOT_FOUND("issuance_not_found"),
+    PAYLOAD_VALIDATION("payload_validation_error"),
+    TENANT_MISMATCH("tenant_mismatch"),
+    REMOTE_SIGNATURE("remote_signature_error"),
+    NO_SUCH_ENTITY("no_such_entity"),
+    TEMPLATE_READ_ERROR("template_read_error"),
+    ORGANIZATION_ID_MISMATCH("organization_id_mismatch"),
+    MISSING_REQUIRED_DATA("missing_required_data"),
+    INVALID_STATUS("invalid_status"),
+    STATUS_LIST_NOT_FOUND("status_list_not_found"),
+    STATUS_LIST_NOT_AVAILABLE("status_list_not_available"),
     INVALID_CREDENTIAL_FORMAT("invalid_credential_format"),
     DID_KEY_CREATION_ERROR("did_key_creation_error"),
     EC_KEY_CREATION_ERROR("ec_key_creation_error"),
@@ -37,12 +48,8 @@ public enum GlobalErrorTypes {
     MISSING_CREDENTIAL_TYPE_ERROR("missing_credential_type_error"),
     MISSING_EMAIL_OWNER_ERROR("missing_email_owner_error"),
     PARSE_ERROR_EXCEPTION("parse_error_exception"),
-    REMOTE_SIGNATURE_ERROR("remote_signature_error"),
     TOKEN_FETCH_ERROR("token_fetch_error"),
     WELL_KNOWN_INFO_FETCH_ERROR("well_known_info_fetch_error");
-
-
-
 
     private final String code;
 

@@ -17,14 +17,14 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.REFRESH_TOKEN_E
 public class RefreshTokenServiceImpl implements RefreshTokenService {
 
     @Override
-    public String generateRefreshToken() {
+    public String issueRefreshToken() {
         RefreshToken refreshToken = new RefreshToken();
         log.debug("Generated refresh token");
         return refreshToken.getValue();
     }
 
     @Override
-    public long generateRefreshTokenExpirationTime(Instant issueTime) {
+    public long computeRefreshTokenExpirationTime(Instant issueTime) {
         return issueTime.plus(
                         REFRESH_TOKEN_EXPIRATION,
                         REFRESH_TOKEN_EXPIRATION_TIME_UNIT.toChronoUnit())

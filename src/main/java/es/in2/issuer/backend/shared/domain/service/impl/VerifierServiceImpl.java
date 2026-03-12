@@ -3,19 +3,16 @@ package es.in2.issuer.backend.shared.domain.service.impl;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSVerifier;
 import com.nimbusds.jose.crypto.ECDSAVerifier;
-import com.nimbusds.jose.crypto.MACVerifier;
 import com.nimbusds.jose.crypto.RSASSAVerifier;
 import com.nimbusds.jose.jwk.*;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.JWTParsingException;
 import es.in2.issuer.backend.shared.domain.exception.JWTVerificationException;
-import es.in2.issuer.backend.shared.domain.exception.TokenFetchException;
 import es.in2.issuer.backend.shared.domain.exception.WellKnownInfoFetchException;
 import es.in2.issuer.backend.shared.domain.model.dto.OpenIDProviderMetadata;
-import es.in2.issuer.backend.shared.domain.model.dto.VerifierOauth2AccessToken;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -25,8 +22,6 @@ import reactor.core.publisher.Mono;
 import java.text.ParseException;
 import java.util.Date;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.CONTENT_TYPE;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.CONTENT_TYPE_URL_ENCODED_FORM;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH;
 
 @Service
@@ -34,12 +29,11 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.AUTHOR
 @RequiredArgsConstructor
 public class VerifierServiceImpl implements VerifierService {
 
-    private final AppConfig appConfig;
+    private final IssuerProperties appConfig;
     private final WebClient oauth2VerifierWebClient;
 
-    // Cache to store JWKs and avoid multiple endpoint calls
-    private JWKSet cachedJWKSet;
-    private final Object jwkLock = new Object();
+    // Lazily-initialized, cached JWK Set (populated on first use via Mono.cache())
+    private volatile Mono<JWKSet> cachedJWKSet;
 
     @Override
     public Mono<Void> verifyToken(String accessToken) {
@@ -108,36 +102,32 @@ public class VerifierServiceImpl implements VerifierService {
         return switch (jwk.getKeyType().toString()) {
             case "RSA" -> new RSASSAVerifier(((RSAKey) jwk).toRSAPublicKey());
             case "EC" -> new ECDSAVerifier(((ECKey) jwk).toECPublicKey());
-            case "oct" -> new MACVerifier(((OctetSequenceKey) jwk).toByteArray());
+            case "oct" -> throw new JOSEException("Symmetric key type (oct) is not allowed for token verification");
             default -> throw new JOSEException("Unsupported JWK type: " + jwk.getKeyType());
         };
     }
 
     private Mono<JWKSet> fetchJWKSet(String jwksUri) {
-        if (cachedJWKSet != null) {
-            return Mono.just(cachedJWKSet);
+        Mono<JWKSet> cached = cachedJWKSet;
+        if (cached != null) {
+            return cached;
         }
-
-        return Mono.defer(() -> {
-            synchronized (jwkLock) {
-                if (cachedJWKSet != null) {
-                    return Mono.just(cachedJWKSet);
-                }
-                return oauth2VerifierWebClient.get()
-                        .uri(jwksUri)
-                        .retrieve()
-                        .bodyToMono(String.class)
-                        .<JWKSet>handle((jwks, sink) -> {
-                            try {
-                                cachedJWKSet = JWKSet.parse(jwks);
-                                sink.next(cachedJWKSet);
-                            } catch (ParseException e) {
-                                sink.error(new JWTVerificationException("Error parsing the JWK Set"));
-                            }
-                        })
-                        .onErrorMap(e -> new JWTVerificationException("Error fetching the JWK Set"));
-            }
-        });
+        Mono<JWKSet> newCached = oauth2VerifierWebClient.get()
+                .uri(jwksUri)
+                .retrieve()
+                .bodyToMono(String.class)
+                .<JWKSet>handle((jwks, sink) -> {
+                    try {
+                        sink.next(JWKSet.parse(jwks));
+                    } catch (ParseException e) {
+                        sink.error(new JWTVerificationException("Error parsing the JWK Set"));
+                    }
+                })
+                .onErrorMap(e -> !(e instanceof JWTVerificationException),
+                        e -> new JWTVerificationException("Error fetching the JWK Set"))
+                .cache();
+        cachedJWKSet = newCached;
+        return newCached;
     }
 
     @Override
@@ -151,15 +141,4 @@ public class VerifierServiceImpl implements VerifierService {
                 .onErrorMap(e -> new WellKnownInfoFetchException("Error fetching OpenID Provider Metadata", e));
     }
 
-    @Override
-    public Mono<VerifierOauth2AccessToken> performTokenRequest(String body) {
-        return getWellKnownInfo()
-                .flatMap(metadata -> oauth2VerifierWebClient.post()
-                        .uri(metadata.tokenEndpoint())
-                        .header(CONTENT_TYPE, CONTENT_TYPE_URL_ENCODED_FORM)
-                        .bodyValue(body)
-                        .retrieve()
-                        .bodyToMono(VerifierOauth2AccessToken.class)
-                        .onErrorMap(e -> new TokenFetchException("Error fetching the token", e)));
-    }
 }

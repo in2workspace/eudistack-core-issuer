@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter;
 
-import es.in2.issuer.backend.shared.domain.service.SigningRecoveryService;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
@@ -17,7 +16,6 @@ import reactor.core.publisher.Mono;
 public class CscSignDocSigningProvider implements SigningProvider {
 
     private final RemoteSignatureService remoteSignatureService;
-    private final SigningRecoveryService signingRecoveryService;
 
     @Override
     public Mono<SigningResult> sign(SigningRequest request) {
@@ -27,36 +25,25 @@ public class CscSignDocSigningProvider implements SigningProvider {
             SigningContext ctx = request.context();
 
             String token = ctx.token();
-            String procedureId = ctx.procedureId();
+            String issuanceId = ctx.issuanceId();
             String email = ctx.email();
 
-            boolean isIssued = procedureId != null && !procedureId.isBlank();
+            boolean isIssued = issuanceId != null && !issuanceId.isBlank();
 
-            log.debug("Signing request received. type={}, issued={}, procedureId={}",
-                    request.type(), isIssued, procedureId);
+            log.debug("Signing request received. type={}, issued={}, issuanceId={}",
+                    request.type(), isIssued, issuanceId);
 
             Mono<SigningResult> signingMono =
                     isIssued
-                            ? remoteSignatureService.signIssuedCredential(request, token, procedureId, email)
+                            ? remoteSignatureService.signIssuedCredential(request, token, issuanceId, email)
                             : remoteSignatureService.signSystemCredential(request, token);
 
             Mono<SigningResult> resultMono = signingMono
                     .map(signingResult -> new SigningResult(signingResult.type(), signingResult.data()));
 
-            if (isIssued) {
-                resultMono = resultMono.onErrorResume(ex ->
-                        signingRecoveryService.handlePostRecoverError(procedureId, email)
-                                .onErrorResume(recoveryEx -> {
-                                    log.error("Error during post-recovery handling for procedureId={} and email={}", procedureId, email, recoveryEx);
-                                    return Mono.error(new SigningException("Error during post-recovery handling: " + ex.getMessage(), ex));
-                                })
-                                .then(Mono.error(new SigningException("Signing failed via CSC signDoc provider: " + ex.getMessage(), ex)))
-                );
-            }else {
-                resultMono = resultMono.onErrorMap(ex ->
-                        new SigningException("Signing failed via CSC signDoc provider: " + ex.getMessage(), ex)
-                );
-            }
+            resultMono = resultMono.onErrorMap(ex ->
+                    new SigningException("Signing failed via CSC signDoc provider: " + ex.getMessage(), ex)
+            );
             return resultMono;
         });
     }

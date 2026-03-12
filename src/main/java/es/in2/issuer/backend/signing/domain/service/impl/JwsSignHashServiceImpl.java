@@ -5,7 +5,7 @@ import es.in2.issuer.backend.signing.domain.service.HashGeneratorService;
 import es.in2.issuer.backend.signing.domain.service.JwsSignHashService;
 import es.in2.issuer.backend.signing.domain.util.Base64UrlUtils;
 import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
-import es.in2.issuer.backend.signing.infrastructure.qtsp.signhash.QtspSignHashClient;
+import es.in2.issuer.backend.signing.domain.spi.QtspSignHashPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -24,7 +24,7 @@ public class JwsSignHashServiceImpl implements JwsSignHashService {
     public static final String SIGN_ALGO_OID_ES256 = "1.2.840.10045.4.3.2";
 
     private final HashGeneratorService hashGeneratorService;
-    private final QtspSignHashClient qtspSignHashClient;
+    private final QtspSignHashPort qtspSignHashClient;
 
     @Override
     public Mono<String> signJwtWithSignHash(String accessToken, String headerJson, String payloadJson) {

@@ -12,19 +12,19 @@ import java.util.Base64;
 public class HashGeneratorServiceImpl implements  HashGeneratorService {
 
     @Override
-    public String generateHash(String unsignedDocument, String algorithm) throws HashGenerationException {
+    public String computeHash(String unsignedDocument, String algorithm) throws HashGenerationException {
         if (algorithm == null || algorithm.isEmpty()) {
             throw new HashGenerationException("Algorithm is required");
         }
 
         if ("2.16.840.1.101.3.4.2.1".equals(algorithm)) {
-            return generateSHA256(unsignedDocument);
+            return computeSHA256(unsignedDocument);
         } else {
             throw new HashGenerationException("Error generating hash: algorithm not supported");
             }
     }
     @Override
-    public String generateSHA256(String unsignedDocument) throws HashGenerationException {
+    public String computeSHA256(String unsignedDocument) throws HashGenerationException {
         if (unsignedDocument == null || unsignedDocument.isEmpty()) {
             throw new HashGenerationException("The document cannot be null or empty");
         }

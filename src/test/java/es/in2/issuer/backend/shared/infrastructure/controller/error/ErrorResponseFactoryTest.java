@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.shared.infrastructure.controller.error;
 
-import es.in2.issuer.backend.shared.domain.model.dto.GlobalErrorMessage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -10,6 +9,7 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.lang.reflect.Method;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -36,10 +36,10 @@ class ErrorResponseFactoryTest {
     ) throws Exception {
         Method m = ErrorResponseFactory.class.getDeclaredMethod(
                 "buildError",
-                String.class, String.class, HttpStatus.class, String.class, Exception.class, ServerHttpRequest.class
+                String.class, String.class, HttpStatus.class, String.class, Exception.class, ServerHttpRequest.class, List.class
         );
         m.setAccessible(true);
-        return (GlobalErrorMessage) m.invoke(factory, type, title, status, detail, ex, mockRequest);
+        return (GlobalErrorMessage) m.invoke(factory, type, title, status, detail, ex, mockRequest, null);
     }
 
     @SuppressWarnings("unchecked")

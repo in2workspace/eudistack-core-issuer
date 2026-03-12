@@ -2,7 +2,7 @@ package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
 import es.in2.issuer.backend.oidc4vci.application.workflow.CredentialOfferWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOffer;
-import es.in2.issuer.backend.shared.domain.repository.CredentialOfferCacheRepository;
+import es.in2.issuer.backend.oidc4vci.domain.repository.CredentialOfferCacheRepository;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,15 +18,19 @@ public class CredentialOfferWorkflowImpl implements CredentialOfferWorkflow {
     private final EmailService emailService;
 
     @Override
-    public Mono<CredentialOffer> getCredentialOfferById(String processId, String id) {
+    public Mono<CredentialOffer> findCredentialOfferById(String processId, String id) {
         return credentialOfferCacheRepository.findCredentialOfferById(id)
-                .flatMap(credentialOfferData -> emailService
-                    .sendTxCodeNotification(
-                        credentialOfferData.credentialEmail(),
-                        "email.pin-code",
-                        credentialOfferData.pin())
-                    .then(Mono.just(credentialOfferData.credentialOffer()))
-                );
+                .flatMap(credentialOfferData -> {
+                    if (credentialOfferData.txCode() != null) {
+                        return emailService
+                            .sendTxCodeNotification(
+                                credentialOfferData.credentialEmail(),
+                                "email.tx-code",
+                                credentialOfferData.txCode())
+                            .then(Mono.just(credentialOfferData.credentialOffer()));
+                    }
+                    return Mono.just(credentialOfferData.credentialOffer());
+                });
     }
 
 }

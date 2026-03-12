@@ -24,7 +24,7 @@ import reactor.test.StepVerifier;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
+import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
 
 @ExtendWith(MockitoExtension.class)
 class CscSignHashSigningProviderTest {
@@ -55,8 +55,8 @@ class CscSignHashSigningProviderTest {
     @Test
     void sign_success_happyPath() {
         // given
-        var context = new SigningContext("token", "procedureId", "email@example.com");
-        var request = new SigningRequest(SigningType.JADES, "{\"vc\":\"unsigned\"}", context);
+        var context = new SigningContext("token", "issuanceId", "email@example.com");
+        var request = new SigningRequest(SigningType.JADES, "{\"vc\":\"unsigned\"}", context, null);
 
         when(cscSigningProperties.signatureProfile()).thenReturn(JadesProfile.JADES_B_T);
 
@@ -67,7 +67,7 @@ class CscSignHashSigningProviderTest {
         when(qtspIssuerService.requestCertificateInfo("access-token", "cred-123"))
                 .thenReturn(Mono.just(validCredentialInfoJson()));
 
-        when(jadesHeaderBuilder.buildHeader(any(CertificateInfo.class), eq(JadesProfile.JADES_B_T)))
+        when(jadesHeaderBuilder.buildHeader(any(CertificateInfo.class), eq(JadesProfile.JADES_B_T), any()))
                 .thenReturn("{\"alg\":\"ES256\",\"typ\":\"JWT\"}");
 
         when(jwsSignHashService.signJwtWithSignHash(
@@ -88,8 +88,8 @@ class CscSignHashSigningProviderTest {
     @Test
     void sign_wraps_invalidCertInfo_statusNotValid() {
         // given
-        var context = new SigningContext("token", "procedureId", "email@example.com");
-        var request = new SigningRequest(SigningType.JADES, "{\"vc\":\"unsigned\"}", context);
+        var context = new SigningContext("token", "issuanceId", "email@example.com");
+        var request = new SigningRequest(SigningType.JADES, "{\"vc\":\"unsigned\"}", context, null);
 
         when(cscSigningProperties.signatureProfile()).thenReturn(JadesProfile.JADES_B_T);
         when(qtspAuthClient.requestAccessToken(request,
@@ -115,8 +115,8 @@ class CscSignHashSigningProviderTest {
     @Test
     void sign_propagates_SigningException_without_doubleWrapping() {
         // given: contexto NO nulo para pasar la validación
-        var context = new SigningContext("token", "procedureId", "email@example.com");
-        var request = new SigningRequest(SigningType.JADES, "{\"vc\":\"unsigned\"}", context);
+        var context = new SigningContext("token", "issuanceId", "email@example.com");
+        var request = new SigningRequest(SigningType.JADES, "{\"vc\":\"unsigned\"}", context, null);
 
         when(cscSigningProperties.signatureProfile()).thenReturn(JadesProfile.JADES_B_T);
 

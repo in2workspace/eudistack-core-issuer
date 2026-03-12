@@ -5,8 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
-import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
-import es.in2.issuer.backend.shared.domain.util.HttpUtils;
+import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
+import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,7 +21,7 @@ import java.util.Base64;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_REMOTE_TYPE_SERVER;
+import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOTE_TYPE_SERVER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,7 +32,7 @@ class QtspIssuerServiceImplTest {
 
     private QtspIssuerServiceImpl qtspIssuerService;
 
-    @Mock private QtspAuthClient qtspAuthClient;
+    @Mock private QtspAuthPort qtspAuthClient;
     @Mock private RuntimeSigningConfig runtimeSigningConfig;
     @Mock private HttpUtils httpUtils;
 

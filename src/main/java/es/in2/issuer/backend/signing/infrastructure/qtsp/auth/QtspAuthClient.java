@@ -10,7 +10,8 @@ import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.service.HashGeneratorService;
-import es.in2.issuer.backend.shared.domain.util.HttpUtils;
+import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
+import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,13 +25,13 @@ import reactor.core.publisher.Mono;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.CREDENTIAL_ID;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
+import static es.in2.issuer.backend.shared.domain.util.Constants.CREDENTIAL_ID;
+import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class QtspAuthClient {
+public class QtspAuthClient implements QtspAuthPort {
 
     private final ObjectMapper objectMapper;
     private final RuntimeSigningConfig runtimeSigningConfig;
@@ -116,7 +117,7 @@ public class QtspAuthClient {
             authorizationDetails.put("type", SIGNATURE_REMOTE_SCOPE_CREDENTIAL);
             authorizationDetails.put(CREDENTIAL_ID, credentialID);
             authorizationDetails.put("credentialPassword", credentialPassword);
-            String hashedCredential = hashGeneratorService.generateHash(unsignedCredential, hashAlgorithmOID);
+            String hashedCredential = hashGeneratorService.computeHash(unsignedCredential, hashAlgorithmOID);
             List<Map<String, String>> documentDigests = null;
             if (hashedCredential != null) {
                 documentDigests = List.of(

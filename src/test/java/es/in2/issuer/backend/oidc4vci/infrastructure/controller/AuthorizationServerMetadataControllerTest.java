@@ -2,6 +2,8 @@ package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
 import es.in2.issuer.backend.oidc4vci.application.workflow.GetAuthorizationServerMetadataWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationServerMetadata;
+import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
+import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,7 +33,13 @@ class AuthorizationServerMetadataControllerTest {
     ErrorResponseFactory errorResponseFactory;
 
     @MockBean
+    private NonceService nonceService;
+
+    @MockBean
     private GetAuthorizationServerMetadataWorkflow getAuthorizationServerMetadataWorkflow;
+
+    @MockBean
+    private IssuanceMetrics issuanceMetrics;
 
     @Test
     void testGetAuthorizationServerMetadataSuccess() {

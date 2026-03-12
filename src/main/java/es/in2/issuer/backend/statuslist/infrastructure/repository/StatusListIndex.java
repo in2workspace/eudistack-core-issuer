@@ -18,8 +18,8 @@ public record StatusListIndex(
         @Column("idx")
         Integer idx,
 
-        @Column("procedure_id")
-        UUID procedureId,
+        @Column("issuance_id")
+        UUID issuanceId,
 
         @Column("created_at")
         Instant createdAt

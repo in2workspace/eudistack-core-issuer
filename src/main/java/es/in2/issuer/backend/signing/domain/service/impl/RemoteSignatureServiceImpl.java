@@ -4,9 +4,8 @@ import es.in2.issuer.backend.shared.domain.exception.*;
 import java.util.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
-import es.in2.issuer.backend.shared.domain.util.HttpUtils;
-import es.in2.issuer.backend.shared.domain.util.JwtUtils;
+import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
+import es.in2.issuer.backend.signing.domain.util.JwtUtils;
 import es.in2.issuer.backend.signing.domain.exception.SignatureProcessingException;
 import es.in2.issuer.backend.signing.domain.exception.SigningResultParsingException;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
@@ -15,7 +14,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.service.RemoteSignatureService;
 import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
-import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
+import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -30,7 +29,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
+import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 import static es.in2.issuer.backend.signing.domain.util.PathConstants.AUTHORIZE_PATH;
 import static es.in2.issuer.backend.signing.domain.util.PathConstants.SIGN_DOC_PATH;
 
@@ -40,13 +39,12 @@ import static es.in2.issuer.backend.signing.domain.util.PathConstants.SIGN_DOC_P
 public class RemoteSignatureServiceImpl implements RemoteSignatureService {
 
     private final ObjectMapper objectMapper;
-    private final QtspAuthClient qtspAuthClient;
+    private final QtspAuthPort qtspAuthClient;
     private final HttpUtils httpUtils;
     private final JwtUtils jwtUtils;
     private final RuntimeSigningConfig runtimeSigningConfig;
     private static final String SAD_NAME = "SAD";
     private static final String SERIALIZING_ERROR = "Error serializing request body to JSON";
-    private final DeferredCredentialMetadataService deferredCredentialMetadataService;
 
     private RemoteSignatureDto remoteCfgRequired() {
         RemoteSignatureDto cfg = runtimeSigningConfig.getRemoteSignature();
@@ -84,20 +82,17 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
     public Mono<SigningResult> signIssuedCredential(
             SigningRequest signingRequest,
             String token,
-            String procedureId,
+            String issuanceId,
             String email
     ) {
         log.debug(
-                "RemoteSignatureServiceImpl - signIssuedCredential, signingRequest: {}, token: {}, procedureId: {}, email: {}",
-                signingRequest, token, procedureId, email
+                "RemoteSignatureServiceImpl - signIssuedCredential, signingRequest: {}, token: {}, issuanceId: {}, email: {}",
+                signingRequest, token, issuanceId, email
         );
 
         return signWithRetry(signingRequest, token, "signIssuedCredential")
                 .doOnSuccess(result -> {
-                    log.info("Successfully Signed");
-                    log.info("Procedure with id: {}", procedureId);
-                    log.info("at time: {}", new Date());
-                    deferredCredentialMetadataService.deleteDeferredCredentialMetadataById(procedureId);
+                    log.info("Successfully signed credential for issuanceId: {}", issuanceId);
                 });
     }
 
@@ -113,7 +108,7 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
      * <ul>
      *   <li>No deferred signing</li>
      *   <li>No async recovery flow</li>
-     *   <li>No post-signature handling (email, procedure tracking, etc.)</li>
+     *   <li>No post-signature handling (email, issuance tracking, etc.)</li>
      * </ul>
      *
      * <p>

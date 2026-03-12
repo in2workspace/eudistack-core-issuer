@@ -22,6 +22,15 @@ public interface StatusListRepository extends ReactiveCrudRepository<StatusList,
     Mono<StatusList> findLatestByPurpose(String purpose);
 
     @Query("""
+           SELECT *
+           FROM status_list
+           WHERE purpose = :purpose AND format = :format
+           ORDER BY id DESC
+           LIMIT 1
+           """)
+    Mono<StatusList> findLatestByPurposeAndFormat(String purpose, String format);
+
+    @Query("""
        UPDATE status_list
        SET encoded_list = :encodedList,
            signed_credential = :signedCredential,

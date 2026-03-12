@@ -1,0 +1,21 @@
+package es.in2.issuer.backend.oidc4vci.domain.model.dto;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Builder;
+
+import java.util.List;
+
+@Builder
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public record CredentialResponse(
+        @JsonProperty(value = "credentials") List<Credential> credentials,
+        @JsonProperty("transaction_id") String transactionId,
+        @JsonProperty("interval") Long interval,
+        @JsonProperty("notification_id") String notificationId) {
+
+    @Builder
+    public record Credential(@JsonProperty String credential) {
+
+    }
+}

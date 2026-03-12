@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
-import es.in2.issuer.backend.oidc4vci.domain.service.NotificationService;
+import es.in2.issuer.backend.oidc4vci.application.workflow.HandleNotificationWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -18,7 +18,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class NotificationController {
 
-    private final NotificationService notificationService;
+    private final HandleNotificationWorkflow handleNotificationWorkflow;
 
     @PostMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -26,7 +26,7 @@ public class NotificationController {
         String processId = UUID.randomUUID().toString();
         return Mono.defer(() -> {
                     log.info("Process ID: {} - Handle notification start", processId);
-                    return notificationService.handleNotification(processId,request,authorization);
+                    return handleNotificationWorkflow.handleNotification(processId,request,authorization);
                 })
                 .doOnSuccess(v ->
                         log.info("Process ID: {} - Handle notification ok", processId)

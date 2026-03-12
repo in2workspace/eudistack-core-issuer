@@ -10,8 +10,8 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.InvalidTokenException;
 import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
-import es.in2.issuer.backend.shared.domain.model.entities.DeferredCredentialMetadata;
-import es.in2.issuer.backend.shared.domain.service.DeferredCredentialMetadataService;
+import es.in2.issuer.backend.shared.domain.model.dto.OrgContext;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -42,7 +42,7 @@ class AccessTokenServiceImplTest {
     @Mock
     private ObjectMapper mockObjectMapper;
     @Mock
-    private DeferredCredentialMetadataService mockDeferredCredentialMetadataService;
+    private IssuerProperties mockAppConfig;
     @InjectMocks
     private AccessTokenServiceImpl accessTokenServiceImpl;
 
@@ -65,49 +65,10 @@ class AccessTokenServiceImplTest {
     }
 
     @Test
-    void testGetUserIdFromHeader_Valid() throws Exception {
-        String validHeader = "Bearer token";
-        String expectedUserId = "userId123";
-        String jwtPayload = "{\"sub\":\"" + expectedUserId + "\"}";
-
-        try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
-            SignedJWT signedJWT = mock(SignedJWT.class);
-            mockedJwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(signedJWT);
-            when(signedJWT.getPayload()).thenReturn(new Payload(jwtPayload));
-
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode payloadJson = mapper.readTree(jwtPayload);
-            when(signedJWT.getPayload()).thenReturn(new Payload(payloadJson.toString()));
-
-            Mono<String> result = accessTokenServiceImpl.getUserId(validHeader);
-
-            StepVerifier.create(result)
-                    .expectNext(expectedUserId)
-                    .verifyComplete();
-        }
-    }
-
-    @Test
-    void testGetUserIdFromHeader_ThrowsParseException() {
-        String invalidHeader = "Bearer invalidToken";
-
-        try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
-            mockedJwtStatic.when(() -> SignedJWT.parse(anyString()))
-                    .thenThrow(new ParseException("Invalid token", 0));
-
-            Mono<String> result = accessTokenServiceImpl.getUserId(invalidHeader);
-
-            StepVerifier.create(result)
-                    .expectError(ParseException.class)
-                    .verify();
-        }
-    }
-
-    @Test
     void testGetOrganizationId_ValidToken() throws JsonProcessingException {
         String validJwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25JZGVudGlmaWVyIjoib3JnMTIzIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
         String expectedOrganizationId = "org123";
-        String jwtPayload = "{\"vc\":{\"credentialSubject\":{\"mandate\":{\"mandator\":{\"organizationIdentifier\":\"" + expectedOrganizationId + "\"}}}}}";
+        String jwtPayload = "{\"mandator\":{\"organizationIdentifier\":\"" + expectedOrganizationId + "\"}}";
 
         try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
             mockedJwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(mockSignedJwt);
@@ -115,7 +76,7 @@ class AccessTokenServiceImplTest {
             ObjectMapper realObjectMapper = new ObjectMapper();
             JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
             when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
-
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
 
             Mono<String> result = accessTokenServiceImpl.getOrganizationId("Bearer " + validJwtToken);
 
@@ -131,6 +92,7 @@ class AccessTokenServiceImplTest {
 
         try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
             mockedJwtStatic.when(() -> SignedJWT.parse(anyString())).thenThrow(new ParseException("Invalid token", 0));
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
 
             Mono<String> result = accessTokenServiceImpl.getOrganizationId("Bearer " + invalidJwtToken);
 
@@ -144,7 +106,7 @@ class AccessTokenServiceImplTest {
     void testGetOrganizationIdFromCurrentSession_ValidToken() throws ParseException, JsonProcessingException {
         String validJwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25JZGVudGlmaWVyIjoib3JnMTIzIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
         String expectedOrganizationId = "org123";
-        String jwtPayload = "{\"vc\":{\"credentialSubject\":{\"mandate\":{\"mandator\":{\"organizationIdentifier\":\"" + expectedOrganizationId + "\"}}}}}";
+        String jwtPayload = "{\"mandator\":{\"organizationIdentifier\":\"" + expectedOrganizationId + "\"}}";
 
         Jwt jwt = Jwt.withTokenValue(validJwtToken).header("alg", "HS256").claim("organizationIdentifier", expectedOrganizationId).build();
         JwtAuthenticationToken jwtAuthenticationToken = new JwtAuthenticationToken(jwt);
@@ -165,6 +127,7 @@ class AccessTokenServiceImplTest {
             ObjectMapper realObjectMapper = new ObjectMapper();
             JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
             when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
 
             Mono<String> result = accessTokenServiceImpl.getOrganizationIdFromCurrentSession();
 
@@ -194,6 +157,7 @@ class AccessTokenServiceImplTest {
                     .thenReturn(Mono.just(securityContext));
 
             mockedJwtStatic.when(() -> SignedJWT.parse(invalidJwtToken)).thenThrow(new ParseException("Invalid token", 0));
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
 
             Mono<String> result = accessTokenServiceImpl.getOrganizationIdFromCurrentSession();
 
@@ -219,80 +183,14 @@ class AccessTokenServiceImplTest {
     }
 
     @Test
-    void testGetMandateeEmail_Valid() throws Exception {
-        String validJwtToken = "header.payload.signature";
-        String expectedEmail = "user@example.com";
-        String jwtPayload = "{"
-                + "\"vc\":{"
-                +     "\"credentialSubject\":{"
-                +         "\"mandate\":{"
-                +             "\"mandatee\":{"
-                +                 "\"email\":\"" + expectedEmail + "\""
-                +             "}"
-                +         "}"
-                +     "}"
-                + "}"
-                + "}";
-
-        try (MockedStatic<SignedJWT> jwtStatic = mockStatic(SignedJWT.class)) {
-            jwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(mockSignedJwt);
-            when(mockSignedJwt.getPayload()).thenReturn(new Payload(jwtPayload));
-            ObjectMapper realMapper = new ObjectMapper();
-            JsonNode tree = realMapper.readTree(jwtPayload);
-            when(mockObjectMapper.readTree(jwtPayload)).thenReturn(tree);
-
-            Mono<String> result = accessTokenServiceImpl.getMandateeEmail("Bearer " + validJwtToken);
-
-            StepVerifier.create(result)
-                    .expectNext(expectedEmail)
-                    .verifyComplete();
-        }
-    }
-
-    @Test
-    void testGetMandateeEmail_InvalidToken() {
-        String invalidJwtToken = "bad.token.here";
-
-        try (MockedStatic<SignedJWT> jwtStatic = mockStatic(SignedJWT.class)) {
-            jwtStatic.when(() -> SignedJWT.parse(anyString()))
-                    .thenThrow(new ParseException("Invalid token", 0));
-
-            Mono<String> result = accessTokenServiceImpl.getMandateeEmail("Bearer " + invalidJwtToken);
-
-            StepVerifier.create(result)
-                    .expectError(InvalidTokenException.class)
-                    .verify();
-        }
-    }
-
-    @Test
-    void testGetMandateeEmail_InvalidJson() throws Exception {
-        String validJwtToken = "header.payload.signature";
-        String badJson = "{\"vc\":{}}";
-
-        try (MockedStatic<SignedJWT> jwtStatic = mockStatic(SignedJWT.class)) {
-            jwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(mockSignedJwt);
-            when(mockSignedJwt.getPayload()).thenReturn(new Payload(badJson));
-            when(mockObjectMapper.readTree(badJson))
-                    .thenThrow(new JsonProcessingException("Bad JSON") {});
-
-            Mono<String> result = accessTokenServiceImpl.getMandateeEmail("Bearer " + validJwtToken);
-
-            StepVerifier.create(result)
-                    .expectError(InvalidTokenException.class)
-                    .verify();
-        }
-    }
-
-    @Test
-    void testValidateAndResolveProcedure_ValidToken(){
+    void testResolveAccessTokenContext_ValidToken(){
         // Arrange
         String validToken = "validToken";
         String authorizationHeader = "Bearer " + validToken;
 
         String jti = "jti123";
+        String issuanceId = UUID.randomUUID().toString();
         long exp = Instant.now().plusSeconds(3600).getEpochSecond();
-        String responseUri = "http://response.uri";
 
         JWSObject mockJwsObject = mock(JWSObject.class);
         Payload mockPayload = mock(Payload.class);
@@ -300,19 +198,9 @@ class AccessTokenServiceImplTest {
         when(mockJwsObject.getPayload()).thenReturn(mockPayload);
         when(mockPayload.toJSONObject()).thenReturn(Map.of(
                 "jti", jti,
+                "pid", issuanceId,
                 "exp", exp
         ));
-
-        DeferredCredentialMetadata mockMetadata = mock(DeferredCredentialMetadata.class);
-
-        UUID procedureId = UUID.randomUUID();
-        when(mockMetadata.getProcedureId()).thenReturn(procedureId);
-
-        when(mockMetadata.getResponseUri()).thenReturn(responseUri);
-
-        when(mockDeferredCredentialMetadataService
-                .getDeferredCredentialMetadataByAuthServerNonce(jti))
-                .thenReturn(Mono.just(mockMetadata));
 
         try (MockedStatic<JWSObject> jwsObjectMockedStatic = mockStatic(JWSObject.class)) {
             jwsObjectMockedStatic
@@ -321,26 +209,22 @@ class AccessTokenServiceImplTest {
 
             // Act
             Mono<AccessTokenContext> result =
-                    accessTokenServiceImpl.validateAndResolveProcedure(authorizationHeader);
+                    accessTokenServiceImpl.resolveAccessTokenContext(authorizationHeader);
 
             // Assert
             StepVerifier.create(result)
                     .expectNextMatches(context ->
                             validToken.equals(context.rawToken())
                                     && jti.equals(context.jti())
-                                    && procedureId.toString().equals(context.procedureId())
-                                    && responseUri.equals(context.responseUri())
+                                    && issuanceId.equals(context.issuanceId())
                     )
                     .verifyComplete();
         }
-
-        verify(mockDeferredCredentialMetadataService, times(1))
-                .getDeferredCredentialMetadataByAuthServerNonce(jti);
     }
 
 
     @Test
-    void testValidateAndResolveProcedure_TokenWithoutJti() {
+    void testResolveAccessTokenContext_TokenWithoutJti() {
         String validToken = "validToken";
         String authorizationHeader = "Bearer " + validToken;
 
@@ -352,7 +236,7 @@ class AccessTokenServiceImplTest {
         try (MockedStatic<JWSObject> jwsObjectMockedStatic = mockStatic(JWSObject.class)) {
             jwsObjectMockedStatic.when(() -> JWSObject.parse(validToken)).thenReturn(mockJwsObject);
 
-            Mono<AccessTokenContext> result = accessTokenServiceImpl.validateAndResolveProcedure(authorizationHeader);
+            Mono<AccessTokenContext> result = accessTokenServiceImpl.resolveAccessTokenContext(authorizationHeader);
 
             StepVerifier.create(result)
                     .expectErrorMatches(throwable ->
@@ -364,19 +248,19 @@ class AccessTokenServiceImplTest {
     }
 
     @Test
-    void testValidateAndResolveProcedure_TokenWithoutExp() {
+    void testResolveAccessTokenContext_TokenWithoutExp() {
         String validToken = "validToken";
         String authorizationHeader = "Bearer " + validToken;
 
         JWSObject mockJwsObject = mock(JWSObject.class);
         Payload mockPayload = mock(Payload.class);
         when(mockJwsObject.getPayload()).thenReturn(mockPayload);
-        when(mockPayload.toJSONObject()).thenReturn(Map.of("jti", "jti123")); // Missing exp
+        when(mockPayload.toJSONObject()).thenReturn(Map.of("jti", "jti123", "pid", "proc-1")); // Missing exp
 
         try (MockedStatic<JWSObject> jwsObjectMockedStatic = mockStatic(JWSObject.class)) {
             jwsObjectMockedStatic.when(() -> JWSObject.parse(validToken)).thenReturn(mockJwsObject);
 
-            Mono<AccessTokenContext> result = accessTokenServiceImpl.validateAndResolveProcedure(authorizationHeader);
+            Mono<AccessTokenContext> result = accessTokenServiceImpl.resolveAccessTokenContext(authorizationHeader);
 
             StepVerifier.create(result)
                     .expectErrorMatches(throwable ->
@@ -388,7 +272,7 @@ class AccessTokenServiceImplTest {
     }
 
     @Test
-    void testValidateAndResolveProcedure_ExpiredToken() {
+    void testResolveAccessTokenContext_ExpiredToken() {
         String validToken = "validToken";
         String authorizationHeader = "Bearer " + validToken;
 
@@ -398,13 +282,14 @@ class AccessTokenServiceImplTest {
         when(mockJwsObject.getPayload()).thenReturn(mockPayload);
         when(mockPayload.toJSONObject()).thenReturn(Map.of(
                 "jti", "jti123",
+                "pid", "proc-1",
                 "exp", exp
         ));
 
         try (MockedStatic<JWSObject> jwsObjectMockedStatic = mockStatic(JWSObject.class)) {
             jwsObjectMockedStatic.when(() -> JWSObject.parse(validToken)).thenReturn(mockJwsObject);
 
-            Mono<AccessTokenContext> result = accessTokenServiceImpl.validateAndResolveProcedure(authorizationHeader);
+            Mono<AccessTokenContext> result = accessTokenServiceImpl.resolveAccessTokenContext(authorizationHeader);
 
             StepVerifier.create(result)
                     .expectErrorMatches(throwable ->
@@ -416,33 +301,107 @@ class AccessTokenServiceImplTest {
     }
 
     @Test
-    void testValidateAndResolveProcedure_JtiNotFound() {
+    void testResolveAccessTokenContext_TokenWithoutPid() {
         String validToken = "validToken";
         String authorizationHeader = "Bearer " + validToken;
-        String jti = "jti123";
 
         JWSObject mockJwsObject = mock(JWSObject.class);
         Payload mockPayload = mock(Payload.class);
         when(mockJwsObject.getPayload()).thenReturn(mockPayload);
         when(mockPayload.toJSONObject()).thenReturn(Map.of(
-                "jti", jti,
+                "jti", "jti123",
                 "exp", System.currentTimeMillis() / 1000 + 3600
         ));
 
         try (MockedStatic<JWSObject> jwsObjectMockedStatic = mockStatic(JWSObject.class)) {
             jwsObjectMockedStatic.when(() -> JWSObject.parse(validToken)).thenReturn(mockJwsObject);
 
-            when(mockDeferredCredentialMetadataService.getDeferredCredentialMetadataByAuthServerNonce(jti))
-                    .thenReturn(Mono.empty());
-
-            Mono<AccessTokenContext> result = accessTokenServiceImpl.validateAndResolveProcedure(authorizationHeader);
+            Mono<AccessTokenContext> result = accessTokenServiceImpl.resolveAccessTokenContext(authorizationHeader);
 
             StepVerifier.create(result)
                     .expectErrorMatches(throwable ->
                             throwable instanceof InvalidTokenException &&
-                                    throwable.getMessage().equals("No ProcedureID associated to this token")
+                                    throwable.getMessage().equals("Access token without pid")
                     )
                     .verify();
+        }
+    }
+
+    @Test
+    void testGetOrganizationContext_AdminOrgWithOnboardingPower() throws JsonProcessingException {
+        String validJwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25JZGVudGlmaWVyIjoib3JnMTIzIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+        String adminOrgId = "ADMIN_ORG_123";
+        String jwtPayload = "{\"mandator\":{\"organizationIdentifier\":\"" + adminOrgId + "\"},\"power\":[{\"function\":\"Onboarding\",\"action\":\"Execute\"}]}";
+
+        try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
+            mockedJwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(mockSignedJwt);
+            when(mockSignedJwt.getPayload()).thenReturn(new Payload(jwtPayload));
+            ObjectMapper realObjectMapper = new ObjectMapper();
+            JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
+            when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
+            when(mockAppConfig.getManagementTokenAdminPowerFunction()).thenReturn("Onboarding");
+            when(mockAppConfig.getManagementTokenAdminPowerAction()).thenReturn("Execute");
+            when(mockAppConfig.getAdminOrganizationId()).thenReturn(adminOrgId);
+
+            Mono<OrgContext> result = accessTokenServiceImpl.getOrganizationContext("Bearer " + validJwtToken);
+
+            StepVerifier.create(result)
+                    .expectNextMatches(ctx ->
+                            ctx.organizationIdentifier().equals(adminOrgId) && ctx.sysAdmin())
+                    .verifyComplete();
+        }
+    }
+
+    @Test
+    void testGetOrganizationContext_AdminOrgWithoutOnboardingPower_notSysAdmin() throws JsonProcessingException {
+        String validJwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25JZGVudGlmaWVyIjoib3JnMTIzIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+        String adminOrgId = "ADMIN_ORG_123";
+        String jwtPayload = "{\"mandator\":{\"organizationIdentifier\":\"" + adminOrgId + "\"},\"power\":[{\"function\":\"ProductOffering\",\"action\":\"Execute\"}]}";
+
+        try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
+            mockedJwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(mockSignedJwt);
+            when(mockSignedJwt.getPayload()).thenReturn(new Payload(jwtPayload));
+            ObjectMapper realObjectMapper = new ObjectMapper();
+            JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
+            when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
+            when(mockAppConfig.getManagementTokenAdminPowerFunction()).thenReturn("Onboarding");
+            when(mockAppConfig.getManagementTokenAdminPowerAction()).thenReturn("Execute");
+            when(mockAppConfig.getAdminOrganizationId()).thenReturn(adminOrgId);
+
+            Mono<OrgContext> result = accessTokenServiceImpl.getOrganizationContext("Bearer " + validJwtToken);
+
+            StepVerifier.create(result)
+                    .expectNextMatches(ctx ->
+                            ctx.organizationIdentifier().equals(adminOrgId) && !ctx.sysAdmin())
+                    .verifyComplete();
+        }
+    }
+
+    @Test
+    void testGetOrganizationContext_RegularOrg() throws JsonProcessingException {
+        String validJwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25JZGVudGlmaWVyIjoib3JnMTIzIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+        String orgId = "org123";
+        String jwtPayload = "{\"mandator\":{\"organizationIdentifier\":\"" + orgId + "\"},\"power\":[{\"function\":\"Onboarding\",\"action\":\"Execute\"}]}";
+
+        try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
+            mockedJwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(mockSignedJwt);
+            when(mockSignedJwt.getPayload()).thenReturn(new Payload(jwtPayload));
+            ObjectMapper realObjectMapper = new ObjectMapper();
+            JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
+            when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
+            when(mockAppConfig.getManagementTokenAdminPowerFunction()).thenReturn("Onboarding");
+            when(mockAppConfig.getManagementTokenAdminPowerAction()).thenReturn("Execute");
+            when(mockAppConfig.getAdminOrganizationId()).thenReturn("ADMIN_ORG_123");
+
+            Mono<OrgContext> result = accessTokenServiceImpl.getOrganizationContext("Bearer " + validJwtToken);
+
+            StepVerifier.create(result)
+                    .expectNextMatches(ctx ->
+                            ctx.organizationIdentifier().equals(orgId) && !ctx.sysAdmin())
+                    .verifyComplete();
         }
     }
 

@@ -4,7 +4,8 @@ import java.util.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
-import es.in2.issuer.backend.shared.domain.util.HttpUtils;
+import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
+import es.in2.issuer.backend.signing.domain.spi.QtspSignHashPort;
 import es.in2.issuer.backend.signing.domain.model.dto.CscAuthorizeResponse;
 import es.in2.issuer.backend.signing.domain.model.dto.CscSignHashResponse;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
@@ -18,14 +19,14 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.*;
+import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 import static es.in2.issuer.backend.signing.domain.util.PathConstants.AUTHORIZE_PATH;
 import static es.in2.issuer.backend.signing.domain.util.PathConstants.SIGN_HASH_PATH;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class QtspSignHashClient {
+public class QtspSignHashClient implements QtspSignHashPort {
 
     private final ObjectMapper objectMapper;
     private final RuntimeSigningConfig runtimeSigningConfig;

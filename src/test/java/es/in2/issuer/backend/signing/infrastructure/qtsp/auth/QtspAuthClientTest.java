@@ -5,7 +5,7 @@ import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.service.HashGeneratorService;
-import es.in2.issuer.backend.shared.domain.util.HttpUtils;
+import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,7 +27,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
+import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
 
 @ExtendWith(MockitoExtension.class)
 class QtspAuthClientTest {
@@ -84,7 +84,7 @@ class QtspAuthClientTest {
 
     @Test
     void requestAccessToken_includesAuthorizationDetails_whenScopeIsCredential() throws Exception {
-        when(hashGeneratorService.generateHash(anyString(), anyString()))
+        when(hashGeneratorService.computeHash(anyString(), anyString()))
                 .thenReturn("HASHED");
 
         when(httpUtils.postRequest(anyString(), anyList(), anyString()))
@@ -124,7 +124,7 @@ class QtspAuthClientTest {
         assertTrue(hasAuth);
         assertTrue(hasCt);
 
-        verify(hashGeneratorService).generateHash("{\"vc\":1}", "2.16.840.1.101.3.4.2.1");
+        verify(hashGeneratorService).computeHash("{\"vc\":1}", "2.16.840.1.101.3.4.2.1");
     }
 
     @Test

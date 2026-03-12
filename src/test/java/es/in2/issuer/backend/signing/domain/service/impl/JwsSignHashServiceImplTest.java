@@ -4,7 +4,7 @@ import org.mockito.*;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.signing.domain.service.HashGeneratorService;
 import es.in2.issuer.backend.signing.domain.util.Base64UrlUtils;
-import es.in2.issuer.backend.signing.infrastructure.qtsp.signhash.QtspSignHashClient;
+import es.in2.issuer.backend.signing.domain.spi.QtspSignHashPort;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -24,7 +24,7 @@ import static es.in2.issuer.backend.signing.domain.service.impl.JwsSignHashServi
 class JwsSignHashServiceImplTest {
 
     @Mock HashGeneratorService hashGeneratorService;
-    @Mock QtspSignHashClient qtspSignHashClient;
+    @Mock QtspSignHashPort qtspSignHashClient;
 
     @InjectMocks JwsSignHashServiceImpl sut;
 

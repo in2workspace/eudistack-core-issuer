@@ -2,35 +2,50 @@ package es.in2.issuer.backend.signing.infrastructure.adapter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
-import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.util.Base64UrlUtils;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.mockito.InjectMocks;
-import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.test.StepVerifier;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@ExtendWith(MockitoExtension.class)
 class InMemorySigningProviderTest {
 
-    @InjectMocks
-    private InMemorySigningProvider provider;
+    private static final String TEST_CERT_PATH = resolveTestResource("test-cert.pem");
+    private static final String TEST_KEY_PATH = resolveTestResource("test-key-pkcs8.pem");
+
+    private final InMemorySigningProvider provider = new InMemorySigningProvider(TEST_CERT_PATH, TEST_KEY_PATH);
+
+    private static String resolveTestResource(String name) {
+        return Path.of("src", "test", "resources", name).toAbsolutePath().toString();
+    }
 
     @Test
-    void signReturnsJwsLikeStringForJades() {
+    void constructorThrowsWhenCertMissing() {
+        assertThrows(IllegalStateException.class,
+                () -> new InMemorySigningProvider("/nonexistent/cert.pem", TEST_KEY_PATH));
+    }
+
+    @Test
+    void constructorThrowsWhenKeyMissing() {
+        assertThrows(IllegalStateException.class,
+                () -> new InMemorySigningProvider(TEST_CERT_PATH, "/nonexistent/key.pem"));
+    }
+
+    @Test
+    void signReturnsJwsWithX5cForJades() {
         String payloadJson = "{\"foo\":\"bar\"}";
         SigningContext ctx = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.JADES, payloadJson, ctx);
+        SigningRequest req = new SigningRequest(SigningType.JADES, payloadJson, ctx, "JWT");
 
         ObjectMapper om = new ObjectMapper();
 
@@ -43,54 +58,51 @@ class InMemorySigningProviderTest {
                     assertFalse(jws.isBlank());
 
                     String[] parts = jws.split("\\.", -1);
-                    assertEquals(3, parts.length, "JWS debe tener 3 partes separadas por '.'");
+                    assertEquals(3, parts.length, "JWS must have 3 parts");
 
-                    // Decode header/payload (Base64URL)
                     String headerJson;
                     String decodedPayload;
                     try {
                         headerJson = new String(Base64UrlUtils.decode(parts[0]), StandardCharsets.UTF_8);
                         decodedPayload = new String(Base64UrlUtils.decode(parts[1]), StandardCharsets.UTF_8);
                     } catch (IllegalArgumentException e) {
-                        fail("Header/Payload no son Base64URL válidos: " + e.getMessage());
+                        fail("Header/Payload not valid Base64URL: " + e.getMessage());
                         return;
                     }
 
-                    // Parse JSON and assert fields
                     try {
                         JsonNode headerNode = om.readTree(headerJson);
-                        assertTrue(headerNode.has("alg"));
-                        assertTrue(headerNode.has("typ"));
+                        assertTrue(headerNode.has("alg"), "Header must have alg");
+                        assertTrue(headerNode.has("typ"), "Header must have typ");
+                        assertTrue(headerNode.has("x5c"), "Header must have x5c");
 
-                        assertEquals("JWT", headerNode.get("typ").asText());
+                        assertEquals("ES256", headerNode.get("alg").asText(), "Algorithm must be ES256 for EC key");
+                        assertTrue(headerNode.get("x5c").isArray(), "x5c must be an array");
+                        assertTrue(headerNode.get("x5c").size() > 0, "x5c must not be empty");
 
-                        // Si realmente es alg=none, lo normal es firma vacía, pero lo dejamos “condicional”
-                        String alg = headerNode.get("alg").asText();
-                        if ("none".equalsIgnoreCase(alg)) {
-                            assertTrue(parts[2].isEmpty(), "Con alg=none la firma debería ser vacía");
-                        }
+                        // Verify signature part is not empty (real signature)
+                        assertFalse(parts[2].isEmpty(), "Signature must not be empty");
 
                         // Compare payload by JSON equivalence
                         JsonNode expectedPayload = om.readTree(payloadJson);
                         JsonNode actualPayload = om.readTree(decodedPayload);
-                        assertEquals(expectedPayload, actualPayload, "El payload decodificado no coincide (por equivalencia JSON)");
+                        assertEquals(expectedPayload, actualPayload, "Decoded payload must match original");
                     } catch (Exception e) {
-                        fail("Header o payload no son JSON válidos: " + e.getMessage());
+                        fail("Header or payload not valid JSON: " + e.getMessage());
                     }
                 })
                 .verifyComplete();
     }
 
-
     @Test
     void signReturnsBase64ForCose() {
         SigningContext context = new SigningContext("token", "proc", "email");
-        String base64 = java.util.Base64.getEncoder().encodeToString("cborbytes".getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        SigningRequest request = new SigningRequest(SigningType.COSE, base64, context);
+        String base64 = java.util.Base64.getEncoder().encodeToString("cborbytes".getBytes(StandardCharsets.UTF_8));
+        SigningRequest request = new SigningRequest(SigningType.COSE, base64, context, null);
         StepVerifier.create(provider.sign(request))
                 .assertNext(result -> {
                     assertEquals(SigningType.COSE, result.type());
-                    assertEquals(result.data(),base64);
+                    assertEquals(result.data(), base64);
                 })
                 .verifyComplete();
     }
@@ -105,7 +117,7 @@ class InMemorySigningProviderTest {
     @Test
     void signThrowsSigningExceptionOnNullType() {
         SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest request = new SigningRequest(null, "data", context);
+        SigningRequest request = new SigningRequest(null, "data", context, "JWT");
         StepVerifier.create(provider.sign(request))
                 .expectError(SigningException.class)
                 .verify();
@@ -113,7 +125,7 @@ class InMemorySigningProviderTest {
 
     @Test
     void signThrowsSigningExceptionOnNullContext() {
-        SigningRequest request = new SigningRequest(SigningType.JADES, "data", null);
+        SigningRequest request = new SigningRequest(SigningType.JADES, "data", null, "JWT");
         StepVerifier.create(provider.sign(request))
                 .expectError(SigningException.class)
                 .verify();
@@ -130,12 +142,10 @@ class InMemorySigningProviderTest {
     private static Stream<SigningRequest> invalidSigningRequests() {
         SigningContext validContext = new SigningContext("token", "proc", "email");
         return Stream.of(
-                new SigningRequest(SigningType.JADES, null, validContext), // null data
-                new SigningRequest(SigningType.JADES, "   ", validContext), // blank data
-                new SigningRequest(SigningType.JADES, "data", new SigningContext(null, "proc", "email")), // null token
-                new SigningRequest(SigningType.JADES, "data", new SigningContext("   ", "proc", "email")) // blank token
+                new SigningRequest(SigningType.JADES, null, validContext, "JWT"),
+                new SigningRequest(SigningType.JADES, "   ", validContext, "JWT"),
+                new SigningRequest(SigningType.JADES, "data", new SigningContext(null, "proc", "email"), "JWT"),
+                new SigningRequest(SigningType.JADES, "data", new SigningContext("   ", "proc", "email"), "JWT")
         );
     }
 }
-
-

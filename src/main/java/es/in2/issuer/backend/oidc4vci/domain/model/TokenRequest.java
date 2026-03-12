@@ -8,5 +8,8 @@ public record TokenRequest(
         @BindParam("grant_type") String grantType,
         @BindParam("pre-authorized_code") String preAuthorizedCode,
         @BindParam("tx_code") String txCode,
-        @BindParam("refresh_token") String refreshToken){
+        @BindParam("refresh_token") String refreshToken,
+        @BindParam("code") String code,
+        @BindParam("redirect_uri") String redirectUri,
+        @BindParam("code_verifier") String codeVerifier){
 }

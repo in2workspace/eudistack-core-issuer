@@ -1,7 +1,7 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
 import es.in2.issuer.backend.shared.domain.service.TranslationService;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.MessageSource;
@@ -16,7 +16,7 @@ import java.util.Locale;
 @RequiredArgsConstructor
 public class TranslationServiceImpl implements TranslationService {
 
-    private final AppConfig appConfig;
+    private final IssuerProperties appConfig;
     private final MessageSource messageSource;
 
     private static final List<String> SUPPORTED_LANGS = List.of("en", "es");

@@ -8,6 +8,7 @@ public interface CredentialPayloadSigner {
     Mono<String> sign(
             Map<String, Object> payload,
             String token,
-            Long referenceId
+            Long referenceId,
+            String typ
     );
 }

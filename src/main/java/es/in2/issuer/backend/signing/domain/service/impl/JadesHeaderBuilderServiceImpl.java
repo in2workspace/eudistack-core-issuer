@@ -21,7 +21,7 @@ public class JadesHeaderBuilderServiceImpl implements JadesHeaderBuilderService 
     private final ObjectMapper objectMapper;
 
     @Override
-    public String buildHeader(CertificateInfo certInfo, JadesProfile profile) {
+    public String buildHeader(CertificateInfo certInfo, JadesProfile profile, String typ) {
         try {
             if (certInfo == null) throw new IllegalArgumentException("certInfo is required");
             if (profile == null) throw new IllegalArgumentException("profile is required");
@@ -31,7 +31,7 @@ public class JadesHeaderBuilderServiceImpl implements JadesHeaderBuilderService 
             String jwtAlg = mapOidToJwtAlg(certInfo.keyAlgorithms());
             header.put("alg", jwtAlg);
 
-            header.put("typ", "JWT");
+            header.put("typ", typ != null ? typ : "JWT");
 
             header.put("x5c", certInfo.certificates());
 

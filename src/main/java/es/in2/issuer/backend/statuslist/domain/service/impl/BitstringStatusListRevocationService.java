@@ -1,8 +1,8 @@
 package es.in2.issuer.backend.statuslist.domain.service.impl;
 
+import es.in2.issuer.backend.statuslist.domain.model.StatusListData;
 import es.in2.issuer.backend.statuslist.domain.service.StatusListRevocationService;
 import es.in2.issuer.backend.statuslist.domain.util.BitstringEncoder;
-import es.in2.issuer.backend.statuslist.infrastructure.repository.StatusList;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -16,16 +16,17 @@ public class BitstringStatusListRevocationService
     private final BitstringEncoder encoder = new BitstringEncoder();
 
     @Override
-    public StatusList applyRevocation(StatusList currentStatusList, int idx) {
+    public StatusListData applyRevocation(StatusListData currentStatusList, int idx) {
         requireNonNullParam(currentStatusList, "current");
         requireNonNullParam(idx, "idx");
 
         String updatedEncoded =
                 encoder.setBit(currentStatusList.encodedList(), idx, true);
 
-        return new StatusList(
+        return new StatusListData(
                 currentStatusList.id(),
                 currentStatusList.purpose(),
+                currentStatusList.format(),
                 updatedEncoded,
                 currentStatusList.signedCredential(),
                 currentStatusList.createdAt(),

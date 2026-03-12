@@ -7,5 +7,6 @@ import lombok.Builder;
 public record SigningRequest(
         SigningType type,
         String data,
-        SigningContext context
+        SigningContext context,
+        String typ
 ) {}

@@ -11,7 +11,7 @@ public class EndpointsConstants {
     public static final String PROMETHEUS_PATH = "/prometheus";
     public static final String SPRINGDOC_BASE_PATH = "/springdoc";
     public static final String SPRINGDOC_PATH = SPRINGDOC_BASE_PATH+"/**";
-    public static final String BACKOFFICE_BASE_PATH = "/backoffice/v1";
+    public static final String ISSUANCE_BASE_PATH = "/issuance/v1";
     public static final String OID4VCI_BASE_PATH = "/oid4vci/v1";
     public static final String WELL_KNOWN_BASE_PATH ="/.well-known";
     public static final String VCI_BASE_PATH = "/vci/v1";
@@ -22,7 +22,10 @@ public class EndpointsConstants {
 
     // VCI API Endpoints
     public static final String VCI_PATH = VCI_BASE_PATH+"/**";
-    public static final String VCI_ISSUANCES_PATH = VCI_BASE_PATH+"/issuances";
+
+    // Issuance Endpoint (unified)
+    public static final String ISSUANCES_PATH = "/api/v1/issuances";
+    public static final String ISSUANCES_WILDCARD_PATH = "/api/v1/issuances/**";
 
     // OIDC4VCI Endpoints
     public static final String CORS_OID4VCI_PATH = "/oid4vci/**";
@@ -37,23 +40,34 @@ public class EndpointsConstants {
     public static final String WELL_KNOWN_PATH = WELL_KNOWN_BASE_PATH + "/**";
     public static final String CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_PATH = WELL_KNOWN_BASE_PATH + "/openid-credential-issuer";
     public static final String AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH = WELL_KNOWN_BASE_PATH + "/openid-configuration";
+    public static final String OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_PATH = WELL_KNOWN_BASE_PATH + "/oauth-authorization-server";
+    public static final String JWKS_PATH = WELL_KNOWN_BASE_PATH + "/jwks.json";
+
+    // Authorization Code Flow Endpoints
+    public static final String OID4VCI_PAR_PATH = OID4VCI_BASE_PATH + "/par";
+    public static final String OID4VCI_AUTHORIZE_PATH = OID4VCI_BASE_PATH + "/authorize";
+    public static final String OID4VCI_NONCE_PATH = OID4VCI_BASE_PATH + "/nonce";
 
     // oauth Endpoints
     public static final String OAUTH_PATH ="/oauth/**";
     public static final String OAUTH_TOKEN_PATH = "/oauth/token";
 
-    //backoffice Endpoints
-    public static final String BACKOFFICE_PATH = "/backoffice/**";
-    public static final String BACKOFFICE_STATUS_CREDENTIALS = BACKOFFICE_BASE_PATH+"/credentials/status/**";
-    public static final String BACKOFFICE_RETRY_SIGN_CREDENTIALS = BACKOFFICE_BASE_PATH+"/retry-sign-credential/{id}";
-    public static final String BACKOFFICE_DEFERRED_CREDENTIALS = BACKOFFICE_BASE_PATH + "/deferred-credentials";
-    public static final String BACKOFFICE_ISSUANCE = BACKOFFICE_BASE_PATH+"/issuances";
+    // Issuance Endpoints
+    public static final String ISSUANCE_PATH = "/issuance/**";
+    public static final String ISSUANCE_STATUS_CREDENTIALS = ISSUANCE_BASE_PATH+"/credentials/status/**";
+    public static final String ISSUANCE_RETRY_SIGN_CREDENTIALS = ISSUANCE_BASE_PATH+"/retry-sign-credential/{id}";
+    public static final String ISSUANCE_DEFERRED_CREDENTIALS = ISSUANCE_BASE_PATH + "/deferred-credentials";
+
+    // Bootstrap Endpoint
+    public static final String BOOTSTRAP_PATH = "/api/v1/bootstrap";
+
+    // Credential Offer Refresh
+    public static final String CREDENTIAL_OFFER_REFRESH_PATH = "/credential-offer/refresh/**";
 
     //status list Endpoints
     public static final String STATUS_LIST_BASE = "/w3c/v1/credentials/status";
     public static final String STATUS_LIST_PATH = STATUS_LIST_BASE + "/**";
-
-    // todo: remove these constants if not needed
-    public static final String TRUST_FRAMEWORK_ISSUER = "/issuer";
+    public static final String TOKEN_STATUS_LIST_BASE = "/token/v1/credentials/status";
+    public static final String TOKEN_STATUS_LIST_PATH = TOKEN_STATUS_LIST_BASE + "/**";
 
 }

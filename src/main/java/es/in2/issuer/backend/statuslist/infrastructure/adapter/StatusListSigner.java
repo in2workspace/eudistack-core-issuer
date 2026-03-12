@@ -25,23 +25,23 @@ public class StatusListSigner implements CredentialPayloadSigner {
     private final SigningProvider signingProvider;
     private final ObjectMapper objectMapper;
 
-    public Mono<String> sign(Map<String, Object> payload, String token, Long listId) {
+    public Mono<String> sign(Map<String, Object> payload, String token, Long listId, String typ) {
         requireNonNullParam(payload, "payload");
         requireNonNullParam(token, "token");
 
-        return toSignatureRequest(payload, token)
+        return toSignatureRequest(payload, token, typ)
                 .flatMap(signingProvider::sign)
                 .onErrorMap(ex -> new RemoteSignatureException("StatusList signing failed; list ID: " + listId, ex))
                 .map(signingResult -> extractJwt(signingResult, listId));
     }
 
-    private Mono<SigningRequest> toSignatureRequest(Map<String, Object> payload, String token) {
+    private Mono<SigningRequest> toSignatureRequest(Map<String, Object> payload, String token, String typ) {
         return Mono.fromCallable(() -> {
             String json = objectMapper.writeValueAsString(payload);
 
             SigningContext context = SigningContext.builder()
                     .token(token)
-                    .procedureId(null)
+                    .issuanceId(null)
                     .email(null)
                     .build();
 
@@ -49,6 +49,7 @@ public class StatusListSigner implements CredentialPayloadSigner {
                     .type(SigningType.JADES)
                     .data(json)
                     .context(context)
+                    .typ(typ)
                     .build();
         }).onErrorMap(JsonProcessingException.class, StatusListCredentialSerializationException::new);
     }

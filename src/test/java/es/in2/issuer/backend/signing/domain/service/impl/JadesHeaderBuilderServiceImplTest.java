@@ -34,7 +34,7 @@ class JadesHeaderBuilderServiceImplTest {
                 List.of("1.2.840.10045.4.3.2") // ES256
         );
 
-        String json = sut.buildHeader(certInfo, JadesProfile.JADES_B_B);
+        String json = sut.buildHeader(certInfo, JadesProfile.JADES_B_B, null);
 
         JsonNode node = objectMapper.readTree(json);
 
@@ -52,7 +52,7 @@ class JadesHeaderBuilderServiceImplTest {
                 List.of("1.2.840.10045.4.3.2")
         );
 
-        String json = sut.buildHeader(certInfo, JadesProfile.JADES_B_T);
+        String json = sut.buildHeader(certInfo, JadesProfile.JADES_B_T, null);
 
         JsonNode node = objectMapper.readTree(json);
 
@@ -75,7 +75,7 @@ class JadesHeaderBuilderServiceImplTest {
         );
 
         JsonNode node = objectMapper.readTree(
-                sut.buildHeader(certInfo, JadesProfile.JADES_B_B)
+                sut.buildHeader(certInfo, JadesProfile.JADES_B_B, null)
         );
 
         assertEquals("ES384", node.get("alg").asText());
@@ -89,7 +89,7 @@ class JadesHeaderBuilderServiceImplTest {
         );
 
         JsonNode node = objectMapper.readTree(
-                sut.buildHeader(certInfo, JadesProfile.JADES_B_B)
+                sut.buildHeader(certInfo, JadesProfile.JADES_B_B, null)
         );
 
         assertEquals("ES512", node.get("alg").asText());
@@ -103,7 +103,7 @@ class JadesHeaderBuilderServiceImplTest {
     void buildHeader_certInfoNull_shouldThrowIllegalStateException() {
         IllegalStateException ex = assertThrows(
                 IllegalStateException.class,
-                () -> sut.buildHeader(null, JadesProfile.JADES_B_B)
+                () -> sut.buildHeader(null, JadesProfile.JADES_B_B, null)
         );
 
         assertTrue(ex.getMessage().contains("Failed to build JAdES header"));
@@ -119,7 +119,7 @@ class JadesHeaderBuilderServiceImplTest {
 
         IllegalStateException ex = assertThrows(
                 IllegalStateException.class,
-                () -> sut.buildHeader(certInfo, null)
+                () -> sut.buildHeader(certInfo, null, null)
         );
 
         assertTrue(ex.getMessage().contains("Failed to build JAdES header"));
@@ -135,7 +135,7 @@ class JadesHeaderBuilderServiceImplTest {
 
         IllegalStateException ex = assertThrows(
                 IllegalStateException.class,
-                () -> sut.buildHeader(certInfo, JadesProfile.JADES_B_B)
+                () -> sut.buildHeader(certInfo, JadesProfile.JADES_B_B, null)
         );
 
         assertTrue(ex.getCause().getMessage().contains("No signing algorithm found"));
@@ -150,7 +150,7 @@ class JadesHeaderBuilderServiceImplTest {
 
         IllegalStateException ex = assertThrows(
                 IllegalStateException.class,
-                () -> sut.buildHeader(certInfo, JadesProfile.JADES_B_B)
+                () -> sut.buildHeader(certInfo, JadesProfile.JADES_B_B, null)
         );
 
         assertTrue(ex.getCause().getMessage().contains("Unsupported OID"));
@@ -165,7 +165,7 @@ class JadesHeaderBuilderServiceImplTest {
 
         IllegalStateException ex = assertThrows(
                 IllegalStateException.class,
-                () -> sut.buildHeader(certInfo, JadesProfile.JADES_B_LT)
+                () -> sut.buildHeader(certInfo, JadesProfile.JADES_B_LT, null)
         );
 
         assertTrue(ex.getCause().getMessage().contains("not yet supported"));

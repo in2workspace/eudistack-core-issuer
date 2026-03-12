@@ -5,6 +5,7 @@ import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.ProofValidationService;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
@@ -15,7 +16,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 
-import static es.in2.issuer.backend.backoffice.domain.util.Constants.SUPPORTED_PROOF_TYP;
+import static es.in2.issuer.backend.shared.domain.util.Constants.SUPPORTED_PROOF_TYP;
 
 @Slf4j
 @Service
@@ -23,19 +24,39 @@ import static es.in2.issuer.backend.backoffice.domain.util.Constants.SUPPORTED_P
 public class ProofValidationServiceImpl implements ProofValidationService {
 
     private final JWTService jwtService;
+    private final TransientStore<String> nonceCacheStore;
 
 
     @Override
-    public Mono<Boolean> isProofValid(String jwtProof, Set<String> allowedAlgs, String expectedAudience) {
+    public Mono<Boolean> verifyProof(String jwtProof, Set<String> allowedAlgs, String expectedAudience) {
         return Mono.just(jwtProof)
                 .flatMap(jwt -> parseAndValidateJwt(jwt, expectedAudience, allowedAlgs))
                 .doOnNext(jws -> log.debug("JWT parsed successfully"))
-                .flatMap(this::validateSignatureAccordingToHeader)
+                .flatMap(signedJWT -> validateNonce(signedJWT)
+                        .flatMap(nonceValid -> {
+                            if (!nonceValid) {
+                                return Mono.just(false);
+                            }
+                            return validateSignatureAccordingToHeader(signedJWT);
+                        }))
                 .defaultIfEmpty(false)
-                // TODO: Check nonce when implemented
                 .doOnSuccess(result -> log.debug("Final validation result: {}", result))
                 .onErrorMap(e -> (e instanceof ProofValidationException) ? e
                         : new ProofValidationException("Error during JWT validation"));
+    }
+
+    private Mono<Boolean> validateNonce(SignedJWT signedJWT) {
+        var payload = signedJWT.getPayload().toJSONObject();
+        Object nonceObj = payload.get("nonce");
+
+        if (nonceObj == null || nonceObj.toString().isBlank()) {
+            return Mono.error(new ProofValidationException("invalid_proof: nonce is missing"));
+        }
+
+        String nonce = nonceObj.toString();
+        return nonceCacheStore.get(nonce)
+                .switchIfEmpty(Mono.error(new ProofValidationException("invalid_proof: nonce is invalid or expired")))
+                .flatMap(cached -> nonceCacheStore.delete(nonce).thenReturn(true));
     }
 
     private Mono<Boolean> validateSignatureAccordingToHeader(SignedJWT signedJWT) {

@@ -20,11 +20,16 @@ public record IssuerIdentityProperties(
             Crypto crypto) {
         this.credentialSubjectDidKey = credentialSubjectDidKey;
         this.jwtCredential = jwtCredential;
-        this.crypto = crypto;
+        this.crypto = crypto != null ? crypto : new Crypto("");
     }
 
     @Validated
-    public record Crypto(@NotBlank String privateKey) {
+    public record Crypto(String privateKey) {
+        public Crypto {
+            if (privateKey == null) {
+                privateKey = "";
+            }
+        }
     }
 }
 

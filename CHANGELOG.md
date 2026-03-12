@@ -3,6 +3,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Changed
+
+- Refactor email templates: replace 6 per-language HTML files with 3 unified Thymeleaf i18n templates using locale-based resolution.
+- Modernize email template design with consistent table-based layout, inline styles, and unified color scheme.
+- Update EmailServiceImpl to use locale-aware Thymeleaf context instead of language-suffix template names.
+- Clean up messages.properties: remove orphaned keys and add new i18n keys for all email templates.
+
 ## [v2.2.21](https://github.com/in2workspace/in2-issuer-api/releases/tag/v2.2.21)
 ### Added
 - Add handling for missing exceptions in "GlobalExceptionHandler".

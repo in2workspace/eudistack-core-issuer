@@ -27,8 +27,8 @@ class DelegatingSigningProviderTest {
     @Mock SigningProvider cscSignHashProvider;
 
     private static SigningRequest anyValidRequest() {
-        var ctx = new SigningContext("token", "procedureId", "email@example.com");
-        return new SigningRequest(SigningType.JADES, "{\"vc\":\"unsigned\"}", ctx);
+        var ctx = new SigningContext("token", "issuanceId", "email@example.com");
+        return new SigningRequest(SigningType.JADES, "{\"vc\":\"unsigned\"}", ctx, null);
     }
 
     @Test

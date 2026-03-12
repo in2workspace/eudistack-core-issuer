@@ -2,6 +2,7 @@ package es.in2.issuer.backend.signing.infrastructure.controller;
 
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningConfigPushRequest;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,6 +22,8 @@ class SigningRuntimeConfigControllerTest {
 
     @Mock
     private RuntimeSigningConfig runtimeSigningConfig;
+    @Mock
+    private AuditService auditService;
 
     @InjectMocks
     private SigningRuntimeConfigController controller;

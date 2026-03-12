@@ -1,24 +1,20 @@
 package es.in2.issuer.backend.statuslist.application;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import es.in2.issuer.backend.statuslist.domain.service.LegacyCredentialStatusRevocationService;
-import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
-import es.in2.issuer.backend.shared.domain.model.entities.CredentialProcedure;
+import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
-import es.in2.issuer.backend.shared.domain.service.CredentialProcedureService;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
+import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
-import es.in2.issuer.backend.statuslist.application.policies.StatusListPdpService;
-import es.in2.issuer.backend.statuslist.domain.exception.CredentialDecodedInvalidJsonException;
-import es.in2.issuer.backend.statuslist.domain.exception.CredentialStatusMissingException;
+import es.in2.issuer.backend.shared.domain.policy.service.StatusListPdpService;
 import es.in2.issuer.backend.statuslist.domain.spi.StatusListProvider;
+import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-import static es.in2.issuer.backend.statuslist.domain.util.Constants.BITSTRING_ENTRY_TYPE;
+import java.util.Map;
+
 import static es.in2.issuer.backend.statuslist.domain.util.Constants.REVOKED;
 import static es.in2.issuer.backend.statuslist.domain.util.Preconditions.requireNonNullParam;
 
@@ -30,36 +26,35 @@ public class RevocationWorkflow {
     private final StatusListProvider statusListProvider;
     private final AccessTokenService accessTokenService;
     private final StatusListPdpService statusListPdpService;
-    private final CredentialProcedureService credentialProcedureService;
-    private final ObjectMapper objectMapper;
+    private final IssuanceService issuanceService;
     private final EmailService emailService;
-    private final LegacyCredentialStatusRevocationService legacyCredentialStatusRevocationService;
+    private final AuditService auditService;
 
-    private record RevocationContext(String token, CredentialProcedure procedure) { }
+    private record RevocationContext(String token, Issuance issuance) { }
 
     @FunctionalInterface
     private interface RevocationValidator {
-        Mono<Void> validate(String processId, String token, CredentialProcedure procedure);
+        Mono<Void> validate(String processId, String token, Issuance issuance);
     }
 
-    public Mono<Void> revoke(String processId, String bearerToken, String credentialProcedureId, int listId) {
+    @Observed(name = "revocation.revoke", contextualName = "revocation-revoke")
+    public Mono<Void> revoke(String processId, String bearerToken, String issuanceId) {
         return revokeInternal(
                 processId,
                 bearerToken,
-                credentialProcedureId,
-                listId,
+                issuanceId,
                 statusListPdpService::validateRevokeCredential,
                 "revokeCredential"
         );
     }
 
-    public Mono<Void> revokeSystem(String processId, String bearerToken, String credentialProcedureId, int listId) {
+    @Observed(name = "revocation.revoke-system", contextualName = "revocation-revoke-system")
+    public Mono<Void> revokeSystem(String processId, String bearerToken, String issuanceId) {
         return revokeInternal(
                 processId,
                 bearerToken,
-                credentialProcedureId,
-                listId,
-                (pid, token, procedure) -> statusListPdpService.validateRevokeCredentialSystem(pid, procedure),
+                issuanceId,
+                (pid, token, issuance) -> statusListPdpService.validateRevokeCredentialSystem(pid, issuance),
                 "revokeSystemCredential"
         );
     }
@@ -67,133 +62,72 @@ public class RevocationWorkflow {
     private Mono<Void> revokeInternal(
             String processId,
             String bearerToken,
-            String credentialProcedureId,
-            int listId,
+            String issuanceId,
             RevocationValidator validator,
             String action
     ) {
         requireNonNullParam(processId, "processId");
         requireNonNullParam(bearerToken, "bearerToken");
-        requireNonNullParam(credentialProcedureId, "credentialProcedureId");
+        requireNonNullParam(issuanceId, "issuanceId");
 
         return accessTokenService.getCleanBearerToken(bearerToken)
                 .doFirst(() -> log.info(
-                        "processId={} action={} status=started procedureId={} listId={}",
-                        processId, action, credentialProcedureId, listId
+                        "processId={} action={} status=started issuanceId={}",
+                        processId, action, issuanceId
                 ))
                 .flatMap(token ->
-                        credentialProcedureService.getCredentialProcedureById(credentialProcedureId)
+                        issuanceService.getIssuanceById(issuanceId)
                                 .doOnSuccess(p -> log.debug(
-                                        "processId={} action={} step=procedureLoaded procedureId={} credentialStatus={}",
-                                        processId, action, credentialProcedureId, p != null ? p.getCredentialStatus() : null
+                                        "processId={} action={} step=issuanceLoaded issuanceId={} credentialStatus={}",
+                                        processId, action, issuanceId, p != null ? p.getCredentialStatus() : null
                                 ))
-                                .flatMap(procedure ->
-                                        validator.validate(processId, token, procedure)
+                                .flatMap(issuance ->
+                                        validator.validate(processId, token, issuance)
                                                 .doOnSuccess(v -> log.info(
-                                                        "processId={} action={} step=validationPassed procedureId={}",
-                                                        processId, action, credentialProcedureId
+                                                        "processId={} action={} step=validationPassed issuanceId={}",
+                                                        processId, action, issuanceId
                                                 ))
-                                                .thenReturn(new RevocationContext(token, procedure))
+                                                .thenReturn(new RevocationContext(token, issuance))
                                 )
                 )
-                .flatMap(ctx -> {
-                    CredentialStatus credentialStatus = parseCredentialStatus(
-                            processId,
-                            credentialProcedureId,
-                            ctx.procedure.getCredentialDecoded()
-                    );
-
-                    return routeRevocation(processId, credentialProcedureId, listId, credentialStatus, ctx.token)
-                            .then(credentialProcedureService.updateCredentialProcedureCredentialStatusToRevoke(ctx.procedure)
-                                    .doOnSuccess(v -> log.info(
-                                            "processId={} action={} step=procedureUpdated procedureId={}",
-                                            processId, action, credentialProcedureId
-                                    ))
-                            )
-                            .then(emailService.notifyIfCredentialStatusChanges(ctx.procedure, REVOKED)
-                                    .doOnSuccess(v -> log.debug(
-                                            "processId={} action={} step=emailNotificationTriggered procedureId={} newStatus={}",
-                                            processId, action, credentialProcedureId, REVOKED
-                                    ))
-                            );
+                .flatMap(ctx ->
+                        statusListProvider.revoke(issuanceId, ctx.token)
+                                .then(issuanceService.updateIssuanceStatusToRevoked(ctx.issuance)
+                                        .doOnSuccess(v -> log.info(
+                                                "processId={} action={} step=issuanceUpdated issuanceId={}",
+                                                processId, action, issuanceId
+                                        ))
+                                )
+                                .then(issuanceService.extractCredentialId(ctx.issuance)
+                                        .defaultIfEmpty(issuanceId)
+                                        .flatMap(credentialId -> emailService.sendCredentialStatusChangeNotification(
+                                                ctx.issuance.getEmail(),
+                                                credentialId,
+                                                ctx.issuance.getCredentialType(),
+                                                REVOKED
+                                        ))
+                                        .doOnSuccess(v -> log.debug(
+                                                "processId={} action={} step=emailNotificationTriggered issuanceId={} newStatus={}",
+                                                processId, action, issuanceId, REVOKED
+                                        ))
+                                        .onErrorResume(e -> {
+                                            log.warn(
+                                                    "processId={} action={} step=emailNotificationFailed issuanceId={} error={}",
+                                                    processId, action, issuanceId, e.toString()
+                                            );
+                                            return Mono.empty();
+                                        })
+                                )
+                )
+                .doOnSuccess(v -> {
+                    log.info("processId={} action={} status=completed issuanceId={}",
+                            processId, action, issuanceId);
+                    auditService.auditSuccess("credential.revoked", null, "credential", issuanceId,
+                            Map.of("processId", processId, "action", action));
                 })
-                .doOnSuccess(v -> log.info(
-                        "processId={} action={} status=completed procedureId={} listId={}",
-                        processId, action, credentialProcedureId, listId
-                ))
                 .doOnError(e -> log.warn(
-                        "processId={} action={} status=failed procedureId={} listId={} error={}",
-                        processId, action, credentialProcedureId, listId, e.toString()
+                        "processId={} action={} status=failed issuanceId={} error={}",
+                        processId, action, issuanceId, e.toString()
                 ));
-    }
-
-    private Mono<Void> routeRevocation(
-            String processId,
-            String procedureId,
-            int listId,
-            CredentialStatus credentialStatus,
-            String token
-    ) {
-        String type = credentialStatus != null ? credentialStatus.type() : null;
-
-        if (BITSTRING_ENTRY_TYPE.equals(type)) {
-            log.info(
-                    "processId={} action=revokeCredential step=route selected=bitstring procedureId={}",
-                    processId, procedureId
-            );
-            return statusListProvider.revoke(procedureId, token);
-        }
-
-        log.info(
-                "processId={} action=revokeCredential step=route selected=legacy procedureId={} listId={}",
-                processId, procedureId, listId
-        );
-        return legacyCredentialStatusRevocationService.revoke(listId, credentialStatus);
-    }
-
-    private CredentialStatus parseCredentialStatus(String processId, String procedureId, String decodedCredential) {
-        requireNonNullParam(decodedCredential, "decodedCredential");
-
-        try {
-            JsonNode root = objectMapper.readTree(decodedCredential);
-            JsonNode credentialStatusNode = root.get("credentialStatus");
-
-            if (credentialStatusNode == null || credentialStatusNode.isNull()) {
-                log.warn(
-                        "processId={} action=revokeCredential step=parseCredentialStatus result=missing procedureId={}",
-                        processId, procedureId
-                );
-                throw new CredentialStatusMissingException(procedureId);
-            }
-
-            CredentialStatus credentialStatus = CredentialStatus.builder()
-                    .id(textOrNull(credentialStatusNode, "id"))
-                    .type(textOrNull(credentialStatusNode, "type"))
-                    .statusPurpose(textOrNull(credentialStatusNode, "statusPurpose"))
-                    .statusListIndex(textOrNull(credentialStatusNode, "statusListIndex"))
-                    .statusListCredential(textOrNull(credentialStatusNode, "statusListCredential"))
-                    .build();
-
-            log.debug(
-                    "processId={} action=revokeCredential step=parseCredentialStatus result=ok procedureId={} type={} purpose={} index={}",
-                    processId, procedureId, credentialStatus.type(), credentialStatus.statusPurpose(), credentialStatus.statusListIndex()
-            );
-
-            return credentialStatus;
-        } catch (JsonProcessingException e) {
-            log.warn(
-                    "processId={} action=revokeCredential step=parseCredentialStatus result=invalidJson procedureId={} error={}",
-                    processId, procedureId, e.toString()
-            );
-            throw new CredentialDecodedInvalidJsonException(procedureId, e);
-        }
-    }
-
-    private String textOrNull(JsonNode node, String field) {
-        JsonNode v = node.get(field);
-        if (v == null || v.isNull()) {
-            return null;
-        }
-        return v.asText();
     }
 }

@@ -2,6 +2,9 @@ package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
 import es.in2.issuer.backend.oidc4vci.application.workflow.GetCredentialIssuerMetadataWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
+import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
+import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,44 +36,45 @@ class CredentialIssuerMetadataControllerTest {
     ErrorResponseFactory errorResponseFactory;
 
     @MockBean
+    private NonceService nonceService;
+
+    @MockBean
     private GetCredentialIssuerMetadataWorkflow getCredentialIssuerMetadataWorkflow;
+
+    @MockBean
+    private IssuanceMetrics issuanceMetrics;
 
     @Test
     void testGetCredentialIssuer_Metadata_Success() {
         // Arrange
         CredentialIssuerMetadata expectedCredentialIssuerMetadata = CredentialIssuerMetadata.builder()
                 .credentialIssuer("https://issuer.example.com")
-                .issuanceEndpoint("https://issuer.example.com/vci/v1/issuances")
                 .credentialEndpoint("https://issuer.example.com/oid4vci/v1/credential")
-                .deferredCredentialEndpoint("https://issuer.example.com/oid4vci/v1/deferred-credential")
                 .credentialConfigurationsSupported(Map.of(
-                        "LEARCredentialEmployee", CredentialIssuerMetadata.CredentialConfiguration.builder()
+                        "learcredential.employee.w3c.4", CredentialIssuerMetadata.CredentialConfiguration.builder()
                                 .format("jwt_vc_json")
                                 .scope("lear_credential_employee")
                                 .cryptographicBindingMethodsSupported(Set.of("did:key"))
                                 .credentialSigningAlgValuesSupported(Set.of("ES256"))
-                                .credentialDefinition(CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition.builder()
-                                        .type(Set.of("VerifiableCredential", "LEARCredentialEmployee"))
-                                        .build())
-                                .proofTypesSupported(Map.of("jwt", CredentialIssuerMetadata.CredentialConfiguration.ProofSigninAlgValuesSupported.builder()
+                                .proofTypesSupported(Map.of("jwt", CredentialProfile.ProofTypeConfig.builder()
                                         .proofSigningAlgValuesSupported(Set.of("ES256"))
                                         .build()))
+                                .credentialMetadata(null)
+                                .vct(null)
                                 .build(),
-                        "LEARCredentialMachine", CredentialIssuerMetadata.CredentialConfiguration.builder()
+                        "learcredential.machine.w3c.3", CredentialIssuerMetadata.CredentialConfiguration.builder()
                                 .format("jwt_vc_json")
                                 .scope("lear_credential_machine")
                                 .credentialSigningAlgValuesSupported(Set.of("ES256"))
-                                .credentialDefinition(CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition.builder()
-                                        .type(Set.of("VerifiableCredential", "LEARCredentialMachine"))
-                                        .build())
+                                .credentialMetadata(null)
+                                .vct(null)
                                 .build(),
                         "VerifiableCertification", CredentialIssuerMetadata.CredentialConfiguration.builder()
                                 .format("jwt_vc_json")
                                 .scope("verifiable_certification")
                                 .credentialSigningAlgValuesSupported(Set.of("ES256"))
-                                .credentialDefinition(CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition.builder()
-                                        .type(Set.of("VerifiableCredential", "VerifiableCertification"))
-                                        .build())
+                                .credentialMetadata(null)
+                                .vct(null)
                                 .build()
                 ))
                 .build();

@@ -79,8 +79,8 @@ class PostgresUniqueViolationClassifierTest {
                         UniqueViolationClassifier.Kind.IDX
                 ),
                 Arguments.of(
-                        "violates unique constraint \"uq_status_list_index_procedure_id\"",
-                        UniqueViolationClassifier.Kind.PROCEDURE_ID
+                        "violates unique constraint \"uq_status_list_index_issuance_id\"",
+                        UniqueViolationClassifier.Kind.ISSUANCE_ID
                 )
         );
     }
@@ -89,11 +89,11 @@ class PostgresUniqueViolationClassifierTest {
     @DisplayName("Should find R2dbcException even if it is wrapped (nested cause)")
     void shouldFindCauseRecursively() {
         when(r2dbcException.getSqlState()).thenReturn("23505");
-        when(r2dbcException.getMessage()).thenReturn("unique constraint \"uq_status_list_index_procedure_id\"");
+        when(r2dbcException.getMessage()).thenReturn("unique constraint \"uq_status_list_index_issuance_id\"");
 
         Throwable wrapped = new RuntimeException("Outer", new RuntimeException("Middle", r2dbcException));
 
         UniqueViolationClassifier.Kind result = classifier.classify(wrapped);
-        assertThat(result).isEqualTo(UniqueViolationClassifier.Kind.PROCEDURE_ID);
+        assertThat(result).isEqualTo(UniqueViolationClassifier.Kind.ISSUANCE_ID);
     }
 }

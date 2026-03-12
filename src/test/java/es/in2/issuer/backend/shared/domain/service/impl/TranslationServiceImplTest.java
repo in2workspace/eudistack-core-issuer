@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -26,7 +26,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 class TranslationServiceImplTest {
 
     @Mock
-    private AppConfig appConfig;
+    private IssuerProperties appConfig;
 
     @Mock
     private MessageSource messageSource;

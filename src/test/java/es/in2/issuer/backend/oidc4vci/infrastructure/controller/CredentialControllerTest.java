@@ -1,9 +1,9 @@
 package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
-import es.in2.issuer.backend.shared.application.workflow.CredentialIssuanceWorkflow;
+import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialRequest;
-import es.in2.issuer.backend.shared.domain.model.dto.CredentialResponse;
+import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialRequest;
+import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialResponse;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,7 +26,7 @@ import static org.mockito.Mockito.when;
 class CredentialControllerTest {
 
     @Mock
-    private CredentialIssuanceWorkflow credentialIssuanceWorkflow;
+    private Oid4VciCredentialWorkflow oid4VciCredentialWorkflow;
 
     @Mock
     private AccessTokenService accessTokenService;
@@ -35,7 +35,7 @@ class CredentialControllerTest {
     private CredentialController credentialController;
 
     @Test
-    void createVerifiableCredential_whenTransactionIdPresent_returnsAccepted() {
+    void issueCredential_whenTransactionIdPresent_returnsAccepted() {
         // Arrange
         String authorizationHeader = "Bearer testToken";
 
@@ -54,14 +54,13 @@ class CredentialControllerTest {
         AccessTokenContext accessTokenContext = new AccessTokenContext(
                 "testToken",
                 "jti-123",
-                "proc-123",
-                "responseUri"
+                "proc-123"
         );
 
-        when(accessTokenService.validateAndResolveProcedure(authorizationHeader))
+        when(accessTokenService.resolveAccessTokenContext(authorizationHeader))
                 .thenReturn(Mono.just(accessTokenContext));
 
-        when(credentialIssuanceWorkflow.generateVerifiableCredentialResponse(
+        when(oid4VciCredentialWorkflow.createCredentialResponse(
                 anyString(),
                 eq(credentialRequest),
                 eq(accessTokenContext)
@@ -69,7 +68,7 @@ class CredentialControllerTest {
 
         // Act
         Mono<ResponseEntity<CredentialResponse>> result =
-                credentialController.createVerifiableCredential(authorizationHeader, credentialRequest);
+                credentialController.issueCredential(authorizationHeader, credentialRequest);
 
         // Assert
         StepVerifier.create(result)
@@ -81,7 +80,7 @@ class CredentialControllerTest {
     }
 
     @Test
-    void createVerifiableCredential_whenNoTransactionId_returnsOk() {
+    void issueCredential_whenNoTransactionId_returnsOk() {
         String authorizationHeader = "Bearer testToken";
 
         CredentialRequest credentialRequest = CredentialRequest.builder()
@@ -99,21 +98,20 @@ class CredentialControllerTest {
         AccessTokenContext accessTokenContext = new AccessTokenContext(
                 "testToken",
                 "jti-123",
-                "proc-123",
-                "responseUri"
+                "proc-123"
         );
 
-        when(accessTokenService.validateAndResolveProcedure(authorizationHeader))
+        when(accessTokenService.resolveAccessTokenContext(authorizationHeader))
                 .thenReturn(Mono.just(accessTokenContext));
 
-        when(credentialIssuanceWorkflow.generateVerifiableCredentialResponse(
+        when(oid4VciCredentialWorkflow.createCredentialResponse(
                 anyString(),
                 eq(credentialRequest),
                 eq(accessTokenContext)
         )).thenReturn(Mono.just(credentialResponse));
 
         Mono<ResponseEntity<CredentialResponse>> result =
-                credentialController.createVerifiableCredential(authorizationHeader, credentialRequest);
+                credentialController.issueCredential(authorizationHeader, credentialRequest);
 
         StepVerifier.create(result)
                 .assertNext(response -> {

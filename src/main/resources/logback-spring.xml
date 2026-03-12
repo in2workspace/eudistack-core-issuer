@@ -1,12 +1,34 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <springProperty name="LOGS" source="logging.path" defaultValue="logs"/>
-    <appender name="jsonConsole" class="ch.qos.logback.core.ConsoleAppender">
+    <!-- Console text appender (default, local development) -->
+    <appender name="CONSOLE_TEXT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
-    <root level="info">
-        <appender-ref ref="jsonConsole"/>
-    </root>
+
+    <!-- Default profile: text logging -->
+    <springProfile name="!json-logging">
+        <root level="info">
+            <appender-ref ref="CONSOLE_TEXT"/>
+        </root>
+    </springProfile>
+
+    <!-- JSON logging profile (production, staging) -->
+    <springProfile name="json-logging">
+        <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <includeMdcKeyName>traceId</includeMdcKeyName>
+                <includeMdcKeyName>spanId</includeMdcKeyName>
+                <includeMdcKeyName>audit.event</includeMdcKeyName>
+                <includeMdcKeyName>audit.outcome</includeMdcKeyName>
+                <includeMdcKeyName>audit.userId</includeMdcKeyName>
+                <includeMdcKeyName>audit.resourceType</includeMdcKeyName>
+                <includeMdcKeyName>audit.resourceId</includeMdcKeyName>
+            </encoder>
+        </appender>
+        <root level="info">
+            <appender-ref ref="CONSOLE_JSON"/>
+        </root>
+    </springProfile>
 </configuration>

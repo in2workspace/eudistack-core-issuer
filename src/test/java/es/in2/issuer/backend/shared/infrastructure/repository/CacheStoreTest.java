@@ -102,7 +102,7 @@ class CacheStoreTest {
 
     @Test
     void testGetCacheExpiryInSeconds_NormalCase() {
-        StepVerifier.create(cacheStore.getCacheExpiryInSeconds())
+        StepVerifier.create(cacheStore.getExpiryInSeconds())
                 .expectSubscription()
                 .expectNext(60) // 1 MINUTE => 60 seconds
                 .verifyComplete();
@@ -113,7 +113,7 @@ class CacheStoreTest {
         ReflectionTestUtils.setField(cacheStore, "expiryDuration", Long.MAX_VALUE);
         ReflectionTestUtils.setField(cacheStore, "timeUnit", TimeUnit.SECONDS);
 
-        StepVerifier.create(cacheStore.getCacheExpiryInSeconds())
+        StepVerifier.create(cacheStore.getExpiryInSeconds())
                 .expectSubscription()
                 .expectError(IllegalStateException.class)
                 .verify();

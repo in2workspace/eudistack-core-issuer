@@ -1,0 +1,111 @@
+# ---------------------------------------------------------------------------
+# Local development stack
+#
+# Usage:
+#   cd docker
+#   cp .env.example .env             # configurar SMTP_USERNAME y SMTP_PASSWORD
+#   docker compose up -d postgres    # solo BBDD (backend lanzado desde IDE)
+#   docker compose up -d             # BBDD + backend en contenedor
+#
+# Rebuild backend tras cambios:
+#   docker compose up -d --build backend
+# ---------------------------------------------------------------------------
+
+services:
+
+  # ---------- PostgreSQL 17 -------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    container_name: issuer-postgres
+    environment:
+      POSTGRES_DB: issuer
+      POSTGRES_USER: issuer
+      POSTGRES_PASSWORD: issuer
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U issuer -d issuer"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------- Issuer Backend ------------------------------------------------
+  backend:
+    build:
+      context: ../
+      args:
+        SKIP_TESTS: "true"
+    container_name: issuer-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      # --- DB ----------------------------------------------------------------
+      SPRING_R2DBC_URL: r2dbc:postgresql://postgres:5432/issuer
+      SPRING_R2DBC_USERNAME: issuer
+      SPRING_R2DBC_PASSWORD: issuer
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/issuer
+      SPRING_FLYWAY_DEFAULT_SCHEMA: issuer
+
+      # --- Mail (AWS SES SMTP) -----------------------------------------------
+      SMTP_HOST: email-smtp.eu-west-1.amazonaws.com
+      SMTP_PORT: 587
+      SMTP_USERNAME: ${SMTP_USERNAME}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_AUTH: "true"
+      SMTP_STARTTLS: "true"
+      SMTP_SSL_ENABLE: "false"
+      SMTP_SSL_TRUST: ""
+
+      # --- App ---------------------------------------------------------------
+      APP_MAIL_FROM: noreply@mail-stg.altia.eudistack.net
+      APP_URL: http://localhost:8080
+      APP_ISSUER_FRONTEND_URL: http://localhost:4200
+      APP_TRUST_FRAMEWORK_URL: https://trust-framework.example.com
+      APP_KNOWLEDGE_BASE_UPLOAD_CERTIFICATION_GUIDE_URL: https://example.com/guide
+      APP_KNOWLEDGE_BASE_WALLET_GUIDE_URL: https://example.com/wallet
+      APP_VERIFIER_URL: https://verifier.example.com
+      APP_WALLET_URL: https://wallet.example.com
+      APP_CONFIG_SOURCE: yaml
+      APP_DEFAULT_LANG: en
+      APP_ADMIN_ORGANIZATION_ID: VATES-B60645900
+      APP_SYS_TENANT: SYSTEM
+
+      # --- Issuer Identity ---------------------------------------------------
+      ISSUER_IDENTITY_CREDENTIAL_SUBJECT_DID_KEY: "did:key:z6MkqmaCT2JqdUtLeKah7tEVfNXtDXtQyj4yxEgV11Y5CqUa"
+      ISSUER_IDENTITY_JWT_CREDENTIAL: ""
+      ISSUER_IDENTITY_CRYPTO_PRIVATE_KEY: ""
+
+      # --- Default Signer ----------------------------------------------------
+      DEFAULT_SIGNER_COMMON_NAME: "Local Dev Issuer"
+      DEFAULT_SIGNER_COUNTRY: "ES"
+      DEFAULT_SIGNER_EMAIL: "dev@example.com"
+      DEFAULT_SIGNER_ORGANIZATION_IDENTIFIER: "VATES-B60645900"
+      DEFAULT_SIGNER_ORGANIZATION: "Dev Organization"
+      DEFAULT_SIGNER_SERIAL_NUMBER: "B60645900"
+
+      # --- Signing -----------------------------------------------------------
+      SIGNING_RUNTIME_ENABLED: "true"
+      SIGNING_RUNTIME_CONTROLLER_ENABLED: "true"
+
+      # --- CORS --------------------------------------------------------------
+      CORS_DEFAULT_ALLOWED_ORIGINS: http://localhost:4200
+      CORS_EXTERNAL_ALLOWED_ORIGINS: http://localhost:4200
+
+
+      # --- Logging -----------------------------------------------------------
+      LOGGING_LEVEL_ES_IN2_ISSUER: DEBUG
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  pgdata:
