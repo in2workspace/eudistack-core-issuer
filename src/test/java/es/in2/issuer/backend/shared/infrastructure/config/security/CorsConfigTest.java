@@ -15,7 +15,7 @@ class CorsConfigTest {
     private final CorsConfig corsConfig = new CorsConfig();
 
     @Test
-    void corsConfigurationSource_shouldAllowAnyOrigin() {
+    void corsConfigurationSource_shouldAllowSpecificOrigins() {
         UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
 
         var exchange = MockServerWebExchange.from(
@@ -24,8 +24,17 @@ class CorsConfigTest {
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
         assertNotNull(config);
-        assertNotNull(config.getAllowedOriginPatterns());
-        assertTrue(config.getAllowedOriginPatterns().contains("*"));
+        java.util.List<String> origins = config.getAllowedOrigins() != null
+                ? config.getAllowedOrigins()
+                : config.getAllowedOriginPatterns();
+
+        java.util.Objects.requireNonNull(origins);
+
+        assertTrue(origins.contains("http://localhost:4200"));
+        assertTrue(origins.contains("http://localhost:4201"));
+        assertTrue(origins.contains("http://localhost:4202"));
+
+        assertFalse(origins.contains("*"));
     }
 
     @Test
