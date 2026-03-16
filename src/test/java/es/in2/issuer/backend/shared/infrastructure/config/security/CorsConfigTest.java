@@ -1,6 +1,12 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
+import es.in2.issuer.backend.shared.infrastructure.config.properties.AppProperties;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.web.cors.CorsConfiguration;
@@ -9,10 +15,23 @@ import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.lenient;
 
+@ExtendWith(MockitoExtension.class)
 class CorsConfigTest {
 
-    private final CorsConfig corsConfig = new CorsConfig();
+    @Mock
+    private AppProperties appProperties;
+
+    @InjectMocks
+    private CorsConfig corsConfig;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(appProperties.issuerFrontendUrl()).thenReturn("https://mock-issuer");
+        lenient().when(appProperties.walletUrl()).thenReturn("https://mock-wallet");
+    }
+
 
     @Test
     void corsConfigurationSource_shouldAllowSpecificOrigins() {
@@ -30,10 +49,8 @@ class CorsConfigTest {
 
         java.util.Objects.requireNonNull(origins);
 
-        assertTrue(origins.contains("http://localhost:4200"));
-        assertTrue(origins.contains("http://localhost:4201"));
-        assertTrue(origins.contains("http://localhost:4202"));
-
+        assertTrue(origins.contains("https://mock-issuer"));
+        assertTrue(origins.contains("https://mock-wallet"));
         assertFalse(origins.contains("*"));
     }
 

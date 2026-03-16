@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
+import es.in2.issuer.backend.shared.infrastructure.config.properties.AppProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -38,9 +39,13 @@ class SecurityConfigTest {
 
     private WebFilterChainProxy securityProxy;
 
+    @Mock private AppProperties appProperties;
+
     @BeforeEach
     void setUp() {
-        CorsConfig corsConfig = new CorsConfig();
+        org.mockito.Mockito.lenient().when(appProperties.issuerFrontendUrl()).thenReturn("http://mock");
+        org.mockito.Mockito.lenient().when(appProperties.walletUrl()).thenReturn("http://mock");
+        CorsConfig corsConfig = new CorsConfig(appProperties);
 
         SecurityConfig securityConfig = new SecurityConfig(
                 customAuthenticationManager,
