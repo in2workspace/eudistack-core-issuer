@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
-import es.in2.issuer.backend.shared.infrastructure.config.properties.AppProperties;
+import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,20 +15,20 @@ import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class CorsConfigTest {
 
     @Mock
-    private AppProperties appProperties;
+    private AppConfig appConfig;
 
     @InjectMocks
     private CorsConfig corsConfig;
 
     @BeforeEach
     void setUp() {
-        lenient().when(appProperties.issuerFrontendUrl()).thenReturn("https://mock-issuer");
+        when(appConfig.getIssuerFrontendUrl()).thenReturn("https://mock-issuer");
     }
 
 
@@ -41,13 +41,9 @@ class CorsConfigTest {
         );
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
-        assertNotNull(config);
-        java.util.List<String> origins = config.getAllowedOrigins() != null
-                ? config.getAllowedOrigins()
-                : config.getAllowedOriginPatterns();
+        List<String> origins = config.getAllowedOrigins();
 
-        java.util.Objects.requireNonNull(origins);
-
+        assertNotNull(origins, "Allowed origins should not be null");
         assertTrue(origins.contains("https://mock-issuer"));
         assertFalse(origins.contains("*"));
     }

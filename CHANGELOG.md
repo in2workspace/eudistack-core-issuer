@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v3.0.1](https://github.com/in2workspace/in2-issuer-api/releases/tag/v3.0.1)
 ### Changed
-- Update dependencies to fix vulnerabilities.
+- Restricted CORS allowed origins to prevent unauthorized cross-origin requests (SEC-001).
+- Refactored CorsConfig to use AppConfig for dynamic origin loading.
 
 ## [v2.2.21](https://github.com/in2workspace/in2-issuer-api/releases/tag/v2.2.21)
 ### Added

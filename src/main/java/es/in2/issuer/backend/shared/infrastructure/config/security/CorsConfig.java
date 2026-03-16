@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
-import es.in2.issuer.backend.shared.infrastructure.config.properties.AppProperties;
+import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.cors.CorsConfiguration;
@@ -13,13 +13,14 @@ import java.util.List;
 @RequiredArgsConstructor
 public class CorsConfig {
 
-    private final AppProperties appProperties;
+    private final AppConfig appConfig;
 
     @Bean
     public UrlBasedCorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOriginPatterns(List.of(
-                appProperties.issuerFrontendUrl()
+
+        config.setAllowedOrigins(List.of(
+                appConfig.getIssuerFrontendUrl()
         ));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
