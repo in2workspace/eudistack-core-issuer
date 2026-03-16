@@ -117,7 +117,7 @@ class IssuancePdpServiceImplTest {
                 null,
                 credentialType,
                 sysAdmin,
-                null
+                orgId
         );
     }
 
@@ -131,7 +131,7 @@ class IssuancePdpServiceImplTest {
                 profile,
                 credentialType,
                 sysAdmin,
-                null
+                orgId
         );
     }
 
