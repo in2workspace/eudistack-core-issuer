@@ -44,7 +44,6 @@ class SecurityConfigTest {
     @BeforeEach
     void setUp() {
         org.mockito.Mockito.lenient().when(appProperties.issuerFrontendUrl()).thenReturn("http://mock");
-        org.mockito.Mockito.lenient().when(appProperties.walletUrl()).thenReturn("http://mock");
         CorsConfig corsConfig = new CorsConfig(appProperties);
 
         SecurityConfig securityConfig = new SecurityConfig(

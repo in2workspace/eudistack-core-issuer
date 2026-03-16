@@ -29,7 +29,6 @@ class CorsConfigTest {
     @BeforeEach
     void setUp() {
         lenient().when(appProperties.issuerFrontendUrl()).thenReturn("https://mock-issuer");
-        lenient().when(appProperties.walletUrl()).thenReturn("https://mock-wallet");
     }
 
 
@@ -50,7 +49,6 @@ class CorsConfigTest {
         java.util.Objects.requireNonNull(origins);
 
         assertTrue(origins.contains("https://mock-issuer"));
-        assertTrue(origins.contains("https://mock-wallet"));
         assertFalse(origins.contains("*"));
     }
 
