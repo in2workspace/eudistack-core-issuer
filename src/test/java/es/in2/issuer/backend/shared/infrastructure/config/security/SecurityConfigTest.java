@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
+import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -32,15 +33,20 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class SecurityConfigTest {
 
-    @Mock private CustomAuthenticationManager customAuthenticationManager;
-    @Mock private ProblemAuthenticationEntryPoint entryPoint;
-    @Mock private ProblemAccessDeniedHandler deniedHandler;
+    @Mock
+    private CustomAuthenticationManager customAuthenticationManager;
+    @Mock
+    private ProblemAuthenticationEntryPoint entryPoint;
+    @Mock
+    private ProblemAccessDeniedHandler deniedHandler;
+    @Mock
+    private CorsConfig corsConfig;
 
     private WebFilterChainProxy securityProxy;
 
     @BeforeEach
     void setUp() {
-        CorsConfig corsConfig = new CorsConfig();
+        when(corsConfig.corsConfigurationSource()).thenReturn(new UrlBasedCorsConfigurationSource());
 
         SecurityConfig securityConfig = new SecurityConfig(
                 customAuthenticationManager,

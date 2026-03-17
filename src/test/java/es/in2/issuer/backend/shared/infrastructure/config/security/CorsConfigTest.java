@@ -1,6 +1,11 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
+import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.web.cors.CorsConfiguration;
@@ -8,50 +13,71 @@ import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.when;
 
+@ExtendWith(MockitoExtension.class)
 class CorsConfigTest {
 
-    private final CorsConfig corsConfig = new CorsConfig();
+    @Mock
+    private AppConfig appConfig;
+
+    @InjectMocks
+    private CorsConfig corsConfig;
 
     @Test
-    void corsConfigurationSource_shouldAllowAnyOrigin() {
-        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+    void CorsConfigurationSource_FrontendUrlsConfigured_AllowsConfiguredOrigins() {
+        // Arrange
+        when(appConfig.getIssuerFrontendUrl()).thenReturn("https://mock-issuer");
+        when(appConfig.getWalletFrontendUrl()).thenReturn("https://mock-wallet");
 
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
         var exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/any/path").build()
         );
+
+        // Act
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
-        assertNotNull(config);
-        assertNotNull(config.getAllowedOriginPatterns());
-        assertTrue(config.getAllowedOriginPatterns().contains("*"));
+        // Assert
+        assertThat(config.getAllowedOrigins()).contains("https://mock-issuer", "https://mock-wallet");
     }
 
     @Test
-    void corsConfigurationSource_shouldAllowStandardMethods() {
-        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+    void CorsConfigurationSource_FrontendUrlsConfigured_AllowsStandardHttpMethods() {
+        // Arrange
+        when(appConfig.getIssuerFrontendUrl()).thenReturn("https://mock-issuer");
+        when(appConfig.getWalletFrontendUrl()).thenReturn("https://mock-wallet");
 
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
         var exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/any/path").build()
         );
+
+        // Act
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
-        assertNotNull(config);
-        assertNotNull(config.getAllowedMethods());
-        assertTrue(config.getAllowedMethods().containsAll(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS")));
+        // Assert
+        assertThat(config.getAllowedMethods())
+                .isNotNull()
+                .containsAll(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
     }
 
     @Test
-    void corsConfigurationSource_shouldNotAllowCredentials() {
-        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+    void CorsConfigurationSource_FrontendUrlsConfigured_DoesNotAllowCredentials() {
+        // Arrange
+        when(appConfig.getIssuerFrontendUrl()).thenReturn("https://mock-issuer");
+        when(appConfig.getWalletFrontendUrl()).thenReturn("https://mock-wallet");
 
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
         var exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/any/path").build()
         );
+
+        // Act
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
-        assertNotNull(config);
-        assertFalse(Boolean.TRUE.equals(config.getAllowCredentials()));
+        // Assert
+        assertThat(config.getAllowCredentials()).isNotEqualTo(Boolean.TRUE);
     }
 }

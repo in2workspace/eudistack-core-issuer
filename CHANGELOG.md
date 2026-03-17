@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Update EmailServiceImpl to use locale-aware Thymeleaf context instead of language-suffix template names.
 - Clean up messages.properties: remove orphaned keys and add new i18n keys for all email templates.
 
+## [v3.0.1](https://github.com/in2workspace/in2-issuer-api/releases/tag/v3.0.1)
+### Changed
+- Restricted CORS allowed origins to prevent unauthorized cross-origin requests (SEC-001).
+- Refactored CorsConfig to use AppConfig for dynamic origin loading.
+
 ## [v2.2.21](https://github.com/in2workspace/in2-issuer-api/releases/tag/v2.2.21)
 ### Added
 - Add handling for missing exceptions in "GlobalExceptionHandler".
