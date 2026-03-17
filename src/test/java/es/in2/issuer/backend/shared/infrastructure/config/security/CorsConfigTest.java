@@ -35,6 +35,7 @@ class CorsConfigTest {
         var exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/any/path").build()
         );
+
         // Act
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
@@ -52,6 +53,7 @@ class CorsConfigTest {
         var exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/any/path").build()
         );
+
         // Act
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
@@ -71,6 +73,7 @@ class CorsConfigTest {
         var exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/any/path").build()
         );
+
         // Act
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
