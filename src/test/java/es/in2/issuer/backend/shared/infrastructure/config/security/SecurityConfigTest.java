@@ -44,7 +44,6 @@ class SecurityConfigTest {
 
     private WebFilterChainProxy securityProxy;
 
-
     @BeforeEach
     void setUp() {
         when(corsConfig.corsConfigurationSource()).thenReturn(new UrlBasedCorsConfigurationSource());
