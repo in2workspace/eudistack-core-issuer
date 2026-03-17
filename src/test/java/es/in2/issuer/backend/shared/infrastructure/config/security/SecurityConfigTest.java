@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -39,12 +39,11 @@ class SecurityConfigTest {
 
     private WebFilterChainProxy securityProxy;
 
-    @Mock private AppConfig appConfig;
+    @Mock private CorsConfig corsConfig;
 
     @BeforeEach
     void setUp() {
-        lenient().when(appConfig.getIssuerFrontendUrl()).thenReturn("http://mock");
-        CorsConfig corsConfig = new CorsConfig(appConfig);
+        when(corsConfig.corsConfigurationSource()).thenReturn(new UrlBasedCorsConfigurationSource());
 
         SecurityConfig securityConfig = new SecurityConfig(
                 customAuthenticationManager,
