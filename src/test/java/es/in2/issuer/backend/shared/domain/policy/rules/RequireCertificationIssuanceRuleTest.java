@@ -50,7 +50,7 @@ class RequireCertificationIssuanceRuleTest {
     @Test
     void evaluate_succeedsWhenBothSignerAndIdTokenHaveCertificationAttest() throws Exception {
         List<Power> signerPowers = buildPowers("Certification", "Attest");
-        PolicyContext ctx = new PolicyContext("Org", signerPowers, null, null, "learcredential.machine.w3c.3", false, null);
+        PolicyContext ctx = new PolicyContext("Org", signerPowers, null, null, "learcredential.machine.w3c.3", false, null, null);
 
         String idToken = "dummy-id-token";
 
@@ -76,7 +76,7 @@ class RequireCertificationIssuanceRuleTest {
     @Test
     void evaluate_failsWhenSignerLacksCertificationPower() {
         List<Power> signerPowers = buildPowers("Onboarding", "Execute");
-        PolicyContext ctx = new PolicyContext("Org", signerPowers, null, null, "learcredential.machine.w3c.3", false, null);
+        PolicyContext ctx = new PolicyContext("Org", signerPowers, null, null, "learcredential.machine.w3c.3", false, null, null);
 
         StepVerifier.create(rule.evaluate(ctx, "dummy-id-token"))
                 .expectErrorMatches(e ->
@@ -88,7 +88,7 @@ class RequireCertificationIssuanceRuleTest {
     @Test
     void evaluate_failsWhenIdTokenLacksCertificationPower() throws Exception {
         List<Power> signerPowers = buildPowers("Certification", "Attest");
-        PolicyContext ctx = new PolicyContext("Org", signerPowers, null, null, "learcredential.machine.w3c.3", false, null);
+        PolicyContext ctx = new PolicyContext("Org", signerPowers, null, null, "learcredential.machine.w3c.3", false, null, null);
 
         String idToken = "dummy-id-token";
 

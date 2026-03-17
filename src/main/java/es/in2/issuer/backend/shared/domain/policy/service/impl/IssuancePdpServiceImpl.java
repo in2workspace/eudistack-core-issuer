@@ -30,6 +30,8 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 @RequiredArgsConstructor
 public class IssuancePdpServiceImpl implements IssuancePdpService {
 
+    private static final String AUDIT_TENANT_DOMAIN = "tenantDomain";
+
     private final PolicyContextFactory policyContextFactory;
     private final PolicyEnforcer policyEnforcer;
     private final ObjectMapper objectMapper;
@@ -57,10 +59,30 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
                         Mono<Void> decision = evaluateIssuancePolicy(profile, ctx, payload, idToken);
                         return decision
                                 .doOnSuccess(v -> auditService.auditSuccess("authorization.permit",
-                                        ctx.organizationIdentifier(), "issuance", credentialConfigurationId, java.util.Map.of()))
+                                        ctx.organizationIdentifier(), "issuance", credentialConfigurationId,
+                                        java.util.Map.of(AUDIT_TENANT_DOMAIN, tenantDomain != null ? tenantDomain : "")))
                                 .doOnError(e -> auditService.auditFailure("authorization.deny",
-                                        ctx.organizationIdentifier(), e.getMessage(), java.util.Map.of("credentialType", credentialConfigurationId)));
+                                        ctx.organizationIdentifier(), e.getMessage(),
+                                        java.util.Map.of("credentialType", credentialConfigurationId,
+                                                AUDIT_TENANT_DOMAIN, tenantDomain != null ? tenantDomain : "")));
                     });
+        });
+    }
+
+    @Override
+    public Mono<Void> validateTenantAccess() {
+        return Mono.deferContextual(reactorCtx -> {
+            String tenantDomain = reactorCtx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null);
+
+            return getTokenFromSecurityContext()
+                    .flatMap(token -> policyContextFactory.fromTokenSimple(token, tenantDomain))
+                    .flatMap(ctx -> new RequireTenantMatchRule().evaluate(ctx, null)
+                            .doOnSuccess(v -> auditService.auditSuccess("authorization.tenant-access",
+                                    ctx.organizationIdentifier(), "issuance", "read",
+                                    java.util.Map.of(AUDIT_TENANT_DOMAIN, tenantDomain != null ? tenantDomain : "")))
+                            .doOnError(e -> auditService.auditFailure("authorization.tenant-access-denied",
+                                    ctx.organizationIdentifier(), e.getMessage(),
+                                    java.util.Map.of(AUDIT_TENANT_DOMAIN, tenantDomain != null ? tenantDomain : ""))));
         });
     }
 

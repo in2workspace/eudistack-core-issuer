@@ -6,6 +6,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.CredentialDetails;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
+import es.in2.issuer.backend.shared.domain.policy.service.IssuancePdpService;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
@@ -33,6 +34,7 @@ public class IssuanceController {
     private final IssuanceWorkflow issuanceWorkflow;
     private final IssuanceService issuanceService;
     private final AccessTokenService accessTokenService;
+    private final IssuancePdpService issuancePdpService;
     private final RevocationWorkflow revocationWorkflow;
 
     @PostMapping(
@@ -50,7 +52,8 @@ public class IssuanceController {
     @ResponseStatus(HttpStatus.OK)
     public Mono<IssuanceList> getAllIssuances(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader) {
-        return accessTokenService.getOrganizationContext(authorizationHeader)
+        return issuancePdpService.validateTenantAccess()
+                .then(accessTokenService.getOrganizationContext(authorizationHeader))
                 .flatMap(ctx -> issuanceService.getAllIssuancesVisibleFor(
                         ctx.organizationIdentifier(), ctx.sysAdmin()));
     }
@@ -60,7 +63,8 @@ public class IssuanceController {
     public Mono<CredentialDetails> getIssuance(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
             @PathVariable("id") String id) {
-        return accessTokenService.getOrganizationContext(authorizationHeader)
+        return issuancePdpService.validateTenantAccess()
+                .then(accessTokenService.getOrganizationContext(authorizationHeader))
                 .flatMap(ctx -> issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
                         ctx.organizationIdentifier(), id, ctx.sysAdmin()));
     }
