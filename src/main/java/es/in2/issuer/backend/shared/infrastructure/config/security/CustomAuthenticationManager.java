@@ -132,13 +132,15 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
     }
 
     private Mono<Jwt> verifyAndParseJwtForIssuer(String issuer, String token) {
-        if (appConfig.isVerifierIssuer(issuer)) {
-            log.debug("Token from Verifier - issuer: {}", issuer);
-            return handleVerifierToken(token);
-        }
+        // Check issuer backend first — baseOriginMatches is intentionally fuzzy and would
+        // also match verifier URLs on the same domain (e.g. issuer.cgcom.* vs verifier.cgcom.*)
         if (appConfig.isIssuerBackendIssuer(issuer)) {
             log.debug("Token from Credential Issuer - {}", issuer);
             return handleIssuerBackendToken(token);
+        }
+        if (appConfig.isVerifierIssuer(issuer)) {
+            log.debug("Token from Verifier - issuer: {}", issuer);
+            return handleVerifierToken(token);
         }
         log.debug("Token from unknown issuer");
         return Mono.error(new BadCredentialsException("Unknown token issuer: " + issuer));
