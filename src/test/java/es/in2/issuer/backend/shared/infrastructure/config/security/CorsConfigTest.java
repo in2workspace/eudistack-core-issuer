@@ -26,54 +26,55 @@ class CorsConfigTest {
     private CorsConfig corsConfig;
 
     @Test
-    void corsConfigurationSource_withFrontendUrlConfigured_allowsConfiguredOrigin() {
+    void CorsConfigurationSource_FrontendUrlsConfigured_AllowsConfiguredOrigins() {
         // Arrange
         when(appConfig.getIssuerFrontendUrl()).thenReturn("https://mock-issuer");
+        when(appConfig.getWalletFrontendUrl()).thenReturn("https://mock-wallet");
 
-        // Act
         UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
         var exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/any/path").build()
         );
+        // Act
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
         // Assert
-        assertThat(config.getAllowedOrigins()).contains("https://mock-issuer");
+        assertThat(config.getAllowedOrigins()).contains("https://mock-issuer", "https://mock-wallet");
     }
 
     @Test
-    void corsConfigurationSource_withFrontendUrlConfigured_allowsStandardHttpMethods() {
+    void CorsConfigurationSource_FrontendUrlsConfigured_AllowsStandardHttpMethods() {
         // Arrange
         when(appConfig.getIssuerFrontendUrl()).thenReturn("https://mock-issuer");
+        when(appConfig.getWalletFrontendUrl()).thenReturn("https://mock-wallet");
 
-        // Act
         UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
         var exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/any/path").build()
         );
+        // Act
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
         // Assert
-        assertThat(config).isNotNull();
         assertThat(config.getAllowedMethods())
                 .isNotNull()
                 .containsAll(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
     }
 
     @Test
-    void corsConfigurationSource_withFrontendUrlConfigured_doesNotAllowCredentials() {
+    void CorsConfigurationSource_FrontendUrlsConfigured_DoesNotAllowCredentials() {
         // Arrange
         when(appConfig.getIssuerFrontendUrl()).thenReturn("https://mock-issuer");
+        when(appConfig.getWalletFrontendUrl()).thenReturn("https://mock-wallet");
 
-        // Act
         UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
         var exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/any/path").build()
         );
+        // Act
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
         // Assert
-        assertThat(config).isNotNull();
         assertThat(config.getAllowCredentials()).isNotEqualTo(Boolean.TRUE);
     }
 }

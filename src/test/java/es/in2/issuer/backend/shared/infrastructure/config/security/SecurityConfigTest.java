@@ -33,13 +33,17 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class SecurityConfigTest {
 
-    @Mock private CustomAuthenticationManager customAuthenticationManager;
-    @Mock private ProblemAuthenticationEntryPoint entryPoint;
-    @Mock private ProblemAccessDeniedHandler deniedHandler;
+    @Mock
+    private CustomAuthenticationManager customAuthenticationManager;
+    @Mock
+    private ProblemAuthenticationEntryPoint entryPoint;
+    @Mock
+    private ProblemAccessDeniedHandler deniedHandler;
+    @Mock
+    private CorsConfig corsConfig;
 
     private WebFilterChainProxy securityProxy;
 
-    @Mock private CorsConfig corsConfig;
 
     @BeforeEach
     void setUp() {

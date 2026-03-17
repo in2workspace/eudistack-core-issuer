@@ -20,7 +20,8 @@ public class CorsConfig {
         CorsConfiguration config = new CorsConfiguration();
 
         config.setAllowedOrigins(List.of(
-                appConfig.getIssuerFrontendUrl()
+                appConfig.getIssuerFrontendUrl(),
+                appConfig.getWalletFrontendUrl()
         ));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
