@@ -9,7 +9,8 @@ import reactor.core.publisher.Mono;
  * Validates that the tenant domain from the request header matches the
  * organizationIdentifier extracted from the bearer token.
  *
- * <p>If no tenant domain header is present, the rule passes (backwards compatible).
+ * <p>If no tenant domain header is present, the rule fails — nginx always injects
+ * {@code X-Tenant-Domain}, so its absence indicates a direct bypass attempt.
  * If present but mismatched, the rule fails with 403.</p>
  */
 public class RequireTenantMatchRule implements PolicyRule<Object> {
@@ -18,7 +19,7 @@ public class RequireTenantMatchRule implements PolicyRule<Object> {
     public Mono<Void> evaluate(PolicyContext context, Object target) {
         String tenantDomain = context.tenantDomain();
         if (tenantDomain == null || tenantDomain.isBlank()) {
-            return Mono.empty();
+            return Mono.error(new TenantMismatchException("X-Tenant-Domain header is required"));
         }
         if (!tenantDomain.equals(context.organizationIdentifier())) {
             return Mono.error(new TenantMismatchException(

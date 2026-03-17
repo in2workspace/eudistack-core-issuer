@@ -22,7 +22,7 @@ public class VerifierHealthIndicator implements ReactiveHealthIndicator {
 
     @Override
     public Mono<Health> health() {
-        String verifierUrl = appConfig.getVerifierUrl();
+        String verifierUrl = appConfig.getVerifierInternalUrl();
         if (verifierUrl == null || verifierUrl.isBlank()) {
             return Mono.just(Health.unknown().withDetail("reason", "verifier-url not configured").build());
         }

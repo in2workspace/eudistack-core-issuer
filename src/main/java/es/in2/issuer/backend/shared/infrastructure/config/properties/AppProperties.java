@@ -14,6 +14,7 @@ public record AppProperties(
         @NotBlank @URL String issuerFrontendUrl,
         @NotNull KnowledgeBase knowledgeBase,
         @NotBlank @URL String verifierUrl,
+        @URL String verifierInternalUrl,
         @NotBlank @URL String walletUrl,
         @NotBlank String defaultLang,
         @NotBlank String adminOrganizationId,

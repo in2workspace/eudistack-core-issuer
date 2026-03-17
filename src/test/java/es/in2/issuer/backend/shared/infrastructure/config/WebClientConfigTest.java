@@ -18,7 +18,7 @@ class WebClientConfigTest {
     void setUp() {
         // Mocking the VerifierConfig
         appConfig = Mockito.mock(AppConfig.class);
-        Mockito.when(appConfig.getVerifierUrl()).thenReturn("https://mocked-domain.com");
+        Mockito.when(appConfig.getVerifierInternalUrl()).thenReturn("https://mocked-domain.com");
 
         // Provide the WebClientConfig class and the mock VerifierConfig in the context
         context = new ApplicationContextRunner()

@@ -27,6 +27,8 @@ import reactor.test.StepVerifier;
 import reactor.util.context.Context;
 
 import java.nio.charset.StandardCharsets;
+
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
@@ -206,7 +208,8 @@ class IssuancePdpServiceImplIntegrationTest {
 
         StepVerifier.create(
                         issuancePdpService.authorize(CREDENTIAL_TYPE, jsonNode, "dummy-id-token")
-                                .contextWrite(withSecurityContext(token)))
+                                .contextWrite(withSecurityContext(token))
+                                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "VATES-B60645900")))
                 .verifyComplete();
     }
 }

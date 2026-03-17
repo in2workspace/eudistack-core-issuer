@@ -6,6 +6,7 @@ public interface IssuerProperties {
     String getIssuerFrontendUrl();
     String getWalletFrontendUrl();
     String getVerifierUrl();
+    String getVerifierInternalUrl();
     String getDefaultLang();
     String getAdminOrganizationId();
     String getSysTenant();
@@ -14,4 +15,14 @@ public interface IssuerProperties {
     String getManagementTokenOrgIdJsonPath();
     String getManagementTokenAdminPowerFunction();
     String getManagementTokenAdminPowerAction();
+
+    /**
+     * Checks whether the given issuer URL belongs to the verifier.
+     * In multi-tenant mode (subdomain routing), the verifier sets iss dynamically
+     * per tenant (e.g. cgcom.127.0.0.1.nip.io:4444 vs altia.127.0.0.1.nip.io:4444).
+     * This method compares the base origin (scheme + base domain + port) so that
+     * any tenant subdomain is accepted. Signature verification against the verifier's
+     * JWKS provides the actual cryptographic security.
+     */
+    boolean isVerifierIssuer(String issuer);
 }

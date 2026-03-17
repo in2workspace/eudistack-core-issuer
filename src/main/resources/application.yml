@@ -106,6 +106,7 @@ app:
     upload-certification-guide-url: ${APP_KNOWLEDGE_BASE_UPLOAD_CERTIFICATION_GUIDE_URL:https://example.com/guide}
     wallet-guide-url: ${APP_KNOWLEDGE_BASE_WALLET_GUIDE_URL:https://example.com/wallet}
   verifier-url: ${APP_VERIFIER_URL:https://verifier.example.com}
+  verifier-internal-url: ${APP_VERIFIER_INTERNAL_URL:}
   wallet-url: ${APP_WALLET_URL:https://wallet.example.com}
   mail-from: ${APP_MAIL_FROM:noreply@mail-stg.altia.eudistack.net}
   default-lang: ${APP_DEFAULT_LANG:en}
