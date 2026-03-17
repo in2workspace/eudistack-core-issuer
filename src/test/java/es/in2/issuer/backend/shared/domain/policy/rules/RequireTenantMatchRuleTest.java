@@ -153,6 +153,24 @@ class RequireTenantMatchRuleTest {
             StepVerifier.create(rule.evaluate(ctx, "ignored"))
                     .verifyComplete();
         }
+
+        @Test
+        void evaluate_permitsCaseInsensitiveDomainMatch() {
+            Power power = new Power(List.of("Execute"), "ALTIA", "Onboarding", null);
+            PolicyContext ctx = ctx("ORG-123", List.of(power), false, "altia", "altia");
+
+            StepVerifier.create(rule.evaluate(ctx, "ignored"))
+                    .verifyComplete();
+        }
+
+        @Test
+        void evaluate_permitsCaseInsensitiveTokenTenantMatch() {
+            Power power = new Power(List.of("Execute"), "altia", "Onboarding", null);
+            PolicyContext ctx = ctx("ORG-123", List.of(power), false, "Altia", "altia");
+
+            StepVerifier.create(rule.evaluate(ctx, "ignored"))
+                    .verifyComplete();
+        }
     }
 
     private PolicyContext ctx(String orgId, List<Power> powers, boolean sysAdmin,

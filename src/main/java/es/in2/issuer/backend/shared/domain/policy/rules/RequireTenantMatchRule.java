@@ -38,7 +38,7 @@ public class RequireTenantMatchRule implements PolicyRule<Object> {
         }
 
         // Check 3: Signed tenant claim must match the X-Tenant-Domain header
-        if (!tokenTenant.equals(tenantDomain)) {
+        if (!tokenTenant.equalsIgnoreCase(tenantDomain)) {
             return Mono.error(new TenantMismatchException(
                     "Token tenant '" + tokenTenant
                             + "' does not match tenant header '" + tenantDomain + "'"));

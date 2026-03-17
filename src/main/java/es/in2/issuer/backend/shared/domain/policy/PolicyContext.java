@@ -37,7 +37,7 @@ public record PolicyContext(
         return powers.stream().anyMatch(p ->
                 function.equals(p.function())
                         && hasAction(p, action)
-                        && domain.equals(p.domain())
+                        && domain.equalsIgnoreCase(p.domain())
         );
     }
 
