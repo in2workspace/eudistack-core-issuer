@@ -25,4 +25,12 @@ public interface IssuerProperties {
      * JWKS provides the actual cryptographic security.
      */
     boolean isVerifierIssuer(String issuer);
+
+    /**
+     * Checks whether the given issuer URL belongs to the issuer backend itself.
+     * In multi-tenant mode (subdomain routing), the issuer sets iss dynamically
+     * per tenant. This method compares the base origin (scheme + base domain + port)
+     * so that any tenant subdomain is accepted.
+     */
+    boolean isIssuerBackendIssuer(String issuer);
 }

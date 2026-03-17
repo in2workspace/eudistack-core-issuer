@@ -136,8 +136,8 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
             log.debug("Token from Verifier - issuer: {}", issuer);
             return handleVerifierToken(token);
         }
-        if (issuer.equals(appConfig.getIssuerBackendUrl())) {
-            log.debug("Token from Credential Issuer - {}", appConfig.getIssuerBackendUrl());
+        if (appConfig.isIssuerBackendIssuer(issuer)) {
+            log.debug("Token from Credential Issuer - {}", issuer);
             return handleIssuerBackendToken(token);
         }
         log.debug("Token from unknown issuer");
