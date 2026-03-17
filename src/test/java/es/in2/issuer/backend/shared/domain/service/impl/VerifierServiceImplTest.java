@@ -40,7 +40,7 @@ class VerifierServiceImplTest {
         String verifierWellKnownPath = "/.well-known/openid-configuration";
         String wellKnownInfoEndpoint = verifierExternalDomain + verifierWellKnownPath;
 
-        when(appConfig.getVerifierUrl()).thenReturn(verifierExternalDomain);
+        when(appConfig.getVerifierInternalUrl()).thenReturn(verifierExternalDomain);
 
         OpenIDProviderMetadata metadata = OpenIDProviderMetadata.builder()
                 .issuer("https://verifier.example.com")
@@ -77,7 +77,7 @@ class VerifierServiceImplTest {
                 .verifyComplete();
 
         // Verify interactions
-        verify(appConfig).getVerifierUrl();
+        verify(appConfig).getVerifierInternalUrl();
         verifyNoMoreInteractions(appConfig);
 
         // Capture the request made

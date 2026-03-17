@@ -35,7 +35,7 @@ public class WebClientConfig {
     public WebClient oauth2VerifierWebClient() {
         return WebClient.builder()
                 .clientConnector(new ReactorClientHttpConnector(HttpClient.create(connectionProvider)
-                        .baseUrl(appConfig.getVerifierUrl())
+                        .baseUrl(appConfig.getVerifierInternalUrl())
                         .followRedirect(false))
                 )
                 .build();

@@ -89,7 +89,7 @@ class CustomAuthenticationManagerTest {
                 "\"credential_type\":\"learcredential.machine.w3c.1\"}";
         String token = buildToken(headerJson, payloadJson);
 
-        when(appConfig.getVerifierUrl()).thenReturn("http://verifier.local");
+        when(appConfig.isVerifierIssuer("http://verifier.local")).thenReturn(true);
         when(verifierService.verifyToken(token)).thenReturn(Mono.empty());
 
         Authentication authentication = new TestingAuthenticationToken(null, token);
@@ -125,7 +125,7 @@ class CustomAuthenticationManagerTest {
         String payloadJson = "{\"iss\":\"http://verifier.local\",\"iat\":1633036800,\"exp\":1633040400}";
         String token = buildToken(headerJson, payloadJson);
 
-        when(appConfig.getVerifierUrl()).thenReturn("http://verifier.local");
+        when(appConfig.isVerifierIssuer("http://verifier.local")).thenReturn(true);
         when(verifierService.verifyToken(token)).thenReturn(Mono.empty());
 
         Authentication authentication = new TestingAuthenticationToken(null, token);
@@ -147,7 +147,7 @@ class CustomAuthenticationManagerTest {
                 "\"credential_type\":\"SomeOtherType\"}";
         String token = buildToken(headerJson, payloadJson);
 
-        when(appConfig.getVerifierUrl()).thenReturn("http://verifier.local");
+        when(appConfig.isVerifierIssuer("http://verifier.local")).thenReturn(true);
         when(verifierService.verifyToken(token)).thenReturn(Mono.empty());
 
         Authentication authentication = new TestingAuthenticationToken(null, token);
@@ -188,7 +188,7 @@ class CustomAuthenticationManagerTest {
 
         RuntimeException verifyException = new RuntimeException("Verification failed");
 
-        when(appConfig.getVerifierUrl()).thenReturn("http://verifier.local");
+        when(appConfig.isVerifierIssuer("http://verifier.local")).thenReturn(true);
         when(verifierService.verifyToken(token)).thenReturn(Mono.error(verifyException));
 
         Authentication authentication = new TestingAuthenticationToken(null, token);
@@ -375,7 +375,6 @@ class CustomAuthenticationManagerTest {
     void authenticate_withUnknownIssuer_throwsBadCredentialsException() {
         String token = buildAccessTokenFromIssuer("http://unknown-issuer.local", false);
 
-        when(appConfig.getVerifierUrl()).thenReturn("http://verifier.local");
         when(appConfig.getIssuerBackendUrl()).thenReturn("http://issuer.local");
 
         Authentication authentication = new TestingAuthenticationToken(null, token);

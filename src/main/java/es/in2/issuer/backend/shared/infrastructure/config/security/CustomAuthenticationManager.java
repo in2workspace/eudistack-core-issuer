@@ -132,8 +132,8 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
     }
 
     private Mono<Jwt> verifyAndParseJwtForIssuer(String issuer, String token) {
-        if (issuer.equals(appConfig.getVerifierUrl())) {
-            log.debug("Token from Verifier - {}", appConfig.getVerifierUrl());
+        if (appConfig.isVerifierIssuer(issuer)) {
+            log.debug("Token from Verifier - issuer: {}", issuer);
             return handleVerifierToken(token);
         }
         if (issuer.equals(appConfig.getIssuerBackendUrl())) {

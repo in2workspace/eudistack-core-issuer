@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.net.URI;
 import java.text.ParseException;
 import java.util.Date;
 
@@ -65,10 +66,10 @@ public class VerifierServiceImpl implements VerifierService {
                         SignedJWT signedJWT = SignedJWT.parse(accessToken);
                         JWTClaimsSet claims = signedJWT.getJWTClaimsSet();
 
-                        // Validate the issuer
-                        if (!appConfig.getVerifierUrl().equals(claims.getIssuer())) {
-                            log.info(appConfig.getVerifierUrl());
-                            log.info(claims.getIssuer());
+                        // Validate the issuer (multi-tenant: accept any tenant subdomain)
+                        if (!appConfig.isVerifierIssuer(claims.getIssuer())) {
+                            log.info("Configured verifier URL: {}", appConfig.getVerifierUrl());
+                            log.info("Token issuer: {}", claims.getIssuer());
                             return Mono.error(new JWTVerificationException("Invalid issuer"));
                         }
 
@@ -112,8 +113,12 @@ public class VerifierServiceImpl implements VerifierService {
         if (cached != null) {
             return cached;
         }
+        // Rewrite the absolute jwksUri to use the internal (HTTP) URL for server-to-server calls,
+        // since the well-known response returns the public-facing URL which may use HTTPS with
+        // certificates not trusted by this JVM (e.g. mkcert in local dev).
+        String internalJwksUri = appConfig.getVerifierInternalUrl() + URI.create(jwksUri).getPath();
         Mono<JWKSet> newCached = oauth2VerifierWebClient.get()
-                .uri(jwksUri)
+                .uri(internalJwksUri)
                 .retrieve()
                 .bodyToMono(String.class)
                 .<JWKSet>handle((jwks, sink) -> {
@@ -132,7 +137,7 @@ public class VerifierServiceImpl implements VerifierService {
 
     @Override
     public Mono<OpenIDProviderMetadata> getWellKnownInfo() {
-        String wellKnownInfoEndpoint = appConfig.getVerifierUrl() + AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH;
+        String wellKnownInfoEndpoint = appConfig.getVerifierInternalUrl() + AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH;
 
         return oauth2VerifierWebClient.get()
                 .uri(wellKnownInfoEndpoint)

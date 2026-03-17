@@ -8,7 +8,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -61,5 +61,47 @@ class AppConfigTest {
         when(appProperties.sysTenant()).thenReturn(expected);
 
         assertEquals(expected, appConfig.getSysTenant());
+    }
+
+    @Test
+    void isVerifierIssuer_ExactMatch_ReturnsTrue() {
+        when(appProperties.verifierUrl()).thenReturn("https://altia.127.0.0.1.nip.io:4444");
+
+        assertTrue(appConfig.isVerifierIssuer("https://altia.127.0.0.1.nip.io:4444"));
+    }
+
+    @Test
+    void isVerifierIssuer_DifferentSubdomain_ReturnsTrue() {
+        when(appProperties.verifierUrl()).thenReturn("https://altia.127.0.0.1.nip.io:4444");
+
+        assertTrue(appConfig.isVerifierIssuer("https://cgcom.127.0.0.1.nip.io:4444"));
+    }
+
+    @Test
+    void isVerifierIssuer_DifferentBaseDomain_ReturnsFalse() {
+        when(appProperties.verifierUrl()).thenReturn("https://altia.127.0.0.1.nip.io:4444");
+
+        assertFalse(appConfig.isVerifierIssuer("https://altia.evil.example.com:4444"));
+    }
+
+    @Test
+    void isVerifierIssuer_DifferentPort_ReturnsFalse() {
+        when(appProperties.verifierUrl()).thenReturn("https://altia.127.0.0.1.nip.io:4444");
+
+        assertFalse(appConfig.isVerifierIssuer("https://altia.127.0.0.1.nip.io:9999"));
+    }
+
+    @Test
+    void isVerifierIssuer_DifferentScheme_ReturnsFalse() {
+        when(appProperties.verifierUrl()).thenReturn("https://altia.127.0.0.1.nip.io:4444");
+
+        assertFalse(appConfig.isVerifierIssuer("http://altia.127.0.0.1.nip.io:4444"));
+    }
+
+    @Test
+    void isVerifierIssuer_CompletelyDifferentUrl_ReturnsFalse() {
+        when(appProperties.verifierUrl()).thenReturn("https://altia.127.0.0.1.nip.io:4444");
+
+        assertFalse(appConfig.isVerifierIssuer("https://evil.example.com"));
     }
 }
