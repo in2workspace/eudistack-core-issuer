@@ -1,7 +1,7 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
- import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -26,30 +26,34 @@ class CorsConfigTest {
     private CorsConfig corsConfig;
 
     @Test
-    void corsConfigurationSource_shouldAllowSpecificOrigins() {
+    void corsConfigurationSource_withFrontendUrlConfigured_allowsConfiguredOrigin() {
+        // Arrange
         when(appConfig.getIssuerFrontendUrl()).thenReturn("https://mock-issuer");
-        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
 
+        // Act
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
         var exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/any/path").build()
         );
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
-        List<String> origins = config.getAllowedOrigins();
-
-        assertThat(origins).contains("https://mock-issuer");
+        // Assert
+        assertThat(config.getAllowedOrigins()).contains("https://mock-issuer");
     }
 
     @Test
-    void corsConfigurationSource_shouldAllowStandardMethods() {
+    void corsConfigurationSource_withFrontendUrlConfigured_allowsStandardHttpMethods() {
+        // Arrange
         when(appConfig.getIssuerFrontendUrl()).thenReturn("https://mock-issuer");
-        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
 
+        // Act
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
         var exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/any/path").build()
         );
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
+        // Assert
         assertThat(config).isNotNull();
         assertThat(config.getAllowedMethods())
                 .isNotNull()
@@ -57,15 +61,18 @@ class CorsConfigTest {
     }
 
     @Test
-    void corsConfigurationSource_shouldNotAllowCredentials() {
+    void corsConfigurationSource_withFrontendUrlConfigured_doesNotAllowCredentials() {
+        // Arrange
         when(appConfig.getIssuerFrontendUrl()).thenReturn("https://mock-issuer");
-        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
 
+        // Act
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
         var exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/any/path").build()
         );
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
+        // Assert
         assertThat(config).isNotNull();
         assertThat(config.getAllowCredentials()).isNotEqualTo(Boolean.TRUE);
     }
