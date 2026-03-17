@@ -57,8 +57,13 @@ public class ClientAttestationValidationService {
 
     /**
      * Validate WIA + PoP headers and return the extracted client_id.
+     *
+     * @param wiaJwt   OAuth-Client-Attestation header value
+     * @param popJwt   OAuth-Client-Attestation-PoP header value
+     * @param audienceUrl the public issuer URL to validate PoP aud against (from request),
+     *                    falls back to configured app.url if null/blank
      */
-    public String validateHeaders(String wiaJwt, String popJwt) {
+    public String validateHeaders(String wiaJwt, String popJwt, String audienceUrl) {
         if (wiaJwt == null || wiaJwt.isBlank()) {
             throw new IllegalArgumentException("Missing " + HEADER_CLIENT_ATTESTATION + " header");
         }
@@ -66,10 +71,11 @@ public class ClientAttestationValidationService {
             throw new IllegalArgumentException("Missing " + HEADER_CLIENT_ATTESTATION_POP + " header");
         }
 
-        return validateWiaAndPop(wiaJwt, popJwt);
+        String effectiveAud = (audienceUrl != null && !audienceUrl.isBlank()) ? audienceUrl : issuerUrl;
+        return validateWiaAndPop(wiaJwt, popJwt, effectiveAud);
     }
 
-    private String validateWiaAndPop(String wiaJwtString, String popJwtString) {
+    private String validateWiaAndPop(String wiaJwtString, String popJwtString, String effectiveIssuerUrl) {
         try {
             // Parse WIA
             SignedJWT wia = SignedJWT.parse(wiaJwtString);
@@ -140,7 +146,7 @@ public class ClientAttestationValidationService {
 
             // SEC-19: Validate PoP aud (must match this issuer)
             List<String> audience = popClaims.getAudience();
-            if (issuerUrl != null && !issuerUrl.isBlank() && (audience == null || !audience.contains(issuerUrl))) {
+            if (effectiveIssuerUrl != null && !effectiveIssuerUrl.isBlank() && (audience == null || !audience.contains(effectiveIssuerUrl))) {
                 throw new IllegalArgumentException("PoP JWT aud does not match this issuer");
             }
 
