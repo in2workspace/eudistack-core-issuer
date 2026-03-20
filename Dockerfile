@@ -19,6 +19,13 @@ RUN if [ "$SKIP_TESTS" = "true" ]; then \
 # --- Stage 2: runtime ------------------------------------------------------
 FROM eclipse-temurin:25-jre-alpine
 RUN addgroup -S nonroot && adduser -S nonroot -G nonroot
+
+# ADOT Java Agent — activated via JAVA_TOOL_OPTIONS="-javaagent:/opt/aws-opentelemetry-agent.jar"
+ARG ADOT_VERSION=2.11.2
+ADD --chmod=444 \
+    https://github.com/aws-observability/aws-otel-java-instrumentation/releases/download/v${ADOT_VERSION}/aws-opentelemetry-agent.jar \
+    /opt/aws-opentelemetry-agent.jar
+
 USER nonroot
 WORKDIR /app
 COPY --from=build /workspace/build/libs/*.jar /app/issuer.jar
