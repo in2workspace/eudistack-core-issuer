@@ -16,7 +16,7 @@ class RequirePowerRuleTest {
     void evaluate_succeedsWhenPowerMatches() {
         Power power = Power.builder()
                 .function("Onboarding").action("Execute").domain("DOME").build();
-        PolicyContext ctx = new PolicyContext("ORG-1", List.of(power), null, null, null, false, "DOME");
+        PolicyContext ctx = new PolicyContext("ORG-1", List.of(power), null, null, null, false, "DOME", null);
 
         StepVerifier.create(rule.evaluate(ctx, new Object()))
                 .verifyComplete();
@@ -24,7 +24,7 @@ class RequirePowerRuleTest {
 
     @Test
     void evaluate_succeedsWhenSysAdmin() {
-        PolicyContext ctx = new PolicyContext("ORG-1", List.of(), null, null, null, true, "DOME");
+        PolicyContext ctx = new PolicyContext("ORG-1", List.of(), null, null, null, true, "DOME", null);
 
         StepVerifier.create(rule.evaluate(ctx, new Object()))
                 .verifyComplete();
@@ -34,7 +34,7 @@ class RequirePowerRuleTest {
     void evaluate_failsWhenFunctionDoesNotMatch() {
         Power power = Power.builder()
                 .function("Certification").action("Execute").domain("DOME").build();
-        PolicyContext ctx = new PolicyContext("ORG-1", List.of(power), null, null, null, false, "DOME");
+        PolicyContext ctx = new PolicyContext("ORG-1", List.of(power), null, null, null, false, "DOME", null);
 
         StepVerifier.create(rule.evaluate(ctx, new Object()))
                 .expectErrorMatches(e ->
@@ -47,7 +47,7 @@ class RequirePowerRuleTest {
     void evaluate_failsWhenActionDoesNotMatch() {
         Power power = Power.builder()
                 .function("Onboarding").action("Read").domain("DOME").build();
-        PolicyContext ctx = new PolicyContext("ORG-1", List.of(power), null, null, null, false, "DOME");
+        PolicyContext ctx = new PolicyContext("ORG-1", List.of(power), null, null, null, false, "DOME", null);
 
         StepVerifier.create(rule.evaluate(ctx, new Object()))
                 .expectErrorMatches(e ->
@@ -60,7 +60,7 @@ class RequirePowerRuleTest {
     void evaluate_failsWhenDomainDoesNotMatch() {
         Power power = Power.builder()
                 .function("Onboarding").action("Execute").domain("OTHER").build();
-        PolicyContext ctx = new PolicyContext("ORG-1", List.of(power), null, null, null, false, "DOME");
+        PolicyContext ctx = new PolicyContext("ORG-1", List.of(power), null, null, null, false, "DOME", null);
 
         StepVerifier.create(rule.evaluate(ctx, new Object()))
                 .expectErrorMatches(e ->
@@ -71,7 +71,7 @@ class RequirePowerRuleTest {
 
     @Test
     void evaluate_failsWhenNoPowersPresent() {
-        PolicyContext ctx = new PolicyContext("ORG-1", List.of(), null, null, null, false, "DOME");
+        PolicyContext ctx = new PolicyContext("ORG-1", List.of(), null, null, null, false, "DOME", null);
 
         StepVerifier.create(rule.evaluate(ctx, new Object()))
                 .expectErrorMatches(e ->
@@ -82,7 +82,7 @@ class RequirePowerRuleTest {
 
     @Test
     void evaluate_failsWhenTenantDomainIsNull() {
-        PolicyContext ctx = new PolicyContext("ORG-1", List.of(), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG-1", List.of(), null, null, null, false, null, null);
 
         StepVerifier.create(rule.evaluate(ctx, new Object()))
                 .expectErrorMatches(e ->
@@ -95,7 +95,7 @@ class RequirePowerRuleTest {
     void evaluate_worksWithActionAsList() {
         Power power = Power.builder()
                 .function("Onboarding").action(List.of("Execute", "Read")).domain("DOME").build();
-        PolicyContext ctx = new PolicyContext("ORG-1", List.of(power), null, null, null, false, "DOME");
+        PolicyContext ctx = new PolicyContext("ORG-1", List.of(power), null, null, null, false, "DOME", null);
 
         StepVerifier.create(rule.evaluate(ctx, new Object()))
                 .verifyComplete();

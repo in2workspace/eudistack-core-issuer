@@ -10,6 +10,7 @@ public interface ParService {
             String dpopHeader,
             String wiaHeader,
             String wiaPopHeader,
-            String requestUri
+            String requestUri,
+            String publicIssuerUrl
     );
 }

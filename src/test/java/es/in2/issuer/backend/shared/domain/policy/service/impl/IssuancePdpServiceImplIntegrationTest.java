@@ -112,12 +112,15 @@ class IssuancePdpServiceImplIntegrationTest {
      * Constructs compact serialization manually (header.payload.signature) with a dummy signature
      * so that SignedJWT.parse() can parse it without requiring actual signing.
      */
-    private String buildFlatClaimsToken(String credentialType, String orgId, List<Map<String, Object>> powers) throws Exception {
+    private String buildFlatClaimsToken(String credentialType, String orgId, List<Map<String, Object>> powers, String tenant) throws Exception {
         ObjectNode payloadNode = objectMapper.createObjectNode();
         payloadNode.put("credential_type", credentialType);
         payloadNode.put("sub", "test-user");
         payloadNode.put("exp", Instant.now().plusSeconds(3600).getEpochSecond());
         payloadNode.put("iat", Instant.now().getEpochSecond());
+        if (tenant != null) {
+            payloadNode.put("tenant", tenant);
+        }
 
         ObjectNode mandatorNode = objectMapper.createObjectNode();
         mandatorNode.put("organizationIdentifier", orgId);
@@ -165,7 +168,7 @@ class IssuancePdpServiceImplIntegrationTest {
                 Map.of("function", "ProductOffering", "action", List.of("Create", "Update"), "domain", "DOME", "type", "Domain")
         );
 
-        String token = buildFlatClaimsToken(CREDENTIAL_TYPE, "VATES-B60645900", powers);
+        String token = buildFlatClaimsToken(CREDENTIAL_TYPE, "VATES-B60645900", powers, "DOME");
 
         String json = """
                 {
@@ -209,7 +212,7 @@ class IssuancePdpServiceImplIntegrationTest {
         StepVerifier.create(
                         issuancePdpService.authorize(CREDENTIAL_TYPE, jsonNode, "dummy-id-token")
                                 .contextWrite(withSecurityContext(token))
-                                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "VATES-B60645900")))
+                                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "DOME")))
                 .verifyComplete();
     }
 }

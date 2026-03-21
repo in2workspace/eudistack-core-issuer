@@ -8,6 +8,7 @@ import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.policy.service.IssuancePdpService;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
@@ -63,6 +64,9 @@ class IssuanceControllerTest {
 
     @MockBean
     private IssuanceMetrics issuanceMetrics;
+
+    @MockBean
+    private IssuancePdpService issuancePdpService;
 
     @Test
     void createIssuance_UiDelivery_Returns200WithBody() throws JsonProcessingException {
@@ -148,6 +152,8 @@ class IssuanceControllerTest {
                 .issuances(List.of(new IssuanceList.IssuanceEntry(summary)))
                 .build();
 
+        when(issuancePdpService.validateTenantAccess())
+                .thenReturn(Mono.empty());
         when(accessTokenService.getOrganizationContext(anyString()))
                 .thenReturn(Mono.just(orgContext));
         when(issuanceService.getAllIssuancesVisibleFor(orgId, false))
@@ -176,6 +182,8 @@ class IssuanceControllerTest {
                 .credential(null)
                 .build();
 
+        when(issuancePdpService.validateTenantAccess())
+                .thenReturn(Mono.empty());
         when(accessTokenService.getOrganizationContext(anyString()))
                 .thenReturn(Mono.just(orgContext));
         when(issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(orgId, issuanceId, false))

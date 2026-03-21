@@ -33,8 +33,7 @@ import java.util.UUID;
 
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.ACCESS_TOKEN_EXPIRATION_MINUTES;
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.AUTHORIZATION_CODE_GRANT_TYPE;
-import static es.in2.issuer.backend.shared.domain.util.Constants.GRANT_TYPE;
-import static es.in2.issuer.backend.shared.domain.util.Constants.REFRESH_TOKEN_GRANT_TYPE;
+import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 @Slf4j
 @Service
@@ -60,23 +59,26 @@ public class TokenServiceImpl implements TokenService {
     @Override
     @Observed(name = "oid4vci.token", contextualName = "oid4vci-handle-token")
     public Mono<TokenResponse> exchangeToken(TokenRequest request, String dpopHeader, String tokenEndpointUri) {
-        String grantType = request.grantType();
+        return Mono.deferContextual(ctx -> {
+            String baseUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, appConfig.getIssuerBackendUrl());
+            String grantType = request.grantType();
 
-        Mono<TokenResponse> flow;
-        if (GRANT_TYPE.equals(grantType)) {
-            flow = handlePreAuthorizedCode(request.preAuthorizedCode(), request.txCode());
-        } else if (REFRESH_TOKEN_GRANT_TYPE.equals(grantType)) {
-            flow = handleRefreshToken(request.refreshToken());
-        } else if (AUTHORIZATION_CODE_GRANT_TYPE.equals(grantType)) {
-            flow = handleAuthorizationCode(request.code(), request.redirectUri(), request.codeVerifier(), dpopHeader, tokenEndpointUri);
-        } else {
-            return Mono.error(OAuthTokenException.unsupportedGrantType(grantType));
-        }
+            Mono<TokenResponse> flow;
+            if (GRANT_TYPE.equals(grantType)) {
+                flow = handlePreAuthorizedCode(baseUrl, request.preAuthorizedCode(), request.txCode());
+            } else if (REFRESH_TOKEN_GRANT_TYPE.equals(grantType)) {
+                flow = handleRefreshToken(baseUrl, request.refreshToken());
+            } else if (AUTHORIZATION_CODE_GRANT_TYPE.equals(grantType)) {
+                flow = handleAuthorizationCode(baseUrl, request.code(), request.redirectUri(), request.codeVerifier(), dpopHeader, tokenEndpointUri);
+            } else {
+                return Mono.error(OAuthTokenException.unsupportedGrantType(grantType));
+            }
 
-        String grantTag = resolveGrantTag(grantType);
-        return flow
-                .doOnSuccess(r -> issuanceMetrics.recordTokenRequest(grantTag, "success"))
-                .doOnError(e -> issuanceMetrics.recordTokenRequest(grantTag, "error"));
+            String grantTag = resolveGrantTag(grantType);
+            return flow
+                    .doOnSuccess(r -> issuanceMetrics.recordTokenRequest(grantTag, "success"))
+                    .doOnError(e -> issuanceMetrics.recordTokenRequest(grantTag, "error"));
+        });
     }
 
     private String resolveGrantTag(String grantType) {
@@ -86,12 +88,12 @@ public class TokenServiceImpl implements TokenService {
         return "unknown";
     }
 
-    // ── Pre-Authorized Code Flow ──────────────────────────────────────────────
+    // -- Pre-Authorized Code Flow --
 
-    private Mono<TokenResponse> handlePreAuthorizedCode(String preAuthorizedCode, String txCode) {
+    private Mono<TokenResponse> handlePreAuthorizedCode(String baseUrl, String preAuthorizedCode, String txCode) {
         log.debug("Token request: grant_type=pre-authorized_code");
         return validatePreAuthorizedCodeAndTxCode(preAuthorizedCode, txCode)
-                .then(Mono.defer(() -> buildTokenResponse(preAuthorizedCode)));
+                .then(Mono.defer(() -> buildTokenResponse(baseUrl, preAuthorizedCode)));
     }
 
     private Mono<Void> validatePreAuthorizedCodeAndTxCode(String preAuthorizedCode, String txCode) {
@@ -108,7 +110,7 @@ public class TokenServiceImpl implements TokenService {
                 });
     }
 
-    private Mono<TokenResponse> buildTokenResponse(String preAuthorizedCode) {
+    private Mono<TokenResponse> buildTokenResponse(String baseUrl, String preAuthorizedCode) {
         Instant issueTime = Instant.now();
         long accessTokenExp = computeAccessTokenExpiration(issueTime);
         long refreshTokenExp = refreshTokenService.computeRefreshTokenExpirationTime(issueTime);
@@ -117,7 +119,7 @@ public class TokenServiceImpl implements TokenService {
         return txCodeCacheStore.get(preAuthorizedCode)
                 .map(IssuanceIdAndTxCode::issuanceId)
                 .flatMap(issuanceId -> {
-                    String accessToken = buildAccessToken(issuanceId, issueTime.getEpochSecond(), accessTokenExp);
+                    String accessToken = buildAccessToken(baseUrl, issuanceId, issueTime.getEpochSecond(), accessTokenExp);
                     return storeRefreshToken(issuanceId, preAuthorizedCode, refreshToken, refreshTokenExp)
                             .thenReturn(TokenResponse.builder()
                                     .accessToken(accessToken)
@@ -128,10 +130,10 @@ public class TokenServiceImpl implements TokenService {
                 });
     }
 
-    private String buildAccessToken(String issuanceId, long iat, long exp) {
+    private String buildAccessToken(String baseUrl, String issuanceId, long iat, long exp) {
         Payload payload = new Payload(Map.of(
-                "iss", appConfig.getIssuerBackendUrl(),
-                "aud", appConfig.getIssuerBackendUrl(),
+                "iss", baseUrl,
+                "aud", baseUrl,
                 "iat", iat,
                 "exp", exp,
                 "jti", UUID.randomUUID().toString(),
@@ -140,9 +142,9 @@ public class TokenServiceImpl implements TokenService {
         return jwtService.issueJWT(payload.toString());
     }
 
-    // ── Refresh Token Flow ────────────────────────────────────────────────────
+    // -- Refresh Token Flow --
 
-    private Mono<TokenResponse> handleRefreshToken(String refreshToken) {
+    private Mono<TokenResponse> handleRefreshToken(String baseUrl, String refreshToken) {
         log.debug("Token request: grant_type=refresh_token");
         return refreshTokenCacheStore
                 .get(refreshToken)
@@ -150,7 +152,7 @@ public class TokenServiceImpl implements TokenService {
                         OAuthTokenException.invalidGrant("Invalid refresh token"))
                 .flatMap(data -> validateRefreshTokenData(data, refreshToken)
                         .then(refreshTokenCacheStore.delete(refreshToken))
-                        .then(Mono.defer(() -> buildRefreshedTokenResponse(data.issuanceId()))));
+                        .then(Mono.defer(() -> buildRefreshedTokenResponse(baseUrl, data.issuanceId()))));
     }
 
     private Mono<Void> validateRefreshTokenData(IssuanceIdAndRefreshToken data, String refreshToken) {
@@ -172,12 +174,12 @@ public class TokenServiceImpl implements TokenService {
                 });
     }
 
-    private Mono<TokenResponse> buildRefreshedTokenResponse(String issuanceId) {
+    private Mono<TokenResponse> buildRefreshedTokenResponse(String baseUrl, String issuanceId) {
         Instant issueTime = Instant.now();
         long accessTokenExp = computeAccessTokenExpiration(issueTime);
         long refreshTokenExp = refreshTokenService.computeRefreshTokenExpirationTime(issueTime);
         String newRefreshToken = refreshTokenService.issueRefreshToken();
-        String accessToken = buildAccessToken(issuanceId, issueTime.getEpochSecond(), accessTokenExp);
+        String accessToken = buildAccessToken(baseUrl, issuanceId, issueTime.getEpochSecond(), accessTokenExp);
 
         return storeRefreshToken(issuanceId, null, newRefreshToken, refreshTokenExp)
                 .thenReturn(TokenResponse.builder()
@@ -188,10 +190,10 @@ public class TokenServiceImpl implements TokenService {
                         .build());
     }
 
-    // ── Authorization Code Flow ───────────────────────────────────────────────
+    // -- Authorization Code Flow --
 
     private Mono<TokenResponse> handleAuthorizationCode(
-            String code, String redirectUri, String codeVerifier, String dpopHeader, String tokenEndpointUri
+            String baseUrl, String code, String redirectUri, String codeVerifier, String dpopHeader, String tokenEndpointUri
     ) {
         log.debug("Token request: grant_type=authorization_code");
         return authorizationCodeCacheStore.get(code)
@@ -199,11 +201,11 @@ public class TokenServiceImpl implements TokenService {
                         OAuthTokenException.invalidGrant("Invalid or expired authorization code"))
                 .flatMap(codeData -> authorizationCodeCacheStore.delete(code)
                         .then(Mono.defer(() -> validateAndBuildAuthCodeToken(
-                                codeData, redirectUri, codeVerifier, dpopHeader, tokenEndpointUri))));
+                                baseUrl, codeData, redirectUri, codeVerifier, dpopHeader, tokenEndpointUri))));
     }
 
     private Mono<TokenResponse> validateAndBuildAuthCodeToken(
-            AuthorizationCodeData codeData, String redirectUri,
+            String baseUrl, AuthorizationCodeData codeData, String redirectUri,
             String codeVerifier, String dpopHeader, String tokenEndpointUri
     ) {
         if (codeData.redirectUri() != null && !codeData.redirectUri().equals(redirectUri)) {
@@ -219,19 +221,19 @@ public class TokenServiceImpl implements TokenService {
                 : null;
 
         return issuerStateCacheStore.get(codeData.issuerState())
-                .map(issuanceId -> buildAuthCodeTokenResponse(dpopJkt, issuanceId))
+                .map(issuanceId -> buildAuthCodeTokenResponse(baseUrl, dpopJkt, issuanceId))
                 .onErrorMap(NoSuchElementException.class, ex ->
                         OAuthTokenException.invalidGrant("Invalid or expired issuer_state"));
     }
 
-    private TokenResponse buildAuthCodeTokenResponse(String dpopJkt, String issuanceId) {
+    private TokenResponse buildAuthCodeTokenResponse(String baseUrl, String dpopJkt, String issuanceId) {
         Instant issueTime = Instant.now();
         long accessTokenExp = computeAccessTokenExpiration(issueTime);
         boolean isDpop = dpopJkt != null;
 
         Map<String, Object> claims = new HashMap<>();
-        claims.put("iss", appConfig.getIssuerBackendUrl());
-        claims.put("aud", appConfig.getIssuerBackendUrl());
+        claims.put("iss", baseUrl);
+        claims.put("aud", baseUrl);
         claims.put("iat", issueTime.getEpochSecond());
         claims.put("exp", accessTokenExp);
         claims.put("jti", UUID.randomUUID().toString());
@@ -250,7 +252,7 @@ public class TokenServiceImpl implements TokenService {
                 .build();
     }
 
-    // ── Shared ────────────────────────────────────────────────────────────────
+    // -- Shared --
 
     private long computeAccessTokenExpiration(Instant issueTime) {
         return issueTime.plus(ACCESS_TOKEN_EXPIRATION_MINUTES, ChronoUnit.MINUTES).getEpochSecond();

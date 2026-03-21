@@ -2,6 +2,7 @@ package es.in2.issuer.backend.shared.domain.policy.service.impl;
 
 import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
 import es.in2.issuer.backend.shared.domain.exception.JWTParsingException;
+import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
 import es.in2.issuer.backend.shared.domain.exception.UnauthorizedRoleException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
@@ -44,12 +45,13 @@ class StatusListPdpServiceImplTest {
                 null,
                 "learcredential.employee.w3c.4",
                 sysAdmin,
+                orgId,
                 orgId
         );
     }
 
     private PolicyContext buildContextNoPowers(String orgId, boolean sysAdmin) {
-        return new PolicyContext(orgId, Collections.emptyList(), null, null, "learcredential.employee.w3c.4", sysAdmin, orgId);
+        return new PolicyContext(orgId, Collections.emptyList(), null, null, "learcredential.employee.w3c.4", sysAdmin, orgId, orgId);
     }
 
     @Test
@@ -113,7 +115,7 @@ class StatusListPdpServiceImplTest {
         when(policyContextFactory.fromTokenSimple(eq(token), any())).thenReturn(Mono.just(ctx));
 
         StepVerifier.create(service.validateRevokeCredential("p-4", token, issuance))
-                .expectError(UnauthorizedRoleException.class)
+                .expectError(TenantMismatchException.class)
                 .verify();
 
         verify(policyContextFactory).fromTokenSimple(eq(token), any());

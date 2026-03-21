@@ -15,6 +15,7 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL_CONTEXT_KEY;
 import static es.in2.issuer.backend.shared.domain.util.Utils.generateCustomNonce;
 
 @Slf4j
@@ -39,19 +40,21 @@ public class AuthorizationServiceImpl implements AuthorizationService {
             String redirectUri,
             String issuerState
     ) {
-        if (requestUri != null && !requestUri.isBlank()) {
-            // PAR flow: resolve stored request
-            return pushAuthorizationRequestAuthorization(requestUri, state);
-        } else {
-            // Direct authorization request
-            return processDirectAuthorization(
-                    clientId, responseType, scope, state,
-                    codeChallenge, codeChallengeMethod, redirectUri, issuerState
-            );
-        }
+        return Mono.deferContextual(ctx -> {
+            String baseUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, appConfig.getIssuerBackendUrl());
+
+            if (requestUri != null && !requestUri.isBlank()) {
+                return pushAuthorizationRequestAuthorization(baseUrl, requestUri, state);
+            } else {
+                return processDirectAuthorization(
+                        baseUrl, clientId, responseType, scope, state,
+                        codeChallenge, codeChallengeMethod, redirectUri, issuerState
+                );
+            }
+        });
     }
 
-    private Mono<URI> pushAuthorizationRequestAuthorization(String requestUri, String state) {
+    private Mono<URI> pushAuthorizationRequestAuthorization(String baseUrl, String requestUri, String state) {
         return parCacheStore.get(requestUri)
                 .flatMap(parRequest -> {
                     // Consume the PAR (one-time use)
@@ -66,6 +69,7 @@ public class AuthorizationServiceImpl implements AuthorizationService {
                                     null // dpopJkt stored separately if needed
                             ))
                             .map(code -> buildRedirectUri(
+                                    baseUrl,
                                     parRequest.redirectUri(),
                                     code,
                                     state != null ? state : parRequest.state()
@@ -76,7 +80,7 @@ public class AuthorizationServiceImpl implements AuthorizationService {
     }
 
     private Mono<URI> processDirectAuthorization(
-            String clientId, String responseType, String scope, String state,
+            String baseUrl, String clientId, String responseType, String scope, String state,
             String codeChallenge, String codeChallengeMethod, String redirectUri,
             String issuerState
     ) {
@@ -97,7 +101,7 @@ public class AuthorizationServiceImpl implements AuthorizationService {
             return generateAndStoreAuthorizationCode(
                     clientId, redirectUri, codeChallenge, codeChallengeMethod,
                     issuerState, scope, null
-            ).map(code -> buildRedirectUri(redirectUri, code, state));
+            ).map(code -> buildRedirectUri(baseUrl, redirectUri, code, state));
         });
     }
 
@@ -123,15 +127,14 @@ public class AuthorizationServiceImpl implements AuthorizationService {
                 });
     }
 
-    private URI buildRedirectUri(String redirectUri, String code, String state) {
-        String issuer = appConfig.getIssuerBackendUrl();
+    private URI buildRedirectUri(String baseUrl, String redirectUri, String code, String state) {
         StringBuilder sb = new StringBuilder(redirectUri);
         sb.append(redirectUri.contains("?") ? "&" : "?");
         sb.append("code=").append(URLEncoder.encode(code, StandardCharsets.UTF_8));
         if (state != null) {
             sb.append("&state=").append(URLEncoder.encode(state, StandardCharsets.UTF_8));
         }
-        sb.append("&iss=").append(URLEncoder.encode(issuer, StandardCharsets.UTF_8));
+        sb.append("&iss=").append(URLEncoder.encode(baseUrl, StandardCharsets.UTF_8));
         return URI.create(sb.toString());
     }
 }

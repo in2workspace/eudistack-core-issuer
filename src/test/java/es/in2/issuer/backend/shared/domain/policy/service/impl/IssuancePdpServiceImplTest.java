@@ -117,6 +117,7 @@ class IssuancePdpServiceImplTest {
                 null,
                 credentialType,
                 sysAdmin,
+                orgId,
                 orgId
         );
     }
@@ -131,6 +132,7 @@ class IssuancePdpServiceImplTest {
                 profile,
                 credentialType,
                 sysAdmin,
+                orgId,
                 orgId
         );
     }
@@ -228,7 +230,7 @@ class IssuancePdpServiceImplTest {
                         List.of("RequireSignerIssuance", "RequireMandatorDelegation"), "ProductOffering"));
 
         List<Power> signerPowers = List.of(
-                Power.builder().function("Onboarding").action("Execute").build()
+                Power.builder().function("Onboarding").action("Execute").domain("OTHER_ORGANIZATION").build()
         );
         PolicyContext ctx = buildContextFromPowers(signerPowers, "learcredential.employee.w3c.4", "OTHER_ORGANIZATION", false);
         when(policyContextFactory.fromTokenForIssuance(eq(token), eq("learcredential.employee.w3c.4"), any()))
@@ -277,6 +279,7 @@ class IssuancePdpServiceImplTest {
                         List.of("RequireCertificationIssuance"), null));
 
         List<Power> certificationPowers = List.of(
+                Power.builder().function("Onboarding").action("Execute").domain("SomeOrganization").build(),
                 Power.builder().function("Certification").action("Attest").build()
         );
         PolicyContext ctx = buildContextFromPowers(certificationPowers, "learcredential.machine.w3c.3", "SomeOrganization", false);
@@ -313,6 +316,7 @@ class IssuancePdpServiceImplTest {
                         List.of("RequireSignerIssuance", "RequireMandatorDelegation"), "ProductOffering"));
 
         List<Power> certificationPowers = List.of(
+                Power.builder().function("Onboarding").action("Execute").domain("SomeOrganization").build(),
                 Power.builder().function("Certification").action("Attest").build()
         );
         PolicyContext ctx = buildContextFromPowers(certificationPowers, "learcredential.employee.w3c.4", "SomeOrganization", false);
@@ -347,7 +351,7 @@ class IssuancePdpServiceImplTest {
         actionArray.add("Create").add("Update").add("Delete");
 
         List<Power> signerPowers = List.of(
-                Power.builder().function("Onboarding").action("Execute").build(),
+                Power.builder().function("Onboarding").action("Execute").domain("OTHER_ORGANIZATION").build(),
                 Power.builder().function("ProductOffering").action(List.of("Create", "Update", "Delete")).build()
         );
 
@@ -389,7 +393,7 @@ class IssuancePdpServiceImplTest {
         powerNode.put("action", "SomeAction");
 
         List<Power> signerPowers = List.of(
-                Power.builder().function("Onboarding").action("Execute").build()
+                Power.builder().function("Onboarding").action("Execute").domain("OTHER_ORGANIZATION").build()
         );
 
         JsonNode signerCredential = realMapper.createObjectNode();

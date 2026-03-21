@@ -70,6 +70,9 @@ public class RateLimitFilter implements WebFilter {
             return forwarded.split(",")[0].trim();
         }
         InetSocketAddress remoteAddress = exchange.getRequest().getRemoteAddress();
-        return remoteAddress != null ? remoteAddress.getAddress().getHostAddress() : "unknown";
+        if (remoteAddress != null && remoteAddress.getAddress() != null) {
+            return remoteAddress.getAddress().getHostAddress();
+        }
+        return "unknown";
     }
 }

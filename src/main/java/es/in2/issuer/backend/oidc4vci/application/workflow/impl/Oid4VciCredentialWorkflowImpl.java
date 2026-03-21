@@ -97,7 +97,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         return issuanceService.getIssuanceById(issuanceId)
                 .switchIfEmpty(Mono.error(new InvalidTokenException("Procedure not found: " + issuanceId)))
                 .flatMap(proc -> validateProcedureState(proc)
-                        .then(Mono.fromCallable(credentialIssuerMetadataService::getCredentialIssuerMetadata))
+                        .then(credentialIssuerMetadataService.getCredentialIssuerMetadata())
                         .flatMap(metadata -> {
                             log.info("[{}] Processing credential request: issuanceId={}, type={}, format={}",
                                     processId, issuanceId, proc.getCredentialType(), proc.getCredentialFormat());

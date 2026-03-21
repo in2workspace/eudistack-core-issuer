@@ -32,6 +32,7 @@ public class PolicyContextFactory {
     private static final String POWER_CLAIM = "power";
     private static final String MANDATOR_CLAIM = "mandator";
     private static final String ORG_ID_FIELD = "organizationIdentifier";
+    private static final String TENANT_CLAIM = "tenant";
 
     private final JWTService jwtService;
     private final ObjectMapper objectMapper;
@@ -49,6 +50,7 @@ public class PolicyContextFactory {
                     List<Power> powers = extractPowers(signedJWT.getPayload());
                     String orgId = extractOrganizationId(signedJWT.getPayload());
                     JsonNode credential = buildCredentialNode(signedJWT.getPayload());
+                    String tokenTenant = extractTokenTenant(signedJWT.getPayload());
 
                     log.info("User organization identifier: {}", orgId);
 
@@ -63,7 +65,8 @@ public class PolicyContextFactory {
                             profile,
                             credentialType,
                             isSysAdmin,
-                            tenantDomain
+                            tenantDomain,
+                            tokenTenant
                     ));
                 });
     }
@@ -84,6 +87,7 @@ public class PolicyContextFactory {
                                 List<Power> powers = extractPowers(signedJWT.getPayload());
                                 String orgId = extractOrganizationId(signedJWT.getPayload());
                                 JsonNode credential = buildCredentialNode(signedJWT.getPayload());
+                                String tokenTenant = extractTokenTenant(signedJWT.getPayload());
 
                                 boolean isSysAdmin = orgId != null
                                         && orgId.equals(appConfig.getAdminOrganizationId())
@@ -96,7 +100,8 @@ public class PolicyContextFactory {
                                         profile,
                                         resolvedType,
                                         isSysAdmin,
-                                        tenantDomain
+                                        tenantDomain,
+                                        tokenTenant
                                 );
                             });
                 });
@@ -202,6 +207,20 @@ public class PolicyContextFactory {
      * Strips surrounding JSON quotes from a serialized string value.
      * getClaimFromPayload returns "\"value\"" for string claims.
      */
+    /**
+     * Extracts the tenant claim from the token payload.
+     * This is the signed tenant identifier injected by the Verifier from OIDC client registration.
+     */
+    private String extractTokenTenant(com.nimbusds.jose.Payload payload) {
+        try {
+            String raw = jwtService.getClaimFromPayload(payload, TENANT_CLAIM);
+            return stripJsonQuotes(raw);
+        } catch (Exception e) {
+            log.debug("No tenant claim found in token: {}", e.getMessage());
+            return null;
+        }
+    }
+
     private String stripJsonQuotes(String value) {
         if (value != null && value.startsWith("\"") && value.endsWith("\"")) {
             return value.substring(1, value.length() - 1);
