@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Update EmailServiceImpl to use locale-aware Thymeleaf context instead of language-suffix template names.
 - Clean up messages.properties: remove orphaned keys and add new i18n keys for all email templates.
 
+## [v3.0.2](https://github.com/in2workspace/in2-issuer-api/releases/tag/v3.0.2)
+### Fixed
+- Fix orphaned active QR codes after "Send Reminder" requests by replacing the random nonce with the issuanceId as the cache key
+- Handle cache expiration correctly by mapping Guava's NoSuchElementException to CredentialOfferNotFoundException.
+- Add integration tests to verify QR code expiration and cache overriding behaviors.
+
 ## [v3.0.1](https://github.com/in2workspace/in2-issuer-api/releases/tag/v3.0.1)
 ### Changed
 - Restricted CORS allowed origins to prevent unauthorized cross-origin requests (SEC-001).
