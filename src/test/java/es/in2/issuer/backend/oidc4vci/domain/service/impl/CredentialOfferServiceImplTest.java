@@ -52,7 +52,7 @@ class CredentialOfferServiceImplTest {
                         .txCode(TxCode.builder().length(6).inputMode("numeric").build())
                         .txCodeValue("1234")
                         .build()));
-        when(credentialOfferCacheRepository.saveCredentialOffer(any()))
+        when(credentialOfferCacheRepository.saveCredentialOffer(eq(issuanceId), any()))
                 .thenReturn(Mono.just("cache-nonce"));
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
@@ -72,7 +72,7 @@ class CredentialOfferServiceImplTest {
         when(appConfig.getIssuerBackendUrl()).thenReturn("https://example.com");
         when(issuerStateCacheStore.add(anyString(), eq(issuanceId)))
                 .thenReturn(Mono.just("cached"));
-        when(credentialOfferCacheRepository.saveCredentialOffer(any()))
+        when(credentialOfferCacheRepository.saveCredentialOffer(eq(issuanceId), any()))
                 .thenReturn(Mono.just("cache-nonce"));
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
@@ -93,7 +93,7 @@ class CredentialOfferServiceImplTest {
         when(appConfig.getWalletFrontendUrl()).thenReturn("https://wallet.example.com");
         when(issuerStateCacheStore.add(anyString(), eq(issuanceId)))
                 .thenReturn(Mono.just("cached"));
-        when(credentialOfferCacheRepository.saveCredentialOffer(any()))
+        when(credentialOfferCacheRepository.saveCredentialOffer(eq(issuanceId), any()))
                 .thenReturn(Mono.just("cache-nonce"));
         when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("test@example.com", "TestOrg")));
@@ -123,7 +123,7 @@ class CredentialOfferServiceImplTest {
                         .txCode(TxCode.builder().length(6).inputMode("numeric").build())
                         .txCodeValue("1234")
                         .build()));
-        when(credentialOfferCacheRepository.saveCredentialOffer(any()))
+        when(credentialOfferCacheRepository.saveCredentialOffer(eq(issuanceId), any()))
                 .thenReturn(Mono.just("cache-nonce"));
         when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("test@example.com", "TestOrg")));

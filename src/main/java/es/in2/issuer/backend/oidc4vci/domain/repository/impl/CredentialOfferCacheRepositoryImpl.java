@@ -9,7 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-import static es.in2.issuer.backend.shared.domain.util.Utils.generateCustomNonce;
+import java.util.NoSuchElementException;
 
 @Slf4j
 @Service
@@ -19,16 +19,17 @@ public class CredentialOfferCacheRepositoryImpl implements CredentialOfferCacheR
     private final TransientStore<CredentialOfferData> cacheStore;
 
     @Override
-    public Mono<String> saveCredentialOffer(CredentialOfferData credentialOfferData) {
-        return generateCustomNonce().flatMap(nonce -> cacheStore.add(nonce, credentialOfferData));
+    public Mono<String> saveCredentialOffer(String issuanceId, CredentialOfferData credentialOfferData) {
+        return cacheStore.add(issuanceId, credentialOfferData);
     }
 
     @Override
     public Mono<CredentialOfferData> findCredentialOfferById(String id) {
         return cacheStore.get(id)
                 .switchIfEmpty(Mono.error(
+                        new CredentialOfferNotFoundException("CredentialOffer not found for nonce: " + id)))
+                .onErrorMap(NoSuchElementException.class, ex ->
                         new CredentialOfferNotFoundException("CredentialOffer not found for nonce: " + id))
-                )
                 .doOnNext(customCredentialOffer ->
                         log.debug("CredentialOffer found for nonce: {}", id)
                 )
