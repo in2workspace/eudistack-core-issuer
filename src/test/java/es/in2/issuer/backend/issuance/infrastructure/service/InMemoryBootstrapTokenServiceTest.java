@@ -15,25 +15,25 @@ class InMemoryBootstrapTokenServiceTest {
     }
 
     @Test
-    void shouldConsumeValidToken() {
+    void shouldAcceptValidToken() {
         InMemoryBootstrapTokenService service = new InMemoryBootstrapTokenService("");
         String token = service.getToken();
 
         assertTrue(service.consumeIfValid(token));
-        assertNull(service.getToken());
+        assertNotNull(service.getToken(), "Token should remain valid after use");
     }
 
     @Test
-    void shouldRejectSecondConsumption() {
+    void shouldAcceptRepeatedUse() {
         InMemoryBootstrapTokenService service = new InMemoryBootstrapTokenService("");
         String token = service.getToken();
 
         assertTrue(service.consumeIfValid(token));
-        assertFalse(service.consumeIfValid(token));
+        assertTrue(service.consumeIfValid(token), "Token should be reusable");
     }
 
     @Test
-    void shouldConsumeTokenWithDifferentStringReference() {
+    void shouldAcceptTokenWithDifferentStringReference() {
         InMemoryBootstrapTokenService service = new InMemoryBootstrapTokenService("");
         String token = service.getToken();
         // Simulate a token arriving from HTTP header (different String object)
@@ -41,7 +41,7 @@ class InMemoryBootstrapTokenServiceTest {
         assertNotSame(token, copy);
 
         assertTrue(service.consumeIfValid(copy));
-        assertNull(service.getToken());
+        assertNotNull(service.getToken(), "Token should remain valid after use");
     }
 
     @Test
