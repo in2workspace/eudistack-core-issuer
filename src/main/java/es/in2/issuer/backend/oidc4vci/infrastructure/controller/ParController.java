@@ -3,6 +3,7 @@ package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.ParService;
+import java.net.URI;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -33,14 +34,9 @@ public class ParController {
             ServerWebExchange exchange
     ) {
         String requestUri = exchange.getRequest().getURI().toString();
-        // Resolve public issuer URL from X-Forwarded-Host (set by nginx) for WIA PoP aud validation
-        String forwardedHost = exchange.getRequest().getHeaders().getFirst("X-Forwarded-Host");
-        String forwardedProto = exchange.getRequest().getHeaders().getFirst("X-Forwarded-Proto");
-        String publicIssuerUrl = null;
-        if (forwardedHost != null && !forwardedHost.isBlank()) {
-            String scheme = (forwardedProto != null && !forwardedProto.isBlank()) ? forwardedProto : "https";
-            publicIssuerUrl = scheme + "://" + forwardedHost;
-        }
+        // Derive public issuer URL from request URI (already adjusted by ForwardedHeaderTransformer)
+        URI uri = exchange.getRequest().getURI();
+        String publicIssuerUrl = uri.getScheme() + "://" + uri.getAuthority();
         return parService.pushAuthorizationRequest(request, dpopHeader, wiaHeader, wiaPopHeader, requestUri, publicIssuerUrl);
     }
 }

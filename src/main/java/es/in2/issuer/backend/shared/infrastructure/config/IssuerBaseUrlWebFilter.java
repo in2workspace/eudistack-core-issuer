@@ -32,6 +32,13 @@ public class IssuerBaseUrlWebFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+        // Only write base URL to context when forwarded headers are present (behind proxy).
+        // Without forwarded headers (direct access, schedulers), the context key stays absent
+        // and downstream services fall back to the static APP_URL configuration.
+        String forwarded = exchange.getRequest().getHeaders().getFirst("X-Forwarded-Host");
+        if (forwarded == null || forwarded.isBlank()) {
+            return chain.filter(exchange);
+        }
         URI uri = exchange.getRequest().getURI();
         String baseUrl = buildBaseUrl(uri);
         return chain.filter(exchange)

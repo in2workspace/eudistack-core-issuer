@@ -91,7 +91,9 @@ springdoc:
 
 server:
   port: ${SERVER_PORT:8080}
-  forward-headers-strategy: framework
+  # Use 'framework' behind a trusted proxy that strips client-supplied Forwarded/X-Forwarded-* headers.
+  # Default 'none' when running without proxy (direct access).
+  forward-headers-strategy: ${SERVER_FORWARD_HEADERS_STRATEGY:none}
 
 # Credential profiles
 credential:
