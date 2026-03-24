@@ -6,10 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Dynamic URL resolution for multi-tenant deployment** — `IssuerBaseUrlWebFilter` extracts the public base URL from `X-Forwarded-*` headers and stores it in Reactor context. Metadata, credential offers, status list URLs, and token endpoints now derive URLs from the request instead of static `APP_URL`. Enables true multi-tenant with per-tenant subdomains. (EUDI-017)
+- **ADOT Java Agent for CloudWatch X-Ray tracing** — Dockerfile includes AWS OpenTelemetry agent, activated via `JAVA_TOOL_OPTIONS`.
+- **Reusable bootstrap token** — Bootstrap token can be reused for demo integrations instead of being single-use.
+- **Dependabot config and PR template** — Automated dependency updates and standardized PR format.
+
 ### Fixed
 
 - **Tenant validation uses `tenant` claim instead of `organizationIdentifier`** — `RequireTenantMatchRule` now compares the `tenant` claim (injected by the Verifier from OIDC client config) against the `X-Tenant-Domain` header (injected by nginx). Previously compared `mandator.organizationIdentifier`, conflating tenant and organization. B2B2C model: tenant groups organizations, organization groups users. `PolicyContext` gains `tokenTenant` field; `PolicyContextFactory` extracts the `tenant` claim. (EUDI-017)
-- **Token issuer check order in `CustomAuthenticationManager`** — Check own issuer (`APP_URL`) before verifier (`isVerifierIssuer`) to avoid false match when issuer and verifier share the same base origin (subdomain routing on same port). `baseOriginMatches` is too broad for same-port deployments.
+- **Token issuer check order in `CustomAuthenticationManager`** — Check own issuer before verifier (`isIssuerBackendIssuer` before `isVerifierIssuer`) to avoid false match when both share the same base origin (subdomain routing on same port).
+- **WIA PoP aud validation** — Resolves audience dynamically from `X-Forwarded-Host` instead of static `APP_URL`. (EUDI-017)
 - **`RateLimitFilter` NPE with `ForwardedHeaderTransformer`** — Handle `getAddress() == null` on unresolved `InetSocketAddress` created by Spring's `ForwardedHeaderTransformer`. Uses `getHostString()` as fallback.
 
 ### Changed
