@@ -33,7 +33,8 @@ public class ParServiceImpl implements ParService {
             String dpopHeader,
             String wiaHeader,
             String wiaPopHeader,
-            String requestUri
+            String requestUri,
+            String publicIssuerUrl
     ) {
         return Mono.defer(() -> {
             // Validate response_type
@@ -59,7 +60,7 @@ public class ParServiceImpl implements ParService {
 
             // Validate WIA if required
             if ("attest_jwt_client_auth".equals(profileProperties.authorizationCode().clientAuthMethod())) {
-                clientAttestationValidationService.validateHeaders(wiaHeader, wiaPopHeader);
+                clientAttestationValidationService.validateHeaders(wiaHeader, wiaPopHeader, publicIssuerUrl);
             }
 
             // Generate request_uri and store in cache

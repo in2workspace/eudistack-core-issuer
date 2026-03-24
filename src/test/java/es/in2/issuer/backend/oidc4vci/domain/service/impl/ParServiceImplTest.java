@@ -58,11 +58,11 @@ class ParServiceImplTest {
 
         when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
         when(dpopValidationService.validate(anyString(), eq("POST"), anyString())).thenReturn("dpop-thumbprint");
-        when(clientAttestationValidationService.validateHeaders(anyString(), anyString())).thenReturn("wallet-client");
+        when(clientAttestationValidationService.validateHeaders(anyString(), anyString(), any())).thenReturn("wallet-client");
         when(parCacheStore.add(anyString(), any(PushedAuthorizationRequest.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0, String.class)));
 
-        StepVerifier.create(parService.pushAuthorizationRequest(request, "dpop-proof", "wia-jwt", "pop-jwt", "https://issuer/par"))
+        StepVerifier.create(parService.pushAuthorizationRequest(request, "dpop-proof", "wia-jwt", "pop-jwt", "https://issuer/par", "https://issuer"))
                 .assertNext(response -> {
                     assertTrue(response.requestUri().startsWith(PAR_REQUEST_URI_PREFIX));
                     assertEquals(PAR_CACHE_EXPIRY_SECONDS, response.expiresIn());
@@ -76,7 +76,7 @@ class ParServiceImplTest {
                 .responseType("token")
                 .build();
 
-        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par"))
+        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par", null))
                 .expectErrorMatches(e -> e instanceof IllegalArgumentException
                         && e.getMessage().equals("response_type must be 'code'"))
                 .verify();
@@ -96,7 +96,7 @@ class ParServiceImplTest {
 
         when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
 
-        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par"))
+        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par", null))
                 .expectErrorMatches(e -> e instanceof IllegalArgumentException
                         && e.getMessage().equals("code_challenge is required"))
                 .verify();
@@ -122,11 +122,11 @@ class ParServiceImplTest {
         when(parCacheStore.add(anyString(), any(PushedAuthorizationRequest.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0, String.class)));
 
-        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par"))
+        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par", null))
                 .assertNext(response -> assertNotNull(response.requestUri()))
                 .verifyComplete();
 
         verify(dpopValidationService, never()).validate(anyString(), anyString(), anyString());
-        verify(clientAttestationValidationService, never()).validateHeaders(anyString(), anyString());
+        verify(clientAttestationValidationService, never()).validateHeaders(anyString(), anyString(), any());
     }
 }

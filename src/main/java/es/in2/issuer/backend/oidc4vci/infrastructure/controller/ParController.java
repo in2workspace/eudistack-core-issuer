@@ -33,6 +33,14 @@ public class ParController {
             ServerWebExchange exchange
     ) {
         String requestUri = exchange.getRequest().getURI().toString();
-        return parService.pushAuthorizationRequest(request, dpopHeader, wiaHeader, wiaPopHeader, requestUri);
+        // Resolve public issuer URL from X-Forwarded-Host (set by nginx) for WIA PoP aud validation
+        String forwardedHost = exchange.getRequest().getHeaders().getFirst("X-Forwarded-Host");
+        String forwardedProto = exchange.getRequest().getHeaders().getFirst("X-Forwarded-Proto");
+        String publicIssuerUrl = null;
+        if (forwardedHost != null && !forwardedHost.isBlank()) {
+            String scheme = (forwardedProto != null && !forwardedProto.isBlank()) ? forwardedProto : "https";
+            publicIssuerUrl = scheme + "://" + forwardedHost;
+        }
+        return parService.pushAuthorizationRequest(request, dpopHeader, wiaHeader, wiaPopHeader, requestUri, publicIssuerUrl);
     }
 }
