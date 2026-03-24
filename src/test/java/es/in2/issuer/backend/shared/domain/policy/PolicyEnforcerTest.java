@@ -26,7 +26,7 @@ class PolicyEnforcerTest {
         PolicyRule<Void> rule1 = (ctx, t) -> Mono.empty();
         PolicyRule<Void> rule2 = (ctx, t) -> Mono.empty();
 
-        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null, null);
 
         StepVerifier.create(enforcer.enforce(ctx, null, rule1, rule2))
                 .verifyComplete();
@@ -40,7 +40,7 @@ class PolicyEnforcerTest {
             throw new AssertionError("This rule should not be reached");
         };
 
-        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null, null);
 
         StepVerifier.create(enforcer.enforce(ctx, null, passingRule, failingRule, neverReached))
                 .expectError(UnauthorizedRoleException.class)
@@ -51,7 +51,7 @@ class PolicyEnforcerTest {
     void enforce_failsWhenSingleRuleFails() {
         PolicyRule<Void> failingRule = (ctx, t) -> Mono.error(new InsufficientPermissionException("no permission"));
 
-        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null, null);
 
         StepVerifier.create(enforcer.enforce(ctx, null, failingRule))
                 .expectError(InsufficientPermissionException.class)
@@ -65,7 +65,7 @@ class PolicyEnforcerTest {
         PolicyRule<Void> failingRule = (ctx, t) -> Mono.error(new InsufficientPermissionException("denied"));
         PolicyRule<Void> passingRule = (ctx, t) -> Mono.empty();
 
-        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null, null);
 
         StepVerifier.create(enforcer.enforceAny(ctx, null, "All failed", failingRule, passingRule))
                 .verifyComplete();
@@ -76,7 +76,7 @@ class PolicyEnforcerTest {
         PolicyRule<Void> failingRule1 = (ctx, t) -> Mono.error(new InsufficientPermissionException("denied1"));
         PolicyRule<Void> failingRule2 = (ctx, t) -> Mono.error(new InsufficientPermissionException("denied2"));
 
-        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null, null);
 
         StepVerifier.create(enforcer.enforceAny(ctx, null, "All policies failed", failingRule1, failingRule2))
                 .expectErrorMatches(e ->
@@ -89,7 +89,7 @@ class PolicyEnforcerTest {
     void enforceAny_succeedsWhenOnlyRulePasses() {
         PolicyRule<Void> passingRule = (ctx, t) -> Mono.empty();
 
-        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null, null);
 
         StepVerifier.create(enforcer.enforceAny(ctx, null, "Should not fail", passingRule))
                 .verifyComplete();
@@ -99,7 +99,7 @@ class PolicyEnforcerTest {
 
     @Test
     void enforceOrganization_succeedsWhenOrgMatches() {
-        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null, null);
 
         StepVerifier.create(enforcer.enforceOrganization(ctx, "ORG1"))
                 .verifyComplete();
@@ -107,7 +107,7 @@ class PolicyEnforcerTest {
 
     @Test
     void enforceOrganization_succeedsWhenSysAdmin() {
-        PolicyContext ctx = new PolicyContext("ADMIN_ORG", List.of(), null, null, null, true, null);
+        PolicyContext ctx = new PolicyContext("ADMIN_ORG", List.of(), null, null, null, true, null, null);
 
         StepVerifier.create(enforcer.enforceOrganization(ctx, "DIFFERENT_ORG"))
                 .verifyComplete();
@@ -115,7 +115,7 @@ class PolicyEnforcerTest {
 
     @Test
     void enforceOrganization_failsWhenOrgDoesNotMatchAndNotSysAdmin() {
-        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null, null);
 
         StepVerifier.create(enforcer.enforceOrganization(ctx, "ORG2"))
                 .expectError(UnauthorizedRoleException.class)

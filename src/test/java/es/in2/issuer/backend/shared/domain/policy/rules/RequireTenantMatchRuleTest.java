@@ -17,8 +17,8 @@ class RequireTenantMatchRuleTest {
     @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = {"   ", "\t"})
-    void evaluate_rejectsWhenTenantDomainIsNullOrBlank(String tenantDomain) {
-        PolicyContext ctx = new PolicyContext("ORG-123", List.of(), null, null, null, false, tenantDomain);
+    void evaluate_rejectsWhenTenantDomainHeaderIsNullOrBlank(String tenantDomain) {
+        PolicyContext ctx = new PolicyContext("ORG-123", List.of(), null, null, null, false, tenantDomain, "altia");
 
         StepVerifier.create(rule.evaluate(ctx, "ignored"))
                 .expectErrorMatches(e ->
@@ -27,17 +27,38 @@ class RequireTenantMatchRuleTest {
                 .verify();
     }
 
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"   ", "\t"})
+    void evaluate_rejectsWhenTokenTenantClaimIsNullOrBlank(String tokenTenant) {
+        PolicyContext ctx = new PolicyContext("ORG-123", List.of(), null, null, null, false, "altia", tokenTenant);
+
+        StepVerifier.create(rule.evaluate(ctx, "ignored"))
+                .expectErrorMatches(e ->
+                        e instanceof TenantMismatchException &&
+                                e.getMessage().contains("Access token missing 'tenant' claim"))
+                .verify();
+    }
+
     @Test
-    void evaluate_succeedsWhenTenantDomainMatchesOrganization() {
-        PolicyContext ctx = new PolicyContext("ORG-123", List.of(), null, null, null, false, "ORG-123");
+    void evaluate_succeedsWhenTokenTenantMatchesHeader() {
+        PolicyContext ctx = new PolicyContext("ORG-123", List.of(), null, null, null, false, "altia", "altia");
 
         StepVerifier.create(rule.evaluate(ctx, "ignored"))
                 .verifyComplete();
     }
 
     @Test
-    void evaluate_failsWhenTenantDomainDoesNotMatchOrganization() {
-        PolicyContext ctx = new PolicyContext("ORG-123", List.of(), null, null, null, false, "ORG-456");
+    void evaluate_succeedsWhenTokenTenantMatchesHeaderCaseInsensitive() {
+        PolicyContext ctx = new PolicyContext("ORG-123", List.of(), null, null, null, false, "ALTIA", "altia");
+
+        StepVerifier.create(rule.evaluate(ctx, "ignored"))
+                .verifyComplete();
+    }
+
+    @Test
+    void evaluate_failsWhenTokenTenantDoesNotMatchHeader() {
+        PolicyContext ctx = new PolicyContext("ORG-123", List.of(), null, null, null, false, "cgcom", "altia");
 
         StepVerifier.create(rule.evaluate(ctx, "ignored"))
                 .expectErrorMatches(e ->

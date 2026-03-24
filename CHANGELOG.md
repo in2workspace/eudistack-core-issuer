@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Tenant validation uses `tenant` claim instead of `organizationIdentifier`** — `RequireTenantMatchRule` now compares the `tenant` claim (injected by the Verifier from OIDC client config) against the `X-Tenant-Domain` header (injected by nginx). Previously compared `mandator.organizationIdentifier`, conflating tenant and organization. B2B2C model: tenant groups organizations, organization groups users. `PolicyContext` gains `tokenTenant` field; `PolicyContextFactory` extracts the `tenant` claim. (EUDI-017)
+- **Token issuer check order in `CustomAuthenticationManager`** — Check own issuer (`APP_URL`) before verifier (`isVerifierIssuer`) to avoid false match when issuer and verifier share the same base origin (subdomain routing on same port). `baseOriginMatches` is too broad for same-port deployments.
+- **`RateLimitFilter` NPE with `ForwardedHeaderTransformer`** — Handle `getAddress() == null` on unresolved `InetSocketAddress` created by Spring's `ForwardedHeaderTransformer`. Uses `getHostString()` as fallback.
+
 ### Changed
 
 - Refactor email templates: replace 6 per-language HTML files with 3 unified Thymeleaf i18n templates using locale-based resolution.

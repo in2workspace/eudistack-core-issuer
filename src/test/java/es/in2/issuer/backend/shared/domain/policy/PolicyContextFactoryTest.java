@@ -48,6 +48,10 @@ class PolicyContextFactoryTest {
     }
 
     private void setupFlatTokenClaims(Payload payload, String credentialType, String orgId) {
+        setupFlatTokenClaims(payload, credentialType, orgId, "DOME");
+    }
+
+    private void setupFlatTokenClaims(Payload payload, String credentialType, String orgId, String tenant) {
         // credential_type claim: getClaimFromPayload serializes strings with quotes
         when(jwtService.getClaimFromPayload(payload, "credential_type"))
                 .thenReturn("\"" + credentialType + "\"");
@@ -59,6 +63,11 @@ class PolicyContextFactoryTest {
         // mandator claim: JSON object
         String mandatorJson = "{\"organizationIdentifier\":\"" + orgId + "\",\"organization\":\"Test Org\"}";
         when(jwtService.getClaimFromPayload(payload, "mandator")).thenReturn(mandatorJson);
+
+        // tenant claim: plain string (with quotes from serialization)
+        if (tenant != null) {
+            when(jwtService.getClaimFromPayload(payload, "tenant")).thenReturn("\"" + tenant + "\"");
+        }
     }
 
     private CredentialProfile buildProfile(String configId) {
@@ -96,8 +105,31 @@ class PolicyContextFactoryTest {
                     assertThat(ctx.powers()).hasSize(1);
                     assertThat(ctx.powers().getFirst().function()).isEqualTo("Onboarding");
                     assertThat(ctx.tenantDomain()).isEqualTo("DOME");
+                    assertThat(ctx.tokenTenant()).isEqualTo("DOME");
                     assertThat(ctx.profile()).isEqualTo(profile);
                     assertThat(ctx.credential()).isNotNull();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void fromTokenSimple_tokenTenantIsNullWhenClaimAbsent() {
+        SignedJWT signedJWT = mock(SignedJWT.class);
+        Payload payload = mock(Payload.class);
+
+        when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
+        when(signedJWT.getPayload()).thenReturn(payload);
+
+        setupFlatTokenClaims(payload, CREDENTIAL_TYPE, "ORG-123", null);
+
+        CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+        when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
+
+        StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
+                .assertNext(ctx -> {
+                    assertThat(ctx.tokenTenant()).isNull();
+                    assertThat(ctx.tenantDomain()).isEqualTo("DOME");
                 })
                 .verifyComplete();
     }
