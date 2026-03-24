@@ -13,7 +13,7 @@ class RequireOrganizationRuleTest {
 
     @Test
     void evaluate_succeedsWhenOrganizationMatches() {
-        PolicyContext ctx = new PolicyContext("ORG-123", List.of(), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG-123", List.of(), null, null, null, false, null, null);
 
         StepVerifier.create(rule.evaluate(ctx, "ORG-123"))
                 .verifyComplete();
@@ -21,7 +21,7 @@ class RequireOrganizationRuleTest {
 
     @Test
     void evaluate_succeedsWhenSysAdmin() {
-        PolicyContext ctx = new PolicyContext("ADMIN_ORG", List.of(), null, null, null, true, null);
+        PolicyContext ctx = new PolicyContext("ADMIN_ORG", List.of(), null, null, null, true, null, null);
 
         StepVerifier.create(rule.evaluate(ctx, "COMPLETELY_DIFFERENT_ORG"))
                 .verifyComplete();
@@ -29,7 +29,7 @@ class RequireOrganizationRuleTest {
 
     @Test
     void evaluate_failsWhenOrganizationDoesNotMatchAndNotSysAdmin() {
-        PolicyContext ctx = new PolicyContext("ORG-123", List.of(), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG-123", List.of(), null, null, null, false, null, null);
 
         StepVerifier.create(rule.evaluate(ctx, "ORG-456"))
                 .expectErrorMatches(e ->
@@ -40,7 +40,7 @@ class RequireOrganizationRuleTest {
 
     @Test
     void evaluate_sysAdminBypassesOrgCheck() {
-        PolicyContext ctx = new PolicyContext("ADMIN_ORG", List.of(), null, null, null, true, null);
+        PolicyContext ctx = new PolicyContext("ADMIN_ORG", List.of(), null, null, null, true, null, null);
 
         // Even though orgs don't match, sys-admin bypasses the check
         StepVerifier.create(rule.evaluate(ctx, "ANY_ORG"))

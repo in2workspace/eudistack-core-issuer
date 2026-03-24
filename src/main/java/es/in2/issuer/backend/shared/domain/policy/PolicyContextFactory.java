@@ -32,6 +32,7 @@ public class PolicyContextFactory {
     private static final String POWER_CLAIM = "power";
     private static final String MANDATOR_CLAIM = "mandator";
     private static final String ORG_ID_FIELD = "organizationIdentifier";
+    private static final String TENANT_CLAIM = "tenant";
 
     private final JWTService jwtService;
     private final ObjectMapper objectMapper;
@@ -48,6 +49,7 @@ public class PolicyContextFactory {
                     CredentialProfile profile = resolveProfile(credentialType);
                     List<Power> powers = extractPowers(signedJWT.getPayload());
                     String orgId = extractOrganizationId(signedJWT.getPayload());
+                    String tokenTenant = extractTokenTenant(signedJWT.getPayload());
                     JsonNode credential = buildCredentialNode(signedJWT.getPayload());
 
                     log.info("User organization identifier: {}", orgId);
@@ -63,7 +65,8 @@ public class PolicyContextFactory {
                             profile,
                             credentialType,
                             isSysAdmin,
-                            tenantDomain
+                            tenantDomain,
+                            tokenTenant
                     ));
                 });
     }
@@ -83,6 +86,7 @@ public class PolicyContextFactory {
                                 CredentialProfile profile = resolveProfile(credentialType);
                                 List<Power> powers = extractPowers(signedJWT.getPayload());
                                 String orgId = extractOrganizationId(signedJWT.getPayload());
+                                String tokenTenant = extractTokenTenant(signedJWT.getPayload());
                                 JsonNode credential = buildCredentialNode(signedJWT.getPayload());
 
                                 boolean isSysAdmin = orgId != null
@@ -96,7 +100,8 @@ public class PolicyContextFactory {
                                         profile,
                                         resolvedType,
                                         isSysAdmin,
-                                        tenantDomain
+                                        tenantDomain,
+                                        tokenTenant
                                 );
                             });
                 });
@@ -137,6 +142,20 @@ public class PolicyContextFactory {
             return orgIdNode.isMissingNode() || orgIdNode.isNull() ? null : orgIdNode.asText();
         } catch (Exception e) {
             log.debug("No mandator claim found in token or failed to parse: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Extracts the tenant claim from the token payload.
+     * The verifier injects this claim based on the OIDC client's tenant configuration.
+     */
+    private String extractTokenTenant(com.nimbusds.jose.Payload payload) {
+        try {
+            String raw = jwtService.getClaimFromPayload(payload, TENANT_CLAIM);
+            return stripJsonQuotes(raw);
+        } catch (Exception e) {
+            log.debug("No tenant claim found in token: {}", e.getMessage());
             return null;
         }
     }
