@@ -1,0 +1,85 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - stg
+        default: 'stg'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      PROJECT_NAME: eudistack
+      APP_NAME: issuer-core
+      HEALTH_SUBDOMAIN: issuer
+      REGION: eu-west-1
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_STG }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_STG }}
+          aws-region: ${{ env.REGION }}
+
+      - name: Force new ECS deployment
+        run: |
+          set -euo pipefail
+          CLUSTER="${{ env.PROJECT_NAME }}-${{ inputs.environment }}-ecs-ew1"
+          SERVICE="${{ env.PROJECT_NAME }}-${{ inputs.environment }}-ecs-ew1-${{ env.APP_NAME }}-service"
+
+          echo "Deploying ${SERVICE} on cluster ${CLUSTER}..."
+          aws ecs update-service \
+            --cluster "${CLUSTER}" \
+            --service "${SERVICE}" \
+            --force-new-deployment \
+            --region "${{ env.REGION }}" \
+            --no-cli-pager
+
+          echo "### 🚀 Deployment triggered" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cluster:** ${CLUSTER}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Service:** ${SERVICE}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Wait for deployment stability
+        run: |
+          set -euo pipefail
+          CLUSTER="${{ env.PROJECT_NAME }}-${{ inputs.environment }}-ecs-ew1"
+          SERVICE="${{ env.PROJECT_NAME }}-${{ inputs.environment }}-ecs-ew1-${{ env.APP_NAME }}-service"
+
+          echo "Waiting for service stability (timeout: 10 min)..."
+          aws ecs wait services-stable \
+            --cluster "${CLUSTER}" \
+            --services "${SERVICE}" \
+            --region "${{ env.REGION }}" || {
+              echo "::warning::Service did not stabilize within timeout"
+              exit 1
+            }
+
+          echo "Service is stable."
+
+      - name: Health check
+        run: |
+          set -euo pipefail
+          HEALTH_URL="https://${{ env.HEALTH_SUBDOMAIN }}-${{ inputs.environment }}.altia.eudistack.net/actuator/health"
+
+          # Wait a bit for ALB to register new tasks
+          sleep 15
+
+          echo "Checking health at ${HEALTH_URL}..."
+          HTTP_STATUS=$(curl -sk -o /dev/null -w "%{http_code}" "${HEALTH_URL}" --max-time 10 || echo "000")
+
+          if [ "${HTTP_STATUS}" = "200" ]; then
+            echo "Health check passed (HTTP ${HTTP_STATUS})"
+          else
+            echo "::warning::Health check returned HTTP ${HTTP_STATUS} — service may still be starting"
+          fi
