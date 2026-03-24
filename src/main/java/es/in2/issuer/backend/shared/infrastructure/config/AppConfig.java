@@ -92,6 +92,15 @@ public class AppConfig implements IssuerProperties {
         return baseOriginMatches(configuredUrl, issuer);
     }
 
+    @Override
+    public boolean isIssuerBackendIssuer(String issuer) {
+        String configuredUrl = getIssuerBackendUrl();
+        if (configuredUrl.equals(issuer)) {
+            return true;
+        }
+        return baseOriginMatches(configuredUrl, issuer);
+    }
+
     /**
      * Compares scheme + base domain (host minus first label) + port.
      * e.g. https://altia.127.0.0.1.nip.io:4444 and https://cgcom.127.0.0.1.nip.io:4444

@@ -9,10 +9,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import reactor.test.StepVerifier;
 
 import java.util.Map;
 import java.util.Set;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL_CONTEXT_KEY;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
@@ -21,6 +23,7 @@ import static org.mockito.Mockito.when;
 class CredentialIssuerMetadataServiceImplTest {
 
     private static final String ISSUER_URL = "https://issuer.example.com";
+    private static final String DYNAMIC_URL = "https://issuer.altia.demo.eudistack.net";
 
     @Mock
     private IssuerProperties appConfig;
@@ -29,8 +32,8 @@ class CredentialIssuerMetadataServiceImplTest {
     private CredentialProfileRegistry credentialProfileRegistry;
 
     @Test
-    void shouldGetCredentialIssuerMetadataSuccessfully() {
-        // Arrange
+    void getCredentialIssuerMetadata_withDynamicUrl_returnsMetadataWithDynamicUrl() {
+        // Given
         when(appConfig.getIssuerBackendUrl()).thenReturn(ISSUER_URL);
 
         CredentialProfile learProfile = CredentialProfile.builder()
@@ -46,28 +49,65 @@ class CredentialIssuerMetadataServiceImplTest {
 
         when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of("learcredential.employee.w3c.4", learProfile));
 
-        // Construct service (metadata is built in the constructor)
         var service = new CredentialIssuerMetadataServiceImpl(appConfig, credentialProfileRegistry);
 
-        // Act
-        CredentialIssuerMetadata metadata = service.getCredentialIssuerMetadata();
+        // When & Then
+        StepVerifier.create(
+                        service.getCredentialIssuerMetadata()
+                                .contextWrite(ctx -> ctx.put(ISSUER_BASE_URL_CONTEXT_KEY, DYNAMIC_URL))
+                )
+                .assertNext(metadata -> {
+                    assertThat(metadata.credentialIssuer()).isEqualTo(DYNAMIC_URL);
+                    assertThat(metadata.credentialEndpoint()).isEqualTo(DYNAMIC_URL + OID4VCI_CREDENTIAL_PATH);
+                    assertThat(metadata.nonceEndpoint()).isEqualTo(DYNAMIC_URL + OID4VCI_NONCE_PATH);
+                    assertThat(metadata.notificationEndpoint()).isEqualTo(DYNAMIC_URL + OID4VCI_NOTIFICATION_PATH);
 
-        // Assert
-        assertThat(metadata.credentialIssuer()).isEqualTo(ISSUER_URL);
-        assertThat(metadata.credentialEndpoint()).isEqualTo(ISSUER_URL + OID4VCI_CREDENTIAL_PATH);
-        assertThat(metadata.nonceEndpoint()).isEqualTo(ISSUER_URL + OID4VCI_NONCE_PATH);
+                    Map<String, CredentialIssuerMetadata.CredentialConfiguration> configs = metadata.credentialConfigurationsSupported();
+                    assertThat(configs).containsKeys("learcredential.employee.w3c.4");
+                })
+                .verifyComplete();
+    }
 
-        Map<String, CredentialIssuerMetadata.CredentialConfiguration> configs = metadata.credentialConfigurationsSupported();
-        assertThat(configs).containsKeys("learcredential.employee.w3c.4");
+    @Test
+    void getCredentialIssuerMetadata_withoutContextUrl_returnsFallbackUrl() {
+        // Given
+        when(appConfig.getIssuerBackendUrl()).thenReturn(ISSUER_URL);
 
-        CredentialIssuerMetadata.CredentialConfiguration learCredentialEmployeeConfig = configs.get("learcredential.employee.w3c.4");
-        assertThat(learCredentialEmployeeConfig.format()).isEqualTo(Constants.JWT_VC_JSON);
-        assertThat(learCredentialEmployeeConfig.scope()).isEqualTo("lear_credential_employee");
-        assertThat(learCredentialEmployeeConfig.cryptographicBindingMethodsSupported()).containsExactly("did:key");
-        assertThat(learCredentialEmployeeConfig.credentialSigningAlgValuesSupported()).containsExactly("ES256");
+        CredentialProfile learProfile = CredentialProfile.builder()
+                .credentialConfigurationId("learcredential.employee.w3c.4")
+                .format(Constants.JWT_VC_JSON)
+                .scope("lear_credential_employee")
+                .cryptographicBindingMethodsSupported(Set.of("did:key"))
+                .credentialSigningAlgValuesSupported(Set.of("ES256"))
+                .proofTypesSupported(Map.of("jwt", CredentialProfile.ProofTypeConfig.builder()
+                        .proofSigningAlgValuesSupported(Set.of("ES256"))
+                        .build()))
+                .build();
 
-        Map<String, CredentialProfile.ProofTypeConfig> proofTypes = learCredentialEmployeeConfig.proofTypesSupported();
-        assertThat(proofTypes).containsKey("jwt");
-        assertThat(proofTypes.get("jwt").proofSigningAlgValuesSupported()).containsExactly("ES256");
+        when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of("learcredential.employee.w3c.4", learProfile));
+
+        var service = new CredentialIssuerMetadataServiceImpl(appConfig, credentialProfileRegistry);
+
+        // When & Then
+        StepVerifier.create(service.getCredentialIssuerMetadata())
+                .assertNext(metadata -> {
+                    assertThat(metadata.credentialIssuer()).isEqualTo(ISSUER_URL);
+                    assertThat(metadata.credentialEndpoint()).isEqualTo(ISSUER_URL + OID4VCI_CREDENTIAL_PATH);
+                    assertThat(metadata.nonceEndpoint()).isEqualTo(ISSUER_URL + OID4VCI_NONCE_PATH);
+
+                    Map<String, CredentialIssuerMetadata.CredentialConfiguration> configs = metadata.credentialConfigurationsSupported();
+                    assertThat(configs).containsKeys("learcredential.employee.w3c.4");
+
+                    CredentialIssuerMetadata.CredentialConfiguration learConfig = configs.get("learcredential.employee.w3c.4");
+                    assertThat(learConfig.format()).isEqualTo(Constants.JWT_VC_JSON);
+                    assertThat(learConfig.scope()).isEqualTo("lear_credential_employee");
+                    assertThat(learConfig.cryptographicBindingMethodsSupported()).containsExactly("did:key");
+                    assertThat(learConfig.credentialSigningAlgValuesSupported()).containsExactly("ES256");
+
+                    Map<String, CredentialProfile.ProofTypeConfig> proofTypes = learConfig.proofTypesSupported();
+                    assertThat(proofTypes).containsKey("jwt");
+                    assertThat(proofTypes.get("jwt").proofSigningAlgValuesSupported()).containsExactly("ES256");
+                })
+                .verifyComplete();
     }
 }

@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Set;
 
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.*;
+import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL_CONTEXT_KEY;
 
 @Slf4j
 @Service
@@ -25,7 +26,13 @@ public class AuthorizationServerMetadataServiceImpl implements AuthorizationServ
 
     @Override
     public Mono<AuthorizationServerMetadata> buildAuthorizationServerMetadata(String processId) {
-        String issuerUrl = appConfig.getIssuerBackendUrl();
+        return Mono.deferContextual(ctx -> {
+            String issuerUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, appConfig.getIssuerBackendUrl());
+            return Mono.just(buildMetadata(issuerUrl));
+        });
+    }
+
+    private AuthorizationServerMetadata buildMetadata(String issuerUrl) {
         boolean authCodeEnabled = profileProperties.isAuthorizationCodeEnabled();
         var authCodeConfig = profileProperties.authorizationCode();
 
@@ -69,6 +76,6 @@ public class AuthorizationServerMetadataServiceImpl implements AuthorizationServ
             builder.authorizationResponseIssParameterSupported(true);
         }
 
-        return Mono.just(builder.build());
+        return builder.build();
     }
 }

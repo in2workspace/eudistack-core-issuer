@@ -209,7 +209,7 @@ class CustomAuthenticationManagerTest {
     void authenticate_withValidInternalIssuerToken_returnsAuthentication() {
         String token = buildAccessTokenFromIssuer("http://issuer.local", true);
 
-        when(appConfig.getIssuerBackendUrl()).thenReturn("http://issuer.local");
+        when(appConfig.isIssuerBackendIssuer("http://issuer.local")).thenReturn(true);
         when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class)))
                 .thenReturn(Mono.just(true));
 
@@ -230,7 +230,7 @@ class CustomAuthenticationManagerTest {
     void authenticate_withInternalIssuerToken_missingCredentialType_returnsAuthentication() {
         String token = buildAccessTokenFromIssuer("http://issuer.local", false);
 
-        when(appConfig.getIssuerBackendUrl()).thenReturn("http://issuer.local");
+        when(appConfig.isIssuerBackendIssuer("http://issuer.local")).thenReturn(true);
         when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class)))
                 .thenReturn(Mono.just(true));
 
@@ -253,7 +253,7 @@ class CustomAuthenticationManagerTest {
                 (now + 3600) + ",\"credential_type\":\"OtherType\"}";
         String token = buildToken(headerJson, payloadJson);
 
-        when(appConfig.getIssuerBackendUrl()).thenReturn("http://issuer.local");
+        when(appConfig.isIssuerBackendIssuer("http://issuer.local")).thenReturn(true);
         when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class)))
                 .thenReturn(Mono.just(true));
 
@@ -272,7 +272,7 @@ class CustomAuthenticationManagerTest {
     void authenticate_withInternalIssuerToken_invalidSignature_throwsBadCredentialsException() {
         String token = buildAccessTokenFromIssuer("http://issuer.local", false);
 
-        when(appConfig.getIssuerBackendUrl()).thenReturn("http://issuer.local");
+        when(appConfig.isIssuerBackendIssuer("http://issuer.local")).thenReturn(true);
         when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class)))
                 .thenReturn(Mono.just(false));
 
@@ -290,7 +290,7 @@ class CustomAuthenticationManagerTest {
         String accessToken = buildAccessTokenFromIssuer("http://issuer.local", false);
         String idToken = buildIdTokenSimple("id-principal@example.com");
 
-        when(appConfig.getIssuerBackendUrl()).thenReturn("http://issuer.local");
+        when(appConfig.isIssuerBackendIssuer("http://issuer.local")).thenReturn(true);
         when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class))).thenReturn(Mono.just(true));
 
         // Return different principals depending on which Jwt we parse
@@ -314,7 +314,7 @@ class CustomAuthenticationManagerTest {
         String accessToken = buildAccessTokenFromIssuer("http://issuer.local", false);
         String idToken = buildIdTokenSimple("ignored@example.com");
 
-        when(appConfig.getIssuerBackendUrl()).thenReturn("http://issuer.local");
+        when(appConfig.isIssuerBackendIssuer("http://issuer.local")).thenReturn(true);
         when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class))).thenReturn(Mono.just(true));
 
         when(jwtService.resolvePrincipal(any(Jwt.class))).thenAnswer(inv -> {
@@ -337,7 +337,7 @@ class CustomAuthenticationManagerTest {
         String accessToken = buildAccessTokenFromIssuer("http://issuer.local", false);
         String invalidIdToken = "not-a-jwt"; // triggers onErrorResume → fallback
 
-        when(appConfig.getIssuerBackendUrl()).thenReturn("http://issuer.local");
+        when(appConfig.isIssuerBackendIssuer("http://issuer.local")).thenReturn(true);
         when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class))).thenReturn(Mono.just(true));
 
         when(jwtService.resolvePrincipal(any(Jwt.class))).thenAnswer(inv -> {
@@ -358,7 +358,7 @@ class CustomAuthenticationManagerTest {
     void authenticate_withDualToken_nullIdToken_usesAccessTokenPrincipal() {
         String accessToken = buildAccessTokenFromIssuer("http://issuer.local", true);
 
-        when(appConfig.getIssuerBackendUrl()).thenReturn("http://issuer.local");
+        when(appConfig.isIssuerBackendIssuer("http://issuer.local")).thenReturn(true);
         when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class))).thenReturn(Mono.just(true));
         when(jwtService.resolvePrincipal(any(Jwt.class))).thenReturn("principal-from-access@example.com");
 
@@ -375,7 +375,7 @@ class CustomAuthenticationManagerTest {
     void authenticate_withUnknownIssuer_throwsBadCredentialsException() {
         String token = buildAccessTokenFromIssuer("http://unknown-issuer.local", false);
 
-        when(appConfig.getIssuerBackendUrl()).thenReturn("http://issuer.local");
+        when(appConfig.isIssuerBackendIssuer("http://unknown-issuer.local")).thenReturn(false);
 
         Authentication authentication = new TestingAuthenticationToken(null, token);
         Mono<Authentication> result = authenticationManager.authenticate(authentication);
@@ -414,7 +414,7 @@ class CustomAuthenticationManagerTest {
         String badSignature = "bad==signature/with+invalid";
         String token = header + "." + payload + "." + badSignature;
 
-        when(appConfig.getIssuerBackendUrl()).thenReturn("http://issuer.local");
+        when(appConfig.isIssuerBackendIssuer("http://issuer.local")).thenReturn(true);
         when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class)))
                 .thenReturn(Mono.error(new BadCredentialsException("Invalid JWS token format")));
 
