@@ -3,6 +3,7 @@ package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.ParService;
+import java.net.URI;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -33,6 +34,9 @@ public class ParController {
             ServerWebExchange exchange
     ) {
         String requestUri = exchange.getRequest().getURI().toString();
-        return parService.pushAuthorizationRequest(request, dpopHeader, wiaHeader, wiaPopHeader, requestUri);
+        // Derive public issuer URL from request URI (already adjusted by ForwardedHeaderTransformer)
+        URI uri = exchange.getRequest().getURI();
+        String publicIssuerUrl = uri.getScheme() + "://" + uri.getAuthority();
+        return parService.pushAuthorizationRequest(request, dpopHeader, wiaHeader, wiaPopHeader, requestUri, publicIssuerUrl);
     }
 }

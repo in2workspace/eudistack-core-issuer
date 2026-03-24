@@ -26,7 +26,7 @@ public class InMemoryBootstrapTokenService implements BootstrapTokenService {
     @PostConstruct
     void printToken() {
         // SEC-04: stdout only — never goes to log aggregator (Loki, ELK, etc.)
-        System.out.println("[BOOTSTRAP] One-time token: " + token.get());
+        System.out.println("[BOOTSTRAP] Token: " + token.get());
     }
 
     @Override
@@ -40,9 +40,6 @@ public class InMemoryBootstrapTokenService implements BootstrapTokenService {
             return false;
         }
         String current = token.get();
-        if (current != null && current.equals(candidate)) {
-            return token.compareAndSet(current, null);
-        }
-        return false;
+        return current != null && current.equals(candidate);
     }
 }
