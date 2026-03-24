@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-03-24
+
 ### Added
 
 - **Dynamic URL resolution for multi-tenant deployment** — `IssuerBaseUrlWebFilter` extracts the public base URL from `X-Forwarded-*` headers and stores it in Reactor context. Metadata, credential offers, status list URLs, and token endpoints now derive URLs from the request instead of static `APP_URL`. Enables true multi-tenant with per-tenant subdomains. (EUDI-017)
@@ -306,38 +308,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Issuances API to support various issuance types.
 
-## [Unreleased]: v0.7.0
-- LEARCredential compliance.
-
-## [Unreleased]: v0.6.0
-- DOME profile compliance.
-
-## [Unreleased]: v0.5.0
-- Deferred credential emission.
-- tx_code support for PIN.
-- Persistence of emitted credentials in ddb.
-- Retrieval and management of emitted credentials.
-
-## [Unreleased]: v0.4.0
-- Hexagonal pattern.
-- Credential Offer endpoint requiere type of credential.
-- DOME profile refactor and fixes.
-- Batch credential support (extra)
-
-## [Unreleased]: v0.3.0
-- Support for credentials in JWT and CWT.
-- Remove of external libraries for CV generation
-- Native credential payload generation.
-- Local emission.
-
-## [Unreleased]: v0.2.0
-- Adapter for Abstract Configuration loading.
-- Support for Configurations from YAML file.
-- Support for Configurations from Azure App Configuration.
-
-## [Unreleased]: v0.1.0
-- Successful build and tests.
-- Compatibility with standard dependencies and plugins.
-- Migration of files.
-
-[release]:

@@ -39,6 +39,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./gradlew build --info
 
+      - name: JaCoCo Coverage Summary
+        if: always()
+        uses: madrapps/jacoco-report@v1.7.1
+        with:
+          paths: build/reports/jacoco/test/jacocoTestReport.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          title: '📊 Coverage Report'
+          min-coverage-overall: 0
+          min-coverage-changed-files: 0
+
       - name: Upload JaCoCo report
         if: always()
         uses: actions/upload-artifact@v4
