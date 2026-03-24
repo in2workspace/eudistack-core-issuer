@@ -61,7 +61,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                             .txCode(grantResult.txCode)
                             .build();
 
-                    return credentialOfferCacheRepository.saveCredentialOffer(issuanceId, data);
+                    return credentialOfferCacheRepository.saveCredentialOffer(data);
                 })
                 .flatMap(nonce -> buildCredentialOfferUri(nonce)
                         .flatMap(uri -> deliverOffer(uri, issuanceId, credentialOfferRefreshToken, delivery)));

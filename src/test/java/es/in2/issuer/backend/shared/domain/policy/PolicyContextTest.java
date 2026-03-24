@@ -12,7 +12,7 @@ class PolicyContextTest {
     @Test
     void hasPower_returnsTrueWhenMatchingFunctionAndStringAction() {
         Power power = Power.builder().function("Onboarding").action("Execute").build();
-        PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, null, null);
 
         assertThat(ctx.hasPower("Onboarding", "Execute")).isTrue();
     }
@@ -20,7 +20,7 @@ class PolicyContextTest {
     @Test
     void hasPower_returnsTrueWhenMatchingFunctionAndListAction() {
         Power power = Power.builder().function("Onboarding").action(List.of("Execute", "Read")).build();
-        PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, null, null);
 
         assertThat(ctx.hasPower("Onboarding", "Execute")).isTrue();
         assertThat(ctx.hasPower("Onboarding", "Read")).isTrue();
@@ -29,7 +29,7 @@ class PolicyContextTest {
     @Test
     void hasPower_returnsFalseWhenFunctionDoesNotMatch() {
         Power power = Power.builder().function("Certification").action("Execute").build();
-        PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, null, null);
 
         assertThat(ctx.hasPower("Onboarding", "Execute")).isFalse();
     }
@@ -37,14 +37,14 @@ class PolicyContextTest {
     @Test
     void hasPower_returnsFalseWhenActionDoesNotMatch() {
         Power power = Power.builder().function("Onboarding").action("Read").build();
-        PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, null, null);
 
         assertThat(ctx.hasPower("Onboarding", "Execute")).isFalse();
     }
 
     @Test
     void hasPower_returnsFalseWhenNoPowers() {
-        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(), null, null, null, false, null, null);
 
         assertThat(ctx.hasPower("Onboarding", "Execute")).isFalse();
     }
@@ -52,7 +52,7 @@ class PolicyContextTest {
     @Test
     void hasPowerWithDomain_returnsTrueWhenAllMatch() {
         Power power = Power.builder().function("Onboarding").action("Execute").domain("DOME").build();
-        PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, null, null);
 
         assertThat(ctx.hasPowerWithDomain("Onboarding", "Execute", "DOME")).isTrue();
     }
@@ -60,7 +60,7 @@ class PolicyContextTest {
     @Test
     void hasPowerWithDomain_returnsFalseWhenDomainDoesNotMatch() {
         Power power = Power.builder().function("Onboarding").action("Execute").domain("OTHER").build();
-        PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, null, null);
 
         assertThat(ctx.hasPowerWithDomain("Onboarding", "Execute", "DOME")).isFalse();
     }
@@ -68,7 +68,7 @@ class PolicyContextTest {
     @Test
     void hasPowerWithDomain_returnsFalseWhenFunctionDoesNotMatch() {
         Power power = Power.builder().function("Certification").action("Execute").domain("DOME").build();
-        PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, null, null);
 
         assertThat(ctx.hasPowerWithDomain("Onboarding", "Execute", "DOME")).isFalse();
     }
@@ -76,7 +76,7 @@ class PolicyContextTest {
     @Test
     void hasPowerWithDomain_worksWithActionAsList() {
         Power power = Power.builder().function("Onboarding").action(List.of("Execute", "Read")).domain("DOME").build();
-        PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, null);
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, null, null);
 
         assertThat(ctx.hasPowerWithDomain("Onboarding", "Execute", "DOME")).isTrue();
         assertThat(ctx.hasPowerWithDomain("Onboarding", "Read", "DOME")).isTrue();

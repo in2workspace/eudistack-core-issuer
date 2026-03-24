@@ -64,12 +64,22 @@ public class RateLimitFilter implements WebFilter {
     }
 
     private String resolveClientIp(ServerWebExchange exchange) {
-        // Prefer X-Forwarded-For (set by nginx/reverse proxy) over direct IP
+        // Prefer X-Forwarded-For header (set by nginx) when available.
+        // When FORWARD_HEADERS_STRATEGY=FRAMEWORK is active, Spring consumes this header
+        // and rewrites remoteAddress, so the header won't be present and we fall through
+        // to remoteAddress below. When the strategy is not active, the header is still
+        // present and we use it directly.
         String forwarded = exchange.getRequest().getHeaders().getFirst("X-Forwarded-For");
         if (forwarded != null && !forwarded.isBlank()) {
             return forwarded.split(",")[0].trim();
         }
         InetSocketAddress remoteAddress = exchange.getRequest().getRemoteAddress();
-        return remoteAddress != null ? remoteAddress.getAddress().getHostAddress() : "unknown";
+        if (remoteAddress == null) {
+            return "unknown";
+        }
+        // getAddress() can be null when ForwardedHeaderTransformer creates an unresolved InetSocketAddress
+        return remoteAddress.getAddress() != null
+                ? remoteAddress.getAddress().getHostAddress()
+                : remoteAddress.getHostString();
     }
 }

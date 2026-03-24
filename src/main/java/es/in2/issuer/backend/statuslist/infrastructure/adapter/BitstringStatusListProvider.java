@@ -30,6 +30,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL_CONTEXT_KEY;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.STATUS_LIST_BASE;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.TOKEN_STATUS_LIST_BASE;
 import static es.in2.issuer.backend.statuslist.domain.util.Constants.*;
@@ -89,19 +90,23 @@ public class BitstringStatusListProvider implements StatusListProvider {
 
         log.debug("method=allocateEntry step=START purpose={} format={} issuanceId={}", purpose, format, issuanceId);
 
-        return findExistingAllocation(purpose, format, issuanceId)
-                .switchIfEmpty(Mono.defer(() -> allocateNewEntry(purpose, format, issuanceId, token)))
-                .map(entry -> {
-                    log.debug(
-                            "method=allocateEntry step=END purpose={} format={} issuanceId={} statusListId={} idx={}",
-                            purpose, format, issuanceId, entry.statusListCredential(), entry.statusListIndex()
-                    );
-                    return entry;
-                })
-                .doOnError(e -> log.warn(
-                        "method=allocateEntry step=ERROR purpose={} format={} issuanceId={} error={}",
-                        purpose, format, issuanceId, e.toString()
-                ));
+        return Mono.deferContextual(ctx -> {
+            String baseUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, appConfig.getIssuerBackendUrl());
+
+            return findExistingAllocation(baseUrl, purpose, format, issuanceId)
+                    .switchIfEmpty(Mono.defer(() -> allocateNewEntry(baseUrl, purpose, format, issuanceId, token)))
+                    .map(entry -> {
+                        log.debug(
+                                "method=allocateEntry step=END purpose={} format={} issuanceId={} statusListId={} idx={}",
+                                purpose, format, issuanceId, entry.statusListCredential(), entry.statusListIndex()
+                        );
+                        return entry;
+                    })
+                    .doOnError(e -> log.warn(
+                            "method=allocateEntry step=ERROR purpose={} format={} issuanceId={} error={}",
+                            purpose, format, issuanceId, e.toString()
+                    ));
+        });
     }
 
     @Override
@@ -191,14 +196,14 @@ public class BitstringStatusListProvider implements StatusListProvider {
 
     // --- Allocation internals ---
 
-    private Mono<StatusListEntry> allocateNewEntry(StatusPurpose purpose, StatusListFormat format, String issuanceId, String token) {
+    private Mono<StatusListEntry> allocateNewEntry(String baseUrl, StatusPurpose purpose, StatusListFormat format, String issuanceId, String token) {
         log.debug("method=allocateNewEntry step=START purpose={} format={} issuanceId={}", purpose, format, issuanceId);
 
         return pickListForAllocation(purpose, format, token)
                 .flatMap(list ->
                         reserveWithNewListFallback(list.id(), purpose, format, issuanceId, token)
                 )
-                .map(reservedIndex -> buildEntry(reservedIndex, format, purpose))
+                .map(reservedIndex -> buildEntry(baseUrl, reservedIndex, format, purpose))
                 .doOnSuccess(e ->
                         log.debug("method=allocateNewEntry step=END issuanceId={}", issuanceId)
                 );
@@ -296,14 +301,14 @@ public class BitstringStatusListProvider implements StatusListProvider {
                 );
     }
 
-    private Mono<StatusListEntry> findExistingAllocation(StatusPurpose purpose, StatusListFormat format, String issuanceId) {
+    private Mono<StatusListEntry> findExistingAllocation(String baseUrl, StatusPurpose purpose, StatusListFormat format, String issuanceId) {
         log.debug("method=findExistingAllocation step=START issuanceId={}", issuanceId);
         UUID procedureUuid = UUID.fromString(issuanceId);
 
         return statusListIndexRepository.findByIssuanceId(procedureUuid)
                 .map(existing -> {
                     log.debug("Found existing allocation in list {}, idx: {}", existing.statusListId(), existing.idx());
-                    return buildEntry(toIndexDomain(existing), format, purpose);
+                    return buildEntry(baseUrl, toIndexDomain(existing), format, purpose);
                 })
                 .doOnSuccess(v ->
                         log.debug("method=findExistingAllocation step=END issuanceId={} statusListEntry={}", issuanceId, v)
@@ -315,41 +320,45 @@ public class BitstringStatusListProvider implements StatusListProvider {
     private Mono<String> getIssuerAndSignCredential(StatusList saved, String token) {
         StatusListFormat fmt = StatusListFormat.fromValue(saved.format());
 
-        return issuerFactory.createSimpleIssuer()
-                .flatMap(issuer -> {
-                    String listUrl = buildListUrl(saved.id(), fmt);
+        return Mono.deferContextual(ctx -> {
+            String baseUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, appConfig.getIssuerBackendUrl());
 
-                    Map<String, Object> payload;
-                    String typ;
+            return issuerFactory.createSimpleIssuer()
+                    .flatMap(issuer -> {
+                        String listUrl = buildListUrl(baseUrl, saved.id(), fmt);
 
-                    if (fmt == StatusListFormat.TOKEN_JWT) {
-                        payload = tokenFactory.buildUnsigned(
-                                listUrl, issuer.id(), saved.purpose(), saved.encodedList());
-                        typ = TOKEN_STATUS_LIST_JWT_TYP;
-                    } else {
-                        payload = bitstringFactory.buildUnsigned(
-                                listUrl, issuer.id(), saved.purpose(), saved.encodedList());
-                        typ = null;
-                    }
+                        Map<String, Object> payload;
+                        String typ;
 
-                    return statusListSigner.sign(payload, token, saved.id(), typ);
-                });
+                        if (fmt == StatusListFormat.TOKEN_JWT) {
+                            payload = tokenFactory.buildUnsigned(
+                                    listUrl, issuer.id(), saved.purpose(), saved.encodedList());
+                            typ = TOKEN_STATUS_LIST_JWT_TYP;
+                        } else {
+                            payload = bitstringFactory.buildUnsigned(
+                                    listUrl, issuer.id(), saved.purpose(), saved.encodedList());
+                            typ = null;
+                        }
+
+                        return statusListSigner.sign(payload, token, saved.id(), typ);
+                    });
+        });
     }
 
     // --- Helpers ---
 
-    private StatusListEntry buildEntry(StatusListIndexData reservedIndex, StatusListFormat format, StatusPurpose purpose) {
-        String listUrl = buildListUrl(reservedIndex.statusListId(), format);
+    private StatusListEntry buildEntry(String baseUrl, StatusListIndexData reservedIndex, StatusListFormat format, StatusPurpose purpose) {
+        String listUrl = buildListUrl(baseUrl, reservedIndex.statusListId(), format);
         if (format == StatusListFormat.TOKEN_JWT) {
             return tokenFactory.buildStatusListEntry(listUrl, reservedIndex.idx(), purpose);
         }
         return bitstringFactory.buildStatusListEntry(listUrl, reservedIndex.idx(), purpose);
     }
 
-    private String buildListUrl(Long listId, StatusListFormat format) {
+    private String buildListUrl(String baseUrl, Long listId, StatusListFormat format) {
         requireNonNullParam(listId, "listId");
         String base = (format == StatusListFormat.TOKEN_JWT) ? TOKEN_STATUS_LIST_BASE : STATUS_LIST_BASE;
-        return appConfig.getIssuerBackendUrl() + base + "/" + listId;
+        return baseUrl + base + "/" + listId;
     }
 
     private Mono<StatusList> resolveRevocationCandidate(Long statusListId, Integer idx) {

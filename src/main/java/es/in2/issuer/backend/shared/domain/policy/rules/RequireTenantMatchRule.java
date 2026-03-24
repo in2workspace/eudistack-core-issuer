@@ -6,12 +6,16 @@ import es.in2.issuer.backend.shared.domain.policy.PolicyRule;
 import reactor.core.publisher.Mono;
 
 /**
- * Validates that the tenant domain from the request header matches the
- * organizationIdentifier extracted from the bearer token.
+ * Validates that the tenant claim from the access token matches the
+ * X-Tenant-Domain header injected by nginx.
  *
- * <p>If no tenant domain header is present, the rule fails — nginx always injects
- * {@code X-Tenant-Domain}, so its absence indicates a direct bypass attempt.
- * If present but mismatched, the rule fails with 403.</p>
+ * <p>The verifier injects the {@code tenant} claim into the access token
+ * based on the OIDC client's tenant configuration. nginx injects the
+ * {@code X-Tenant-Domain} header based on the subdomain or fixed config.
+ * Both must match for the request to be authorized.</p>
+ *
+ * <p>If either value is missing, the rule fails — their absence indicates
+ * a misconfiguration or a bypass attempt.</p>
  */
 public class RequireTenantMatchRule implements PolicyRule<Object> {
 
@@ -21,9 +25,14 @@ public class RequireTenantMatchRule implements PolicyRule<Object> {
         if (tenantDomain == null || tenantDomain.isBlank()) {
             return Mono.error(new TenantMismatchException("X-Tenant-Domain header is required"));
         }
-        if (!tenantDomain.equals(context.organizationIdentifier())) {
+        String tokenTenant = context.tokenTenant();
+        if (tokenTenant == null || tokenTenant.isBlank()) {
             return Mono.error(new TenantMismatchException(
-                    "Token organization '" + context.organizationIdentifier() +
+                    "Access token missing 'tenant' claim — verifier client may not have tenant configured"));
+        }
+        if (!tokenTenant.equalsIgnoreCase(tenantDomain)) {
+            return Mono.error(new TenantMismatchException(
+                    "Token tenant '" + tokenTenant +
                     "' does not match tenant header '" + tenantDomain + "'"));
         }
         return Mono.empty();

@@ -108,7 +108,7 @@ class Oid4VciCredentialWorkflowImplTest {
         String signedCredential = "signed-jwt-vc";
 
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
-        when(credentialIssuerMetadataService.getCredentialIssuerMetadata()).thenReturn(metadata);
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata()).thenReturn(Mono.just(metadata));
         when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
         when(genericCredentialBuilder.bindIssuer(eq(profile), eq(CREDENTIAL_DATA_SET), eq(ISSUANCE_ID), anyString()))
                 .thenReturn(Mono.just(enrichedDataSet));
@@ -169,7 +169,7 @@ class Oid4VciCredentialWorkflowImplTest {
         String signedCredential = "signed-sd-jwt~disclosure1~";
 
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
-        when(credentialIssuerMetadataService.getCredentialIssuerMetadata()).thenReturn(metadata);
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata()).thenReturn(Mono.just(metadata));
         when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
         when(genericCredentialBuilder.bindIssuer(eq(profile), eq(CREDENTIAL_DATA_SET), eq(ISSUANCE_ID), anyString()))
                 .thenReturn(Mono.just(enrichedDataSet));
@@ -207,7 +207,7 @@ class Oid4VciCredentialWorkflowImplTest {
         CredentialIssuerMetadata metadata = buildMetadata(null);
 
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
-        when(credentialIssuerMetadataService.getCredentialIssuerMetadata()).thenReturn(metadata);
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata()).thenReturn(Mono.just(metadata));
 
         CredentialRequest request = CredentialRequest.builder()
                 .credentialConfigurationId(CREDENTIAL_TYPE)

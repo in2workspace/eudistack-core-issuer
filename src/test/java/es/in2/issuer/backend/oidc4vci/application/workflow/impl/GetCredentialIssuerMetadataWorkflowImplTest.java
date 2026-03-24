@@ -62,7 +62,7 @@ class GetCredentialIssuerMetadataWorkflowImplTest {
                 .build();
         // Mock
         when(credentialIssuerMetadataService.getCredentialIssuerMetadata())
-                .thenReturn(expectedCredentialIssuerMetadata);
+                .thenReturn(Mono.just(expectedCredentialIssuerMetadata));
         // Act
         Mono<CredentialIssuerMetadata> result = getCredentialIssuerMetadataWorkflow.execute(processId);
         // Assert

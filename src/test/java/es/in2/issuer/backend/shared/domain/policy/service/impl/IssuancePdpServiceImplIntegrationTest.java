@@ -134,6 +134,7 @@ class IssuancePdpServiceImplIntegrationTest {
         payloadNode.set("mandatee", mandateeNode);
 
         payloadNode.set("power", objectMapper.valueToTree(powers));
+        payloadNode.put("tenant", orgId);
 
         // Build compact JWS serialization manually: base64url(header).base64url(payload).base64url(signature)
         Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
