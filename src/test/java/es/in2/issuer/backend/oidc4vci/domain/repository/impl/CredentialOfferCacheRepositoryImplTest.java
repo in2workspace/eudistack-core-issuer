@@ -30,8 +30,6 @@ class CredentialOfferCacheRepositoryImplTest {
     @InjectMocks
     private CredentialOfferCacheRepositoryImpl service;
 
-
-
     @Test
     void testSaveCredentialOffer() {
         // Arrange
