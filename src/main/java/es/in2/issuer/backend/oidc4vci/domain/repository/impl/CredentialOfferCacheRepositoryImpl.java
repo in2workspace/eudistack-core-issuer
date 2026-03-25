@@ -23,9 +23,6 @@ import static es.in2.issuer.backend.shared.domain.util.Utils.generateCustomNonce
 public class CredentialOfferCacheRepositoryImpl implements CredentialOfferCacheRepository {
 
     private final TransientStore<CredentialOfferData> cacheStore;
-
-    // FIX 1: Guava Cache con el mismo TTL que cacheStore → auto-limpia entradas huérfanas.
-    // FIX 2: asMap().compute() es atómico por clave → elimina la race condition de double-refresh.
     private Cache<String, String> activeNonceByIssuanceId;
 
     @PostConstruct
@@ -43,11 +40,7 @@ public class CredentialOfferCacheRepositoryImpl implements CredentialOfferCacheR
                         .flatMap(savedNonce -> swapNonceAndInvalidateOld(credentialOfferData.issuanceId(), savedNonce)));
     }
 
-    /**
-     * Atomically (per issuanceId) swaps the active nonce in the index and invalidates
-     * the previous one from the main cache. Uses ConcurrentMap.compute() so two
-     * concurrent refreshes for the same issuanceId cannot both survive.
-     */
+
     private Mono<String> swapNonceAndInvalidateOld(String issuanceId, String newNonce) {
         if (issuanceId == null) return Mono.just(newNonce);
         String[] oldNonceRef = {null};
@@ -63,8 +56,7 @@ public class CredentialOfferCacheRepositoryImpl implements CredentialOfferCacheR
     @Override
     public Mono<CredentialOfferData> findCredentialOfferById(String id) {
         return cacheStore.get(id)
-                .onErrorMap(NoSuchElementException.class, e ->
-                        new CredentialOfferNotFoundException("CredentialOffer not found for nonce: " + id))
+                .onErrorResume(NoSuchElementException.class, e -> Mono.empty())
                 .switchIfEmpty(Mono.error(
                         new CredentialOfferNotFoundException("CredentialOffer not found for nonce: " + id)))
                 .doOnNext(data -> log.debug("CredentialOffer found for nonce: {}", id))
