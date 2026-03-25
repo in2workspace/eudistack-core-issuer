@@ -11,7 +11,6 @@ public interface IssuerProperties {
     String getAdminOrganizationId();
     String getSysTenant();
     String getCredentialSubjectDidKey();
-    String getJwtCredential();
     String getManagementTokenOrgIdJsonPath();
     String getManagementTokenAdminPowerFunction();
     String getManagementTokenAdminPowerAction();

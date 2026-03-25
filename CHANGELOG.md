@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.0.0] - 2026-03-25
+## [3.0.0] - 2026-03-24
 
 ### Added
 
@@ -14,7 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ADOT Java Agent for CloudWatch X-Ray tracing** — Dockerfile includes AWS OpenTelemetry agent, activated via `JAVA_TOOL_OPTIONS`.
 - **Reusable bootstrap token** — Bootstrap token can be reused for demo integrations instead of being single-use.
 - **Dependabot config and PR template** — Automated dependency updates and standardized PR format.
-- Add integration tests for QR code expiration and previous nonce invalidation during credential offer refresh.
 
 ### Fixed
 
@@ -22,9 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Token issuer check order in `CustomAuthenticationManager`** — Check own issuer before verifier (`isIssuerBackendIssuer` before `isVerifierIssuer`) to avoid false match when both share the same base origin (subdomain routing on same port).
 - **WIA PoP aud validation** — Resolves audience dynamically from `X-Forwarded-Host` instead of static `APP_URL`. (EUDI-017)
 - **`RateLimitFilter` NPE with `ForwardedHeaderTransformer`** — Handle `getAddress() == null` on unresolved `InetSocketAddress` created by Spring's `ForwardedHeaderTransformer`. Uses `getHostString()` as fallback.
-- Fix multiple active QR codes vulnerability by explicitly invalidating the previous `nonce` when a "Send Reminder" is generated.
-- Ensure atomic cleanup of active nonce mappings upon QR consumption to prevent race conditions.
-- Map `java.util.NoSuchElementException` to `CredentialOfferNotFoundException` to correctly handle expired QR codes from the cache.
 
 ### Changed
 
@@ -32,9 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Modernize email template design with consistent table-based layout, inline styles, and unified color scheme.
 - Update EmailServiceImpl to use locale-aware Thymeleaf context instead of language-suffix template names.
 - Clean up messages.properties: remove orphaned keys and add new i18n keys for all email templates.
+
+## [v3.0.1](https://github.com/in2workspace/in2-issuer-api/releases/tag/v3.0.1)
+### Changed
 - Restricted CORS allowed origins to prevent unauthorized cross-origin requests (SEC-001).
 - Refactored CorsConfig to use AppConfig for dynamic origin loading.
-
 
 ## [v2.2.21](https://github.com/in2workspace/in2-issuer-api/releases/tag/v2.2.21)
 ### Added
