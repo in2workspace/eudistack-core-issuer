@@ -38,13 +38,11 @@ jobs:
           CLUSTER="${{ env.PROJECT_NAME }}-${{ inputs.environment }}-ecs-ew1"
           SERVICE="${{ env.PROJECT_NAME }}-${{ inputs.environment }}-ecs-ew1-${{ env.APP_NAME }}-service"
 
-          TASK_FAMILY="${{ env.PROJECT_NAME }}-${{ inputs.environment }}-ecs-ew1-${{ env.APP_NAME }}-task"
-
-          echo "Deploying ${SERVICE} on cluster ${CLUSTER} with latest task definition ${TASK_FAMILY}..."
+          # TODO: add --task-definition when apps_ci_cd IAM user has iam:PassRole permission
+          echo "Deploying ${SERVICE} on cluster ${CLUSTER}..."
           aws ecs update-service \
             --cluster "${CLUSTER}" \
             --service "${SERVICE}" \
-            --task-definition "${TASK_FAMILY}" \
             --force-new-deployment \
             --region "${{ env.REGION }}" \
             --no-cli-pager
