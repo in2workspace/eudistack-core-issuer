@@ -47,27 +47,31 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
             String issuanceId, String credentialConfigurationId, String grantType,
             String email, String delivery, String credentialOfferRefreshToken) {
 
-        return generateGrant(issuanceId, grantType)
-                .flatMap(grantResult -> {
-                    CredentialOffer offer = CredentialOffer.builder()
-                            .credentialIssuer(appConfig.getIssuerBackendUrl())
-                            .credentialConfigurationIds(List.of(credentialConfigurationId))
-                            .grants(grantResult.grants)
-                            .build();
+        return Mono.deferContextual(ctx -> {
+            String baseUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, appConfig.getIssuerBackendUrl());
 
-                    CredentialOfferData data = CredentialOfferData.builder()
-                            .credentialOffer(offer)
-                            .credentialEmail(email)
-                            .txCode(grantResult.txCode)
-                            .build();
+            return generateGrant(issuanceId, grantType)
+                    .flatMap(grantResult -> {
+                        CredentialOffer offer = CredentialOffer.builder()
+                                .credentialIssuer(baseUrl)
+                                .credentialConfigurationIds(List.of(credentialConfigurationId))
+                                .grants(grantResult.grants)
+                                .build();
 
-                    return credentialOfferCacheRepository.saveCredentialOffer(data);
-                })
-                .flatMap(nonce -> buildCredentialOfferUri(nonce)
-                        .flatMap(uri -> deliverOffer(uri, issuanceId, credentialOfferRefreshToken, delivery)));
+                        CredentialOfferData data = CredentialOfferData.builder()
+                                .credentialOffer(offer)
+                                .credentialEmail(email)
+                                .txCode(grantResult.txCode)
+                                .build();
+
+                        return credentialOfferCacheRepository.saveCredentialOffer(issuanceId, data);
+                    })
+                    .flatMap(nonce -> buildCredentialOfferUri(baseUrl, nonce)
+                            .flatMap(uri -> deliverOffer(baseUrl, uri, issuanceId, credentialOfferRefreshToken, delivery)));
+        });
     }
 
-    private Mono<CredentialOfferResult> deliverOffer(String credentialOfferUri, String issuanceId,
+    private Mono<CredentialOfferResult> deliverOffer(String baseUrl, String credentialOfferUri, String issuanceId,
                                                       String credentialOfferRefreshToken, String delivery) {
         if (DELIVERY_UI.equals(delivery)) {
             log.info("Delivering credential offer via URI for issuance: {}", issuanceId);
@@ -79,7 +83,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
         log.info("Delivering credential offer via email for issuance: {}", issuanceId);
         return issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId)
                 .flatMap(emailInfo -> {
-                    String refreshUrl = buildRefreshUrl(credentialOfferRefreshToken);
+                    String refreshUrl = buildRefreshUrl(baseUrl, credentialOfferRefreshToken);
                     return emailService.sendCredentialOfferEmail(
                                     emailInfo.email(),
                                     CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
@@ -95,9 +99,9 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                 });
     }
 
-    private String buildRefreshUrl(String credentialOfferRefreshToken) {
+    private String buildRefreshUrl(String baseUrl, String credentialOfferRefreshToken) {
         return UriComponentsBuilder
-                .fromUriString(appConfig.getIssuerBackendUrl())
+                .fromUriString(baseUrl)
                 .path("/credential-offer/refresh/" + credentialOfferRefreshToken)
                 .build()
                 .toUriString();
@@ -149,8 +153,8 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                 });
     }
 
-    private Mono<String> buildCredentialOfferUri(String nonce) {
-        String url = ensureUrlHasProtocol(appConfig.getIssuerBackendUrl() + OID4VCI_CREDENTIAL_OFFER_PATH + "/" + nonce);
+    private Mono<String> buildCredentialOfferUri(String baseUrl, String nonce) {
+        String url = ensureUrlHasProtocol(baseUrl + OID4VCI_CREDENTIAL_OFFER_PATH + "/" + nonce);
         String encodedUrl = URLEncoder.encode(url, StandardCharsets.UTF_8);
         return Mono.just("openid-credential-offer://?credential_offer_uri=" + encodedUrl);
     }
