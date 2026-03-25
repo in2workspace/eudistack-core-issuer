@@ -76,6 +76,7 @@ class CredentialOfferCacheRepositoryImplTest {
         // Arrange
         CacheStore<CredentialOfferData> realCache = new CacheStore<>(5, TimeUnit.MINUTES);
         CredentialOfferCacheRepositoryImpl repository = new CredentialOfferCacheRepositoryImpl(realCache);
+        repository.initActiveNonceIndex(); // simula @PostConstruct fuera del contexto de Spring
 
         CredentialOfferData offerData = CredentialOfferData.builder()
                 .issuanceId("issuance-abc")
@@ -98,6 +99,7 @@ class CredentialOfferCacheRepositoryImplTest {
         // Arrange
         CacheStore<CredentialOfferData> realCache = new CacheStore<>(5, TimeUnit.MINUTES);
         CredentialOfferCacheRepositoryImpl repository = new CredentialOfferCacheRepositoryImpl(realCache);
+        repository.initActiveNonceIndex(); // simula @PostConstruct fuera del contexto de Spring
 
         CredentialOfferData offerData = CredentialOfferData.builder()
                 .issuanceId("issuance-xyz")
@@ -115,9 +117,10 @@ class CredentialOfferCacheRepositoryImplTest {
 
     @Test
     void findCredentialOfferById_whenTtlExpires_throwsCredentialOfferNotFoundException() throws InterruptedException {
-        // Arrange
-        CacheStore<CredentialOfferData> realCache = new CacheStore<>(1, TimeUnit.SECONDS);
+        // Arrange — FIX 3: TTL mínimo práctico (50 ms) para no ralentizar la suite
+        CacheStore<CredentialOfferData> realCache = new CacheStore<>(50, TimeUnit.MILLISECONDS);
         CredentialOfferCacheRepositoryImpl repository = new CredentialOfferCacheRepositoryImpl(realCache);
+        repository.initActiveNonceIndex(); // simula @PostConstruct fuera del contexto de Spring
 
         CredentialOfferData offerData = CredentialOfferData.builder()
                 .issuanceId("issuance-ttl")
@@ -125,8 +128,8 @@ class CredentialOfferCacheRepositoryImplTest {
 
         String nonce = repository.saveCredentialOffer(offerData).block();
 
-        // Act
-        Thread.sleep(1_500);
+        // Act — esperar a que el TTL expire (100 ms >> 50 ms de TTL)
+        Thread.sleep(100);
 
         // Assert
         StepVerifier.create(repository.findCredentialOfferById(nonce))
