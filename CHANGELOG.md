@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Token issuer check order in `CustomAuthenticationManager`** — Check own issuer before verifier (`isIssuerBackendIssuer` before `isVerifierIssuer`) to avoid false match when both share the same base origin (subdomain routing on same port).
 - **WIA PoP aud validation** — Resolves audience dynamically from `X-Forwarded-Host` instead of static `APP_URL`. (EUDI-017)
 - **`RateLimitFilter` NPE with `ForwardedHeaderTransformer`** — Handle `getAddress() == null` on unresolved `InetSocketAddress` created by Spring's `ForwardedHeaderTransformer`. Uses `getHostString()` as fallback.
+- Fix orphaned active QR codes after "Send Reminder" requests by replacing the random nonce with the issuanceId as the cache key
+- Handle cache expiration correctly by mapping Guava's NoSuchElementException to CredentialOfferNotFoundException.
+- Add integration tests to verify QR code expiration and cache overriding behaviors.
 
 ### Changed
 
@@ -26,15 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Modernize email template design with consistent table-based layout, inline styles, and unified color scheme.
 - Update EmailServiceImpl to use locale-aware Thymeleaf context instead of language-suffix template names.
 - Clean up messages.properties: remove orphaned keys and add new i18n keys for all email templates.
-
-## [v3.0.2](https://github.com/in2workspace/in2-issuer-api/releases/tag/v3.0.2)
-### Fixed
-- Fix orphaned active QR codes after "Send Reminder" requests by replacing the random nonce with the issuanceId as the cache key
-- Handle cache expiration correctly by mapping Guava's NoSuchElementException to CredentialOfferNotFoundException.
-- Add integration tests to verify QR code expiration and cache overriding behaviors.
-
-## [v3.0.1](https://github.com/in2workspace/in2-issuer-api/releases/tag/v3.0.1)
-### Changed
 - Restricted CORS allowed origins to prevent unauthorized cross-origin requests (SEC-001).
 - Refactored CorsConfig to use AppConfig for dynamic origin loading.
 
