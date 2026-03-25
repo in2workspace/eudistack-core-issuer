@@ -47,7 +47,7 @@ class CredentialOfferCacheRepositoryImplTest {
     }
 
     @Test
-    void SaveCredentialOffer_CalledTwiceWithSameIssuanceId_OverwritesPreviousEntry() {
+    void saveCredentialOffer_CalledTwiceWithSameIssuanceId_OverwritesPreviousEntry() {
         // Arrange
         String issuanceId = "test-issuance-id";
         CredentialOfferData firstOffer  = CredentialOfferData.builder().build();
@@ -90,7 +90,7 @@ class CredentialOfferCacheRepositoryImplTest {
         StepVerifier.create(service.findCredentialOfferById(nonce))
                 .expectErrorSatisfies(throwable -> assertThat(throwable)
                         .isInstanceOf(CredentialOfferNotFoundException.class)
-                        .hasMessageContaining("CredentialOffer not found for nonce: " + nonce))
+                        .hasMessageContaining("CredentialOffer not found for issuanceId: " + nonce))
                 .verify();
 
         verify(cacheStore, never()).delete(anyString());

@@ -27,11 +27,11 @@ public class CredentialOfferCacheRepositoryImpl implements CredentialOfferCacheR
     public Mono<CredentialOfferData> findCredentialOfferById(String id) {
         return cacheStore.get(id)
                 .switchIfEmpty(Mono.error(
-                        new CredentialOfferNotFoundException("CredentialOffer not found for nonce: " + id)))
-                .onErrorMap(NoSuchElementException.class, ex ->
-                        new CredentialOfferNotFoundException("CredentialOffer not found for nonce: " + id))
-                .doOnNext(customCredentialOffer ->
-                        log.debug("CredentialOffer found for nonce: {}", id)
+                        new CredentialOfferNotFoundException("CredentialOffer not found for issuanceId: " + id)))
+                .onErrorMap(NoSuchElementException.class, _ ->
+                        new CredentialOfferNotFoundException("CredentialOffer not found for issuanceId: " + id))
+                .doOnNext(_ ->
+                        log.debug("CredentialOffer found for issuanceId: {}", id)
                 )
                 .flatMap(customCredentialOffer ->
                         cacheStore.delete(id).thenReturn(customCredentialOffer)

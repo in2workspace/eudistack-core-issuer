@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WIA PoP aud validation** — Resolves audience dynamically from `X-Forwarded-Host` instead of static `APP_URL`. (EUDI-017)
 - **`RateLimitFilter` NPE with `ForwardedHeaderTransformer`** — Handle `getAddress() == null` on unresolved `InetSocketAddress` created by Spring's `ForwardedHeaderTransformer`. Uses `getHostString()` as fallback.
 - Fix orphaned active QR codes after "Send Reminder" requests by replacing the random nonce with the issuanceId as the cache key
-- Handle cache expiration correctly by mapping Guava's NoSuchElementException to CredentialOfferNotFoundException.
+- Handle cache expiration correctly by mapping java.util.NoSuchElementException from CacheStore to CredentialOfferNotFoundException.
 - Add integration tests to verify QR code expiration and cache overriding behaviors.
 
 ### Changed
