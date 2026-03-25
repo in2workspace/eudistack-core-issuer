@@ -36,10 +36,6 @@ public class AppConfig implements IssuerProperties {
         return issuerIdentityProperties.credentialSubjectDidKey();
     }
 
-    public String getJwtCredential() {
-        return issuerIdentityProperties.jwtCredential();
-    }
-
     public String getCryptoPrivateKey() {
         return issuerIdentityProperties.crypto().privateKey();
     }
