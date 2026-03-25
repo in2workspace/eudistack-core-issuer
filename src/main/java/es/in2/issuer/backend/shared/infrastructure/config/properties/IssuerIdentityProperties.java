@@ -10,16 +10,13 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 public record IssuerIdentityProperties(
         @NotBlank String credentialSubjectDidKey,
-        @NotBlank String jwtCredential,
         @NotNull Crypto crypto
 ) {
     @ConstructorBinding
     public IssuerIdentityProperties(
             String credentialSubjectDidKey,
-            String jwtCredential,
             Crypto crypto) {
         this.credentialSubjectDidKey = credentialSubjectDidKey;
-        this.jwtCredential = jwtCredential;
         this.crypto = crypto != null ? crypto : new Crypto("");
     }
 

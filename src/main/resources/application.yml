@@ -123,7 +123,6 @@ app:
 # Issuer Identity
 issuer-identity:
   credential-subject-did-key: ${ISSUER_IDENTITY_CREDENTIAL_SUBJECT_DID_KEY:did:key:z6MkqmaCT2JqdUtLeKah7tEVfNXtDXtQyj4yxEgV11Y5CqUa}
-  jwt-credential: ${ISSUER_IDENTITY_JWT_CREDENTIAL:}
   crypto:
     private-key: ${ISSUER_IDENTITY_CRYPTO_PRIVATE_KEY:}
 
