@@ -29,6 +29,7 @@ public class CredentialOfferCacheRepositoryImpl implements CredentialOfferCacheR
     void initActiveNonceIndex() {
         long ttlSeconds = Math.max(1L, cacheStore.getExpiryInSeconds().block());
         activeNonceByIssuanceId = CacheBuilder.newBuilder()
+                .maximumSize(10_000L)
                 .expireAfterWrite(ttlSeconds, TimeUnit.SECONDS)
                 .build();
     }
