@@ -41,7 +41,7 @@ public class CredentialOfferCacheRepositoryImpl implements CredentialOfferCacheR
         if (issuanceId == null) return Mono.empty();
         String previousNonce = activeNonceByIssuanceId.remove(issuanceId);
         if (previousNonce == null) return Mono.empty();
-        log.debug("Invalidating previous nonce {} for issuanceId {}", previousNonce, issuanceId);
+        log.debug("Invalidating previous nonce for issuanceId {}", issuanceId);
         return cacheStore.delete(previousNonce);
     }
 
