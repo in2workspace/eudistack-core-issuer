@@ -38,6 +38,7 @@ jobs:
           CLUSTER="${{ env.PROJECT_NAME }}-${{ inputs.environment }}-ecs-ew1"
           SERVICE="${{ env.PROJECT_NAME }}-${{ inputs.environment }}-ecs-ew1-${{ env.APP_NAME }}-service"
 
+          # TODO: add --task-definition when apps_ci_cd IAM user has iam:PassRole permission
           echo "Deploying ${SERVICE} on cluster ${CLUSTER}..."
           aws ecs update-service \
             --cluster "${CLUSTER}" \
