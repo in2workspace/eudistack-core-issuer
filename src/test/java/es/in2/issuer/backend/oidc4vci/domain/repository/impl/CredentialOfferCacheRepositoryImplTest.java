@@ -6,16 +6,18 @@ import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.shared.infrastructure.repository.CacheStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.util.NoSuchElementException;
 import java.util.concurrent.TimeUnit;
 
+import org.junit.jupiter.api.BeforeEach;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -25,8 +27,15 @@ class CredentialOfferCacheRepositoryImplTest {
     @Mock
     private TransientStore<CredentialOfferData> cacheStore;
 
-    @InjectMocks
+    @Mock
+    private TransientStore<String> credentialOfferIndexCacheStore;
+
     private CredentialOfferCacheRepositoryImpl service;
+
+    @BeforeEach
+    void setUp() {
+        service = new CredentialOfferCacheRepositoryImpl(cacheStore, credentialOfferIndexCacheStore);
+    }
 
     @Test
     void testSaveCredentialOffer() {
@@ -40,43 +49,45 @@ class CredentialOfferCacheRepositoryImplTest {
                 .verifyComplete();
 
         verify(cacheStore, times(1)).add(any(String.class), eq(credentialOfferData));
+        verify(cacheStore, never()).getAndDelete(anyString());
     }
 
     @Test
-    void testFindCredentialOfferById() {
+    void testConsumeCredentialOffer() {
         String nonce = "testNonce";
         CredentialOfferData credentialOfferData = CredentialOfferData.builder().build();
 
-        when(cacheStore.get(nonce)).thenReturn(Mono.just(credentialOfferData));
-        when(cacheStore.delete(nonce)).thenReturn(Mono.empty());
+        when(cacheStore.getAndDelete(nonce)).thenReturn(Mono.just(credentialOfferData));
 
-        StepVerifier.create(service.findCredentialOfferById(nonce))
+        StepVerifier.create(service.consumeCredentialOffer(nonce))
                 .expectNextMatches(retrievedOffer -> retrievedOffer.equals(credentialOfferData))
                 .verifyComplete();
 
-        verify(cacheStore, times(1)).delete(nonce);
+        verify(cacheStore, times(1)).getAndDelete(nonce);
     }
 
     @Test
-    void testFindCredentialOfferByIdNotFound() {
+    void testConsumeCredentialOfferNotFound() {
         String nonce = "testNonce";
-        when(cacheStore.get(nonce)).thenReturn(Mono.empty());
 
-        StepVerifier.create(service.findCredentialOfferById(nonce))
+        when(cacheStore.getAndDelete(nonce))
+                .thenReturn(Mono.error(new NoSuchElementException("Value is not present.")));
+
+        StepVerifier.create(service.consumeCredentialOffer(nonce))
                 .expectErrorSatisfies(throwable -> assertThat(throwable)
                         .isInstanceOf(CredentialOfferNotFoundException.class)
                         .hasMessageContaining("CredentialOffer not found for nonce: " + nonce))
                 .verify();
 
-        verify(cacheStore, never()).delete(anyString());
+        verify(cacheStore, times(1)).getAndDelete(nonce);
     }
 
     @Test
     void saveCredentialOffer_whenRefreshGeneratesNewNonce_previousNonceIsInvalidated() {
         // Arrange
         CacheStore<CredentialOfferData> realCache = new CacheStore<>(5, TimeUnit.MINUTES);
-        CredentialOfferCacheRepositoryImpl repository = new CredentialOfferCacheRepositoryImpl(realCache);
-        repository.initActiveNonceIndex();
+        CacheStore<String> indexCache = new CacheStore<>(5, TimeUnit.MINUTES);
+        CredentialOfferCacheRepositoryImpl repository = new CredentialOfferCacheRepositoryImpl(realCache, indexCache);
 
         CredentialOfferData offerData = CredentialOfferData.builder()
                 .issuanceId("issuance-abc")
@@ -86,8 +97,8 @@ class CredentialOfferCacheRepositoryImplTest {
         String oldNonce = repository.saveCredentialOffer(offerData).block();
         repository.saveCredentialOffer(offerData).block();
 
-        // Assert
-        StepVerifier.create(repository.findCredentialOfferById(oldNonce))
+        // Assert - old nonce has been invalidated
+        StepVerifier.create(repository.consumeCredentialOffer(oldNonce))
                 .expectErrorSatisfies(throwable -> assertThat(throwable)
                         .isInstanceOf(CredentialOfferNotFoundException.class)
                         .hasMessageContaining(oldNonce))
@@ -95,11 +106,33 @@ class CredentialOfferCacheRepositoryImplTest {
     }
 
     @Test
-    void findCredentialOfferById_whenNewNonceUsedAfterRefresh_returnsCorrectData() {
+    void saveCredentialOffer_whenRefreshWithSameIssuanceId_previousEntryIsAtomicallyReplaced() {
         // Arrange
         CacheStore<CredentialOfferData> realCache = new CacheStore<>(5, TimeUnit.MINUTES);
-        CredentialOfferCacheRepositoryImpl repository = new CredentialOfferCacheRepositoryImpl(realCache);
-        repository.initActiveNonceIndex();
+        CacheStore<String> indexCache = new CacheStore<>(5, TimeUnit.MINUTES);
+        CredentialOfferCacheRepositoryImpl repository = new CredentialOfferCacheRepositoryImpl(realCache, indexCache);
+
+        CredentialOfferData offerData = CredentialOfferData.builder()
+                .issuanceId("issuance-abc")
+                .build();
+
+        String activeId = repository.saveCredentialOffer(offerData).block();
+
+        // Act
+        repository.saveCredentialOffer(offerData).block();
+
+        // Assert
+        StepVerifier.create(repository.consumeCredentialOffer(activeId))
+                .expectError(CredentialOfferNotFoundException.class)
+                .verify();
+    }
+
+    @Test
+    void consumeCredentialOffer_whenNewNonceUsedAfterRefresh_returnsCorrectData() {
+        // Arrange
+        CacheStore<CredentialOfferData> realCache = new CacheStore<>(5, TimeUnit.MINUTES);
+        CacheStore<String> indexCache = new CacheStore<>(5, TimeUnit.MINUTES);
+        CredentialOfferCacheRepositoryImpl repository = new CredentialOfferCacheRepositoryImpl(realCache, indexCache);
 
         CredentialOfferData offerData = CredentialOfferData.builder()
                 .issuanceId("issuance-xyz")
@@ -110,17 +143,17 @@ class CredentialOfferCacheRepositoryImplTest {
         String newNonce = repository.saveCredentialOffer(offerData).block();
 
         // Assert
-        StepVerifier.create(repository.findCredentialOfferById(newNonce))
+        StepVerifier.create(repository.consumeCredentialOffer(newNonce))
                 .expectNext(offerData)
                 .verifyComplete();
     }
 
     @Test
-    void findCredentialOfferById_whenTtlExpires_throwsCredentialOfferNotFoundException() throws InterruptedException {
+    void consumeCredentialOffer_whenTtlExpires_throwsCredentialOfferNotFoundException() throws InterruptedException {
         // Arrange
         CacheStore<CredentialOfferData> realCache = new CacheStore<>(50, TimeUnit.MILLISECONDS);
-        CredentialOfferCacheRepositoryImpl repository = new CredentialOfferCacheRepositoryImpl(realCache);
-        repository.initActiveNonceIndex();
+        CacheStore<String> indexCache = new CacheStore<>(50, TimeUnit.MILLISECONDS);
+        CredentialOfferCacheRepositoryImpl repository = new CredentialOfferCacheRepositoryImpl(realCache, indexCache);
 
         CredentialOfferData offerData = CredentialOfferData.builder()
                 .issuanceId("issuance-ttl")
@@ -132,7 +165,7 @@ class CredentialOfferCacheRepositoryImplTest {
         Thread.sleep(100);
 
         // Assert
-        StepVerifier.create(repository.findCredentialOfferById(nonce))
+        StepVerifier.create(repository.consumeCredentialOffer(nonce))
                 .expectErrorSatisfies(throwable -> assertThat(throwable)
                         .isInstanceOf(CredentialOfferNotFoundException.class)
                         .hasMessageContaining(nonce))

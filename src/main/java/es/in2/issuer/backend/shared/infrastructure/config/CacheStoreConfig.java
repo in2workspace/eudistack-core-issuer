@@ -80,4 +80,9 @@ public class CacheStoreConfig {
     public TransientStore<String> issuerStateCacheStore() {
         return new CacheStore<>(PRE_AUTH_CODE_EXPIRY_DURATION_MINUTES, TimeUnit.MINUTES);
     }
+
+    @Bean
+    public TransientStore<String> credentialOfferIndexCacheStore() {
+        return new CacheStore<>(cacheConfig.getCacheLifetimeForCredentialOffer(), TimeUnit.MINUTES);
+    }
 }
