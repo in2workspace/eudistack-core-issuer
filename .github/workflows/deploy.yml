@@ -71,7 +71,7 @@ jobs:
       - name: Health check
         run: |
           set -euo pipefail
-          HEALTH_URL="https://${{ env.HEALTH_SUBDOMAIN }}-${{ inputs.environment }}.altia.eudistack.net/actuator/health"
+          HEALTH_URL="https://${{ env.HEALTH_SUBDOMAIN }}-${{ inputs.environment }}.altia.eudistack.net/health"
 
           # Wait a bit for ALB to register new tasks
           sleep 15
