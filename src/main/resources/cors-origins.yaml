@@ -1,0 +1,14 @@
+# ---------------------------------------------------------------------------
+# CORS Allowed Origins Registry
+#
+# Per-tenant list of allowed origins for CORS preflight requests.
+# These origins are merged with the base origins (issuerFrontendUrl, walletUrl)
+# configured in application.yml.
+#
+# Path configurable via: app.cors.origins-path (env: APP_CORS_ORIGINS_PATH)
+#
+# Override via APP_CORS_ORIGINS_PATH to load an external file.
+# See dev-tools/issuer/cors-origins.yaml (local) or platform-iac (AWS).
+# ---------------------------------------------------------------------------
+
+origins: []
