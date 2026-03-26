@@ -44,6 +44,17 @@ public class CacheStore<T> implements TransientStore<T> {
     }
 
     @Override
+    public Mono<T> getAndDelete(String key) {
+        return Mono.fromCallable(() -> {
+            T value = cache.asMap().remove(key);
+            if (value == null) {
+                throw new NoSuchElementException("Value is not present.");
+            }
+            return value;
+        });
+    }
+
+    @Override
     public Mono<Void> delete(String key) {
         return Mono.fromRunnable(() -> cache.invalidate(key));
     }
