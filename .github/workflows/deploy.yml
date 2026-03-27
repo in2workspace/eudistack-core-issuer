@@ -22,7 +22,7 @@ jobs:
     env:
       PROJECT_NAME: eudistack
       APP_NAME: issuer-core
-      HEALTH_SUBDOMAIN: issuer
+      HEALTH_HOST: issuer-core-stg.api
       REGION: eu-west-1
     steps:
       - name: Configure AWS credentials
@@ -30,7 +30,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_STG }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_STG }}
-          aws-region: ${{ env.REGION }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Force new ECS deployment
         run: |
@@ -71,7 +71,7 @@ jobs:
       - name: Health check
         run: |
           set -euo pipefail
-          HEALTH_URL="https://${{ env.HEALTH_SUBDOMAIN }}-${{ inputs.environment }}.altia.eudistack.net/actuator/health"
+          HEALTH_URL="https://${{ env.HEALTH_HOST }}.altia.eudistack.net/health"
 
           # Wait a bit for ALB to register new tasks
           sleep 15
