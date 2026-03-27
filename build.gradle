@@ -91,7 +91,7 @@ dependencies {
 
     // --- DevTools ---
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
-    implementation 'org.jetbrains:annotations:24.1.0'
+    implementation 'org.jetbrains:annotations:26.1.0'
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 
