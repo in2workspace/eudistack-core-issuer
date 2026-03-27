@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Reusable bootstrap token** — Bootstrap token can be reused for demo integrations instead of being single-use.
 - **Dependabot config and PR template** — Automated dependency updates and standardized PR format.
 - **Add QR usage cases tests**
-- **Add get and delete to CacheStore**
+- **Add `getAndDelete` to CacheStore**
 
 ### Fixed
 

@@ -126,7 +126,7 @@ class CredentialOfferCacheRepositoryImplTest {
         realRepository.saveCredentialOffer(offerData).block();
         String newNonce = realRepository.saveCredentialOffer(offerData).block();
 
-        // Asser
+        // Assert
         StepVerifier.create(realRepository.consumeCredentialOffer(newNonce))
                 .expectNext(offerData)
                 .verifyComplete();
