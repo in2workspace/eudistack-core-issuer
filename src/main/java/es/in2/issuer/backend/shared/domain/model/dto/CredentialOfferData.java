@@ -4,6 +4,7 @@ import lombok.Builder;
 
 @Builder
 public record CredentialOfferData(
+        String issuanceId,
         CredentialOffer credentialOffer,
         String credentialEmail,
         String txCode

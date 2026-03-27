@@ -59,6 +59,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                                 .build();
 
                         CredentialOfferData data = CredentialOfferData.builder()
+                                .issuanceId(issuanceId)
                                 .credentialOffer(offer)
                                 .credentialEmail(email)
                                 .txCode(grantResult.txCode)

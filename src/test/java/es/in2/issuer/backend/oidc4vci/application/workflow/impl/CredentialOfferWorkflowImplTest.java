@@ -64,7 +64,7 @@ class CredentialOfferWorkflowImplTest {
                 .build();
 
         // Mock repository returns the offer data
-        when(credentialOfferCacheRepository.findCredentialOfferById(credentialOfferId))
+        when(credentialOfferCacheRepository.consumeCredentialOffer(credentialOfferId))
                 .thenReturn(Mono.just(credentialOfferData));
 
         // IMPORTANT: match the template key used in the implementation ("email.tx-code")
@@ -81,7 +81,7 @@ class CredentialOfferWorkflowImplTest {
 
         // Verify interactions happen in the expected order
         InOrder inOrder = inOrder(credentialOfferCacheRepository, emailService);
-        inOrder.verify(credentialOfferCacheRepository).findCredentialOfferById(credentialOfferId);
+        inOrder.verify(credentialOfferCacheRepository).consumeCredentialOffer(credentialOfferId);
         inOrder.verify(emailService).sendTxCodeNotification(credentialEmail, "email.tx-code", txCode);
         inOrder.verifyNoMoreInteractions();
     }
@@ -111,7 +111,7 @@ class CredentialOfferWorkflowImplTest {
                 .txCode(null)
                 .build();
 
-        when(credentialOfferCacheRepository.findCredentialOfferById(credentialOfferId))
+        when(credentialOfferCacheRepository.consumeCredentialOffer(credentialOfferId))
                 .thenReturn(Mono.just(credentialOfferData));
 
         // Act
@@ -122,7 +122,7 @@ class CredentialOfferWorkflowImplTest {
                 .expectNext(credentialOffer)
                 .verifyComplete();
 
-        verify(credentialOfferCacheRepository).findCredentialOfferById(credentialOfferId);
+        verify(credentialOfferCacheRepository).consumeCredentialOffer(credentialOfferId);
         verifyNoInteractions(emailService);
     }
 }
