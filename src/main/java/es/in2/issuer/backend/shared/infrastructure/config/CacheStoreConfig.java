@@ -37,7 +37,12 @@ public class CacheStoreConfig {
     }
 
     @Bean
-    public TransientStore<CredentialOfferData> cacheStoreForCredentialOffer() {
+    public TransientStore<CredentialOfferData> credentialOfferByNonceCache() {
+        return new CacheStore<>(cacheConfig.getCacheLifetimeForCredentialOffer(), TimeUnit.MINUTES);
+    }
+
+    @Bean
+    public TransientStore<String> oldNonceByIssuanceIdCache() {
         return new CacheStore<>(cacheConfig.getCacheLifetimeForCredentialOffer(), TimeUnit.MINUTES);
     }
 
@@ -79,10 +84,5 @@ public class CacheStoreConfig {
     @Bean
     public TransientStore<String> issuerStateCacheStore() {
         return new CacheStore<>(PRE_AUTH_CODE_EXPIRY_DURATION_MINUTES, TimeUnit.MINUTES);
-    }
-
-    @Bean
-    public TransientStore<String> credentialOfferIndexCacheStore() {
-        return new CacheStore<>(cacheConfig.getCacheLifetimeForCredentialOffer(), TimeUnit.MINUTES);
     }
 }
