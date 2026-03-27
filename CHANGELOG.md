@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Per-tenant CORS origins registry** — CORS allowed origins are now loaded from an external `cors-origins.yaml` file (configurable via `APP_CORS_ORIGINS_PATH`) and merged with the base origins (`APP_ISSUER_FRONTEND_URL`, `APP_WALLET_URL`). Supports multi-tenant deployments where each tenant has distinct frontend domains.
+
+### Fixed
+
+- **DPoP htu mismatch behind ALB** — PAR and Token controllers now derive the DPoP `htu` URI from the `IssuerBaseUrlWebFilter` context (which resolves `https://` correctly) instead of `exchange.getRequest().getURI()` (which returns `http://` behind an ALB that terminates TLS).
+
 ### Changed
 
 - **Actuator config migrated to Spring Boot 3.5 `access` API** — Replace deprecated `enabled-by-default: false` / `enabled: true` with `access: none` / `access: unrestricted`. No behavioral change.

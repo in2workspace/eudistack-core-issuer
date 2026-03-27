@@ -3,7 +3,7 @@ package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.ParService;
-import java.net.URI;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -13,6 +13,7 @@ import reactor.core.publisher.Mono;
 
 import static es.in2.issuer.backend.shared.domain.service.ClientAttestationValidationService.HEADER_CLIENT_ATTESTATION;
 import static es.in2.issuer.backend.shared.domain.service.ClientAttestationValidationService.HEADER_CLIENT_ATTESTATION_POP;
+import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL_CONTEXT_KEY;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.OID4VCI_PAR_PATH;
 
 @RestController
@@ -21,6 +22,7 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.OID4VC
 public class ParController {
 
     private final ParService parService;
+    private final IssuerProperties issuerProperties;
 
     @PostMapping(
             consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
@@ -33,10 +35,10 @@ public class ParController {
             @RequestHeader(value = HEADER_CLIENT_ATTESTATION_POP, required = false) String wiaPopHeader,
             ServerWebExchange exchange
     ) {
-        String requestUri = exchange.getRequest().getURI().toString();
-        // Derive public issuer URL from request URI (already adjusted by ForwardedHeaderTransformer)
-        URI uri = exchange.getRequest().getURI();
-        String publicIssuerUrl = uri.getScheme() + "://" + uri.getAuthority();
-        return parService.pushAuthorizationRequest(request, dpopHeader, wiaHeader, wiaPopHeader, requestUri, publicIssuerUrl);
+        return Mono.deferContextual(ctx -> {
+            String publicIssuerUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, issuerProperties.getIssuerBackendUrl());
+            String requestUri = publicIssuerUrl + exchange.getRequest().getURI().getPath();
+            return parService.pushAuthorizationRequest(request, dpopHeader, wiaHeader, wiaPopHeader, requestUri, publicIssuerUrl);
+        });
     }
 }
