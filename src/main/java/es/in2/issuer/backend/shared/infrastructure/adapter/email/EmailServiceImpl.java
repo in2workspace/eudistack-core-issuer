@@ -148,6 +148,23 @@ public class EmailServiceImpl implements EmailService {
                 .onErrorMap(e -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE));
     }
 
+    @Override
+    public Mono<Void> sendCredentialFailureNotification(String to, String eventDescription) {
+        return Mono.fromCallable(() -> {
+            MimeMessage mimeMessage = javaMailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
+            helper.setFrom(mailFrom);
+            helper.setTo(to);
+            helper.setSubject(translationService.translate("email.credential-failure.subject"));
+            Context context = createLocalizedContext();
+            context.setVariable("eventDescription", eventDescription != null ? eventDescription : "");
+            helper.setText(templateEngine.process("credential-failure-email", context), true);
+            javaMailSender.send(mimeMessage);
+            return null;
+        }).subscribeOn(Schedulers.boundedElastic()).then()
+                .onErrorMap(e -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE));
+    }
+
     private Mono<Void> sendCredentialRevokedOrExpiredNotificationEmail(String to, String credentialId, String type, String credentialStatus){
         return Mono.fromCallable(() -> {
             try {

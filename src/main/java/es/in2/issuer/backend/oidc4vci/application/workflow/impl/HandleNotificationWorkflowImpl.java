@@ -8,6 +8,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.NotificationRequest;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
+import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
@@ -32,19 +33,22 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     private final TransientStore<String> notificationCacheStore;
     private final TransientStore<String> enrichmentCacheStore;
     private final AuditService auditService;
+    private final EmailService emailService;
 
     public HandleNotificationWorkflowImpl(
             IssuanceService issuanceService,
             RevocationWorkflow revocationWorkflow,
             @Qualifier("notificationCacheStore") TransientStore<String> notificationCacheStore,
             @Qualifier("enrichmentCacheStore") TransientStore<String> enrichmentCacheStore,
-            AuditService auditService
+            AuditService auditService,
+            EmailService emailService
     ) {
         this.issuanceService = issuanceService;
         this.revocationWorkflow = revocationWorkflow;
         this.notificationCacheStore = notificationCacheStore;
         this.enrichmentCacheStore = enrichmentCacheStore;
         this.auditService = auditService;
+        this.emailService = emailService;
     }
 
     @Override
@@ -72,7 +76,7 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
                             })
                             .flatMap(issuanceId ->
                                     issuanceService.getIssuanceById(issuanceId)
-                                            .flatMap(proc -> handleEvent(processId, proc, event, bearerToken))
+                                            .flatMap(proc -> handleEvent(processId, proc, event, eventDescription, bearerToken))
                             );
                 })
                 .onErrorResume(InvalidNotificationRequestException.class, e -> {
@@ -91,7 +95,7 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     }
 
     private Mono<Void> handleEvent(String processId, Issuance issuance,
-                                   NotificationEvent event, String bearerToken) {
+                                   NotificationEvent event, String eventDescription, String bearerToken) {
 
         String issuanceId = issuance.getIssuanceId().toString();
         CredentialStatusEnum currentStatus = issuance.getCredentialStatus();
@@ -108,7 +112,7 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
 
         return switch (event) {
             case CREDENTIAL_ACCEPTED -> handleAccepted(processId, issuance);
-            case CREDENTIAL_FAILURE -> handleFailure(processId, issuance);
+            case CREDENTIAL_FAILURE -> handleFailure(processId, issuance, eventDescription);
             case CREDENTIAL_DELETED -> handleDeleted(processId, issuance, bearerToken);
         };
     }
@@ -153,12 +157,19 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     }
 
     /**
-     * credential_failure: log only, stay in DRAFT. Wallet may retry.
+     * credential_failure: notify user by email and stay in DRAFT. Wallet may retry.
+     * Email errors are swallowed so the 204 response to the Wallet is never affected.
      */
-    private Mono<Void> handleFailure(String processId, Issuance issuance) {
-        log.info("[{}] credential_failure: issuanceId={} stays in DRAFT. Wallet may retry or request new offer.",
-                processId, issuance.getIssuanceId());
-        return Mono.empty();
+    private Mono<Void> handleFailure(String processId, Issuance issuance, String eventDescription) {
+        String issuanceId = issuance.getIssuanceId().toString();
+        log.info("[{}] credential_failure: issuanceId={} stays in DRAFT. Sending failure notification email.",
+                processId, issuanceId);
+        return emailService.sendCredentialFailureNotification(issuance.getEmail(), eventDescription)
+                .onErrorResume(e -> {
+                    log.warn("[{}] credential_failure: could not send failure email for issuanceId={}: {}",
+                            processId, issuanceId, e.getMessage());
+                    return Mono.empty();
+                });
     }
 
     /**

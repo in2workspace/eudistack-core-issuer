@@ -5,6 +5,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.NotificationEvent;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationRequest;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
@@ -40,6 +41,9 @@ class HandleNotificationWorkflowImplTest {
     @Mock
     private AuditService auditService;
 
+    @Mock
+    private EmailService emailService;
+
     private final String processId = "proc-123";
     private final String bearerToken = "Bearer token";
 
@@ -51,7 +55,7 @@ class HandleNotificationWorkflowImplTest {
         handleNotificationWorkflow = new HandleNotificationWorkflowImpl(
                 issuanceService, revocationWorkflow,
                 notificationCacheStore, enrichmentCacheStore,
-                auditService
+                auditService, emailService
         );
 
         issuanceId = UUID.randomUUID();
@@ -101,20 +105,47 @@ class HandleNotificationWorkflowImplTest {
     }
 
     @Test
-    void handleNotification_failure_draft_shouldLogOnlyAndStayDraft() {
+    void handleNotification_failure_draft_shouldSendFailureEmailAndComplete() {
+        // Arrange
+        String userEmail = "user@example.com";
+        String eventDescription = "Timeout waiting for user decision";
         when(issuance.getCredentialStatus()).thenReturn(CredentialStatusEnum.DRAFT);
+        when(issuance.getEmail()).thenReturn(userEmail);
         when(notificationCacheStore.get("nid-1")).thenReturn(Mono.just(issuanceId.toString()));
-        when(issuanceService.getIssuanceById(issuanceId.toString()))
-                .thenReturn(Mono.just(issuance));
+        when(issuanceService.getIssuanceById(issuanceId.toString())).thenReturn(Mono.just(issuance));
+        when(emailService.sendCredentialFailureNotification(userEmail, eventDescription)).thenReturn(Mono.empty());
 
-        NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_FAILURE, "wallet error");
+        NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_FAILURE, eventDescription);
 
+        // Act & Assert
         StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
                 .verifyComplete();
 
+        verify(emailService).sendCredentialFailureNotification(userEmail, eventDescription);
         verify(issuanceService, never()).updateCredentialDataSetByIssuanceId(any(), any(), any());
         verify(issuanceService, never()).withdrawIssuance(any());
         verifyNoInteractions(revocationWorkflow);
+    }
+
+    @Test
+    void handleNotification_failure_smtpDown_shouldSwallowErrorAndComplete() {
+        // Arrange
+        String userEmail = "user@example.com";
+        String eventDescription = "Timeout waiting for user decision";
+        when(issuance.getCredentialStatus()).thenReturn(CredentialStatusEnum.DRAFT);
+        when(issuance.getEmail()).thenReturn(userEmail);
+        when(notificationCacheStore.get("nid-1")).thenReturn(Mono.just(issuanceId.toString()));
+        when(issuanceService.getIssuanceById(issuanceId.toString())).thenReturn(Mono.just(issuance));
+        when(emailService.sendCredentialFailureNotification(userEmail, eventDescription))
+                .thenReturn(Mono.error(new RuntimeException("SMTP server unreachable")));
+
+        NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_FAILURE, eventDescription);
+
+        // Act & Assert — el flujo debe completar sin error (HTTP 204 al Wallet garantizado)
+        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
+                .verifyComplete();
+
+        verify(emailService).sendCredentialFailureNotification(userEmail, eventDescription);
     }
 
     @Test
