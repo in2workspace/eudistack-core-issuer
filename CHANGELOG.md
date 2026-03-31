@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ADOT Java Agent for CloudWatch X-Ray tracing** — Dockerfile includes AWS OpenTelemetry agent, activated via `JAVA_TOOL_OPTIONS`.
 - **Reusable bootstrap token** — Bootstrap token can be reused for demo integrations instead of being single-use.
 - **Dependabot config and PR template** — Automated dependency updates and standardized PR format.
+- **send email notification** when user **consent times out** during issuance
 
 ### Fixed
 
@@ -44,9 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Modernize email template design with consistent table-based layout, inline styles, and unified color scheme.
 - Update EmailServiceImpl to use locale-aware Thymeleaf context instead of language-suffix template names.
 - Clean up messages.properties: remove orphaned keys and add new i18n keys for all email templates.
-
-## [v3.0.1](https://github.com/in2workspace/in2-issuer-api/releases/tag/v3.0.1)
-### Changed
 - Restricted CORS allowed origins to prevent unauthorized cross-origin requests (SEC-001).
 - Refactored CorsConfig to use AppConfig for dynamic origin loading.
 
