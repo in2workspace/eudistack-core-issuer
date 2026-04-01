@@ -52,8 +52,10 @@ class EmailServiceImplTest {
 
     @Test
     void sendTxCodeNotification_onMailError_throwsEmailCommunicationException() {
+        // Arrange
         when(javaMailSender.createMimeMessage()).thenThrow(new RuntimeException("SMTP down"));
 
+        // Act & Assert
         StepVerifier.create(emailService.sendTxCodeNotification("to@example.com", "subject.key", "1234"))
                 .expectError(EmailCommunicationException.class)
                 .verify();
@@ -66,7 +68,7 @@ class EmailServiceImplTest {
         when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
         when(templateEngine.process(eq("credential-offer-email"), any(Context.class))).thenReturn("htmlContent");
 
-        // Act & Assert
+        // Act
         StepVerifier.create(emailService.sendCredentialOfferEmail(
                 "to@example.com", "subject.key",
                 "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fexample.com",
@@ -74,6 +76,7 @@ class EmailServiceImplTest {
                 "ACME Corp", "TX123"
         )).verifyComplete();
 
+        // Assert
         verify(javaMailSender).send(mimeMessage);
         ArgumentCaptor<Context> ctxCaptor = ArgumentCaptor.forClass(Context.class);
         verify(templateEngine).process(eq("credential-offer-email"), ctxCaptor.capture());
@@ -105,8 +108,9 @@ class EmailServiceImplTest {
 
     @Test
     void sendCredentialOfferEmail_onMailError_propagatesException() {
+        // Arrange
         when(javaMailSender.createMimeMessage()).thenThrow(new RuntimeException("SMTP down"));
-
+        // Act & Assert
         StepVerifier.create(emailService.sendCredentialOfferEmail(
                 "to@example.com", "subject.key",
                 "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fexample.com",
@@ -208,8 +212,10 @@ class EmailServiceImplTest {
 
     @Test
     void sendCredentialFailureNotification_onMailError_throwsEmailCommunicationException() {
+        // Arrange
         when(javaMailSender.createMimeMessage()).thenThrow(new RuntimeException("SMTP down"));
 
+        // Act & Assert
         StepVerifier.create(emailService.sendCredentialFailureNotification("to@example.com", "some error"))
                 .expectError(EmailCommunicationException.class)
                 .verify();

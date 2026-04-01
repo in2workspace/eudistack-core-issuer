@@ -23,8 +23,6 @@ import org.springframework.util.MimeTypeUtils;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
-
 import java.io.ByteArrayOutputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -75,7 +73,7 @@ public class EmailServiceImpl implements EmailService {
             javaMailSender.send(mimeMessage);
             return null;
         })
-                .subscribeOn(Schedulers.boundedElastic()).then()
+                .then()
                 .onErrorMap(ex -> new EmailCommunicationException("Error when sending tx code notification"));
     }
 
@@ -113,7 +111,7 @@ public class EmailServiceImpl implements EmailService {
 
             javaMailSender.send(mimeMessage);
             return null;
-        }).subscribeOn(Schedulers.boundedElastic()).then();
+        }).then();
     }
 
     private byte[] generateQrCodeImage(String content, int width, int height) {
@@ -161,7 +159,7 @@ public class EmailServiceImpl implements EmailService {
             helper.setText(templateEngine.process("credential-failure-email", context), true);
             javaMailSender.send(mimeMessage);
             return null;
-        }).subscribeOn(Schedulers.boundedElastic()).then()
+        }).then()
                 .onErrorMap(e -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE));
     }
 
@@ -197,7 +195,7 @@ public class EmailServiceImpl implements EmailService {
             }
 
             return null;
-        }).subscribeOn(Schedulers.boundedElastic()).then();
+        }).then();
     }
 
     private Context buildStatusChangeEmailContext(String credentialId, String type, String credentialStatus) {

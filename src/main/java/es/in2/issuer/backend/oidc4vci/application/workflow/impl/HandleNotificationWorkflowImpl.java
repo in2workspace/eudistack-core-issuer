@@ -166,14 +166,14 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
         log.info("[{}] credential_failure: issuanceId={} stays in DRAFT. Sending failure notification email.",
                 processId, issuanceId);
         return emailService.sendCredentialFailureNotification(issuance.getEmail(), eventDescription)
-                .onErrorResume(EmailCommunicationException.class, e -> {
-                    log.warn("[{}] credential_failure: could not send failure email for issuanceId={}",
-                            processId, issuanceId, e);
-                    return Mono.empty();
-                })
                 .onErrorResume(Exception.class, e -> {
-                    log.error("[{}] credential_failure: UNEXPECTED BUG processing issuanceId={}",
-                            processId, issuanceId, e);
+                    if (e instanceof EmailCommunicationException) {
+                        log.warn("[{}] credential_failure: could not send failure email for issuanceId={}",
+                                processId, issuanceId, e);
+                    } else {
+                        log.error("[{}] credential_failure: UNEXPECTED BUG processing issuanceId={}",
+                                processId, issuanceId, e);
+                    }
                     return Mono.empty();
                 });
     }
