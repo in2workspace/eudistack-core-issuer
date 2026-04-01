@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
 import es.in2.issuer.backend.shared.domain.service.AuditService;
+import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationEvent;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationRequest;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
@@ -128,7 +129,7 @@ class HandleNotificationWorkflowImplTest {
     }
 
     @Test
-    void handleNotification_failure_smtpDown_shouldSwallowErrorAndComplete() {
+    void handleNotification_failure_smtpDown_shouldSwallowEmailCommunicationExceptionAndComplete() {
         // Arrange
         String userEmail = "user@example.com";
         String eventDescription = "Timeout waiting for user decision";
@@ -137,7 +138,28 @@ class HandleNotificationWorkflowImplTest {
         when(notificationCacheStore.get("nid-1")).thenReturn(Mono.just(issuanceId.toString()));
         when(issuanceService.getIssuanceById(issuanceId.toString())).thenReturn(Mono.just(issuance));
         when(emailService.sendCredentialFailureNotification(userEmail, eventDescription))
-                .thenReturn(Mono.error(new RuntimeException("SMTP server unreachable")));
+                .thenReturn(Mono.error(new EmailCommunicationException("SMTP server unreachable")));
+
+        NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_FAILURE, eventDescription);
+
+        // Act & Assert
+        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
+                .verifyComplete();
+
+        verify(emailService).sendCredentialFailureNotification(userEmail, eventDescription);
+    }
+
+    @Test
+    void handleNotification_failure_unexpectedBug_shouldSwallowExceptionAndComplete() {
+        // Arrange
+        String userEmail = "user@example.com";
+        String eventDescription = "Timeout waiting for user decision";
+        when(issuance.getCredentialStatus()).thenReturn(CredentialStatusEnum.DRAFT);
+        when(issuance.getEmail()).thenReturn(userEmail);
+        when(notificationCacheStore.get("nid-1")).thenReturn(Mono.just(issuanceId.toString()));
+        when(issuanceService.getIssuanceById(issuanceId.toString())).thenReturn(Mono.just(issuance));
+        when(emailService.sendCredentialFailureNotification(userEmail, eventDescription))
+                .thenReturn(Mono.error(new NullPointerException("unexpected NPE")));
 
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_FAILURE, eventDescription);
 

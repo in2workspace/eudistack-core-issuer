@@ -3,6 +3,7 @@ package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 import es.in2.issuer.backend.oidc4vci.application.workflow.HandleNotificationWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.exception.InvalidNotificationIdException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.InvalidNotificationRequestException;
+import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationEvent;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationRequest;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
@@ -165,8 +166,13 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
         log.info("[{}] credential_failure: issuanceId={} stays in DRAFT. Sending failure notification email.",
                 processId, issuanceId);
         return emailService.sendCredentialFailureNotification(issuance.getEmail(), eventDescription)
-                .onErrorResume(e -> {
+                .onErrorResume(EmailCommunicationException.class, e -> {
                     log.warn("[{}] credential_failure: could not send failure email for issuanceId={}",
+                            processId, issuanceId, e);
+                    return Mono.empty();
+                })
+                .onErrorResume(Exception.class, e -> {
+                    log.error("[{}] credential_failure: UNEXPECTED BUG processing issuanceId={}",
                             processId, issuanceId, e);
                     return Mono.empty();
                 });
