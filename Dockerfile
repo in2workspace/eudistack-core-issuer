@@ -3,7 +3,7 @@
 # ---------------------------------------------------------------------------
 
 # --- Stage 1: build --------------------------------------------------------
-FROM docker.io/gradle:9.3.1-jdk25 AS build
+FROM docker.io/gradle:9.4.1-jdk25 AS build
 ARG SKIP_TESTS=false
 WORKDIR /workspace
 COPY build.gradle settings.gradle ./
