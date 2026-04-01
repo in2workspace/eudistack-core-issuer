@@ -87,7 +87,7 @@ dependencies {
     implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
     implementation 'io.micrometer:context-propagation'
     runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
-    runtimeOnly 'net.logstash.logback:logstash-logback-encoder:8.0'
+    runtimeOnly 'net.logstash.logback:logstash-logback-encoder:9.0'
 
     // --- DevTools ---
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
