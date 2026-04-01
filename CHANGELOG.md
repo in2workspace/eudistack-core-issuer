@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Per-tenant CORS origins registry** — CORS allowed origins are now loaded from an external `cors-origins.yaml` file (configurable via `APP_CORS_ORIGINS_PATH`) and merged with the base origins (`APP_ISSUER_FRONTEND_URL`, `APP_WALLET_URL`). Supports multi-tenant deployments where each tenant has distinct frontend domains.
+- **Email notification on consent timeout** — Send an email notification when user consent times out during issuance.
 
 ### Fixed
 
@@ -44,9 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Modernize email template design with consistent table-based layout, inline styles, and unified color scheme.
 - Update EmailServiceImpl to use locale-aware Thymeleaf context instead of language-suffix template names.
 - Clean up messages.properties: remove orphaned keys and add new i18n keys for all email templates.
-
-## [v3.0.1](https://github.com/in2workspace/in2-issuer-api/releases/tag/v3.0.1)
-### Changed
 - Restricted CORS allowed origins to prevent unauthorized cross-origin requests (SEC-001).
 - Refactored CorsConfig to use AppConfig for dynamic origin loading.
 
