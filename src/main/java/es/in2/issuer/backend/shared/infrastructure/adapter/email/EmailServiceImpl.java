@@ -160,7 +160,7 @@ public class EmailServiceImpl implements EmailService {
             helper.setText(templateEngine.process("credential-failure-email", context), true);
             javaMailSender.send(mimeMessage);
             return null;
-        }).then()
+        }).subscribeOn(Schedulers.boundedElastic()).then()
                 .onErrorMap(e -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE));
     }
 
