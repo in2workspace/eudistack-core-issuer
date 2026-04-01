@@ -166,8 +166,8 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
                 processId, issuanceId);
         return emailService.sendCredentialFailureNotification(issuance.getEmail(), eventDescription)
                 .onErrorResume(e -> {
-                    log.warn("[{}] credential_failure: could not send failure email for issuanceId={}: {}",
-                            processId, issuanceId, e.getMessage());
+                    log.warn("[{}] credential_failure: could not send failure email for issuanceId={}",
+                            processId, issuanceId, e);
                     return Mono.empty();
                 });
     }
