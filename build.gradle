@@ -51,7 +51,7 @@ dependencies {
     implementation 'com.google.guava:guava:33.4.0-jre'
 
     // --- JSON Schema Validation ---
-    implementation 'com.networknt:json-schema-validator:1.5.6'
+    implementation 'com.networknt:json-schema-validator:3.0.1'
 
     // --- Serialization ---
     implementation 'com.fasterxml.jackson.core:jackson-databind'
