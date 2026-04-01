@@ -23,6 +23,7 @@ import org.springframework.util.MimeTypeUtils;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 import java.io.ByteArrayOutputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -73,7 +74,7 @@ public class EmailServiceImpl implements EmailService {
             javaMailSender.send(mimeMessage);
             return null;
         })
-                .then()
+                .subscribeOn(Schedulers.boundedElastic()).then()
                 .onErrorMap(ex -> new EmailCommunicationException("Error when sending tx code notification"));
     }
 
@@ -111,7 +112,7 @@ public class EmailServiceImpl implements EmailService {
 
             javaMailSender.send(mimeMessage);
             return null;
-        }).then();
+        }).subscribeOn(Schedulers.boundedElastic()).then();
     }
 
     private byte[] generateQrCodeImage(String content, int width, int height) {
@@ -195,7 +196,7 @@ public class EmailServiceImpl implements EmailService {
             }
 
             return null;
-        }).then();
+        }).subscribeOn(Schedulers.boundedElastic()).then();
     }
 
     private Context buildStatusChangeEmailContext(String credentialId, String type, String credentialStatus) {
