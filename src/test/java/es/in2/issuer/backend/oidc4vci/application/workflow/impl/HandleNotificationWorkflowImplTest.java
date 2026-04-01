@@ -141,7 +141,7 @@ class HandleNotificationWorkflowImplTest {
 
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_FAILURE, eventDescription);
 
-        // Act & Assert — el flujo debe completar sin error (HTTP 204 al Wallet garantizado)
+        // Act & Assert
         StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
                 .verifyComplete();
 
