@@ -183,10 +183,7 @@ public class GenericCredentialBuilder {
                 String issuerId = extractIssuerIdFromNode(issuerNode);
                 credential.put("iss", issuerId);
             } else {
-                // W3C: issuer is an object
-                if (issuerNode.isObject()) {
-                    ((ObjectNode) issuerNode).remove("id");
-                }
+                // W3C: issuer is an object with id, organizationIdentifier, etc.
                 credential.set("issuer", issuerNode);
             }
 
