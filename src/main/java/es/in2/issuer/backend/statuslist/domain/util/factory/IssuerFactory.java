@@ -11,7 +11,6 @@ import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
-import java.util.Date;
 
 @Component
 @RequiredArgsConstructor
@@ -25,7 +24,7 @@ public class IssuerFactory {
         return qtspIssuerService.resolveRemoteDetailedIssuer()
                 .retryWhen(buildRetrySpec())
                 .doOnError(err ->
-                        log.error("Error during remote issuer creation at {}: {}", new Date(), err.getMessage())
+                        log.error("Error during remote issuer creation: {}", err.getMessage(), err)
                 );
     }
 

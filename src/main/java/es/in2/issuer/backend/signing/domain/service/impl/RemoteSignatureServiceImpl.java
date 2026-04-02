@@ -174,7 +174,7 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
     }
 
     private Mono<SigningResult> executeSigningFlow(SigningRequest signingRequest, String token) {
-        return getSignedSignature(signingRequest, token)
+        return getSignedDocumentExternal(signingRequest)
                 .flatMap(response -> {
                     try {
                         return Mono.just(toSigningResult(response));
@@ -182,11 +182,6 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
                         return Mono.error(new SigningResultParsingException("Error parsing signed data"));
                     }
                 });
-    }
-
-
-    public Mono<String> getSignedSignature(SigningRequest signingRequest, String token) {
-        return getSignedDocumentExternal(signingRequest);
     }
 
     public Mono<String> getSignedDocumentExternal(SigningRequest signingRequest) {

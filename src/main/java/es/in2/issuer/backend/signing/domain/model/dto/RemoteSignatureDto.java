@@ -9,5 +9,5 @@ public record RemoteSignatureDto(
         @NotBlank String credentialId,
         @NotBlank String credentialPassword,
         String certificateInfoCacheTtl,
-        String signingOperation
+        @NotBlank String signingOperation
 ) {}

@@ -36,8 +36,7 @@ public class RuntimeSigningConfig implements SigningRuntimeProperties {
                     remoteProps.signingOperation()
             );
             log.info("Default QTSP provider: '{}' → {} (operation: {})",
-                    runtimeProps.defaultProvider(), remoteProps.url(),
-                    remoteProps.signingOperation() != null ? remoteProps.signingOperation() : "auto");
+                    runtimeProps.defaultProvider(), remoteProps.url(), remoteProps.signingOperation());
         } else {
             log.warn("No default remote signature config — provider '{}' will require runtime push",
                     runtimeProps.defaultProvider());

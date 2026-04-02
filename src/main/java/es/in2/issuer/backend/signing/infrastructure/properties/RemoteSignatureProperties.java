@@ -15,6 +15,9 @@ public record RemoteSignatureProperties(
     public boolean isConfigured() {
         return url != null && !url.isBlank()
                 && clientId != null && !clientId.isBlank()
-                && credentialId != null && !credentialId.isBlank();
+                && clientSecret != null && !clientSecret.isBlank()
+                && credentialId != null && !credentialId.isBlank()
+                && credentialPassword != null && !credentialPassword.isBlank()
+                && signingOperation != null && !signingOperation.isBlank();
     }
 }
