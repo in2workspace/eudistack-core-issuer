@@ -201,12 +201,6 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
     }
 
     @Override
-    public boolean isServerMode() {
-        RemoteSignatureDto cfg = remoteCfgRequired();
-        return SIGNATURE_REMOTE_TYPE_SERVER.equals(cfg.type());
-    }
-
-    @Override
     public Mono<DetailedIssuer> resolveRemoteDetailedIssuer() {
         return validateCredentials()
                 .flatMap(valid -> {

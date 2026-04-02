@@ -44,14 +44,13 @@ class SigningRuntimeConfigControllerTest {
 
         // Given
         RemoteSignatureDto remote = new RemoteSignatureDto(
-                "cloud",
                 "https://api.external.com",
-                "/sign",
                 "clientId",
                 "clientSecret",
                 "cred-id",
                 "pwd",
-                "PT10M"
+                "PT10M",
+                "sign-hash"
         );
 
         SigningConfigPushRequest request = new SigningConfigPushRequest("csc-sign-hash", remote);
@@ -74,14 +73,13 @@ class SigningRuntimeConfigControllerTest {
     void pushSigningConfig_returnsBadRequest_whenProviderBlank() {
 
         RemoteSignatureDto remote = new RemoteSignatureDto(
-                "cloud",
                 "https://api.external.com",
-                "/sign",
                 "clientId",
                 "clientSecret",
                 "cred-id",
                 "pwd",
-                "PT10M"
+                "PT10M",
+                "sign-hash"
         );
 
         SigningConfigPushRequest request = new SigningConfigPushRequest("   ", remote);

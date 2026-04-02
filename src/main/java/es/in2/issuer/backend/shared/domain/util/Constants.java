@@ -81,7 +81,6 @@ public final class Constants {
     public static final Long DEFERRED_CREDENTIAL_POLLING_INTERVAL = 3600L;
 
     // REMOTE SIGNATURE
-    public static final String SIGNATURE_REMOTE_TYPE_SERVER = "server";
     public static final String SIGNATURE_REMOTE_TYPE_CLOUD = "cloud";
     public static final String SIGNATURE_REMOTE_SCOPE_SERVICE = "service";
     public static final String SIGNATURE_REMOTE_SCOPE_CREDENTIAL = "credential";

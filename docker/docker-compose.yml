@@ -72,7 +72,7 @@ services:
       APP_WALLET_URL: https://wallet.example.com
       APP_CONFIG_SOURCE: yaml
       APP_DEFAULT_LANG: en
-      APP_ADMIN_ORGANIZATION_ID: VATES-B60645900
+      APP_ADMIN_ORGANIZATION_ID: VATES-A15456585
       APP_SYS_TENANT: SYSTEM
 
       # --- Issuer Identity ---------------------------------------------------
@@ -80,22 +80,13 @@ services:
       ISSUER_IDENTITY_JWT_CREDENTIAL: ""
       ISSUER_IDENTITY_CRYPTO_PRIVATE_KEY: ""
 
-      # --- Default Signer ----------------------------------------------------
-      DEFAULT_SIGNER_COMMON_NAME: "Local Dev Issuer"
-      DEFAULT_SIGNER_COUNTRY: "ES"
-      DEFAULT_SIGNER_EMAIL: "dev@example.com"
-      DEFAULT_SIGNER_ORGANIZATION_IDENTIFIER: "VATES-B60645900"
-      DEFAULT_SIGNER_ORGANIZATION: "Dev Organization"
-      DEFAULT_SIGNER_SERIAL_NUMBER: "B60645900"
-
-      # --- Signing -----------------------------------------------------------
+      # --- Signing (QTSP via https://mock-qtsp.altia.fikua.com) ---------------
       SIGNING_RUNTIME_ENABLED: "true"
       SIGNING_RUNTIME_CONTROLLER_ENABLED: "true"
 
       # --- CORS --------------------------------------------------------------
       CORS_DEFAULT_ALLOWED_ORIGINS: http://localhost:4200
       CORS_EXTERNAL_ALLOWED_ORIGINS: http://localhost:4200
-
 
       # --- Logging -----------------------------------------------------------
       LOGGING_LEVEL_ES_IN2_ISSUER: DEBUG
