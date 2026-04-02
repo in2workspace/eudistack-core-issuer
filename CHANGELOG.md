@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`signingOperation` config per QTSP** — Each QTSP declares whether it uses `sign-hash` or `sign-doc`. DelegatingSigningProvider routes by this field. No implicit fallbacks. (EUDI-023)
 - **`RemoteSignatureProperties` / `SigningRuntimeConfigProperties`** — New `@ConfigurationProperties` records for default QTSP config from YAML. (EUDI-023)
 - **Email notification on consent timeout** — Send an email notification when user consent times out during issuance.
+- **SD-JWT mandate wrapper with nested disclosures** — SD-JWT credentials emit mandatee/mandator/power inside a `mandate` wrapper with `_sd` digests at the nested level. (EUDI-012)
+- **RSA algorithm support in JAdES header** — RS256/384/512 and PS256 OIDs mapped for QTSPs with RSA certificates. (EUDI-023)
+
+### Fixed
+
+- **W3C issuer.id removed during credential build** — `GenericCredentialBuilder` was stripping the `id` field from the issuer object, causing Verifier schema validation failure (`required property 'id' not found`).
 
 ### Fixed
 
