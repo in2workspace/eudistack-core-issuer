@@ -21,7 +21,7 @@ import java.util.Base64;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOTE_TYPE_SERVER;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -41,12 +41,11 @@ class QtspIssuerServiceImplTest {
     @BeforeEach
     void setUp() {
         cfg = new RemoteSignatureDto(
-                SIGNATURE_REMOTE_TYPE_SERVER,
                 "https://domain",
-                "/sign",
                 "clientId", "clientSecret",
                 "credId", "pwd",
-                "PT10M"
+                "PT10M",
+                "sign-hash"
         );
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
 
@@ -107,40 +106,6 @@ class QtspIssuerServiceImplTest {
     }
 
     @Test
-    void isServerMode_returnsTrueWhenTypeIsServer() {
-        RemoteSignatureDto serverCfg = new RemoteSignatureDto(
-                SIGNATURE_REMOTE_TYPE_SERVER,
-                "https://domain",
-                "/sign",
-                "clientId",
-                "clientSecret",
-                "credId",
-                "pwd",
-                "PT10M"
-        );
-        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(serverCfg);
-
-        assertTrue(qtspIssuerService.isServerMode());
-    }
-
-    @Test
-    void isServerMode_returnsFalseWhenTypeIsNotServer() {
-        RemoteSignatureDto otherCfg = new RemoteSignatureDto(
-                "other",
-                "https://domain",
-                "/sign",
-                "clientId",
-                "clientSecret",
-                "credId",
-                "pwd",
-                "PT10M"
-        );
-        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(otherCfg);
-
-        assertThat(qtspIssuerService.isServerMode()).isFalse();
-    }
-
-    @Test
     void resolveRemoteDetailedIssuer_validCredentials_returnsIssuer() {
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
 
@@ -182,12 +147,11 @@ class QtspIssuerServiceImplTest {
     void resolveRemoteDetailedIssuer_invalidCredentials_returnsError() {
 
         RemoteSignatureDto expectedCfg = new RemoteSignatureDto(
-                SIGNATURE_REMOTE_TYPE_SERVER,
                 "https://domain",
-                "/sign",
                 "clientId", "clientSecret",
                 "EXPECTED_ID", "pwd",
-                "PT10M"
+                "PT10M",
+                "sign-hash"
         );
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(expectedCfg);
 

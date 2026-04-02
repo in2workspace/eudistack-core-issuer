@@ -45,14 +45,13 @@ class QtspAuthClientTest {
 
         // ✅ NO mockear cfg.* (es record real). Dale valores reales aquí.
         RemoteSignatureDto cfg = new RemoteSignatureDto(
-                "server",
-                "https://qtsp",     // <- url real que luego el client usa para "/oauth2/token"
-                "/sign",
+                "https://qtsp",
                 "clientId",
                 "clientSecret",
                 "cred-id",
                 "pwd",
-                "PT10M"
+                "PT10M",
+                "sign-hash"
         );
 
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);

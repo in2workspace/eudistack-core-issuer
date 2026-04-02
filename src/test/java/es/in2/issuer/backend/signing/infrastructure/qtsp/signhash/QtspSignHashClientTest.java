@@ -18,7 +18,7 @@ import reactor.test.StepVerifier;
 import java.nio.charset.StandardCharsets;
 
 import static org.mockito.ArgumentMatchers.*;
-import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOTE_TYPE_SERVER;
+
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
@@ -39,12 +39,11 @@ class QtspSignHashClientTest {
         client = new QtspSignHashClient(objectMapper, runtimeSigningConfig, httpUtils);
 
         cfg = new RemoteSignatureDto(
-                SIGNATURE_REMOTE_TYPE_SERVER,
                 "https://qtsp.test",
-                "/sign",
                 "clientId", "clientSecret",
                 "cred-123", "pwd",
-                "PT10M"
+                "PT10M",
+                "sign-hash"
         );
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
     }

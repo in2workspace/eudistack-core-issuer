@@ -134,9 +134,15 @@ signing:
   runtime:
     enabled: ${SIGNING_RUNTIME_ENABLED:true}
     controller-enabled: ${SIGNING_RUNTIME_CONTROLLER_ENABLED:true}
-  certificate:
-    cert-path: ${SIGNING_CERTIFICATE_CERT_PATH:}
-    key-path: ${SIGNING_CERTIFICATE_KEY_PATH:}
+    default-provider: ${SIGNING_DEFAULT_PROVIDER:altia-mock-qtsp}
+  remote-signature:
+    url: ${SIGNING_REMOTE_URL:https://mock-qtsp.altia.fikua.com}
+    client-id: ${SIGNING_REMOTE_CLIENT_ID:mock-client}
+    client-secret: ${SIGNING_REMOTE_CLIENT_SECRET:mock-secret}
+    credential-id: ${SIGNING_REMOTE_CREDENTIAL_ID:mock-credential-001}
+    credential-password: ${SIGNING_REMOTE_CREDENTIAL_PASSWORD:mock-password}
+    certificate-info-cache-ttl: ${SIGNING_REMOTE_CERT_CACHE_TTL:PT10M}
+    signing-operation: ${SIGNING_REMOTE_OPERATION:sign-hash}
 
 # OID4VCI Profile (authorization_code flow configuration)
 oid4vci:

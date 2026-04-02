@@ -186,32 +186,7 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
 
 
     public Mono<String> getSignedSignature(SigningRequest signingRequest, String token) {
-        RemoteSignatureDto cfg = remoteCfgRequired();
-        return switch (cfg.type()) {
-            case SIGNATURE_REMOTE_TYPE_SERVER -> getSignedDocumentDSS(signingRequest, token);
-            case SIGNATURE_REMOTE_TYPE_CLOUD -> getSignedDocumentExternal(signingRequest);
-            default -> Mono.error(new RemoteSignatureException("Remote signature service not available"));
-        };
-    }
-
-    private Mono<String> getSignedDocumentDSS(SigningRequest signingRequest, String token) {
-        RemoteSignatureDto cfg = remoteCfgRequired();
-        String signatureRemoteServerEndpoint = cfg.url() + "/api/v1"
-                + cfg.signPath();
-        String signingRequestJSON;
-
-        log.info("Requesting signature to DSS service");
-
-        try {
-            signingRequestJSON = objectMapper.writeValueAsString(signingRequest);
-        } catch (JsonProcessingException e) {
-            return Mono.error(new RemoteSignatureException(SERIALIZING_ERROR, e));
-        }
-        List<Map.Entry<String, String>> headers = new ArrayList<>();
-        headers.add(new AbstractMap.SimpleEntry<>(HttpHeaders.AUTHORIZATION, token));
-        headers.add(new AbstractMap.SimpleEntry<>(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE));
-        return httpUtils.postRequest(signatureRemoteServerEndpoint, headers, signingRequestJSON)
-                .doOnError(error -> log.error("Error signing credential with server method: {}", error.getMessage()));
+        return getSignedDocumentExternal(signingRequest);
     }
 
     public Mono<String> getSignedDocumentExternal(SigningRequest signingRequest) {

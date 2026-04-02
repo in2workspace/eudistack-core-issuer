@@ -1,15 +1,13 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter;
 
-import org.mockito.*;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
-import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
-import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
-import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
+import es.in2.issuer.backend.signing.domain.model.dto.*;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -23,108 +21,163 @@ import static org.mockito.Mockito.*;
 class DelegatingSigningProviderTest {
 
     @Mock RuntimeSigningConfig runtimeSigningConfig;
-    @Mock SigningProvider inMemoryProvider;
-    @Mock SigningProvider cscSignHashProvider;
+    @Mock SigningProvider signHashProvider;
+    @Mock SigningProvider signDocProvider;
 
-    private static SigningRequest anyValidRequest() {
+    private static SigningRequest jadesRequest() {
         var ctx = new SigningContext("token", "issuanceId", "email@example.com");
         return new SigningRequest(SigningType.JADES, "{\"vc\":\"unsigned\"}", ctx, null);
     }
 
+    private static RemoteSignatureDto cfgWithOperation(String operation) {
+        return new RemoteSignatureDto(
+                "https://mock-qtsp.example.com",
+                "client", "secret", "cred-001", "password", "PT10M",
+                operation
+        );
+    }
+
     @Test
-    void sign_delegatesToProvider_selectedByRuntimeConfig_normalized() {
-        // given (nota: mixed case + spaces to test normalize)
-        when(runtimeSigningConfig.getProvider()).thenReturn("  CSC-SIGN-HASH  ");
+    void sign_delegatesToSignHash_whenOperationIsSignHash() {
+        when(runtimeSigningConfig.getProvider()).thenReturn("altia-mock-qtsp");
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation("sign-hash"));
 
         SigningResult expected = new SigningResult(SigningType.JADES, "jwt");
-        when(cscSignHashProvider.sign(any())).thenReturn(Mono.just(expected));
+        when(signHashProvider.sign(any())).thenReturn(Mono.just(expected));
 
-        DelegatingSigningProvider sut = new DelegatingSigningProvider(
+        var sut = new DelegatingSigningProvider(
                 runtimeSigningConfig,
-                Map.of(
-                        "in-memory", inMemoryProvider,
-                        "csc-sign-hash", cscSignHashProvider
-                )
+                Map.of("sign-hash", signHashProvider, "sign-doc", signDocProvider)
         );
 
-        SigningRequest request = anyValidRequest();
-
-        // when + then
-        StepVerifier.create(sut.sign(request))
+        StepVerifier.create(sut.sign(jadesRequest()))
                 .assertNext(actual -> {
                     assertEquals(expected.type(), actual.type());
                     assertEquals(expected.data(), actual.data());
                 })
                 .verifyComplete();
 
-        verify(cscSignHashProvider).sign(request);
-        verify(inMemoryProvider, never()).sign(any());
+        verify(signHashProvider).sign(any());
+        verify(signDocProvider, never()).sign(any());
     }
 
     @Test
-    void sign_returnsError_whenNoProviderRegistered() {
-        // given
-        when(runtimeSigningConfig.getProvider()).thenReturn("unknown-provider");
+    void sign_delegatesToSignDoc_whenOperationIsSignDoc() {
+        when(runtimeSigningConfig.getProvider()).thenReturn("signDoc-only-qtsp");
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation("sign-doc"));
 
-        DelegatingSigningProvider sut = new DelegatingSigningProvider(
+        SigningResult expected = new SigningResult(SigningType.JADES, "signed-via-doc");
+        when(signDocProvider.sign(any())).thenReturn(Mono.just(expected));
+
+        var sut = new DelegatingSigningProvider(
                 runtimeSigningConfig,
-                Map.of("in-memory", inMemoryProvider)
+                Map.of("sign-hash", signHashProvider, "sign-doc", signDocProvider)
         );
 
-        // when + then
-        StepVerifier.create(sut.sign(anyValidRequest()))
-                .expectErrorSatisfies(ex -> {
-                    assertTrue(ex instanceof SigningException);
-                    assertTrue(ex.getMessage().contains("No SigningProvider registered for key 'unknown-provider'"));
-                    assertTrue(ex.getMessage().contains("Available:"));
-                    assertTrue(ex.getMessage().contains("in-memory"));
-                })
-                .verify();
+        StepVerifier.create(sut.sign(jadesRequest()))
+                .expectNext(expected)
+                .verifyComplete();
 
-        verifyNoInteractions(inMemoryProvider);
+        verify(signDocProvider).sign(any());
+        verify(signHashProvider, never()).sign(any());
     }
 
     @Test
-    void sign_usesEmptyKey_whenRuntimeConfigReturnsNull() {
-        // given
-        when(runtimeSigningConfig.getProvider()).thenReturn(null);
+    void sign_returnsError_whenNoRemoteSignatureConfigured() {
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(null);
 
-        DelegatingSigningProvider sut = new DelegatingSigningProvider(
+        var sut = new DelegatingSigningProvider(
                 runtimeSigningConfig,
-                Map.of("in-memory", inMemoryProvider)
+                Map.of("sign-hash", signHashProvider)
         );
 
-        StepVerifier.create(sut.sign(anyValidRequest()))
+        StepVerifier.create(sut.sign(jadesRequest()))
                 .expectErrorSatisfies(ex -> {
-                    assertTrue(ex instanceof SigningException);
-                    assertTrue(ex.getMessage().contains("key ''"));
+                    assertInstanceOf(SigningException.class, ex);
+                    assertTrue(ex.getMessage().contains("No remote signature configuration"));
                 })
                 .verify();
 
-        verifyNoInteractions(inMemoryProvider);
+        verifyNoInteractions(signHashProvider);
+    }
+
+    @Test
+    void sign_returnsError_whenSigningOperationIsNull() {
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation(null));
+
+        var sut = new DelegatingSigningProvider(
+                runtimeSigningConfig,
+                Map.of("sign-hash", signHashProvider)
+        );
+
+        StepVerifier.create(sut.sign(jadesRequest()))
+                .expectErrorSatisfies(ex -> {
+                    assertInstanceOf(SigningException.class, ex);
+                    assertTrue(ex.getMessage().contains("signingOperation is required"));
+                })
+                .verify();
+
+        verifyNoInteractions(signHashProvider);
+    }
+
+    @Test
+    void sign_returnsError_whenSigningOperationIsBlank() {
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation("  "));
+
+        var sut = new DelegatingSigningProvider(
+                runtimeSigningConfig,
+                Map.of("sign-hash", signHashProvider)
+        );
+
+        StepVerifier.create(sut.sign(jadesRequest()))
+                .expectErrorSatisfies(ex -> {
+                    assertInstanceOf(SigningException.class, ex);
+                    assertTrue(ex.getMessage().contains("signingOperation is required"));
+                })
+                .verify();
+
+        verifyNoInteractions(signHashProvider);
+    }
+
+    @Test
+    void sign_returnsError_whenOperationNotRegistered() {
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation("unknown-op"));
+
+        var sut = new DelegatingSigningProvider(
+                runtimeSigningConfig,
+                Map.of("sign-hash", signHashProvider)
+        );
+
+        StepVerifier.create(sut.sign(jadesRequest()))
+                .expectErrorSatisfies(ex -> {
+                    assertInstanceOf(SigningException.class, ex);
+                    assertTrue(ex.getMessage().contains("No SigningProvider for operation 'unknown-op'"));
+                })
+                .verify();
+
+        verifyNoInteractions(signHashProvider);
     }
 
     @Test
     void sign_propagatesDelegateError() {
-        // given
-        when(runtimeSigningConfig.getProvider()).thenReturn("in-memory");
+        when(runtimeSigningConfig.getProvider()).thenReturn("altia-mock-qtsp");
+        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation("sign-hash"));
 
-        when(inMemoryProvider.sign(any()))
+        when(signHashProvider.sign(any()))
                 .thenReturn(Mono.error(new SigningException("delegate failed")));
 
-        DelegatingSigningProvider sut = new DelegatingSigningProvider(
+        var sut = new DelegatingSigningProvider(
                 runtimeSigningConfig,
-                Map.of("in-memory", inMemoryProvider)
+                Map.of("sign-hash", signHashProvider)
         );
 
-        // when + then
-        StepVerifier.create(sut.sign(anyValidRequest()))
+        StepVerifier.create(sut.sign(jadesRequest()))
                 .expectErrorSatisfies(ex -> {
-                    assertTrue(ex instanceof SigningException);
+                    assertInstanceOf(SigningException.class, ex);
                     assertEquals("delegate failed", ex.getMessage());
                 })
                 .verify();
 
-        verify(inMemoryProvider).sign(any());
+        verify(signHashProvider).sign(any());
     }
 }
