@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **QTSP remote signing as default** — Default signing provider is now `altia-mock-qtsp` at `https://mock-qtsp.altia.fikua.com` via CSC API v2. Configuration loaded from `signing.remote-signature.*` in `application.yml` with env var overrides (`SIGNING_REMOTE_*`). (EUDI-023)
 - **`signingOperation` config per QTSP** — Each QTSP declares whether it uses `sign-hash` or `sign-doc`. DelegatingSigningProvider routes by this field. No implicit fallbacks. (EUDI-023)
 - **`RemoteSignatureProperties` / `SigningRuntimeConfigProperties`** — New `@ConfigurationProperties` records for default QTSP config from YAML. (EUDI-023)
+- **Email notification on consent timeout** — Send an email notification when user consent times out during issuance.
 
 ### Fixed
 
@@ -52,9 +53,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Modernize email template design with consistent table-based layout, inline styles, and unified color scheme.
 - Update EmailServiceImpl to use locale-aware Thymeleaf context instead of language-suffix template names.
 - Clean up messages.properties: remove orphaned keys and add new i18n keys for all email templates.
-
-## [v3.0.1](https://github.com/in2workspace/in2-issuer-api/releases/tag/v3.0.1)
-### Changed
 - Restricted CORS allowed origins to prevent unauthorized cross-origin requests (SEC-001).
 - Refactored CorsConfig to use AppConfig for dynamic origin loading.
 
