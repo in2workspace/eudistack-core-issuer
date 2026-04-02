@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Per-tenant CORS origins registry** — CORS allowed origins are now loaded from an external `cors-origins.yaml` file (configurable via `APP_CORS_ORIGINS_PATH`) and merged with the base origins (`APP_ISSUER_FRONTEND_URL`, `APP_WALLET_URL`). Supports multi-tenant deployments where each tenant has distinct frontend domains.
+- **QTSP remote signing as default** — Default signing provider is now `altia-mock-qtsp` at `https://mock-qtsp.altia.fikua.com` via CSC API v2. Configuration loaded from `signing.remote-signature.*` in `application.yml` with env var overrides (`SIGNING_REMOTE_*`). (EUDI-023)
+- **`signingOperation` config per QTSP** — Each QTSP declares whether it uses `sign-hash` or `sign-doc`. DelegatingSigningProvider routes by this field. No implicit fallbacks. (EUDI-023)
+- **`RemoteSignatureProperties` / `SigningRuntimeConfigProperties`** — New `@ConfigurationProperties` records for default QTSP config from YAML. (EUDI-023)
 
 ### Fixed
 
@@ -17,10 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Actuator config migrated to Spring Boot 3.5 `access` API** — Replace deprecated `enabled-by-default: false` / `enabled: true` with `access: none` / `access: unrestricted`. No behavioral change.
+- **IssuerFactory always remote** — Issuer identity is now always resolved from the QTSP via `credentials/info`, removing dependency on local certificate. (EUDI-023)
 
 ### Removed
 
 - **`ISSUER_IDENTITY_JWT_CREDENTIAL` property** — Dead code. LEARCredentialMachine JWT for trust framework registration is no longer consumed. Identity is now managed via `privateKey` + `didKey` + X.509 certificate.
+- **`InMemorySigningProvider`** — Local certificate-based signing removed. All signing is now via remote QTSP. (EUDI-023)
+- **`DefaultSignerConfig` / `SignerConfig`** — Signer identity extracted from local cert no longer needed. (EUDI-023)
+- **DSS legacy flow** — `getSignedDocumentDSS`, `signPath`, `type="server"`, `SIGNATURE_REMOTE_TYPE_SERVER` removed. (EUDI-023)
+- **`SIGNING_CERTIFICATE_CERT_PATH` / `SIGNING_CERTIFICATE_KEY_PATH`** — Local certificate env vars removed. Use `SIGNING_REMOTE_*` instead. (EUDI-023)
 
 ## [3.0.0] - 2026-03-24
 
