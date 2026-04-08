@@ -18,6 +18,9 @@ public final class Constants {
     public static final String CWT_VC = "cwt_vc";
     public static final String VC = "vc";
 
+    // JWT TYPE HEADERS
+    public static final String VC_JWT_TYP = "vc+jwt";
+
     // CREDENTIAL CONTEXTS
     public static final String CREDENTIALS_CONTEXT_V2 = "https://www.w3.org/ns/credentials/v2";
 

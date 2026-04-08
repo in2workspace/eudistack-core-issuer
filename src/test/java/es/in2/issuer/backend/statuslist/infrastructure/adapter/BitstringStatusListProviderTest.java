@@ -361,7 +361,7 @@ class BitstringStatusListProviderTest {
         when(statusListBuilder.buildUnsigned(eq(newListUrl), eq(TEST_ISSUER_DID), eq("revocation"), anyString()))
                 .thenReturn(Map.of("type", "StatusListCredential"));
 
-        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(newListId), isNull()))
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(newListId), eq("vc+jwt")))
                 .thenReturn(Mono.just("newSignedJwt"));
 
         when(statusListRepository.updateSignedCredential(newListId, "newSignedJwt"))
@@ -383,7 +383,7 @@ class BitstringStatusListProviderTest {
         verify(statusListIndexRepository).countByStatusListId(TEST_LIST_ID);
         verify(statusListRepository, atLeastOnce()).save(any(StatusList.class));
         verify(issuerFactory, atLeastOnce()).createSimpleIssuer();
-        verify(statusListSigner, atLeastOnce()).sign(anyMap(), eq(TEST_TOKEN), eq(newListId), isNull());
+        verify(statusListSigner, atLeastOnce()).sign(anyMap(), eq(TEST_TOKEN), eq(newListId), eq("vc+jwt"));
         verify(statusListRepository, atLeastOnce()).updateSignedCredential(eq(newListId), anyString());
         verify(statusListIndexReservationService).reserve(newListId, TEST_ISSUANCE_ID);
     }
@@ -441,7 +441,7 @@ class BitstringStatusListProviderTest {
         when(statusListBuilder.buildUnsigned(eq(expectedListUrl), eq(TEST_ISSUER_DID), eq("revocation"), anyString()))
                 .thenReturn(Map.of("type", "StatusListCredential"));
 
-        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), isNull()))
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt")))
                 .thenReturn(Mono.just("signedJwt"));
 
         when(statusListRepository.updateSignedCredential(TEST_LIST_ID, "signedJwt"))
@@ -465,7 +465,7 @@ class BitstringStatusListProviderTest {
         verify(statusListRepository).findLatestByPurposeAndFormat("revocation", "bitstring_vc");
         verify(statusListRepository, atLeastOnce()).save(any(StatusList.class));
         verify(issuerFactory, atLeastOnce()).createSimpleIssuer();
-        verify(statusListSigner, atLeastOnce()).sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), isNull());
+        verify(statusListSigner, atLeastOnce()).sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt"));
         verify(statusListIndexRepository).countByStatusListId(TEST_LIST_ID);
         verify(statusListIndexReservationService).reserve(TEST_LIST_ID, TEST_ISSUANCE_ID);
     }
@@ -508,7 +508,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Map.of("type", "StatusListCredential"));
 
         RuntimeException signError = new RuntimeException("sign failed");
-        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), isNull()))
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt")))
                 .thenReturn(Mono.error(signError));
 
         when(statusListRepository.deleteById(TEST_LIST_ID))
@@ -560,7 +560,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Map.of("type", "StatusListCredential"));
 
         RuntimeException signError = new RuntimeException("sign failed");
-        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), isNull()))
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt")))
                 .thenReturn(Mono.error(signError));
 
         when(statusListRepository.deleteById(TEST_LIST_ID))
@@ -611,7 +611,7 @@ class BitstringStatusListProviderTest {
         when(statusListBuilder.buildUnsigned(eq(expectedListUrl), eq(TEST_ISSUER_DID), eq("revocation"), anyString()))
                 .thenReturn(Map.of("type", "StatusListCredential"));
 
-        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), isNull()))
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt")))
                 .thenReturn(Mono.just("jwt"));
 
         when(statusListRepository.updateSignedCredential(TEST_LIST_ID, "jwt"))
@@ -700,7 +700,7 @@ class BitstringStatusListProviderTest {
         when(statusListBuilder.buildUnsigned(eq(newListUrl), eq(TEST_ISSUER_DID), eq("revocation"), anyString()))
                 .thenReturn(Map.of("type", "StatusListCredential"));
 
-        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(newListId), isNull()))
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(newListId), eq("vc+jwt")))
                 .thenReturn(Mono.just("newJwt"));
 
         when(statusListRepository.updateSignedCredential(newListId, "newJwt"))
@@ -941,7 +941,7 @@ class BitstringStatusListProviderTest {
         when(statusListBuilder.buildUnsigned(listUrl, TEST_ISSUER_DID, "revocation", "updatedEncodedList"))
                 .thenReturn(Map.of("type", "StatusListCredential"));
 
-        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), isNull()))
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt")))
                 .thenReturn(Mono.just("jwt"));
 
         when(statusListRepository.updateSignedAndEncodedIfUnchanged(
@@ -1112,7 +1112,7 @@ class BitstringStatusListProviderTest {
         when(statusListBuilder.buildUnsigned(listUrl, TEST_ISSUER_DID, "revocation", "updatedEncodedList"))
                 .thenReturn(Map.of("type", "StatusListCredential"));
 
-        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), isNull()))
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt")))
                 .thenReturn(Mono.just("jwt"));
 
         // First attempt: 0 rows updated -> OptimisticUpdateException
@@ -1205,7 +1205,7 @@ class BitstringStatusListProviderTest {
         when(statusListBuilder.buildUnsigned(listUrl, TEST_ISSUER_DID, "revocation", "updatedEncodedList"))
                 .thenReturn(Map.of("type", "StatusListCredential"));
 
-        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), isNull()))
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt")))
                 .thenReturn(Mono.just("jwt"));
 
         // Always fails -> triggers OptimisticUpdateException every attempt

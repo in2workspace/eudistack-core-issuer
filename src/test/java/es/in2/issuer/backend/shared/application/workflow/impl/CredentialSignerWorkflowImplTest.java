@@ -63,7 +63,7 @@ class CredentialSignerWorkflowImplTest {
     @Test
     void signCredential_jwtVcJson_success() {
         String enrichedDataSet = "enrichedData";
-        String unsignedPayload = "{\"vc\":{\"credentialSubject\":{\"name\":\"Test\"}}}";
+        String unsignedPayload = "{\"credentialSubject\":{\"name\":\"Test\"},\"issuer\":{\"id\":\"did:key:issuer1\"}}";
         String signedCredential = "signed-jwt";
 
         CredentialProfile profile = buildProfile("learcredential.employee.w3c.4");
@@ -83,7 +83,7 @@ class CredentialSignerWorkflowImplTest {
                 .verifyComplete();
 
         verify(genericCredentialBuilder).buildJwtPayload(eq(profile), eq(enrichedDataSet), any());
-        verify(signingProvider).sign(any());
+        verify(signingProvider).sign(argThat(req -> "vc+jwt".equals(req.typ())));
     }
 
     @Test
@@ -110,7 +110,7 @@ class CredentialSignerWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4")).thenReturn(profile);
 
         when(genericCredentialBuilder.buildJwtPayload(eq(profile), eq(enrichedDataSet), any()))
-                .thenReturn(Mono.just("{\"vc\":{}}"));
+                .thenReturn(Mono.just("{\"credentialSubject\":{}}"));
 
         StepVerifier.create(
                         credentialSignerWorkflow.signCredential(
@@ -127,7 +127,7 @@ class CredentialSignerWorkflowImplTest {
     @Test
     void signCredential_withNullCnf_defaultsToEmptyMap() {
         String enrichedDataSet = "enrichedData";
-        String unsignedPayload = "{\"vc\":{\"credentialSubject\":{\"name\":\"Test\"}}}";
+        String unsignedPayload = "{\"credentialSubject\":{\"name\":\"Test\"},\"issuer\":{\"id\":\"did:key:issuer1\"}}";
         String signedCredential = "signed-jwt";
 
         CredentialProfile profile = buildProfile("learcredential.machine.w3c.3");
@@ -150,7 +150,8 @@ class CredentialSignerWorkflowImplTest {
     @Test
     void signCredential_setsSubFromCredentialSubjectId() {
         String enrichedDataSet = "enrichedData";
-        String unsignedPayload = "{\"vc\":{\"credentialSubject\":{\"id\":\"did:example:123\",\"name\":\"Test\"}}}";
+        // VCDM v2.0: credentialSubject at root, no vc wrapper
+        String unsignedPayload = "{\"credentialSubject\":{\"id\":\"did:example:123\",\"name\":\"Test\"},\"issuer\":{\"id\":\"did:key:issuer1\"}}";
         String signedCredential = "signed-jwt-with-sub";
 
         CredentialProfile profile = buildProfile("learcredential.employee.w3c.4");
@@ -169,6 +170,6 @@ class CredentialSignerWorkflowImplTest {
                 .assertNext(result -> assertEquals(signedCredential, result))
                 .verifyComplete();
 
-        verify(signingProvider).sign(any());
+        verify(signingProvider).sign(argThat(req -> "vc+jwt".equals(req.typ())));
     }
 }

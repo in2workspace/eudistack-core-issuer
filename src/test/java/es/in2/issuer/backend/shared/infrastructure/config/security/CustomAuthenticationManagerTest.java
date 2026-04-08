@@ -68,7 +68,7 @@ class CustomAuthenticationManagerTest {
     private String buildAccessTokenFromIssuer(String issuer, boolean includeCredentialType) {
         String headerJson = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
         long now = Instant.now().getEpochSecond();
-        String ctPart = includeCredentialType ? ",\"credential_type\":\"learcredential.machine.w3c.1\"" : "";
+        String ctPart = includeCredentialType ? ",\"credential_type\":\"learcredential.machine.w3c.3\"" : "";
         String payloadJson = "{\"iss\":\"" + issuer + "\",\"iat\":" + now + ",\"exp\":" + (now + 3600) + ctPart + "}";
         return buildToken(headerJson, payloadJson);
     }
@@ -86,7 +86,7 @@ class CustomAuthenticationManagerTest {
         String headerJson = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
         String payloadJson = "{\"iss\":\"http://verifier.local\",\"iat\":1633036800," +
                 "\"exp\":" + (Instant.now().getEpochSecond() + 3600) + "," +
-                "\"credential_type\":\"learcredential.machine.w3c.1\"}";
+                "\"credential_type\":\"learcredential.machine.w3c.3\"}";
         String token = buildToken(headerJson, payloadJson);
 
         when(appConfig.isVerifierIssuer("http://verifier.local")).thenReturn(true);
@@ -183,7 +183,7 @@ class CustomAuthenticationManagerTest {
     void authenticate_withVerifierServiceFailure_wrapsInAuthenticationServiceException() {
         String headerJson = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
         String payloadJson = "{\"iss\":\"http://verifier.local\",\"exp\":1633040400," +
-                "\"credential_type\":\"learcredential.machine.w3c.1\"}";
+                "\"credential_type\":\"learcredential.machine.w3c.3\"}";
         String token = buildToken(headerJson, payloadJson);
 
         RuntimeException verifyException = new RuntimeException("Verification failed");
