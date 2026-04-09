@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Signing algorithm hardcoded to ES256** — `JwsSignHashServiceImpl` now receives the signing algorithm OID from the QTSP certificate instead of hardcoding ES256. Fixes Status List Credentials signed with RSA certificates.
+- **SD-JWT email delivery NPE** — Organization extraction for email notifications used hardcoded path `credential.get("mandator")` which doesn't exist in SD-JWT structure. Now reads `policy_extraction.mandator_path` from the credential profile dynamically.
+- **Email error logging** — Added `doOnError` logging in `CredentialOfferServiceImpl` to surface the root cause of email failures instead of swallowing exceptions.
 - **W3C issuer.id removed during credential build** — `GenericCredentialBuilder` was stripping the `id` field from the issuer object, causing Verifier schema validation failure (`required property 'id' not found`).
 
 ### Fixed

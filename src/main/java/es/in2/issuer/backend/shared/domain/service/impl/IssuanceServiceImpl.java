@@ -307,16 +307,23 @@ public class IssuanceServiceImpl implements IssuanceService {
 
     private Mono<CredentialOfferEmailNotificationInfo> extractOrganizationFromCredential(
             Issuance issuance, String issuanceId) {
+        String configId = issuance.getCredentialType();
+        CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
+
         return Mono.fromCallable(() ->
                         objectMapper.readTree(issuance.getCredentialDataSet())
                 )
                 .map(credential -> {
-                    // W3C: credentialSubject.mandate.mandator.organization
-                    // SD-JWT: mandator.organization (top-level claim)
-                    JsonNode mandator = credential.has(CREDENTIAL_SUBJECT)
-                            ? credential.get(CREDENTIAL_SUBJECT).get(MANDATE).get(MANDATOR)
-                            : credential.get(MANDATOR);
-                    String org = mandator.get(ORGANIZATION).asText();
+                    // Resolve mandator node dynamically from profile's policy_extraction.mandator_path
+                    // W3C: "credentialSubject.mandate.mandator"
+                    // SD-JWT: "mandate.mandator"
+                    String mandatorPath = (profile != null && profile.policyExtraction() != null)
+                            ? profile.policyExtraction().mandatorPath()
+                            : null;
+                    JsonNode mandator = resolveJsonPath(credential, mandatorPath);
+                    String org = (mandator != null && mandator.has(ORGANIZATION))
+                            ? mandator.get(ORGANIZATION).asText()
+                            : appConfig.getSysTenant();
                     return new CredentialOfferEmailNotificationInfo(
                             issuance.getEmail(),
                             org
@@ -327,6 +334,20 @@ public class IssuanceServiceImpl implements IssuanceService {
                                 "Error parsing credential for issuanceId: " + issuanceId
                         )
                 );
+    }
+
+    private JsonNode resolveJsonPath(JsonNode root, String path) {
+        if (root == null || path == null || path.isBlank()) {
+            return null;
+        }
+        JsonNode current = root;
+        for (String segment : path.split("\\.")) {
+            if (current == null || !current.has(segment)) {
+                return null;
+            }
+            current = current.get(segment);
+        }
+        return current;
     }
 
     @Override

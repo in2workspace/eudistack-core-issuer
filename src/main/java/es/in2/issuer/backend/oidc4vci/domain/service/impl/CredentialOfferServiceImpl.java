@@ -94,6 +94,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                                     null
                             )
                             .doOnSuccess(v -> log.info("Credential offer email sent for issuanceId={}", issuanceId))
+                            .doOnError(ex -> log.error("Email sending failed for issuanceId={}: {}", issuanceId, ex.getMessage(), ex))
                             .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE))
                             .thenReturn(CredentialOfferResult.builder().build());
                 });

@@ -53,7 +53,8 @@ public class CscSignHashSigningProvider implements SigningProvider {
                                     .map(this::mapToCertificateInfo)
                                     .flatMap(certInfo -> {
                                         String headerJson = jadesHeaderBuilder.buildHeader(certInfo, profile, request.typ());
-                                        return jwsSignHashService.signJwtWithSignHash(accessToken, headerJson, request.data());
+                                        String signAlgoOid = certInfo.keyAlgorithms().get(0);
+                                        return jwsSignHashService.signJwtWithSignHash(accessToken, headerJson, request.data(), signAlgoOid);
                                     })
                     )
                     .map(jwt -> new SigningResult(SigningType.JADES, jwt))
