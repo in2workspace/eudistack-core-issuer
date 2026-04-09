@@ -21,13 +21,12 @@ import java.time.Duration;
 public class JwsSignHashServiceImpl implements JwsSignHashService {
 
     public static final String HASH_ALGO_OID_SHA256 = "2.16.840.1.101.3.4.2.1";
-    public static final String SIGN_ALGO_OID_ES256 = "1.2.840.10045.4.3.2";
 
     private final HashGeneratorService hashGeneratorService;
     private final QtspSignHashPort qtspSignHashClient;
 
     @Override
-    public Mono<String> signJwtWithSignHash(String accessToken, String headerJson, String payloadJson) {
+    public Mono<String> signJwtWithSignHash(String accessToken, String headerJson, String payloadJson, String signAlgoOid) {
 
         final String headerB64Url;
         final String payloadB64Url;
@@ -60,7 +59,7 @@ public class JwsSignHashServiceImpl implements JwsSignHashService {
                                         sad,
                                         hashB64Url,
                                         HASH_ALGO_OID_SHA256,
-                                        SIGN_ALGO_OID_ES256
+                                        signAlgoOid
                                 )
                                 .retryWhen(signHashRetrySpec("csc.signHash"))
                 )

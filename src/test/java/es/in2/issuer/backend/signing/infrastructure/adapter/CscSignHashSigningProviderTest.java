@@ -71,9 +71,10 @@ class CscSignHashSigningProviderTest {
                 .thenReturn("{\"alg\":\"ES256\",\"typ\":\"JWT\"}");
 
         when(jwsSignHashService.signJwtWithSignHash(
-                "access-token",
-               "{\"alg\":\"ES256\",\"typ\":\"JWT\"}",
-                request.data()
+                eq("access-token"),
+                eq("{\"alg\":\"ES256\",\"typ\":\"JWT\"}"),
+                eq(request.data()),
+                anyString()
         )).thenReturn(Mono.just("hdr.payload.sig"));
 
         // when + then
@@ -109,7 +110,7 @@ class CscSignHashSigningProviderTest {
                 })
                 .verify();
 
-        verify(jwsSignHashService, never()).signJwtWithSignHash(anyString(), anyString(), anyString());
+        verify(jwsSignHashService, never()).signJwtWithSignHash(anyString(), anyString(), anyString(), anyString());
     }
 
     @Test

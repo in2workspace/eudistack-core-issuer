@@ -17,7 +17,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static es.in2.issuer.backend.signing.domain.service.impl.JwsSignHashServiceImpl.HASH_ALGO_OID_SHA256;
-import static es.in2.issuer.backend.signing.domain.service.impl.JwsSignHashServiceImpl.SIGN_ALGO_OID_ES256;
 
 
 @ExtendWith(MockitoExtension.class)
@@ -34,6 +33,7 @@ class JwsSignHashServiceImplTest {
         String accessToken = "access-token";
         String headerJson = "{\"alg\":\"ES256\",\"typ\":\"JWT\"}";
         String payloadJson = "{\"vc\":\"unsigned\"}";
+        String signAlgoOid = "1.2.840.10045.4.3.2"; // ES256
 
         String headerB64 = Base64UrlUtils.encodeUtf8(headerJson);
         String payloadB64 = Base64UrlUtils.encodeUtf8(payloadJson);
@@ -54,16 +54,16 @@ class JwsSignHashServiceImplTest {
                 "sad-1",
                 expectedHashB64Url,
                 HASH_ALGO_OID_SHA256,
-                SIGN_ALGO_OID_ES256
+                signAlgoOid
         )).thenReturn(Mono.just("sigB64Url"));
 
         // when + then
-        StepVerifier.create(sut.signJwtWithSignHash(accessToken, headerJson, payloadJson))
+        StepVerifier.create(sut.signJwtWithSignHash(accessToken, headerJson, payloadJson, signAlgoOid))
                 .assertNext(jws -> assertEquals(signingInput + ".sigB64Url", jws))
                 .verifyComplete();
 
         verify(qtspSignHashClient).authorizeForHash(accessToken, expectedHashB64Url, HASH_ALGO_OID_SHA256);
-        verify(qtspSignHashClient).signHash(accessToken, "sad-1", expectedHashB64Url, HASH_ALGO_OID_SHA256, SIGN_ALGO_OID_ES256);
+        verify(qtspSignHashClient).signHash(accessToken, "sad-1", expectedHashB64Url, HASH_ALGO_OID_SHA256, signAlgoOid);
         verifyNoMoreInteractions(qtspSignHashClient);
     }
 
@@ -79,7 +79,7 @@ class JwsSignHashServiceImplTest {
                 .thenThrow(new RuntimeException("digest fail"));
 
         // when + then
-        StepVerifier.create(sut.signJwtWithSignHash(accessToken, headerJson, payloadJson))
+        StepVerifier.create(sut.signJwtWithSignHash(accessToken, headerJson, payloadJson, "1.2.840.10045.4.3.2"))
                 .expectErrorSatisfies(ex -> {
                     assertTrue(ex instanceof RemoteSignatureException);
                     assertTrue(ex.getMessage().contains("Failed to compute signingInput digest"));
@@ -101,7 +101,7 @@ class JwsSignHashServiceImplTest {
             mocked.when(() -> Base64UrlUtils.encodeUtf8(anyString()))
                     .thenThrow(new RuntimeException("b64 fail"));
 
-            StepVerifier.create(sut.signJwtWithSignHash(accessToken, headerJson, payloadJson))
+            StepVerifier.create(sut.signJwtWithSignHash(accessToken, headerJson, payloadJson, "1.2.840.10045.4.3.2"))
                     .expectErrorSatisfies(ex -> {
                         assertTrue(ex instanceof RemoteSignatureException);
                         assertTrue(ex.getMessage().contains("Failed to build JWS header/payload"));
@@ -129,7 +129,7 @@ class JwsSignHashServiceImplTest {
                 .thenReturn(Mono.error(new RemoteSignatureException("authorize failed")));
 
         // when + then
-        StepVerifier.create(sut.signJwtWithSignHash(accessToken, headerJson, payloadJson))
+        StepVerifier.create(sut.signJwtWithSignHash(accessToken, headerJson, payloadJson, "1.2.840.10045.4.3.2"))
                 .expectErrorSatisfies(ex -> {
                     assertTrue(ex instanceof RemoteSignatureException);
                     assertEquals("authorize failed", ex.getMessage());
@@ -156,7 +156,7 @@ class JwsSignHashServiceImplTest {
                 .thenReturn(Mono.error(new RemoteSignatureException("signHash failed")));
 
         // when + then
-        StepVerifier.create(sut.signJwtWithSignHash(accessToken, headerJson, payloadJson))
+        StepVerifier.create(sut.signJwtWithSignHash(accessToken, headerJson, payloadJson, "1.2.840.10045.4.3.2"))
                 .expectErrorSatisfies(ex -> {
                     assertTrue(ex instanceof RemoteSignatureException);
                     assertEquals("signHash failed", ex.getMessage());
