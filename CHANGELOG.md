@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **EUDI-013:** Migrate W3C credential JWT encoding to VCDM v2.0 (VC-JOSE-COSE)
+  - Remove `vc` wrapper from JWT payload — credential properties are now root JWT claims
+  - Set JOSE header `typ: vc+jwt` for W3C credentials and BitstringStatusListCredential
+  - Remove duplicate JWT registered claims (`jti`, `sub`, `nbf`) from W3C credential payload
+  - Rename credential_configuration_id: `learcredential.employee.w3c.1` → `.w3c.4`, `learcredential.machine.w3c.1` → `.w3c.3`
+
 ### Added
 
 - **Per-tenant CORS origins registry** — CORS allowed origins are now loaded from an external `cors-origins.yaml` file (configurable via `APP_CORS_ORIGINS_PATH`) and merged with the base origins (`APP_ISSUER_FRONTEND_URL`, `APP_WALLET_URL`). Supports multi-tenant deployments where each tenant has distinct frontend domains.

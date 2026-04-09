@@ -187,7 +187,7 @@ class GenericCredentialBuilderTest {
     // --- buildJwtPayload ---
 
     @Test
-    void buildJwtPayload_shouldBuildJwtWithCnfWhenRequired() {
+    void buildJwtPayload_shouldBuildVcdmV2PayloadWithCnfWhenRequired() {
         CredentialProfile profile = employeeProfile();
         String now = Instant.now().toString();
         String future = Instant.now().plus(365, ChronoUnit.DAYS).toString();
@@ -205,15 +205,21 @@ class GenericCredentialBuilderTest {
 
         StepVerifier.create(genericCredentialBuilder.buildJwtPayload(profile, credential, cnf))
                 .assertNext(payload -> {
-                    assertThat(payload).contains("\"jti\"");
-                    assertThat(payload).contains("\"iss\":\"did:key:issuer1\"");
-                    assertThat(payload).contains("\"sub\":\"did:key:subject1\"");
-                    assertThat(payload).contains("\"vc\"");
+                    // VCDM v2.0: VC properties at root level, no "vc" wrapper
+                    assertThat(payload).doesNotContain("\"vc\"");
+                    assertThat(payload).doesNotContain("\"jti\"");
+                    assertThat(payload).doesNotContain("\"sub\"");
+                    assertThat(payload).doesNotContain("\"nbf\"");
+
+                    // VC properties directly at root
+                    assertThat(payload).contains("\"issuer\"");
+                    assertThat(payload).contains("\"credentialSubject\"");
+                    assertThat(payload).contains("\"validFrom\"");
+                    assertThat(payload).contains("\"validUntil\"");
+
+                    // cnf at root level per RFC 7800
                     assertThat(payload).contains("\"cnf\"");
                     assertThat(payload).contains("\"kid\"");
-                    assertThat(payload).contains("\"iat\"");
-                    assertThat(payload).contains("\"exp\"");
-                    assertThat(payload).contains("\"nbf\"");
                 })
                 .verifyComplete();
     }
@@ -235,8 +241,10 @@ class GenericCredentialBuilderTest {
 
         StepVerifier.create(genericCredentialBuilder.buildJwtPayload(profile, credential, null))
                 .assertNext(payload -> {
-                    assertThat(payload).contains("\"iss\":\"did:key:simple-issuer\"");
+                    // VCDM v2.0: issuer at root, no wrapper
+                    assertThat(payload).contains("\"issuer\":\"did:key:simple-issuer\"");
                     assertThat(payload).doesNotContain("\"cnf\"");
+                    assertThat(payload).doesNotContain("\"vc\"");
                 })
                 .verifyComplete();
     }
@@ -286,7 +294,7 @@ class GenericCredentialBuilderTest {
     }
 
     @Test
-    void buildJwtPayload_shouldExtractIssuerIdFromStringIssuer() {
+    void buildJwtPayload_shouldPreserveIssuerAsRootProperty() {
         CredentialProfile profile = labelProfile();
         String now = Instant.now().toString();
         String future = Instant.now().plus(365, ChronoUnit.DAYS).toString();
@@ -301,8 +309,11 @@ class GenericCredentialBuilderTest {
                 """, now, future);
 
         StepVerifier.create(genericCredentialBuilder.buildJwtPayload(profile, credential, null))
-                .assertNext(payload ->
-                        assertThat(payload).contains("\"iss\":\"did:key:string-issuer\""))
+                .assertNext(payload -> {
+                    // VCDM v2.0: issuer stays as VC property at root
+                    assertThat(payload).contains("\"issuer\":\"did:key:string-issuer\"");
+                    assertThat(payload).doesNotContain("\"vc\"");
+                })
                 .verifyComplete();
     }
 

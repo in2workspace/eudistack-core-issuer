@@ -63,6 +63,22 @@ class JadesHeaderBuilderServiceImplTest {
         assertDoesNotThrow(() -> Instant.parse(node.get("sigT").asText()));
     }
 
+    @Test
+    void buildHeader_withVcJwtTyp_containsVcPlusJwt() throws Exception {
+        CertificateInfo certInfo = certificateInfo(
+                List.of("MIIC..."),
+                List.of("1.2.840.10045.4.3.2") // ES256
+        );
+
+        String json = sut.buildHeader(certInfo, JadesProfile.JADES_B_B, "vc+jwt");
+
+        JsonNode node = objectMapper.readTree(json);
+
+        assertEquals("ES256", node.get("alg").asText());
+        assertEquals("vc+jwt", node.get("typ").asText());
+        assertTrue(node.get("x5c").isArray());
+    }
+
     // --------------------------------------------------
     // OID MAPPING
     // --------------------------------------------------

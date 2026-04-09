@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL_CONTEXT_KEY;
+import static es.in2.issuer.backend.shared.domain.util.Constants.VC_JWT_TYP;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.STATUS_LIST_BASE;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.TOKEN_STATUS_LIST_BASE;
 import static es.in2.issuer.backend.statuslist.domain.util.Constants.*;
@@ -337,7 +338,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
                         } else {
                             payload = bitstringFactory.buildUnsigned(
                                     listUrl, issuer.id(), saved.purpose(), saved.encodedList());
-                            typ = null;
+                            typ = VC_JWT_TYP;
                         }
 
                         return statusListSigner.sign(payload, token, saved.id(), typ);

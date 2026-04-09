@@ -225,14 +225,13 @@ public class GenericCredentialBuilder {
     }
 
     /**
-     * Builds a generic JWT payload for signing.
-     * Structure: {jti, iss, sub, iat, exp, nbf, vc, cnf?}
+     * Builds a VCDM v2.0 JWT payload for signing.
+     * Per VC-JOSE-COSE Section 1.1.2.1: VC properties go directly as root JWT claims,
+     * NO "vc" wrapper. cnf is placed at root level per RFC 7800.
      */
     public Mono<String> buildJwtPayload(CredentialProfile profile, String decodedCredentialJson,
                                         Map<String, Object> cnf) {
         return Mono.fromCallable(() -> {
-            JsonNode credential = objectMapper.readTree(decodedCredentialJson);
-
             if (profile.cnfRequired()) {
                 if (cnf == null || cnf.isEmpty()) {
                     throw new IllegalStateException("Missing cnf (expected kid/jwk/x5c)");
@@ -240,19 +239,8 @@ public class GenericCredentialBuilder {
                 validateCnfShape(cnf);
             }
 
-            String issuerId = extractIssuerId(credential);
-            String subjectId = extractSubjectId(credential);
-            String validFrom = credential.get("validFrom").asText();
-            String validUntil = credential.get("validUntil").asText();
-
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("jti", UUID.randomUUID().toString());
-            payload.put("sub", subjectId);
-            payload.put("nbf", parseDateToUnixTime(validFrom));
-            payload.put("iss", issuerId);
-            payload.put("exp", parseDateToUnixTime(validUntil));
-            payload.put("iat", parseDateToUnixTime(validFrom));
-            payload.put("vc", objectMapper.readValue(decodedCredentialJson, Object.class));
+            Map<String, Object> payload = objectMapper.readValue(decodedCredentialJson,
+                    new com.fasterxml.jackson.core.type.TypeReference<LinkedHashMap<String, Object>>() {});
 
             if (profile.cnfRequired() && cnf != null && !cnf.isEmpty()) {
                 payload.put("cnf", cnf);
@@ -311,33 +299,6 @@ public class GenericCredentialBuilder {
             current = current.get(part);
         }
         return current != null && current.isTextual() ? current.asText() : null;
-    }
-
-    private String extractIssuerId(JsonNode credential) {
-        JsonNode issuer = credential.get("issuer");
-        if (issuer == null) {
-            // SD-JWT: iss is set directly at top level
-            JsonNode iss = credential.get("iss");
-            return iss != null && iss.isTextual() ? iss.asText() : "";
-        }
-        if (issuer.isTextual()) {
-            return issuer.asText();
-        }
-        if (issuer.has("organizationIdentifier")) {
-            return issuer.get("organizationIdentifier").asText();
-        }
-        if (issuer.has("id")) {
-            return issuer.get("id").asText();
-        }
-        return "";
-    }
-
-    private String extractSubjectId(JsonNode credential) {
-        JsonNode subject = credential.path("credentialSubject").path("id");
-        if (!subject.isMissingNode() && subject.isTextual()) {
-            return subject.asText();
-        }
-        return "";
     }
 
     private void validateCnfShape(Map<String, Object> cnf) {

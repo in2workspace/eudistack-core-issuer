@@ -109,7 +109,7 @@ public class PolicyContextFactory {
 
     /**
      * Extracts the credential_type claim from the token payload.
-     * The claim is a plain string like "learcredential.employee.w3c.1".
+     * The claim is a plain string like "learcredential.employee.w3c.4".
      * getClaimFromPayload serializes via ObjectMapper, so strings come back with surrounding quotes.
      */
     private String extractCredentialType(com.nimbusds.jose.Payload payload) {

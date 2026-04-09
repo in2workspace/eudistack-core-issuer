@@ -80,6 +80,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                                     .type(SigningType.JADES)
                                     .data(payloadToSign)
                                     .context(new SigningContext(token, issuanceId, email))
+                                    .typ(VC_JWT_TYP)
                                     .build();
 
                             return signingProvider.sign(signingRequest)
@@ -115,7 +116,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
         .subscribeOn(Schedulers.boundedElastic())
         .onErrorResume(e -> {
             log.warn(
-                    "Could not set 'sub' from vc.credentialSubject.id. Keeping original payload. Reason: {}",
+                    "Could not set 'sub' from credentialSubject.id. Keeping original payload. Reason: {}",
                     e.getMessage()
             );
             return Mono.just(unsignedCredential);
@@ -123,7 +124,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
     }
 
     private String extractSubjectDid(ObjectNode rootObj) {
-        JsonNode csNode = rootObj.path("vc").path("credentialSubject");
+        JsonNode csNode = rootObj.path("credentialSubject");
 
         if (csNode.isObject()) {
             return extractIdFromObject(csNode);

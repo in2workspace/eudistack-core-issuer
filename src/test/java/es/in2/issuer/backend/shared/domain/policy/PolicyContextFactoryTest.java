@@ -25,7 +25,7 @@ class PolicyContextFactoryTest {
 
     private static final String ADMIN_ORG_ID = "ADMIN_ORG";
     private static final String TOKEN = "test-token";
-    private static final String CREDENTIAL_TYPE = "learcredential.employee.w3c.1";
+    private static final String CREDENTIAL_TYPE = "learcredential.employee.w3c.4";
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -221,15 +221,15 @@ class PolicyContextFactoryTest {
         when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
         when(signedJWT.getPayload()).thenReturn(payload);
 
-        // Emitter has learcredential.employee.w3c.1
+        // Emitter has learcredential.employee.w3c.4
         when(jwtService.getClaimFromPayload(payload, "credential_type"))
                 .thenReturn("\"" + CREDENTIAL_TYPE + "\"");
 
-        // Target profile requires learcredential.machine.w3c.1
+        // Target profile requires learcredential.machine.w3c.3
         CredentialProfile labelProfile = CredentialProfile.builder()
                 .credentialConfigurationId("gx.labelcredential.w3c.1")
                 .issuancePolicy(CredentialProfile.IssuancePolicy.builder()
-                        .requiredEmitterConfigIds(List.of("learcredential.machine.w3c.1"))
+                        .requiredEmitterConfigIds(List.of("learcredential.machine.w3c.3"))
                         .build())
                 .build();
         when(credentialProfileRegistry.getByConfigurationId("gx.labelcredential.w3c.1")).thenReturn(labelProfile);
@@ -237,7 +237,7 @@ class PolicyContextFactoryTest {
         StepVerifier.create(factory.fromTokenForIssuance(TOKEN, "gx.labelcredential.w3c.1", "DOME"))
                 .expectErrorMatches(e ->
                         e instanceof InsufficientPermissionException &&
-                                e.getMessage().contains("learcredential.machine.w3c.1"))
+                                e.getMessage().contains("learcredential.machine.w3c.3"))
                 .verify();
     }
 
@@ -249,10 +249,10 @@ class PolicyContextFactoryTest {
         when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
         when(signedJWT.getPayload()).thenReturn(payload);
 
-        String machineType = "learcredential.machine.w3c.1";
+        String machineType = "learcredential.machine.w3c.3";
         setupFlatTokenClaims(payload, machineType, "ORG-456");
 
-        // Target profile requires learcredential.machine.w3c.1 and emitter has it
+        // Target profile requires learcredential.machine.w3c.3 and emitter has it
         CredentialProfile labelProfile = CredentialProfile.builder()
                 .credentialConfigurationId("gx.labelcredential.w3c.1")
                 .issuancePolicy(CredentialProfile.IssuancePolicy.builder()
