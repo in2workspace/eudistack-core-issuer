@@ -103,3 +103,11 @@ jobs:
             --title "v${{ env.VERSION }}" \
             --notes "Release of version v${{ env.VERSION }}" \
             --target main
+
+      - name: Trigger deploy to STG
+        if: env.SKIP_RELEASE != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run deploy.yml -f environment=stg
+          echo "### Deploy triggered" >> $GITHUB_STEP_SUMMARY

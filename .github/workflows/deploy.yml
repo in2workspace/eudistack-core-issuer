@@ -22,7 +22,7 @@ jobs:
     env:
       PROJECT_NAME: eudistack
       APP_NAME: issuer-core
-      HEALTH_HOST: issuer-core-stg.api
+      HEALTH_HOST: issuer-stg.api
       REGION: eu-west-1
     steps:
       - name: Configure AWS credentials
