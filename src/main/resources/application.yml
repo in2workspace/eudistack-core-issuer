@@ -70,6 +70,8 @@ management:
     readinessstate:
       enabled: true
   tracing:
+    # Local dev → true (Spring exports to Jaeger); AWS → false (ADOT agent handles X-Ray)
+    enabled: ${MANAGEMENT_TRACING_ENABLED:true}
     sampling:
       probability: ${OTEL_SAMPLING_PROBABILITY:1.0}
     propagation:
