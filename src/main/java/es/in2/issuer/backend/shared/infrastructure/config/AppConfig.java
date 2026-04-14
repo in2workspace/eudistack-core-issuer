@@ -32,10 +32,6 @@ public class AppConfig implements IssuerProperties {
         return appProperties.walletUrl();
     }
 
-    public String getCredentialSubjectDidKey() {
-        return issuerIdentityProperties.credentialSubjectDidKey();
-    }
-
     public String getCryptoPrivateKey() {
         return issuerIdentityProperties.crypto().privateKey();
     }

@@ -15,6 +15,7 @@ import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.repository.IssuanceRepository;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +43,7 @@ public class IssuanceServiceImpl implements IssuanceService {
     private final ObjectMapper objectMapper;
     private final R2dbcEntityTemplate r2dbcEntityTemplate;
     private final CredentialProfileRegistry credentialProfileRegistry;
+    private final TenantRegistryService tenantRegistryService;
 
     @Override
     public Mono<Issuance> saveIssuance(Issuance issuance) {
@@ -163,8 +165,14 @@ public class IssuanceServiceImpl implements IssuanceService {
         Mono<Issuance> issuanceMono;
         if (sysAdmin) {
             log.debug("Admin access for issuanceId: {}", issuanceId);
-            issuanceMono = issuanceRepository.findByIssuanceId(UUID.fromString(issuanceId))
-                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "*"));
+            UUID id = UUID.fromString(issuanceId);
+            issuanceMono = tenantRegistryService.getActiveTenantSchemas()
+                    .flatMapMany(Flux::fromIterable)
+                    .flatMap(tenant ->
+                            issuanceRepository.findByIssuanceId(id)
+                                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
+                    )
+                    .next();
         } else {
             issuanceMono = issuanceRepository.findByIssuanceIdAndOrganizationIdentifier(UUID.fromString(issuanceId), organizationIdentifier);
         }
@@ -230,8 +238,31 @@ public class IssuanceServiceImpl implements IssuanceService {
     @Override
     public Mono<IssuanceList> getAllIssuancesVisibleFor(String organizationIdentifier, boolean sysAdmin) {
         if (sysAdmin) {
-            return toIssuanceList(issuanceRepository.findAllOrderByUpdatedDesc())
-                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "*"));
+            return tenantRegistryService.getActiveTenantSchemas()
+                    .flatMapMany(Flux::fromIterable)
+                    .flatMap(tenant ->
+                            issuanceRepository.findAllOrderByUpdatedDesc()
+                                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
+                    )
+                    .sort((a, b) -> {
+                        if (a.getUpdatedAt() == null || b.getUpdatedAt() == null) return 0;
+                        return b.getUpdatedAt().compareTo(a.getUpdatedAt());
+                    })
+                    .collectList()
+                    .map(issuances -> {
+                        var entries = issuances.stream()
+                                .map(issuance -> {
+                                    try {
+                                        return IssuanceList.IssuanceEntry.builder()
+                                                .issuance(toIssuanceSummary(issuance))
+                                                .build();
+                                    } catch (ParseCredentialJsonException e) {
+                                        throw Exceptions.propagate(e);
+                                    }
+                                })
+                                .toList();
+                        return new IssuanceList(entries);
+                    });
         }
         return getAllIssuanceSummariesByOrganizationId(organizationIdentifier);
     }

@@ -22,7 +22,7 @@ spring:
   flyway:
     url: ${SPRING_FLYWAY_URL:jdbc:postgresql://localhost:5432/issuer}
     locations: classpath:db/migration
-    default-schema: ${SPRING_FLYWAY_DEFAULT_SCHEMA:issuer}
+    default-schema: ${SPRING_FLYWAY_DEFAULT_SCHEMA:public}
   mail:
     host: ${SMTP_HOST:localhost}
     port: ${SMTP_PORT:587}
@@ -127,7 +127,6 @@ app:
 
 # Issuer Identity
 issuer-identity:
-  credential-subject-did-key: ${ISSUER_IDENTITY_CREDENTIAL_SUBJECT_DID_KEY:did:key:z6MkqmaCT2JqdUtLeKah7tEVfNXtDXtQyj4yxEgV11Y5CqUa}
   crypto:
     private-key: ${ISSUER_IDENTITY_CRYPTO_PRIVATE_KEY:}
 

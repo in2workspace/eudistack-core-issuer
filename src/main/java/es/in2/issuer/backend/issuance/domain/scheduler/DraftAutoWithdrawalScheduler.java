@@ -3,11 +3,13 @@ package es.in2.issuer.backend.issuance.domain.scheduler;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.issuance.infrastructure.config.properties.IssuanceProperties;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
@@ -23,6 +25,7 @@ public class DraftAutoWithdrawalScheduler {
 
     private final IssuanceService issuanceService;
     private final IssuanceProperties issuanceProperties;
+    private final TenantRegistryService tenantRegistryService;
 
     @Scheduled(cron = "${issuance.cleanup-cron}")
     public Mono<Void> withdrawStaleDrafts() {
@@ -30,16 +33,20 @@ public class DraftAutoWithdrawalScheduler {
         log.info("Scheduled Task - Withdrawing DRAFT issuances older than {} days (cutoff: {})",
                 issuanceProperties.draftMaxAgeDays(), cutoff);
 
-        return issuanceService
-                .findStaleDrafts(cutoff)
-                .flatMap(issuance -> {
-                    log.info("Withdrawing stale DRAFT issuance: {}", issuance.getIssuanceId());
-                    issuance.setCredentialStatus(CredentialStatusEnum.WITHDRAWN);
-                    return issuanceService.updateIssuance(issuance);
-                })
+        return tenantRegistryService.getActiveTenantSchemas()
+                .flatMapMany(Flux::fromIterable)
+                .flatMap(tenant ->
+                        issuanceService.findStaleDrafts(cutoff)
+                                .flatMap(issuance -> {
+                                    log.info("Withdrawing stale DRAFT issuance: {} in tenant {}", issuance.getIssuanceId(), tenant);
+                                    issuance.setCredentialStatus(CredentialStatusEnum.WITHDRAWN);
+                                    return issuanceService.updateIssuance(issuance);
+                                })
+                                .then()
+                                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
+                )
                 .then()
-                .doOnSuccess(v -> log.info("Scheduled Task - Draft auto-withdrawal completed"))
-                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "*"));
+                .doOnSuccess(v -> log.info("Scheduled Task - Draft auto-withdrawal completed"));
     }
 
 }

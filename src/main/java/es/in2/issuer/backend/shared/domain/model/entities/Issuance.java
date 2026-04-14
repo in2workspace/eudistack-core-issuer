@@ -17,7 +17,7 @@ import java.util.UUID;
 @AllArgsConstructor
 @NoArgsConstructor
 @ToString
-@Table("issuer.issuance")
+@Table("issuance")
 public class Issuance {
     @Id
     @Column("issuance_id")

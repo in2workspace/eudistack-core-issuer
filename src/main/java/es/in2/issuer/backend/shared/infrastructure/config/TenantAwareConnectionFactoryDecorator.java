@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
+import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import io.r2dbc.spi.Connection;
 import io.r2dbc.spi.ConnectionFactory;
 import io.r2dbc.spi.ConnectionFactoryMetadata;
@@ -11,26 +12,21 @@ import org.springframework.context.annotation.Configuration;
 import reactor.core.publisher.Mono;
 
 import java.io.Closeable;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 /**
- * Wraps the auto-configured R2DBC {@code ConnectionFactory} (which already includes
- * connection pooling) with tenant context injection for PostgreSQL Row-Level Security.
+ * Wraps the auto-configured R2DBC {@code ConnectionFactory} with schema-per-tenant
+ * isolation using {@code SET search_path TO <tenant>, public}.
  *
- * <p>Uses a {@link BeanPostProcessor} to wrap the bean <em>after</em> Spring Boot's
- * R2DBC auto-configuration has created it, avoiding the
- * {@code @ConditionalOnMissingBean(ConnectionFactory.class)} conflict that would
- * prevent the auto-configured {@code ConnectionFactory} from being created.
+ * <p>On every {@code create()} call (each time a connection is borrowed from the pool),
+ * this wrapper sets the PostgreSQL {@code search_path} to the tenant's schema plus
+ * {@code public}. When no tenant is present (system operations, schedulers),
+ * only {@code public} is used.
  *
- * <p>On every {@code create()} call — i.e., each time a connection is borrowed from
- * the pool — this wrapper executes {@code SET app.current_tenant = '...'} to configure
- * the RLS policy before any application query runs.
- *
- * <p>The tenant identifier is read from Reactor Context (key: {@code tenantDomain}),
- * populated by {@link TenantDomainWebFilter} from the {@code X-Tenant-Domain} header.
- * When no tenant is present (system operations, schedulers), the wildcard {@code '*'}
- * is used, which the RLS policy allows to access all rows.
+ * <p>Schema names are validated against the {@code tenant_registry} whitelist.
  */
 @Slf4j
 @Configuration(proxyBeanMethods = false)
@@ -39,13 +35,14 @@ public class TenantAwareConnectionFactoryDecorator {
     static final String SYSTEM_TENANT = "*";
 
     @Bean
-    static BeanPostProcessor tenantAwareConnectionFactoryPostProcessor() {
+    static BeanPostProcessor tenantAwareConnectionFactoryPostProcessor(
+            TenantRegistryService tenantRegistryService) {
         return new BeanPostProcessor() {
             @Override
             public Object postProcessAfterInitialization(Object bean, String beanName) {
                 if ("connectionFactory".equals(beanName) && bean instanceof ConnectionFactory cf) {
-                    log.info("Wrapping ConnectionFactory '{}' with tenant-aware decorator", beanName);
-                    return new TenantAwareConnectionFactory(cf);
+                    log.info("Wrapping ConnectionFactory '{}' with schema-per-tenant decorator", beanName);
+                    return new TenantAwareConnectionFactory(cf, tenantRegistryService);
                 }
                 return bean;
             }
@@ -55,9 +52,13 @@ public class TenantAwareConnectionFactoryDecorator {
     static class TenantAwareConnectionFactory implements ConnectionFactory, Closeable {
 
         private final ConnectionFactory delegate;
+        private final TenantRegistryService tenantRegistryService;
+        private final Set<String> knownSchemas = ConcurrentHashMap.newKeySet();
 
-        TenantAwareConnectionFactory(ConnectionFactory delegate) {
+        TenantAwareConnectionFactory(ConnectionFactory delegate,
+                                     TenantRegistryService tenantRegistryService) {
             this.delegate = delegate;
+            this.tenantRegistryService = tenantRegistryService;
         }
 
         @Override
@@ -65,7 +66,7 @@ public class TenantAwareConnectionFactoryDecorator {
             return Mono.deferContextual(ctx -> {
                 String tenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, SYSTEM_TENANT);
                 return Mono.from(delegate.create())
-                        .flatMap(connection -> setTenant(connection, tenant));
+                        .flatMap(connection -> setSearchPath(connection, tenant));
             });
         }
 
@@ -74,10 +75,6 @@ public class TenantAwareConnectionFactoryDecorator {
             return delegate.getMetadata();
         }
 
-        /**
-         * Delegates shutdown to the underlying pool so that Spring's
-         * {@code destroyMethod="dispose"} on the original bean works correctly.
-         */
         public void dispose() {
             if (delegate instanceof Closeable c) {
                 try {
@@ -93,31 +90,48 @@ public class TenantAwareConnectionFactoryDecorator {
             dispose();
         }
 
-        // SEC-23: R2DBC PostgreSQL does not support parameterized SET commands ($1 placeholders).
-        // SQL injection is prevented by the sanitize() allowlist (alphanumeric, hyphens, dots, underscores).
-        private Mono<Connection> setTenant(Connection connection, String tenant) {
+        private Mono<Connection> setSearchPath(Connection connection, String tenant) {
+            if (SYSTEM_TENANT.equals(tenant)) {
+                return setSearchPathSql(connection, "public");
+            }
+
+            return validateSchema(tenant)
+                    .flatMap(valid -> {
+                        if (Boolean.FALSE.equals(valid)) {
+                            log.warn("Tenant schema '{}' not found in tenant_registry, using public only", tenant);
+                            return setSearchPathSql(connection, "public");
+                        }
+                        return setSearchPathSql(connection, sanitize(tenant) + ", public");
+                    });
+        }
+
+        private Mono<Connection> setSearchPathSql(Connection connection, String searchPath) {
             return Mono.from(connection.createStatement(
-                            "SET app.current_tenant = '" + sanitize(tenant) + "'")
+                            "SET search_path TO " + searchPath)
                     .execute())
                     .then(Mono.just(connection))
-                    .doOnSuccess(c -> log.trace("R2DBC tenant set to '{}'", tenant))
+                    .doOnSuccess(c -> log.trace("R2DBC search_path set to '{}'", searchPath))
                     .onErrorResume(e -> {
-                        log.warn("Failed to set tenant on connection: {}", e.getMessage());
+                        log.warn("Failed to set search_path on connection: {}", e.getMessage());
                         return Mono.from(connection.close()).then(Mono.error(e));
                     });
         }
 
-        /**
-         * Sanitizes the tenant identifier to prevent SQL injection.
-         * Only allows alphanumeric, hyphens, underscores, dots and the wildcard '*'.
-         */
-        private String sanitize(String tenant) {
-            if (SYSTEM_TENANT.equals(tenant)) {
-                return SYSTEM_TENANT;
+        private Mono<Boolean> validateSchema(String tenant) {
+            if (knownSchemas.contains(tenant)) {
+                return Mono.just(true);
             }
-            if (tenant == null || !tenant.matches("^[a-zA-Z0-9._-]+$")) {
-                log.warn("Invalid tenant identifier rejected: {}", tenant);
-                return "__invalid__";
+            return tenantRegistryService.getActiveTenantSchemas()
+                    .map(schemas -> {
+                        knownSchemas.clear();
+                        knownSchemas.addAll(schemas);
+                        return schemas.contains(tenant);
+                    });
+        }
+
+        private String sanitize(String tenant) {
+            if (tenant == null || !tenant.matches("^[a-zA-Z0-9_-]+$")) {
+                throw new IllegalArgumentException("Invalid tenant schema name: " + tenant);
             }
             return tenant;
         }

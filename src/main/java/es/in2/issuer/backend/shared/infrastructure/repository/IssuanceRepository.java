@@ -14,17 +14,17 @@ import java.util.UUID;
 @Repository
 public interface IssuanceRepository extends ReactiveCrudRepository<Issuance, UUID> {
     Flux<Issuance> findByCredentialStatusAndOrganizationIdentifier(CredentialStatusEnum credentialStatusEnum, String organizationIdentifier);
-    @Query("SELECT * FROM issuer.issuance WHERE organization_identifier = :organizationIdentifier ORDER BY updated_at DESC")
+    @Query("SELECT * FROM issuance WHERE organization_identifier = :organizationIdentifier ORDER BY updated_at DESC")
     Flux<Issuance> findAllByOrganizationIdentifier(String organizationIdentifier);
-    @Query("SELECT * FROM issuer.issuance ORDER BY updated_at DESC")
+    @Query("SELECT * FROM issuance ORDER BY updated_at DESC")
     Flux<Issuance> findAllOrderByUpdatedDesc();
     Mono<Issuance> findByIssuanceIdAndOrganizationIdentifier(UUID issuanceId, String organizationIdentifier);
-    @Query("SELECT credential_status FROM issuer.issuance WHERE issuance_id = :issuanceId")
+    @Query("SELECT credential_status FROM issuance WHERE issuance_id = :issuanceId")
     Mono<String> findCredentialStatusByIssuanceId(UUID issuanceId);
     Mono<Issuance> findByIssuanceId(UUID issuanceId);
     Mono<Issuance> findByCredentialOfferRefreshToken(String credentialOfferRefreshToken);
     Flux<Issuance> findByCredentialStatusAndCreatedAtBefore(CredentialStatusEnum credentialStatus, Instant cutoff);
 
-    @Query("SELECT * FROM issuer.issuance WHERE credential_status = :status AND (valid_from IS NULL OR valid_from <= :now)")
+    @Query("SELECT * FROM issuance WHERE credential_status = :status AND (valid_from IS NULL OR valid_from <= :now)")
     Flux<Issuance> findIssuedReadyForActivation(CredentialStatusEnum status, Instant now);
 }
