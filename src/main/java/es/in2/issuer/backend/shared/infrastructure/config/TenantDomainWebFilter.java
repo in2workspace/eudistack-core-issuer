@@ -1,6 +1,8 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
+import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
@@ -12,30 +14,42 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_H
 
 /**
  * Reads the tenant identifier from the {@code X-Tenant-Domain} header
- * (injected by nginx/ALB from the hostname) and stores it in the
- * Reactor subscriber context.
+ * and validates it exists in {@code tenant_registry} before writing
+ * it to the Reactor subscriber context.
  *
- * <p>In Atlassian-style routing, nginx extracts the tenant from the first
- * segment of the hostname (e.g., {@code kpmg.eudistack.net} → {@code kpmg})
- * and passes it as {@code X-Tenant-Domain: kpmg}. In AWS, ALB does the same.
- *
- * <p>This approach ensures reliable Reactor context propagation to the
- * R2DBC {@code TenantAwareConnectionFactoryDecorator}, which reads the
- * tenant from the context to set {@code search_path}.
+ * <p>Returns 404 if the tenant does not exist.
+ * Requests without the header (e.g., healthchecks) pass through.
  */
 @Slf4j
 @Component
 public class TenantDomainWebFilter implements WebFilter {
 
+    private final TenantRegistryService tenantRegistryService;
+
+    public TenantDomainWebFilter(TenantRegistryService tenantRegistryService) {
+        this.tenantRegistryService = tenantRegistryService;
+    }
+
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         String tenantDomain = exchange.getRequest().getHeaders().getFirst(TENANT_DOMAIN_HEADER);
-        if (tenantDomain != null && !tenantDomain.isBlank()) {
-            log.debug("Resolved tenant '{}' from {} header", tenantDomain, TENANT_DOMAIN_HEADER);
-            return chain.filter(exchange)
-                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenantDomain));
+        if (tenantDomain == null || tenantDomain.isBlank()) {
+            return chain.filter(exchange);
         }
-        log.debug("No {} header present", TENANT_DOMAIN_HEADER);
-        return chain.filter(exchange);
+
+        return tenantRegistryService.getActiveTenantSchemas()
+                .flatMap(schemas -> {
+                    if (!schemas.contains(tenantDomain)) {
+                        log.warn("Tenant '{}' not found in tenant_registry", tenantDomain);
+                        exchange.getResponse().setStatusCode(HttpStatus.NOT_FOUND);
+                        return exchange.getResponse().writeWith(
+                                Mono.just(exchange.getResponse().bufferFactory()
+                                        .wrap(("{\"error\":\"tenant_not_found\",\"detail\":\"Tenant '" + tenantDomain + "' does not exist\"}").getBytes()))
+                        );
+                    }
+                    log.debug("Resolved tenant '{}' from {} header", tenantDomain, TENANT_DOMAIN_HEADER);
+                    return chain.filter(exchange)
+                            .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenantDomain));
+                });
     }
 }
