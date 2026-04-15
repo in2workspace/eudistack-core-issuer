@@ -40,8 +40,16 @@ public class CredentialActivationScheduler {
                                 })
                                 .then()
                                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
+                                .onErrorResume(e -> {
+                                    log.warn("Scheduler skipped tenant '{}': {}", tenant, e.getMessage());
+                                    return Mono.empty();
+                                })
                 )
                 .then()
-                .doOnSuccess(v -> log.info("Scheduled Task - Credential activation completed"));
+                .doOnSuccess(v -> log.info("Scheduled Task - Credential activation completed"))
+                .onErrorResume(e -> {
+                    log.warn("Scheduler activation skipped: {}", e.getMessage());
+                    return Mono.empty();
+                });
     }
 }

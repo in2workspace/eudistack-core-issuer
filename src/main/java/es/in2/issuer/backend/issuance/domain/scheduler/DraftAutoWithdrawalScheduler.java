@@ -44,9 +44,17 @@ public class DraftAutoWithdrawalScheduler {
                                 })
                                 .then()
                                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
+                                .onErrorResume(e -> {
+                                    log.warn("Scheduler skipped tenant '{}': {}", tenant, e.getMessage());
+                                    return Mono.empty();
+                                })
                 )
                 .then()
-                .doOnSuccess(v -> log.info("Scheduled Task - Draft auto-withdrawal completed"));
+                .doOnSuccess(v -> log.info("Scheduled Task - Draft auto-withdrawal completed"))
+                .onErrorResume(e -> {
+                    log.warn("Scheduler withdrawal skipped: {}", e.getMessage());
+                    return Mono.empty();
+                });
     }
 
 }

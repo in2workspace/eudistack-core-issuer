@@ -56,8 +56,16 @@ public class CredentialExpirationScheduler {
                                                         }))))
                                 .then()
                                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
+                                .onErrorResume(e -> {
+                                    log.warn("Scheduler skipped tenant '{}': {}", tenant, e.getMessage());
+                                    return Mono.empty();
+                                })
                 )
-                .then();
+                .then()
+                .onErrorResume(e -> {
+                    log.warn("Scheduler expiration skipped: {}", e.getMessage());
+                    return Mono.empty();
+                });
     }
 
     private Mono<Boolean> isExpiredAndNotAlreadyMarked(Issuance issuance) {
