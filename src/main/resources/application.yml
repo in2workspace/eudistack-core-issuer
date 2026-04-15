@@ -42,7 +42,7 @@ spring:
 # Logging
 logging:
   pattern:
-    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
+    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-},%X{tenantDomain:-}]"
   level:
     org.springframework.security: ${LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY:INFO}
     es.in2.issuer: ${LOGGING_LEVEL_ES_IN2_ISSUER:INFO}
