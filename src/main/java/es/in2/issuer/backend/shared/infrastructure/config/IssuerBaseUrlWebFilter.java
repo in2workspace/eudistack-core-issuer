@@ -12,45 +12,47 @@ import java.net.URI;
 import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL_CONTEXT_KEY;
 
 /**
- * Extracts the public-facing base URL (scheme + host + port) from the incoming
- * request — after Spring's {@code ForwardedHeaderTransformer} has processed
- * {@code X-Forwarded-Host} / {@code X-Forwarded-Proto} headers — and stores it
- * in the Reactor subscriber context.
+ * Builds the public-facing base URL (scheme + host + port + path prefix) and
+ * stores it in the Reactor subscriber context.
  *
- * <p>Downstream services read this value with
- * {@code Mono.deferContextual(ctx -> ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, fallback))}
- * to generate correct per-tenant URLs in OID4VCI discovery, credential offers,
- * and token claims.
+ * <p>After Spring's {@code ForwardedHeaderTransformer} processes X-Forwarded-Host
+ * and X-Forwarded-Proto, the request URI reflects the public hostname. This filter
+ * also reads {@code X-Forwarded-Prefix} (set by nginx/ALB) to include the path
+ * prefix (e.g., {@code /issuer}) in the base URL.
  *
- * <p>When no forwarded headers are present (e.g., direct backend access or
- * scheduler context), the context key is absent and services fall back to the
- * static {@code APP_URL} configuration.
+ * <p>Result: {@code https://kpmg.eudistack.net/issuer}
  */
 @Component
 @Order(3)
 public class IssuerBaseUrlWebFilter implements WebFilter {
 
+    private static final String FORWARDED_PREFIX_HEADER = "X-Forwarded-Prefix";
+
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        // After ForwardedHeaderTransformer processes X-Forwarded-* headers, the request
-        // URI already reflects the public-facing URL. The original X-Forwarded-Host
-        // header is consumed and removed, so we read from the transformed URI directly.
         URI uri = exchange.getRequest().getURI();
-        String baseUrl = buildBaseUrl(uri);
+        String prefix = exchange.getRequest().getHeaders().getFirst(FORWARDED_PREFIX_HEADER);
+        String baseUrl = buildBaseUrl(uri, prefix);
         return chain.filter(exchange)
                 .contextWrite(ctx -> ctx.put(ISSUER_BASE_URL_CONTEXT_KEY, baseUrl));
     }
 
-    private static String buildBaseUrl(URI uri) {
+    private static String buildBaseUrl(URI uri, String prefix) {
         String scheme = uri.getScheme();
         String host = uri.getHost();
         int port = uri.getPort();
         boolean defaultPort = port == -1
                 || ("https".equals(scheme) && port == 443)
                 || ("http".equals(scheme) && port == 80);
-        if (defaultPort) {
-            return scheme + "://" + host;
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(scheme).append("://").append(host);
+        if (!defaultPort) {
+            sb.append(":").append(port);
         }
-        return scheme + "://" + host + ":" + port;
+        if (prefix != null && !prefix.isBlank()) {
+            sb.append(prefix);
+        }
+        return sb.toString();
     }
 }

@@ -15,8 +15,9 @@ spring:
     max-in-memory-size: ${SPRING_CODEC_MAX_IN_MEMORY_SIZE:256KB}
   reactor:
     context-propagation: auto
-  webflux:
-    base-path: ${APP_CONTEXT_PATH:/issuer}
+  # webflux.base-path disabled: breaks Reactor context propagation to R2DBC decorator.
+  # Path prefix handled by nginx strip + IssuerBaseUrlWebFilter property.
+  # See EUDI-064 architecture.md AD-2.
   r2dbc:
     url: ${SPRING_R2DBC_URL:r2dbc:postgresql://localhost:5432/issuer}
     username: ${SPRING_R2DBC_USERNAME}
