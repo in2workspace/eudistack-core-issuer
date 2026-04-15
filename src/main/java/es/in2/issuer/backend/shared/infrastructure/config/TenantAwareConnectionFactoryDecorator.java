@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
-import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import io.r2dbc.spi.Connection;
 import io.r2dbc.spi.ConnectionFactory;
 import io.r2dbc.spi.ConnectionFactoryMetadata;
@@ -12,8 +11,6 @@ import org.springframework.context.annotation.Configuration;
 import reactor.core.publisher.Mono;
 
 import java.io.Closeable;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
@@ -26,7 +23,9 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  * {@code public}. When no tenant is present (system operations, schedulers),
  * only {@code public} is used.
  *
- * <p>Schema names are validated against the {@code tenant_registry} whitelist.
+ * <p>IMPORTANT: This BeanPostProcessor must NOT depend on any Spring Data beans
+ * (repositories, services) to avoid circular dependency issues that break context
+ * propagation. Schema validation uses regex only.
  */
 @Slf4j
 @Configuration(proxyBeanMethods = false)
@@ -35,14 +34,13 @@ public class TenantAwareConnectionFactoryDecorator {
     static final String SYSTEM_TENANT = "*";
 
     @Bean
-    static BeanPostProcessor tenantAwareConnectionFactoryPostProcessor(
-            TenantRegistryService tenantRegistryService) {
+    static BeanPostProcessor tenantAwareConnectionFactoryPostProcessor() {
         return new BeanPostProcessor() {
             @Override
             public Object postProcessAfterInitialization(Object bean, String beanName) {
                 if ("connectionFactory".equals(beanName) && bean instanceof ConnectionFactory cf) {
                     log.info("Wrapping ConnectionFactory '{}' with schema-per-tenant decorator", beanName);
-                    return new TenantAwareConnectionFactory(cf, tenantRegistryService);
+                    return new TenantAwareConnectionFactory(cf);
                 }
                 return bean;
             }
@@ -52,13 +50,9 @@ public class TenantAwareConnectionFactoryDecorator {
     static class TenantAwareConnectionFactory implements ConnectionFactory, Closeable {
 
         private final ConnectionFactory delegate;
-        private final TenantRegistryService tenantRegistryService;
-        private final Set<String> knownSchemas = ConcurrentHashMap.newKeySet();
 
-        TenantAwareConnectionFactory(ConnectionFactory delegate,
-                                     TenantRegistryService tenantRegistryService) {
+        TenantAwareConnectionFactory(ConnectionFactory delegate) {
             this.delegate = delegate;
-            this.tenantRegistryService = tenantRegistryService;
         }
 
         @Override
@@ -77,55 +71,23 @@ public class TenantAwareConnectionFactoryDecorator {
 
         public void dispose() {
             if (delegate instanceof Closeable c) {
-                try {
-                    c.close();
-                } catch (Exception e) {
+                try { c.close(); } catch (Exception e) {
                     log.warn("Error closing delegate ConnectionFactory: {}", e.getMessage());
                 }
             }
         }
 
         @Override
-        public void close() {
-            dispose();
-        }
+        public void close() { dispose(); }
 
         private Mono<Connection> setSearchPath(Connection connection, String tenant) {
-            if (SYSTEM_TENANT.equals(tenant)) {
-                return setSearchPathSql(connection, "public");
-            }
-
-            return validateSchema(tenant)
-                    .flatMap(valid -> {
-                        if (Boolean.FALSE.equals(valid)) {
-                            log.warn("Tenant schema '{}' not found in tenant_registry, using public only", tenant);
-                            return setSearchPathSql(connection, "public");
-                        }
-                        return setSearchPathSql(connection, sanitize(tenant) + ", public");
-                    });
-        }
-
-        private Mono<Connection> setSearchPathSql(Connection connection, String searchPath) {
-            return Mono.from(connection.createStatement(
-                            "SET search_path TO " + searchPath)
-                    .execute())
+            String searchPath = SYSTEM_TENANT.equals(tenant) ? "public" : sanitize(tenant) + ", public";
+            return Mono.from(connection.createStatement("SET search_path TO " + searchPath).execute())
                     .then(Mono.just(connection))
                     .doOnSuccess(c -> log.trace("R2DBC search_path set to '{}'", searchPath))
                     .onErrorResume(e -> {
-                        log.warn("Failed to set search_path on connection: {}", e.getMessage());
+                        log.warn("Failed to set search_path: {}", e.getMessage());
                         return Mono.from(connection.close()).then(Mono.error(e));
-                    });
-        }
-
-        private Mono<Boolean> validateSchema(String tenant) {
-            if (knownSchemas.contains(tenant)) {
-                return Mono.just(true);
-            }
-            return tenantRegistryService.getActiveTenantSchemas()
-                    .map(schemas -> {
-                        knownSchemas.clear();
-                        knownSchemas.addAll(schemas);
-                        return schemas.contains(tenant);
                     });
         }
 
