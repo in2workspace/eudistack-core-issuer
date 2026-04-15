@@ -1,69 +1,41 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
-import java.net.URI;
-
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_HEADER;
 
 /**
- * Extracts the tenant identifier from the request hostname and stores it
- * in the Reactor subscriber context.
+ * Reads the tenant identifier from the {@code X-Tenant-Domain} header
+ * (injected by nginx/ALB from the hostname) and stores it in the
+ * Reactor subscriber context.
  *
- * <p>Atlassian-style: tenant is the first segment of the hostname.
- * <ul>
- *   <li>{@code kpmg.eudistack.net} → {@code kpmg}</li>
- *   <li>{@code dome.127.0.0.1.nip.io} → {@code dome}</li>
- *   <li>{@code platform.eudistack.net} → {@code platform}</li>
- * </ul>
+ * <p>In Atlassian-style routing, nginx extracts the tenant from the first
+ * segment of the hostname (e.g., {@code kpmg.eudistack.net} → {@code kpmg})
+ * and passes it as {@code X-Tenant-Domain: kpmg}. In AWS, ALB does the same.
  *
- * <p>After Spring's {@code ForwardedHeaderTransformer} has processed
- * {@code X-Forwarded-Host}, the request URI reflects the public hostname.
+ * <p>This approach ensures reliable Reactor context propagation to the
+ * R2DBC {@code TenantAwareConnectionFactoryDecorator}, which reads the
+ * tenant from the context to set {@code search_path}.
  */
 @Slf4j
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class TenantDomainWebFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        String tenant = extractTenantFromHostname(exchange);
-        if (tenant != null && !tenant.isBlank()) {
-            log.debug("Resolved tenant '{}' from hostname '{}'", tenant, exchange.getRequest().getURI().getHost());
+        String tenantDomain = exchange.getRequest().getHeaders().getFirst(TENANT_DOMAIN_HEADER);
+        if (tenantDomain != null && !tenantDomain.isBlank()) {
+            log.debug("Resolved tenant '{}' from {} header", tenantDomain, TENANT_DOMAIN_HEADER);
             return chain.filter(exchange)
-                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant));
+                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenantDomain));
         }
-        log.debug("No tenant resolved from hostname '{}'", exchange.getRequest().getURI().getHost());
+        log.debug("No {} header present", TENANT_DOMAIN_HEADER);
         return chain.filter(exchange);
-    }
-
-    private String extractTenantFromHostname(ServerWebExchange exchange) {
-        URI uri = exchange.getRequest().getURI();
-        String hostname = uri.getHost();
-        if (hostname == null || hostname.isBlank()) {
-            return null;
-        }
-
-        // First segment of hostname = tenant (Atlassian-style)
-        int dotIndex = hostname.indexOf('.');
-        if (dotIndex <= 0) {
-            return null;
-        }
-
-        String tenant = hostname.substring(0, dotIndex);
-
-        if (!tenant.matches("^[a-zA-Z0-9_-]+$")) {
-            log.warn("Invalid tenant identifier rejected from hostname: {}", tenant);
-            return null;
-        }
-
-        return tenant.toLowerCase();
     }
 }
