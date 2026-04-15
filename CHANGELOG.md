@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Actuator config migrated to Spring Boot 3.5 `access` API** — Replace deprecated `enabled-by-default: false` / `enabled: true` with `access: none` / `access: unrestricted`. No behavioral change.
 - **IssuerFactory always remote** — Issuer identity is now always resolved from the QTSP via `credentials/info`, removing dependency on local certificate. (EUDI-023)
+- **Credential offer email copy updated** — Update credential offer email copy in English and Spanish, remove the footer, and add a helper message above the wallet button.
 
 ### Removed
 
