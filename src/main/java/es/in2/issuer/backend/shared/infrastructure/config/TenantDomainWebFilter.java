@@ -42,9 +42,10 @@ public class TenantDomainWebFilter implements WebFilter {
                     if (!schemas.contains(tenantDomain)) {
                         log.warn("Tenant '{}' not found in tenant_registry", tenantDomain);
                         exchange.getResponse().setStatusCode(HttpStatus.NOT_FOUND);
+                        exchange.getResponse().getHeaders().setContentType(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON);
+                        String body = "{\"type\":\"TENANT_NOT_FOUND\",\"title\":\"Tenant not found\",\"status\":404,\"detail\":\"Tenant '" + tenantDomain + "' does not exist\"}";
                         return exchange.getResponse().writeWith(
-                                Mono.just(exchange.getResponse().bufferFactory()
-                                        .wrap(("{\"error\":\"tenant_not_found\",\"detail\":\"Tenant '" + tenantDomain + "' does not exist\"}").getBytes()))
+                                Mono.just(exchange.getResponse().bufferFactory().wrap(body.getBytes()))
                         );
                     }
                     log.debug("Resolved tenant '{}' from {} header", tenantDomain, TENANT_DOMAIN_HEADER);
