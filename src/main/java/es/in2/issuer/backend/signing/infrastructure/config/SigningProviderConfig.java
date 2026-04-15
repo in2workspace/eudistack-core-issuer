@@ -8,6 +8,7 @@ import es.in2.issuer.backend.signing.domain.service.RemoteSignatureService;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.CscSignDocSigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.CscSignHashSigningProvider;
+import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningProperties;
 import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
@@ -28,6 +29,7 @@ public class SigningProviderConfig {
     @ConditionalOnMissingBean(SigningProvider.class)
     public SigningProvider signingProvider(
             RuntimeSigningConfig runtimeSigningConfig,
+            TenantSigningConfigService tenantSigningConfigService,
 
             RemoteSignatureService remoteSignatureService,
 
@@ -51,6 +53,6 @@ public class SigningProviderConfig {
         );
 
         log.info("Signing operations registered: {}", operationMap.keySet());
-        return new DelegatingSigningProvider(runtimeSigningConfig, operationMap);
+        return new DelegatingSigningProvider(runtimeSigningConfig, operationMap, tenantSigningConfigService);
     }
 }
