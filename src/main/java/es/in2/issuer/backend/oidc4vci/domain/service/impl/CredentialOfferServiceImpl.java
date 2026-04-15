@@ -8,6 +8,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +41,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
     private final CredentialOfferCacheRepository credentialOfferCacheRepository;
     private final EmailService emailService;
     private final IssuanceService issuanceService;
+    private final TenantConfigService tenantConfigService;
 
     @Override
     @Observed(name = "oidc4vci.create-and-deliver-credential-offer", contextualName = "create-and-deliver-credential-offer")
@@ -84,15 +86,16 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
         return issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId)
                 .flatMap(emailInfo -> {
                     String refreshUrl = buildRefreshUrl(baseUrl, credentialOfferRefreshToken);
-                    return emailService.sendCredentialOfferEmail(
+                    return tenantConfigService.getStringOrDefault("issuer.wallet_url", appConfig.getWalletFrontendUrl())
+                            .flatMap(walletUrl -> emailService.sendCredentialOfferEmail(
                                     emailInfo.email(),
                                     CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
                                     credentialOfferUri,
                                     refreshUrl,
-                                    appConfig.getWalletFrontendUrl(),
+                                    walletUrl,
                                     emailInfo.organization(),
                                     null
-                            )
+                            ))
                             .doOnSuccess(v -> log.info("Credential offer email sent for issuanceId={}", issuanceId))
                             .doOnError(ex -> log.error("Email sending failed for issuanceId={}: {}", issuanceId, ex.getMessage(), ex))
                             .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE))
