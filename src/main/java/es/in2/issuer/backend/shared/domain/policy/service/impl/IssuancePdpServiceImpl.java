@@ -34,6 +34,7 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
     private final PolicyEnforcer policyEnforcer;
     private final ObjectMapper objectMapper;
     private final RequireCertificationIssuanceRule requireCertificationIssuanceRule;
+    private final RequireCredentialProfileAllowedForTenantRule requireCredentialProfileAllowedForTenantRule;
     private final CredentialProfileRegistry credentialProfileRegistry;
     private final DynamicCredentialParser credentialParser;
     private final AuditService auditService;
@@ -53,6 +54,7 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
             return getTokenFromSecurityContext()
                     .flatMap(token -> policyContextFactory.fromTokenForIssuance(token, credentialConfigurationId, tenantDomain))
                     .flatMap(ctx -> new RequireTenantMatchRule().evaluate(ctx, payload).thenReturn(ctx))
+                    .flatMap(ctx -> requireCredentialProfileAllowedForTenantRule.evaluate(ctx, credentialConfigurationId).thenReturn(ctx))
                     .flatMap(ctx -> {
                         Mono<Void> decision = evaluateIssuancePolicy(profile, ctx, payload, idToken);
                         return decision

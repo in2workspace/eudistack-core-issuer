@@ -3,6 +3,7 @@ package es.in2.issuer.backend.shared.domain.service.impl;
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuerMetadataService;
+import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -22,37 +23,47 @@ import static es.in2.issuer.backend.shared.infrastructure.util.HttpUtils.ensureU
 public class CredentialIssuerMetadataServiceImpl implements CredentialIssuerMetadataService {
 
     private final String fallbackUrl;
-    private final Map<String, CredentialIssuerMetadata.CredentialConfiguration> cachedConfigurations;
+    private final Map<String, CredentialIssuerMetadata.CredentialConfiguration> allConfigurations;
+    private final TenantCredentialProfileService tenantCredentialProfileService;
 
     public CredentialIssuerMetadataServiceImpl(IssuerProperties appConfig,
-                                                CredentialProfileRegistry credentialProfileRegistry) {
+                                                CredentialProfileRegistry credentialProfileRegistry,
+                                                TenantCredentialProfileService tenantCredentialProfileService) {
         this.fallbackUrl = ensureUrlHasProtocol(appConfig.getIssuerBackendUrl());
+        this.tenantCredentialProfileService = tenantCredentialProfileService;
 
-        this.cachedConfigurations = credentialProfileRegistry.getAllProfiles().entrySet().stream()
+        this.allConfigurations = credentialProfileRegistry.getAllProfiles().entrySet().stream()
                 .collect(Collectors.toMap(
                         Map.Entry::getKey,
                         entry -> mapProfileToConfiguration(entry.getValue())
                 ));
 
         log.info("CredentialIssuerMetadata initialized: fallbackUrl={}, configurations={}",
-                fallbackUrl, cachedConfigurations.keySet());
+                fallbackUrl, allConfigurations.keySet());
     }
 
     @Override
     public Mono<CredentialIssuerMetadata> getCredentialIssuerMetadata() {
         return Mono.deferContextual(ctx -> {
             String baseUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, fallbackUrl);
-            return Mono.just(buildMetadata(baseUrl));
+            return tenantCredentialProfileService.getEnabledConfigurationIds()
+                    .map(enabledIds -> buildMetadata(baseUrl, enabledIds));
         });
     }
 
-    private CredentialIssuerMetadata buildMetadata(String baseUrl) {
+    private CredentialIssuerMetadata buildMetadata(String baseUrl, Set<String> enabledIds) {
+        Map<String, CredentialIssuerMetadata.CredentialConfiguration> filteredConfigs =
+                enabledIds.isEmpty() ? allConfigurations :
+                        allConfigurations.entrySet().stream()
+                                .filter(e -> enabledIds.contains(e.getKey()))
+                                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
         return CredentialIssuerMetadata.builder()
                 .credentialIssuer(baseUrl)
                 .credentialEndpoint(baseUrl + OID4VCI_CREDENTIAL_PATH)
                 .nonceEndpoint(baseUrl + OID4VCI_NONCE_PATH)
                 .notificationEndpoint(baseUrl + OID4VCI_NOTIFICATION_PATH)
-                .credentialConfigurationsSupported(cachedConfigurations)
+                .credentialConfigurationsSupported(filteredConfigs)
                 .build();
     }
 
