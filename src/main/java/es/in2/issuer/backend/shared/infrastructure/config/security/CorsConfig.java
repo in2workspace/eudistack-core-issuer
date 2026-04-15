@@ -1,39 +1,46 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
-import lombok.RequiredArgsConstructor;
-
-import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * CORS configuration for the Issuer.
+ *
+ * <p>With Atlassian-style routing, our own frontends are same-origin
+ * with the APIs — no CORS needed between them.
+ *
+ * <p>External wallets (different origins) need CORS to call OID4VCI
+ * endpoints (credential, nonce, well-known). These are configured
+ * with wildcard origin to support any wallet.
+ */
 @Configuration
-@RequiredArgsConstructor
 public class CorsConfig {
-
-    private final AppConfig appConfig;
-    private final CorsOriginsLoader corsOriginsLoader;
 
     @Bean
     public UrlBasedCorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration config = new CorsConfiguration();
-
-        List<String> origins = new ArrayList<>();
-        origins.add(appConfig.getIssuerFrontendUrl());
-        origins.add(appConfig.getWalletFrontendUrl());
-        origins.addAll(corsOriginsLoader.loadOrigins());
-
-        config.setAllowedOrigins(origins);
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("*"));
-        config.setAllowCredentials(false);
-        config.setMaxAge(1800L);
+        // Public OID4VCI endpoints — allow any origin (wallets)
+        CorsConfiguration publicConfig = new CorsConfiguration();
+        publicConfig.setAllowedOriginPatterns(List.of("*"));
+        publicConfig.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
+        publicConfig.setAllowedHeaders(List.of(
+                "Content-Type", "Authorization", "DPoP",
+                "OAuth-Client-Attestation", "OAuth-Client-Attestation-PoP"));
+        publicConfig.setAllowCredentials(false);
+        publicConfig.setMaxAge(1800L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
+        // OID4VCI endpoints called by external wallets
+        source.registerCorsConfiguration("/.well-known/**", publicConfig);
+        source.registerCorsConfiguration("/oid4vci/**", publicConfig);
+        source.registerCorsConfiguration("/oauth/**", publicConfig);
+        source.registerCorsConfiguration("/credential-offer/**", publicConfig);
+        // API endpoints (backoffice, issuances) — same origin in Atlassian-style
+        // If external clients need access, add specific origins via cors-origins.yaml
+        source.registerCorsConfiguration("/api/**", publicConfig);
+
         return source;
     }
 }
