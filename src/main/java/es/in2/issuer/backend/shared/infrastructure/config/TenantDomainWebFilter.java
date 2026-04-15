@@ -1,6 +1,8 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
@@ -27,17 +29,18 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  */
 @Slf4j
 @Component
+@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class TenantDomainWebFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         String tenant = extractTenantFromHostname(exchange);
         if (tenant != null && !tenant.isBlank()) {
-            log.trace("Resolved tenant '{}' from request hostname", tenant);
+            log.debug("Resolved tenant '{}' from hostname '{}'", tenant, exchange.getRequest().getURI().getHost());
             return chain.filter(exchange)
                     .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant));
         }
-        log.trace("No tenant resolved from request hostname");
+        log.debug("No tenant resolved from hostname '{}'", exchange.getRequest().getURI().getHost());
         return chain.filter(exchange);
     }
 
