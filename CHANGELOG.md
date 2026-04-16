@@ -43,6 +43,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Unused dependencies removed** — The following dependencies were removed from `build.gradle` as they are no longer needed:
+  - `com.fasterxml.jackson.core:jackson-databind`
+  - `com.fasterxml.jackson.datatype:jackson-datatype-jsr310`
+  - `com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.17.2`
+  - `io.micrometer:context-propagation`
+  - `org.mockito:mockito-inline:5.2.0` (test)
+  - `com.squareup.okhttp3:mockwebserver:4.12.0` (test)
+
 - **`ISSUER_IDENTITY_JWT_CREDENTIAL` property** — Dead code. LEARCredentialMachine JWT for trust framework registration is no longer consumed. Identity is now managed via `privateKey` + `didKey` + X.509 certificate.
 - **`InMemorySigningProvider`** — Local certificate-based signing removed. All signing is now via remote QTSP. (EUDI-023)
 - **`DefaultSignerConfig` / `SignerConfig`** — Signer identity extracted from local cert no longer needed. (EUDI-023)
