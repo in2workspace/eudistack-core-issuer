@@ -48,7 +48,7 @@ dependencies {
     runtimeOnly 'org.postgresql:postgresql'
     implementation 'org.flywaydb:flyway-core'
     implementation 'org.flywaydb:flyway-database-postgresql:11.2.0'
-    implementation 'com.google.guava:guava:33.4.0-jre'
+    implementation 'com.google.guava:guava:33.5.0-jre'
 
     // --- JSON Schema Validation ---
     implementation 'com.networknt:json-schema-validator:1.5.6'
