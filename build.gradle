@@ -73,7 +73,7 @@ dependencies {
     implementation 'com.google.zxing:javase:3.5.3'
 
     // --- Documentation ---
-    implementation 'org.springdoc:springdoc-openapi-starter-webflux-ui:2.5.0'
+    implementation 'org.springdoc:springdoc-openapi-starter-webflux-ui:3.0.2'
 
     // --- Caching ---
     implementation 'com.github.ben-manes.caffeine:caffeine'
