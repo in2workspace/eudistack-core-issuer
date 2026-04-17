@@ -124,6 +124,8 @@ class Oid4VciCredentialWorkflowImplTest {
                 .thenReturn(Mono.just(signedCredential));
         when(notificationCacheStore.add(anyString(), eq(ISSUANCE_ID)))
                 .thenReturn(Mono.just(ISSUANCE_ID));
+        when(issuanceService.updateIssuance(any(Issuance.class)))
+                .thenReturn(Mono.just(issuance));
 
         // Act & Assert
         StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context))
@@ -185,6 +187,8 @@ class Oid4VciCredentialWorkflowImplTest {
                 .thenReturn(Mono.just(signedCredential));
         when(notificationCacheStore.add(anyString(), eq(ISSUANCE_ID)))
                 .thenReturn(Mono.just(ISSUANCE_ID));
+        when(issuanceService.updateIssuance(any(Issuance.class)))
+                .thenReturn(Mono.just(issuance));
 
         // Act & Assert
         StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context))

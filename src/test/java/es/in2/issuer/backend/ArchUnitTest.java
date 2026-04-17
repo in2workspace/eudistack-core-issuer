@@ -52,7 +52,14 @@ class ArchUnitTest {
                     // Spring-managed bean discovered via component scanning (no direct class references)
                     BASE_PACKAGE + ".shared.infrastructure.config.SecureRandomConfig",
                     // Utility class whose static final String constants are inlined by javac (invisible to ArchUnit)
-                    BASE_PACKAGE + ".shared.domain.util.EndpointsConstants");
+                    BASE_PACKAGE + ".shared.domain.util.EndpointsConstants",
+                    // Tenant-related services (EUDI-063/EUDI-065): Spring-managed beans that legitimately
+                    // live only in shared, wired via dependency injection into multiple bounded contexts
+                    BASE_PACKAGE + ".shared.domain.service.impl.TenantCredentialProfileServiceImpl",
+                    BASE_PACKAGE + ".shared.domain.service.impl.TenantConfigServiceImpl",
+                    BASE_PACKAGE + ".shared.domain.service.impl.TenantSigningConfigServiceImpl",
+                    BASE_PACKAGE + ".shared.domain.service.impl.TenantRegistryServiceImpl",
+                    BASE_PACKAGE + ".shared.infrastructure.config.TenantSchemaFlywayMigrator");
 
 //todo
 //    @ArchTest

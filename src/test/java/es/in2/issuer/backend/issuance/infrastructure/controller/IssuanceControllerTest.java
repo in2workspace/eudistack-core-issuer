@@ -11,6 +11,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
@@ -64,6 +65,9 @@ class IssuanceControllerTest {
 
     @MockBean
     private IssuanceMetrics issuanceMetrics;
+
+    @MockBean
+    private TenantRegistryService tenantRegistryService;
 
     @Test
     void createIssuance_UiDelivery_Returns200WithBody() throws JsonProcessingException {
@@ -196,7 +200,10 @@ class IssuanceControllerTest {
     void updateIssuanceStatus_Withdrawn_Returns204() throws JsonProcessingException {
         String issuanceId = UUID.randomUUID().toString();
         var request = new UpdateIssuanceStatusRequest(CredentialStatusEnum.WITHDRAWN);
+        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.TENANT_ADMIN, false);
 
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(authCtx));
         when(issuanceService.withdrawIssuance(issuanceId))
                 .thenReturn(Mono.empty());
 
@@ -214,7 +221,10 @@ class IssuanceControllerTest {
     void updateIssuanceStatus_Revoked_Returns204() throws JsonProcessingException {
         String issuanceId = UUID.randomUUID().toString();
         var request = new UpdateIssuanceStatusRequest(CredentialStatusEnum.REVOKED);
+        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.TENANT_ADMIN, false);
 
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(authCtx));
         when(revocationWorkflow.revoke(anyString(), eq("Bearer testToken"), eq(issuanceId)))
                 .thenReturn(Mono.empty());
 
@@ -232,6 +242,10 @@ class IssuanceControllerTest {
     void updateIssuanceStatus_UnsupportedStatus_Returns400() throws JsonProcessingException {
         String issuanceId = UUID.randomUUID().toString();
         var request = new UpdateIssuanceStatusRequest(CredentialStatusEnum.VALID);
+        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.TENANT_ADMIN, false);
+
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(authCtx));
 
         webTestClient.mutateWith(csrf())
                 .patch()

@@ -37,6 +37,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -78,8 +79,8 @@ class IssuancePdpServiceImplTest {
         RequireCertificationIssuanceRule certificationRule = new RequireCertificationIssuanceRule(
                 verifierService, jwtService, objectMapper, credentialParser);
 
-        // Default: allow all credential profiles for tenant
-        when(requireCredentialProfileAllowedForTenantRule.evaluate(any(), any()))
+        // Default: allow all credential profiles for tenant (lenient — not all tests reach this rule)
+        lenient().when(requireCredentialProfileAllowedForTenantRule.evaluate(any(), any()))
                 .thenReturn(Mono.empty());
 
         issuancePdpService = new IssuancePdpServiceImpl(

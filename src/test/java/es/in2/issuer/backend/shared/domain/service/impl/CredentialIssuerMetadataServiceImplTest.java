@@ -10,8 +10,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
@@ -52,6 +54,8 @@ class CredentialIssuerMetadataServiceImplTest {
                 .build();
 
         when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of("learcredential.employee.w3c.4", learProfile));
+        // Empty set means all profiles are allowed (backward compat per the interface contract)
+        when(tenantCredentialProfileService.getEnabledConfigurationIds()).thenReturn(Mono.just(Collections.emptySet()));
 
         var service = new CredentialIssuerMetadataServiceImpl(appConfig, credentialProfileRegistry, tenantCredentialProfileService);
 
@@ -89,6 +93,8 @@ class CredentialIssuerMetadataServiceImplTest {
                 .build();
 
         when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of("learcredential.employee.w3c.4", learProfile));
+        // Empty set means all profiles are allowed (backward compat per the interface contract)
+        when(tenantCredentialProfileService.getEnabledConfigurationIds()).thenReturn(Mono.just(Collections.emptySet()));
 
         var service = new CredentialIssuerMetadataServiceImpl(appConfig, credentialProfileRegistry, tenantCredentialProfileService);
 

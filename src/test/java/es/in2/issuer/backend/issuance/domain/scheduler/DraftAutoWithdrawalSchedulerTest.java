@@ -4,6 +4,7 @@ import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.issuance.infrastructure.config.properties.IssuanceProperties;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -15,6 +16,7 @@ import reactor.test.StepVerifier;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -29,6 +31,9 @@ class DraftAutoWithdrawalSchedulerTest {
     @Mock
     private IssuanceProperties procedureProperties;
 
+    @Mock
+    private TenantRegistryService tenantRegistryService;
+
     @InjectMocks
     private DraftAutoWithdrawalScheduler scheduler;
 
@@ -40,6 +45,8 @@ class DraftAutoWithdrawalSchedulerTest {
                 .createdAt(Instant.now().minus(45, ChronoUnit.DAYS))
                 .build();
 
+        when(tenantRegistryService.getActiveTenantSchemas())
+                .thenReturn(Mono.just(List.of("default")));
         when(procedureProperties.draftMaxAgeDays()).thenReturn(30);
         when(issuanceService.findStaleDrafts(any(Instant.class)))
                 .thenReturn(Flux.just(staleDraft));
@@ -55,6 +62,8 @@ class DraftAutoWithdrawalSchedulerTest {
 
     @Test
     void shouldDoNothingWhenNoStaleDrafts() {
+        when(tenantRegistryService.getActiveTenantSchemas())
+                .thenReturn(Mono.just(List.of("default")));
         when(procedureProperties.draftMaxAgeDays()).thenReturn(30);
         when(issuanceService.findStaleDrafts(any(Instant.class)))
                 .thenReturn(Flux.empty());
