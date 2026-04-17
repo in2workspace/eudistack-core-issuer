@@ -6,6 +6,7 @@ import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
+import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,11 +14,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -38,13 +41,19 @@ class PolicyContextFactoryTest {
     @Mock
     private CredentialProfileRegistry credentialProfileRegistry;
 
+    @Mock
+    private TenantConfigService tenantConfigService;
+
     private PolicyContextFactory factory;
 
     @BeforeEach
     void setUp() {
         factory = new PolicyContextFactory(
-                jwtService, objectMapper, appConfig, credentialProfileRegistry
+                jwtService, objectMapper, appConfig, credentialProfileRegistry, tenantConfigService
         );
+        // Default stub: tenantConfigService returns the fallback value
+        lenient().when(tenantConfigService.getStringOrDefault(anyString(), anyString()))
+                .thenAnswer(inv -> Mono.just(inv.getArgument(1)));
     }
 
     private void setupFlatTokenClaims(Payload payload, String credentialType, String orgId) {
@@ -135,18 +144,24 @@ class PolicyContextFactoryTest {
     }
 
     @Test
-    void fromTokenSimple_setsIsSysAdminWhenOrgMatchesAdminOrgAndHasOnboardingPower() {
+    void fromTokenSimple_setsIsSysAdminWhenHasOrganizationEudistackPower() {
         SignedJWT signedJWT = mock(SignedJWT.class);
         Payload payload = mock(Payload.class);
 
         when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
         when(signedJWT.getPayload()).thenReturn(payload);
 
-        setupFlatTokenClaims(payload, CREDENTIAL_TYPE, ADMIN_ORG_ID);
+        // SysAdmin power: organization/EUDISTACK/System/Administration
+        when(jwtService.getClaimFromPayload(payload, "credential_type"))
+                .thenReturn("\"" + CREDENTIAL_TYPE + "\"");
+        String powerJson = "[{\"type\":\"organization\",\"domain\":\"EUDISTACK\",\"function\":\"System\",\"action\":[\"Administration\"]}]";
+        when(jwtService.getClaimFromPayload(payload, "power")).thenReturn(powerJson);
+        String mandatorJson = "{\"organizationIdentifier\":\"" + ADMIN_ORG_ID + "\",\"organization\":\"Test Org\"}";
+        when(jwtService.getClaimFromPayload(payload, "mandator")).thenReturn(mandatorJson);
+        when(jwtService.getClaimFromPayload(payload, "tenant")).thenReturn("\"DOME\"");
 
         CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
         when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
-        when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
 
         StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
                 .assertNext(ctx -> {
@@ -157,22 +172,18 @@ class PolicyContextFactoryTest {
     }
 
     @Test
-    void fromTokenSimple_notSysAdminWhenAdminOrgButNoOnboardingPower() {
+    void fromTokenSimple_notSysAdminWithOnboardingPowerOnly() {
         SignedJWT signedJWT = mock(SignedJWT.class);
         Payload payload = mock(Payload.class);
 
         when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
         when(signedJWT.getPayload()).thenReturn(payload);
 
-        // credential_type
+        // Onboarding power but NOT organization/EUDISTACK → not sysAdmin
         when(jwtService.getClaimFromPayload(payload, "credential_type"))
                 .thenReturn("\"" + CREDENTIAL_TYPE + "\"");
-
-        // power with non-Onboarding function
-        String powerJson = "[{\"function\":\"ProductOffering\",\"action\":\"Execute\",\"domain\":\"DOME\",\"type\":\"Domain\"}]";
+        String powerJson = "[{\"function\":\"Onboarding\",\"action\":\"Execute\",\"domain\":\"DOME\",\"type\":\"domain\"}]";
         when(jwtService.getClaimFromPayload(payload, "power")).thenReturn(powerJson);
-
-        // mandator
         String mandatorJson = "{\"organizationIdentifier\":\"" + ADMIN_ORG_ID + "\",\"organization\":\"Test Org\"}";
         when(jwtService.getClaimFromPayload(payload, "mandator")).thenReturn(mandatorJson);
 
@@ -183,6 +194,7 @@ class PolicyContextFactoryTest {
         StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
                 .assertNext(ctx -> {
                     assertThat(ctx.sysAdmin()).isFalse();
+                    assertThat(ctx.tenantAdmin()).isTrue();
                     assertThat(ctx.organizationIdentifier()).isEqualTo(ADMIN_ORG_ID);
                 })
                 .verifyComplete();

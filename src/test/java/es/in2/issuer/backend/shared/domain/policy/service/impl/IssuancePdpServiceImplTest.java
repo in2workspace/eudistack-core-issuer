@@ -13,6 +13,7 @@ import es.in2.issuer.backend.shared.domain.policy.PolicyContext;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
 import es.in2.issuer.backend.shared.domain.policy.PolicyEnforcer;
 import es.in2.issuer.backend.shared.domain.policy.rules.RequireCertificationIssuanceRule;
+import es.in2.issuer.backend.shared.domain.policy.rules.RequireCredentialProfileAllowedForTenantRule;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.domain.util.DynamicCredentialParser;
@@ -65,6 +66,9 @@ class IssuancePdpServiceImplTest {
     @Mock
     private AuditService auditService;
 
+    @Mock
+    private RequireCredentialProfileAllowedForTenantRule requireCredentialProfileAllowedForTenantRule;
+
     private IssuancePdpServiceImpl issuancePdpService;
 
     @BeforeEach
@@ -74,11 +78,16 @@ class IssuancePdpServiceImplTest {
         RequireCertificationIssuanceRule certificationRule = new RequireCertificationIssuanceRule(
                 verifierService, jwtService, objectMapper, credentialParser);
 
+        // Default: allow all credential profiles for tenant
+        when(requireCredentialProfileAllowedForTenantRule.evaluate(any(), any()))
+                .thenReturn(Mono.empty());
+
         issuancePdpService = new IssuancePdpServiceImpl(
                 policyContextFactory,
                 policyEnforcer,
                 objectMapper,
                 certificationRule,
+                requireCredentialProfileAllowedForTenantRule,
                 credentialProfileRegistry,
                 credentialParser,
                 auditService
@@ -117,6 +126,7 @@ class IssuancePdpServiceImplTest {
                 null,
                 credentialType,
                 sysAdmin,
+                false,
                 orgId,
                 orgId
         );
@@ -132,6 +142,7 @@ class IssuancePdpServiceImplTest {
                 profile,
                 credentialType,
                 sysAdmin,
+                false,
                 orgId,
                 orgId
         );

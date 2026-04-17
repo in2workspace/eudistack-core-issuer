@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter;
 
+import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.*;
@@ -21,6 +22,7 @@ import static org.mockito.Mockito.*;
 class DelegatingSigningProviderTest {
 
     @Mock RuntimeSigningConfig runtimeSigningConfig;
+    @Mock TenantSigningConfigService tenantSigningConfigService;
     @Mock SigningProvider signHashProvider;
     @Mock SigningProvider signDocProvider;
 
@@ -39,7 +41,7 @@ class DelegatingSigningProviderTest {
 
     @Test
     void sign_delegatesToSignHash_whenOperationIsSignHash() {
-        when(runtimeSigningConfig.getProvider()).thenReturn("altia-mock-qtsp");
+        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation("sign-hash"));
 
         SigningResult expected = new SigningResult(SigningType.JADES, "jwt");
@@ -47,7 +49,8 @@ class DelegatingSigningProviderTest {
 
         var sut = new DelegatingSigningProvider(
                 runtimeSigningConfig,
-                Map.of("sign-hash", signHashProvider, "sign-doc", signDocProvider)
+                Map.of("sign-hash", signHashProvider, "sign-doc", signDocProvider),
+                tenantSigningConfigService
         );
 
         StepVerifier.create(sut.sign(jadesRequest()))
@@ -63,7 +66,7 @@ class DelegatingSigningProviderTest {
 
     @Test
     void sign_delegatesToSignDoc_whenOperationIsSignDoc() {
-        when(runtimeSigningConfig.getProvider()).thenReturn("signDoc-only-qtsp");
+        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation("sign-doc"));
 
         SigningResult expected = new SigningResult(SigningType.JADES, "signed-via-doc");
@@ -71,7 +74,8 @@ class DelegatingSigningProviderTest {
 
         var sut = new DelegatingSigningProvider(
                 runtimeSigningConfig,
-                Map.of("sign-hash", signHashProvider, "sign-doc", signDocProvider)
+                Map.of("sign-hash", signHashProvider, "sign-doc", signDocProvider),
+                tenantSigningConfigService
         );
 
         StepVerifier.create(sut.sign(jadesRequest()))
@@ -84,11 +88,13 @@ class DelegatingSigningProviderTest {
 
     @Test
     void sign_returnsError_whenNoRemoteSignatureConfigured() {
+        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(null);
 
         var sut = new DelegatingSigningProvider(
                 runtimeSigningConfig,
-                Map.of("sign-hash", signHashProvider)
+                Map.of("sign-hash", signHashProvider),
+                tenantSigningConfigService
         );
 
         StepVerifier.create(sut.sign(jadesRequest()))
@@ -103,11 +109,13 @@ class DelegatingSigningProviderTest {
 
     @Test
     void sign_returnsError_whenSigningOperationIsNull() {
+        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation(null));
 
         var sut = new DelegatingSigningProvider(
                 runtimeSigningConfig,
-                Map.of("sign-hash", signHashProvider)
+                Map.of("sign-hash", signHashProvider),
+                tenantSigningConfigService
         );
 
         StepVerifier.create(sut.sign(jadesRequest()))
@@ -122,11 +130,13 @@ class DelegatingSigningProviderTest {
 
     @Test
     void sign_returnsError_whenSigningOperationIsBlank() {
+        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation("  "));
 
         var sut = new DelegatingSigningProvider(
                 runtimeSigningConfig,
-                Map.of("sign-hash", signHashProvider)
+                Map.of("sign-hash", signHashProvider),
+                tenantSigningConfigService
         );
 
         StepVerifier.create(sut.sign(jadesRequest()))
@@ -141,11 +151,13 @@ class DelegatingSigningProviderTest {
 
     @Test
     void sign_returnsError_whenOperationNotRegistered() {
+        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation("unknown-op"));
 
         var sut = new DelegatingSigningProvider(
                 runtimeSigningConfig,
-                Map.of("sign-hash", signHashProvider)
+                Map.of("sign-hash", signHashProvider),
+                tenantSigningConfigService
         );
 
         StepVerifier.create(sut.sign(jadesRequest()))
@@ -160,7 +172,7 @@ class DelegatingSigningProviderTest {
 
     @Test
     void sign_propagatesDelegateError() {
-        when(runtimeSigningConfig.getProvider()).thenReturn("altia-mock-qtsp");
+        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
         when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation("sign-hash"));
 
         when(signHashProvider.sign(any()))
@@ -168,7 +180,8 @@ class DelegatingSigningProviderTest {
 
         var sut = new DelegatingSigningProvider(
                 runtimeSigningConfig,
-                Map.of("sign-hash", signHashProvider)
+                Map.of("sign-hash", signHashProvider),
+                tenantSigningConfigService
         );
 
         StepVerifier.create(sut.sign(jadesRequest()))

@@ -7,8 +7,10 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.Credenti
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
 import es.in2.issuer.backend.shared.domain.policy.PolicyEnforcer;
 import es.in2.issuer.backend.shared.domain.policy.rules.RequireCertificationIssuanceRule;
+import es.in2.issuer.backend.shared.domain.policy.rules.RequireCredentialProfileAllowedForTenantRule;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
+import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.domain.service.impl.JWTServiceImpl;
 import es.in2.issuer.backend.shared.domain.util.DynamicCredentialParser;
@@ -62,6 +64,10 @@ class IssuancePdpServiceImplIntegrationTest {
     private CredentialProfileRegistry credentialProfileRegistry;
     @Mock
     private AuditService auditService;
+    @Mock
+    private TenantConfigService tenantConfigService;
+    @Mock
+    private RequireCredentialProfileAllowedForTenantRule requireCredentialProfileAllowedForTenantRule;
 
     private IssuancePdpServiceImpl issuancePdpService;
 
@@ -74,11 +80,22 @@ class IssuancePdpServiceImplIntegrationTest {
                 .when(appConfig.getAdminOrganizationId())
                 .thenReturn(ADMIN_ORG_ID);
 
+        // Default: tenantConfigService returns the fallback value
+        org.mockito.Mockito.lenient()
+                .when(tenantConfigService.getStringOrDefault(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(inv -> reactor.core.publisher.Mono.just(inv.getArgument(1)));
+
+        // Default: allow all credential profiles for tenant
+        org.mockito.Mockito.lenient()
+                .when(requireCredentialProfileAllowedForTenantRule.evaluate(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(reactor.core.publisher.Mono.empty());
+
         PolicyContextFactory policyContextFactory = new PolicyContextFactory(
                 jwtService,
                 objectMapper,
                 appConfig,
-                credentialProfileRegistry
+                credentialProfileRegistry,
+                tenantConfigService
         );
 
         PolicyEnforcer policyEnforcer = new PolicyEnforcer();
@@ -91,6 +108,7 @@ class IssuancePdpServiceImplIntegrationTest {
                 policyEnforcer,
                 objectMapper,
                 certificationRule,
+                requireCredentialProfileAllowedForTenantRule,
                 credentialProfileRegistry,
                 credentialParser,
                 auditService

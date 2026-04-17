@@ -8,6 +8,7 @@ import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
@@ -134,7 +135,7 @@ class IssuanceControllerTest {
     @Test
     void getAllIssuances_ReturnsIssuanceList() {
         String orgId = "testOrganizationId";
-        OrgContext orgContext = new OrgContext(orgId, false);
+        AuthorizationContext authCtx = new AuthorizationContext(orgId, UserRole.LEAR, false);
 
         IssuanceSummary summary = IssuanceSummary.builder()
                 .issuanceId(UUID.randomUUID())
@@ -148,9 +149,9 @@ class IssuanceControllerTest {
                 .issuances(List.of(new IssuanceList.IssuanceEntry(summary)))
                 .build();
 
-        when(accessTokenService.getOrganizationContext(anyString()))
-                .thenReturn(Mono.just(orgContext));
-        when(issuanceService.getAllIssuancesVisibleFor(orgId, false))
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(authCtx));
+        when(issuanceService.getAllIssuancesVisibleFor(authCtx))
                 .thenReturn(Mono.just(issuanceList));
 
         webTestClient
@@ -167,7 +168,7 @@ class IssuanceControllerTest {
     void getIssuance_ReturnsCredentialDetails() {
         String orgId = "testOrganizationId";
         String issuanceId = "test-issuance-id";
-        OrgContext orgContext = new OrgContext(orgId, false);
+        AuthorizationContext authCtx = new AuthorizationContext(orgId, UserRole.LEAR, false);
 
         CredentialDetails details = CredentialDetails.builder()
                 .issuanceId(UUID.randomUUID())
@@ -176,9 +177,9 @@ class IssuanceControllerTest {
                 .credential(null)
                 .build();
 
-        when(accessTokenService.getOrganizationContext(anyString()))
-                .thenReturn(Mono.just(orgContext));
-        when(issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(orgId, issuanceId, false))
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(authCtx));
+        when(issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(authCtx, issuanceId))
                 .thenReturn(Mono.just(details));
 
         webTestClient
