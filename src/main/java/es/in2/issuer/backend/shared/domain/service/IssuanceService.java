@@ -46,6 +46,8 @@ public interface IssuanceService {
 
     Mono<Void> withdrawIssuance(String issuanceId);
 
+    Mono<Void> archiveIssuance(String issuanceId);
+
     Flux<Issuance> findIssuedReadyForActivation(Instant now);
 
     Flux<Issuance> findStaleDrafts(Instant cutoff);

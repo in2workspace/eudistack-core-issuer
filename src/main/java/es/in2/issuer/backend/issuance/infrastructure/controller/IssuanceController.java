@@ -81,10 +81,26 @@ public class IssuanceController {
                     return switch (request.status()) {
                         case WITHDRAWN -> authorizeAndWithdraw(ctx, id);
                         case REVOKED -> revocationWorkflow.revoke(processId, authorizationHeader, id);
+                        case ARCHIVED -> authorizeAndArchive(ctx, id);
                         default -> Mono.error(new ResponseStatusException(
                                 HttpStatus.BAD_REQUEST,
                                 "Unsupported target status: " + request.status()));
                     };
+                });
+    }
+
+    private Mono<Void> authorizeAndArchive(AuthorizationContext ctx, String id) {
+        if (ctx.isTenantAdmin()) {
+            return issuanceService.archiveIssuance(id);
+        }
+        return issuanceService.getIssuanceById(id)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .flatMap(issuance -> {
+                    if (!ctx.organizationIdentifier().equals(issuance.getOrganizationIdentifier())) {
+                        return Mono.error(new ResponseStatusException(
+                                HttpStatus.FORBIDDEN, "Cannot archive issuance from another organization"));
+                    }
+                    return issuanceService.archiveIssuance(id);
                 });
     }
 

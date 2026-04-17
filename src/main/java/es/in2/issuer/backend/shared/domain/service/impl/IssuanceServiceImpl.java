@@ -239,6 +239,19 @@ public class IssuanceServiceImpl implements IssuanceService {
     }
 
     @Override
+    public Mono<Void> archiveIssuance(String issuanceId) {
+        return issuanceRepository.findByIssuanceId(UUID.fromString(issuanceId))
+                .flatMap(issuance -> {
+                    validateTransition(issuance.getCredentialStatus(), CredentialStatusEnum.ARCHIVED);
+                    log.debug("Archiving issuance: {}", issuanceId);
+                    issuance.setCredentialStatus(CredentialStatusEnum.ARCHIVED);
+                    return issuanceRepository.save(issuance)
+                            .doOnSuccess(result -> log.info("Issuance archived: {}", issuanceId))
+                            .then();
+                });
+    }
+
+    @Override
     public Mono<IssuanceList> getAllIssuanceSummariesByOrganizationId(String organizationIdentifier) {
         return toIssuanceList(issuanceRepository.findAllByOrganizationIdentifier(organizationIdentifier));
     }
