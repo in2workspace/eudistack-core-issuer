@@ -162,6 +162,12 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                     // Step 5: Generate notification_id and cache mapping
                     String notificationId = UUID.randomUUID().toString();
                     return notificationCacheStore.add(notificationId, issuanceId)
+                            // Step 5b: Mark delivery attempt timestamp for timeout detection
+                            .then(issuanceService.getIssuanceById(issuanceId))
+                            .flatMap(issuance -> {
+                                issuance.setDeliveryAttemptedAt(java.time.Instant.now());
+                                return issuanceService.updateIssuance(issuance);
+                            })
                             .thenReturn(CredentialResponse.builder()
                                     .credentials(List.of(CredentialResponse.Credential.builder()
                                             .credential(signedCredential)

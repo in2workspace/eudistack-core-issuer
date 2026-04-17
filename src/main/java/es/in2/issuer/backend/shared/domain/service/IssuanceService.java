@@ -51,4 +51,6 @@ public interface IssuanceService {
     Flux<Issuance> findStaleDrafts(Instant cutoff);
 
     Mono<Issuance> updateIssuance(Issuance issuance);
+
+    Flux<Issuance> findFailedDeliveries(Instant cutoff);
 }

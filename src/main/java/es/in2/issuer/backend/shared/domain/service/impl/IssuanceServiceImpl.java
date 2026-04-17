@@ -419,6 +419,11 @@ public class IssuanceServiceImpl implements IssuanceService {
         return issuanceRepository.save(issuance);
     }
 
+    @Override
+    public Flux<Issuance> findFailedDeliveries(Instant cutoff) {
+        return issuanceRepository.findFailedDeliveries(cutoff);
+    }
+
     private void validateTransition(CredentialStatusEnum from, CredentialStatusEnum to) {
         if (!from.canTransitionTo(to)) {
             throw new InvalidCredentialStatusTransitionException(from, to);

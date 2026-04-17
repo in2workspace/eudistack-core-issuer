@@ -61,6 +61,10 @@ public class Issuance {
     @Nullable
     private String signedCredential;
 
+    @Column("delivery_attempted_at")
+    @Nullable
+    private Instant deliveryAttemptedAt;
+
     // --- Auditing fields (R2DBC auditing will fill these) ---
     @CreatedDate
     @Column("created_at")
