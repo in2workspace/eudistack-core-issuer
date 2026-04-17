@@ -6,6 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (EUDI-065: Three-role authorization model)
+
+- **`UserRole` enum and `AuthorizationContext` record** replacing `OrgContext` with explicit role (SYSADMIN, TENANT_ADMIN, LEAR) and `readOnly` flag.
+- **SysAdmin detection via power** `organization/EUDISTACK/System/Administration` (no longer via `orgId == ADMIN_ORGANIZATION_ID`).
+- **Platform tenant read-only view** — SysAdmin operating from `platform` tenant sees cross-tenant issuances with `tenant` field in DTO but cannot create/revoke/withdraw.
+- **SysAdmin ↔ TenantAdmin equivalence** outside `platform` — from any other tenant, SysAdmin has same permissions as TenantAdmin (can write).
+- **TenantAdmin role** — `organizationId == tenant.admin_organization_id` + domain power. Sees all issuances of the tenant, can create "on behalf", withdraw, revoke.
+- **`admin_organization_id` per-tenant** in `tenant_config` table (seeded via Flyway V1).
+- **`RequireOrganizationRule` bypass for TenantAdmin** — in addition to SysAdmin.
+- **Withdraw authorization** — `canWrite()` check for platform tenant; ownership check for LEAR (only own org).
+- **Flyway migration consolidation** — V1+V2+V3 merged into single `V1__Tenant_schema.sql` with `admin_organization_id` seed.
+
+### Fixed (EUDI-064: Multi-tenant URL resolution)
+
+- **`IssuerBaseUrlWebFilter`** reads context path from `ForwardedHeaderTransformer` instead of `X-Forwarded-Prefix` header (Spring WebFlux strips forwarded headers after processing).
+- **`ParController` / `TokenController`** use `pathWithinApplication()` to avoid double `/issuer/issuer/` prefix in DPoP `htu` validation.
+
+### Deprecated
+
+- **`ADMIN_ORGANIZATION_ID` global env var** — Replaced by `tenant_config.admin_organization_id` per-tenant. Kept as fallback during migration.
+
 ### Changed
 
 - **EUDI-013:** Migrate W3C credential JWT encoding to VCDM v2.0 (VC-JOSE-COSE)
