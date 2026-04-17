@@ -9,6 +9,7 @@ import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialFormatExce
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
+import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +39,7 @@ public class PolicyContextFactory {
     private final ObjectMapper objectMapper;
     private final IssuerProperties appConfig;
     private final CredentialProfileRegistry credentialProfileRegistry;
+    private final TenantConfigService tenantConfigService;
 
     /**
      * Creates a PolicyContext from a JWT token for Issuance and StatusList PDPs.
@@ -54,20 +56,13 @@ public class PolicyContextFactory {
 
                     log.info("User organization identifier: {}", orgId);
 
-                    boolean isSysAdmin = orgId != null
-                            && orgId.equals(appConfig.getAdminOrganizationId())
-                            && hasOnboardingExecutePower(powers);
+                    boolean isSysAdmin = hasSysAdminPower(powers);
 
-                    return Mono.just(new PolicyContext(
-                            orgId,
-                            powers,
-                            credential,
-                            profile,
-                            credentialType,
-                            isSysAdmin,
-                            tenantDomain,
-                            tokenTenant
-                    ));
+                    return resolveTenantAdmin(orgId, powers)
+                            .map(isTenantAdmin -> new PolicyContext(
+                                    orgId, powers, credential, profile, credentialType,
+                                    isSysAdmin, isTenantAdmin, tenantDomain, tokenTenant
+                            ));
                 });
     }
 
@@ -82,27 +77,20 @@ public class PolicyContextFactory {
                     String credentialType = extractCredentialType(signedJWT.getPayload());
 
                     return checkIfEmitterIsAllowedToIssue(credentialType, credentialConfigurationId)
-                            .map(resolvedType -> {
+                            .flatMap(resolvedType -> {
                                 CredentialProfile profile = resolveProfile(credentialType);
                                 List<Power> powers = extractPowers(signedJWT.getPayload());
                                 String orgId = extractOrganizationId(signedJWT.getPayload());
                                 String tokenTenant = extractTokenTenant(signedJWT.getPayload());
                                 JsonNode credential = buildCredentialNode(signedJWT.getPayload());
 
-                                boolean isSysAdmin = orgId != null
-                                        && orgId.equals(appConfig.getAdminOrganizationId())
-                                        && hasOnboardingExecutePower(powers);
+                                boolean isSysAdmin = hasSysAdminPower(powers);
 
-                                return new PolicyContext(
-                                        orgId,
-                                        powers,
-                                        credential,
-                                        profile,
-                                        resolvedType,
-                                        isSysAdmin,
-                                        tenantDomain,
-                                        tokenTenant
-                                );
+                                return resolveTenantAdmin(orgId, powers)
+                                        .map(isTenantAdmin -> new PolicyContext(
+                                                orgId, powers, credential, profile, resolvedType,
+                                                isSysAdmin, isTenantAdmin, tenantDomain, tokenTenant
+                                        ));
                             });
                 });
     }
@@ -228,8 +216,21 @@ public class PolicyContextFactory {
         return value;
     }
 
-    private boolean hasOnboardingExecutePower(List<Power> powers) {
-        return powers.stream().anyMatch(p ->
+    private Mono<Boolean> resolveTenantAdmin(String orgId, List<Power> powers) {
+        if (orgId == null) return Mono.just(false);
+        boolean hasDomainPower = powers.stream().anyMatch(p ->
                 "Onboarding".equals(p.function()) && PolicyContext.hasAction(p, "Execute"));
+        if (!hasDomainPower) return Mono.just(false);
+
+        return tenantConfigService.getStringOrDefault("admin_organization_id", appConfig.getAdminOrganizationId())
+                .map(adminOrgId -> orgId.equals(adminOrgId));
+    }
+
+    private boolean hasSysAdminPower(List<Power> powers) {
+        return powers.stream().anyMatch(p ->
+                "organization".equals(p.type())
+                && "EUDISTACK".equals(p.domain())
+                && "System".equals(p.function())
+                && PolicyContext.hasAction(p, "Administration"));
     }
 }

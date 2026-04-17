@@ -2,6 +2,7 @@ package es.in2.issuer.backend.issuance.infrastructure.controller;
 
 import es.in2.issuer.backend.issuance.domain.model.dtos.UpdateIssuanceStatusRequest;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
+import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialDetails;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
@@ -50,9 +51,8 @@ public class IssuanceController {
     @ResponseStatus(HttpStatus.OK)
     public Mono<IssuanceList> getAllIssuances(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader) {
-        return accessTokenService.getOrganizationContext(authorizationHeader)
-                .flatMap(ctx -> issuanceService.getAllIssuancesVisibleFor(
-                        ctx.organizationIdentifier(), ctx.sysAdmin()));
+        return accessTokenService.getAuthorizationContext(authorizationHeader)
+                .flatMap(issuanceService::getAllIssuancesVisibleFor);
     }
 
     @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -60,9 +60,8 @@ public class IssuanceController {
     public Mono<CredentialDetails> getIssuance(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
             @PathVariable("id") String id) {
-        return accessTokenService.getOrganizationContext(authorizationHeader)
-                .flatMap(ctx -> issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
-                        ctx.organizationIdentifier(), id, ctx.sysAdmin()));
+        return accessTokenService.getAuthorizationContext(authorizationHeader)
+                .flatMap(ctx -> issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(ctx, id));
     }
 
     @PatchMapping(value = "/{id}",
@@ -73,13 +72,36 @@ public class IssuanceController {
             @PathVariable("id") String id,
             @Valid @RequestBody UpdateIssuanceStatusRequest request) {
         String processId = UUID.randomUUID().toString();
-        return switch (request.status()) {
-            case WITHDRAWN -> issuanceService.withdrawIssuance(id);
-            case REVOKED -> revocationWorkflow.revoke(processId, authorizationHeader, id);
-            default -> Mono.error(new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Unsupported target status: " + request.status()));
-        };
+        return accessTokenService.getAuthorizationContext(authorizationHeader)
+                .flatMap(ctx -> {
+                    if (!ctx.canWrite()) {
+                        return Mono.error(new ResponseStatusException(
+                                HttpStatus.FORBIDDEN, "Read-only access from platform tenant"));
+                    }
+                    return switch (request.status()) {
+                        case WITHDRAWN -> authorizeAndWithdraw(ctx, id);
+                        case REVOKED -> revocationWorkflow.revoke(processId, authorizationHeader, id);
+                        default -> Mono.error(new ResponseStatusException(
+                                HttpStatus.BAD_REQUEST,
+                                "Unsupported target status: " + request.status()));
+                    };
+                });
+    }
+
+    private Mono<Void> authorizeAndWithdraw(AuthorizationContext ctx, String id) {
+        if (ctx.isTenantAdmin()) {
+            return issuanceService.withdrawIssuance(id);
+        }
+        // LEAR: verify ownership before withdrawing
+        return issuanceService.getIssuanceById(id)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .flatMap(issuance -> {
+                    if (!ctx.organizationIdentifier().equals(issuance.getOrganizationIdentifier())) {
+                        return Mono.error(new ResponseStatusException(
+                                HttpStatus.FORBIDDEN, "Cannot withdraw issuance from another organization"));
+                    }
+                    return issuanceService.withdrawIssuance(id);
+                });
     }
 
     private ResponseEntity<IssuanceResponse> toResponseEntity(IssuanceResponse response) {

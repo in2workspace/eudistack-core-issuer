@@ -116,4 +116,5 @@ public final class Constants {
     public static final String TENANT_DOMAIN_HEADER = "X-Tenant-Domain";
     public static final String TENANT_DOMAIN_CONTEXT_KEY = "tenantDomain";
     public static final String ISSUER_BASE_URL_CONTEXT_KEY = "issuerBaseUrl";
+    public static final String PLATFORM_TENANT = "platform";
 }

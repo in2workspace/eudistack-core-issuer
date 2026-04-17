@@ -17,6 +17,7 @@ public record PolicyContext(
         CredentialProfile profile,
         String credentialType,
         boolean sysAdmin,
+        boolean tenantAdmin,
         String tenantDomain,
         String tokenTenant
 ) {

@@ -10,6 +10,7 @@ import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeExcept
 import es.in2.issuer.backend.shared.domain.exception.NoCredentialFoundException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
+import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
@@ -161,20 +162,27 @@ public class IssuanceServiceImpl implements IssuanceService {
     }
 
     @Override
-    public Mono<CredentialDetails> getIssuanceDetailByIssuanceIdAndOrganizationId(String organizationIdentifier, String issuanceId, boolean sysAdmin) {
+    public Mono<CredentialDetails> getIssuanceDetailByIssuanceIdAndOrganizationId(AuthorizationContext ctx, String issuanceId) {
+        // Tenant isolation enforced by search_path.
+        // sysAdmin from platform → cross-tenant search.
+        // sysAdmin/tenantAdmin → any issuance within current tenant.
+        // LEAR → filtered by organization.
+        UUID id = UUID.fromString(issuanceId);
         Mono<Issuance> issuanceMono;
-        if (sysAdmin) {
-            log.debug("Admin access for issuanceId: {}", issuanceId);
-            UUID id = UUID.fromString(issuanceId);
+        if (ctx.isSysAdmin() && ctx.readOnly()) {
+            log.debug("Platform admin cross-tenant access for issuanceId: {}", issuanceId);
             issuanceMono = tenantRegistryService.getActiveTenantSchemas()
                     .flatMapMany(Flux::fromIterable)
                     .flatMap(tenant ->
                             issuanceRepository.findByIssuanceId(id)
-                                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
+                                    .contextWrite(c -> c.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
                     )
                     .next();
+        } else if (ctx.isTenantAdmin()) {
+            log.debug("TenantAdmin access for issuanceId: {}", issuanceId);
+            issuanceMono = issuanceRepository.findByIssuanceId(id);
         } else {
-            issuanceMono = issuanceRepository.findByIssuanceIdAndOrganizationIdentifier(UUID.fromString(issuanceId), organizationIdentifier);
+            issuanceMono = issuanceRepository.findByIssuanceIdAndOrganizationIdentifier(id, ctx.organizationIdentifier());
         }
         return issuanceMono
                 .switchIfEmpty(Mono.error(new NoCredentialFoundException("No credential found for issuanceId: " + issuanceId)))
@@ -236,35 +244,45 @@ public class IssuanceServiceImpl implements IssuanceService {
     }
 
     @Override
-    public Mono<IssuanceList> getAllIssuancesVisibleFor(String organizationIdentifier, boolean sysAdmin) {
-        if (sysAdmin) {
-            return tenantRegistryService.getActiveTenantSchemas()
-                    .flatMapMany(Flux::fromIterable)
-                    .flatMap(tenant ->
-                            issuanceRepository.findAllOrderByUpdatedDesc()
-                                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
-                    )
-                    .sort((a, b) -> {
-                        if (a.getUpdatedAt() == null || b.getUpdatedAt() == null) return 0;
-                        return b.getUpdatedAt().compareTo(a.getUpdatedAt());
-                    })
-                    .collectList()
-                    .map(issuances -> {
-                        var entries = issuances.stream()
+    public Mono<IssuanceList> getAllIssuancesVisibleFor(AuthorizationContext ctx) {
+        // Tenant isolation is enforced by the search_path (TenantAwareConnectionFactory).
+        // - sysAdmin + platform tenant → cross-tenant read-only view (all tenants, with tenant column)
+        // - sysAdmin/tenantAdmin       → all issuances within the current tenant (no org filter)
+        // - LEAR                       → only issuances from their organization
+        if (ctx.isSysAdmin() && ctx.readOnly()) {
+            return buildCrossTenantIssuanceList();
+        }
+        if (ctx.isTenantAdmin()) {
+            return toIssuanceList(issuanceRepository.findAllOrderByUpdatedDesc());
+        }
+        return getAllIssuanceSummariesByOrganizationId(ctx.organizationIdentifier());
+    }
+
+    private Mono<IssuanceList> buildCrossTenantIssuanceList() {
+        return tenantRegistryService.getActiveTenantSchemas()
+                .flatMapMany(Flux::fromIterable)
+                .filter(tenant -> !PLATFORM_TENANT.equals(tenant))
+                .flatMap(tenant ->
+                        issuanceRepository.findAllOrderByUpdatedDesc()
                                 .map(issuance -> {
                                     try {
                                         return IssuanceList.IssuanceEntry.builder()
-                                                .issuance(toIssuanceSummary(issuance))
+                                                .issuance(toIssuanceSummary(issuance, tenant))
                                                 .build();
                                     } catch (ParseCredentialJsonException e) {
                                         throw Exceptions.propagate(e);
                                     }
                                 })
-                                .toList();
-                        return new IssuanceList(entries);
-                    });
-        }
-        return getAllIssuanceSummariesByOrganizationId(organizationIdentifier);
+                                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
+                )
+                .sort((a, b) -> {
+                    Instant ua = a.issuance().updated();
+                    Instant ub = b.issuance().updated();
+                    if (ua == null || ub == null) return 0;
+                    return ub.compareTo(ua);
+                })
+                .collectList()
+                .map(IssuanceList::new);
     }
 
     private Mono<IssuanceList> toIssuanceList(Flux<Issuance> source) {
@@ -284,6 +302,10 @@ public class IssuanceServiceImpl implements IssuanceService {
     }
 
     private IssuanceSummary toIssuanceSummary(Issuance issuance) throws ParseCredentialJsonException {
+        return toIssuanceSummary(issuance, null);
+    }
+
+    private IssuanceSummary toIssuanceSummary(Issuance issuance, String tenant) throws ParseCredentialJsonException {
         try {
             objectMapper.readTree(issuance.getCredentialDataSet());
         } catch (JsonProcessingException e) {
@@ -297,6 +319,7 @@ public class IssuanceServiceImpl implements IssuanceService {
                 .status(String.valueOf(issuance.getCredentialStatus()))
                 .organizationIdentifier(issuance.getOrganizationIdentifier())
                 .updated(issuance.getUpdatedAt())
+                .tenant(tenant)
                 .build();
     }
 
