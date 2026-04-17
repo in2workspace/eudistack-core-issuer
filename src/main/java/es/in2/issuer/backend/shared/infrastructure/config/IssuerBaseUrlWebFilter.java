@@ -12,13 +12,13 @@ import java.net.URI;
 import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL_CONTEXT_KEY;
 
 /**
- * Builds the public-facing base URL (scheme + host + port + path prefix) and
+ * Builds the public-facing base URL (scheme + host + port + context path) and
  * stores it in the Reactor subscriber context.
  *
- * <p>After Spring's {@code ForwardedHeaderTransformer} processes X-Forwarded-Host
- * and X-Forwarded-Proto, the request URI reflects the public hostname. This filter
- * also reads {@code X-Forwarded-Prefix} (set by nginx/ALB) to include the path
- * prefix (e.g., {@code /issuer}) in the base URL.
+ * <p>After Spring's {@code ForwardedHeaderTransformer} processes X-Forwarded-Host,
+ * X-Forwarded-Proto, and X-Forwarded-Prefix, the request URI and context path
+ * reflect the public hostname and path prefix. This filter reads those resolved
+ * values (not the raw headers, which are already stripped).
  *
  * <p>Result: {@code https://kpmg.eudistack.net/issuer}
  */
@@ -26,18 +26,17 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL
 @Order(3)
 public class IssuerBaseUrlWebFilter implements WebFilter {
 
-    private static final String FORWARDED_PREFIX_HEADER = "X-Forwarded-Prefix";
-
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         URI uri = exchange.getRequest().getURI();
-        String prefix = exchange.getRequest().getHeaders().getFirst(FORWARDED_PREFIX_HEADER);
-        String baseUrl = buildBaseUrl(uri, prefix);
+        // ForwardedHeaderTransformer already set contextPath from X-Forwarded-Prefix
+        String contextPath = exchange.getRequest().getPath().contextPath().value();
+        String baseUrl = buildBaseUrl(uri, contextPath);
         return chain.filter(exchange)
                 .contextWrite(ctx -> ctx.put(ISSUER_BASE_URL_CONTEXT_KEY, baseUrl));
     }
 
-    private static String buildBaseUrl(URI uri, String prefix) {
+    private static String buildBaseUrl(URI uri, String contextPath) {
         String scheme = uri.getScheme();
         String host = uri.getHost();
         int port = uri.getPort();
@@ -50,8 +49,8 @@ public class IssuerBaseUrlWebFilter implements WebFilter {
         if (!defaultPort) {
             sb.append(":").append(port);
         }
-        if (prefix != null && !prefix.isBlank()) {
-            sb.append(prefix);
+        if (contextPath != null && !contextPath.isBlank()) {
+            sb.append(contextPath);
         }
         return sb.toString();
     }

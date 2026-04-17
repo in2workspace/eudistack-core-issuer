@@ -36,7 +36,7 @@ public class TokenController {
     ) {
         return Mono.deferContextual(ctx -> {
             String baseUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, issuerProperties.getIssuerBackendUrl());
-            String tokenEndpointUri = baseUrl + exchange.getRequest().getURI().getPath();
+            String tokenEndpointUri = baseUrl + exchange.getRequest().getPath().pathWithinApplication().value();
             return tokenService.exchangeToken(tokenRequest, dpopHeader, tokenEndpointUri);
         });
     }
