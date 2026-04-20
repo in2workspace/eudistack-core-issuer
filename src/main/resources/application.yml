@@ -15,9 +15,12 @@ spring:
     max-in-memory-size: ${SPRING_CODEC_MAX_IN_MEMORY_SIZE:256KB}
   reactor:
     context-propagation: auto
-  # webflux.base-path disabled: breaks Reactor context propagation to R2DBC decorator.
-  # Path prefix handled by nginx strip + IssuerBaseUrlWebFilter property.
-  # See EUDI-064 architecture.md AD-2.
+  # Mounts all WebFlux handlers under this prefix AND is read by
+  # IssuerBaseUrlWebFilter to build public URLs (single source of truth).
+  # AWS ALB + CloudFront do not inject X-Forwarded-Prefix, so we rely on
+  # this property instead. Override via APP_CONTEXT_PATH.
+  webflux:
+    base-path: ${APP_CONTEXT_PATH:/issuer}
   r2dbc:
     url: ${SPRING_R2DBC_URL:r2dbc:postgresql://localhost:5432/issuer}
     username: ${SPRING_R2DBC_USERNAME}
@@ -111,11 +114,6 @@ app:
   url: ${APP_URL:http://localhost:8080}
   internal-url: ${APP_INTERNAL_URL:}
   issuer-frontend-url: ${APP_ISSUER_FRONTEND_URL:http://localhost:4200}
-  # Public context-path prepended to issuer URLs. Used by IssuerBaseUrlWebFilter
-  # when no proxy injects X-Forwarded-Prefix (e.g., AWS ALB + CloudFront).
-  # Local dev via nginx keeps an empty value and relies on ForwardedHeaderTransformer.
-  # spring.webflux.base-path stays disabled — see note above.
-  context-path: ${APP_CONTEXT_PATH:/issuer}
   knowledge-base:
     upload-certification-guide-url: ${APP_KNOWLEDGE_BASE_UPLOAD_CERTIFICATION_GUIDE_URL:https://example.com/guide}
     wallet-guide-url: ${APP_KNOWLEDGE_BASE_WALLET_GUIDE_URL:https://example.com/wallet}

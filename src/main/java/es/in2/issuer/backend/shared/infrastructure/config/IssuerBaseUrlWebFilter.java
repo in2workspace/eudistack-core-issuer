@@ -16,19 +16,10 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL
  * Builds the public-facing base URL (scheme + host + port + context path) and
  * stores it in the Reactor subscriber context.
  *
- * <p>Context-path resolution order:
- * <ol>
- *     <li>{@code app.context-path} configuration property (env
- *         {@code APP_CONTEXT_PATH}, default {@code /issuer}) — authoritative
- *         when deployed behind CloudFront/ALB, which do not inject
- *         {@code X-Forwarded-Prefix}.</li>
- *     <li>{@code request.getPath().contextPath()} — populated by Spring's
- *         {@code ForwardedHeaderTransformer} from {@code X-Forwarded-Prefix}
- *         (local dev via nginx).</li>
- * </ol>
- *
- * <p>Note: {@code spring.webflux.base-path} is intentionally disabled —
- * it breaks Reactor context propagation to the R2DBC tenant decorator.
+ * <p>The context path is read from {@code spring.webflux.base-path}, which is
+ * also what Spring WebFlux uses for routing — so public URL construction and
+ * request routing share the same source of truth. The env override is
+ * {@code APP_CONTEXT_PATH}.
  *
  * <p>Result: {@code https://kpmg.eudistack.net/issuer}
  */
@@ -38,25 +29,16 @@ public class IssuerBaseUrlWebFilter implements WebFilter {
 
     private final String configuredContextPath;
 
-    public IssuerBaseUrlWebFilter(@Value("${app.context-path:}") String contextPath) {
+    public IssuerBaseUrlWebFilter(@Value("${spring.webflux.base-path:}") String contextPath) {
         this.configuredContextPath = normalizeContextPath(contextPath);
     }
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         URI uri = exchange.getRequest().getURI();
-        String contextPath = resolveContextPath(exchange);
-        String baseUrl = buildBaseUrl(uri, contextPath);
+        String baseUrl = buildBaseUrl(uri, configuredContextPath);
         return chain.filter(exchange)
                 .contextWrite(ctx -> ctx.put(ISSUER_BASE_URL_CONTEXT_KEY, baseUrl));
-    }
-
-    private String resolveContextPath(ServerWebExchange exchange) {
-        if (configuredContextPath != null) {
-            return configuredContextPath;
-        }
-        // Fallback to what ForwardedHeaderTransformer derived from X-Forwarded-Prefix.
-        return exchange.getRequest().getPath().contextPath().value();
     }
 
     private static String normalizeContextPath(String raw) {

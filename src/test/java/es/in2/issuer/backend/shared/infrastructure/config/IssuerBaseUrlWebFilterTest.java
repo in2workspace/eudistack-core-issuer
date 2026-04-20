@@ -27,9 +27,8 @@ class IssuerBaseUrlWebFilterTest {
     }
 
     @Test
-    void filter_emptyConfiguredProperty_fallsBackToRequestContextPath() {
+    void filter_emptyConfiguredProperty_omitsContextPathFromBaseUrl() {
         IssuerBaseUrlWebFilter filter = new IssuerBaseUrlWebFilter("");
-        // Request path contextPath is empty for MockServerHttpRequest by default — result has no suffix
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("https://altia.eudistack.net/credentials"));
         AtomicReference<String> captured = new AtomicReference<>();
@@ -40,7 +39,7 @@ class IssuerBaseUrlWebFilterTest {
     }
 
     @Test
-    void filter_nullConfiguredProperty_fallsBackToRequestContextPath() {
+    void filter_nullConfiguredProperty_omitsContextPathFromBaseUrl() {
         IssuerBaseUrlWebFilter filter = new IssuerBaseUrlWebFilter(null);
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("https://altia.eudistack.net/credentials"));
