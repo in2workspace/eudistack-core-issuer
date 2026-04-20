@@ -13,6 +13,7 @@ import java.util.regex.Pattern;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_HEADER;
+import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.BOOTSTRAP_PATH;
 
 /**
  * Resolves the tenant identifier and validates it exists in {@code tenant_registry}
@@ -27,6 +28,12 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_H
  *
  * <p>If neither produces a value (missing/empty host — internal calls, healthchecks),
  * the request passes through without a tenant in context.
+ *
+ * <p>The bootstrap endpoint ({@value es.in2.issuer.backend.shared.domain.util.EndpointsConstants#BOOTSTRAP_PATH})
+ * is administrative and cross-tenant: the caller (devops script, CI/CD) declares the
+ * destination tenant explicitly in the request body. This filter therefore bypasses
+ * it entirely — tenant resolution and schema routing are performed by the bootstrap
+ * handler itself.
  *
  * <p>Returns 400 if the resolved identifier is malformed, 404 if the tenant does
  * not exist in {@code tenant_registry}.
@@ -45,6 +52,11 @@ public class TenantDomainWebFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
+        String path = exchange.getRequest().getPath().pathWithinApplication().value();
+        if (BOOTSTRAP_PATH.equals(path)) {
+            return chain.filter(exchange);
+        }
+
         String headerValue = exchange.getRequest().getHeaders().getFirst(TENANT_DOMAIN_HEADER);
         String tenantDomain;
         String source;

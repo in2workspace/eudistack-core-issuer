@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (EUDI-064: bootstrap is now cross-tenant)
+
+- `POST /api/v1/bootstrap` requires a top-level `tenant` field in the
+  request body. The bootstrap flow is administrative and
+  cross-tenant: the caller declares the destination tenant explicitly
+  instead of relying on hostname or `X-Tenant-Domain` header.
+  `TenantDomainWebFilter` now bypasses `/api/v1/bootstrap`. Breaking
+  change for direct callers; all in-tree scripts are updated in the
+  `eudistack-platform-dev` repo in a sibling commit.
+
 ### Added (EUDI-065: Three-role authorization model)
 
 - **`UserRole` enum and `AuthorizationContext` record** replacing `OrgContext` with explicit role (SYSADMIN, TENANT_ADMIN, LEAR) and `readOnly` flag.
