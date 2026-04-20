@@ -9,20 +9,33 @@ import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
+import java.util.regex.Pattern;
+
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_HEADER;
 
 /**
- * Reads the tenant identifier from the {@code X-Tenant-Domain} header
- * and validates it exists in {@code tenant_registry} before writing
- * it to the Reactor subscriber context.
+ * Resolves the tenant identifier and validates it exists in {@code tenant_registry}
+ * before writing it to the Reactor subscriber context.
  *
- * <p>Returns 404 if the tenant does not exist.
- * Requests without the header (e.g., healthchecks) pass through.
+ * <p>Resolution order:
+ * <ol>
+ *     <li>{@code X-Tenant-Domain} header (local dev via nginx).</li>
+ *     <li>First segment of the request host (AWS: CloudFront/ALB preserve the host,
+ *         no header injection). Example: {@code kpmg.eudistack.net} &rarr; {@code kpmg}.</li>
+ * </ol>
+ *
+ * <p>If neither produces a value (missing/empty host — internal calls, healthchecks),
+ * the request passes through without a tenant in context.
+ *
+ * <p>Returns 400 if the resolved identifier is malformed, 404 if the tenant does
+ * not exist in {@code tenant_registry}.
  */
 @Slf4j
 @Component
 public class TenantDomainWebFilter implements WebFilter {
+
+    static final Pattern TENANT_NAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_-]+$");
 
     private final TenantRegistryService tenantRegistryService;
 
@@ -32,25 +45,62 @@ public class TenantDomainWebFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        String tenantDomain = exchange.getRequest().getHeaders().getFirst(TENANT_DOMAIN_HEADER);
+        String headerValue = exchange.getRequest().getHeaders().getFirst(TENANT_DOMAIN_HEADER);
+        String tenantDomain;
+        String source;
+        if (headerValue != null && !headerValue.isBlank()) {
+            tenantDomain = headerValue.trim();
+            source = TENANT_DOMAIN_HEADER + " header";
+        } else {
+            tenantDomain = extractTenantFromHost(exchange);
+            source = "request host";
+        }
+
         if (tenantDomain == null || tenantDomain.isBlank()) {
             return chain.filter(exchange);
         }
 
+        if (!TENANT_NAME_PATTERN.matcher(tenantDomain).matches()) {
+            log.warn("Rejected malformed tenant identifier '{}' from {}", tenantDomain, source);
+            return writeProblem(exchange, HttpStatus.BAD_REQUEST,
+                    "INVALID_TENANT", "Invalid tenant identifier",
+                    "Tenant identifier '" + tenantDomain + "' is not a valid schema name");
+        }
+
+        final String resolvedTenant = tenantDomain;
+        final String resolvedSource = source;
         return tenantRegistryService.getActiveTenantSchemas()
                 .flatMap(schemas -> {
-                    if (!schemas.contains(tenantDomain)) {
-                        log.warn("Tenant '{}' not found in tenant_registry", tenantDomain);
-                        exchange.getResponse().setStatusCode(HttpStatus.NOT_FOUND);
-                        exchange.getResponse().getHeaders().setContentType(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON);
-                        String body = "{\"type\":\"TENANT_NOT_FOUND\",\"title\":\"Tenant not found\",\"status\":404,\"detail\":\"Tenant '" + tenantDomain + "' does not exist\"}";
-                        return exchange.getResponse().writeWith(
-                                Mono.just(exchange.getResponse().bufferFactory().wrap(body.getBytes()))
-                        );
+                    if (!schemas.contains(resolvedTenant)) {
+                        log.warn("Tenant '{}' not found in tenant_registry", resolvedTenant);
+                        return writeProblem(exchange, HttpStatus.NOT_FOUND,
+                                "TENANT_NOT_FOUND", "Tenant not found",
+                                "Tenant '" + resolvedTenant + "' does not exist");
                     }
-                    log.debug("Resolved tenant '{}' from {} header", tenantDomain, TENANT_DOMAIN_HEADER);
+                    log.debug("Resolved tenant '{}' from {}", resolvedTenant, resolvedSource);
                     return chain.filter(exchange)
-                            .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenantDomain));
+                            .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, resolvedTenant));
                 });
+    }
+
+    private static String extractTenantFromHost(ServerWebExchange exchange) {
+        String host = exchange.getRequest().getURI().getHost();
+        if (host == null || host.isBlank()) {
+            return null;
+        }
+        int dot = host.indexOf('.');
+        return dot < 0 ? host : host.substring(0, dot);
+    }
+
+    private static Mono<Void> writeProblem(ServerWebExchange exchange, HttpStatus status,
+                                           String type, String title, String detail) {
+        exchange.getResponse().setStatusCode(status);
+        exchange.getResponse().getHeaders()
+                .setContentType(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON);
+        String body = "{\"type\":\"" + type + "\",\"title\":\"" + title + "\",\"status\":"
+                + status.value() + ",\"detail\":\"" + detail + "\"}";
+        return exchange.getResponse().writeWith(
+                Mono.just(exchange.getResponse().bufferFactory().wrap(body.getBytes()))
+        );
     }
 }

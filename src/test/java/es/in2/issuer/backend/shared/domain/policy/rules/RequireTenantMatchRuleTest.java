@@ -23,7 +23,7 @@ class RequireTenantMatchRuleTest {
         StepVerifier.create(rule.evaluate(ctx, "ignored"))
                 .expectErrorMatches(e ->
                         e instanceof TenantMismatchException &&
-                                e.getMessage().contains("X-Tenant-Domain header is required"))
+                                e.getMessage().contains("Tenant context is required"))
                 .verify();
     }
 

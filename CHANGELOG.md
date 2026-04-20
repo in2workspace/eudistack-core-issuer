@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Withdraw authorization** — `canWrite()` check for platform tenant; ownership check for LEAR (only own org).
 - **Flyway migration consolidation** — V1+V2+V3 merged into single `V1__Tenant_schema.sql` with `admin_organization_id` seed.
 
+### Fixed (EUDI-064: AWS deployment readiness)
+
+- **`TenantDomainWebFilter` hostname fallback** — When `X-Tenant-Domain` header is absent (AWS CloudFront + ALB path, no nginx to inject it), the tenant is now extracted from the first subdomain segment of the request host (e.g. `kpmg.eudistack.net` → `kpmg`). Header wins when both are present. Malformed identifiers return 400; unknown tenants continue to return 404; requests without a usable host still pass through for healthchecks. `RequireTenantMatchRule` error message updated accordingly.
+- **`IssuerBaseUrlWebFilter` context-path from config** — New `app.context-path` property (env `APP_CONTEXT_PATH`, default `/issuer`) is now authoritative for the public context-path. The previous `request.getPath().contextPath()` path (fed by `X-Forwarded-Prefix` from nginx) is kept as a fallback when the property is empty, preserving local dev. Unblocks AWS ALB deployments that do not inject `X-Forwarded-Prefix`. `spring.webflux.base-path` remains disabled due to the R2DBC context-propagation issue.
+- **MDC propagation across Reactor operators** — `tenantDomain` is now bridged from the Reactor subscriber context to SLF4J MDC via `Hooks.enableAutomaticContextPropagation()` plus a `ThreadLocalAccessor` registered in `MdcContextConfig`. The logback pattern `%X{tenantDomain:-}` now renders the tenant on every log line inside a reactive chain.
+
 ### Fixed (EUDI-064: Multi-tenant URL resolution)
 
 - **`IssuerBaseUrlWebFilter`** reads context path from `ForwardedHeaderTransformer` instead of `X-Forwarded-Prefix` header (Spring WebFlux strips forwarded headers after processing).

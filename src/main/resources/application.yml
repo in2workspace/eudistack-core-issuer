@@ -111,6 +111,11 @@ app:
   url: ${APP_URL:http://localhost:8080}
   internal-url: ${APP_INTERNAL_URL:}
   issuer-frontend-url: ${APP_ISSUER_FRONTEND_URL:http://localhost:4200}
+  # Public context-path prepended to issuer URLs. Used by IssuerBaseUrlWebFilter
+  # when no proxy injects X-Forwarded-Prefix (e.g., AWS ALB + CloudFront).
+  # Local dev via nginx keeps an empty value and relies on ForwardedHeaderTransformer.
+  # spring.webflux.base-path stays disabled — see note above.
+  context-path: ${APP_CONTEXT_PATH:/issuer}
   knowledge-base:
     upload-certification-guide-url: ${APP_KNOWLEDGE_BASE_UPLOAD_CERTIFICATION_GUIDE_URL:https://example.com/guide}
     wallet-guide-url: ${APP_KNOWLEDGE_BASE_WALLET_GUIDE_URL:https://example.com/wallet}
