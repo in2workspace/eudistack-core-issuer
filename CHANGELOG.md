@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.0.1]
 
 ## [3.1.0] - 2026-04-20
 
@@ -52,6 +52,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Set JOSE header `typ: vc+jwt` for W3C credentials and BitstringStatusListCredential
   - Remove duplicate JWT registered claims (`jti`, `sub`, `nbf`) from W3C credential payload
   - Rename credential_configuration_id: `learcredential.employee.w3c.1` → `.w3c.4`, `learcredential.machine.w3c.1` → `.w3c.3`
+- **Actuator config migrated to Spring Boot 3.5 `access` API** — Replace deprecated `enabled-by-default: false` / `enabled: true` with `access: none` / `access: unrestricted`. No behavioral change.
+- **IssuerFactory always remote** — Issuer identity is now always resolved from the QTSP via `credentials/info`, removing dependency on local certificate. (EUDI-023)
+- **Credential offer email copy updated** — Update credential offer email copy in English and Spanish, remove the footer, and add a helper message above the wallet button.
+- **Credential Offer Delivery**: Refactored the `CredentialOfferService` to support nested URL structures for the email delivery channel.
+- **URL Encoding**: Implemented double URL encoding for the `credential_offer_uri` parameter to ensure that deep links are correctly preserved through the Wallet's authentication guards.
+- **Protocol Standardization**: Updated the query parameter name from `credential_ofer_uri` to the OIDC standard `credential_offer_uri`.
 
 ### Added
 
@@ -69,17 +75,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SD-JWT email delivery NPE** — Organization extraction for email notifications used hardcoded path `credential.get("mandator")` which doesn't exist in SD-JWT structure. Now reads `policy_extraction.mandator_path` from the credential profile dynamically.
 - **Email error logging** — Added `doOnError` logging in `CredentialOfferServiceImpl` to surface the root cause of email failures instead of swallowing exceptions.
 - **W3C issuer.id removed during credential build** — `GenericCredentialBuilder` was stripping the `id` field from the issuer object, causing Verifier schema validation failure (`required property 'id' not found`).
-
-### Fixed
-
 - **DPoP htu mismatch behind ALB** — PAR and Token controllers now derive the DPoP `htu` URI from the `IssuerBaseUrlWebFilter` context (which resolves `https://` correctly) instead of `exchange.getRequest().getURI()` (which returns `http://` behind an ALB that terminates TLS).
 
-### Changed
-
-- **Actuator config migrated to Spring Boot 3.5 `access` API** — Replace deprecated `enabled-by-default: false` / `enabled: true` with `access: none` / `access: unrestricted`. No behavioral change.
-- **IssuerFactory always remote** — Issuer identity is now always resolved from the QTSP via `credentials/info`, removing dependency on local certificate. (EUDI-023)
-
 ### Removed
+
+- **Unused dependencies removed** — The following dependencies were removed from `build.gradle` as they are no longer needed:
+  - `com.fasterxml.jackson.core:jackson-databind`
+  - `com.fasterxml.jackson.datatype:jackson-datatype-jsr310`
+  - `com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.17.2`
+  - `io.micrometer:context-propagation`
+  - `org.mockito:mockito-inline:5.2.0` (test)
+  - `com.squareup.okhttp3:mockwebserver:4.12.0` (test)
 
 - **`ISSUER_IDENTITY_JWT_CREDENTIAL` property** — Dead code. LEARCredentialMachine JWT for trust framework registration is no longer consumed. Identity is now managed via `privateKey` + `didKey` + X.509 certificate.
 - **`InMemorySigningProvider`** — Local certificate-based signing removed. All signing is now via remote QTSP. (EUDI-023)

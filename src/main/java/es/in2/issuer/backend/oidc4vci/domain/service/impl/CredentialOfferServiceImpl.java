@@ -51,6 +51,8 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
 
         return Mono.deferContextual(ctx -> {
             String baseUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, appConfig.getIssuerBackendUrl());
+            boolean isEmailChannel = DELIVERY_EMAIL.equals(delivery);
+            log.info("Delivering credential offer via email? {}", isEmailChannel);
 
             return generateGrant(issuanceId, grantType)
                     .flatMap(grantResult -> {
@@ -68,7 +70,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
 
                         return credentialOfferCacheRepository.saveCredentialOffer(data);
                     })
-                    .flatMap(nonce -> buildCredentialOfferUri(baseUrl, nonce)
+                    .flatMap(nonce -> buildCredentialOfferUri(baseUrl, nonce, isEmailChannel)
                             .flatMap(uri -> deliverOffer(baseUrl, uri, issuanceId, credentialOfferRefreshToken, delivery)));
         });
     }
@@ -157,9 +159,20 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                 });
     }
 
-    private Mono<String> buildCredentialOfferUri(String baseUrl, String nonce) {
-        String url = ensureUrlHasProtocol(baseUrl + OID4VCI_CREDENTIAL_OFFER_PATH + "/" + nonce);
-        String encodedUrl = URLEncoder.encode(url, StandardCharsets.UTF_8);
-        return Mono.just("openid-credential-offer://?credential_offer_uri=" + encodedUrl);
+    private Mono<String> buildCredentialOfferUri(String baseUrl, String nonce, boolean isEmailChannel) {
+        String rawIssuerOfferUrl = ensureUrlHasProtocol(baseUrl + OID4VCI_CREDENTIAL_OFFER_PATH + "/" + nonce);
+        String encodedRawUrl = URLEncoder.encode(rawIssuerOfferUrl, StandardCharsets.UTF_8);
+
+        String finalUri;
+        if (isEmailChannel) {
+            String walletOfferUrl = appConfig.getWalletFrontendUrl() + "/offer?credential_offer_uri="
+                    + URLEncoder.encode(rawIssuerOfferUrl, StandardCharsets.UTF_8);
+            finalUri = appConfig.getWalletFrontendUrl() + "/protocol/callback?credential_offer_uri="
+                    + URLEncoder.encode(walletOfferUrl, StandardCharsets.UTF_8);
+        } else {
+            finalUri= "openid-credential-offer://?credential_offer_uri=" + encodedRawUrl;
+        }
+        log.info("BUILDING URI - Channel: {}, Result: {}", isEmailChannel ? "EMAIL (Nested)" : "UI (OpenID)", finalUri);
+        return Mono.just(finalUri);
     }
 }
