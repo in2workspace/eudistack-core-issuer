@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-04-21
+
+### Added (EUDI-065 Fase 8 / EUDI-025 US-08)
+
+- **`GET /api/v1/me`** (`MeController` + `MeResponse` DTO). Resuelve el rol del caller contra el tenant actual usando `AccessTokenService.getAuthorizationContext` y lo expone al frontend. Registrado en `SecurityConfig.unifiedFilterChain` como endpoint autenticado. Unit tests: `MeControllerTest` (happy path TenantAdmin en KPMG, SysAdmin read-only en platform).
+- **`TenantConfigService.getStringOrThrow(key)`** + **`TenantConfigMissingException`** para claves requeridas por tenant. Si la clave no está seeded, falla solo el tenant afectado (los demás siguen operativos).
+- **`TenantDomainWebFilter`** bypass para `/health` y `/prometheus` (evita warnings "Tenant '127' not found" de probes que pegan al IP del contenedor).
+
+### Changed (breaking — internal)
+
+- **`admin_organization_id` sin fallback global.** Eliminados `AppProperties.adminOrganizationId`, `AppConfig.getAdminOrganizationId()`, `IssuerProperties.getAdminOrganizationId()` y la línea `admin-organization-id: ${APP_ADMIN_ORGANIZATION_ID:...}` de `application.yml`. `APP_ADMIN_ORGANIZATION_ID` eliminada también del docker-compose del repo. `AccessTokenServiceImpl.resolveRole` y `PolicyContextFactory.resolveTenantAdmin` ahora usan `getStringOrThrow`. Rationale: el fallback enmascaraba tenants sin seed (p.ej. KPMG con `VATES-A78446333`). Tests afectados (`PolicyContextFactoryTest`, `AccessTokenServiceImplTest`, `AppConfigTest`, `IssuanceServiceImplTest`, `IssuancePdpServiceImplIntegrationTest`) actualizados para mockear `getStringOrThrow`.
+- **`V1__Tenant_schema.sql`** ya no inserta `admin_organization_id = VATES-A15456585`. Cada tenant lo recibe per-tenant desde `seed-tenants[.stg].sql` (platform/sandbox/dome → Altia; kpmg → `VATES-A78446333`).
+- **`V1__Public_schema.sql`** — display_name de `sandbox` → `"EUDIStack Sandbox"`.
+- **Bootstrap API: contrato unificado con `X-Tenant-Id`.** El campo `tenant` del body `BootstrapRequest` se elimina; el tenant pasa por header (mismo convenio que el resto de la API). `TenantDomainWebFilter` ya no bypasea `/api/v1/bootstrap` — valida tenant y escribe el Reactor context. `BootstrapController` lee del context y ya no depende de `TenantRegistryService` (delega validación al filter). `BootstrapControllerTest` reescrito (4 tests); `TenantDomainWebFilterTest` incluye casos bootstrap con `X-Tenant-Id` válido/malformado.
+
+### Migration
+
+- Ejecutar `make reset && make up && make seed-tenants && make seed-verify` en local. El checksum mismatch de Flyway por editar `V1` requiere reset de volúmenes (aceptable antes del primer despliegue AWS).
+- Scripts `seed-local-sd.py`, `seed-local-w3c.py`, `seed-local-sd-aws-stg.py`, `seed-ovh.py` actualizados para enviar `X-Tenant-Id` header y omitir el campo `tenant` del body.
+
 ## [3.2.2] - 2026-04-21
 
 ### Changed (EUDISTACK-166 / EUDI-064: unify tenant header name)

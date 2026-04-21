@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS public.tenant_registry (
 -- Seed: platform + initial tenants (dev/stg)
 INSERT INTO public.tenant_registry (schema_name, display_name, tenant_type) VALUES
     ('platform', 'EUDIStack Platform', 'platform'),
-    ('sandbox',  'Sandbox',            'multi_org'),
+    ('sandbox',  'EUDIStack Sandbox',  'multi_org'),
     ('dome',     'DOME',               'multi_org'),
     ('kpmg',     'KPMG',               'simple')
 ON CONFLICT (schema_name) DO NOTHING;

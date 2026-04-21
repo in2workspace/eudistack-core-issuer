@@ -27,6 +27,9 @@ public class EndpointsConstants {
     public static final String ISSUANCES_PATH = "/api/v1/issuances";
     public static final String ISSUANCES_WILDCARD_PATH = "/api/v1/issuances/**";
 
+    // Authenticated user info (role + org for the current tenant)
+    public static final String ME_PATH = "/api/v1/me";
+
     // OIDC4VCI Endpoints
     public static final String CORS_OID4VCI_PATH = "/oid4vci/**";
     public static final String OID4VCI_CREDENTIAL_OFFER_PATH = OID4VCI_BASE_PATH + "/credential-offer";

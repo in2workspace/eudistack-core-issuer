@@ -49,10 +49,6 @@ public class AppConfig implements IssuerProperties {
         return appProperties.defaultLang();
     }
 
-    public String getAdminOrganizationId() {
-        return appProperties.adminOrganizationId();
-    }
-
     public String getSysTenant() {
         return appProperties.sysTenant();
     }

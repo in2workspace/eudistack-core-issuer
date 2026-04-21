@@ -48,14 +48,6 @@ class AppConfigTest {
     }
 
     @Test
-    void getAdminOrganizationId_returnsConfiguredValue() {
-        String expected = "admin-org-123";
-        when(appProperties.adminOrganizationId()).thenReturn(expected);
-
-        assertEquals(expected, appConfig.getAdminOrganizationId());
-    }
-
-    @Test
     void getSysTenant_returnsConfiguredValue() {
         String expected = "sys-tenant";
         when(appProperties.sysTenant()).thenReturn(expected);

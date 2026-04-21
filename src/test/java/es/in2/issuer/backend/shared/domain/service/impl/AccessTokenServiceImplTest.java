@@ -397,8 +397,7 @@ class AccessTokenServiceImplTest {
             when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
             when(mockAppConfig.getManagementTokenAdminPowerFunction()).thenReturn("Onboarding");
             when(mockAppConfig.getManagementTokenAdminPowerAction()).thenReturn("Execute");
-            when(mockAppConfig.getAdminOrganizationId()).thenReturn(adminOrgId);
-            when(mockTenantConfigService.getStringOrDefault("admin_organization_id", adminOrgId))
+            when(mockTenantConfigService.getStringOrThrow("admin_organization_id"))
                     .thenReturn(Mono.just(adminOrgId));
 
             Mono<AuthorizationContext> result = accessTokenServiceImpl.getAuthorizationContext("Bearer " + token)
@@ -427,8 +426,7 @@ class AccessTokenServiceImplTest {
             when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
             lenient().when(mockAppConfig.getManagementTokenAdminPowerFunction()).thenReturn("Onboarding");
             lenient().when(mockAppConfig.getManagementTokenAdminPowerAction()).thenReturn("Execute");
-            when(mockAppConfig.getAdminOrganizationId()).thenReturn("ADMIN_ORG_123");
-            when(mockTenantConfigService.getStringOrDefault("admin_organization_id", "ADMIN_ORG_123"))
+            when(mockTenantConfigService.getStringOrThrow("admin_organization_id"))
                     .thenReturn(Mono.just("ADMIN_ORG_123"));
 
             Mono<AuthorizationContext> result = accessTokenServiceImpl.getAuthorizationContext("Bearer " + token)

@@ -8,7 +8,6 @@ public interface IssuerProperties {
     String getVerifierUrl();
     String getVerifierInternalUrl();
     String getDefaultLang();
-    String getAdminOrganizationId();
     String getSysTenant();
     String getManagementTokenOrgIdJsonPath();
     String getManagementTokenAdminPowerFunction();

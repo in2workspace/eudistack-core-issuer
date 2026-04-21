@@ -55,9 +55,9 @@ class PolicyContextFactoryTest {
         factory = new PolicyContextFactory(
                 jwtService, objectMapper, appConfig, credentialProfileRegistry, tenantConfigService, tenantRegistryService
         );
-        // Default stub: tenantConfigService returns the fallback value
-        lenient().when(tenantConfigService.getStringOrDefault(anyString(), anyString()))
-                .thenAnswer(inv -> Mono.just(inv.getArgument(1)));
+        // Default stub: tenantConfigService returns the admin_organization_id from tenant_config
+        lenient().when(tenantConfigService.getStringOrThrow(anyString()))
+                .thenReturn(Mono.just(ADMIN_ORG_ID));
         lenient().when(tenantRegistryService.getTenantType(anyString()))
                 .thenReturn(Mono.just(PolicyContext.TENANT_TYPE_MULTI_ORG));
     }
@@ -110,7 +110,6 @@ class PolicyContextFactoryTest {
 
         CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
         when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
-        when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
 
         StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
                 .assertNext(ctx -> {
@@ -139,7 +138,6 @@ class PolicyContextFactoryTest {
 
         CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
         when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
-        when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
 
         StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
                 .assertNext(ctx -> {
@@ -195,7 +193,6 @@ class PolicyContextFactoryTest {
 
         CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
         when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
-        when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
 
         StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
                 .assertNext(ctx -> {
@@ -255,7 +252,6 @@ class PolicyContextFactoryTest {
 
         CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
         when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
-        when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
 
         StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
                 .assertNext(ctx -> assertThat(ctx.tenantAdmin()).isTrue())
@@ -276,7 +272,6 @@ class PolicyContextFactoryTest {
 
         CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
         when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
-        when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
 
         StepVerifier.create(factory.fromTokenForIssuance(TOKEN, CREDENTIAL_TYPE, "DOME"))
                 .assertNext(ctx -> {
@@ -337,7 +332,6 @@ class PolicyContextFactoryTest {
 
         CredentialProfile machineProfile = buildProfile(machineType);
         when(credentialProfileRegistry.getByConfigurationId(machineType)).thenReturn(machineProfile);
-        when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
 
         StepVerifier.create(factory.fromTokenForIssuance(TOKEN, "gx.labelcredential.w3c.1", "DOME"))
                 .assertNext(ctx -> {
@@ -367,7 +361,6 @@ class PolicyContextFactoryTest {
         // getByConfigurationId is called twice: once for checkIfEmitterIsAllowedToIssue, once for resolveProfile
         // Since both use the same key, one stub covers both
         when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(emitterProfile);
-        when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
 
         StepVerifier.create(factory.fromTokenForIssuance(TOKEN, CREDENTIAL_TYPE, "DOME"))
                 .assertNext(ctx -> {

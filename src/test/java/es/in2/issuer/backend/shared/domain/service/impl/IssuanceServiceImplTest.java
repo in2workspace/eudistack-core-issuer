@@ -14,7 +14,6 @@ import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.repository.IssuanceRepository;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -59,13 +58,9 @@ class IssuanceServiceImplTest {
     @InjectMocks
     private IssuanceServiceImpl issuanceService;
 
-    @BeforeEach
-    void setUp() {
-        // Make this stub lenient because some tests exercise regular-org paths only
-        org.mockito.Mockito.lenient()
-                .when(appConfig.getAdminOrganizationId())
-                .thenReturn(ADMIN_ORG_ID);
-    }
+    // ADMIN_ORG_ID is used as an organization identifier fixture in assertions below;
+    // no stub needed since admin_organization_id is now resolved via TenantConfigService
+    // (not AppConfig) and those tests mock TenantConfigService directly when needed.
 
     @Test
     void saveIssuance_shouldPersistAndReturnIssuance() {

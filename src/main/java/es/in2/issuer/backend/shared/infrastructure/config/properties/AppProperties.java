@@ -17,7 +17,6 @@ public record AppProperties(
         @URL String verifierInternalUrl,
         @NotBlank @URL String walletUrl,
         @NotBlank String defaultLang,
-        @NotBlank String adminOrganizationId,
         @NotBlank String sysTenant,
         ManagementToken managementToken
 ) {

@@ -91,7 +91,7 @@ public class AccessTokenServiceImpl implements AccessTokenService {
         }
 
         // 2. TenantAdmin: orgId == tenant.admin_organization_id + domain power
-        return tenantConfigService.getStringOrDefault("admin_organization_id", appConfig.getAdminOrganizationId())
+        return tenantConfigService.getStringOrThrow("admin_organization_id")
                 .map(adminOrgId -> {
                     if (orgId.equals(adminOrgId)
                             && hasPowerInPayload(root,

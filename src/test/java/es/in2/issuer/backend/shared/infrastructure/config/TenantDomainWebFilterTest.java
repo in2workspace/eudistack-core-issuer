@@ -122,13 +122,16 @@ class TenantDomainWebFilterTest {
     }
 
     @Test
-    void filter_bootstrapPath_bypassesFilterEvenWithoutTenantHeaderOrHost() {
-        // Bootstrap is a cross-tenant admin endpoint: the caller may have no
-        // tenant header and an arbitrary host. The filter must not interfere —
-        // the bootstrap handler reads the tenant from the request body.
+    void filter_bootstrapPath_requiresTenantHeader() {
+        // Bootstrap now uses the same X-Tenant-Id convention as the rest of the API.
+        // With a valid header, the filter writes the tenant to the Reactor context.
         MockServerHttpRequest request = MockServerHttpRequest
-                .post("/api/v1/bootstrap").build();
+                .post("/api/v1/bootstrap")
+                .header(TENANT_ID_HEADER, "sandbox")
+                .build();
         MockServerWebExchange exchange = MockServerWebExchange.from(request);
+        when(tenantRegistryService.getActiveTenantSchemas())
+                .thenReturn(Mono.just(java.util.List.of("sandbox", "dome", "kpmg")));
         AtomicReference<String> captured = new AtomicReference<>("untouched");
         WebFilterChain chain = ex -> Mono.deferContextual(ctx -> {
             captured.set(ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null));
@@ -137,25 +140,52 @@ class TenantDomainWebFilterTest {
 
         StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
 
-        // Chain was invoked (no 400/404), and no tenant was written to context.
+        assertEquals("sandbox", captured.get());
+    }
+
+    @Test
+    void filter_bootstrapPath_rejectsMalformedTenantHeader() {
+        // Malformed X-Tenant-Id is rejected with 400 (same as any other endpoint).
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/v1/bootstrap")
+                        .header(TENANT_ID_HEADER, "bad tenant!"));
+        WebFilterChain chain = ex -> Mono.error(new AssertionError("chain must not be invoked"));
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertEquals(HttpStatus.BAD_REQUEST, exchange.getResponse().getStatusCode());
+    }
+
+    @Test
+    void filter_healthPath_bypassesWithoutTenantLookup() {
+        // Liveness/readiness probes hit the container IP directly, so the host
+        // has no tenant segment. The filter must skip tenant resolution entirely
+        // to avoid noisy "Tenant not found" warnings.
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("https://127.0.0.1:8080/health").build());
+        AtomicReference<String> captured = new AtomicReference<>("untouched");
+        WebFilterChain chain = ex -> Mono.deferContextual(ctx -> {
+            captured.set(ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null));
+            return Mono.empty();
+        });
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
         assertNull(captured.get());
     }
 
     @Test
-    void filter_bootstrapPath_ignoresMalformedTenantHeader() {
-        // Even if a caller happens to send X-Tenant-Id on bootstrap, the
-        // filter must not validate it — the body is the source of truth.
+    void filter_prometheusPath_bypassesWithoutTenantLookup() {
         MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.post("/api/v1/bootstrap")
-                        .header(TENANT_ID_HEADER, "bad tenant!"));
-        AtomicReference<Boolean> chainInvoked = new AtomicReference<>(false);
-        WebFilterChain chain = ex -> {
-            chainInvoked.set(true);
+                MockServerHttpRequest.get("https://127.0.0.1:8080/prometheus").build());
+        AtomicReference<String> captured = new AtomicReference<>("untouched");
+        WebFilterChain chain = ex -> Mono.deferContextual(ctx -> {
+            captured.set(ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null));
             return Mono.empty();
-        };
+        });
 
         StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
 
-        assertEquals(true, chainInvoked.get());
+        assertNull(captured.get());
     }
 }

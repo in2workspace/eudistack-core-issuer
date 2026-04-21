@@ -72,7 +72,6 @@ services:
       APP_WALLET_URL: https://wallet.example.com
       APP_CONFIG_SOURCE: yaml
       APP_DEFAULT_LANG: en
-      APP_ADMIN_ORGANIZATION_ID: VATES-A15456585
       APP_SYS_TENANT: SYSTEM
 
       # --- Issuer Identity ---------------------------------------------------

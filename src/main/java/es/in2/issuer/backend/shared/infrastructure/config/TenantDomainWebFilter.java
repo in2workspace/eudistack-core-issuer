@@ -11,9 +11,12 @@ import reactor.core.publisher.Mono;
 
 import java.util.regex.Pattern;
 
+import java.util.Set;
+
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_ID_HEADER;
-import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.BOOTSTRAP_PATH;
+import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.HEALTH_PATH;
+import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.PROMETHEUS_PATH;
 
 /**
  * Resolves the tenant identifier and validates it exists in {@code tenant_registry}
@@ -30,11 +33,10 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.BOOTST
  * <p>If neither produces a value (missing/empty host — internal calls, healthchecks),
  * the request passes through without a tenant in context.
  *
- * <p>The bootstrap endpoint ({@value es.in2.issuer.backend.shared.domain.util.EndpointsConstants#BOOTSTRAP_PATH})
- * is administrative and cross-tenant: the caller (devops script, CI/CD) declares the
- * destination tenant explicitly in the request body. This filter therefore bypasses
- * it entirely — tenant resolution and schema routing are performed by the bootstrap
- * handler itself.
+ * <p>Tenant-agnostic operational paths bypass this filter entirely:
+ * {@value es.in2.issuer.backend.shared.domain.util.EndpointsConstants#HEALTH_PATH} and
+ * {@value es.in2.issuer.backend.shared.domain.util.EndpointsConstants#PROMETHEUS_PATH}
+ * — probes hit the container IP directly so the host has no tenant segment.
  *
  * <p>Returns 400 if the resolved identifier is malformed, 404 if the tenant does
  * not exist in {@code tenant_registry}.
@@ -45,6 +47,14 @@ public class TenantDomainWebFilter implements WebFilter {
 
     static final Pattern TENANT_NAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_-]+$");
 
+    // Tenant-agnostic operational endpoints — skipped entirely to avoid noisy
+    // "Tenant not found" warnings from liveness/readiness probes and Prometheus
+    // scrapes that hit the container IP directly (no tenant in the Host header).
+    private static final Set<String> TENANT_AGNOSTIC_PATHS = Set.of(
+            HEALTH_PATH,
+            PROMETHEUS_PATH
+    );
+
     private final TenantRegistryService tenantRegistryService;
 
     public TenantDomainWebFilter(TenantRegistryService tenantRegistryService) {
@@ -54,7 +64,7 @@ public class TenantDomainWebFilter implements WebFilter {
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         String path = exchange.getRequest().getPath().pathWithinApplication().value();
-        if (BOOTSTRAP_PATH.equals(path)) {
+        if (TENANT_AGNOSTIC_PATHS.contains(path)) {
             return chain.filter(exchange);
         }
 

@@ -39,6 +39,8 @@ public class SecurityConfig {
                         // Issuance endpoints (unified)
                         ISSUANCES_PATH,
                         ISSUANCES_WILDCARD_PATH,
+                        // Current caller role resolution (for frontends)
+                        ME_PATH,
                         // OID4VCI paths
                         OAUTH_TOKEN_PATH,
                         OID4VCI_CREDENTIAL_PATH,
@@ -88,6 +90,8 @@ public class SecurityConfig {
                         // Issuance endpoints (unified)
                         ISSUANCES_PATH,
                         ISSUANCES_WILDCARD_PATH,
+                        // Current caller role resolution
+                        ME_PATH,
                         // Public OID4VCI paths
                         CORS_OID4VCI_PATH,
                         VCI_PATH,

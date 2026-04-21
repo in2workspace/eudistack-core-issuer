@@ -124,7 +124,6 @@ app:
     origins-path: ${APP_CORS_ORIGINS_PATH:}
   mail-from: ${APP_MAIL_FROM:noreply@mail-stg.altia.eudistack.net}
   default-lang: ${APP_DEFAULT_LANG:en}
-  admin-organization-id: ${APP_ADMIN_ORGANIZATION_ID:VATES-B60645900}
   sys-tenant: ${APP_SYS_TENANT:SYSTEM}
   management-token:
     org-id-json-path: ${APP_MGMT_TOKEN_ORG_ID_PATH:mandator.organizationIdentifier}

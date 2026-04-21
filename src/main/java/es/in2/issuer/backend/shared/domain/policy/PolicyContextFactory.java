@@ -239,7 +239,7 @@ public class PolicyContextFactory {
                         && tenantDomain.equalsIgnoreCase(p.domain()));
         if (!hasDomainPower) return Mono.just(false);
 
-        return tenantConfigService.getStringOrDefault("admin_organization_id", appConfig.getAdminOrganizationId())
+        return tenantConfigService.getStringOrThrow("admin_organization_id")
                 .map(adminOrgId -> orgId.equals(adminOrgId));
     }
 

@@ -79,14 +79,10 @@ class IssuancePdpServiceImplIntegrationTest {
         objectMapper = new ObjectMapper();
         jwtService = new JWTServiceImpl(objectMapper, cryptoComponent);
 
+        // Default: tenantConfigService returns the admin_organization_id seeded in tenant_config
         org.mockito.Mockito.lenient()
-                .when(appConfig.getAdminOrganizationId())
-                .thenReturn(ADMIN_ORG_ID);
-
-        // Default: tenantConfigService returns the fallback value
-        org.mockito.Mockito.lenient()
-                .when(tenantConfigService.getStringOrDefault(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
-                .thenAnswer(inv -> reactor.core.publisher.Mono.just(inv.getArgument(1)));
+                .when(tenantConfigService.getStringOrThrow(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(reactor.core.publisher.Mono.just(ADMIN_ORG_ID));
 
         // Default: allow all credential profiles for tenant
         org.mockito.Mockito.lenient()

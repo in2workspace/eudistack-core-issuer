@@ -21,4 +21,11 @@ public interface TenantConfigService {
      */
     Mono<String> getStringOrDefault(String key, String defaultValue);
 
+    /**
+     * Returns the config value for the given key, or fails with
+     * {@link es.in2.issuer.backend.shared.domain.exception.TenantConfigMissingException}
+     * if not present. Use this for keys that MUST be seeded per tenant (no safe fallback).
+     */
+    Mono<String> getStringOrThrow(String key);
+
 }

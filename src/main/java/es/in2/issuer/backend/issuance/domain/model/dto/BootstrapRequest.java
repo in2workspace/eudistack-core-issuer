@@ -10,16 +10,13 @@ import lombok.Builder;
 /**
  * Request body for the cross-tenant bootstrap endpoint.
  *
- * <p>Unlike the regular issuance endpoint, bootstrap is an administrative
- * flow called by devops/CI scripts. The destination tenant is therefore
- * declared explicitly in the payload — not derived from hostname or
- * {@code X-Tenant-Id} header, which are meaningless for an out-of-band
- * admin caller.
+ * <p>The destination tenant is declared via the {@code X-Tenant-Id} HTTP
+ * header (same convention as the rest of the API). It is NOT part of the
+ * body. Validation and registry lookup are performed by
+ * {@code TenantDomainWebFilter} before the controller is invoked.
  */
 @Builder
 public record BootstrapRequest(
-        @NotBlank(message = "tenant is required")
-        @JsonProperty(value = "tenant", required = true) String tenant,
         @NotBlank(message = "credential_configuration_id is required")
         @JsonAlias("schema")
         @JsonProperty(value = "credential_configuration_id", required = true) String credentialConfigurationId,
@@ -33,9 +30,7 @@ public record BootstrapRequest(
 
     /**
      * Projects this bootstrap request onto the generic {@link IssuanceRequest}
-     * consumed by the issuance workflow. The {@code tenant} field is dropped
-     * because it is not part of the issuance domain model — it controls the
-     * persistence schema, which is applied via Reactor context.
+     * consumed by the issuance workflow.
      */
     public IssuanceRequest toIssuanceRequest() {
         return IssuanceRequest.builder()

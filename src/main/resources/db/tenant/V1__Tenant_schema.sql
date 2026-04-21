@@ -55,13 +55,12 @@ CREATE TABLE IF NOT EXISTS tenant_config (
     updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
--- Seed: admin_organization_id — the organization that acts as TenantAdmin.
--- Default to Altia (VATES-A15456585) for all tenants in dev.
--- In production, each tenant sets its own via config management API.
-INSERT INTO tenant_config (id, config_key, config_value, description) VALUES
-    (gen_random_uuid(), 'admin_organization_id', 'VATES-A15456585',
-     'Organization identifier of the TenantAdmin for this tenant')
-ON CONFLICT (config_key) DO NOTHING;
+-- Note: admin_organization_id is seeded per-tenant from seed-tenants[.stg].sql,
+-- NOT here. Each tenant has a different TenantAdmin organization:
+--   platform / sandbox / dome → VATES-A15456585 (Altia)
+--   kpmg                      → VATES-A78446333 (KPMG)
+-- Seeding here would force Altia for all tenants and break TenantAdmin
+-- resolution in PolicyContextFactory for non-Altia-administered tenants.
 
 -- =============================================================================
 -- tenant_credential_profile: credential types enabled for this tenant
