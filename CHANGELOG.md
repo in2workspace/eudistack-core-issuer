@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.0.1]
 
-## [Unreleased]
+## [3.2.2] - 2026-04-21
 
 ### Changed (EUDISTACK-166 / EUDI-064: unify tenant header name)
 
