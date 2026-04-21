@@ -6,6 +6,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.0.1]
 
+## [3.2.0] - 2026-04-21
+
+### Changed (EUDI-065: Unified LEAR issuance rule)
+
+- **`RequireLearCredentialIssuanceRule`** replaces the OR-combined
+  `RequireSignerIssuanceRule` + `RequireMandatorDelegationRule`. A single
+  rule now covers `LEARCredentialEmployee` and `LEARCredentialMachine`
+  issuance with three clauses: power base (`Onboarding/Execute`),
+  escalation prevention (payload cannot delegate `Onboarding/Execute` nor
+  `Certification/Attest`), and org scope (same-org or on-behalf — the
+  latter only for TenantAdmin in `multi_org` tenants). SysAdmin keeps the
+  full bypass.
+- **`ProductOffering` removed as issuance gate.** It remains a valid
+  delegable power that can appear in emitted credentials. The
+  `delegation_function` field in `issuance_policy` is no longer read.
+- **`PolicyContext.tenantType`** added (`simple` | `multi_org` |
+  `platform`); `TenantRegistryService.getTenantType()` resolves it from
+  `public.tenant_registry`.
+- **`IssuancePdpServiceImpl`** dispatcher simplified: each profile now
+  declares exactly one rule name. `PolicyEnforcer` OR-combination is no
+  longer used for issuance.
+
+See **ADR-002** (`docs/_shared/architecture/adr/adr-002-pdp-issuance-rules.md`
+in `eudistack-platform-dev`) for rationale and full rule semantics.
+
+### Removed (EUDI-065)
+
+- `RequireSignerIssuanceRule` + its test — semantics folded into the
+  unified rule with SysAdmin bypass.
+- `RequireMandatorDelegationRule` — superseded by the org-scope clause
+  of the unified rule.
+
 ## [3.1.0] - 2026-04-20
 
 ### Changed (EUDI-064: bootstrap is now cross-tenant)

@@ -7,6 +7,7 @@ import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionExcep
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
+import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,16 +45,21 @@ class PolicyContextFactoryTest {
     @Mock
     private TenantConfigService tenantConfigService;
 
+    @Mock
+    private TenantRegistryService tenantRegistryService;
+
     private PolicyContextFactory factory;
 
     @BeforeEach
     void setUp() {
         factory = new PolicyContextFactory(
-                jwtService, objectMapper, appConfig, credentialProfileRegistry, tenantConfigService
+                jwtService, objectMapper, appConfig, credentialProfileRegistry, tenantConfigService, tenantRegistryService
         );
         // Default stub: tenantConfigService returns the fallback value
         lenient().when(tenantConfigService.getStringOrDefault(anyString(), anyString()))
                 .thenAnswer(inv -> Mono.just(inv.getArgument(1)));
+        lenient().when(tenantRegistryService.getTenantType(anyString()))
+                .thenReturn(Mono.just(PolicyContext.TENANT_TYPE_MULTI_ORG));
     }
 
     private void setupFlatTokenClaims(Payload payload, String credentialType, String orgId) {

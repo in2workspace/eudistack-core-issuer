@@ -19,8 +19,13 @@ public record PolicyContext(
         boolean sysAdmin,
         boolean tenantAdmin,
         String tenantDomain,
-        String tokenTenant
+        String tokenTenant,
+        String tenantType
 ) {
+
+    public static final String TENANT_TYPE_SIMPLE = "simple";
+    public static final String TENANT_TYPE_MULTI_ORG = "multi_org";
+    public static final String TENANT_TYPE_PLATFORM = "platform";
 
     /**
      * Checks if the user has a specific power function with a specific action.

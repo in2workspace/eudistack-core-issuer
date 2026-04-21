@@ -47,11 +47,11 @@ class StatusListPdpServiceImplTest {
                 false,
                 orgId,
                 orgId
-        );
+        , null);
     }
 
     private PolicyContext buildContextNoPowers(String orgId, boolean sysAdmin) {
-        return new PolicyContext(orgId, Collections.emptyList(), null, null, "learcredential.employee.w3c.4", sysAdmin, false, orgId, orgId);
+        return new PolicyContext(orgId, Collections.emptyList(), null, null, "learcredential.employee.w3c.4", sysAdmin, false, orgId, orgId, null);
     }
 
     @Test
