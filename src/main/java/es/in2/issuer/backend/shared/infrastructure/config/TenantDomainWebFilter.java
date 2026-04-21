@@ -12,7 +12,7 @@ import reactor.core.publisher.Mono;
 import java.util.regex.Pattern;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
-import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_HEADER;
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_ID_HEADER;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.BOOTSTRAP_PATH;
 
 /**
@@ -21,7 +21,8 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.BOOTST
  *
  * <p>Resolution order:
  * <ol>
- *     <li>{@code X-Tenant-Domain} header (local dev via nginx).</li>
+ *     <li>{@code X-Tenant-Id} header (local dev via nginx; service-to-service calls;
+ *         API Gateway route).</li>
  *     <li>First segment of the request host (AWS: CloudFront/ALB preserve the host,
  *         no header injection). Example: {@code kpmg.eudistack.net} &rarr; {@code kpmg}.</li>
  * </ol>
@@ -57,12 +58,12 @@ public class TenantDomainWebFilter implements WebFilter {
             return chain.filter(exchange);
         }
 
-        String headerValue = exchange.getRequest().getHeaders().getFirst(TENANT_DOMAIN_HEADER);
+        String headerValue = exchange.getRequest().getHeaders().getFirst(TENANT_ID_HEADER);
         String tenantDomain;
         String source;
         if (headerValue != null && !headerValue.isBlank()) {
             tenantDomain = headerValue.trim();
-            source = TENANT_DOMAIN_HEADER + " header";
+            source = TENANT_ID_HEADER + " header";
         } else {
             tenantDomain = extractTenantFromHost(exchange);
             source = "request host";

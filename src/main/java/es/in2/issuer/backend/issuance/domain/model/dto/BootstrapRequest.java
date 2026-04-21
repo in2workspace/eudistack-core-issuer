@@ -13,7 +13,7 @@ import lombok.Builder;
  * <p>Unlike the regular issuance endpoint, bootstrap is an administrative
  * flow called by devops/CI scripts. The destination tenant is therefore
  * declared explicitly in the payload — not derived from hostname or
- * {@code X-Tenant-Domain} header, which are meaningless for an out-of-band
+ * {@code X-Tenant-Id} header, which are meaningless for an out-of-band
  * admin caller.
  */
 @Builder
