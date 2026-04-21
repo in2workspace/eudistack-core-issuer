@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.0.1]
 
+## [3.2.1] - 2026-04-21
+
+### Fixed (EUDI-065: cross-tenant TenantAdmin bypass)
+
+- **`PolicyContextFactory.resolveTenantAdmin`** now validates that an `Onboarding/Execute` power's `domain` matches the current `tenantDomain` (case-insensitive). Previously the check only compared `function` + `action`, so a KPMG-issued credential (power domain = KPMG) was promoted to TenantAdmin when logging in on the DOME tenant, granting full Credential Manager access cross-tenant. Fixes the behaviour described in EUDI-065 §1.2 that was not enforced in the login PDP. Added unit tests covering the KPMG→DOME rejection and the case-insensitive accept.
+
 ## [3.2.0] - 2026-04-21
 
 ### Changed (EUDI-065: Unified LEAR issuance rule)

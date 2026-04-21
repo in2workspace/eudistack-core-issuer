@@ -61,7 +61,7 @@ public class PolicyContextFactory {
                     boolean isSysAdmin = hasSysAdminPower(powers);
 
                     return Mono.zip(
-                            resolveTenantAdmin(orgId, powers),
+                            resolveTenantAdmin(orgId, powers, tenantDomain),
                             resolveTenantType(tenantDomain)
                     ).map(tuple -> new PolicyContext(
                             orgId, powers, credential, profile, credentialType,
@@ -91,7 +91,7 @@ public class PolicyContextFactory {
                                 boolean isSysAdmin = hasSysAdminPower(powers);
 
                                 return Mono.zip(
-                                        resolveTenantAdmin(orgId, powers),
+                                        resolveTenantAdmin(orgId, powers, tenantDomain),
                                         resolveTenantType(tenantDomain)
                                 ).map(tuple -> new PolicyContext(
                                         orgId, powers, credential, profile, resolvedType,
@@ -222,10 +222,21 @@ public class PolicyContextFactory {
         return value;
     }
 
-    private Mono<Boolean> resolveTenantAdmin(String orgId, List<Power> powers) {
-        if (orgId == null) return Mono.just(false);
+    /**
+     * Resolves whether the presenter is the TenantAdmin for the current tenant.
+     * A user is TenantAdmin when:
+     *   1. Their organizationIdentifier matches the tenant's configured admin_organization_id; AND
+     *   2. They hold an Onboarding/Execute power whose domain matches the current tenant.
+     *
+     * The domain check is what prevents a KPMG-issued credential (Onboarding/Execute for
+     * domain=KPMG) from being accepted as TenantAdmin on a different tenant (e.g. DOME).
+     */
+    private Mono<Boolean> resolveTenantAdmin(String orgId, List<Power> powers, String tenantDomain) {
+        if (orgId == null || tenantDomain == null || tenantDomain.isBlank()) return Mono.just(false);
         boolean hasDomainPower = powers.stream().anyMatch(p ->
-                "Onboarding".equals(p.function()) && PolicyContext.hasAction(p, "Execute"));
+                "Onboarding".equals(p.function())
+                        && PolicyContext.hasAction(p, "Execute")
+                        && tenantDomain.equalsIgnoreCase(p.domain()));
         if (!hasDomainPower) return Mono.just(false);
 
         return tenantConfigService.getStringOrDefault("admin_organization_id", appConfig.getAdminOrganizationId())

@@ -206,6 +206,62 @@ class PolicyContextFactoryTest {
                 .verifyComplete();
     }
 
+    @Test
+    void fromTokenSimple_tenantAdminFalseWhenPowerDomainDoesNotMatchTenant() {
+        SignedJWT signedJWT = mock(SignedJWT.class);
+        Payload payload = mock(Payload.class);
+
+        when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
+        when(signedJWT.getPayload()).thenReturn(payload);
+
+        // Onboarding/Execute power with domain=KPMG but user is logging in at DOME tenant.
+        when(jwtService.getClaimFromPayload(payload, "credential_type"))
+                .thenReturn("\"" + CREDENTIAL_TYPE + "\"");
+        String powerJson = "[{\"function\":\"Onboarding\",\"action\":\"Execute\",\"domain\":\"KPMG\",\"type\":\"domain\"}]";
+        when(jwtService.getClaimFromPayload(payload, "power")).thenReturn(powerJson);
+        String mandatorJson = "{\"organizationIdentifier\":\"" + ADMIN_ORG_ID + "\",\"organization\":\"Test Org\"}";
+        when(jwtService.getClaimFromPayload(payload, "mandator")).thenReturn(mandatorJson);
+        when(jwtService.getClaimFromPayload(payload, "tenant")).thenReturn("\"DOME\"");
+
+        CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+
+        StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
+                .assertNext(ctx -> {
+                    assertThat(ctx.sysAdmin()).isFalse();
+                    assertThat(ctx.tenantAdmin())
+                            .as("KPMG-domain power must not grant TenantAdmin on DOME tenant")
+                            .isFalse();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void fromTokenSimple_tenantAdminDomainCheckIsCaseInsensitive() {
+        SignedJWT signedJWT = mock(SignedJWT.class);
+        Payload payload = mock(Payload.class);
+
+        when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
+        when(signedJWT.getPayload()).thenReturn(payload);
+
+        // Power domain "dome" (lowercase) vs tenantDomain "DOME" (uppercase)
+        when(jwtService.getClaimFromPayload(payload, "credential_type"))
+                .thenReturn("\"" + CREDENTIAL_TYPE + "\"");
+        String powerJson = "[{\"function\":\"Onboarding\",\"action\":\"Execute\",\"domain\":\"dome\",\"type\":\"domain\"}]";
+        when(jwtService.getClaimFromPayload(payload, "power")).thenReturn(powerJson);
+        String mandatorJson = "{\"organizationIdentifier\":\"" + ADMIN_ORG_ID + "\",\"organization\":\"Test Org\"}";
+        when(jwtService.getClaimFromPayload(payload, "mandator")).thenReturn(mandatorJson);
+        when(jwtService.getClaimFromPayload(payload, "tenant")).thenReturn("\"DOME\"");
+
+        CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+        when(appConfig.getAdminOrganizationId()).thenReturn(ADMIN_ORG_ID);
+
+        StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
+                .assertNext(ctx -> assertThat(ctx.tenantAdmin()).isTrue())
+                .verifyComplete();
+    }
+
     // --- fromTokenForIssuance ---
 
     @Test
