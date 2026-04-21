@@ -113,7 +113,7 @@ public final class Constants {
     public static final String ERROR_LOG_FORMAT = "[Error Instance ID: {}] Path: {}, Status: {}, Title: {}, Message: {}";
 
     // MULTI-TENANCY
-    public static final String TENANT_DOMAIN_HEADER = "X-Tenant-Domain";
+    public static final String TENANT_ID_HEADER = "X-Tenant-Id";
     public static final String TENANT_DOMAIN_CONTEXT_KEY = "tenantDomain";
     public static final String ISSUER_BASE_URL_CONTEXT_KEY = "issuerBaseUrl";
     public static final String PLATFORM_TENANT = "platform";
