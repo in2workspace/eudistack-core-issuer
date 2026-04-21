@@ -8,6 +8,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.TxCode;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,6 +37,8 @@ class CredentialOfferServiceImplTest {
     private EmailService emailService;
     @Mock
     private IssuanceService issuanceService;
+    @Mock
+    private TenantConfigService tenantConfigService;
 
     @InjectMocks
     private CredentialOfferServiceImpl credentialOfferService;
@@ -91,6 +94,8 @@ class CredentialOfferServiceImplTest {
 
         when(appConfig.getIssuerBackendUrl()).thenReturn("https://example.com");
         when(appConfig.getWalletFrontendUrl()).thenReturn("https://wallet.example.com");
+        when(tenantConfigService.getStringOrDefault(eq("issuer.wallet_url"), anyString()))
+                .thenReturn(Mono.just("https://wallet.example.com"));
         when(issuerStateCacheStore.add(anyString(), eq(issuanceId)))
                 .thenReturn(Mono.just("cached"));
         when(credentialOfferCacheRepository.saveCredentialOffer(any()))
@@ -117,6 +122,8 @@ class CredentialOfferServiceImplTest {
 
         when(appConfig.getIssuerBackendUrl()).thenReturn("https://example.com");
         when(appConfig.getWalletFrontendUrl()).thenReturn("https://wallet.example.com");
+        when(tenantConfigService.getStringOrDefault(eq("issuer.wallet_url"), anyString()))
+                .thenReturn(Mono.just("https://wallet.example.com"));
         when(preAuthorizedCodeService.issuePreAuthorizedCode(anyString(), any()))
                 .thenReturn(Mono.just(PreAuthorizedCodeResponse.builder()
                         .preAuthorizedCode("pre-auth-code-123")

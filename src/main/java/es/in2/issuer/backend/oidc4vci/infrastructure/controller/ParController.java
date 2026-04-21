@@ -37,7 +37,7 @@ public class ParController {
     ) {
         return Mono.deferContextual(ctx -> {
             String publicIssuerUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, issuerProperties.getIssuerBackendUrl());
-            String requestUri = publicIssuerUrl + exchange.getRequest().getURI().getPath();
+            String requestUri = publicIssuerUrl + exchange.getRequest().getPath().pathWithinApplication().value();
             return parService.pushAuthorizationRequest(request, dpopHeader, wiaHeader, wiaPopHeader, requestUri, publicIssuerUrl);
         });
     }

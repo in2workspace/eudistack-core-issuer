@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.signing.infrastructure.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.signing.domain.service.JadesHeaderBuilderService;
 import es.in2.issuer.backend.signing.domain.service.JwsSignHashService;
 import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
@@ -25,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class SigningProviderConfigTest {
 
     @Mock private RuntimeSigningConfig runtimeSigningConfig;
+    @Mock private TenantSigningConfigService tenantSigningConfigService;
     @Mock private RemoteSignatureService remoteSignatureService;
     @Mock private QtspAuthClient qtspAuthClient;
     @Mock private QtspIssuerService qtspIssuerService;
@@ -37,6 +39,7 @@ class SigningProviderConfigTest {
     private SigningProvider createProvider() {
         return new SigningProviderConfig().signingProvider(
                 runtimeSigningConfig,
+                tenantSigningConfigService,
                 remoteSignatureService,
                 qtspAuthClient,
                 qtspIssuerService,

@@ -9,6 +9,7 @@ import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonExceptio
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
@@ -370,7 +371,7 @@ class IssuanceServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(organizationIdentifier, issuanceId, false);
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.LEAR, false), issuanceId);
 
         // Then
         StepVerifier.create(result)
@@ -411,7 +412,7 @@ class IssuanceServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(organizationIdentifier, issuanceId, true);
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.SYSADMIN, false), issuanceId);
 
         // Then
         StepVerifier.create(result)
@@ -438,7 +439,7 @@ class IssuanceServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(organizationIdentifier, issuanceId, false);
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.LEAR, false), issuanceId);
 
         // Then
         StepVerifier.create(result)
@@ -460,7 +461,7 @@ class IssuanceServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(organizationIdentifier, issuanceId, true);
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.SYSADMIN, false), issuanceId);
 
         // Then
         StepVerifier.create(result)
@@ -487,7 +488,7 @@ class IssuanceServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(organizationIdentifier, issuanceId, false);
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.LEAR, false), issuanceId);
 
         // Then
         StepVerifier.create(result)
@@ -601,7 +602,7 @@ class IssuanceServiceImplTest {
         }
 
         // When
-        Mono<IssuanceList> mono = issuanceService.getAllIssuancesVisibleFor(adminOrg, true);
+        Mono<IssuanceList> mono = issuanceService.getAllIssuancesVisibleFor(new AuthorizationContext(adminOrg, UserRole.SYSADMIN, false));
 
         // Then
         StepVerifier.create(mono)
@@ -666,7 +667,7 @@ class IssuanceServiceImplTest {
                 .when(spyService).getAllIssuanceSummariesByOrganizationId(orgId);
 
         // When
-        Mono<IssuanceList> mono = spyService.getAllIssuancesVisibleFor(orgId, false);
+        Mono<IssuanceList> mono = spyService.getAllIssuancesVisibleFor(new AuthorizationContext(orgId, UserRole.LEAR, false));
 
         // Then
         StepVerifier.create(mono)
@@ -691,7 +692,7 @@ class IssuanceServiceImplTest {
                 .thenReturn(Flux.empty());
 
         // When
-        Mono<IssuanceList> mono = issuanceService.getAllIssuancesVisibleFor(ADMIN_ORG_ID, true);
+        Mono<IssuanceList> mono = issuanceService.getAllIssuancesVisibleFor(new AuthorizationContext(ADMIN_ORG_ID, UserRole.SYSADMIN, false));
 
         // Then
         StepVerifier.create(mono)

@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.shared.domain.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialDetails;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotificationInfo;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
@@ -23,11 +24,11 @@ public interface IssuanceService {
 
     Flux<String> getAllIssuedCredentialByOrganizationIdentifier(String organizationIdentifier);
 
-    Mono<IssuanceList> getAllIssuancesVisibleFor(String organizationIdentifier, boolean sysAdmin);
+    Mono<IssuanceList> getAllIssuancesVisibleFor(AuthorizationContext ctx);
 
     Mono<IssuanceList> getAllIssuanceSummariesByOrganizationId(String organizationIdentifier);
 
-    Mono<CredentialDetails> getIssuanceDetailByIssuanceIdAndOrganizationId(String organizationIdentifier, String issuanceId, boolean sysAdmin);
+    Mono<CredentialDetails> getIssuanceDetailByIssuanceIdAndOrganizationId(AuthorizationContext ctx, String issuanceId);
 
     Mono<Void> updateIssuanceStatusToValidByIssuanceId(String issuanceId);
 
@@ -45,9 +46,13 @@ public interface IssuanceService {
 
     Mono<Void> withdrawIssuance(String issuanceId);
 
+    Mono<Void> archiveIssuance(String issuanceId);
+
     Flux<Issuance> findIssuedReadyForActivation(Instant now);
 
     Flux<Issuance> findStaleDrafts(Instant cutoff);
 
     Mono<Issuance> updateIssuance(Issuance issuance);
+
+    Flux<Issuance> findFailedDeliveries(Instant cutoff);
 }

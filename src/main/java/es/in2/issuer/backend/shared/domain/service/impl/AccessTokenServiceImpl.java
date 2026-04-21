@@ -6,8 +6,10 @@ import com.nimbusds.jose.JWSObject;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.InvalidTokenException;
 import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
-import es.in2.issuer.backend.shared.domain.model.dto.OrgContext;
+import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
+import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
+import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +21,8 @@ import reactor.core.publisher.Mono;
 import java.time.Instant;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.BEARER_PREFIX;
+import static es.in2.issuer.backend.shared.domain.util.Constants.PLATFORM_TENANT;
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 @Service
 @Slf4j
@@ -27,6 +31,7 @@ public class AccessTokenServiceImpl implements AccessTokenService {
 
     private final ObjectMapper objectMapper;
     private final IssuerProperties appConfig;
+    private final TenantConfigService tenantConfigService;
 
     private static final String DPOP_PREFIX = "DPoP ";
 
@@ -52,23 +57,65 @@ public class AccessTokenServiceImpl implements AccessTokenService {
     }
 
     @Override
-    public Mono<OrgContext> getOrganizationContext(String authorizationHeader) {
+    public Mono<AuthorizationContext> getAuthorizationContext(String authorizationHeader) {
         String orgIdPath = appConfig.getManagementTokenOrgIdJsonPath();
-        String adminPowerFunction = appConfig.getManagementTokenAdminPowerFunction();
-        String adminPowerAction = appConfig.getManagementTokenAdminPowerAction();
 
-        return getCleanBearerToken(authorizationHeader)
-                .flatMap(token -> Mono.fromCallable(() -> {
-                    JsonNode root = parseTokenPayload(token);
-                    String orgId = resolveJsonPath(root, orgIdPath);
-                    if (orgId == null) {
-                        throw new InvalidTokenException("Organization ID not found at path: " + orgIdPath);
+        return Mono.deferContextual(ctx -> {
+            String currentTenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
+
+            return getCleanBearerToken(authorizationHeader)
+                    .flatMap(token -> Mono.fromCallable(() -> {
+                        JsonNode root = parseTokenPayload(token);
+                        String orgId = resolveJsonPath(root, orgIdPath);
+                        if (orgId == null) {
+                            throw new InvalidTokenException("Organization ID not found at path: " + orgIdPath);
+                        }
+                        return new TokenInfo(root, orgId);
+                    }).onErrorMap(e -> e instanceof InvalidTokenException ? e : new InvalidTokenException()))
+                    .flatMap(info -> resolveRole(info.root, info.orgId)
+                            .map(role -> {
+                                boolean readOnly = role == UserRole.SYSADMIN
+                                        && PLATFORM_TENANT.equals(currentTenant);
+                                return new AuthorizationContext(info.orgId, role, readOnly);
+                            }))
+                    .switchIfEmpty(Mono.error(new InvalidTokenException()));
+        });
+    }
+
+    private record TokenInfo(JsonNode root, String orgId) {}
+
+    private Mono<UserRole> resolveRole(JsonNode root, String orgId) {
+        // 1. SysAdmin: power organization/EUDISTACK/System/Administration
+        if (hasSysAdminPower(root)) {
+            return Mono.just(UserRole.SYSADMIN);
+        }
+
+        // 2. TenantAdmin: orgId == tenant.admin_organization_id + domain power
+        return tenantConfigService.getStringOrDefault("admin_organization_id", appConfig.getAdminOrganizationId())
+                .map(adminOrgId -> {
+                    if (orgId.equals(adminOrgId)
+                            && hasPowerInPayload(root,
+                                appConfig.getManagementTokenAdminPowerFunction(),
+                                appConfig.getManagementTokenAdminPowerAction())) {
+                        return UserRole.TENANT_ADMIN;
                     }
-                    boolean isSysAdmin = orgId.equals(appConfig.getAdminOrganizationId())
-                            && hasPowerInPayload(root, adminPowerFunction, adminPowerAction);
-                    return new OrgContext(orgId, isSysAdmin);
-                }).onErrorMap(e -> e instanceof InvalidTokenException ? e : new InvalidTokenException()))
-                .switchIfEmpty(Mono.error(new InvalidTokenException()));
+                    // 3. LEAR: has domain power but not admin org
+                    return UserRole.LEAR;
+                });
+    }
+
+    private boolean hasSysAdminPower(JsonNode root) {
+        JsonNode powers = root.get("power");
+        if (powers == null || !powers.isArray()) return false;
+        for (JsonNode p : powers) {
+            if ("organization".equals(p.path("type").asText(null))
+                    && "EUDISTACK".equals(p.path("domain").asText(null))
+                    && "System".equals(p.path("function").asText(null))
+                    && matchesAction(p.get("action"), "Administration")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

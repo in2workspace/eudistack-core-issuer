@@ -17,7 +17,7 @@ import java.util.UUID;
 @AllArgsConstructor
 @NoArgsConstructor
 @ToString
-@Table("issuer.issuance")
+@Table("issuance")
 public class Issuance {
     @Id
     @Column("issuance_id")
@@ -60,6 +60,10 @@ public class Issuance {
     @Column("signed_credential")
     @Nullable
     private String signedCredential;
+
+    @Column("delivery_attempted_at")
+    @Nullable
+    private Instant deliveryAttemptedAt;
 
     // --- Auditing fields (R2DBC auditing will fill these) ---
     @CreatedDate

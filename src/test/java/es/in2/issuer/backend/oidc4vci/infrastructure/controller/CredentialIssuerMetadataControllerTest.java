@@ -4,6 +4,7 @@ import es.in2.issuer.backend.oidc4vci.application.workflow.GetCredentialIssuerMe
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
+import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import org.junit.jupiter.api.Test;
@@ -43,6 +44,9 @@ class CredentialIssuerMetadataControllerTest {
 
     @MockBean
     private IssuanceMetrics issuanceMetrics;
+
+    @MockBean
+    private TenantRegistryService tenantRegistryService;
 
     @Test
     void testGetCredentialIssuer_Metadata_Success() {

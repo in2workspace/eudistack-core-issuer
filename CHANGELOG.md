@@ -6,6 +6,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.0.1]
 
+## [3.2.1] - 2026-04-21
+
+### Fixed (EUDI-065: cross-tenant TenantAdmin bypass)
+
+- **`PolicyContextFactory.resolveTenantAdmin`** now validates that an `Onboarding/Execute` power's `domain` matches the current `tenantDomain` (case-insensitive). Previously the check only compared `function` + `action`, so a KPMG-issued credential (power domain = KPMG) was promoted to TenantAdmin when logging in on the DOME tenant, granting full Credential Manager access cross-tenant. Fixes the behaviour described in EUDI-065 §1.2 that was not enforced in the login PDP. Added unit tests covering the KPMG→DOME rejection and the case-insensitive accept.
+
+## [3.2.0] - 2026-04-21
+
+### Changed (EUDI-065: Unified LEAR issuance rule)
+
+- **`RequireLearCredentialIssuanceRule`** replaces the OR-combined
+  `RequireSignerIssuanceRule` + `RequireMandatorDelegationRule`. A single
+  rule now covers `LEARCredentialEmployee` and `LEARCredentialMachine`
+  issuance with three clauses: power base (`Onboarding/Execute`),
+  escalation prevention (payload cannot delegate `Onboarding/Execute` nor
+  `Certification/Attest`), and org scope (same-org or on-behalf — the
+  latter only for TenantAdmin in `multi_org` tenants). SysAdmin keeps the
+  full bypass.
+- **`ProductOffering` removed as issuance gate.** It remains a valid
+  delegable power that can appear in emitted credentials. The
+  `delegation_function` field in `issuance_policy` is no longer read.
+- **`PolicyContext.tenantType`** added (`simple` | `multi_org` |
+  `platform`); `TenantRegistryService.getTenantType()` resolves it from
+  `public.tenant_registry`.
+- **`IssuancePdpServiceImpl`** dispatcher simplified: each profile now
+  declares exactly one rule name. `PolicyEnforcer` OR-combination is no
+  longer used for issuance.
+
+See **ADR-002** (`docs/_shared/architecture/adr/adr-002-pdp-issuance-rules.md`
+in `eudistack-platform-dev`) for rationale and full rule semantics.
+
+### Removed (EUDI-065)
+
+- `RequireSignerIssuanceRule` + its test — semantics folded into the
+  unified rule with SysAdmin bypass.
+- `RequireMandatorDelegationRule` — superseded by the org-scope clause
+  of the unified rule.
+
+## [3.1.0] - 2026-04-20
+
+### Changed (EUDI-064: bootstrap is now cross-tenant)
+
+- `POST /api/v1/bootstrap` requires a top-level `tenant` field in the
+  request body. The bootstrap flow is administrative and
+  cross-tenant: the caller declares the destination tenant explicitly
+  instead of relying on hostname or `X-Tenant-Domain` header.
+  `TenantDomainWebFilter` now bypasses `/api/v1/bootstrap`. Breaking
+  change for direct callers; all in-tree scripts are updated in the
+  `eudistack-platform-dev` repo in a sibling commit.
+
+### Added (EUDI-065: Three-role authorization model)
+
+- **`UserRole` enum and `AuthorizationContext` record** replacing `OrgContext` with explicit role (SYSADMIN, TENANT_ADMIN, LEAR) and `readOnly` flag.
+- **SysAdmin detection via power** `organization/EUDISTACK/System/Administration` (no longer via `orgId == ADMIN_ORGANIZATION_ID`).
+- **Platform tenant read-only view** — SysAdmin operating from `platform` tenant sees cross-tenant issuances with `tenant` field in DTO but cannot create/revoke/withdraw.
+- **SysAdmin ↔ TenantAdmin equivalence** outside `platform` — from any other tenant, SysAdmin has same permissions as TenantAdmin (can write).
+- **TenantAdmin role** — `organizationId == tenant.admin_organization_id` + domain power. Sees all issuances of the tenant, can create "on behalf", withdraw, revoke.
+- **`admin_organization_id` per-tenant** in `tenant_config` table (seeded via Flyway V1).
+- **`RequireOrganizationRule` bypass for TenantAdmin** — in addition to SysAdmin.
+- **Withdraw authorization** — `canWrite()` check for platform tenant; ownership check for LEAR (only own org).
+- **Flyway migration consolidation** — V1+V2+V3 merged into single `V1__Tenant_schema.sql` with `admin_organization_id` seed.
+
+### Fixed (EUDI-064: AWS deployment readiness)
+
+- **`TenantDomainWebFilter` hostname fallback** — When `X-Tenant-Domain` header is absent (AWS CloudFront + ALB path, no nginx to inject it), the tenant is now extracted from the first subdomain segment of the request host (e.g. `kpmg.eudistack.net` → `kpmg`). Header wins when both are present. Malformed identifiers return 400; unknown tenants continue to return 404; requests without a usable host still pass through for healthchecks. `RequireTenantMatchRule` error message updated accordingly.
+- **`spring.webflux.base-path` re-enabled** (default `/issuer`, env `APP_CONTEXT_PATH`). Spring now mounts all WebFlux handlers under `/issuer` and `IssuerBaseUrlWebFilter` reads the same property to build public URLs — single source of truth. The previous R2DBC context-propagation regression is no longer reproducible; `reactor.context-propagation: auto` is sufficient. Unblocks AWS ALB + CloudFront deployments that do not inject `X-Forwarded-Prefix` and also removes the dependency on nginx prefix-strip in local dev.
+- **MDC propagation across Reactor operators** — `tenantDomain` is now bridged from the Reactor subscriber context to SLF4J MDC via `Hooks.enableAutomaticContextPropagation()` plus a `ThreadLocalAccessor` registered in `MdcContextConfig`. The logback pattern `%X{tenantDomain:-}` now renders the tenant on every log line inside a reactive chain.
+
+### Fixed (EUDI-064: Multi-tenant URL resolution)
+
+- **`IssuerBaseUrlWebFilter`** reads context path from `ForwardedHeaderTransformer` instead of `X-Forwarded-Prefix` header (Spring WebFlux strips forwarded headers after processing).
+- **`ParController` / `TokenController`** use `pathWithinApplication()` to avoid double `/issuer/issuer/` prefix in DPoP `htu` validation.
+
+### Deprecated
+
+- **`ADMIN_ORGANIZATION_ID` global env var** — Replaced by `tenant_config.admin_organization_id` per-tenant. Kept as fallback during migration.
+
 ### Changed
 
 - **EUDI-013:** Migrate W3C credential JWT encoding to VCDM v2.0 (VC-JOSE-COSE)

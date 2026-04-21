@@ -4,13 +4,16 @@ import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.util.Constants;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
+import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
@@ -31,6 +34,9 @@ class CredentialIssuerMetadataServiceImplTest {
     @Mock
     private CredentialProfileRegistry credentialProfileRegistry;
 
+    @Mock
+    private TenantCredentialProfileService tenantCredentialProfileService;
+
     @Test
     void getCredentialIssuerMetadata_withDynamicUrl_returnsMetadataWithDynamicUrl() {
         // Given
@@ -48,8 +54,10 @@ class CredentialIssuerMetadataServiceImplTest {
                 .build();
 
         when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of("learcredential.employee.w3c.4", learProfile));
+        // Empty set means all profiles are allowed (backward compat per the interface contract)
+        when(tenantCredentialProfileService.getEnabledConfigurationIds()).thenReturn(Mono.just(Collections.emptySet()));
 
-        var service = new CredentialIssuerMetadataServiceImpl(appConfig, credentialProfileRegistry);
+        var service = new CredentialIssuerMetadataServiceImpl(appConfig, credentialProfileRegistry, tenantCredentialProfileService);
 
         // When & Then
         StepVerifier.create(
@@ -85,8 +93,10 @@ class CredentialIssuerMetadataServiceImplTest {
                 .build();
 
         when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of("learcredential.employee.w3c.4", learProfile));
+        // Empty set means all profiles are allowed (backward compat per the interface contract)
+        when(tenantCredentialProfileService.getEnabledConfigurationIds()).thenReturn(Mono.just(Collections.emptySet()));
 
-        var service = new CredentialIssuerMetadataServiceImpl(appConfig, credentialProfileRegistry);
+        var service = new CredentialIssuerMetadataServiceImpl(appConfig, credentialProfileRegistry, tenantCredentialProfileService);
 
         // When & Then
         StepVerifier.create(service.getCredentialIssuerMetadata())

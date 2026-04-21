@@ -6,8 +6,6 @@ import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionExcep
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
-import es.in2.issuer.backend.shared.domain.policy.PolicyEnforcer;
-import es.in2.issuer.backend.shared.domain.policy.PolicyRule;
 import es.in2.issuer.backend.shared.domain.policy.rules.*;
 import es.in2.issuer.backend.shared.domain.policy.service.IssuancePdpService;
 import es.in2.issuer.backend.shared.domain.util.DynamicCredentialParser;
@@ -20,7 +18,6 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
@@ -31,9 +28,9 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 public class IssuancePdpServiceImpl implements IssuancePdpService {
 
     private final PolicyContextFactory policyContextFactory;
-    private final PolicyEnforcer policyEnforcer;
     private final ObjectMapper objectMapper;
     private final RequireCertificationIssuanceRule requireCertificationIssuanceRule;
+    private final RequireCredentialProfileAllowedForTenantRule requireCredentialProfileAllowedForTenantRule;
     private final CredentialProfileRegistry credentialProfileRegistry;
     private final DynamicCredentialParser credentialParser;
     private final AuditService auditService;
@@ -53,6 +50,7 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
             return getTokenFromSecurityContext()
                     .flatMap(token -> policyContextFactory.fromTokenForIssuance(token, credentialConfigurationId, tenantDomain))
                     .flatMap(ctx -> new RequireTenantMatchRule().evaluate(ctx, payload).thenReturn(ctx))
+                    .flatMap(ctx -> requireCredentialProfileAllowedForTenantRule.evaluate(ctx, credentialConfigurationId).thenReturn(ctx))
                     .flatMap(ctx -> {
                         Mono<Void> decision = evaluateIssuancePolicy(profile, ctx, payload, idToken);
                         return decision
@@ -64,7 +62,6 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
         });
     }
 
-    @SuppressWarnings("unchecked")
     private Mono<Void> evaluateIssuancePolicy(CredentialProfile profile, es.in2.issuer.backend.shared.domain.policy.PolicyContext ctx, JsonNode payload, String idToken) {
         CredentialProfile.IssuancePolicy issuancePolicy = profile.issuancePolicy();
         if (issuancePolicy == null || issuancePolicy.rules() == null || issuancePolicy.rules().isEmpty()) {
@@ -72,24 +69,22 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
                     "Unauthorized: No issuance policy defined for " + profile.credentialConfigurationId()));
         }
 
-        List<PolicyRule<JsonNode>> rules = new ArrayList<>();
-        for (String ruleName : issuancePolicy.rules()) {
-            switch (ruleName) {
-                case "RequireSignerIssuance" -> rules.add(new RequireSignerIssuanceRule());
-                case "RequireMandatorDelegation" -> {
-                    String delegationFunction = issuancePolicy.delegationFunction();
-                    rules.add(new RequireMandatorDelegationRule(delegationFunction, objectMapper, credentialParser));
-                }
-                case "RequireCertificationIssuance" ->
-                    // This rule uses String (idToken) as target, not JsonNode — evaluate it separately
-                    { return requireCertificationIssuanceRule.evaluate(ctx, idToken); }
-                default -> { return Mono.error(new InsufficientPermissionException(
-                        "Unauthorized: Unknown policy rule: " + ruleName)); }
-            }
+        List<String> ruleNames = issuancePolicy.rules();
+        if (ruleNames.size() != 1) {
+            return Mono.error(new InsufficientPermissionException(
+                    "Unauthorized: issuance_policy.rules must contain exactly one rule (got "
+                            + ruleNames.size() + ") for " + profile.credentialConfigurationId()));
         }
 
-        String failureMessage = "Unauthorized: " + profile.credentialConfigurationId() + " does not meet any issuance policies.";
-        return policyEnforcer.enforceAny(ctx, payload, failureMessage, rules.toArray(new PolicyRule[0]));
+        String ruleName = ruleNames.get(0);
+        return switch (ruleName) {
+            case "RequireLearCredentialIssuance" ->
+                    new RequireLearCredentialIssuanceRule(objectMapper, credentialParser).evaluate(ctx, payload);
+            case "RequireCertificationIssuance" ->
+                    requireCertificationIssuanceRule.evaluate(ctx, idToken);
+            default -> Mono.error(new InsufficientPermissionException(
+                    "Unauthorized: Unknown policy rule: " + ruleName));
+        };
     }
 
     private Mono<String> getTokenFromSecurityContext() {

@@ -10,7 +10,6 @@ public interface IssuerProperties {
     String getDefaultLang();
     String getAdminOrganizationId();
     String getSysTenant();
-    String getCredentialSubjectDidKey();
     String getManagementTokenOrgIdJsonPath();
     String getManagementTokenAdminPowerFunction();
     String getManagementTokenAdminPowerAction();

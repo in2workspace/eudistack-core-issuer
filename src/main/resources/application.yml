@@ -15,6 +15,12 @@ spring:
     max-in-memory-size: ${SPRING_CODEC_MAX_IN_MEMORY_SIZE:256KB}
   reactor:
     context-propagation: auto
+  # Mounts all WebFlux handlers under this prefix AND is read by
+  # IssuerBaseUrlWebFilter to build public URLs (single source of truth).
+  # AWS ALB + CloudFront do not inject X-Forwarded-Prefix, so we rely on
+  # this property instead. Override via APP_CONTEXT_PATH.
+  webflux:
+    base-path: ${APP_CONTEXT_PATH:/issuer}
   r2dbc:
     url: ${SPRING_R2DBC_URL:r2dbc:postgresql://localhost:5432/issuer}
     username: ${SPRING_R2DBC_USERNAME}
@@ -22,7 +28,7 @@ spring:
   flyway:
     url: ${SPRING_FLYWAY_URL:jdbc:postgresql://localhost:5432/issuer}
     locations: classpath:db/migration
-    default-schema: ${SPRING_FLYWAY_DEFAULT_SCHEMA:issuer}
+    default-schema: ${SPRING_FLYWAY_DEFAULT_SCHEMA:public}
   mail:
     host: ${SMTP_HOST:localhost}
     port: ${SMTP_PORT:587}
@@ -39,7 +45,7 @@ spring:
 # Logging
 logging:
   pattern:
-    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
+    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-},%X{tenantDomain:-}]"
   level:
     org.springframework.security: ${LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY:INFO}
     es.in2.issuer: ${LOGGING_LEVEL_ES_IN2_ISSUER:INFO}
@@ -127,7 +133,6 @@ app:
 
 # Issuer Identity
 issuer-identity:
-  credential-subject-did-key: ${ISSUER_IDENTITY_CREDENTIAL_SUBJECT_DID_KEY:did:key:z6MkqmaCT2JqdUtLeKah7tEVfNXtDXtQyj4yxEgV11Y5CqUa}
   crypto:
     private-key: ${ISSUER_IDENTITY_CRYPTO_PRIVATE_KEY:}
 
@@ -171,3 +176,5 @@ wallet-provider-trust:
 issuance:
   draft-max-age-days: ${ISSUANCE_DRAFT_MAX_AGE_DAYS:30}
   cleanup-cron: ${ISSUANCE_CLEANUP_CRON:0 0 2 * * *}
+  delivery-timeout-minutes: ${ISSUANCE_DELIVERY_TIMEOUT_MINUTES:60}
+  delivery-timeout-cron: ${ISSUANCE_DELIVERY_TIMEOUT_CRON:0 */5 * * * ?}

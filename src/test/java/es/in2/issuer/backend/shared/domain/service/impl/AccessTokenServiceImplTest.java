@@ -10,8 +10,10 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.InvalidTokenException;
 import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
-import es.in2.issuer.backend.shared.domain.model.dto.OrgContext;
+import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
+import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
+import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -33,6 +35,7 @@ import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class AccessTokenServiceImplTest {
@@ -43,6 +46,8 @@ class AccessTokenServiceImplTest {
     private ObjectMapper mockObjectMapper;
     @Mock
     private IssuerProperties mockAppConfig;
+    @Mock
+    private TenantConfigService mockTenantConfigService;
     @InjectMocks
     private AccessTokenServiceImpl accessTokenServiceImpl;
 
@@ -327,80 +332,114 @@ class AccessTokenServiceImplTest {
         }
     }
 
+    // --- getAuthorizationContext tests ---
+
     @Test
-    void testGetOrganizationContext_AdminOrgWithOnboardingPower() throws JsonProcessingException {
-        String validJwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25JZGVudGlmaWVyIjoib3JnMTIzIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
-        String adminOrgId = "ADMIN_ORG_123";
-        String jwtPayload = "{\"mandator\":{\"organizationIdentifier\":\"" + adminOrgId + "\"},\"power\":[{\"function\":\"Onboarding\",\"action\":\"Execute\"}]}";
+    void testGetAuthorizationContext_SysAdmin_detected_by_organization_power() throws JsonProcessingException {
+        String token = "eyJhbGciOiJIUzI1NiJ9.e30.ZRrHA1JJJW8opB1Qfp7QDl4Ig";
+        String orgId = "VATES-A15456585";
+        String jwtPayload = "{\"mandator\":{\"organizationIdentifier\":\"" + orgId + "\"},"
+                + "\"power\":[{\"type\":\"organization\",\"domain\":\"EUDISTACK\",\"function\":\"System\",\"action\":[\"Administration\"]}]}";
 
         try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
             mockedJwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(mockSignedJwt);
             when(mockSignedJwt.getPayload()).thenReturn(new Payload(jwtPayload));
-            ObjectMapper realObjectMapper = new ObjectMapper();
-            JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
-            when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
+            when(mockObjectMapper.readTree(jwtPayload)).thenReturn(new ObjectMapper().readTree(jwtPayload));
             when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
-            when(mockAppConfig.getManagementTokenAdminPowerFunction()).thenReturn("Onboarding");
-            when(mockAppConfig.getManagementTokenAdminPowerAction()).thenReturn("Execute");
-            when(mockAppConfig.getAdminOrganizationId()).thenReturn(adminOrgId);
 
-            Mono<OrgContext> result = accessTokenServiceImpl.getOrganizationContext("Bearer " + validJwtToken);
+            Mono<AuthorizationContext> result = accessTokenServiceImpl.getAuthorizationContext("Bearer " + token)
+                    .contextWrite(ctx -> ctx.put("tenantDomain", "sandbox"));
 
             StepVerifier.create(result)
                     .expectNextMatches(ctx ->
-                            ctx.organizationIdentifier().equals(adminOrgId) && ctx.sysAdmin())
+                            ctx.role() == UserRole.SYSADMIN
+                            && ctx.organizationIdentifier().equals(orgId)
+                            && !ctx.readOnly())
                     .verifyComplete();
         }
     }
 
     @Test
-    void testGetOrganizationContext_AdminOrgWithoutOnboardingPower_notSysAdmin() throws JsonProcessingException {
-        String validJwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25JZGVudGlmaWVyIjoib3JnMTIzIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
-        String adminOrgId = "ADMIN_ORG_123";
-        String jwtPayload = "{\"mandator\":{\"organizationIdentifier\":\"" + adminOrgId + "\"},\"power\":[{\"function\":\"ProductOffering\",\"action\":\"Execute\"}]}";
+    void testGetAuthorizationContext_SysAdmin_readOnly_from_platform() throws JsonProcessingException {
+        String token = "eyJhbGciOiJIUzI1NiJ9.e30.ZRrHA1JJJW8opB1Qfp7QDl4Ig";
+        String jwtPayload = "{\"mandator\":{\"organizationIdentifier\":\"VATES-A15456585\"},"
+                + "\"power\":[{\"type\":\"organization\",\"domain\":\"EUDISTACK\",\"function\":\"System\",\"action\":[\"Administration\"]}]}";
 
         try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
             mockedJwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(mockSignedJwt);
             when(mockSignedJwt.getPayload()).thenReturn(new Payload(jwtPayload));
-            ObjectMapper realObjectMapper = new ObjectMapper();
-            JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
-            when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
+            when(mockObjectMapper.readTree(jwtPayload)).thenReturn(new ObjectMapper().readTree(jwtPayload));
             when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
-            when(mockAppConfig.getManagementTokenAdminPowerFunction()).thenReturn("Onboarding");
-            when(mockAppConfig.getManagementTokenAdminPowerAction()).thenReturn("Execute");
-            when(mockAppConfig.getAdminOrganizationId()).thenReturn(adminOrgId);
 
-            Mono<OrgContext> result = accessTokenServiceImpl.getOrganizationContext("Bearer " + validJwtToken);
+            Mono<AuthorizationContext> result = accessTokenServiceImpl.getAuthorizationContext("Bearer " + token)
+                    .contextWrite(ctx -> ctx.put("tenantDomain", "platform"));
 
             StepVerifier.create(result)
                     .expectNextMatches(ctx ->
-                            ctx.organizationIdentifier().equals(adminOrgId) && !ctx.sysAdmin())
+                            ctx.role() == UserRole.SYSADMIN
+                            && ctx.readOnly()
+                            && !ctx.canWrite())
                     .verifyComplete();
         }
     }
 
     @Test
-    void testGetOrganizationContext_RegularOrg() throws JsonProcessingException {
-        String validJwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25JZGVudGlmaWVyIjoib3JnMTIzIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
-        String orgId = "org123";
-        String jwtPayload = "{\"mandator\":{\"organizationIdentifier\":\"" + orgId + "\"},\"power\":[{\"function\":\"Onboarding\",\"action\":\"Execute\"}]}";
+    void testGetAuthorizationContext_TenantAdmin_detected_by_adminOrgId() throws JsonProcessingException {
+        String token = "eyJhbGciOiJIUzI1NiJ9.e30.ZRrHA1JJJW8opB1Qfp7QDl4Ig";
+        String adminOrgId = "ADMIN_ORG_123";
+        String jwtPayload = "{\"mandator\":{\"organizationIdentifier\":\"" + adminOrgId + "\"},"
+                + "\"power\":[{\"type\":\"domain\",\"domain\":\"DOME\",\"function\":\"Onboarding\",\"action\":[\"Execute\"]}]}";
 
         try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
             mockedJwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(mockSignedJwt);
             when(mockSignedJwt.getPayload()).thenReturn(new Payload(jwtPayload));
-            ObjectMapper realObjectMapper = new ObjectMapper();
-            JsonNode vcJsonNode = realObjectMapper.readTree(jwtPayload);
-            when(mockObjectMapper.readTree(jwtPayload)).thenReturn(vcJsonNode);
+            when(mockObjectMapper.readTree(jwtPayload)).thenReturn(new ObjectMapper().readTree(jwtPayload));
             when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
             when(mockAppConfig.getManagementTokenAdminPowerFunction()).thenReturn("Onboarding");
             when(mockAppConfig.getManagementTokenAdminPowerAction()).thenReturn("Execute");
+            when(mockAppConfig.getAdminOrganizationId()).thenReturn(adminOrgId);
+            when(mockTenantConfigService.getStringOrDefault("admin_organization_id", adminOrgId))
+                    .thenReturn(Mono.just(adminOrgId));
+
+            Mono<AuthorizationContext> result = accessTokenServiceImpl.getAuthorizationContext("Bearer " + token)
+                    .contextWrite(ctx -> ctx.put("tenantDomain", "dome"));
+
+            StepVerifier.create(result)
+                    .expectNextMatches(ctx ->
+                            ctx.role() == UserRole.TENANT_ADMIN
+                            && ctx.isTenantAdmin()
+                            && ctx.canWrite())
+                    .verifyComplete();
+        }
+    }
+
+    @Test
+    void testGetAuthorizationContext_LEAR_regularOrg() throws JsonProcessingException {
+        String token = "eyJhbGciOiJIUzI1NiJ9.e30.ZRrHA1JJJW8opB1Qfp7QDl4Ig";
+        String orgId = "ACME-001";
+        String jwtPayload = "{\"mandator\":{\"organizationIdentifier\":\"" + orgId + "\"},"
+                + "\"power\":[{\"type\":\"domain\",\"domain\":\"DOME\",\"function\":\"Onboarding\",\"action\":[\"Execute\"]}]}";
+
+        try (MockedStatic<SignedJWT> mockedJwtStatic = mockStatic(SignedJWT.class)) {
+            mockedJwtStatic.when(() -> SignedJWT.parse(anyString())).thenReturn(mockSignedJwt);
+            when(mockSignedJwt.getPayload()).thenReturn(new Payload(jwtPayload));
+            when(mockObjectMapper.readTree(jwtPayload)).thenReturn(new ObjectMapper().readTree(jwtPayload));
+            when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
+            lenient().when(mockAppConfig.getManagementTokenAdminPowerFunction()).thenReturn("Onboarding");
+            lenient().when(mockAppConfig.getManagementTokenAdminPowerAction()).thenReturn("Execute");
             when(mockAppConfig.getAdminOrganizationId()).thenReturn("ADMIN_ORG_123");
+            when(mockTenantConfigService.getStringOrDefault("admin_organization_id", "ADMIN_ORG_123"))
+                    .thenReturn(Mono.just("ADMIN_ORG_123"));
 
-            Mono<OrgContext> result = accessTokenServiceImpl.getOrganizationContext("Bearer " + validJwtToken);
+            Mono<AuthorizationContext> result = accessTokenServiceImpl.getAuthorizationContext("Bearer " + token)
+                    .contextWrite(ctx -> ctx.put("tenantDomain", "dome"));
 
             StepVerifier.create(result)
                     .expectNextMatches(ctx ->
-                            ctx.organizationIdentifier().equals(orgId) && !ctx.sysAdmin())
+                            ctx.role() == UserRole.LEAR
+                            && !ctx.isSysAdmin()
+                            && !ctx.isTenantAdmin()
+                            && ctx.canWrite())
                     .verifyComplete();
         }
     }
