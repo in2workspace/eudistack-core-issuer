@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.shared.infrastructure.adapter.email;
 
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
+import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.service.TranslationService;
 import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,6 +13,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
+import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -24,6 +26,7 @@ class EmailServiceImplTest {
 
     @Mock private JavaMailSender javaMailSender;
     @Mock private TemplateEngine templateEngine;
+    @Mock private TenantConfigService tenantConfigService;
     @Mock private TranslationService translationService;
 
     private EmailServiceImpl emailService;
@@ -31,8 +34,10 @@ class EmailServiceImplTest {
     @BeforeEach
     void setUpLenient() {
         emailService = new EmailServiceImpl(
-                javaMailSender, templateEngine, "noreply@example.com", translationService
+                javaMailSender, templateEngine, tenantConfigService, translationService
         );
+        lenient().when(tenantConfigService.getStringOrThrow("issuer.mail_from"))
+                .thenReturn(Mono.just("noreply@example.com"));
         lenient().when(translationService.getLocale()).thenReturn("en");
         lenient().when(translationService.translate(any(String.class)))
                 .thenAnswer(inv -> inv.getArgument(0));

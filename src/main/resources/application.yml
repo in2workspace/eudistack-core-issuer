@@ -120,7 +120,7 @@ app:
   verifier-internal-url: ${APP_VERIFIER_INTERNAL_URL:}
   cors:
     origins-path: ${APP_CORS_ORIGINS_PATH:}
-  mail-from: ${APP_MAIL_FROM:noreply@mail-stg.altia.eudistack.net}
+  # mail-from removed — now per-tenant via tenant_config.issuer.mail_from
   default-lang: ${APP_DEFAULT_LANG:en}
   sys-tenant: ${APP_SYS_TENANT:SYSTEM}
   management-token:

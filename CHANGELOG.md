@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.1] - 2026-04-22
+
+### Changed (EUDI-065 — `APP_MAIL_FROM` per-tenant)
+
+- **`EmailServiceImpl`** now resolves the transactional email sender via `TenantConfigService.getStringOrThrow("issuer.mail_from")` inside each public method, so every tenant can send from its own address once SES has it verified. Public `EmailService` API unchanged.
+- **`app.mail-from`** removed from `application.yml`; **`APP_MAIL_FROM`** removed from `docker/docker-compose.yml`.
+- **Flyway V3 per-tenant migration** (`V3__Seed_mail_from_placeholder.sql`) seeds a `issuer.mail_from` placeholder so existing environments don't fail on `getStringOrThrow` before the real seed runs.
+- **`EmailServiceImpl.sendTxCodeNotification`** now logs the original exception before mapping to `EmailCommunicationException` (the previous `onErrorMap` lambda swallowed the cause).
+
+### Tests
+
+- Updated `EmailServiceImplTest` to inject a mocked `TenantConfigService` returning the test mail_from.
+- Sibling change in `eudistack-platform-dev`: `seed-tenants[.stg].sql` seeds `issuer.mail_from` for all 4 tenants (`noreply@mail-stg.eudistack.net`).
+
 ## [3.4.0] - 2026-04-22
 
 ### Changed (EUDI-025 US-09 — QTSP signing 100% per-tenant)
