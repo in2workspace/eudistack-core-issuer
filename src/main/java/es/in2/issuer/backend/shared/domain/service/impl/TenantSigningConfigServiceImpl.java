@@ -6,7 +6,6 @@ import es.in2.issuer.backend.shared.domain.model.entities.TenantSigningConfig;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.shared.infrastructure.repository.TenantSigningConfigRepository;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
-import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
@@ -22,20 +21,11 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
     private static final Duration CACHE_TTL = Duration.ofMinutes(5);
 
     private final TenantSigningConfigRepository repository;
-    private final RuntimeSigningConfig globalDefault;
     private final Cache<String, RemoteSignatureDto> signatureCache;
-    private final Cache<String, String> providerCache;
 
-    public TenantSigningConfigServiceImpl(
-            TenantSigningConfigRepository repository,
-            RuntimeSigningConfig globalDefault) {
+    public TenantSigningConfigServiceImpl(TenantSigningConfigRepository repository) {
         this.repository = repository;
-        this.globalDefault = globalDefault;
         this.signatureCache = Caffeine.newBuilder()
-                .expireAfterWrite(CACHE_TTL)
-                .maximumSize(50)
-                .build();
-        this.providerCache = Caffeine.newBuilder()
                 .expireAfterWrite(CACHE_TTL)
                 .maximumSize(50)
                 .build();
@@ -56,29 +46,7 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
                     .doOnNext(dto -> {
                         signatureCache.put(tenant, dto);
                         log.debug("Loaded tenant signing config for '{}': provider at {}", tenant, dto.url());
-                    })
-                    .switchIfEmpty(Mono.defer(() -> {
-                        log.debug("No signing config for tenant '{}', using global default", tenant);
-                        RemoteSignatureDto defaultDto = globalDefault.getRemoteSignature();
-                        return defaultDto != null ? Mono.just(defaultDto) : Mono.empty();
-                    }));
-        });
-    }
-
-    @Override
-    public Mono<String> getProvider() {
-        return Mono.deferContextual(ctx -> {
-            String tenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "unknown");
-
-            String cached = providerCache.getIfPresent(tenant);
-            if (cached != null) {
-                return Mono.just(cached);
-            }
-
-            return repository.findFirstByOrderByCreatedAtDesc()
-                    .map(TenantSigningConfig::provider)
-                    .doOnNext(provider -> providerCache.put(tenant, provider))
-                    .switchIfEmpty(Mono.just(globalDefault.getProvider()));
+                    });
         });
     }
 

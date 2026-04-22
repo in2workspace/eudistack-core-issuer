@@ -46,9 +46,7 @@ public class SecurityConfig {
                         OID4VCI_CREDENTIAL_PATH,
                         OID4VCI_NOTIFICATION_PATH,
                         // Other authenticated paths
-                        STATUS_LIST_PATH,
-                        SIGNING_PROVIDERS_PATH,
-                        SIGNING_CONFIG_PATH)
+                        STATUS_LIST_PATH)
         );
 
         authenticationWebFilter.setServerAuthenticationConverter(new DualTokenServerAuthenticationConverter());
@@ -100,8 +98,6 @@ public class SecurityConfig {
                         // Other paths
                         STATUS_LIST_PATH,
                         TOKEN_STATUS_LIST_PATH,
-                        SIGNING_PROVIDERS_PATH,
-                        SIGNING_CONFIG_PATH,
                         HEALTH_PATH,
                         PROMETHEUS_PATH,
                         SPRINGDOC_PATH
@@ -140,7 +136,6 @@ public class SecurityConfig {
                         .pathMatchers(HttpMethod.POST, OID4VCI_PAR_PATH).permitAll()
                         .pathMatchers(HttpMethod.GET, OID4VCI_AUTHORIZE_PATH).permitAll()
                         .pathMatchers(HttpMethod.POST, OID4VCI_NONCE_PATH).permitAll()
-                        // SEC-01: /internal/signing/** requires authentication (removed permitAll)
                         // Authenticated endpoints (all go through CustomAuthenticationManager)
                         .anyExchange().authenticated()
                 )

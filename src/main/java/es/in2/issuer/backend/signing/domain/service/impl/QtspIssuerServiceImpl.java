@@ -15,7 +15,6 @@ import es.in2.issuer.backend.signing.domain.model.dto.CacheEntry;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
-import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,7 +47,6 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
 
     private final ObjectMapper objectMapper;
     private final QtspAuthPort qtspAuthClient;
-    private final RuntimeSigningConfig runtimeSigningConfig;
     private final ConcurrentMap<String, CacheEntry> certificateInfoCache= new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Mono<String>> certificateInfoInFlight = new ConcurrentHashMap<>();
     private final HttpUtils httpUtils;
@@ -64,16 +62,15 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
     private static final String SERIALIZING_ERROR = "Error serializing request body to JSON";
 
 
-    private RemoteSignatureDto remoteCfgRequired() {
-        RemoteSignatureDto cfg = runtimeSigningConfig.getRemoteSignature();
+    private static void requireCfg(RemoteSignatureDto cfg) {
         if (cfg == null) {
-            throw new IllegalStateException("Remote signature config not pushed (runtimeSigningConfig.remoteSignature is null)");
+            throw new IllegalStateException(
+                    "RemoteSignatureDto is null — tenant QTSP config must be resolved " +
+                    "from tenant_signing_config before calling QtspIssuerService.");
         }
-        return cfg;
     }
 
-    private Duration certificateInfoCacheTtl() {
-        RemoteSignatureDto cfg = remoteCfgRequired();
+    private static Duration certificateInfoCacheTtl(RemoteSignatureDto cfg) {
         if (cfg.certificateInfoCacheTtl() == null || cfg.certificateInfoCacheTtl().isBlank()) {
             return Duration.ofMinutes(10);
         }
@@ -81,14 +78,16 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
     }
 
     @Override
-    public Mono<Boolean> validateCredentials() {
-        SigningRequest signatureRequest = SigningRequest.builder().build();
+    public Mono<Boolean> validateCredentials(RemoteSignatureDto cfg) {
+        requireCfg(cfg);
+        SigningRequest signatureRequest = SigningRequest.builder().remoteSignature(cfg).build();
         return qtspAuthClient.requestAccessToken(signatureRequest, SIGNATURE_REMOTE_SCOPE_SERVICE)
-                .flatMap(this::validateCertificate);
+                .flatMap(accessToken -> validateCertificate(cfg, accessToken));
     }
 
     @Override
-    public Mono<String> requestCertificateInfo(String accessToken, String credentialID) {
+    public Mono<String> requestCertificateInfo(RemoteSignatureDto cfg, String accessToken, String credentialID) {
+        requireCfg(cfg);
         CacheEntry cached = certificateInfoCache.get(credentialID);
         if (cached != null && cached.expiresAt().isAfter(Instant.now())) {
             return Mono.just(cached.value());
@@ -100,9 +99,9 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
         }
 
         Mono<String> refreshMono =
-                fetchCertificateInfoFromQtsp(accessToken, credentialID)
+                fetchCertificateInfoFromQtsp(cfg, accessToken, credentialID)
                         .doOnNext(body -> {
-                            Instant expiresAt = Instant.now().plus(certificateInfoCacheTtl());
+                            Instant expiresAt = Instant.now().plus(certificateInfoCacheTtl(cfg));
                             certificateInfoCache.put(credentialID, new CacheEntry(body, expiresAt));
                         })
                         .doFinally(ignored -> certificateInfoInFlight.remove(credentialID))
@@ -112,8 +111,7 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
         return winner != null ? winner : refreshMono;
     }
 
-    private Mono<String> fetchCertificateInfoFromQtsp(String accessToken, String credentialID) {
-        RemoteSignatureDto cfg = remoteCfgRequired();
+    private Mono<String> fetchCertificateInfoFromQtsp(RemoteSignatureDto cfg, String accessToken, String credentialID) {
         String credentialsInfoEndpoint = cfg.url() + INFO_PATH;
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put(CREDENTIAL_ID, credentialID);
@@ -201,25 +199,21 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
     }
 
     @Override
-    public Mono<DetailedIssuer> resolveRemoteDetailedIssuer() {
-        return validateCredentials()
+    public Mono<DetailedIssuer> resolveRemoteDetailedIssuer(RemoteSignatureDto cfg) {
+        requireCfg(cfg);
+        return validateCredentials(cfg)
                 .flatMap(valid -> {
                     if (Boolean.FALSE.equals(valid)) {
                         return Mono.error(new RemoteSignatureException("Credentials mismatch."));
                     }
-                    return qtspAuthClient.requestAccessToken(null, SIGNATURE_REMOTE_SCOPE_SERVICE)
-                            .flatMap(token -> requestCertificateInfo(token, getCredentialId()))
+                    SigningRequest req = SigningRequest.builder().remoteSignature(cfg).build();
+                    return qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_SERVICE)
+                            .flatMap(token -> requestCertificateInfo(cfg, token, cfg.credentialId()))
                             .flatMap(this::extractIssuerFromCertificateInfo);
                 });
     }
 
-    @Override
-    public String getCredentialId() {
-        return remoteCfgRequired().credentialId();
-    }
-
-    private Mono<Boolean> validateCertificate(String accessToken) {
-        RemoteSignatureDto cfg = remoteCfgRequired();
+    private Mono<Boolean> validateCertificate(RemoteSignatureDto cfg, String accessToken) {
         String credentialID = cfg.credentialId();
         String credentialListEndpoint = cfg.url() + LIST_PATH;
 

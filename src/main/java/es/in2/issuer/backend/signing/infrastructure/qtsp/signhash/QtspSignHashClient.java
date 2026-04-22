@@ -9,7 +9,6 @@ import es.in2.issuer.backend.signing.domain.spi.QtspSignHashPort;
 import es.in2.issuer.backend.signing.domain.model.dto.CscAuthorizeResponse;
 import es.in2.issuer.backend.signing.domain.model.dto.CscSignHashResponse;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
-import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -29,22 +28,22 @@ import static es.in2.issuer.backend.signing.domain.util.PathConstants.SIGN_HASH_
 public class QtspSignHashClient implements QtspSignHashPort {
 
     private final ObjectMapper objectMapper;
-    private final RuntimeSigningConfig runtimeSigningConfig;
     private final HttpUtils httpUtils;
 
-    private RemoteSignatureDto remoteCfgRequired() {
-        RemoteSignatureDto cfg = runtimeSigningConfig.getRemoteSignature();
+    private static void requireCfg(RemoteSignatureDto cfg) {
         if (cfg == null) {
-            throw new IllegalStateException("Remote signature config not pushed (runtimeSigningConfig.remoteSignature is null)");
+            throw new IllegalStateException(
+                    "RemoteSignatureDto is null — tenant QTSP config must be resolved " +
+                    "from tenant_signing_config before calling QtspSignHashClient.");
         }
-        return cfg;
     }
 
     /**
      * CSC v2: credentials/authorize for signHash.
      */
-    public Mono<String> authorizeForHash(String accessToken, String hashB64Url, String hashAlgoOid) {
-        RemoteSignatureDto cfg = remoteCfgRequired();
+    @Override
+    public Mono<String> authorizeForHash(RemoteSignatureDto cfg, String accessToken, String hashB64Url, String hashAlgoOid) {
+        requireCfg(cfg);
         String endpoint = cfg.url() + AUTHORIZE_PATH;
 
         Map<String, Object> body = new HashMap<>();
@@ -91,8 +90,9 @@ public class QtspSignHashClient implements QtspSignHashPort {
      * CSC v2: signatures/signHash.
      * Returns raw signature (first element of 'signatures').
      */
-    public Mono<String> signHash(String accessToken, String sad, String hashB64Url, String hashAlgoOid, String signAlgoOid) {
-        RemoteSignatureDto cfg = remoteCfgRequired();
+    @Override
+    public Mono<String> signHash(RemoteSignatureDto cfg, String accessToken, String sad, String hashB64Url, String hashAlgoOid, String signAlgoOid) {
+        requireCfg(cfg);
         String endpoint = cfg.url() + SIGN_HASH_PATH;
 
         Map<String, Object> body = new HashMap<>();

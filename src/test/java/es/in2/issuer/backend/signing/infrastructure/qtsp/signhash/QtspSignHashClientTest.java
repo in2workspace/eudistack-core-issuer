@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
-import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,26 +16,23 @@ import reactor.test.StepVerifier;
 
 import java.nio.charset.StandardCharsets;
 
-import static org.mockito.ArgumentMatchers.*;
-
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class QtspSignHashClientTest {
 
-    @Mock private RuntimeSigningConfig runtimeSigningConfig;
     @Mock private HttpUtils httpUtils;
 
-    private ObjectMapper objectMapper;
     private QtspSignHashClient client;
-
     private RemoteSignatureDto cfg;
 
     @BeforeEach
     void setUp() {
-        objectMapper = new ObjectMapper();
-        client = new QtspSignHashClient(objectMapper, runtimeSigningConfig, httpUtils);
+        ObjectMapper objectMapper = new ObjectMapper();
+        client = new QtspSignHashClient(objectMapper, httpUtils);
 
         cfg = new RemoteSignatureDto(
                 "https://qtsp.test",
@@ -45,7 +41,6 @@ class QtspSignHashClientTest {
                 "PT10M",
                 "sign-hash"
         );
-        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
     }
 
     @Test
@@ -56,7 +51,7 @@ class QtspSignHashClientTest {
                 anyString()
         )).thenReturn(Mono.just("{\"SAD\":\"sad-token-123\"}"));
 
-        StepVerifier.create(client.authorizeForHash("access-token", "hashB64Url", "2.16.840.1.101.3.4.2.1"))
+        StepVerifier.create(client.authorizeForHash(cfg, "access-token", "hashB64Url", "2.16.840.1.101.3.4.2.1"))
                 .expectNext("sad-token-123")
                 .verifyComplete();
     }
@@ -66,7 +61,7 @@ class QtspSignHashClientTest {
         when(httpUtils.postRequest(anyString(), anyList(), anyString()))
                 .thenReturn(Mono.just("{}"));
 
-        StepVerifier.create(client.authorizeForHash("access-token", "hashB64Url", "2.16.840.1.101.3.4.2.1"))
+        StepVerifier.create(client.authorizeForHash(cfg, "access-token", "hashB64Url", "2.16.840.1.101.3.4.2.1"))
                 .expectErrorSatisfies(ex -> {
                     assertTrue(ex instanceof RemoteSignatureException);
                     assertTrue(ex.getMessage().contains("Empty authorize response"));
@@ -87,7 +82,7 @@ class QtspSignHashClientTest {
         when(httpUtils.postRequest(anyString(), anyList(), anyString()))
                 .thenReturn(Mono.error(unauthorized));
 
-        StepVerifier.create(client.authorizeForHash("access-token", "hashB64Url", "2.16.840.1.101.3.4.2.1"))
+        StepVerifier.create(client.authorizeForHash(cfg, "access-token", "hashB64Url", "2.16.840.1.101.3.4.2.1"))
                 .expectErrorSatisfies(ex -> {
                     assertTrue(ex instanceof RemoteSignatureException);
                     assertTrue(ex.getMessage().contains("Unauthorized on authorize(signHash)"));
@@ -104,6 +99,7 @@ class QtspSignHashClientTest {
         )).thenReturn(Mono.just("{\"signatures\":[\"sig-abc\"]}"));
 
         StepVerifier.create(client.signHash(
+                        cfg,
                         "access-token",
                         "sad-1",
                         "hashB64Url",
@@ -120,7 +116,7 @@ class QtspSignHashClientTest {
                 .thenReturn(Mono.just("{\"signatures\":[]}"));
 
         StepVerifier.create(client.signHash(
-                        "access-token", "sad-1", "hashB64Url",
+                        cfg, "access-token", "sad-1", "hashB64Url",
                         "2.16.840.1.101.3.4.2.1",
                         "1.2.840.10045.4.3.2"
                 ))
@@ -145,7 +141,7 @@ class QtspSignHashClientTest {
                 .thenReturn(Mono.error(unauthorized));
 
         StepVerifier.create(client.signHash(
-                        "access-token", "sad-1", "hashB64Url",
+                        cfg, "access-token", "sad-1", "hashB64Url",
                         "2.16.840.1.101.3.4.2.1",
                         "1.2.840.10045.4.3.2"
                 ))
@@ -154,5 +150,11 @@ class QtspSignHashClientTest {
                     assertTrue(ex.getMessage().contains("Unauthorized on signHash"));
                 })
                 .verify();
+    }
+
+    @Test
+    void signHash_failsIfCfgNull() {
+        assertThrows(IllegalStateException.class,
+                () -> client.signHash(null, "t", "s", "h", "oid", "oid"));
     }
 }

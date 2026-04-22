@@ -12,7 +12,6 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.service.HashGeneratorService;
 import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
 import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
-import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -34,18 +33,18 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOT
 public class QtspAuthClient implements QtspAuthPort {
 
     private final ObjectMapper objectMapper;
-    private final RuntimeSigningConfig runtimeSigningConfig;
     private final HashGeneratorService hashGeneratorService;
     private final HttpUtils httpUtils;
 
     private static final String ACCESS_TOKEN_NAME = "access_token";
 
-    private RemoteSignatureDto remoteCfgRequired() {
-        RemoteSignatureDto cfg = runtimeSigningConfig.getRemoteSignature();
-        if (cfg == null) {
-            throw new IllegalStateException("Remote signature config not pushed (runtimeSigningConfig.remoteSignature is null)");
+    private static RemoteSignatureDto remoteCfgRequired(SigningRequest request) {
+        if (request == null || request.remoteSignature() == null) {
+            throw new IllegalStateException(
+                    "SigningRequest.remoteSignature is null — tenant QTSP config must be resolved " +
+                    "from tenant_signing_config before calling QtspAuthClient.");
         }
-        return cfg;
+        return request.remoteSignature();
     }
 
     public Mono<String> requestAccessToken(SigningRequest signingRequest, String scope) {
@@ -53,7 +52,7 @@ public class QtspAuthClient implements QtspAuthPort {
     }
 
     public Mono<String> requestAccessToken(SigningRequest signingRequest, String scope, boolean includeAuthorizationDetails) {
-        RemoteSignatureDto cfg = remoteCfgRequired();
+        RemoteSignatureDto cfg = remoteCfgRequired(signingRequest);
         String clientId = cfg.clientId();
         String clientSecret = cfg.clientSecret();
         String grantType = "client_credentials";
@@ -64,7 +63,7 @@ public class QtspAuthClient implements QtspAuthPort {
         requestBody.put("grant_type", grantType);
         requestBody.put("scope", scope);
         if (includeAuthorizationDetails && scope.equals(SIGNATURE_REMOTE_SCOPE_CREDENTIAL)) {
-            requestBody.put("authorization_details", buildAuthorizationDetails(signingRequest.data(), hashAlgorithmOID));
+            requestBody.put("authorization_details", buildAuthorizationDetails(cfg, signingRequest.data(), hashAlgorithmOID));
         }
 
         String requestBodyString = requestBody.entrySet().stream()
@@ -108,8 +107,7 @@ public class QtspAuthClient implements QtspAuthPort {
                 });
     }
 
-    private String buildAuthorizationDetails(String unsignedCredential, String hashAlgorithmOID) {
-        RemoteSignatureDto cfg = remoteCfgRequired();
+    private String buildAuthorizationDetails(RemoteSignatureDto cfg, String unsignedCredential, String hashAlgorithmOID) {
         String credentialID = cfg.credentialId();
         String credentialPassword = cfg.credentialPassword();
         try {

@@ -29,6 +29,9 @@ spring:
     url: ${SPRING_FLYWAY_URL:jdbc:postgresql://localhost:5432/issuer}
     locations: classpath:db/migration
     default-schema: ${SPRING_FLYWAY_DEFAULT_SCHEMA:public}
+    # Required because init-databases.sh creates schemas (issuer, ebw) before
+    # Flyway runs. Without this, Flyway refuses to migrate on a non-empty DB.
+    baseline-on-migrate: true
   mail:
     host: ${SMTP_HOST:localhost}
     port: ${SMTP_PORT:587}
@@ -130,20 +133,8 @@ issuer-identity:
   crypto:
     private-key: ${ISSUER_IDENTITY_CRYPTO_PRIVATE_KEY:}
 
-# Signing
-signing:
-  runtime:
-    enabled: ${SIGNING_RUNTIME_ENABLED:true}
-    controller-enabled: ${SIGNING_RUNTIME_CONTROLLER_ENABLED:true}
-    default-provider: ${SIGNING_DEFAULT_PROVIDER:altia-mock-qtsp}
-  remote-signature:
-    url: ${SIGNING_REMOTE_URL:https://mock-qtsp.altia.fikua.com}
-    client-id: ${SIGNING_REMOTE_CLIENT_ID:mock-client}
-    client-secret: ${SIGNING_REMOTE_CLIENT_SECRET:mock-secret}
-    credential-id: ${SIGNING_REMOTE_CREDENTIAL_ID:mock-credential-001}
-    credential-password: ${SIGNING_REMOTE_CREDENTIAL_PASSWORD:mock-password}
-    certificate-info-cache-ttl: ${SIGNING_REMOTE_CERT_CACHE_TTL:PT10M}
-    signing-operation: ${SIGNING_REMOTE_OPERATION:sign-hash}
+# Signing configuration is now 100% per-tenant via tenant_signing_config in the DB
+# (see seed-tenants[.stg].sql). No global fallback.
 
 # OID4VCI Profile (authorization_code flow configuration)
 oid4vci:

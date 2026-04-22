@@ -13,7 +13,6 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.service.RemoteSignatureService;
 import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
-import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,16 +41,16 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
     private final QtspAuthPort qtspAuthClient;
     private final HttpUtils httpUtils;
     private final JwtUtils jwtUtils;
-    private final RuntimeSigningConfig runtimeSigningConfig;
     private static final String SAD_NAME = "SAD";
     private static final String SERIALIZING_ERROR = "Error serializing request body to JSON";
 
-    private RemoteSignatureDto remoteCfgRequired() {
-        RemoteSignatureDto cfg = runtimeSigningConfig.getRemoteSignature();
-        if (cfg == null) {
-            throw new IllegalStateException("Remote signature config not pushed (runtimeSigningConfig.remoteSignature is null)");
+    private static RemoteSignatureDto remoteCfgRequired(SigningRequest request) {
+        if (request == null || request.remoteSignature() == null) {
+            throw new IllegalStateException(
+                    "SigningRequest.remoteSignature is null — tenant QTSP config must be resolved " +
+                    "from tenant_signing_config before calling RemoteSignatureService.");
         }
-        return cfg;
+        return request.remoteSignature();
     }
 
     /**
@@ -78,7 +77,6 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
      *
      */
     @Override
-    //TODO Cuando se implementen los "settings" del issuer, se debe pasar el clientId, secret, etc. como parámetros en lugar de var entorno
     public Mono<SigningResult> signIssuedCredential(
             SigningRequest signingRequest,
             String token,
@@ -91,9 +89,7 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
         );
 
         return signWithRetry(signingRequest, token, "signIssuedCredential")
-                .doOnSuccess(result -> {
-                    log.info("Successfully signed credential for issuanceId: {}", issuanceId);
-                });
+                .doOnSuccess(result -> log.info("Successfully signed credential for issuanceId: {}", issuanceId));
     }
 
     /**
@@ -187,13 +183,13 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
     public Mono<String> getSignedDocumentExternal(SigningRequest signingRequest) {
         log.info("Requesting signature to external service");
         return qtspAuthClient.requestAccessToken(signingRequest, SIGNATURE_REMOTE_SCOPE_CREDENTIAL)
-                .flatMap(accessToken -> requestSad(accessToken)
+                .flatMap(accessToken -> requestSad(signingRequest, accessToken)
                         .flatMap(sad -> sendSigningRequest(signingRequest, accessToken, sad)
                                 .flatMap(responseJson -> processSignatureResponse(signingRequest, responseJson))));
     }
 
-    public Mono<String> requestSad(String accessToken) {
-        RemoteSignatureDto cfg = remoteCfgRequired();
+    public Mono<String> requestSad(SigningRequest signingRequest, String accessToken) {
+        RemoteSignatureDto cfg = remoteCfgRequired(signingRequest);
         String credentialID = cfg.credentialId();
         int numSignatures = 1;
         String authDataId = "password";
@@ -239,7 +235,7 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
     }
 
     private Mono<String> sendSigningRequest(SigningRequest signingRequest, String accessToken, String sad) {
-        RemoteSignatureDto cfg = remoteCfgRequired();
+        RemoteSignatureDto cfg = remoteCfgRequired(signingRequest);
         String credentialID = cfg.credentialId();
         String signatureRemoteServerEndpoint = cfg.url() + SIGN_DOC_PATH;
         String signatureQualifier = "eu_eidas_aesealqc";

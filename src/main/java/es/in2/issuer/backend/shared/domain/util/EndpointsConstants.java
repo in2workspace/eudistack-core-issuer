@@ -16,10 +16,6 @@ public class EndpointsConstants {
     public static final String WELL_KNOWN_BASE_PATH ="/.well-known";
     public static final String VCI_BASE_PATH = "/vci/v1";
 
-    // Signing Endpoints
-    public static final String SIGNING_PROVIDERS_PATH = "/internal/signing/provider";
-    public static final String SIGNING_CONFIG_PATH = "/internal/signing/config";
-
     // VCI API Endpoints
     public static final String VCI_PATH = VCI_BASE_PATH+"/**";
 

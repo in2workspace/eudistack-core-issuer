@@ -7,6 +7,7 @@ import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.JadesProfile;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
+import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.service.JadesHeaderBuilderService;
@@ -39,6 +40,24 @@ class CscSignHashSigningProviderTest {
 
     private CscSignHashSigningProvider provider;
 
+    private static RemoteSignatureDto cfg() {
+        return new RemoteSignatureDto(
+                "https://qtsp.example.com",
+                "client", "secret", "cred-123", "password", "PT10M",
+                "sign-hash"
+        );
+    }
+
+    private static SigningRequest requestWithCfg() {
+        var context = new SigningContext("token", "issuanceId", "email@example.com");
+        return SigningRequest.builder()
+                .type(SigningType.JADES)
+                .data("{\"vc\":\"unsigned\"}")
+                .context(context)
+                .remoteSignature(cfg())
+                .build();
+    }
+
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
@@ -54,30 +73,28 @@ class CscSignHashSigningProviderTest {
 
     @Test
     void sign_success_happyPath() {
-        // given
-        var context = new SigningContext("token", "issuanceId", "email@example.com");
-        var request = new SigningRequest(SigningType.JADES, "{\"vc\":\"unsigned\"}", context, null);
+        SigningRequest request = requestWithCfg();
+        RemoteSignatureDto cfg = request.remoteSignature();
 
         when(cscSigningProperties.signatureProfile()).thenReturn(JadesProfile.JADES_B_T);
 
         when(qtspAuthClient.requestAccessToken(request, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, false))
                 .thenReturn(Mono.just("access-token"));
 
-        when(qtspIssuerService.getCredentialId()).thenReturn("cred-123");
-        when(qtspIssuerService.requestCertificateInfo("access-token", "cred-123"))
+        when(qtspIssuerService.requestCertificateInfo(cfg, "access-token", "cred-123"))
                 .thenReturn(Mono.just(validCredentialInfoJson()));
 
         when(jadesHeaderBuilder.buildHeader(any(CertificateInfo.class), eq(JadesProfile.JADES_B_T), any()))
                 .thenReturn("{\"alg\":\"ES256\",\"typ\":\"JWT\"}");
 
         when(jwsSignHashService.signJwtWithSignHash(
+                eq(cfg),
                 eq("access-token"),
                 eq("{\"alg\":\"ES256\",\"typ\":\"JWT\"}"),
                 eq(request.data()),
                 anyString()
         )).thenReturn(Mono.just("hdr.payload.sig"));
 
-        // when + then
         StepVerifier.create(provider.sign(request))
                 .assertNext(result -> {
                     assertEquals(SigningType.JADES, result.type());
@@ -88,19 +105,14 @@ class CscSignHashSigningProviderTest {
 
     @Test
     void sign_wraps_invalidCertInfo_statusNotValid() {
-        // given
-        var context = new SigningContext("token", "issuanceId", "email@example.com");
-        var request = new SigningRequest(SigningType.JADES, "{\"vc\":\"unsigned\"}", context, null);
+        SigningRequest request = requestWithCfg();
+        RemoteSignatureDto cfg = request.remoteSignature();
 
         when(cscSigningProperties.signatureProfile()).thenReturn(JadesProfile.JADES_B_T);
-        when(qtspAuthClient.requestAccessToken(request,
-                SIGNATURE_REMOTE_SCOPE_CREDENTIAL,
-                false))
+        when(qtspAuthClient.requestAccessToken(request, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, false))
                 .thenReturn(Mono.just("access-token"));
-        when(qtspIssuerService.getCredentialId()).thenReturn("cred-123");
 
-        // cert.status != valid -> IllegalStateException -> onErrorMap => SigningException (wrap)
-        when(qtspIssuerService.requestCertificateInfo("access-token", "cred-123"))
+        when(qtspIssuerService.requestCertificateInfo(cfg, "access-token", "cred-123"))
                 .thenReturn(Mono.just(invalidCertStatusJson()));
 
         StepVerifier.create(provider.sign(request))
@@ -110,25 +122,38 @@ class CscSignHashSigningProviderTest {
                 })
                 .verify();
 
-        verify(jwsSignHashService, never()).signJwtWithSignHash(anyString(), anyString(), anyString(), anyString());
+        verify(jwsSignHashService, never()).signJwtWithSignHash(any(), anyString(), anyString(), anyString(), anyString());
     }
 
     @Test
     void sign_propagates_SigningException_without_doubleWrapping() {
-        // given: contexto NO nulo para pasar la validación
-        var context = new SigningContext("token", "issuanceId", "email@example.com");
-        var request = new SigningRequest(SigningType.JADES, "{\"vc\":\"unsigned\"}", context, null);
+        SigningRequest request = requestWithCfg();
 
         when(cscSigningProperties.signatureProfile()).thenReturn(JadesProfile.JADES_B_T);
-
         when(qtspAuthClient.requestAccessToken(request, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, false))
                 .thenReturn(Mono.error(new SigningException("boom")));
 
-        // when + then
         StepVerifier.create(provider.sign(request))
                 .expectErrorSatisfies(ex -> {
                     assertTrue(ex instanceof SigningException);
                     assertEquals("boom", ex.getMessage());
+                })
+                .verify();
+    }
+
+    @Test
+    void sign_errors_whenRemoteSignatureMissing() {
+        var context = new SigningContext("token", "issuanceId", "email@example.com");
+        SigningRequest request = SigningRequest.builder()
+                .type(SigningType.JADES)
+                .data("{\"vc\":\"unsigned\"}")
+                .context(context)
+                .build();
+
+        StepVerifier.create(provider.sign(request))
+                .expectErrorSatisfies(ex -> {
+                    assertTrue(ex instanceof SigningException);
+                    assertTrue(ex.getMessage().contains("tenant QTSP config missing"));
                 })
                 .verify();
     }

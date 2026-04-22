@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.JadesProfile;
 import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
+import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
@@ -45,16 +46,20 @@ public class CscSignHashSigningProvider implements SigningProvider {
             }
 
             JadesProfile profile = cscSigningProperties.signatureProfile();
+            RemoteSignatureDto cfg = request.remoteSignature();
+            if (cfg == null) {
+                return Mono.error(new SigningException("SigningRequest.remoteSignature is null — tenant QTSP config missing"));
+            }
 
             return qtspAuthClient.requestAccessToken(request, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, false)
                     .flatMap(accessToken ->
-                            qtspIssuerService.requestCertificateInfo(accessToken, qtspIssuerService.getCredentialId())
+                            qtspIssuerService.requestCertificateInfo(cfg, accessToken, cfg.credentialId())
                                     .flatMap(this::parseJsonToMap)
                                     .map(this::mapToCertificateInfo)
                                     .flatMap(certInfo -> {
                                         String headerJson = jadesHeaderBuilder.buildHeader(certInfo, profile, request.typ());
                                         String signAlgoOid = certInfo.keyAlgorithms().get(0);
-                                        return jwsSignHashService.signJwtWithSignHash(accessToken, headerJson, request.data(), signAlgoOid);
+                                        return jwsSignHashService.signJwtWithSignHash(cfg, accessToken, headerJson, request.data(), signAlgoOid);
                                     })
                     )
                     .map(jwt -> new SigningResult(SigningType.JADES, jwt))

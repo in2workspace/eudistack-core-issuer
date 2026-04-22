@@ -10,7 +10,6 @@ import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
-import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,10 +27,10 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class RemoteSignatureServiceImplTest {
@@ -40,24 +39,33 @@ class RemoteSignatureServiceImplTest {
     @Mock private QtspAuthPort qtspAuthClient;
     @Mock private HttpUtils httpUtils;
     @Mock private JwtUtils jwtUtils;
-    @Mock private RuntimeSigningConfig runtimeSigningConfig;
 
     @InjectMocks
     private RemoteSignatureServiceImpl remoteSignatureService;
 
-    @Test
-    void signIssuedCredential_cscFlow_success() throws Exception {
-        RemoteSignatureDto cfg = new RemoteSignatureDto(
+    private static RemoteSignatureDto cfg() {
+        return new RemoteSignatureDto(
                 "https://api.external.com",
                 "clientId", "clientSecret",
                 "cred-id", "pwd",
                 "PT10M",
                 "sign-hash"
         );
-        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
+    }
 
+    private static SigningRequest request(SigningType type, String data) {
         SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.JADES, "{\"vc\":1}", context, null);
+        return SigningRequest.builder()
+                .type(type)
+                .data(data)
+                .context(context)
+                .remoteSignature(cfg())
+                .build();
+    }
+
+    @Test
+    void signIssuedCredential_cscFlow_success() throws Exception {
+        SigningRequest req = request(SigningType.JADES, "{\"vc\":1}");
 
         when(qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
                 .thenReturn(Mono.just("access-token"));
@@ -92,18 +100,7 @@ class RemoteSignatureServiceImplTest {
 
     @Test
     void signSystemCredential_cloudMode_success() throws Exception {
-        // type CLOUD + url external
-        RemoteSignatureDto cfg = new RemoteSignatureDto(
-                "https://api.external.com", // no se usa en cloud flow
-                "clientId", "clientSecret",
-                "cred-id", "pwd",
-                "PT10M",
-                "sign-hash"
-        );
-        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
-
-        SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context, null);
+        SigningRequest req = request(SigningType.COSE, "{\"a\":1}");
 
         when(qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
                 .thenReturn(Mono.just("access-token"));
@@ -138,17 +135,7 @@ class RemoteSignatureServiceImplTest {
 
     @Test
     void getSignedDocumentExternal_sadMissing_shouldFailWithSadException() throws Exception {
-        RemoteSignatureDto cfg = new RemoteSignatureDto(
-                "https://api.external.com",
-                "clientId", "clientSecret",
-                "cred-id", "pwd",
-                "PT10M",
-                "sign-hash"
-        );
-        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
-
-        SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context, null);
+        SigningRequest req = request(SigningType.COSE, "{\"a\":1}");
 
         when(qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
                 .thenReturn(Mono.just("access-token"));
@@ -172,8 +159,7 @@ class RemoteSignatureServiceImplTest {
 
     @Test
     void processSignatureResponse_shouldFail_whenNoSignature() throws Exception {
-        SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context, null);
+        SigningRequest req = request(SigningType.COSE, "{\"a\":1}");
 
         String responseJson = "{\"DocumentWithSignature\":[]}";
         when(objectMapper.readValue(responseJson, Map.class))
@@ -186,8 +172,7 @@ class RemoteSignatureServiceImplTest {
 
     @Test
     void processSignatureResponse_shouldFail_whenPayloadMismatch() throws Exception {
-        SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context, null);
+        SigningRequest req = request(SigningType.COSE, "{\"a\":1}");
 
         String signedJwt = "signed-jwt";
         String base64Signed = Base64.getEncoder().encodeToString(signedJwt.getBytes(StandardCharsets.UTF_8));
@@ -209,17 +194,7 @@ class RemoteSignatureServiceImplTest {
 
     @Test
     void signIssuedCredential_cloudMode_retries_thenSucceeds() throws Exception {
-        RemoteSignatureDto cfg = new RemoteSignatureDto(
-                "https://api.external.com",
-                "clientId", "clientSecret",
-                "cred-id", "pwd",
-                "PT10M",
-                "sign-hash"
-        );
-        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfg);
-
-        SigningContext context = new SigningContext("token", "proc", "email");
-        SigningRequest req = new SigningRequest(SigningType.COSE, "{\"a\":1}", context, null);
+        SigningRequest req = request(SigningType.COSE, "{\"a\":1}");
 
         when(qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
                 .thenReturn(Mono.just("access-token"));

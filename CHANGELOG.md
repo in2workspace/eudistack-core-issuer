@@ -6,6 +6,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-04-22
+
+### Changed (EUDI-025 US-09 — QTSP signing 100% per-tenant)
+
+**BREAKING (internal contract):** all QTSP signing paths read configuration exclusively from `tenant_signing_config`; no global fallback. A tenant without a row in that table fails only its own signing operations, isolated from the rest.
+
+- **`SigningRequest` extended** with `remoteSignature: RemoteSignatureDto`. `DelegatingSigningProvider` resolves the tenant's QTSP config via `TenantSigningConfigService.getRemoteSignature()` and injects it into the request before delegating to the concrete CSC provider.
+- **`QtspAuthClient`, `QtspSignHashPort` + `QtspSignHashClient`, `QtspIssuerService` + impl, `RemoteSignatureServiceImpl`, `JwsSignHashService` + impl** now take `RemoteSignatureDto` (directly or via `SigningRequest`) instead of reading a global bean. `QtspIssuerService.getCredentialId()` removed — callers use `cfg.credentialId()` directly.
+- **`IssuerFactory`** (StatusList) now resolves the tenant's QTSP config from `TenantSigningConfigService` and passes it to `qtspIssuerService.resolveRemoteDetailedIssuer(cfg)`. If the tenant has no signing config, fails fast with `SigningException`.
+- **`DelegatingSigningProvider`** throws `SigningException` when `tenant_signing_config` is empty for the current tenant.
+- **`TenantSigningConfigService`**: removed `getProvider()` and the global fallback in `getRemoteSignature()`. Returns `Mono.empty()` when the tenant has no row.
+
+### Removed
+
+- **`RuntimeSigningConfig`** bean + **`SigningRuntimeConfigProperties`** + **`RemoteSignatureProperties`** + **`SigningRuntimeConfigController`** + **`SigningConfigPushRequest`** DTO + test.
+- **`PUT /internal/signing/config`** and **`GET /internal/signing/provider`** endpoints — per-tenant config is seeded via SQL or (future) a dedicated config management service.
+- **`@ConditionalOnProperty(issuer.signing.runtime.enabled)`** from `SigningProviderConfig` — the signing module is always wired.
+- **`signing.runtime.*`** and **`signing.remote-signature.*`** blocks from `application.yml`.
+- **`SIGNING_RUNTIME_ENABLED`, `SIGNING_RUNTIME_CONTROLLER_ENABLED`, `SIGNING_DEFAULT_PROVIDER`, `SIGNING_REMOTE_*`** env vars from `docker/docker-compose.yml`.
+- **`SIGNING_PROVIDERS_PATH`, `SIGNING_CONFIG_PATH`** constants from `EndpointsConstants` + their entries in `SecurityConfig`. Related tests removed from `SecurityConfigTest`.
+
+### Changed (health indicator)
+
+- **`SigningServiceHealthIndicator`** simplified — signing is per-tenant, so the global up/down no longer depends on a shared config. Reports `mode=per-tenant`.
+
+### Tests
+
+- Updated: `DelegatingSigningProviderTest`, `QtspAuthClientTest`, `QtspSignHashClientTest`, `QtspIssuerServiceImplTest`, `RemoteSignatureServiceImplTest`, `CscSignHashSigningProviderTest`, `CscSignDocSigningProviderTest`, `JwsSignHashServiceImplTest`, `SigningProviderConfigTest`, `IssuerFactoryTest`. All 765 tests pass.
+- Sibling change in `eudistack-platform-dev`: `seed-tenants[.stg].sql` seeds `tenant_signing_config` for all 4 tenants with mock-qtsp (local and STG both have mock-qtsp reachable).
+
 ## [3.3.1] - 2026-04-22
 
 ### Removed (compose/env cleanup — no breaking at runtime)

@@ -220,22 +220,6 @@ class SecurityConfigTest {
             assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
         }
 
-        // SEC-01: Signing endpoints now require authentication
-        @Test
-        void signingProviders_get_shouldReturn401_whenNoAuth() {
-            MockServerWebExchange exchange = MockServerWebExchange.from(
-                    MockServerHttpRequest.get(SIGNING_PROVIDERS_PATH).build()
-            );
-            assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
-        }
-
-        @Test
-        void signingConfig_put_shouldReturn401_whenNoAuth() {
-            MockServerWebExchange exchange = MockServerWebExchange.from(
-                    MockServerHttpRequest.put(SIGNING_CONFIG_PATH).build()
-            );
-            assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
-        }
     }
 
     // ── Authenticated endpoints — 200 with valid Bearer token ───────────

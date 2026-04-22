@@ -73,9 +73,7 @@ services:
       ISSUER_IDENTITY_CREDENTIAL_SUBJECT_DID_KEY: "did:key:z6MkqmaCT2JqdUtLeKah7tEVfNXtDXtQyj4yxEgV11Y5CqUa"
       ISSUER_IDENTITY_CRYPTO_PRIVATE_KEY: ""
 
-      # --- Signing (QTSP via https://mock-qtsp.altia.fikua.com) ---------------
-      SIGNING_RUNTIME_ENABLED: "true"
-      SIGNING_RUNTIME_CONTROLLER_ENABLED: "true"
+      # --- Signing is per-tenant (tenant_signing_config in DB) — no env vars.
 
       # --- CORS --------------------------------------------------------------
       CORS_DEFAULT_ALLOWED_ORIGINS: http://localhost:4200

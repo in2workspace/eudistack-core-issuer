@@ -25,7 +25,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(MockitoExtension.class)
 class SigningProviderConfigTest {
 
-    @Mock private RuntimeSigningConfig runtimeSigningConfig;
     @Mock private TenantSigningConfigService tenantSigningConfigService;
     @Mock private RemoteSignatureService remoteSignatureService;
     @Mock private QtspAuthClient qtspAuthClient;
@@ -38,7 +37,6 @@ class SigningProviderConfigTest {
 
     private SigningProvider createProvider() {
         return new SigningProviderConfig().signingProvider(
-                runtimeSigningConfig,
                 tenantSigningConfigService,
                 remoteSignatureService,
                 qtspAuthClient,
@@ -90,8 +88,8 @@ class SigningProviderConfigTest {
     }
 
     @Test
-    void signingProvider_setsRuntimeSigningConfigIntoDelegatingProvider() {
+    void signingProvider_wiresTenantSigningConfigServiceIntoDelegatingProvider() {
         SigningProvider provider = createProvider();
-        assertSame(runtimeSigningConfig, ReflectionTestUtils.getField(provider, "runtimeSigningConfig"));
+        assertSame(tenantSigningConfigService, ReflectionTestUtils.getField(provider, "tenantSigningConfigService"));
     }
 }

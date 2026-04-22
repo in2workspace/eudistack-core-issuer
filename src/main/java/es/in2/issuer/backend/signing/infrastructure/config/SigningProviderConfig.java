@@ -14,7 +14,6 @@ import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningPropert
 import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -22,13 +21,11 @@ import java.util.Map;
 
 @Slf4j
 @Configuration
-@ConditionalOnProperty(prefix = "issuer.signing.runtime", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class SigningProviderConfig {
 
     @Bean
     @ConditionalOnMissingBean(SigningProvider.class)
     public SigningProvider signingProvider(
-            RuntimeSigningConfig runtimeSigningConfig,
             TenantSigningConfigService tenantSigningConfigService,
 
             RemoteSignatureService remoteSignatureService,
@@ -53,6 +50,6 @@ public class SigningProviderConfig {
         );
 
         log.info("Signing operations registered: {}", operationMap.keySet());
-        return new DelegatingSigningProvider(runtimeSigningConfig, operationMap, tenantSigningConfigService);
+        return new DelegatingSigningProvider(operationMap, tenantSigningConfigService);
     }
 }

@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.signing.domain.service.impl;
 
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
+import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.service.HashGeneratorService;
 import es.in2.issuer.backend.signing.domain.service.JwsSignHashService;
 import es.in2.issuer.backend.signing.domain.util.Base64UrlUtils;
@@ -26,7 +27,7 @@ public class JwsSignHashServiceImpl implements JwsSignHashService {
     private final QtspSignHashPort qtspSignHashClient;
 
     @Override
-    public Mono<String> signJwtWithSignHash(String accessToken, String headerJson, String payloadJson, String signAlgoOid) {
+    public Mono<String> signJwtWithSignHash(RemoteSignatureDto cfg, String accessToken, String headerJson, String payloadJson, String signAlgoOid) {
 
         final String headerB64Url;
         final String payloadB64Url;
@@ -50,11 +51,12 @@ public class JwsSignHashServiceImpl implements JwsSignHashService {
         }
 
         return qtspSignHashClient
-                .authorizeForHash(accessToken, hashB64Url, HASH_ALGO_OID_SHA256)
+                .authorizeForHash(cfg, accessToken, hashB64Url, HASH_ALGO_OID_SHA256)
                 .retryWhen(signHashRetrySpec("csc.authorizeForHash"))
                 .flatMap(sad ->
                         qtspSignHashClient
                                 .signHash(
+                                        cfg,
                                         accessToken,
                                         sad,
                                         hashB64Url,

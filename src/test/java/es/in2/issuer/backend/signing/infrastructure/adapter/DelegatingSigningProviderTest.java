@@ -5,9 +5,9 @@ import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.*;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
-import es.in2.issuer.backend.signing.infrastructure.config.RuntimeSigningConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
@@ -21,14 +21,17 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class DelegatingSigningProviderTest {
 
-    @Mock RuntimeSigningConfig runtimeSigningConfig;
     @Mock TenantSigningConfigService tenantSigningConfigService;
     @Mock SigningProvider signHashProvider;
     @Mock SigningProvider signDocProvider;
 
     private static SigningRequest jadesRequest() {
         var ctx = new SigningContext("token", "issuanceId", "email@example.com");
-        return new SigningRequest(SigningType.JADES, "{\"vc\":\"unsigned\"}", ctx, null);
+        return SigningRequest.builder()
+                .type(SigningType.JADES)
+                .data("{\"vc\":\"unsigned\"}")
+                .context(ctx)
+                .build();
     }
 
     private static RemoteSignatureDto cfgWithOperation(String operation) {
@@ -39,46 +42,43 @@ class DelegatingSigningProviderTest {
         );
     }
 
+    private DelegatingSigningProvider newSut() {
+        return new DelegatingSigningProvider(
+                Map.of("sign-hash", signHashProvider, "sign-doc", signDocProvider),
+                tenantSigningConfigService
+        );
+    }
+
     @Test
-    void sign_delegatesToSignHash_whenOperationIsSignHash() {
-        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
-        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation("sign-hash"));
+    void sign_delegatesToSignHash_andInjectsCfgIntoRequest() {
+        when(tenantSigningConfigService.getRemoteSignature())
+                .thenReturn(Mono.just(cfgWithOperation("sign-hash")));
 
         SigningResult expected = new SigningResult(SigningType.JADES, "jwt");
         when(signHashProvider.sign(any())).thenReturn(Mono.just(expected));
 
-        var sut = new DelegatingSigningProvider(
-                runtimeSigningConfig,
-                Map.of("sign-hash", signHashProvider, "sign-doc", signDocProvider),
-                tenantSigningConfigService
-        );
-
-        StepVerifier.create(sut.sign(jadesRequest()))
+        StepVerifier.create(newSut().sign(jadesRequest()))
                 .assertNext(actual -> {
                     assertEquals(expected.type(), actual.type());
                     assertEquals(expected.data(), actual.data());
                 })
                 .verifyComplete();
 
-        verify(signHashProvider).sign(any());
+        ArgumentCaptor<SigningRequest> captor = ArgumentCaptor.forClass(SigningRequest.class);
+        verify(signHashProvider).sign(captor.capture());
+        assertNotNull(captor.getValue().remoteSignature(), "cfg must be injected into the request");
         verify(signDocProvider, never()).sign(any());
     }
 
     @Test
     void sign_delegatesToSignDoc_whenOperationIsSignDoc() {
-        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
-        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation("sign-doc"));
+        when(tenantSigningConfigService.getRemoteSignature())
+                .thenReturn(Mono.just(cfgWithOperation("sign-doc")));
 
         SigningResult expected = new SigningResult(SigningType.JADES, "signed-via-doc");
         when(signDocProvider.sign(any())).thenReturn(Mono.just(expected));
 
-        var sut = new DelegatingSigningProvider(
-                runtimeSigningConfig,
-                Map.of("sign-hash", signHashProvider, "sign-doc", signDocProvider),
-                tenantSigningConfigService
-        );
-
-        StepVerifier.create(sut.sign(jadesRequest()))
+        StepVerifier.create(newSut().sign(jadesRequest()))
                 .expectNext(expected)
                 .verifyComplete();
 
@@ -87,59 +87,25 @@ class DelegatingSigningProviderTest {
     }
 
     @Test
-    void sign_returnsError_whenNoRemoteSignatureConfigured() {
+    void sign_returnsError_whenTenantHasNoRemoteSignatureConfigured() {
         when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
-        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(null);
 
-        var sut = new DelegatingSigningProvider(
-                runtimeSigningConfig,
-                Map.of("sign-hash", signHashProvider),
-                tenantSigningConfigService
-        );
-
-        StepVerifier.create(sut.sign(jadesRequest()))
+        StepVerifier.create(newSut().sign(jadesRequest()))
                 .expectErrorSatisfies(ex -> {
                     assertInstanceOf(SigningException.class, ex);
                     assertTrue(ex.getMessage().contains("No remote signature configuration"));
                 })
                 .verify();
 
-        verifyNoInteractions(signHashProvider);
+        verifyNoInteractions(signHashProvider, signDocProvider);
     }
 
     @Test
     void sign_returnsError_whenSigningOperationIsNull() {
-        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
-        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation(null));
+        when(tenantSigningConfigService.getRemoteSignature())
+                .thenReturn(Mono.just(cfgWithOperation(null)));
 
-        var sut = new DelegatingSigningProvider(
-                runtimeSigningConfig,
-                Map.of("sign-hash", signHashProvider),
-                tenantSigningConfigService
-        );
-
-        StepVerifier.create(sut.sign(jadesRequest()))
-                .expectErrorSatisfies(ex -> {
-                    assertInstanceOf(SigningException.class, ex);
-                    assertTrue(ex.getMessage().contains("signingOperation is required"));
-                })
-                .verify();
-
-        verifyNoInteractions(signHashProvider);
-    }
-
-    @Test
-    void sign_returnsError_whenSigningOperationIsBlank() {
-        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
-        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation("  "));
-
-        var sut = new DelegatingSigningProvider(
-                runtimeSigningConfig,
-                Map.of("sign-hash", signHashProvider),
-                tenantSigningConfigService
-        );
-
-        StepVerifier.create(sut.sign(jadesRequest()))
+        StepVerifier.create(newSut().sign(jadesRequest()))
                 .expectErrorSatisfies(ex -> {
                     assertInstanceOf(SigningException.class, ex);
                     assertTrue(ex.getMessage().contains("signingOperation is required"));
@@ -151,16 +117,10 @@ class DelegatingSigningProviderTest {
 
     @Test
     void sign_returnsError_whenOperationNotRegistered() {
-        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
-        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation("unknown-op"));
+        when(tenantSigningConfigService.getRemoteSignature())
+                .thenReturn(Mono.just(cfgWithOperation("unknown-op")));
 
-        var sut = new DelegatingSigningProvider(
-                runtimeSigningConfig,
-                Map.of("sign-hash", signHashProvider),
-                tenantSigningConfigService
-        );
-
-        StepVerifier.create(sut.sign(jadesRequest()))
+        StepVerifier.create(newSut().sign(jadesRequest()))
                 .expectErrorSatisfies(ex -> {
                     assertInstanceOf(SigningException.class, ex);
                     assertTrue(ex.getMessage().contains("No SigningProvider for operation 'unknown-op'"));
@@ -172,19 +132,13 @@ class DelegatingSigningProviderTest {
 
     @Test
     void sign_propagatesDelegateError() {
-        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
-        when(runtimeSigningConfig.getRemoteSignature()).thenReturn(cfgWithOperation("sign-hash"));
+        when(tenantSigningConfigService.getRemoteSignature())
+                .thenReturn(Mono.just(cfgWithOperation("sign-hash")));
 
         when(signHashProvider.sign(any()))
                 .thenReturn(Mono.error(new SigningException("delegate failed")));
 
-        var sut = new DelegatingSigningProvider(
-                runtimeSigningConfig,
-                Map.of("sign-hash", signHashProvider),
-                tenantSigningConfigService
-        );
-
-        StepVerifier.create(sut.sign(jadesRequest()))
+        StepVerifier.create(newSut().sign(jadesRequest()))
                 .expectErrorSatisfies(ex -> {
                     assertInstanceOf(SigningException.class, ex);
                     assertEquals("delegate failed", ex.getMessage());

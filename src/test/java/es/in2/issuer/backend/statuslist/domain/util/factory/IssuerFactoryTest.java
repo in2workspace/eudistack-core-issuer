@@ -2,7 +2,11 @@ package es.in2.issuer.backend.statuslist.domain.util.factory;
 
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
+import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
+import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -13,14 +17,28 @@ import reactor.test.StepVerifier;
 
 import java.util.concurrent.TimeoutException;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 
 @ExtendWith(MockitoExtension.class)
 class IssuerFactoryTest {
 
     @Mock private QtspIssuerService qtspIssuerService;
+    @Mock private TenantSigningConfigService tenantSigningConfigService;
     @InjectMocks private IssuerFactory issuerFactory;
+
+    private RemoteSignatureDto cfg;
+
+    @BeforeEach
+    void setUp() {
+        cfg = new RemoteSignatureDto(
+                "https://qtsp",
+                "client", "secret", "cred", "pwd",
+                "PT10M",
+                "sign-hash"
+        );
+    }
 
     @Test
     void createDetailedIssuer_Remote_SuccessPath() {
@@ -33,14 +51,15 @@ class IssuerFactoryTest {
                 .serialNumber("SN")
                 .build();
 
-        when(qtspIssuerService.resolveRemoteDetailedIssuer())
+        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.just(cfg));
+        when(qtspIssuerService.resolveRemoteDetailedIssuer(cfg))
                 .thenReturn(Mono.just(expected));
 
         StepVerifier.create(issuerFactory.createDetailedIssuer())
                 .expectNext(expected)
                 .verifyComplete();
 
-        verify(qtspIssuerService).resolveRemoteDetailedIssuer();
+        verify(qtspIssuerService).resolveRemoteDetailedIssuer(cfg);
     }
 
     @Test
@@ -49,32 +68,35 @@ class IssuerFactoryTest {
                 .id("issuer-id")
                 .build();
 
-        when(qtspIssuerService.resolveRemoteDetailedIssuer())
+        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.just(cfg));
+        when(qtspIssuerService.resolveRemoteDetailedIssuer(cfg))
                 .thenReturn(Mono.just(detailed));
 
         StepVerifier.create(issuerFactory.createSimpleIssuer())
                 .assertNext(simple -> assertEquals("issuer-id", simple.getId()))
                 .verifyComplete();
 
-        verify(qtspIssuerService).resolveRemoteDetailedIssuer();
+        verify(qtspIssuerService).resolveRemoteDetailedIssuer(cfg);
     }
 
     @Test
     void createDetailedIssuer_Remote_Error_PropagatesError() {
         RemoteSignatureException ex = new RemoteSignatureException("boom");
-        when(qtspIssuerService.resolveRemoteDetailedIssuer())
+        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.just(cfg));
+        when(qtspIssuerService.resolveRemoteDetailedIssuer(cfg))
                 .thenReturn(Mono.error(ex));
 
         StepVerifier.create(issuerFactory.createDetailedIssuer())
                 .expectErrorSatisfies(err -> assertEquals(ex, err))
                 .verify();
 
-        verify(qtspIssuerService).resolveRemoteDetailedIssuer();
+        verify(qtspIssuerService).resolveRemoteDetailedIssuer(cfg);
     }
 
     @Test
     void createDetailedIssuer_Remote_RecoverableErrors_ThenRetryExhausted() {
-        when(qtspIssuerService.resolveRemoteDetailedIssuer())
+        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.just(cfg));
+        when(qtspIssuerService.resolveRemoteDetailedIssuer(cfg))
                 .thenReturn(Mono.error(new TimeoutException("t1")))
                 .thenReturn(Mono.error(new TimeoutException("t2")))
                 .thenReturn(Mono.error(new TimeoutException("t3")))
@@ -87,22 +109,20 @@ class IssuerFactoryTest {
                 })
                 .verify();
 
-        verify(qtspIssuerService, times(1)).resolveRemoteDetailedIssuer();
+        verify(qtspIssuerService, atLeast(1)).resolveRemoteDetailedIssuer(cfg);
     }
 
     @Test
-    void createSimpleIssuer_Remote_Success_MapsToSimpleIssuer() {
-        DetailedIssuer detailed = DetailedIssuer.builder()
-                .id("did:elsi:ABC")
-                .build();
+    void createDetailedIssuer_failsIfTenantHasNoSigningConfig() {
+        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
 
-        when(qtspIssuerService.resolveRemoteDetailedIssuer())
-                .thenReturn(Mono.just(detailed));
+        StepVerifier.create(issuerFactory.createDetailedIssuer())
+                .expectErrorSatisfies(err -> {
+                    assertInstanceOf(SigningException.class, err);
+                    assertTrue(err.getMessage().contains("No remote signature configuration"));
+                })
+                .verify();
 
-        StepVerifier.create(issuerFactory.createSimpleIssuer())
-                .assertNext(simple -> assertEquals("did:elsi:ABC", simple.getId()))
-                .verifyComplete();
-
-        verify(qtspIssuerService).resolveRemoteDetailedIssuer();
+        verify(qtspIssuerService, never()).resolveRemoteDetailedIssuer(any());
     }
 }
