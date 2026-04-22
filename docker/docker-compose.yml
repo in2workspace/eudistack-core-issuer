@@ -64,19 +64,13 @@ services:
       # --- App ---------------------------------------------------------------
       APP_MAIL_FROM: noreply@mail-stg.altia.eudistack.net
       APP_URL: http://localhost:8080
-      APP_ISSUER_FRONTEND_URL: http://localhost:4200
       APP_TRUST_FRAMEWORK_URL: https://trust-framework.example.com
-      APP_KNOWLEDGE_BASE_UPLOAD_CERTIFICATION_GUIDE_URL: https://example.com/guide
-      APP_KNOWLEDGE_BASE_WALLET_GUIDE_URL: https://example.com/wallet
       APP_VERIFIER_URL: https://verifier.example.com
-      APP_WALLET_URL: https://wallet.example.com
-      APP_CONFIG_SOURCE: yaml
       APP_DEFAULT_LANG: en
       APP_SYS_TENANT: SYSTEM
 
       # --- Issuer Identity ---------------------------------------------------
       ISSUER_IDENTITY_CREDENTIAL_SUBJECT_DID_KEY: "did:key:z6MkqmaCT2JqdUtLeKah7tEVfNXtDXtQyj4yxEgV11Y5CqUa"
-      ISSUER_IDENTITY_JWT_CREDENTIAL: ""
       ISSUER_IDENTITY_CRYPTO_PRIVATE_KEY: ""
 
       # --- Signing (QTSP via https://mock-qtsp.altia.fikua.com) ---------------

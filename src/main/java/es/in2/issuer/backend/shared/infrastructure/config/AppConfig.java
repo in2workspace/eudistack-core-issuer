@@ -24,14 +24,6 @@ public class AppConfig implements IssuerProperties {
         return (internal != null && !internal.isBlank()) ? internal : appProperties.url();
     }
 
-    public String getIssuerFrontendUrl() {
-        return appProperties.issuerFrontendUrl();
-    }
-
-    public String getWalletFrontendUrl() {
-        return appProperties.walletUrl();
-    }
-
     public String getCryptoPrivateKey() {
         return issuerIdentityProperties.crypto().privateKey();
     }

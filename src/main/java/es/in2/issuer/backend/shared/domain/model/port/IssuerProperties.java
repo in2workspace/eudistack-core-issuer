@@ -3,8 +3,6 @@ package es.in2.issuer.backend.shared.domain.model.port;
 public interface IssuerProperties {
     String getIssuerBackendUrl();
     String getIssuerInternalUrl();
-    String getIssuerFrontendUrl();
-    String getWalletFrontendUrl();
     String getVerifierUrl();
     String getVerifierInternalUrl();
     String getDefaultLang();

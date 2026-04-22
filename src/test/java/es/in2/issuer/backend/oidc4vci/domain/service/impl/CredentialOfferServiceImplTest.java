@@ -93,8 +93,7 @@ class CredentialOfferServiceImplTest {
         String configId = "learcredential.employee.w3c.4";
 
         when(appConfig.getIssuerBackendUrl()).thenReturn("https://example.com");
-        when(appConfig.getWalletFrontendUrl()).thenReturn("https://wallet.example.com");
-        when(tenantConfigService.getStringOrDefault(eq("issuer.wallet_url"), anyString()))
+        when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
                 .thenReturn(Mono.just("https://wallet.example.com"));
         when(issuerStateCacheStore.add(anyString(), eq(issuanceId)))
                 .thenReturn(Mono.just("cached"));
@@ -121,8 +120,7 @@ class CredentialOfferServiceImplTest {
         String configId = "learcredential.employee.w3c.4";
 
         when(appConfig.getIssuerBackendUrl()).thenReturn("https://example.com");
-        when(appConfig.getWalletFrontendUrl()).thenReturn("https://wallet.example.com");
-        when(tenantConfigService.getStringOrDefault(eq("issuer.wallet_url"), anyString()))
+        when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
                 .thenReturn(Mono.just("https://wallet.example.com"));
         when(preAuthorizedCodeService.issuePreAuthorizedCode(anyString(), any()))
                 .thenReturn(Mono.just(PreAuthorizedCodeResponse.builder()

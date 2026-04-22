@@ -113,13 +113,8 @@ credential:
 app:
   url: ${APP_URL:http://localhost:8080}
   internal-url: ${APP_INTERNAL_URL:}
-  issuer-frontend-url: ${APP_ISSUER_FRONTEND_URL:http://localhost:4200}
-  knowledge-base:
-    upload-certification-guide-url: ${APP_KNOWLEDGE_BASE_UPLOAD_CERTIFICATION_GUIDE_URL:https://example.com/guide}
-    wallet-guide-url: ${APP_KNOWLEDGE_BASE_WALLET_GUIDE_URL:https://example.com/wallet}
   verifier-url: ${APP_VERIFIER_URL:https://verifier.example.com}
   verifier-internal-url: ${APP_VERIFIER_INTERNAL_URL:}
-  wallet-url: ${APP_WALLET_URL:https://wallet.example.com}
   cors:
     origins-path: ${APP_CORS_ORIGINS_PATH:}
   mail-from: ${APP_MAIL_FROM:noreply@mail-stg.altia.eudistack.net}

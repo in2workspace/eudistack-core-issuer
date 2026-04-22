@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.1] - 2026-04-22
+
+### Removed (compose/env cleanup — no breaking at runtime)
+
+- **Dead config keys** removed from `AppProperties`, `AppConfig`, `IssuerProperties`, `application.yml` and `docker/docker-compose.yml`:
+  - `app.issuer-frontend-url` / `APP_ISSUER_FRONTEND_URL` — no runtime consumers (only referenced in `cors-origins.yaml` comments and tests).
+  - `app.wallet-url` / `APP_WALLET_URL` / `getWalletFrontendUrl()` — replaced by `tenant_config.issuer.wallet_url` (read via `TenantConfigService.getStringOrThrow`).
+  - `app.knowledge-base.*` / `APP_KNOWLEDGE_BASE_*` + record `AppProperties.KnowledgeBase` — never consumed by the backend (the MFE reads `theme.json#content.knowledgeBaseUrl` per tenant).
+  - `APP_CONFIG_SOURCE` — never read (was declared only in docker-compose).
+  - `ISSUER_IDENTITY_JWT_CREDENTIAL` — already documented as dead code.
+
+### Changed (EUDI-065 Fase 8 — per-tenant wallet URL enforcement)
+
+- **`CredentialOfferServiceImpl.buildCredentialOfferUri`** now resolves `issuer.wallet_url` per-tenant via `tenantConfigService.getStringOrThrow` (no global fallback). The method signature returns `Mono<String>` for the email channel — required to chain the async config lookup. Matches the pattern already applied to `admin_organization_id` in 3.3.0.
+
 ## [3.3.0] - 2026-04-21
 
 ### Added (EUDI-065 Fase 8 / EUDI-025 US-08)

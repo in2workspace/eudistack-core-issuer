@@ -88,7 +88,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
         return issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId)
                 .flatMap(emailInfo -> {
                     String refreshUrl = buildRefreshUrl(baseUrl, credentialOfferRefreshToken);
-                    return tenantConfigService.getStringOrDefault("issuer.wallet_url", appConfig.getWalletFrontendUrl())
+                    return tenantConfigService.getStringOrThrow("issuer.wallet_url")
                             .flatMap(walletUrl -> emailService.sendCredentialOfferEmail(
                                     emailInfo.email(),
                                     CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
@@ -163,16 +163,21 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
         String rawIssuerOfferUrl = ensureUrlHasProtocol(baseUrl + OID4VCI_CREDENTIAL_OFFER_PATH + "/" + nonce);
         String encodedRawUrl = URLEncoder.encode(rawIssuerOfferUrl, StandardCharsets.UTF_8);
 
-        String finalUri;
-        if (isEmailChannel) {
-            String walletOfferUrl = appConfig.getWalletFrontendUrl() + "/offer?credential_offer_uri="
-                    + URLEncoder.encode(rawIssuerOfferUrl, StandardCharsets.UTF_8);
-            finalUri = appConfig.getWalletFrontendUrl() + "/protocol/callback?credential_offer_uri="
-                    + URLEncoder.encode(walletOfferUrl, StandardCharsets.UTF_8);
-        } else {
-            finalUri= "openid-credential-offer://?credential_offer_uri=" + encodedRawUrl;
+        if (!isEmailChannel) {
+            String finalUri = "openid-credential-offer://?credential_offer_uri=" + encodedRawUrl;
+            log.info("BUILDING URI - Channel: UI (OpenID), Result: {}", finalUri);
+            return Mono.just(finalUri);
         }
-        log.info("BUILDING URI - Channel: {}, Result: {}", isEmailChannel ? "EMAIL (Nested)" : "UI (OpenID)", finalUri);
-        return Mono.just(finalUri);
+
+        // Email channel: wallet URL is per-tenant (no global fallback).
+        return tenantConfigService.getStringOrThrow("issuer.wallet_url")
+                .map(walletUrl -> {
+                    String walletOfferUrl = walletUrl + "/offer?credential_offer_uri="
+                            + URLEncoder.encode(rawIssuerOfferUrl, StandardCharsets.UTF_8);
+                    String finalUri = walletUrl + "/protocol/callback?credential_offer_uri="
+                            + URLEncoder.encode(walletOfferUrl, StandardCharsets.UTF_8);
+                    log.info("BUILDING URI - Channel: EMAIL (Nested), Result: {}", finalUri);
+                    return finalUri;
+                });
     }
 }

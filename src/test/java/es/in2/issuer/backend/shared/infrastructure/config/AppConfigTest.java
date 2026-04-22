@@ -32,22 +32,6 @@ class AppConfigTest {
     }
 
     @Test
-    void testGetIssuerFrontendUrl() {
-        String expected = "https://ui.example.com";
-        when(appProperties.issuerFrontendUrl()).thenReturn(expected);
-
-        assertEquals(expected, appConfig.getIssuerFrontendUrl());
-    }
-
-    @Test
-    void testGetWalletFrontendUrl() {
-        String expected = "https://wallet.example.com";
-        when(appProperties.walletUrl()).thenReturn(expected);
-
-        assertEquals(expected, appConfig.getWalletFrontendUrl());
-    }
-
-    @Test
     void getSysTenant_returnsConfiguredValue() {
         String expected = "sys-tenant";
         when(appProperties.sysTenant()).thenReturn(expected);
