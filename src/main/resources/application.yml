@@ -26,11 +26,14 @@ spring:
     username: ${SPRING_R2DBC_USERNAME}
     password: ${SPRING_R2DBC_PASSWORD}
   flyway:
+    # Disabled: TenantSchemaFlywayMigrator runs migrations for `public` + all
+    # tenant schemas using R2DBC credentials. Spring Boot's auto-configured
+    # flywayInitializer would need its own JDBC user/password and would also
+    # double-migrate `public`.
+    enabled: false
     url: ${SPRING_FLYWAY_URL:jdbc:postgresql://localhost:5432/issuer}
     locations: classpath:db/migration
     default-schema: ${SPRING_FLYWAY_DEFAULT_SCHEMA:public}
-    # Required because init-databases.sh creates schemas (issuer, ebw) before
-    # Flyway runs. Without this, Flyway refuses to migrate on a non-empty DB.
     baseline-on-migrate: true
   mail:
     host: ${SMTP_HOST:localhost}
