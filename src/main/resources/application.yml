@@ -58,10 +58,6 @@ logging:
 
 # Actuator & Observability
 management:
-  # Expose /health and /prometheus at the root, outside spring.webflux.base-path (/issuer).
-  # Required so the ALB health check (path "/health") reaches the actuator endpoint.
-  server:
-    base-path: /
   endpoints:
     access:
       default: none

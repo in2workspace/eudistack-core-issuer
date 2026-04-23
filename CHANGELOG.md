@@ -6,12 +6,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.4.3] - 2026-04-22
-
-### Fixed
-
-- **ALB health check on STG**: exposed Spring Boot actuator endpoints (`/health`, `/prometheus`) at the root via `management.server.base-path: /`, outside the `spring.webflux.base-path: /issuer` prefix. Previously actuator was mounted at `/issuer/health`, so the target group health check (configured to hit `/health`) returned 404 and ECS marked tasks as Unhealthy. Business endpoints and OpenAPI/Swagger remain under `/issuer/*`. Aligns with `SecurityConfig` and `TenantDomainWebFilter`, which already treat `/health` and `/prometheus` as unprefixed paths.
-
 ## [3.4.2] - 2026-04-22
 
 ### Fixed
