@@ -128,6 +128,8 @@ app:
   url: ${APP_URL:http://localhost:8080}
   internal-url: ${APP_INTERNAL_URL:}
   verifier-url: ${APP_VERIFIER_URL:https://verifier.example.com}
+  # Used by VerifierHealthIndicator to probe verifier availability from the
+  # aggregate /health endpoint without leaving the internal network.
   verifier-internal-url: ${APP_VERIFIER_INTERNAL_URL:}
   cors:
     origins-path: ${APP_CORS_ORIGINS_PATH:}
