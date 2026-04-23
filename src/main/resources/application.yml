@@ -115,8 +115,9 @@ springdoc:
 server:
   port: ${SERVER_PORT:8080}
   # Use 'framework' behind a trusted proxy that strips client-supplied Forwarded/X-Forwarded-* headers.
-  # Default 'none' when running without proxy (direct access).
-  forward-headers-strategy: ${SERVER_FORWARD_HEADERS_STRATEGY:none}
+  # Default to 'framework' because every deployed environment (local nginx, AWS ALB+CloudFront)
+  # runs the issuer behind a proxy. Override to 'none' only for jar-standalone scenarios.
+  forward-headers-strategy: ${SERVER_FORWARD_HEADERS_STRATEGY:framework}
 
 # Credential profiles
 credential:

@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.5] - 2026-04-23
+
+### Changed
+
+- **`application.yml`**: `server.forward-headers-strategy` default changed from `none` to `framework`. Every deployed environment (local nginx, AWS ALB+CloudFront) runs the issuer behind a trusted proxy, so the previous default forced each environment to inject `SERVER_FORWARD_HEADERS_STRATEGY=framework` or suffer silent breakage — most visibly, `/issuer/health` returning `401` in STG because Spring Security evaluated the matcher against the raw `/issuer/health` path before the base-path was stripped. Override to `none` only for jar-standalone scenarios (unit tests, direct `java -jar` without proxy). Aligns with the verifier, which already hardcodes `framework`.
+
 ## [3.4.4] - 2026-04-23
 
 ### Fixed
