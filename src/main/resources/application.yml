@@ -72,8 +72,16 @@ management:
     health:
       access: unrestricted
       show-details: ${MANAGEMENT_HEALTH_SHOW_DETAILS:when-authorized}
+      show-components: ${MANAGEMENT_HEALTH_SHOW_COMPONENTS:when-authorized}
       probes:
         enabled: true
+      # SMTP/verifier are informational dependencies: their failure should not
+      # take the issuer out of the ALB pool, but they remain visible in /health.
+      group:
+        readiness:
+          include: readinessState
+        liveness:
+          include: livenessState
     prometheus:
       access: unrestricted
   health:

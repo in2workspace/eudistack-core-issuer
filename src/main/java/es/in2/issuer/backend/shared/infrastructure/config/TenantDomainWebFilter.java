@@ -69,7 +69,7 @@ public class TenantDomainWebFilter implements WebFilter {
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         String path = exchange.getRequest().getPath().pathWithinApplication().value();
-        if (TENANT_AGNOSTIC_PATHS.contains(path)) {
+        if (isTenantAgnostic(path)) {
             return chain.filter(exchange);
         }
 
@@ -111,6 +111,18 @@ public class TenantDomainWebFilter implements WebFilter {
                     return chain.filter(exchange)
                             .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, resolvedTenant));
                 });
+    }
+
+    // Matches the configured operational paths and any sub-path beneath them
+    // (e.g. /health/liveness, /health/readiness) so Actuator probes bypass
+    // tenant resolution regardless of the request's Host header.
+    private static boolean isTenantAgnostic(String path) {
+        for (String base : TENANT_AGNOSTIC_PATHS) {
+            if (path.equals(base) || path.startsWith(base + "/")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String extractTenantFromHost(ServerWebExchange exchange) {
