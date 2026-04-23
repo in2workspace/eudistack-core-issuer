@@ -188,4 +188,70 @@ class TenantDomainWebFilterTest {
 
         assertNull(captured.get());
     }
+
+    @Test
+    void filter_hostWithStgSuffix_stripsBeforeRegistryLookup() {
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("sandbox")));
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("https://sandbox-stg.eudistack.net/issuer/ping"));
+        AtomicReference<String> captured = new AtomicReference<>();
+        WebFilterChain chain = ex -> Mono.deferContextual(ctx -> {
+            captured.set(ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null));
+            return Mono.empty();
+        });
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertEquals("sandbox", captured.get());
+    }
+
+    @Test
+    void filter_headerWithDevSuffix_stripsBeforeRegistryLookup() {
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("platform")));
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("https://platform-dev.eudistack.net/issuer/ping")
+                        .header(TENANT_ID_HEADER, "platform-dev"));
+        AtomicReference<String> captured = new AtomicReference<>();
+        WebFilterChain chain = ex -> Mono.deferContextual(ctx -> {
+            captured.set(ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null));
+            return Mono.empty();
+        });
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertEquals("platform", captured.get());
+    }
+
+    @Test
+    void filter_headerWithPreSuffix_stripsBeforeRegistryLookup() {
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("dome")));
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("https://dome-pre.eudistack.net/issuer/ping")
+                        .header(TENANT_ID_HEADER, "dome-pre"));
+        AtomicReference<String> captured = new AtomicReference<>();
+        WebFilterChain chain = ex -> Mono.deferContextual(ctx -> {
+            captured.set(ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null));
+            return Mono.empty();
+        });
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertEquals("dome", captured.get());
+    }
+
+    @Test
+    void filter_tenantWithoutEnvSuffix_passesThroughUnchanged() {
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("kpmg")));
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("https://kpmg.eudistack.net/issuer/ping"));
+        AtomicReference<String> captured = new AtomicReference<>();
+        WebFilterChain chain = ex -> Mono.deferContextual(ctx -> {
+            captured.set(ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null));
+            return Mono.empty();
+        });
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertEquals("kpmg", captured.get());
+    }
 }

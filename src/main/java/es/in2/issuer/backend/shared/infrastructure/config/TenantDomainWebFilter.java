@@ -47,6 +47,11 @@ public class TenantDomainWebFilter implements WebFilter {
 
     static final Pattern TENANT_NAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_-]+$");
 
+    // Environment suffixes appended to tenant identifiers in non-prod DNS
+    // (e.g. sandbox-stg.eudistack.net, platform-dev.eudistack.net). Stripped
+    // before the registry lookup so tenant schemas stay environment-agnostic.
+    private static final String[] ENV_SUFFIXES = {"-stg", "-dev", "-pre"};
+
     // Tenant-agnostic operational endpoints — skipped entirely to avoid noisy
     // "Tenant not found" warnings from liveness/readiness probes and Prometheus
     // scrapes that hit the container IP directly (no tenant in the Host header).
@@ -90,6 +95,8 @@ public class TenantDomainWebFilter implements WebFilter {
                     "Tenant identifier '" + tenantDomain + "' is not a valid schema name");
         }
 
+        tenantDomain = stripEnvSuffix(tenantDomain);
+
         final String resolvedTenant = tenantDomain;
         final String resolvedSource = source;
         return tenantRegistryService.getActiveTenantSchemas()
@@ -113,6 +120,15 @@ public class TenantDomainWebFilter implements WebFilter {
         }
         int dot = host.indexOf('.');
         return dot < 0 ? host : host.substring(0, dot);
+    }
+
+    private static String stripEnvSuffix(String tenant) {
+        for (String suffix : ENV_SUFFIXES) {
+            if (tenant.endsWith(suffix)) {
+                return tenant.substring(0, tenant.length() - suffix.length());
+            }
+        }
+        return tenant;
     }
 
     private static Mono<Void> writeProblem(ServerWebExchange exchange, HttpStatus status,
