@@ -28,12 +28,16 @@ public class SmtpHealthIndicator implements ReactiveHealthIndicator {
             try {
                 if (mailSender instanceof org.springframework.mail.javamail.JavaMailSenderImpl impl) {
                     Session session = impl.getSession();
-                    try (Transport transport = session.getTransport("smtp")) {
+                    // Port 465 and mail.smtp.ssl.enable=true use implicit TLS, which requires
+                    // the "smtps" transport. Plain "smtp" hangs the socket until timeout.
+                    String protocol = useSmtps(impl, session) ? "smtps" : "smtp";
+                    try (Transport transport = session.getTransport(protocol)) {
                         transport.connect(impl.getHost(), impl.getPort(), impl.getUsername(), impl.getPassword());
                     }
                     return Health.up()
                             .withDetail("host", impl.getHost())
                             .withDetail("port", impl.getPort())
+                            .withDetail("protocol", protocol)
                             .build();
                 }
                 return Health.unknown().withDetail("reason", "mailSender type not supported").build();
@@ -42,5 +46,13 @@ public class SmtpHealthIndicator implements ReactiveHealthIndicator {
                 return Health.down().withDetail("error", e.getMessage()).build();
             }
         }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private static boolean useSmtps(org.springframework.mail.javamail.JavaMailSenderImpl impl, Session session) {
+        if (impl.getPort() == 465) {
+            return true;
+        }
+        String sslEnable = session.getProperty("mail.smtp.ssl.enable");
+        return "true".equalsIgnoreCase(sslEnable);
     }
 }

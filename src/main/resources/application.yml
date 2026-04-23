@@ -72,8 +72,16 @@ management:
     health:
       access: unrestricted
       show-details: ${MANAGEMENT_HEALTH_SHOW_DETAILS:when-authorized}
+      show-components: ${MANAGEMENT_HEALTH_SHOW_COMPONENTS:when-authorized}
       probes:
         enabled: true
+      # SMTP/verifier are informational dependencies: their failure should not
+      # take the issuer out of the ALB pool, but they remain visible in /health.
+      group:
+        readiness:
+          include: readinessState
+        liveness:
+          include: livenessState
     prometheus:
       access: unrestricted
   health:
@@ -120,6 +128,8 @@ app:
   url: ${APP_URL:http://localhost:8080}
   internal-url: ${APP_INTERNAL_URL:}
   verifier-url: ${APP_VERIFIER_URL:https://verifier.example.com}
+  # Used by VerifierHealthIndicator to probe verifier availability from the
+  # aggregate /health endpoint without leaving the internal network.
   verifier-internal-url: ${APP_VERIFIER_INTERNAL_URL:}
   cors:
     origins-path: ${APP_CORS_ORIGINS_PATH:}

@@ -32,6 +32,8 @@ public class AppConfig implements IssuerProperties {
         return appProperties.verifierUrl();
     }
 
+    // Returned URL is consumed by VerifierHealthIndicator to probe the verifier
+    // over the internal network as part of the issuer's aggregate /health.
     public String getVerifierInternalUrl() {
         String internal = appProperties.verifierInternalUrl();
         return (internal != null && !internal.isBlank()) ? internal : appProperties.verifierUrl();
