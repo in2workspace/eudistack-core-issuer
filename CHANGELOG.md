@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.3] - 2026-04-23
+
+### Fixed
+
+- **`TenantDomainWebFilter`**: strip known environment suffixes (`-stg`, `-dev`, `-pre`) from the tenant identifier before the `tenant_registry` lookup. Non-prod DNS follows the `{tenant}-{env}.eudistack.net` pattern (e.g. `sandbox-stg.eudistack.net`), so the filter previously returned `404 TENANT_NOT_FOUND` when resolving `sandbox-stg` against a registry that only contains `sandbox`. The strip runs after the `TENANT_NAME_PATTERN` validation and covers both the `X-Tenant-Id` header and the host-derived path. Tenant schemas remain environment-agnostic across local/stg/pre/pro.
+
 ## [3.4.2] - 2026-04-22
 
 ### Fixed
