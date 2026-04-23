@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.4] - 2026-04-23
+
+### Fixed
+
+- **`TenantDomainWebFilter`**: whitelist now covers subpaths of `/health` and `/prometheus` (e.g. `/health/liveness`, `/health/readiness`). Actuator probes that hit the container with a host that does not resolve to a tenant (ALB target-group health check, Docker healthcheck, `curl localhost`) no longer fail with `404 TENANT_NOT_FOUND`.
+- **`SmtpHealthIndicator`**: select the `smtps` transport when `mail.smtp.ssl.enable=true` or the port is `465`. The previous hard-coded `"smtp"` transport hung the socket against implicit-TLS endpoints (AWS SES `:465`) until timeout, which tumbled the aggregate `/health` into `DOWN`.
+- **`VerifierHealthIndicator`**: probe `/verifier/health` instead of `/.well-known/openid-configuration`. The verifier mounts all endpoints under its own `/verifier` base-path, so the previous URL returned `404` and forced the component to `DOWN` in every environment.
+- **`application.yml`**: declare explicit `liveness` and `readiness` health groups restricted to `livenessState` / `readinessState`. External dependencies (`smtp`, `verifier`) remain visible in the aggregate `/health` for observability, but their transient failure no longer takes the pod out of the ALB pool — as long as the ALB target-group probe points at `/issuer/health/liveness` (or `/readiness`).
+
 ## [3.4.3] - 2026-04-23
 
 ### Fixed
