@@ -4,7 +4,6 @@ import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.oidc4vci.domain.service.AuthorizationService;
 import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
-import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,7 +14,6 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL_CONTEXT_KEY;
 import static es.in2.issuer.backend.shared.domain.util.Utils.generateCustomNonce;
 
 @Slf4j
@@ -26,7 +24,6 @@ public class AuthorizationServiceImpl implements AuthorizationService {
     private final TransientStore<PushedAuthorizationRequest> parCacheStore;
     private final TransientStore<AuthorizationCodeData> authorizationCodeCacheStore;
     private final Oid4vciProfilePort profileProperties;
-    private final IssuerProperties appConfig;
 
     @Override
     public Mono<URI> authorize(
@@ -38,20 +35,16 @@ public class AuthorizationServiceImpl implements AuthorizationService {
             String codeChallenge,
             String codeChallengeMethod,
             String redirectUri,
-            String issuerState
+            String issuerState,
+            String publicIssuerBaseUrl
     ) {
-        return Mono.deferContextual(ctx -> {
-            String baseUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, appConfig.getIssuerBackendUrl());
-
-            if (requestUri != null && !requestUri.isBlank()) {
-                return pushAuthorizationRequestAuthorization(baseUrl, requestUri, state);
-            } else {
-                return processDirectAuthorization(
-                        baseUrl, clientId, responseType, scope, state,
-                        codeChallenge, codeChallengeMethod, redirectUri, issuerState
-                );
-            }
-        });
+        if (requestUri != null && !requestUri.isBlank()) {
+            return pushAuthorizationRequestAuthorization(publicIssuerBaseUrl, requestUri, state);
+        }
+        return processDirectAuthorization(
+                publicIssuerBaseUrl, clientId, responseType, scope, state,
+                codeChallenge, codeChallengeMethod, redirectUri, issuerState
+        );
     }
 
     private Mono<URI> pushAuthorizationRequestAuthorization(String baseUrl, String requestUri, String state) {

@@ -2,6 +2,7 @@ package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
 import es.in2.issuer.backend.oidc4vci.application.workflow.GetAuthorizationServerMetadataWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationServerMetadata;
+import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -9,7 +10,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
@@ -27,6 +27,7 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.OAUTH_
 public class AuthorizationServerMetadataController {
 
     private final GetAuthorizationServerMetadataWorkflow getAuthorizationServerMetadataWorkflow;
+    private final UrlResolver urlResolver;
 
     @GetMapping(
             value = {OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_PATH, AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH},
@@ -35,9 +36,10 @@ public class AuthorizationServerMetadataController {
     @ResponseStatus(HttpStatus.OK)
     public Mono<AuthorizationServerMetadata> getAuthorizationServerMetadata(ServerWebExchange exchange) {
         String processId = UUID.randomUUID().toString();
+        String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
         ServerHttpResponse response = exchange.getResponse();
         response.getHeaders().add(HttpHeaders.CONTENT_LANGUAGE, ENGLISH);
-        return getAuthorizationServerMetadataWorkflow.execute(processId)
+        return getAuthorizationServerMetadataWorkflow.execute(processId, publicIssuerBaseUrl)
                 .doFirst(() ->
                         log.info("Process ID: {} - Getting Authorization Server Metadata...", processId))
                 .doOnSuccess(metadata ->

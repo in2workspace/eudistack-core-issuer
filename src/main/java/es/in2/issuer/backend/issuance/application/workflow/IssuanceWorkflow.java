@@ -6,8 +6,10 @@ import reactor.core.publisher.Mono;
 
 public interface IssuanceWorkflow {
 
-    Mono<IssuanceResponse> issueCredential(String processId, IssuanceRequest request, String idToken);
+    Mono<IssuanceResponse> issueCredential(String processId, IssuanceRequest request, String idToken,
+                                           String publicIssuerBaseUrl);
 
-    Mono<IssuanceResponse> issueCredentialWithoutAuthorization(String processId, IssuanceRequest request);
+    Mono<IssuanceResponse> issueCredentialWithoutAuthorization(String processId, IssuanceRequest request,
+                                                               String publicIssuerBaseUrl);
 
 }

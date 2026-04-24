@@ -9,6 +9,7 @@ import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.util.UUID;
@@ -35,15 +37,18 @@ public class IssuanceController {
     private final IssuanceService issuanceService;
     private final AccessTokenService accessTokenService;
     private final RevocationWorkflow revocationWorkflow;
+    private final UrlResolver urlResolver;
 
     @PostMapping(
             consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
     public Mono<ResponseEntity<IssuanceResponse>> createIssuance(
             @RequestHeader(name = "X-Id-Token", required = false) String idToken,
-            @Valid @RequestBody IssuanceRequest request) {
+            @Valid @RequestBody IssuanceRequest request,
+            ServerWebExchange exchange) {
         String processId = UUID.randomUUID().toString();
-        return issuanceWorkflow.issueCredential(processId, request, idToken)
+        String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
+        return issuanceWorkflow.issueCredential(processId, request, idToken, publicIssuerBaseUrl)
                 .map(this::toResponseEntity);
     }
 
@@ -70,8 +75,10 @@ public class IssuanceController {
     public Mono<Void> updateIssuanceStatus(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
             @PathVariable("id") String id,
-            @Valid @RequestBody UpdateIssuanceStatusRequest request) {
+            @Valid @RequestBody UpdateIssuanceStatusRequest request,
+            ServerWebExchange exchange) {
         String processId = UUID.randomUUID().toString();
+        String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
         return accessTokenService.getAuthorizationContext(authorizationHeader)
                 .flatMap(ctx -> {
                     if (!ctx.canWrite()) {
@@ -80,7 +87,7 @@ public class IssuanceController {
                     }
                     return switch (request.status()) {
                         case WITHDRAWN -> authorizeAndWithdraw(ctx, id);
-                        case REVOKED -> revocationWorkflow.revoke(processId, authorizationHeader, id);
+                        case REVOKED -> revocationWorkflow.revoke(processId, authorizationHeader, id, publicIssuerBaseUrl);
                         case ARCHIVED -> authorizeAndArchive(ctx, id);
                         default -> Mono.error(new ResponseStatusException(
                                 HttpStatus.BAD_REQUEST,

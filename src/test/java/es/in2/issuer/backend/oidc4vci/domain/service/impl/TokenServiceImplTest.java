@@ -11,7 +11,6 @@ import es.in2.issuer.backend.shared.domain.service.DpopValidationService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.PkceVerifier;
 import es.in2.issuer.backend.shared.domain.service.RefreshTokenService;
-import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,8 +58,6 @@ class TokenServiceImplTest {
     @Mock
     private RefreshTokenService refreshTokenService;
     @Mock
-    private IssuerProperties appConfig;
-    @Mock
     private IssuanceService issuanceService;
     @Mock
     private PkceVerifier pkceVerifier;
@@ -84,7 +81,7 @@ class TokenServiceImplTest {
                 authorizationCodeCacheStore,
                 jwtService,
                 refreshTokenService,
-                appConfig,
+
                 issuanceService,
                 pkceVerifier,
                 dpopValidationService,
@@ -111,7 +108,6 @@ class TokenServiceImplTest {
     void exchangeToken_WhenValidPreAuthInputs_ShouldReturnTokenResponse() {
         when(txCodeCacheStore.get(TEST_PRE_AUTHORIZED_CODE))
                 .thenReturn(Mono.just(testIssuanceIdAndTxCode));
-        when(appConfig.getIssuerBackendUrl()).thenReturn(TEST_ISSUER_URL);
         when(jwtService.issueJWT(anyString())).thenReturn(TEST_ACCESS_TOKEN);
         when(refreshTokenService.computeRefreshTokenExpirationTime(any(Instant.class)))
                 .thenReturn(TEST_REFRESH_TOKEN_EXPIRES_AT);
@@ -121,7 +117,7 @@ class TokenServiceImplTest {
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI))
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
                 .assertNext(tokenResponse -> {
                     assertThat(tokenResponse).isNotNull();
                     assertThat(tokenResponse.accessToken()).isEqualTo(TEST_ACCESS_TOKEN);
@@ -141,7 +137,7 @@ class TokenServiceImplTest {
     void exchangeToken_WhenUnsupportedGrantType_ShouldReturnOAuthError() {
         TokenRequest request = preAuthRequest(INVALID_GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI))
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
                 .expectErrorMatches(throwable ->
                         throwable instanceof OAuthTokenException ex &&
                                 "unsupported_grant_type".equals(ex.getErrorCode()) &&
@@ -156,7 +152,7 @@ class TokenServiceImplTest {
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI))
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
                 .expectErrorMatches(throwable ->
                         throwable instanceof OAuthTokenException ex &&
                                 "invalid_grant".equals(ex.getErrorCode()) &&
@@ -173,7 +169,7 @@ class TokenServiceImplTest {
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, INVALID_TX_CODE);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI))
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
                 .expectErrorMatches(throwable ->
                         throwable instanceof OAuthTokenException ex &&
                                 "invalid_grant".equals(ex.getErrorCode()) &&
@@ -190,7 +186,7 @@ class TokenServiceImplTest {
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI))
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
                 .expectErrorMatches(throwable ->
                         throwable instanceof OAuthTokenException ex &&
                                 "invalid_grant".equals(ex.getErrorCode()))
@@ -203,7 +199,6 @@ class TokenServiceImplTest {
     void exchangeToken_WhenRefreshTokenCacheFails_ShouldReturnError() {
         when(txCodeCacheStore.get(TEST_PRE_AUTHORIZED_CODE))
                 .thenReturn(Mono.just(testIssuanceIdAndTxCode));
-        when(appConfig.getIssuerBackendUrl()).thenReturn(TEST_ISSUER_URL);
         when(jwtService.issueJWT(anyString())).thenReturn(TEST_ACCESS_TOKEN);
         when(refreshTokenService.computeRefreshTokenExpirationTime(any(Instant.class)))
                 .thenReturn(TEST_REFRESH_TOKEN_EXPIRES_AT);
@@ -213,7 +208,7 @@ class TokenServiceImplTest {
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI))
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
                 .expectError(RuntimeException.class)
                 .verify();
 
@@ -224,12 +219,11 @@ class TokenServiceImplTest {
     void exchangeToken_WhenJWTServiceFails_ShouldReturnError() {
         when(txCodeCacheStore.get(TEST_PRE_AUTHORIZED_CODE))
                 .thenReturn(Mono.just(testIssuanceIdAndTxCode));
-        when(appConfig.getIssuerBackendUrl()).thenReturn(TEST_ISSUER_URL);
         when(jwtService.issueJWT(anyString())).thenThrow(new RuntimeException("JWT generation failed"));
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI))
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
                 .expectError(RuntimeException.class)
                 .verify();
 

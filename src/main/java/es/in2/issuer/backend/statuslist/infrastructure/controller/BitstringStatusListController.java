@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.statuslist.infrastructure.controller;
 
+import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.dto.RevokeCredentialRequest;
@@ -10,6 +11,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.util.UUID;
@@ -27,6 +29,7 @@ public class BitstringStatusListController {
 
     private final StatusListWorkflow statusListWorkflow;
     private final RevocationWorkflow revocationWorkflow;
+    private final UrlResolver urlResolver;
 
     @GetMapping(value = "/{listId}", produces = VC_JWT_VALUE)
     public Mono<ResponseEntity<String>> getStatusList(@PathVariable Long listId) {
@@ -43,11 +46,13 @@ public class BitstringStatusListController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public Mono<Void> revokeCredential(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String bearerToken,
-            @RequestBody RevokeCredentialRequest request
+            @RequestBody RevokeCredentialRequest request,
+            ServerWebExchange exchange
     ) {
         String processId = UUID.randomUUID().toString();
+        String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
 
-        return revocationWorkflow.revoke(processId, bearerToken, request.issuanceId())
+        return revocationWorkflow.revoke(processId, bearerToken, request.issuanceId(), publicIssuerBaseUrl)
                 .doFirst(() -> log.info("Process ID: {} - Revoking Credential...", processId))
                 .doOnSuccess(v -> log.info("Process ID: {} - Credential revoked successfully.", processId))
                 .doOnError(e -> log.warn("Process ID: {} - Revoking credential failed: {}", processId, e.toString()));

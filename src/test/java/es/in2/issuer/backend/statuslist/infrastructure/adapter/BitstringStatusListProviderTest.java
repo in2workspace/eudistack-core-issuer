@@ -171,7 +171,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(expectedEntry);
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
                 .expectNext(expectedEntry)
                 .verifyComplete();
 
@@ -229,7 +229,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(expectedEntry);
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
                 .expectNext(expectedEntry)
                 .verifyComplete();
 
@@ -243,7 +243,7 @@ class BitstringStatusListProviderTest {
     @Test
     void allocateEntry_shouldThrowException_whenPurposeIsNull() {
         Mono<StatusListEntry> mono = monoFromCall(() ->
-                bitstringStatusListProvider.allocateEntry(null, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN)
+                bitstringStatusListProvider.allocateEntry(null, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL)
         );
 
         assertThatThrownBy(mono::block)
@@ -256,7 +256,7 @@ class BitstringStatusListProviderTest {
     @Test
     void allocateEntry_shouldThrowException_whenProcedureIdIsNull() {
         Mono<StatusListEntry> mono = monoFromCall(() ->
-                bitstringStatusListProvider.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, null, TEST_TOKEN)
+                bitstringStatusListProvider.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, null, TEST_TOKEN, TEST_ISSUER_URL)
         );
 
         assertThatThrownBy(mono::block)
@@ -270,7 +270,7 @@ class BitstringStatusListProviderTest {
     @Test
     void allocateEntry_shouldThrowException_whenTokenIsNull() {
         Mono<StatusListEntry> mono = monoFromCall(() ->
-                bitstringStatusListProvider.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, null)
+                bitstringStatusListProvider.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, null, TEST_ISSUER_URL)
         );
 
         assertThatThrownBy(mono::block)
@@ -284,7 +284,7 @@ class BitstringStatusListProviderTest {
     @Test
     void allocateEntry_shouldThrowException_whenProcedureIdIsInvalidUUID() {
         Mono<StatusListEntry> mono = monoFromCall(() ->
-                bitstringStatusListProvider.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, "invalid-uuid", TEST_TOKEN)
+                bitstringStatusListProvider.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, "invalid-uuid", TEST_TOKEN, TEST_ISSUER_URL)
         );
 
         assertThatThrownBy(mono::block)
@@ -374,7 +374,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(expectedEntry);
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
                 .expectNext(expectedEntry)
                 .verifyComplete();
 
@@ -458,7 +458,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(expectedEntry);
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
                 .expectNext(expectedEntry)
                 .verifyComplete();
 
@@ -515,7 +515,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.empty());
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
                 .expectErrorMatches(e -> e == signError)
                 .verify();
 
@@ -567,7 +567,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.error(new RuntimeException("delete failed")));
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
                 .expectErrorMatches(e -> e == signError)
                 .verify();
 
@@ -621,7 +621,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.empty());
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
                 .expectError(StatusListSigningPersistenceException.class)
                 .verify();
 
@@ -714,7 +714,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(expectedEntry);
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
                 .expectNext(expectedEntry)
                 .verifyComplete();
 
@@ -808,7 +808,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(expectedEntry);
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.TOKEN_JWT, TEST_ISSUANCE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.TOKEN_JWT, TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
                 .expectNext(expectedEntry)
                 .verifyComplete();
 
@@ -876,7 +876,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(expectedEntry);
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.TOKEN_JWT, TEST_ISSUANCE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.TOKEN_JWT, TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
                 .expectNext(expectedEntry)
                 .verifyComplete();
 
@@ -952,7 +952,7 @@ class BitstringStatusListProviderTest {
         )).thenReturn(Mono.just(1));
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
                 .verifyComplete();
 
         verify(statusListIndexRepository).findByIssuanceId(procedureUuid);
@@ -970,7 +970,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.empty());
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
                 .expectError(StatusListIndexNotFoundException.class)
                 .verify();
 
@@ -998,7 +998,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.empty());
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
                 .expectError(StatusListNotFoundException.class)
                 .verify();
 
@@ -1047,7 +1047,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.just(revokedRow));
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
                 .verifyComplete();
 
         verify(statusListIndexRepository).findByIssuanceId(procedureUuid);
@@ -1125,7 +1125,7 @@ class BitstringStatusListProviderTest {
         )).thenReturn(Mono.just(0), Mono.just(1));
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
                 .verifyComplete();
 
         verify(statusListRepository, times(2)).updateSignedAndEncodedIfUnchanged(
@@ -1139,7 +1139,7 @@ class BitstringStatusListProviderTest {
     @Test
     void revoke_shouldThrowException_whenProcedureIdIsInvalidUUID() {
         Mono<Void> mono = monoFromCall(() ->
-                bitstringStatusListProvider.revoke("invalid-uuid", TEST_TOKEN)
+                bitstringStatusListProvider.revoke("invalid-uuid", TEST_TOKEN, TEST_ISSUER_URL)
         );
 
         assertThatThrownBy(mono::block)
@@ -1217,7 +1217,7 @@ class BitstringStatusListProviderTest {
         )).thenReturn(Mono.just(0));
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
                 .expectErrorMatches(e ->
                         e.getClass().getName().contains("RetryExhaustedException")
                                 && e.getCause() instanceof OptimisticUpdateException

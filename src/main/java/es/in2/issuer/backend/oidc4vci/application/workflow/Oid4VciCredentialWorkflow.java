@@ -10,7 +10,8 @@ public interface Oid4VciCredentialWorkflow {
     Mono<CredentialResponse> createCredentialResponse(
             String processId,
             CredentialRequest credentialRequest,
-            AccessTokenContext accessTokenContext
+            AccessTokenContext accessTokenContext,
+            String publicIssuerBaseUrl
     );
 
 }

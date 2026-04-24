@@ -47,16 +47,16 @@ class CredentialOfferRefreshWorkflowImplTest {
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 eq(issuanceId.toString()), eq("learcredential.employee.w3c.4"),
                 eq("authorization_code"), eq("test@example.com"),
-                eq("email"), eq(credentialOfferRefreshToken)))
+                eq("email"), eq(credentialOfferRefreshToken), eq("https://test.example/issuer")))
                 .thenReturn(Mono.just(CredentialOfferResult.builder().build()));
 
-        StepVerifier.create(workflow.refreshCredentialOffer(credentialOfferRefreshToken))
+        StepVerifier.create(workflow.refreshCredentialOffer(credentialOfferRefreshToken, "https://test.example/issuer"))
                 .verifyComplete();
 
         verify(credentialOfferService).createAndDeliverCredentialOffer(
                 eq(issuanceId.toString()), eq("learcredential.employee.w3c.4"),
                 eq("authorization_code"), eq("test@example.com"),
-                eq("email"), eq(credentialOfferRefreshToken));
+                eq("email"), eq(credentialOfferRefreshToken), eq("https://test.example/issuer"));
     }
 
     @Test
@@ -71,7 +71,7 @@ class CredentialOfferRefreshWorkflowImplTest {
         when(issuanceService.getIssuanceByCredentialOfferRefreshToken(credentialOfferRefreshToken))
                 .thenReturn(Mono.just(issuance));
 
-        StepVerifier.create(workflow.refreshCredentialOffer(credentialOfferRefreshToken))
+        StepVerifier.create(workflow.refreshCredentialOffer(credentialOfferRefreshToken, "https://test.example/issuer"))
                 .expectErrorMatches(ex -> ex instanceof ResponseStatusException rse
                         && rse.getStatusCode().value() == 410)
                 .verify();
@@ -82,7 +82,7 @@ class CredentialOfferRefreshWorkflowImplTest {
         when(issuanceService.getIssuanceByCredentialOfferRefreshToken("unknown"))
                 .thenReturn(Mono.empty());
 
-        StepVerifier.create(workflow.refreshCredentialOffer("unknown"))
+        StepVerifier.create(workflow.refreshCredentialOffer("unknown", "https://test.example/issuer"))
                 .expectErrorMatches(ex -> ex instanceof ResponseStatusException rse
                         && rse.getStatusCode().value() == 404)
                 .verify();

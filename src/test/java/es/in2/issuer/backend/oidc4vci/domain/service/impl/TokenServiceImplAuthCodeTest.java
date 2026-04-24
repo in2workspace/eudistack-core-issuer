@@ -12,7 +12,6 @@ import es.in2.issuer.backend.shared.domain.service.DpopValidationService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.PkceVerifier;
 import es.in2.issuer.backend.shared.domain.service.RefreshTokenService;
-import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,8 +51,6 @@ class TokenServiceImplAuthCodeTest {
     @Mock
     private RefreshTokenService refreshTokenService;
     @Mock
-    private IssuerProperties appConfig;
-    @Mock
     private IssuanceService issuanceService;
     @Mock
     private PkceVerifier pkceVerifier;
@@ -76,7 +73,7 @@ class TokenServiceImplAuthCodeTest {
                 authorizationCodeCacheStore,
                 jwtService,
                 refreshTokenService,
-                appConfig,
+
                 issuanceService,
                 pkceVerifier,
                 dpopValidationService,
@@ -116,12 +113,11 @@ class TokenServiceImplAuthCodeTest {
         when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
         doNothing().when(pkceVerifier).verifyS256("verifier", "challenge");
         when(issuerStateCacheStore.get("issuer-state-1")).thenReturn(Mono.just("issuance-id-1"));
-        when(appConfig.getIssuerBackendUrl()).thenReturn("https://issuer.example.com");
         when(jwtService.issueJWT(anyString())).thenReturn("signed-jwt-token");
 
         TokenRequest request = authCodeRequest("auth-code-123", "https://wallet/callback", "verifier");
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI))
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
                 .assertNext(response -> {
                     assertEquals("signed-jwt-token", response.accessToken());
                     assertEquals("bearer", response.tokenType());
@@ -157,12 +153,11 @@ class TokenServiceImplAuthCodeTest {
         when(dpopValidationService.validate("dpop-proof", "POST", TOKEN_ENDPOINT_URI))
                 .thenReturn("dpop-jkt-thumbprint");
         when(issuerStateCacheStore.get("issuer-state-2")).thenReturn(Mono.just("issuance-id-2"));
-        when(appConfig.getIssuerBackendUrl()).thenReturn("https://issuer.example.com");
         when(jwtService.issueJWT(anyString())).thenReturn("signed-dpop-jwt");
 
         TokenRequest request = authCodeRequest("auth-code-456", "https://wallet/callback", "verifier");
 
-        StepVerifier.create(tokenService.exchangeToken(request, "dpop-proof", TOKEN_ENDPOINT_URI))
+        StepVerifier.create(tokenService.exchangeToken(request, "dpop-proof", TOKEN_ENDPOINT_URI, "https://issuer"))
                 .assertNext(response -> {
                     assertEquals("signed-dpop-jwt", response.accessToken());
                     assertEquals("DPoP", response.tokenType());
@@ -178,7 +173,7 @@ class TokenServiceImplAuthCodeTest {
 
         TokenRequest request = authCodeRequest("invalid-code", "https://wallet/callback", "verifier");
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI))
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
                 .expectErrorMatches(e -> e instanceof OAuthTokenException ex
                         && "invalid_grant".equals(ex.getErrorCode())
                         && e.getMessage().contains("Invalid or expired authorization code"))
@@ -197,7 +192,7 @@ class TokenServiceImplAuthCodeTest {
 
         TokenRequest request = authCodeRequest("code-789", "https://evil.example.com/callback", null);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI))
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
                 .expectErrorMatches(e -> e instanceof OAuthTokenException ex
                         && "invalid_grant".equals(ex.getErrorCode())
                         && e.getMessage().contains("redirect_uri mismatch"))
@@ -227,7 +222,7 @@ class TokenServiceImplAuthCodeTest {
 
         TokenRequest request = authCodeRequest("code-pkce-fail", "https://wallet/callback", "wrong-verifier");
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI))
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
                 .expectErrorMatches(e -> e instanceof IllegalArgumentException
                         && e.getMessage().contains("PKCE verification failed"))
                 .verify();

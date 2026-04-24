@@ -2,7 +2,6 @@ package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
 import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
 import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
-import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -18,8 +17,6 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class AuthorizationServerMetadataServiceImplTest {
 
-    @Mock
-    private IssuerProperties appConfig;
 
     @Mock
     private Oid4vciProfilePort profileProperties;
@@ -29,13 +26,12 @@ class AuthorizationServerMetadataServiceImplTest {
 
     @Test
     void buildMetadata_shouldIncludeOnlyPreAuthFields() {
-        when(appConfig.getIssuerBackendUrl()).thenReturn("https://issuer.example.com");
         when(profileProperties.isAuthorizationCodeEnabled()).thenReturn(false);
         when(profileProperties.isPreAuthorizedCodeEnabled()).thenReturn(true);
         when(profileProperties.grantsSupported()).thenReturn(
                 List.of("urn:ietf:params:oauth:grant-type:pre-authorized_code"));
 
-        StepVerifier.create(metadataService.buildAuthorizationServerMetadata("test-process"))
+        StepVerifier.create(metadataService.buildAuthorizationServerMetadata("test-process", "https://issuer.example.com"))
                 .assertNext(metadata -> {
                     assertEquals("https://issuer.example.com", metadata.issuer());
                     assertNotNull(metadata.tokenEndpoint());
@@ -57,13 +53,12 @@ class AuthorizationServerMetadataServiceImplTest {
                 "attest_jwt_client_auth", true
         );
 
-        when(appConfig.getIssuerBackendUrl()).thenReturn("https://issuer.example.com");
         when(profileProperties.isAuthorizationCodeEnabled()).thenReturn(true);
         when(profileProperties.isPreAuthorizedCodeEnabled()).thenReturn(false);
         when(profileProperties.grantsSupported()).thenReturn(List.of("authorization_code"));
         when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
 
-        StepVerifier.create(metadataService.buildAuthorizationServerMetadata("test-process"))
+        StepVerifier.create(metadataService.buildAuthorizationServerMetadata("test-process", "https://issuer.example.com"))
                 .assertNext(metadata -> {
                     assertNotNull(metadata.authorizationEndpoint());
                     assertNotNull(metadata.pushedAuthorizationRequestEndpoint());
@@ -86,14 +81,13 @@ class AuthorizationServerMetadataServiceImplTest {
                 "none", false
         );
 
-        when(appConfig.getIssuerBackendUrl()).thenReturn("https://issuer.example.com");
         when(profileProperties.isAuthorizationCodeEnabled()).thenReturn(true);
         when(profileProperties.isPreAuthorizedCodeEnabled()).thenReturn(true);
         when(profileProperties.grantsSupported()).thenReturn(
                 List.of("authorization_code", "urn:ietf:params:oauth:grant-type:pre-authorized_code"));
         when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
 
-        StepVerifier.create(metadataService.buildAuthorizationServerMetadata("test-process"))
+        StepVerifier.create(metadataService.buildAuthorizationServerMetadata("test-process", "https://issuer.example.com"))
                 .assertNext(metadata -> {
                     assertNotNull(metadata.authorizationEndpoint());
                     assertNull(metadata.pushedAuthorizationRequestEndpoint());

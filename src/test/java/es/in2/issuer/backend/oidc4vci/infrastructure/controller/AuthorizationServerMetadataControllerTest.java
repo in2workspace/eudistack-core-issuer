@@ -4,6 +4,7 @@ import es.in2.issuer.backend.oidc4vci.application.workflow.GetAuthorizationServe
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationServerMetadata;
 import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
+import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,9 @@ class AuthorizationServerMetadataControllerTest {
     @MockBean
     private TenantRegistryService tenantRegistryService;
 
+    @MockBean
+    private UrlResolver urlResolver;
+
     @Test
     void testGetAuthorizationServerMetadataSuccess() {
         // Arrange
@@ -55,7 +59,9 @@ class AuthorizationServerMetadataControllerTest {
                 .preAuthorizedGrantAnonymousAccessSupported(true)
                 .build();
         // Mock
-        when(getAuthorizationServerMetadataWorkflow.execute(anyString()))
+        when(urlResolver.publicIssuerBaseUrl(org.mockito.ArgumentMatchers.any()))
+                .thenReturn("https://issuer.example.com");
+        when(getAuthorizationServerMetadataWorkflow.execute(anyString(), anyString()))
                 .thenReturn(Mono.just(expectedAuthorizationServerMetadata));
         // Act + Assert
         webTestClient

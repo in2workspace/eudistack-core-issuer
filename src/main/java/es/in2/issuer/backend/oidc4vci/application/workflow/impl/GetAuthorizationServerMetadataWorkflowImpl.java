@@ -14,8 +14,8 @@ public class GetAuthorizationServerMetadataWorkflowImpl implements GetAuthorizat
     private final AuthorizationServerMetadataService authorizationServerMetadataService;
 
     @Override
-    public Mono<AuthorizationServerMetadata> execute(String processId) {
-        return authorizationServerMetadataService.buildAuthorizationServerMetadata(processId);
+    public Mono<AuthorizationServerMetadata> execute(String processId, String publicIssuerBaseUrl) {
+        return authorizationServerMetadataService.buildAuthorizationServerMetadata(processId, publicIssuerBaseUrl);
     }
 
 }

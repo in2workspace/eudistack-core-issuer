@@ -47,6 +47,7 @@ class HandleNotificationWorkflowImplTest {
 
     private final String processId = "proc-123";
     private final String bearerToken = "Bearer token";
+    private final String publicBaseUrl = "https://test.example/issuer";
 
     private UUID issuanceId;
     private Issuance issuance;
@@ -81,7 +82,7 @@ class HandleNotificationWorkflowImplTest {
 
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_ACCEPTED, "desc");
 
-        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
+        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken, publicBaseUrl))
                 .verifyComplete();
 
         verify(issuanceService).updateCredentialDataSetByIssuanceId(
@@ -98,7 +99,7 @@ class HandleNotificationWorkflowImplTest {
 
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_ACCEPTED, "desc");
 
-        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
+        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken, publicBaseUrl))
                 .verifyComplete();
 
         verify(issuanceService, never()).updateCredentialDataSetByIssuanceId(any(), any(), any());
@@ -119,7 +120,7 @@ class HandleNotificationWorkflowImplTest {
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_FAILURE, eventDescription);
 
         // Act & Assert
-        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
+        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken, publicBaseUrl))
                 .verifyComplete();
 
         verify(emailService).sendCredentialFailureNotification(userEmail, eventDescription);
@@ -143,7 +144,7 @@ class HandleNotificationWorkflowImplTest {
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_FAILURE, eventDescription);
 
         // Act & Assert
-        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
+        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken, publicBaseUrl))
                 .verifyComplete();
 
         verify(emailService).sendCredentialFailureNotification(userEmail, eventDescription);
@@ -164,7 +165,7 @@ class HandleNotificationWorkflowImplTest {
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_FAILURE, eventDescription);
 
         // Act & Assert
-        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
+        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken, publicBaseUrl))
                 .verifyComplete();
 
         verify(emailService).sendCredentialFailureNotification(userEmail, eventDescription);
@@ -178,16 +179,16 @@ class HandleNotificationWorkflowImplTest {
                 .thenReturn(Mono.just(issuance));
         when(issuanceService.withdrawIssuance(issuanceId.toString()))
                 .thenReturn(Mono.empty());
-        when(revocationWorkflow.revokeSystem(processId, bearerToken, issuanceId.toString()))
+        when(revocationWorkflow.revokeSystem(processId, bearerToken, issuanceId.toString(), publicBaseUrl))
                 .thenReturn(Mono.empty());
 
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_DELETED, "desc");
 
-        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
+        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken, publicBaseUrl))
                 .verifyComplete();
 
         verify(issuanceService).withdrawIssuance(issuanceId.toString());
-        verify(revocationWorkflow).revokeSystem(processId, bearerToken, issuanceId.toString());
+        verify(revocationWorkflow).revokeSystem(processId, bearerToken, issuanceId.toString(), publicBaseUrl);
     }
 
     @Test
@@ -199,7 +200,7 @@ class HandleNotificationWorkflowImplTest {
 
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_DELETED, "desc");
 
-        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken))
+        StepVerifier.create(handleNotificationWorkflow.handleNotification(processId, request, bearerToken, publicBaseUrl))
                 .verifyComplete();
 
         verify(issuanceService, never()).withdrawIssuance(any());
