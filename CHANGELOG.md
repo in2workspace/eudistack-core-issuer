@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.2] - 2026-04-24
+
+### Changed (Issuer no longer owns `public` schema)
+
+- **`V1__Public_schema.sql` eliminado** y directorio `src/main/resources/db/migration/` suprimido. `public.tenant_registry` deja de ser responsabilidad del Issuer; pasa a la plataforma (local: `init-databases.sh`, STG/PROD: `seed-tenants.*.sql`, futuro: microservicio de onboarding de tenants).
+- **`TenantSchemaFlywayMigrator`**: eliminados `migratePublicSchema()` y su invocación. El Issuer solo lee `public.tenant_registry` para saber qué schemas `<tenant>_issuer` provisionar; no crea ni migra `public`. El log de cierre ya no menciona `public` (`Flyway multi-schema migration completed: N tenant schemas (suffix '_issuer')`).
+- Si `public.tenant_registry` no existe aún al arranque, el Migrator loggea WARN y arranca con 0 tenants (comportamiento previo preservado).
+
+### Migration note
+
+En STG basta con `DROP TABLE public.flyway_schema_history;` antes del deploy de 3.5.2 (la tabla ya no la gestiona nadie y estorba si queda huérfana). `public.tenant_registry` y los schemas `<tenant>_issuer` quedan intactos; ningún dato de runtime se pierde.
+
 ## [3.5.1] - 2026-04-24
 
 ### Fixed (EUDI-094 post-cutover — final follow-up on 3.4.6/3.4.7)
