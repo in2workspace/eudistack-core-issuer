@@ -3,7 +3,6 @@ package es.in2.issuer.backend.statuslist.infrastructure.adapter;
 
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
 import es.in2.issuer.backend.statuslist.domain.util.factory.IssuerFactory;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import es.in2.issuer.backend.statuslist.domain.exception.*;
 import es.in2.issuer.backend.statuslist.domain.factory.BitstringStatusListCredentialFactory;
 import es.in2.issuer.backend.statuslist.domain.factory.TokenStatusListCredentialFactory;
@@ -42,8 +41,6 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class BitstringStatusListProviderTest {
 
-    @Mock
-    private AppConfig appConfig;
 
     @Mock
     private StatusListRepository statusListRepository;
@@ -79,11 +76,6 @@ class BitstringStatusListProviderTest {
     private static final String TEST_ISSUER_URL = "https://issuer.example.com";
     private static final String TEST_ISSUER_DID = "did:example:issuer";
     private static final int TEST_IDX = 5;
-
-    @BeforeEach
-    void setUp() {
-        lenient().when(appConfig.getIssuerBackendUrl()).thenReturn(TEST_ISSUER_URL);
-    }
 
     // ========== Tests for getSignedStatusListCredential ==========
 
