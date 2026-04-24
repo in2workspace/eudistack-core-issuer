@@ -6,7 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Security (Issuer token validation decoupled from APP_URL)
+## [3.4.6] - 2026-04-24
+
+### Security (EUDI-094 post-cutover — token issuer validation decoupled from APP_URL)
 
 - **`CustomAuthenticationManager.verifyAndParseJwtForIssuer`** — when the request carries a `ISSUER_BASE_URL_CONTEXT_KEY` (populated by `IssuerBaseUrlWebFilter` from `exchange.getRequest().getURI()`), the method accepts the token only when `iss` matches the request public base URL exactly. This is both HAIP-aligned and stricter than the previous fuzzy `baseOriginMatches` against `APP_URL`, which failed after EUDI-094 (tokens issued with `iss=https://sandbox-stg.eudistack.net/issuer` were rejected because `APP_URL` still pointed to the legacy `issuer-stg.api.altia.eudistack.net`).
 - **Fallback preserved**: when the Reactor context is absent (internal M2M paths, unit tests), the original `APP_URL`-based fuzzy match still runs. No behavioural change for tests; no invalidation of in-flight tokens.
