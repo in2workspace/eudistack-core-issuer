@@ -6,6 +6,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-04-24
+
+### Changed (per-tenant schema naming — `<tenant>_issuer`)
+
+- **`Constants.SCHEMA_SUFFIX = "_issuer"`** — constante nueva que el Issuer concatena al tenant id para resolver el schema físico en PostgreSQL. Evita colisiones del `flyway_schema_history` cuando varios servicios (issuer, verifier, ebw) comparten una misma base de datos.
+- **`TenantAwareConnectionFactoryDecorator`** — `SET search_path TO <tenant>_issuer, public` (antes `<tenant>, public`). El `SYSTEM_TENANT` sigue usando solo `public`.
+- **`TenantSchemaFlywayMigrator`** — lee el tenant id de `public.tenant_registry.schema_name` y concatena `SCHEMA_SUFFIX` antes de `CREATE SCHEMA IF NOT EXISTS` y `Flyway.configure().defaultSchema(...)`. Método `loadActiveTenantSchemas` renombrado a `loadActiveTenants`.
+- **`V1__Public_schema.sql`** — eliminado el `INSERT` seed de `tenant_registry`. El onboarding de tenants no es responsabilidad del Issuer Flyway; pasa a `eudistack-platform-dev/postgres/seed-tenants*.sql` (hoy) y al futuro microservicio de onboarding.
+- `tenant_registry.schema_name` sigue guardando el tenant id sin sufijo. Cada servicio concatena su propio sufijo en código.
+
+### Migration note
+
+STG se migró out-of-band con `rename-schemas-service-suffix.stg.sql` en `eudistack-platform-dev`: `ALTER SCHEMA platform|sandbox|dome|kpmg RENAME TO <name>_issuer` dentro de una transacción, sin tocar `tenant_registry`. Los `flyway_schema_history` viajan con el rename, por lo que el siguiente arranque del Issuer no reaplica migraciones `db/tenant`.
+
+## [3.4.7] - 2026-04-24
+
+### Fixed (EUDI-094 post-cutover — follow-up on 3.4.6)
+
+- **`CustomAuthenticationManager`** now derives the public base URL directly from the `ServerWebExchange` (via `ServerWebExchangeContextFilter.EXCHANGE_CONTEXT_ATTRIBUTE`) instead of reading `ISSUER_BASE_URL_CONTEXT_KEY` from the Reactor context. In 3.4.6 the key was never visible: `IssuerBaseUrlWebFilter` writes it with `chain.filter(exchange).contextWrite(...)` which propagates **upstream only**, but Spring Security's `AuthenticationWebFilter` runs the `ReactiveAuthenticationManager` on a downstream branch — the key was still absent. The fallback to `APP_URL`-based fuzzy match kept firing and rejecting the token. Base URL is now built inline (scheme + host + port + `spring.webflux.base-path`) mirroring `IssuerBaseUrlWebFilter.buildBaseUrl`. Tests adapted to inject a `MockServerWebExchange` into the context.
+
+## [3.4.6] - 2026-04-24
+
+### Security (EUDI-094 post-cutover — token issuer validation decoupled from APP_URL) — superseded by 3.4.7
+
+- **`CustomAuthenticationManager.verifyAndParseJwtForIssuer`** — when the request carries a `ISSUER_BASE_URL_CONTEXT_KEY` (populated by `IssuerBaseUrlWebFilter` from `exchange.getRequest().getURI()`), the method accepts the token only when `iss` matches the request public base URL exactly. This is both HAIP-aligned and stricter than the previous fuzzy `baseOriginMatches` against `APP_URL`, which failed after EUDI-094 (tokens issued with `iss=https://sandbox-stg.eudistack.net/issuer` were rejected because `APP_URL` still pointed to the legacy `issuer-stg.api.altia.eudistack.net`).
+- **Fallback preserved**: when the Reactor context is absent (internal M2M paths, unit tests), the original `APP_URL`-based fuzzy match still runs. No behavioural change for tests; no invalidation of in-flight tokens.
+- Added unit tests: exact-match acceptance bypasses `AppConfig`, and mismatch falls back to the APP_URL path.
+- Follow-up: EUDI-017 will drop `APP_URL` entirely (see memory `project_issuer_app_url_deprecation`).
+
 ## [3.4.5] - 2026-04-23
 
 ### Changed

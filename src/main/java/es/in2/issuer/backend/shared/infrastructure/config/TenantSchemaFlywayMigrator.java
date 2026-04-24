@@ -17,6 +17,8 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.SCHEMA_SUFFIX;
+
 @Slf4j
 @Component
 @Order(1)
@@ -39,12 +41,13 @@ public class TenantSchemaFlywayMigrator implements ApplicationRunner {
 
         migratePublicSchema(jdbcUrl, username, password);
 
-        List<String> tenantSchemas = loadActiveTenantSchemas(jdbcUrl, username, password);
-        for (String schema : tenantSchemas) {
-            migrateTenantSchema(jdbcUrl, username, password, schema);
+        List<String> tenants = loadActiveTenants(jdbcUrl, username, password);
+        for (String tenant : tenants) {
+            migrateTenantSchema(jdbcUrl, username, password, tenant + SCHEMA_SUFFIX);
         }
 
-        log.info("Flyway multi-schema migration completed: public + {} tenant schemas", tenantSchemas.size());
+        log.info("Flyway multi-schema migration completed: public + {} tenant schemas (suffix '{}')",
+                tenants.size(), SCHEMA_SUFFIX);
     }
 
     private void migratePublicSchema(String jdbcUrl, String username, String password) {
@@ -59,21 +62,21 @@ public class TenantSchemaFlywayMigrator implements ApplicationRunner {
                 .migrate();
     }
 
-    private List<String> loadActiveTenantSchemas(String jdbcUrl, String username, String password) {
-        List<String> schemas = new ArrayList<>();
+    private List<String> loadActiveTenants(String jdbcUrl, String username, String password) {
+        List<String> tenants = new ArrayList<>();
         try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password);
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(
                      "SELECT schema_name FROM public.tenant_registry WHERE status = 'active'")) {
             while (rs.next()) {
-                schemas.add(rs.getString("schema_name"));
+                tenants.add(rs.getString("schema_name"));
             }
         } catch (Exception e) {
-            log.warn("Could not load tenant schemas from tenant_registry: {}. " +
+            log.warn("Could not load tenants from tenant_registry: {}. " +
                     "This is expected on first run before tenant_registry exists.", e.getMessage());
         }
-        log.info("Found {} active tenant schemas: {}", schemas.size(), schemas);
-        return schemas;
+        log.info("Found {} active tenants: {}", tenants.size(), tenants);
+        return tenants;
     }
 
     private void migrateTenantSchema(String jdbcUrl, String username, String password, String schema) {

@@ -117,4 +117,8 @@ public final class Constants {
     public static final String TENANT_DOMAIN_CONTEXT_KEY = "tenantDomain";
     public static final String ISSUER_BASE_URL_CONTEXT_KEY = "issuerBaseUrl";
     public static final String PLATFORM_TENANT = "platform";
+    // Service-specific suffix appended to the tenant id to resolve the PostgreSQL schema
+    // (e.g. tenant "sandbox" -> schema "sandbox_issuer"). Prevents flyway_schema_history
+    // collisions when multiple services share the same database.
+    public static final String SCHEMA_SUFFIX = "_issuer";
 }
