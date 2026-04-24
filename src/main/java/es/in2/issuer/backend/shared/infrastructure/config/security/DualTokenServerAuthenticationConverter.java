@@ -41,15 +41,22 @@ public final class DualTokenServerAuthenticationConverter implements ServerAuthe
             return Mono.empty();
         }
         String idToken = request.getHeaders().getFirst(ID_TOKEN_HEADER);
-        String requestBaseUrl = buildBaseUrl(exchange);
+        String origin = buildOrigin(exchange);
+        String requestBaseUrl = origin + (configuredContextPath == null ? "" : configuredContextPath);
+        // Under same-origin (Atlassian-style) routing, the verifier is served on
+        // the same host as the issuer under the /verifier context path. Tokens
+        // emitted by the verifier in login flows carry iss = ${origin}/verifier.
+        String expectedVerifierBaseUrl = origin + "/verifier";
         return Mono.just(new es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication(
                 accessToken,
                 (idToken == null || idToken.isBlank()) ? null : idToken,
-                requestBaseUrl));
+                requestBaseUrl,
+                expectedVerifierBaseUrl));
     }
 
-    // Mirrors IssuerBaseUrlWebFilter.buildBaseUrl.
-    private String buildBaseUrl(ServerWebExchange exchange) {
+    // Mirrors the origin portion of IssuerBaseUrlWebFilter.buildBaseUrl
+    // (scheme + host + port, no context path).
+    private static String buildOrigin(ServerWebExchange exchange) {
         URI uri = exchange.getRequest().getURI();
         String scheme = uri.getScheme();
         String host = uri.getHost();
@@ -62,9 +69,6 @@ public final class DualTokenServerAuthenticationConverter implements ServerAuthe
         sb.append(scheme).append("://").append(host);
         if (!defaultPort) {
             sb.append(":").append(port);
-        }
-        if (configuredContextPath != null && !configuredContextPath.isBlank()) {
-            sb.append(configuredContextPath);
         }
         return sb.toString();
     }

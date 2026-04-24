@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.3] - 2026-04-24
+
+### Security (EUDI-094 post-cutover — verifier token validation decoupled from APP_VERIFIER_URL)
+
+- **`DualTokenServerAuthenticationConverter`** now also captures the expected verifier base URL from the request origin (`${scheme}://${host}[:port]/verifier`). Under same-origin routing (Atlassian-style) the verifier lives on the same host as the issuer and signs tokens with `iss = ${origin}/verifier`. Passed through a new `DualTokenAuthentication.expectedVerifierBaseUrl` field.
+- **`CustomAuthenticationManager.verifyAndParseJwtForIssuer`** gets a new exact-match branch for verifier tokens: when `iss` equals `expectedVerifierBaseUrl`, the token is accepted and the issuer check inside `VerifierService` is skipped (signature and expiration are still validated). `APP_VERIFIER_URL`-based fuzzy match remains as fallback for legacy/internal paths.
+- **`VerifierService.verifyTokenSkippingIssuerCheck`** — new overload that validates signature and expiration but trusts the caller's pre-match of `iss`.
+- Symptom before fix: login-driven calls to `/issuer/api/v1/me` (and other unified-chain endpoints) returned `401 Unknown token issuer` because `APP_VERIFIER_URL` still pointed to the legacy `login-stg.altia.eudistack.net` while tokens now carry `iss=https://sandbox-stg.eudistack.net/verifier`.
+
 ## [3.5.2] - 2026-04-24
 
 ### Changed (Issuer no longer owns `public` schema)

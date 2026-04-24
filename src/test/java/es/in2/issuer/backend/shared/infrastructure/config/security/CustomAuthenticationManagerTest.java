@@ -427,6 +427,29 @@ class CustomAuthenticationManagerTest {
     }
 
     @Test
+    void authenticate_withDualTokenCarryingExpectedVerifierBaseUrl_exactMatch_acceptsToken_withoutAppConfigCall() {
+        // Verifier token arriving at the issuer under same-origin routing
+        // (login flow): iss equals ${origin}/verifier. The manager must accept
+        // via the exact-match verifier branch without touching APP_VERIFIER_URL.
+        String requestBaseUrl = "https://sandbox-stg.eudistack.net/issuer";
+        String expectedVerifierBaseUrl = "https://sandbox-stg.eudistack.net/verifier";
+        String token = buildAccessTokenFromIssuer(expectedVerifierBaseUrl, false);
+
+        when(verifierService.verifyTokenSkippingIssuerCheck(token)).thenReturn(Mono.empty());
+
+        Authentication authentication = new es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication(
+                token, null, requestBaseUrl, expectedVerifierBaseUrl);
+        Mono<Authentication> result = authenticationManager.authenticate(authentication);
+
+        StepVerifier.create(result)
+                .assertNext(auth -> assertTrue(auth instanceof JwtAuthenticationToken))
+                .verifyComplete();
+
+        verify(appConfig, never()).isVerifierIssuer(anyString());
+        verify(verifierService, never()).verifyToken(anyString());
+    }
+
+    @Test
     void authenticate_withDualTokenMismatchRequestBaseUrl_fallsBackToAppConfig() {
         // iss does not match the request base URL; APP_URL fallback answers.
         String publicBaseUrl = "https://sandbox-stg.eudistack.net/issuer";

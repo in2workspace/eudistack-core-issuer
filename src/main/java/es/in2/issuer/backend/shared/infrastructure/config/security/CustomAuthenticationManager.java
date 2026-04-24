@@ -46,16 +46,19 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
         final String accessToken = String.valueOf(authentication.getCredentials());
         final String maybeIdToken;
         final String requestBaseUrl;
+        final String expectedVerifierBaseUrl;
         if (authentication instanceof es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication dta) {
             maybeIdToken = dta.getIdToken();
             requestBaseUrl = dta.getRequestBaseUrl();
+            expectedVerifierBaseUrl = dta.getExpectedVerifierBaseUrl();
         } else {
             maybeIdToken = null;
             requestBaseUrl = null;
+            expectedVerifierBaseUrl = null;
         }
 
         return extractIssuer(accessToken)
-                .flatMap(issuer -> verifyAndParseJwtForIssuer(issuer, accessToken, requestBaseUrl))
+                .flatMap(issuer -> verifyAndParseJwtForIssuer(issuer, accessToken, requestBaseUrl, expectedVerifierBaseUrl))
                 .flatMap(accessJwt -> getPrincipalName(accessJwt, maybeIdToken)
                         .map(principalName -> (Authentication) new JwtAuthenticationToken(
                                 accessJwt,
@@ -137,17 +140,27 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
                 });
     }
 
-    private Mono<Jwt> verifyAndParseJwtForIssuer(String issuer, String token, @Nullable String requestBaseUrl) {
-        // Preferred path (HAIP-compliant): when the request reached us through a
-        // WebFilter chain, IssuerBaseUrlWebFilter put the public base URL in the
-        // Reactor context. Tokens issued by this backend are signed with iss set
-        // to the same value, so we can do an exact string match.
+    private Mono<Jwt> verifyAndParseJwtForIssuer(
+            String issuer,
+            String token,
+            @Nullable String requestBaseUrl,
+            @Nullable String expectedVerifierBaseUrl
+    ) {
+        // Preferred path (HAIP-compliant): issuer-backend token, exact match
+        // against the public base URL derived from the live request.
         if (requestBaseUrl != null && issuer.equals(requestBaseUrl)) {
             log.debug("Token from Credential Issuer (exact match with request base URL) - {}", issuer);
             return handleIssuerBackendToken(token);
         }
+        // Preferred path for verifier tokens under same-origin routing: the
+        // verifier lives at ${origin}/verifier and signs tokens with that iss.
+        // Matching exactly lets us accept the token without APP_VERIFIER_URL.
+        if (expectedVerifierBaseUrl != null && issuer.equals(expectedVerifierBaseUrl)) {
+            log.debug("Token from Verifier (exact match with request origin) - {}", issuer);
+            return handleVerifierToken(token, true);
+        }
         // Fallback path: APP_URL-based fuzzy match. Kept for contexts where the
-        // Reactor context is not propagated (internal M2M paths, tests) and for
+        // request base URL is not available (internal M2M paths, tests) and for
         // backwards compatibility. baseOriginMatches is intentionally fuzzy and
         // would also match verifier URLs on the same domain (e.g. issuer.cgcom.*
         // vs verifier.cgcom.*) — hence the verifier check is second.
@@ -156,16 +169,18 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
             return handleIssuerBackendToken(token);
         }
         if (appConfig.isVerifierIssuer(issuer)) {
-            log.debug("Token from Verifier - issuer: {}", issuer);
-            return handleVerifierToken(token);
+            log.debug("Token from Verifier (APP_VERIFIER_URL fallback) - issuer: {}", issuer);
+            return handleVerifierToken(token, false);
         }
         log.debug("Token from unknown issuer");
         return Mono.error(new BadCredentialsException("Unknown token issuer: " + issuer));
     }
 
-    private Mono<Jwt> handleVerifierToken(String token) {
-        return verifierService.verifyToken(token)
-                .then(parseAndValidateJwt(token, Boolean.FALSE));
+    private Mono<Jwt> handleVerifierToken(String token, boolean issuerAlreadyMatched) {
+        Mono<Void> verification = issuerAlreadyMatched
+                ? verifierService.verifyTokenSkippingIssuerCheck(token)
+                : verifierService.verifyToken(token);
+        return verification.then(parseAndValidateJwt(token, Boolean.FALSE));
     }
 
     private Mono<Jwt> handleIssuerBackendToken(String token) {

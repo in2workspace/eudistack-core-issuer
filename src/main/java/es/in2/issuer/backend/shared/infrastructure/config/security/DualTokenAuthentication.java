@@ -10,16 +10,27 @@ public final class DualTokenAuthentication extends AbstractAuthenticationToken {
     private final String accessToken;
     @Nullable private final String idToken;
     @Nullable private final String requestBaseUrl;
+    @Nullable private final String expectedVerifierBaseUrl;
 
     public DualTokenAuthentication(String accessToken, @Nullable String idToken) {
-        this(accessToken, idToken, null);
+        this(accessToken, idToken, null, null);
     }
 
     public DualTokenAuthentication(String accessToken, @Nullable String idToken, @Nullable String requestBaseUrl) {
+        this(accessToken, idToken, requestBaseUrl, null);
+    }
+
+    public DualTokenAuthentication(
+            String accessToken,
+            @Nullable String idToken,
+            @Nullable String requestBaseUrl,
+            @Nullable String expectedVerifierBaseUrl
+    ) {
         super(null);
         this.accessToken = accessToken;
         this.idToken = idToken;
         this.requestBaseUrl = requestBaseUrl;
+        this.expectedVerifierBaseUrl = expectedVerifierBaseUrl;
         setAuthenticated(false);
     }
 
@@ -47,6 +58,15 @@ public final class DualTokenAuthentication extends AbstractAuthenticationToken {
     @Nullable
     public String getRequestBaseUrl() { return requestBaseUrl; }
 
+    /**
+     * Public base URL the verifier should have used to sign tokens reaching this
+     * issuer under same-origin routing (scheme + host + port + "/verifier"). Used
+     * by the authentication manager to validate {@code iss} for verifier-emitted
+     * tokens (login flows) without depending on APP_VERIFIER_URL config.
+     */
+    @Nullable
+    public String getExpectedVerifierBaseUrl() { return expectedVerifierBaseUrl; }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -54,12 +74,13 @@ public final class DualTokenAuthentication extends AbstractAuthenticationToken {
         if (!super.equals(o)) return false;
         return Objects.equals(this.accessToken, that.accessToken)
                 && Objects.equals(this.idToken, that.idToken)
-                && Objects.equals(this.requestBaseUrl, that.requestBaseUrl);
+                && Objects.equals(this.requestBaseUrl, that.requestBaseUrl)
+                && Objects.equals(this.expectedVerifierBaseUrl, that.expectedVerifierBaseUrl);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), accessToken, idToken, requestBaseUrl);
+        return Objects.hash(super.hashCode(), accessToken, idToken, requestBaseUrl, expectedVerifierBaseUrl);
     }
 
     @Override

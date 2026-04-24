@@ -38,7 +38,7 @@ public class VerifierServiceImpl implements VerifierService {
 
     @Override
     public Mono<Void> verifyToken(String accessToken) {
-        return parseAndValidateJwt(accessToken, true)
+        return parseAndValidateJwt(accessToken, true, true)
                 .doOnSuccess(unused -> log.info("The verification of the token is valid"))
                 .onErrorResume(e -> {
                     log.error("Error while verifying token", e);
@@ -49,7 +49,7 @@ public class VerifierServiceImpl implements VerifierService {
     @Override
     public Mono<Void> verifyTokenWithoutExpiration(String accessToken) {
         // This method will not validate the expiration
-        return parseAndValidateJwt(accessToken, false)
+        return parseAndValidateJwt(accessToken, false, true)
                 .doOnSuccess(unused -> log.info("The verification of the token without expiration is valid"))
                 .onErrorResume(e -> {
                     log.error("Error while verifying token (without expiration)", e);
@@ -57,7 +57,17 @@ public class VerifierServiceImpl implements VerifierService {
                 });
     }
 
-    private Mono<Void> parseAndValidateJwt(String accessToken, boolean checkExpiration) {
+    @Override
+    public Mono<Void> verifyTokenSkippingIssuerCheck(String accessToken) {
+        return parseAndValidateJwt(accessToken, true, false)
+                .doOnSuccess(unused -> log.info("The verification of the token is valid (issuer pre-matched by caller)"))
+                .onErrorResume(e -> {
+                    log.error("Error while verifying token (issuer pre-matched)", e);
+                    return Mono.error(e);
+                });
+    }
+
+    private Mono<Void> parseAndValidateJwt(String accessToken, boolean checkExpiration, boolean checkIssuer) {
         return getWellKnownInfo()
                 .flatMap(metadata -> fetchJWKSet(metadata.jwksUri()))
                 .flatMap(jwkSet -> {
@@ -66,8 +76,10 @@ public class VerifierServiceImpl implements VerifierService {
                         SignedJWT signedJWT = SignedJWT.parse(accessToken);
                         JWTClaimsSet claims = signedJWT.getJWTClaimsSet();
 
-                        // Validate the issuer (multi-tenant: accept any tenant subdomain)
-                        if (!appConfig.isVerifierIssuer(claims.getIssuer())) {
+                        // Validate the issuer (multi-tenant: accept any tenant subdomain).
+                        // Skipped when the caller pre-matched iss against the expected
+                        // verifier base URL derived from the request origin.
+                        if (checkIssuer && !appConfig.isVerifierIssuer(claims.getIssuer())) {
                             log.info("Configured verifier URL: {}", appConfig.getVerifierUrl());
                             log.info("Token issuer: {}", claims.getIssuer());
                             return Mono.error(new JWTVerificationException("Invalid issuer"));
