@@ -12,11 +12,12 @@ import reactor.core.publisher.Mono;
 
 import java.io.Closeable;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.SCHEMA_SUFFIX;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 /**
  * Wraps the auto-configured R2DBC {@code ConnectionFactory} with schema-per-tenant
- * isolation using {@code SET search_path TO <tenant>, public}.
+ * isolation using {@code SET search_path TO <tenant><SCHEMA_SUFFIX>, public}.
  *
  * <p>On every {@code create()} call (each time a connection is borrowed from the pool),
  * this wrapper sets the PostgreSQL {@code search_path} to the tenant's schema plus
@@ -81,7 +82,9 @@ public class TenantAwareConnectionFactoryDecorator {
         public void close() { dispose(); }
 
         private Mono<Connection> setSearchPath(Connection connection, String tenant) {
-            String searchPath = SYSTEM_TENANT.equals(tenant) ? "public" : sanitize(tenant) + ", public";
+            String searchPath = SYSTEM_TENANT.equals(tenant)
+                    ? "public"
+                    : sanitize(tenant) + SCHEMA_SUFFIX + ", public";
             return Mono.from(connection.createStatement("SET search_path TO " + searchPath).execute())
                     .then(Mono.just(connection))
                     .doOnSuccess(c -> log.trace("R2DBC search_path set to '{}'", searchPath))
