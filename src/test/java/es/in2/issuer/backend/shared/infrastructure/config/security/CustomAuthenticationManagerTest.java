@@ -24,10 +24,6 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
-import org.springframework.mock.web.server.MockServerWebExchange;
-import org.springframework.web.server.ServerWebExchange;
-
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
@@ -51,8 +47,7 @@ class CustomAuthenticationManagerTest {
                 appConfig,
                 jwtService,
                 credentialProfileRegistry,
-                auditService,
-                "/issuer"
+                auditService
         );
         lenient().doReturn("principal@example.com")
                 .when(jwtService)
@@ -409,51 +404,41 @@ class CustomAuthenticationManagerTest {
     }
 
     @Test
-    void authenticate_withRequestBaseUrlContext_exactMatch_acceptsToken_withoutAppConfigCall() {
-        // Simulates a request arriving at https://sandbox-stg.eudistack.net/issuer/...;
-        // AuthenticationManager derives the public base URL from the exchange and
-        // accepts the token via the exact-match branch without consulting AppConfig.
+    void authenticate_withDualTokenCarryingRequestBaseUrl_exactMatch_acceptsToken_withoutAppConfigCall() {
+        // DualTokenServerAuthenticationConverter captures the request base URL
+        // from the ServerWebExchange and passes it via DualTokenAuthentication.
+        // AuthenticationManager accepts the token via exact match without
+        // consulting AppConfig.
         String publicBaseUrl = "https://sandbox-stg.eudistack.net/issuer";
         String token = buildAccessTokenFromIssuer(publicBaseUrl, false);
 
         when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class)))
                 .thenReturn(Mono.just(true));
 
-        ServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.post("https://sandbox-stg.eudistack.net/issuer/oid4vci/v1/credential"));
-
-        Authentication authentication = new TestingAuthenticationToken(null, token);
-        Mono<Authentication> result = authenticationManager.authenticate(authentication)
-                .contextWrite(ctx -> ctx.put(
-                        org.springframework.web.filter.reactive.ServerWebExchangeContextFilter.EXCHANGE_CONTEXT_ATTRIBUTE,
-                        exchange));
+        Authentication authentication = new es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication(
+                token, null, publicBaseUrl);
+        Mono<Authentication> result = authenticationManager.authenticate(authentication);
 
         StepVerifier.create(result)
                 .assertNext(auth -> assertTrue(auth instanceof JwtAuthenticationToken))
                 .verifyComplete();
 
-        // The exact-match branch must NOT fall through to APP_URL-based matching.
         verify(appConfig, never()).isIssuerBackendIssuer(anyString());
     }
 
     @Test
-    void authenticate_withRequestBaseUrlContext_mismatch_fallsBackToAppConfig() {
-        // iss does not match the request base URL (cross-tenant attempt), so the
-        // exact-match branch is skipped and APP_URL fallback answers.
+    void authenticate_withDualTokenMismatchRequestBaseUrl_fallsBackToAppConfig() {
+        // iss does not match the request base URL; APP_URL fallback answers.
+        String publicBaseUrl = "https://sandbox-stg.eudistack.net/issuer";
         String tokenIss = "https://attacker.example.com/issuer";
         String token = buildAccessTokenFromIssuer(tokenIss, false);
 
         when(appConfig.isIssuerBackendIssuer(tokenIss)).thenReturn(false);
         when(appConfig.isVerifierIssuer(tokenIss)).thenReturn(false);
 
-        ServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.post("https://sandbox-stg.eudistack.net/issuer/oid4vci/v1/credential"));
-
-        Authentication authentication = new TestingAuthenticationToken(null, token);
-        Mono<Authentication> result = authenticationManager.authenticate(authentication)
-                .contextWrite(ctx -> ctx.put(
-                        org.springframework.web.filter.reactive.ServerWebExchangeContextFilter.EXCHANGE_CONTEXT_ATTRIBUTE,
-                        exchange));
+        Authentication authentication = new es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication(
+                token, null, publicBaseUrl);
+        Mono<Authentication> result = authenticationManager.authenticate(authentication);
 
         StepVerifier.create(result)
                 .expectErrorMatches(e -> e instanceof BadCredentialsException &&

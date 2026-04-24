@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class DualTokenServerAuthenticationConverterTest {
 
     private final es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenServerAuthenticationConverter converter =
-            new es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenServerAuthenticationConverter();
+            new es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenServerAuthenticationConverter("/issuer");
 
     @Test
     void convert_withValidBearerAndIdToken_returnsDualTokenAuth() {

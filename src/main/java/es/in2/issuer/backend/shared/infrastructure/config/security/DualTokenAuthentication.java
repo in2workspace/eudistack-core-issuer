@@ -9,11 +9,17 @@ public final class DualTokenAuthentication extends AbstractAuthenticationToken {
 
     private final String accessToken;
     @Nullable private final String idToken;
+    @Nullable private final String requestBaseUrl;
 
     public DualTokenAuthentication(String accessToken, @Nullable String idToken) {
+        this(accessToken, idToken, null);
+    }
+
+    public DualTokenAuthentication(String accessToken, @Nullable String idToken, @Nullable String requestBaseUrl) {
         super(null);
         this.accessToken = accessToken;
         this.idToken = idToken;
+        this.requestBaseUrl = requestBaseUrl;
         setAuthenticated(false);
     }
 
@@ -32,18 +38,28 @@ public final class DualTokenAuthentication extends AbstractAuthenticationToken {
     @Nullable
     public String getIdToken() { return idToken; }
 
+    /**
+     * Public base URL of the incoming request (scheme + host + port + context path),
+     * captured by the authentication converter from the {@link org.springframework.web.server.ServerWebExchange}.
+     * Used by the authentication manager to validate the token's {@code iss} claim
+     * without depending on APP_URL config (HAIP-aligned).
+     */
+    @Nullable
+    public String getRequestBaseUrl() { return requestBaseUrl; }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof DualTokenAuthentication that)) return false;
         if (!super.equals(o)) return false;
         return Objects.equals(this.accessToken, that.accessToken)
-                && Objects.equals(this.idToken, that.idToken);
+                && Objects.equals(this.idToken, that.idToken)
+                && Objects.equals(this.requestBaseUrl, that.requestBaseUrl);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), accessToken, idToken);
+        return Objects.hash(super.hashCode(), accessToken, idToken, requestBaseUrl);
     }
 
     @Override

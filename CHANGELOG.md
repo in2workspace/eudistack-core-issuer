@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1] - 2026-04-24
+
+### Fixed (EUDI-094 post-cutover — final follow-up on 3.4.6/3.4.7)
+
+- **`DualTokenServerAuthenticationConverter`** now captures the public base URL from the `ServerWebExchange` (mirrors `IssuerBaseUrlWebFilter.buildBaseUrl`) and passes it through the new `DualTokenAuthentication.requestBaseUrl` field. `CustomAuthenticationManager` reads the URL directly from the authentication object — no Reactor context indirection. This is what finally works: Spring Security's `AuthenticationWebFilter` runs the `ReactiveAuthenticationManager` in a scope where neither the `contextWrite`-populated `ISSUER_BASE_URL_CONTEXT_KEY` (3.4.6 attempt) nor the `ServerWebExchangeContextFilter` attribute (3.4.7 attempt) are visible. The only argument guaranteed to reach the manager is the `Authentication` built by the converter from the live `ServerWebExchange`.
+- `SecurityConfig` wires the base path (`spring.webflux.base-path`) into the converter constructor so the converter can reconstruct the same URL the WebFilter emits for token issuance.
+
 ## [3.5.0] - 2026-04-24
 
 ### Changed (per-tenant schema naming — `<tenant>_issuer`)

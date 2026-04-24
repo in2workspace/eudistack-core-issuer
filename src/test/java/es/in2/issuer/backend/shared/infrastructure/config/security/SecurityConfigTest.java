@@ -50,7 +50,8 @@ class SecurityConfigTest {
 
         SecurityConfig securityConfig = new SecurityConfig(
                 customAuthenticationManager,
-                corsConfig
+                corsConfig,
+                "/issuer"
         );
 
         SecurityWebFilterChain chain = securityConfig.unifiedFilterChain(
