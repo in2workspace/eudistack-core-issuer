@@ -8,8 +8,8 @@ import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationServiceException;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -18,8 +18,11 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.web.filter.reactive.ServerWebExchangeContextFilter;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
 import java.time.Instant;
@@ -28,10 +31,7 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL_CONTEXT_KEY;
-
 @Configuration
-@RequiredArgsConstructor
 @Slf4j
 public class CustomAuthenticationManager implements ReactiveAuthenticationManager {
 
@@ -41,6 +41,25 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
     private final JWTService jwtService;
     private final CredentialProfileRegistry credentialProfileRegistry;
     private final AuditService auditService;
+    private final String configuredContextPath;
+
+    public CustomAuthenticationManager(
+            VerifierService verifierService,
+            ObjectMapper objectMapper,
+            AppConfig appConfig,
+            JWTService jwtService,
+            CredentialProfileRegistry credentialProfileRegistry,
+            AuditService auditService,
+            @Value("${spring.webflux.base-path:}") String contextPath
+    ) {
+        this.verifierService = verifierService;
+        this.objectMapper = objectMapper;
+        this.appConfig = appConfig;
+        this.jwtService = jwtService;
+        this.credentialProfileRegistry = credentialProfileRegistry;
+        this.auditService = auditService;
+        this.configuredContextPath = normalizeContextPath(contextPath);
+    }
 
     @Override
     public Mono<Authentication> authenticate(Authentication authentication) {
@@ -52,9 +71,14 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
 
         return extractIssuer(accessToken)
                 .flatMap(issuer -> Mono.deferContextual(ctx -> {
-                    String requestBaseUrl = ctx.hasKey(ISSUER_BASE_URL_CONTEXT_KEY)
-                            ? ctx.get(ISSUER_BASE_URL_CONTEXT_KEY)
-                            : null;
+                    // AuthenticationWebFilter runs before IssuerBaseUrlWebFilter
+                    // has written its key (contextWrite propagates upstream, not
+                    // downstream), so we derive the public base URL from the
+                    // ServerWebExchange directly. ServerWebExchangeContextFilter
+                    // is auto-registered by Spring Boot WebFlux.
+                    String requestBaseUrl = ServerWebExchangeContextFilter.getExchange(ctx)
+                            .map(this::buildBaseUrl)
+                            .orElse(null);
                     return verifyAndParseJwtForIssuer(issuer, accessToken, requestBaseUrl);
                 }))
                 .flatMap(accessJwt -> getPrincipalName(accessJwt, maybeIdToken)
@@ -231,5 +255,42 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
             log.error("Credential type '{}' not accepted. Accepted: {}", typeStr, acceptedTypes);
             throw new BadCredentialsException("Credential type required: one of " + acceptedTypes);
         }
+    }
+
+    // Mirrors IssuerBaseUrlWebFilter.buildBaseUrl — kept in sync so that tokens
+    // validated here match the iss written by services that read the key from
+    // the Reactor context (TokenController, ParController, etc.).
+    private String buildBaseUrl(ServerWebExchange exchange) {
+        URI uri = exchange.getRequest().getURI();
+        String scheme = uri.getScheme();
+        String host = uri.getHost();
+        int port = uri.getPort();
+        boolean defaultPort = port == -1
+                || ("https".equals(scheme) && port == 443)
+                || ("http".equals(scheme) && port == 80);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(scheme).append("://").append(host);
+        if (!defaultPort) {
+            sb.append(":").append(port);
+        }
+        if (configuredContextPath != null && !configuredContextPath.isBlank()) {
+            sb.append(configuredContextPath);
+        }
+        return sb.toString();
+    }
+
+    private static String normalizeContextPath(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        if (!trimmed.startsWith("/")) {
+            trimmed = "/" + trimmed;
+        }
+        if (trimmed.length() > 1 && trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return "/".equals(trimmed) ? null : trimmed;
     }
 }

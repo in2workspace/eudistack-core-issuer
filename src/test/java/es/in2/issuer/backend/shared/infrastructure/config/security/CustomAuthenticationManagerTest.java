@@ -23,9 +23,10 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
-import reactor.util.context.Context;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL_CONTEXT_KEY;
+import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
+import org.springframework.mock.web.server.MockServerWebExchange;
+import org.springframework.web.server.ServerWebExchange;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -50,7 +51,8 @@ class CustomAuthenticationManagerTest {
                 appConfig,
                 jwtService,
                 credentialProfileRegistry,
-                auditService
+                auditService,
+                "/issuer"
         );
         lenient().doReturn("principal@example.com")
                 .when(jwtService)
@@ -408,17 +410,23 @@ class CustomAuthenticationManagerTest {
 
     @Test
     void authenticate_withRequestBaseUrlContext_exactMatch_acceptsToken_withoutAppConfigCall() {
-        // Simulates IssuerBaseUrlWebFilter putting the request public base URL in
-        // the Reactor context (e.g. Atlassian-style routing host sandbox-stg.eudistack.net/issuer).
+        // Simulates a request arriving at https://sandbox-stg.eudistack.net/issuer/...;
+        // AuthenticationManager derives the public base URL from the exchange and
+        // accepts the token via the exact-match branch without consulting AppConfig.
         String publicBaseUrl = "https://sandbox-stg.eudistack.net/issuer";
         String token = buildAccessTokenFromIssuer(publicBaseUrl, false);
 
         when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class)))
                 .thenReturn(Mono.just(true));
 
+        ServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.post("https://sandbox-stg.eudistack.net/issuer/oid4vci/v1/credential"));
+
         Authentication authentication = new TestingAuthenticationToken(null, token);
         Mono<Authentication> result = authenticationManager.authenticate(authentication)
-                .contextWrite(Context.of(ISSUER_BASE_URL_CONTEXT_KEY, publicBaseUrl));
+                .contextWrite(ctx -> ctx.put(
+                        org.springframework.web.filter.reactive.ServerWebExchangeContextFilter.EXCHANGE_CONTEXT_ATTRIBUTE,
+                        exchange));
 
         StepVerifier.create(result)
                 .assertNext(auth -> assertTrue(auth instanceof JwtAuthenticationToken))
@@ -430,18 +438,22 @@ class CustomAuthenticationManagerTest {
 
     @Test
     void authenticate_withRequestBaseUrlContext_mismatch_fallsBackToAppConfig() {
-        // iss does not match the request base URL (e.g. attacker crafting a cross-tenant
-        // token), so the exact-match branch is skipped and APP_URL fallback answers.
-        String publicBaseUrl = "https://sandbox-stg.eudistack.net/issuer";
+        // iss does not match the request base URL (cross-tenant attempt), so the
+        // exact-match branch is skipped and APP_URL fallback answers.
         String tokenIss = "https://attacker.example.com/issuer";
         String token = buildAccessTokenFromIssuer(tokenIss, false);
 
         when(appConfig.isIssuerBackendIssuer(tokenIss)).thenReturn(false);
         when(appConfig.isVerifierIssuer(tokenIss)).thenReturn(false);
 
+        ServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.post("https://sandbox-stg.eudistack.net/issuer/oid4vci/v1/credential"));
+
         Authentication authentication = new TestingAuthenticationToken(null, token);
         Mono<Authentication> result = authenticationManager.authenticate(authentication)
-                .contextWrite(Context.of(ISSUER_BASE_URL_CONTEXT_KEY, publicBaseUrl));
+                .contextWrite(ctx -> ctx.put(
+                        org.springframework.web.filter.reactive.ServerWebExchangeContextFilter.EXCHANGE_CONTEXT_ATTRIBUTE,
+                        exchange));
 
         StepVerifier.create(result)
                 .expectErrorMatches(e -> e instanceof BadCredentialsException &&
