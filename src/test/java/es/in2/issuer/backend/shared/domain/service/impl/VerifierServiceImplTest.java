@@ -1,11 +1,10 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
 import es.in2.issuer.backend.shared.domain.model.dto.OpenIDProviderMetadata;
-import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
+import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpMethod;
@@ -21,77 +20,57 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.CONTENT_TYPE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.CONTENT_TYPE_APPLICATION_JSON;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
-
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class VerifierServiceImplTest {
 
     @Mock
-    private IssuerProperties appConfig;
+    private UrlResolver urlResolver;
 
-    @InjectMocks
     private VerifierServiceImpl verifierService;
 
     @Test
-    void getWellKnownInfo_shouldReturnOpenIDProviderMetadata() {
-        // Arrange
-        String verifierExternalDomain = "https://verifier.example.com";
-        String verifierWellKnownPath = "/.well-known/openid-configuration";
-        String wellKnownInfoEndpoint = verifierExternalDomain + verifierWellKnownPath;
+    void getWellKnownInfo_composesUrlFromInternalBasePath_preservingContextPath() {
+        // Internal URL carries the verifier base-path (/verifier). The service
+        // must append /.well-known/openid-configuration AFTER the base-path,
+        // not strip it by using a leading-slash string concatenation.
+        String internalVerifierBase = "http://verifier-core.stg.eudistack.local:8080/verifier";
+        String expectedEndpoint = internalVerifierBase + "/.well-known/openid-configuration";
+        when(urlResolver.internalVerifierBaseUrl()).thenReturn(internalVerifierBase);
 
-        when(appConfig.getVerifierInternalUrl()).thenReturn(verifierExternalDomain);
+        ExchangeFunction exchangeFunction = mock(ExchangeFunction.class);
+        ClientResponse clientResponse = ClientResponse.create(HttpStatus.OK)
+                .header(CONTENT_TYPE, CONTENT_TYPE_APPLICATION_JSON)
+                .body("{\"issuer\":\"https://verifier.example.com\"," +
+                        "\"authorization_endpoint\":\"https://verifier.example.com/authorize\"," +
+                        "\"token_endpoint\":\"https://verifier.example.com/token\"}")
+                .build();
+        when(exchangeFunction.exchange(any())).thenReturn(Mono.just(clientResponse));
+        WebClient webClient = WebClient.builder().exchangeFunction(exchangeFunction).build();
 
-        OpenIDProviderMetadata metadata = OpenIDProviderMetadata.builder()
+        verifierService = new VerifierServiceImpl(webClient, urlResolver);
+
+        OpenIDProviderMetadata expected = OpenIDProviderMetadata.builder()
                 .issuer("https://verifier.example.com")
                 .authorizationEndpoint("https://verifier.example.com/authorize")
                 .tokenEndpoint("https://verifier.example.com/token")
                 .build();
 
-        // Mock the ExchangeFunction
-        ExchangeFunction exchangeFunction = mock(ExchangeFunction.class);
-
-        // Create a ClientResponse with the desired body
-        ClientResponse clientResponse = ClientResponse.create(HttpStatus.OK)
-                .header(CONTENT_TYPE, CONTENT_TYPE_APPLICATION_JSON)
-                .body("{\"issuer\":\"https://verifier.example.com\",\"authorization_endpoint\":\"https://verifier.example.com/authorize\",\"token_endpoint\":\"https://verifier.example.com/token\"}")
-                .build();
-
-        // Configure the ExchangeFunction to return the mocked ClientResponse
-        when(exchangeFunction.exchange(any())).thenReturn(Mono.just(clientResponse));
-
-        // Create a WebClient with the mocked ExchangeFunction
-        WebClient webClient = WebClient.builder()
-                .exchangeFunction(exchangeFunction)
-                .build();
-
-        // Inject the WebClient into the service
-        verifierService = new VerifierServiceImpl(appConfig, webClient);
-
-        // Act
-        Mono<OpenIDProviderMetadata> result = verifierService.getWellKnownInfo();
-
-        // Assert
-        StepVerifier.create(result)
-                .expectNext(metadata)
+        StepVerifier.create(verifierService.getWellKnownInfo())
+                .expectNext(expected)
                 .verifyComplete();
 
-        // Verify interactions
-        verify(appConfig).getVerifierInternalUrl();
-        verifyNoMoreInteractions(appConfig);
+        verify(urlResolver).internalVerifierBaseUrl();
+        verifyNoMoreInteractions(urlResolver);
 
-        // Capture the request made
         ArgumentCaptor<ClientRequest> requestCaptor = ArgumentCaptor.forClass(ClientRequest.class);
         verify(exchangeFunction).exchange(requestCaptor.capture());
-
-        ClientRequest capturedRequest = requestCaptor.getValue();
-
-        // Verify that the request was made to the correct endpoint
-        assertEquals(wellKnownInfoEndpoint, capturedRequest.url().toString());
-
-        // Verify that a GET request was made
-        assertEquals(HttpMethod.GET, capturedRequest.method());
+        ClientRequest req = requestCaptor.getValue();
+        assertEquals(expectedEndpoint, req.url().toString());
+        assertEquals(HttpMethod.GET, req.method());
     }
-
-
 }

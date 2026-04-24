@@ -20,7 +20,9 @@ public class StatusListWorkflow {
     private final StatusListProvider statusListProvider;
 
     @Observed(name = "statuslist.allocate-entry", contextualName = "statuslist-allocate-entry")
-    public Mono<StatusListEntry> allocateEntry(StatusPurpose purpose, StatusListFormat format, String issuanceId, String token) {
+    public Mono<StatusListEntry> allocateEntry(StatusPurpose purpose, StatusListFormat format,
+                                               String issuanceId, String token,
+                                               String publicIssuerBaseUrl) {
         log.info(
                 "action=allocateStatusListEntry status=started purpose={} format={} issuanceId={}",
                 purpose, format, issuanceId
@@ -28,7 +30,7 @@ public class StatusListWorkflow {
         requireNonNullParam(purpose, "purpose");
         requireNonNullParam(format, "format");
 
-        return statusListProvider.allocateEntry(purpose, format, issuanceId, token)
+        return statusListProvider.allocateEntry(purpose, format, issuanceId, token, publicIssuerBaseUrl)
                 .doOnSuccess(entry -> log.info(
                         "action=allocateStatusListEntry status=completed purpose={} format={} issuanceId={} listId={} idx={}",
                         purpose, format, issuanceId,

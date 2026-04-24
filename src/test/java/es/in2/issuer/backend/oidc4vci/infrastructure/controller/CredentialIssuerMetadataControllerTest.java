@@ -48,6 +48,9 @@ class CredentialIssuerMetadataControllerTest {
     @MockBean
     private TenantRegistryService tenantRegistryService;
 
+    @MockBean
+    private es.in2.issuer.backend.shared.domain.spi.UrlResolver urlResolver;
+
     @Test
     void testGetCredentialIssuer_Metadata_Success() {
         // Arrange
@@ -83,7 +86,9 @@ class CredentialIssuerMetadataControllerTest {
                 ))
                 .build();
         //Mock
-        when(getCredentialIssuerMetadataWorkflow.execute(anyString()))
+        when(urlResolver.publicIssuerBaseUrl(org.mockito.ArgumentMatchers.any()))
+                .thenReturn("https://issuer.example.com");
+        when(getCredentialIssuerMetadataWorkflow.execute(anyString(), anyString()))
                 .thenReturn(Mono.just(expectedCredentialIssuerMetadata));
         ServerWebExchange mockExchange = mock(ServerWebExchange.class);
         ServerHttpResponse mockResponse = mock(ServerHttpResponse.class);

@@ -2,7 +2,6 @@ package es.in2.issuer.backend.statuslist.infrastructure.adapter;
 
 
 import es.in2.issuer.backend.statuslist.domain.util.factory.IssuerFactory;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import es.in2.issuer.backend.statuslist.domain.exception.*;
 import es.in2.issuer.backend.statuslist.domain.factory.BitstringStatusListCredentialFactory;
 import es.in2.issuer.backend.statuslist.domain.factory.TokenStatusListCredentialFactory;
@@ -30,7 +29,6 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL_CONTEXT_KEY;
 import static es.in2.issuer.backend.shared.domain.util.Constants.VC_JWT_TYP;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.STATUS_LIST_BASE;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.TOKEN_STATUS_LIST_BASE;
@@ -50,7 +48,6 @@ import static es.in2.issuer.backend.statuslist.domain.util.Preconditions.require
 @RequiredArgsConstructor
 public class BitstringStatusListProvider implements StatusListProvider {
 
-    private final AppConfig appConfig;
     private final StatusListRepository statusListRepository;
     private final StatusListIndexRepository statusListIndexRepository;
     private final BitstringStatusListCredentialFactory bitstringFactory;
@@ -83,38 +80,37 @@ public class BitstringStatusListProvider implements StatusListProvider {
 
     @Override
     @Observed(name = "statuslist.provider.allocate-entry", contextualName = "statuslist-provider-allocate-entry")
-    public Mono<StatusListEntry> allocateEntry(StatusPurpose purpose, StatusListFormat format, String issuanceId, String token) {
+    public Mono<StatusListEntry> allocateEntry(StatusPurpose purpose, StatusListFormat format,
+                                               String issuanceId, String token, String publicIssuerBaseUrl) {
         requireNonNullParam(purpose, "purpose");
         requireNonNullParam(format, "format");
         requireNonNullParam(issuanceId, "issuanceId");
         requireNonNullParam(token, TOKEN);
+        requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
 
         log.debug("method=allocateEntry step=START purpose={} format={} issuanceId={}", purpose, format, issuanceId);
 
-        return Mono.deferContextual(ctx -> {
-            String baseUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, appConfig.getIssuerBackendUrl());
-
-            return findExistingAllocation(baseUrl, purpose, format, issuanceId)
-                    .switchIfEmpty(Mono.defer(() -> allocateNewEntry(baseUrl, purpose, format, issuanceId, token)))
-                    .map(entry -> {
-                        log.debug(
-                                "method=allocateEntry step=END purpose={} format={} issuanceId={} statusListId={} idx={}",
-                                purpose, format, issuanceId, entry.statusListCredential(), entry.statusListIndex()
-                        );
-                        return entry;
-                    })
-                    .doOnError(e -> log.warn(
-                            "method=allocateEntry step=ERROR purpose={} format={} issuanceId={} error={}",
-                            purpose, format, issuanceId, e.toString()
-                    ));
-        });
+        return findExistingAllocation(publicIssuerBaseUrl, purpose, format, issuanceId)
+                .switchIfEmpty(Mono.defer(() -> allocateNewEntry(publicIssuerBaseUrl, purpose, format, issuanceId, token)))
+                .map(entry -> {
+                    log.debug(
+                            "method=allocateEntry step=END purpose={} format={} issuanceId={} statusListId={} idx={}",
+                            purpose, format, issuanceId, entry.statusListCredential(), entry.statusListIndex()
+                    );
+                    return entry;
+                })
+                .doOnError(e -> log.warn(
+                        "method=allocateEntry step=ERROR purpose={} format={} issuanceId={} error={}",
+                        purpose, format, issuanceId, e.toString()
+                ));
     }
 
     @Override
     @Observed(name = "statuslist.provider.revoke", contextualName = "statuslist-provider-revoke")
-    public Mono<Void> revoke(String issuanceId, String token) {
+    public Mono<Void> revoke(String issuanceId, String token, String publicIssuerBaseUrl) {
         requireNonNullParam(issuanceId, "issuanceId");
         requireNonNullParam(token, TOKEN);
+        requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
 
         log.debug("method=revoke step=START issuanceId={}", issuanceId);
 
@@ -125,7 +121,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
                             "method=revoke step=indexResolved issuanceId={} statusListId={} idx={}",
                             issuanceId, listIndex.statusListId(), listIndex.idx()
                     );
-                    return revokeWithRetry(listIndex.statusListId(), listIndex.idx(), token);
+                    return revokeWithRetry(listIndex.statusListId(), listIndex.idx(), token, publicIssuerBaseUrl);
                 })
                 .doOnSuccess(v ->
                         log.debug("method=revoke step=END issuanceId={}", issuanceId)
@@ -137,12 +133,12 @@ public class BitstringStatusListProvider implements StatusListProvider {
 
     // --- Revocation internals ---
 
-    private Mono<Void> revokeWithRetry(Long statusListId, Integer idx, String token) {
+    private Mono<Void> revokeWithRetry(Long statusListId, Integer idx, String token, String publicIssuerBaseUrl) {
         log.debug("method=revokeWithRetry step=START statusListId={} idx={}", statusListId, idx);
 
         long maxAttempts = 5;
 
-        return Mono.defer(() -> revokeOnce(statusListId, idx, token))
+        return Mono.defer(() -> revokeOnce(statusListId, idx, token, publicIssuerBaseUrl))
                 .retryWhen(
                         Retry.backoff(maxAttempts - 1, Duration.ofMillis(50))
                                 .filter(OptimisticUpdateException.class::isInstance)
@@ -158,7 +154,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
                 );
     }
 
-    private Mono<Void> revokeOnce(Long statusListId, Integer idx, String token) {
+    private Mono<Void> revokeOnce(Long statusListId, Integer idx, String token, String publicIssuerBaseUrl) {
         log.debug("method=revokeOnce step=START statusListId={} idx={}", statusListId, idx);
 
         return resolveRevocationCandidate(statusListId, idx)
@@ -171,7 +167,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
                     StatusListData updatedDomain = revocationService.applyRevocation(domainRow, idx);
                     StatusList updatedRow = toEntity(updatedDomain);
 
-                    return getIssuerAndSignCredential(updatedRow, token)
+                    return getIssuerAndSignCredential(updatedRow, token, publicIssuerBaseUrl)
                             .flatMap(signedJwt ->
                                     statusListRepository.updateSignedAndEncodedIfUnchanged(
                                                     row.id(),
@@ -200,9 +196,9 @@ public class BitstringStatusListProvider implements StatusListProvider {
     private Mono<StatusListEntry> allocateNewEntry(String baseUrl, StatusPurpose purpose, StatusListFormat format, String issuanceId, String token) {
         log.debug("method=allocateNewEntry step=START purpose={} format={} issuanceId={}", purpose, format, issuanceId);
 
-        return pickListForAllocation(purpose, format, token)
+        return pickListForAllocation(purpose, format, token, baseUrl)
                 .flatMap(list ->
-                        reserveWithNewListFallback(list.id(), purpose, format, issuanceId, token)
+                        reserveWithNewListFallback(list.id(), purpose, format, issuanceId, token, baseUrl)
                 )
                 .map(reservedIndex -> buildEntry(baseUrl, reservedIndex, format, purpose))
                 .doOnSuccess(e ->
@@ -210,19 +206,19 @@ public class BitstringStatusListProvider implements StatusListProvider {
                 );
     }
 
-    private Mono<StatusList> pickListForAllocation(StatusPurpose purpose, StatusListFormat format, String token) {
+    private Mono<StatusList> pickListForAllocation(StatusPurpose purpose, StatusListFormat format, String token, String publicIssuerBaseUrl) {
         log.debug("method=pickListForAllocation step=START purpose={} format={}", purpose, format);
 
         long threshold = (long) Math.floor(CAPACITY_BITS * NEW_LIST_THRESHOLD);
 
-        return findOrCreateLatestList(purpose, format, token)
+        return findOrCreateLatestList(purpose, format, token, publicIssuerBaseUrl)
                 .flatMap(list ->
                         statusListIndexRepository.countByStatusListId(list.id())
                                 .flatMap(count -> {
                                     long safeCount = count == null ? 0 : count;
                                     if (safeCount >= threshold) {
                                         log.debug("method=pickListForAllocation action=createNewList");
-                                        return createNewList(purpose, format, token);
+                                        return createNewList(purpose, format, token, publicIssuerBaseUrl);
                                     }
                                     return Mono.just(list);
                                 })
@@ -232,20 +228,21 @@ public class BitstringStatusListProvider implements StatusListProvider {
                 );
     }
 
-    private Mono<StatusList> findOrCreateLatestList(StatusPurpose purpose, StatusListFormat format, String token) {
+    private Mono<StatusList> findOrCreateLatestList(StatusPurpose purpose, StatusListFormat format, String token, String publicIssuerBaseUrl) {
         log.debug("method=findOrCreateLatestList step=START purpose={} format={}", purpose, format);
 
         return statusListRepository.findLatestByPurposeAndFormat(purpose.value(), format.value())
-                .switchIfEmpty(Mono.defer(() -> createNewList(purpose, format, token)))
+                .switchIfEmpty(Mono.defer(() -> createNewList(purpose, format, token, publicIssuerBaseUrl)))
                 .doOnSuccess(list ->
                         log.debug("method=findOrCreateLatestList step=END statusListId={}", list.id())
                 );
     }
 
-    public Mono<StatusList> createNewList(StatusPurpose purpose, StatusListFormat format, String token) {
+    public Mono<StatusList> createNewList(StatusPurpose purpose, StatusListFormat format, String token, String publicIssuerBaseUrl) {
         requireNonNullParam(purpose, "purpose");
         requireNonNullParam(format, "format");
         requireNonNullParam(token, TOKEN);
+        requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
 
         log.debug("method=createNewList step=START purpose={} format={}", purpose, format);
 
@@ -264,7 +261,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
 
         return statusListRepository.save(rowToInsert)
                 .flatMap(saved ->
-                        getIssuerAndSignCredential(saved, token)
+                        getIssuerAndSignCredential(saved, token, publicIssuerBaseUrl)
                                 .flatMap(jwt -> persistSignedCredential(saved, jwt))
                                 .onErrorResume(ex ->
                                         statusListRepository.deleteById(saved.id())
@@ -318,32 +315,28 @@ public class BitstringStatusListProvider implements StatusListProvider {
 
     // --- Signing ---
 
-    private Mono<String> getIssuerAndSignCredential(StatusList saved, String token) {
+    private Mono<String> getIssuerAndSignCredential(StatusList saved, String token, String publicIssuerBaseUrl) {
         StatusListFormat fmt = StatusListFormat.fromValue(saved.format());
 
-        return Mono.deferContextual(ctx -> {
-            String baseUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, appConfig.getIssuerBackendUrl());
+        return issuerFactory.createSimpleIssuer()
+                .flatMap(issuer -> {
+                    String listUrl = buildListUrl(publicIssuerBaseUrl, saved.id(), fmt);
 
-            return issuerFactory.createSimpleIssuer()
-                    .flatMap(issuer -> {
-                        String listUrl = buildListUrl(baseUrl, saved.id(), fmt);
+                    Map<String, Object> payload;
+                    String typ;
 
-                        Map<String, Object> payload;
-                        String typ;
+                    if (fmt == StatusListFormat.TOKEN_JWT) {
+                        payload = tokenFactory.buildUnsigned(
+                                listUrl, issuer.id(), saved.purpose(), saved.encodedList());
+                        typ = TOKEN_STATUS_LIST_JWT_TYP;
+                    } else {
+                        payload = bitstringFactory.buildUnsigned(
+                                listUrl, issuer.id(), saved.purpose(), saved.encodedList());
+                        typ = VC_JWT_TYP;
+                    }
 
-                        if (fmt == StatusListFormat.TOKEN_JWT) {
-                            payload = tokenFactory.buildUnsigned(
-                                    listUrl, issuer.id(), saved.purpose(), saved.encodedList());
-                            typ = TOKEN_STATUS_LIST_JWT_TYP;
-                        } else {
-                            payload = bitstringFactory.buildUnsigned(
-                                    listUrl, issuer.id(), saved.purpose(), saved.encodedList());
-                            typ = VC_JWT_TYP;
-                        }
-
-                        return statusListSigner.sign(payload, token, saved.id(), typ);
-                    });
-        });
+                    return statusListSigner.sign(payload, token, saved.id(), typ);
+                });
     }
 
     // --- Helpers ---
@@ -383,12 +376,13 @@ public class BitstringStatusListProvider implements StatusListProvider {
             StatusPurpose purpose,
             StatusListFormat format,
             String issuanceId,
-            String token
+            String token,
+            String publicIssuerBaseUrl
     ) {
         return statusListIndexReservationService.reserve(statusListId, issuanceId)
                 .onErrorResume(
                         IndexReservationExhaustedException.class,
-                        ex -> createNewList(purpose, format, token)
+                        ex -> createNewList(purpose, format, token, publicIssuerBaseUrl)
                                 .flatMap(newList ->
                                         statusListIndexReservationService.reserve(newList.id(), issuanceId)
                                 )

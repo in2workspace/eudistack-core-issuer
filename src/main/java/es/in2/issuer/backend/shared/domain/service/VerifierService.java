@@ -5,16 +5,20 @@ import reactor.core.publisher.Mono;
 
 public interface VerifierService {
 
+    /**
+     * Validates signature and expiration of a token previously matched to
+     * this verifier by the caller. The {@code iss} claim is NOT validated
+     * here; callers are expected to do exact-match validation via
+     * {@link es.in2.issuer.backend.shared.domain.spi.UrlResolver}
+     * before invoking this method.
+     */
     Mono<Void> verifyToken(String accessToken);
-    Mono<Void> verifyTokenWithoutExpiration(String accessToken);
 
     /**
-     * Verifies the token skipping the issuer-URL match against APP_VERIFIER_URL.
-     * Used when the caller has already matched {@code iss} exactly against the
-     * expected verifier base URL (derived from the request origin under
-     * same-origin routing). Signature and expiration are still validated.
+     * Like {@link #verifyToken(String)} but skipping expiration check.
+     * Used for out-of-band flows where the expiration check does not apply.
      */
-    Mono<Void> verifyTokenSkippingIssuerCheck(String accessToken);
+    Mono<Void> verifyTokenWithoutExpiration(String accessToken);
 
     Mono<OpenIDProviderMetadata> getWellKnownInfo();
 }

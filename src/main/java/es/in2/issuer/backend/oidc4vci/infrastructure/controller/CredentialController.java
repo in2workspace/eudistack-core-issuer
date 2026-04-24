@@ -4,6 +4,7 @@ import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWork
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialResponse;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
+import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -11,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.util.UUID;
@@ -23,16 +25,19 @@ public class CredentialController {
 
     private final Oid4VciCredentialWorkflow oid4VciCredentialWorkflow;
     private final AccessTokenService accessTokenService;
+    private final UrlResolver urlResolver;
 
     @PostMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
     public Mono<ResponseEntity<CredentialResponse>> issueCredential(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
-            @RequestBody CredentialRequest credentialRequest) {
+            @RequestBody CredentialRequest credentialRequest,
+            ServerWebExchange exchange) {
         String processId = UUID.randomUUID().toString();
+        String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
         return accessTokenService.resolveAccessTokenContext(authorizationHeader)
                 .flatMap(token ->
-                        oid4VciCredentialWorkflow.createCredentialResponse(processId, credentialRequest, token))
+                        oid4VciCredentialWorkflow.createCredentialResponse(processId, credentialRequest, token, publicIssuerBaseUrl))
                 .map(verifiableCredentialResponse -> {
                     log.info("Process ID: {} - Credential response ready (deferred={})", processId, verifiableCredentialResponse.transactionId() != null);
                     if (verifiableCredentialResponse.transactionId() != null) {

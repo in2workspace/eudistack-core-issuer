@@ -3,7 +3,6 @@ package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationServerMetadata;
 import es.in2.issuer.backend.oidc4vci.domain.service.AuthorizationServerMetadataService;
 import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
-import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -14,22 +13,18 @@ import java.util.List;
 import java.util.Set;
 
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.*;
-import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL_CONTEXT_KEY;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthorizationServerMetadataServiceImpl implements AuthorizationServerMetadataService {
 
-    private final IssuerProperties appConfig;
     private final Oid4vciProfilePort profileProperties;
 
     @Override
-    public Mono<AuthorizationServerMetadata> buildAuthorizationServerMetadata(String processId) {
-        return Mono.deferContextual(ctx -> {
-            String issuerUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, appConfig.getIssuerBackendUrl());
-            return Mono.just(buildMetadata(issuerUrl));
-        });
+    public Mono<AuthorizationServerMetadata> buildAuthorizationServerMetadata(String processId,
+                                                                              String publicIssuerBaseUrl) {
+        return Mono.just(buildMetadata(publicIssuerBaseUrl));
     }
 
     private AuthorizationServerMetadata buildMetadata(String issuerUrl) {

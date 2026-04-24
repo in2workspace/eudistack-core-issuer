@@ -8,7 +8,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -24,60 +24,26 @@ class AppConfigTest {
     private AppConfig appConfig;
 
     @Test
-    void testGetIssuerBackendUrl() {
-        String expected = "https://api.example.com";
-        when(appProperties.url()).thenReturn(expected);
-
-        assertEquals(expected, appConfig.getIssuerBackendUrl());
-    }
-
-    @Test
     void getSysTenant_returnsConfiguredValue() {
-        String expected = "sys-tenant";
-        when(appProperties.sysTenant()).thenReturn(expected);
-
-        assertEquals(expected, appConfig.getSysTenant());
+        when(appProperties.sysTenant()).thenReturn("sys-tenant");
+        assertEquals("sys-tenant", appConfig.getSysTenant());
     }
 
     @Test
-    void isVerifierIssuer_ExactMatch_ReturnsTrue() {
-        when(appProperties.verifierUrl()).thenReturn("https://altia.127.0.0.1.nip.io:4444");
-
-        assertTrue(appConfig.isVerifierIssuer("https://altia.127.0.0.1.nip.io:4444"));
+    void getIssuerInternalUrl_returnsConfiguredValue() {
+        when(appProperties.internalUrl()).thenReturn("http://issuer-core:8080/issuer");
+        assertEquals("http://issuer-core:8080/issuer", appConfig.getIssuerInternalUrl());
     }
 
     @Test
-    void isVerifierIssuer_DifferentSubdomain_ReturnsTrue() {
-        when(appProperties.verifierUrl()).thenReturn("https://altia.127.0.0.1.nip.io:4444");
-
-        assertTrue(appConfig.isVerifierIssuer("https://cgcom.127.0.0.1.nip.io:4444"));
+    void getVerifierInternalUrl_returnsConfiguredValue() {
+        when(appProperties.verifierInternalUrl()).thenReturn("http://verifier-core:8080/verifier");
+        assertEquals("http://verifier-core:8080/verifier", appConfig.getVerifierInternalUrl());
     }
 
     @Test
-    void isVerifierIssuer_DifferentBaseDomain_ReturnsFalse() {
-        when(appProperties.verifierUrl()).thenReturn("https://altia.127.0.0.1.nip.io:4444");
-
-        assertFalse(appConfig.isVerifierIssuer("https://altia.evil.example.com:4444"));
-    }
-
-    @Test
-    void isVerifierIssuer_DifferentPort_ReturnsFalse() {
-        when(appProperties.verifierUrl()).thenReturn("https://altia.127.0.0.1.nip.io:4444");
-
-        assertFalse(appConfig.isVerifierIssuer("https://altia.127.0.0.1.nip.io:9999"));
-    }
-
-    @Test
-    void isVerifierIssuer_DifferentScheme_ReturnsFalse() {
-        when(appProperties.verifierUrl()).thenReturn("https://altia.127.0.0.1.nip.io:4444");
-
-        assertFalse(appConfig.isVerifierIssuer("http://altia.127.0.0.1.nip.io:4444"));
-    }
-
-    @Test
-    void isVerifierIssuer_CompletelyDifferentUrl_ReturnsFalse() {
-        when(appProperties.verifierUrl()).thenReturn("https://altia.127.0.0.1.nip.io:4444");
-
-        assertFalse(appConfig.isVerifierIssuer("https://evil.example.com"));
+    void getDefaultLang_returnsConfiguredValue() {
+        when(appProperties.defaultLang()).thenReturn("es");
+        assertEquals("es", appConfig.getDefaultLang());
     }
 }

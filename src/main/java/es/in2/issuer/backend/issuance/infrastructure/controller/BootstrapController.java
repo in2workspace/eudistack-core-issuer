@@ -4,6 +4,7 @@ import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.issuance.domain.model.dto.BootstrapRequest;
 import es.in2.issuer.backend.issuance.domain.service.BootstrapTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
+import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
@@ -33,16 +35,20 @@ public class BootstrapController {
     private final BootstrapTokenService bootstrapTokenService;
     private final IssuanceWorkflow issuanceWorkflow;
     private final AuditService auditService;
+    private final UrlResolver urlResolver;
 
     @PostMapping(BOOTSTRAP_PATH)
     public Mono<ResponseEntity<Void>> bootstrapIssueCredential(
             @RequestHeader(BOOTSTRAP_TOKEN_HEADER) String bootstrapToken,
-            @Valid @RequestBody BootstrapRequest request) {
+            @Valid @RequestBody BootstrapRequest request,
+            ServerWebExchange exchange) {
 
         if (!bootstrapTokenService.consumeIfValid(bootstrapToken)) {
             return Mono.error(new ResponseStatusException(
                     HttpStatus.UNAUTHORIZED, "Invalid or already consumed bootstrap token"));
         }
+
+        String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
 
         // Tenant resolution and registry validation are performed by
         // TenantDomainWebFilter from the X-Tenant-Id header (or hostname).
@@ -60,7 +66,7 @@ public class BootstrapController {
             log.info("[{}] Bootstrap issuance initiated for tenant '{}'", processId, tenant);
 
             return issuanceWorkflow
-                    .issueCredentialWithoutAuthorization(processId, request.toIssuanceRequest())
+                    .issueCredentialWithoutAuthorization(processId, request.toIssuanceRequest(), publicIssuerBaseUrl)
                     .<ResponseEntity<Void>>map(response -> {
                         if (response.credentialOfferUri() != null) {
                             return ResponseEntity.created(URI.create(response.credentialOfferUri())).build();

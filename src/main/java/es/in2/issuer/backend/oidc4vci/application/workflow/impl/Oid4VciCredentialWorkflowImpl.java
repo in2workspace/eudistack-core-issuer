@@ -90,14 +90,15 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
     public Mono<CredentialResponse> createCredentialResponse(
             String processId,
             CredentialRequest credentialRequest,
-            AccessTokenContext accessTokenContext) {
+            AccessTokenContext accessTokenContext,
+            String publicIssuerBaseUrl) {
 
         final String issuanceId = accessTokenContext.issuanceId();
 
         return issuanceService.getIssuanceById(issuanceId)
                 .switchIfEmpty(Mono.error(new InvalidTokenException("Procedure not found: " + issuanceId)))
                 .flatMap(proc -> validateProcedureState(proc)
-                        .then(credentialIssuerMetadataService.getCredentialIssuerMetadata())
+                        .then(credentialIssuerMetadataService.getCredentialIssuerMetadata(publicIssuerBaseUrl))
                         .flatMap(metadata -> {
                             log.info("[{}] Processing credential request: issuanceId={}, type={}, format={}",
                                     processId, issuanceId, proc.getCredentialType(), proc.getCredentialFormat());
@@ -105,7 +106,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                             return validateAndDetermineBindingInfo(proc, metadata, credentialRequest)
                                     .defaultIfEmpty(new BindingInfo(null, null))
                                     .flatMap(bindingInfo ->
-                                            enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken()));
+                                            enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken(), publicIssuerBaseUrl));
                         })
                 );
     }
@@ -122,7 +123,8 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             String processId,
             Issuance proc,
             BindingInfo bindingInfo,
-            String rawToken) {
+            String rawToken,
+            String publicIssuerBaseUrl) {
 
         String issuanceId = proc.getIssuanceId().toString();
         String credentialType = proc.getCredentialType();
@@ -143,7 +145,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         return genericCredentialBuilder.bindIssuer(profile, proc.getCredentialDataSet(), issuanceId, email)
                 // Step 2: Allocate status list entry and inject credentialStatus
                 .flatMap(enrichedDataSet ->
-                        statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, statusFormat, issuanceId, token)
+                        statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, statusFormat, issuanceId, token, publicIssuerBaseUrl)
                                 .map(entry -> {
                                     CredentialStatus status = CredentialStatus.fromStatusListEntry(entry);
                                     return genericCredentialBuilder.injectCredentialStatus(

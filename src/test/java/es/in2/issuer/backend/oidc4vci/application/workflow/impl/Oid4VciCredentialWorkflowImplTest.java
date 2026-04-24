@@ -49,6 +49,7 @@ class Oid4VciCredentialWorkflowImplTest {
 
     private static final String PROCESS_ID = "process-123";
     private static final String RAW_TOKEN = "raw-access-token";
+    private static final String PUBLIC_BASE_URL = "https://test.example/issuer";
     private static final UUID ISSUANCE_UUID = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
     private static final String ISSUANCE_ID = ISSUANCE_UUID.toString();
     private static final String CREDENTIAL_TYPE = "learcredential.employee.w3c.4";
@@ -108,11 +109,11 @@ class Oid4VciCredentialWorkflowImplTest {
         String signedCredential = "signed-jwt-vc";
 
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
-        when(credentialIssuerMetadataService.getCredentialIssuerMetadata()).thenReturn(Mono.just(metadata));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
         when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
         when(genericCredentialBuilder.bindIssuer(eq(profile), eq(CREDENTIAL_DATA_SET), eq(ISSUANCE_ID), anyString()))
                 .thenReturn(Mono.just(enrichedDataSet));
-        when(statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, ISSUANCE_ID, BEARER_PREFIX + RAW_TOKEN))
+        when(statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, ISSUANCE_ID, BEARER_PREFIX + RAW_TOKEN, PUBLIC_BASE_URL))
                 .thenReturn(Mono.just(statusEntry));
         when(genericCredentialBuilder.injectCredentialStatus(eq(enrichedDataSet), any(CredentialStatus.class), eq(JWT_VC_JSON)))
                 .thenReturn(enrichedWithStatus);
@@ -128,7 +129,7 @@ class Oid4VciCredentialWorkflowImplTest {
                 .thenReturn(Mono.just(issuance));
 
         // Act & Assert
-        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context))
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
                 .assertNext(resp -> {
                     assertThat(resp.credentials()).hasSize(1);
                     assertThat(resp.credentials().getFirst().credential()).isEqualTo(signedCredential);
@@ -137,7 +138,7 @@ class Oid4VciCredentialWorkflowImplTest {
                 .verifyComplete();
 
         // Verify status list allocation with BITSTRING_VC for jwt_vc_json format
-        verify(statusListWorkflow).allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, ISSUANCE_ID, BEARER_PREFIX + RAW_TOKEN);
+        verify(statusListWorkflow).allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, ISSUANCE_ID, BEARER_PREFIX + RAW_TOKEN, PUBLIC_BASE_URL);
         verify(genericCredentialBuilder).injectCredentialStatus(eq(enrichedDataSet), any(CredentialStatus.class), eq(JWT_VC_JSON));
         verify(enrichmentCacheStore).add(eq(ISSUANCE_ID), eq(enrichedWithStatus));
         verify(notificationCacheStore).add(anyString(), eq(ISSUANCE_ID));
@@ -171,11 +172,11 @@ class Oid4VciCredentialWorkflowImplTest {
         String signedCredential = "signed-sd-jwt~disclosure1~";
 
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
-        when(credentialIssuerMetadataService.getCredentialIssuerMetadata()).thenReturn(Mono.just(metadata));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
         when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
         when(genericCredentialBuilder.bindIssuer(eq(profile), eq(CREDENTIAL_DATA_SET), eq(ISSUANCE_ID), anyString()))
                 .thenReturn(Mono.just(enrichedDataSet));
-        when(statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.TOKEN_JWT, ISSUANCE_ID, BEARER_PREFIX + RAW_TOKEN))
+        when(statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.TOKEN_JWT, ISSUANCE_ID, BEARER_PREFIX + RAW_TOKEN, PUBLIC_BASE_URL))
                 .thenReturn(Mono.just(statusEntry));
         when(genericCredentialBuilder.injectCredentialStatus(eq(enrichedDataSet), any(CredentialStatus.class), eq(DC_SD_JWT)))
                 .thenReturn(enrichedWithStatus);
@@ -191,7 +192,7 @@ class Oid4VciCredentialWorkflowImplTest {
                 .thenReturn(Mono.just(issuance));
 
         // Act & Assert
-        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context))
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
                 .assertNext(resp -> {
                     assertThat(resp.credentials()).hasSize(1);
                     assertThat(resp.credentials().getFirst().credential()).isEqualTo(signedCredential);
@@ -199,7 +200,7 @@ class Oid4VciCredentialWorkflowImplTest {
                 .verifyComplete();
 
         // Verify TOKEN_JWT format used for dc+sd-jwt
-        verify(statusListWorkflow).allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.TOKEN_JWT, ISSUANCE_ID, BEARER_PREFIX + RAW_TOKEN);
+        verify(statusListWorkflow).allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.TOKEN_JWT, ISSUANCE_ID, BEARER_PREFIX + RAW_TOKEN, PUBLIC_BASE_URL);
         verify(genericCredentialBuilder).injectCredentialStatus(eq(enrichedDataSet), any(CredentialStatus.class), eq(DC_SD_JWT));
     }
 
@@ -211,7 +212,7 @@ class Oid4VciCredentialWorkflowImplTest {
         CredentialIssuerMetadata metadata = buildMetadata(null);
 
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
-        when(credentialIssuerMetadataService.getCredentialIssuerMetadata()).thenReturn(Mono.just(metadata));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
 
         CredentialRequest request = CredentialRequest.builder()
                 .credentialConfigurationId(CREDENTIAL_TYPE)
@@ -222,7 +223,7 @@ class Oid4VciCredentialWorkflowImplTest {
                 .issuanceId(ISSUANCE_ID)
                 .build();
 
-        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context))
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
                 .expectError()
                 .verify();
     }
@@ -240,7 +241,7 @@ class Oid4VciCredentialWorkflowImplTest {
                 .issuanceId(ISSUANCE_ID)
                 .build();
 
-        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context))
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
                 .expectError()
                 .verify();
     }

@@ -52,6 +52,9 @@ class TokenControllerTest {
     @MockBean
     TenantRegistryService tenantRegistryService;
 
+    @MockBean
+    es.in2.issuer.backend.shared.domain.spi.UrlResolver urlResolver;
+
     @Test
     void testHandleTokenRequest_RefreshTokenGrant_ShouldReturnOk() {
         String grantType = REFRESH_TOKEN_GRANT_TYPE;
@@ -62,7 +65,8 @@ class TokenControllerTest {
                 3600L,
                 "1234");
 
-        when(tokenService.exchangeToken(any(TokenRequest.class), isNull(), any(String.class)))
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn("https://issuer.example.com");
+        when(tokenService.exchangeToken(any(TokenRequest.class), isNull(), any(String.class), any(String.class)))
                 .thenReturn(Mono.just(tokenResponse));
 
         webTestClient
