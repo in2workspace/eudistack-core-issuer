@@ -6,27 +6,26 @@ import org.springframework.security.web.server.authentication.ServerAuthenticati
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-import java.net.URI;
-
+/**
+ * Extracts {@code Authorization} (Bearer/DPoP) and optional {@code X-ID-Token}
+ * headers, and hands the {@link ServerWebExchange} through to the
+ * authentication manager for URL-aware validation.
+ *
+ * <p>The exchange is the only reliable channel to propagate request data
+ * into Spring Security's {@code AuthenticationWebFilter} pipeline (see the
+ * Javadoc on {@link DualTokenAuthentication}).
+ */
 @Slf4j
 public final class DualTokenServerAuthenticationConverter implements ServerAuthenticationConverter {
 
     private static final String ID_TOKEN_HEADER = "X-ID-Token";
-
-    private final String configuredContextPath;
-
-    public DualTokenServerAuthenticationConverter(String configuredContextPath) {
-        this.configuredContextPath = configuredContextPath;
-    }
 
     @Override
     public Mono<org.springframework.security.core.Authentication> convert(ServerWebExchange exchange) {
         var request = exchange.getRequest();
         var path = request.getPath();
         var method = request.getMethod();
-        log.debug("DualTokenServerAuthenticationConverter - convert -> [{} {}]",
-                method,
-                path);
+        log.debug("DualTokenServerAuthenticationConverter - convert -> [{} {}]", method, path);
 
         String auth = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
         if (auth == null) {
@@ -41,36 +40,9 @@ public final class DualTokenServerAuthenticationConverter implements ServerAuthe
             return Mono.empty();
         }
         String idToken = request.getHeaders().getFirst(ID_TOKEN_HEADER);
-        String origin = buildOrigin(exchange);
-        String requestBaseUrl = origin + (configuredContextPath == null ? "" : configuredContextPath);
-        // Under same-origin (Atlassian-style) routing, the verifier is served on
-        // the same host as the issuer under the /verifier context path. Tokens
-        // emitted by the verifier in login flows carry iss = ${origin}/verifier.
-        String expectedVerifierBaseUrl = origin + "/verifier";
-        return Mono.just(new es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication(
+        return Mono.just(new DualTokenAuthentication(
                 accessToken,
                 (idToken == null || idToken.isBlank()) ? null : idToken,
-                requestBaseUrl,
-                expectedVerifierBaseUrl));
-    }
-
-    // Mirrors the origin portion of IssuerBaseUrlWebFilter.buildBaseUrl
-    // (scheme + host + port, no context path).
-    private static String buildOrigin(ServerWebExchange exchange) {
-        URI uri = exchange.getRequest().getURI();
-        String scheme = uri.getScheme();
-        String host = uri.getHost();
-        int port = uri.getPort();
-        boolean defaultPort = port == -1
-                || ("https".equals(scheme) && port == 443)
-                || ("http".equals(scheme) && port == 80);
-
-        StringBuilder sb = new StringBuilder();
-        sb.append(scheme).append("://").append(host);
-        if (!defaultPort) {
-            sb.append(":").append(port);
-        }
-        return sb.toString();
+                exchange));
     }
 }
-

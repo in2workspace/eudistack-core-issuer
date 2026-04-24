@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -23,21 +24,11 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.*;
 @Slf4j
 @Configuration
 @EnableWebFluxSecurity
+@RequiredArgsConstructor
 public class SecurityConfig {
 
     private final CustomAuthenticationManager customAuthenticationManager;
     private final CorsConfig corsConfig;
-    private final String configuredContextPath;
-
-    public SecurityConfig(
-            CustomAuthenticationManager customAuthenticationManager,
-            CorsConfig corsConfig,
-            @org.springframework.beans.factory.annotation.Value("${spring.webflux.base-path:}") String contextPath
-    ) {
-        this.customAuthenticationManager = customAuthenticationManager;
-        this.corsConfig = corsConfig;
-        this.configuredContextPath = contextPath;
-    }
 
     private AuthenticationWebFilter customAuthenticationWebFilter(ProblemAuthenticationEntryPoint entryPoint) {
         AuthenticationWebFilter authenticationWebFilter = new AuthenticationWebFilter(customAuthenticationManager);
@@ -58,7 +49,7 @@ public class SecurityConfig {
                         STATUS_LIST_PATH)
         );
 
-        authenticationWebFilter.setServerAuthenticationConverter(new DualTokenServerAuthenticationConverter(configuredContextPath));
+        authenticationWebFilter.setServerAuthenticationConverter(new DualTokenServerAuthenticationConverter());
         authenticationWebFilter.setAuthenticationFailureHandler(new ServerAuthenticationEntryPointFailureHandler(entryPoint));
         return authenticationWebFilter;
     }

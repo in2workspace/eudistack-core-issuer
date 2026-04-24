@@ -13,10 +13,10 @@ import static org.junit.jupiter.api.Assertions.*;
 class DualTokenServerAuthenticationConverterTest {
 
     private final es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenServerAuthenticationConverter converter =
-            new es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenServerAuthenticationConverter("/issuer");
+            new es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenServerAuthenticationConverter();
 
     @Test
-    void convert_withValidBearerAndIdToken_returnsDualTokenAuth() {
+    void convert_withValidBearerAndIdToken_returnsDualTokenAuth_carryingExchange() {
         MockServerHttpRequest request = MockServerHttpRequest.get("/api/resource")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer access-123")
                 .header("X-ID-Token", "id-456")
@@ -29,11 +29,12 @@ class DualTokenServerAuthenticationConverterTest {
                 .assertNext(auth -> {
                     assertTrue(auth instanceof es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication);
                     es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication dual = (es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication) auth;
-                    // Access token is exposed via getCredentials()
                     assertEquals("access-123", dual.getCredentials());
                     assertEquals("id-456", dual.getIdToken());
                     assertEquals("N/A", dual.getPrincipal());
                     assertFalse(dual.isAuthenticated());
+                    // The live exchange must travel through for the manager to use.
+                    assertSame(exchange, dual.getRequestExchange());
                 })
                 .verifyComplete();
     }

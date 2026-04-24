@@ -2,35 +2,40 @@ package es.in2.issuer.backend.shared.infrastructure.config.security;
 
 import org.springframework.lang.Nullable;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
+import org.springframework.web.server.ServerWebExchange;
 
 import java.util.Objects;
 
+/**
+ * Pre-authenticated token carrying the raw access / id tokens and a reference
+ * to the live {@link ServerWebExchange}.
+ *
+ * <p>Spring Security's {@code AuthenticationWebFilter} runs the
+ * {@code ReactiveAuthenticationManager} in a reactive branch where neither
+ * the Reactor context populated by upstream filters nor the
+ * {@code ServerWebExchangeContextFilter} attribute are visible. The
+ * {@link ServerAuthenticationConverter} is the only place guaranteed to
+ * receive the exchange, so the converter stuffs it in here for the manager
+ * to consume. The manager then delegates URL construction to
+ * {@link es.in2.issuer.backend.shared.domain.spi.UrlResolver}.
+ */
 public final class DualTokenAuthentication extends AbstractAuthenticationToken {
 
     private final String accessToken;
     @Nullable private final String idToken;
-    @Nullable private final String requestBaseUrl;
-    @Nullable private final String expectedVerifierBaseUrl;
+    @Nullable private final ServerWebExchange requestExchange;
 
     public DualTokenAuthentication(String accessToken, @Nullable String idToken) {
-        this(accessToken, idToken, null, null);
+        this(accessToken, idToken, null);
     }
 
-    public DualTokenAuthentication(String accessToken, @Nullable String idToken, @Nullable String requestBaseUrl) {
-        this(accessToken, idToken, requestBaseUrl, null);
-    }
-
-    public DualTokenAuthentication(
-            String accessToken,
-            @Nullable String idToken,
-            @Nullable String requestBaseUrl,
-            @Nullable String expectedVerifierBaseUrl
-    ) {
+    public DualTokenAuthentication(String accessToken,
+                                   @Nullable String idToken,
+                                   @Nullable ServerWebExchange requestExchange) {
         super(null);
         this.accessToken = accessToken;
         this.idToken = idToken;
-        this.requestBaseUrl = requestBaseUrl;
-        this.expectedVerifierBaseUrl = expectedVerifierBaseUrl;
+        this.requestExchange = requestExchange;
         setAuthenticated(false);
     }
 
@@ -50,22 +55,11 @@ public final class DualTokenAuthentication extends AbstractAuthenticationToken {
     public String getIdToken() { return idToken; }
 
     /**
-     * Public base URL of the incoming request (scheme + host + port + context path),
-     * captured by the authentication converter from the {@link org.springframework.web.server.ServerWebExchange}.
-     * Used by the authentication manager to validate the token's {@code iss} claim
-     * without depending on APP_URL config (HAIP-aligned).
+     * Live exchange of the request that produced this auth token, or null
+     * when the token was built outside the request path (e.g. unit tests).
      */
     @Nullable
-    public String getRequestBaseUrl() { return requestBaseUrl; }
-
-    /**
-     * Public base URL the verifier should have used to sign tokens reaching this
-     * issuer under same-origin routing (scheme + host + port + "/verifier"). Used
-     * by the authentication manager to validate {@code iss} for verifier-emitted
-     * tokens (login flows) without depending on APP_VERIFIER_URL config.
-     */
-    @Nullable
-    public String getExpectedVerifierBaseUrl() { return expectedVerifierBaseUrl; }
+    public ServerWebExchange getRequestExchange() { return requestExchange; }
 
     @Override
     public boolean equals(Object o) {
@@ -74,13 +68,12 @@ public final class DualTokenAuthentication extends AbstractAuthenticationToken {
         if (!super.equals(o)) return false;
         return Objects.equals(this.accessToken, that.accessToken)
                 && Objects.equals(this.idToken, that.idToken)
-                && Objects.equals(this.requestBaseUrl, that.requestBaseUrl)
-                && Objects.equals(this.expectedVerifierBaseUrl, that.expectedVerifierBaseUrl);
+                && Objects.equals(this.requestExchange, that.requestExchange);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), accessToken, idToken, requestBaseUrl, expectedVerifierBaseUrl);
+        return Objects.hash(super.hashCode(), accessToken, idToken, requestExchange);
     }
 
     @Override
@@ -88,4 +81,3 @@ public final class DualTokenAuthentication extends AbstractAuthenticationToken {
         return getClass().getSimpleName() + "[authenticated=" + isAuthenticated() + "]";
     }
 }
-
