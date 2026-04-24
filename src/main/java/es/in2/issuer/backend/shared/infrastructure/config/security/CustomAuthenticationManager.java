@@ -28,6 +28,8 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL_CONTEXT_KEY;
+
 @Configuration
 @RequiredArgsConstructor
 @Slf4j
@@ -49,7 +51,12 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
                 : null;
 
         return extractIssuer(accessToken)
-                .flatMap(issuer -> verifyAndParseJwtForIssuer(issuer, accessToken))
+                .flatMap(issuer -> Mono.deferContextual(ctx -> {
+                    String requestBaseUrl = ctx.hasKey(ISSUER_BASE_URL_CONTEXT_KEY)
+                            ? ctx.get(ISSUER_BASE_URL_CONTEXT_KEY)
+                            : null;
+                    return verifyAndParseJwtForIssuer(issuer, accessToken, requestBaseUrl);
+                }))
                 .flatMap(accessJwt -> getPrincipalName(accessJwt, maybeIdToken)
                         .map(principalName -> (Authentication) new JwtAuthenticationToken(
                                 accessJwt,
@@ -131,11 +138,22 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
                 });
     }
 
-    private Mono<Jwt> verifyAndParseJwtForIssuer(String issuer, String token) {
-        // Check issuer backend first — baseOriginMatches is intentionally fuzzy and would
-        // also match verifier URLs on the same domain (e.g. issuer.cgcom.* vs verifier.cgcom.*)
+    private Mono<Jwt> verifyAndParseJwtForIssuer(String issuer, String token, @Nullable String requestBaseUrl) {
+        // Preferred path (HAIP-compliant): when the request reached us through a
+        // WebFilter chain, IssuerBaseUrlWebFilter put the public base URL in the
+        // Reactor context. Tokens issued by this backend are signed with iss set
+        // to the same value, so we can do an exact string match.
+        if (requestBaseUrl != null && issuer.equals(requestBaseUrl)) {
+            log.debug("Token from Credential Issuer (exact match with request base URL) - {}", issuer);
+            return handleIssuerBackendToken(token);
+        }
+        // Fallback path: APP_URL-based fuzzy match. Kept for contexts where the
+        // Reactor context is not propagated (internal M2M paths, tests) and for
+        // backwards compatibility. baseOriginMatches is intentionally fuzzy and
+        // would also match verifier URLs on the same domain (e.g. issuer.cgcom.*
+        // vs verifier.cgcom.*) — hence the verifier check is second.
         if (appConfig.isIssuerBackendIssuer(issuer)) {
-            log.debug("Token from Credential Issuer - {}", issuer);
+            log.debug("Token from Credential Issuer (APP_URL fallback) - {}", issuer);
             return handleIssuerBackendToken(token);
         }
         if (appConfig.isVerifierIssuer(issuer)) {
