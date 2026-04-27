@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (per-tenant schema naming — `<tenant>_issuer`)
 
+- Changed emails templates colours to match the new EUDIStack palette.
+
+## [3.5.0] - 2026-04-24
+
+### Changed (per-tenant schema naming — `<tenant>_issuer`)
+
 - **`Constants.SCHEMA_SUFFIX = "_issuer"`** — constante nueva que el Issuer concatena al tenant id para resolver el schema físico en PostgreSQL. Evita colisiones del `flyway_schema_history` cuando varios servicios (issuer, verifier, ebw) comparten una misma base de datos.
 - **`TenantAwareConnectionFactoryDecorator`** — `SET search_path TO <tenant>_issuer, public` (antes `<tenant>, public`). El `SYSTEM_TENANT` sigue usando solo `public`.
 - **`TenantSchemaFlywayMigrator`** — lee el tenant id de `public.tenant_registry.schema_name` y concatena `SCHEMA_SUFFIX` antes de `CREATE SCHEMA IF NOT EXISTS` y `Flyway.configure().defaultSchema(...)`. Método `loadActiveTenantSchemas` renombrado a `loadActiveTenants`.
