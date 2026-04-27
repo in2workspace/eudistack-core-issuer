@@ -6,8 +6,16 @@ import es.in2.issuer.backend.shared.infrastructure.config.properties.IssuerIdent
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 
-import java.net.URI;
-
+/**
+ * Application configuration exposing settings that are orthogonal to URL
+ * resolution.
+ *
+ * <p>Public / verifier URLs are NOT exposed from here. Code that needs to
+ * build a public URL must inject
+ * {@link es.in2.issuer.backend.shared.domain.spi.UrlResolver} and derive it
+ * from the current {@link org.springframework.web.server.ServerWebExchange}
+ * (EUDI-017).
+ */
 @Configuration
 @RequiredArgsConstructor
 public class AppConfig implements IssuerProperties {
@@ -15,28 +23,18 @@ public class AppConfig implements IssuerProperties {
     private final AppProperties appProperties;
     private final IssuerIdentityProperties issuerIdentityProperties;
 
-    public String getIssuerBackendUrl() {
-        return appProperties.url();
-    }
-
     public String getIssuerInternalUrl() {
-        String internal = appProperties.internalUrl();
-        return (internal != null && !internal.isBlank()) ? internal : appProperties.url();
+        return appProperties.internalUrl();
     }
 
     public String getCryptoPrivateKey() {
         return issuerIdentityProperties.crypto().privateKey();
     }
 
-    public String getVerifierUrl() {
-        return appProperties.verifierUrl();
-    }
-
-    // Returned URL is consumed by VerifierHealthIndicator to probe the verifier
-    // over the internal network as part of the issuer's aggregate /health.
+    // Returned URL is consumed by VerifierHealthIndicator and UrlResolver to
+    // probe / reach the verifier over the intra-VPC network.
     public String getVerifierInternalUrl() {
-        String internal = appProperties.verifierInternalUrl();
-        return (internal != null && !internal.isBlank()) ? internal : appProperties.verifierUrl();
+        return appProperties.verifierInternalUrl();
     }
 
     public String getDefaultLang() {
@@ -63,48 +61,5 @@ public class AppConfig implements IssuerProperties {
         return appProperties.managementToken() != null
                 ? appProperties.managementToken().adminPowerAction()
                 : "Execute";
-    }
-
-    @Override
-    public boolean isVerifierIssuer(String issuer) {
-        String configuredUrl = getVerifierUrl();
-        if (configuredUrl.equals(issuer)) {
-            return true;
-        }
-        return baseOriginMatches(configuredUrl, issuer);
-    }
-
-    @Override
-    public boolean isIssuerBackendIssuer(String issuer) {
-        String configuredUrl = getIssuerBackendUrl();
-        if (configuredUrl.equals(issuer)) {
-            return true;
-        }
-        return baseOriginMatches(configuredUrl, issuer);
-    }
-
-    /**
-     * Compares scheme + base domain (host minus first label) + port.
-     * e.g. https://altia.127.0.0.1.nip.io:4444 and https://cgcom.127.0.0.1.nip.io:4444
-     * both have base origin https://127.0.0.1.nip.io:4444 → match.
-     */
-    private boolean baseOriginMatches(String url1, String url2) {
-        try {
-            URI u1 = URI.create(url1);
-            URI u2 = URI.create(url2);
-            if (!u1.getScheme().equals(u2.getScheme())) return false;
-            if (u1.getPort() != u2.getPort()) return false;
-            String base1 = stripFirstLabel(u1.getHost());
-            String base2 = stripFirstLabel(u2.getHost());
-            return base1 != null && base1.equals(base2);
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private String stripFirstLabel(String host) {
-        if (host == null) return null;
-        int dot = host.indexOf('.');
-        return (dot >= 0) ? host.substring(dot + 1) : null;
     }
 }

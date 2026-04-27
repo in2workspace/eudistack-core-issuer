@@ -6,11 +6,115 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.5.1] - 2026-04-27
+## [3.6.1] - 2026-04-27
 
 ### Changed
 
 - Changed emails templates colours to match the new EUDIStack palette.
+
+## [3.6.0] - 2026-04-24
+
+### Changed (EUDI-017 — URL resolution refactor)
+
+Single source of truth for public and internal URLs. The 3.4.6..3.5.3
+chain of patches (ISSUER_BASE_URL_CONTEXT_KEY → ServerWebExchange context
+attribute → fields on DualTokenAuthentication) is collapsed into a clean
+port + explicit-parameter design. Controllers resolve the public issuer
+base URL from the live `ServerWebExchange` via `UrlResolver` and pass it
+as an explicit parameter down the workflow / service chain. No domain
+code reads URLs from config or from the Reactor context any more.
+
+- **Added `UrlResolver` port** (`shared/domain/spi`) + implementation. Exposes:
+  `publicIssuerBaseUrl(exchange)`, `publicOrigin(exchange)`,
+  `expectedVerifierBaseUrl(exchange)`, `internalIssuerBaseUrl()`,
+  `internalVerifierBaseUrl()`, `rewriteToInternalVerifier(publicUrl)`. The
+  rewrite method preserves the URL path so that a verifier `jwks_uri` with
+  the `/verifier` base-path is swapped to the intra-VPC origin without
+  duplicating the prefix (regression covered by dedicated test).
+- **Auth hot path** (`CustomAuthenticationManager`,
+  `DualTokenAuthentication`, `DualTokenServerAuthenticationConverter`,
+  `SecurityConfig`, `VerifierService(Impl)`): the converter captures the
+  live `ServerWebExchange` into the auth token, the manager consumes it
+  and asks `UrlResolver` for the expected `iss` values, doing exact-match
+  against issuer and verifier URLs. No APP_URL / APP_VERIFIER_URL fallback.
+  `VerifierService.verifyTokenSkippingIssuerCheck` removed — callers now
+  pre-match iss unconditionally; the service validates signature + expiry only.
+  `VerifierServiceImpl` composes the well-known URL with
+  `UriComponentsBuilder` (path segments, never string concatenation), so
+  the internal base-path is preserved even when endpoints start with a `/`.
+- **Domain services** (`TokenService`, `AuthorizationServerMetadataService`,
+  `AuthorizationService`, `CredentialOfferService`,
+  `CredentialIssuerMetadataService`, `StatusListProvider`), **workflows**
+  (`IssuanceWorkflow`, `Oid4VciCredentialWorkflow`, `HandleNotificationWorkflow`,
+  `CredentialOfferRefreshWorkflow`, `Get{AuthorizationServer,CredentialIssuer}MetadataWorkflow`,
+  `RevocationWorkflow`, `StatusListWorkflow`) and **controllers**
+  (`Par`, `Token`, `Authorize`, `Credential`, `Notification`,
+  `AuthorizationServerMetadata`, `CredentialIssuerMetadata`,
+  `CredentialOfferRefresh`, `Issuance`, `Bootstrap`,
+  `BitstringStatusList`): every method that needed the issuer base URL now
+  receives it explicitly as `publicIssuerBaseUrl`; controllers inject
+  `UrlResolver` and resolve from the exchange. ~30 files touched.
+
+### Removed
+
+- `AppConfig.getIssuerBackendUrl`, `getVerifierUrl`,
+  `isIssuerBackendIssuer`, `isVerifierIssuer`, `baseOriginMatches`,
+  `stripFirstLabel` — `iss` validation is exact-match now, via `UrlResolver`.
+- `IssuerProperties.getIssuerBackendUrl`, `getVerifierUrl`,
+  `isIssuerBackendIssuer`, `isVerifierIssuer`. The port only exposes
+  internal URLs and non-URL settings.
+- `AppProperties.url`, `verifierUrl` + `app.url` / `app.verifier-url` in
+  `application.yml`. Public URLs are derived at runtime; no static config.
+- `IssuerBaseUrlWebFilter` + `Constants.ISSUER_BASE_URL_CONTEXT_KEY` —
+  the Reactor-context approach was never reliable under Spring Security
+  (superseded in 3.5.1). Everything flows through `UrlResolver` now.
+- `DualTokenAuthentication.requestBaseUrl` /
+  `expectedVerifierBaseUrl` (replaced by a single `ServerWebExchange`
+  field), `DualTokenServerAuthenticationConverter` constructor arg
+  (`configuredContextPath`), `SecurityConfig` constructor arg,
+  `VerifierService.verifyTokenSkippingIssuerCheck`,
+  `CredentialIssuerMetadataServiceImpl.fallbackUrl`.
+
+### Migration note
+
+- Remove `APP_URL` and `APP_VERIFIER_URL` from every deployment (docker-
+  compose, STG/PRO IaC, local dev). The issuer no longer reads them and
+  startup will no longer fail if they are set, but they are dead weight.
+- `APP_INTERNAL_URL` and `APP_VERIFIER_INTERNAL_URL` stay: they must
+  include the service base-path (e.g.
+  `http://verifier-core.stg.eudistack.local:8080/verifier`), already
+  applied via IaC commit `003a114`.
+- Local nginx (`eudistack-platform-dev/nginx/default.conf.template`)
+  already sets `X-Forwarded-Proto` / `X-Forwarded-Host`, so the runtime
+  URL derivation is consistent between local and STG.
+
+## [3.5.3] - 2026-04-24
+
+### Security (EUDI-094 post-cutover — verifier token validation decoupled from APP_VERIFIER_URL)
+
+- **`DualTokenServerAuthenticationConverter`** now also captures the expected verifier base URL from the request origin (`${scheme}://${host}[:port]/verifier`). Under same-origin routing (Atlassian-style) the verifier lives on the same host as the issuer and signs tokens with `iss = ${origin}/verifier`. Passed through a new `DualTokenAuthentication.expectedVerifierBaseUrl` field.
+- **`CustomAuthenticationManager.verifyAndParseJwtForIssuer`** gets a new exact-match branch for verifier tokens: when `iss` equals `expectedVerifierBaseUrl`, the token is accepted and the issuer check inside `VerifierService` is skipped (signature and expiration are still validated). `APP_VERIFIER_URL`-based fuzzy match remains as fallback for legacy/internal paths.
+- **`VerifierService.verifyTokenSkippingIssuerCheck`** — new overload that validates signature and expiration but trusts the caller's pre-match of `iss`.
+- Symptom before fix: login-driven calls to `/issuer/api/v1/me` (and other unified-chain endpoints) returned `401 Unknown token issuer` because `APP_VERIFIER_URL` still pointed to the legacy `login-stg.altia.eudistack.net` while tokens now carry `iss=https://sandbox-stg.eudistack.net/verifier`.
+
+## [3.5.2] - 2026-04-24
+
+### Changed (Issuer no longer owns `public` schema)
+
+- **`V1__Public_schema.sql` eliminado** y directorio `src/main/resources/db/migration/` suprimido. `public.tenant_registry` deja de ser responsabilidad del Issuer; pasa a la plataforma (local: `init-databases.sh`, STG/PROD: `seed-tenants.*.sql`, futuro: microservicio de onboarding de tenants).
+- **`TenantSchemaFlywayMigrator`**: eliminados `migratePublicSchema()` y su invocación. El Issuer solo lee `public.tenant_registry` para saber qué schemas `<tenant>_issuer` provisionar; no crea ni migra `public`. El log de cierre ya no menciona `public` (`Flyway multi-schema migration completed: N tenant schemas (suffix '_issuer')`).
+- Si `public.tenant_registry` no existe aún al arranque, el Migrator loggea WARN y arranca con 0 tenants (comportamiento previo preservado).
+
+### Migration note
+
+En STG basta con `DROP TABLE public.flyway_schema_history;` antes del deploy de 3.5.2 (la tabla ya no la gestiona nadie y estorba si queda huérfana). `public.tenant_registry` y los schemas `<tenant>_issuer` quedan intactos; ningún dato de runtime se pierde.
+
+## [3.5.1] - 2026-04-24
+
+### Fixed (EUDI-094 post-cutover — final follow-up on 3.4.6/3.4.7)
+
+- **`DualTokenServerAuthenticationConverter`** now captures the public base URL from the `ServerWebExchange` (mirrors `IssuerBaseUrlWebFilter.buildBaseUrl`) and passes it through the new `DualTokenAuthentication.requestBaseUrl` field. `CustomAuthenticationManager` reads the URL directly from the authentication object — no Reactor context indirection. This is what finally works: Spring Security's `AuthenticationWebFilter` runs the `ReactiveAuthenticationManager` in a scope where neither the `contextWrite`-populated `ISSUER_BASE_URL_CONTEXT_KEY` (3.4.6 attempt) nor the `ServerWebExchangeContextFilter` attribute (3.4.7 attempt) are visible. The only argument guaranteed to reach the manager is the `Authentication` built by the converter from the live `ServerWebExchange`.
+- `SecurityConfig` wires the base path (`spring.webflux.base-path`) into the converter constructor so the converter can reconstruct the same URL the WebFilter emits for token issuance.
 
 ## [3.5.0] - 2026-04-24
 

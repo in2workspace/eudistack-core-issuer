@@ -69,6 +69,9 @@ class IssuanceControllerTest {
     @MockBean
     private TenantRegistryService tenantRegistryService;
 
+    @MockBean
+    private es.in2.issuer.backend.shared.domain.spi.UrlResolver urlResolver;
+
     @Test
     void createIssuance_UiDelivery_Returns200WithBody() throws JsonProcessingException {
         String credentialOfferUri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fserver.example.com%2Fcredential-offer%2Fabc123";
@@ -78,7 +81,8 @@ class IssuanceControllerTest {
                 .email("test@example.com")
                 .build();
 
-        when(issuanceWorkflow.issueCredential(anyString(), eq(testRequest), isNull()))
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn("https://issuer.example.com");
+        when(issuanceWorkflow.issueCredential(anyString(), eq(testRequest), isNull(), anyString()))
                 .thenReturn(Mono.just(IssuanceResponse.builder().credentialOfferUri(credentialOfferUri).build()));
 
         webTestClient.mutateWith(csrf())
@@ -100,7 +104,8 @@ class IssuanceControllerTest {
                 .email("test@example.com")
                 .build();
 
-        when(issuanceWorkflow.issueCredential(anyString(), eq(testRequest), isNull()))
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn("https://issuer.example.com");
+        when(issuanceWorkflow.issueCredential(anyString(), eq(testRequest), isNull(), anyString()))
                 .thenReturn(Mono.just(IssuanceResponse.builder().build()));
 
         webTestClient.mutateWith(csrf())
@@ -122,7 +127,8 @@ class IssuanceControllerTest {
                 .email("test@example.com")
                 .build();
 
-        when(issuanceWorkflow.issueCredential(anyString(), eq(testRequest), eq(idToken)))
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn("https://issuer.example.com");
+        when(issuanceWorkflow.issueCredential(anyString(), eq(testRequest), eq(idToken), anyString()))
                 .thenReturn(Mono.just(IssuanceResponse.builder().build()));
 
         webTestClient.mutateWith(csrf())
@@ -223,9 +229,10 @@ class IssuanceControllerTest {
         var request = new UpdateIssuanceStatusRequest(CredentialStatusEnum.REVOKED);
         AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.TENANT_ADMIN, false);
 
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn("https://issuer.example.com");
         when(accessTokenService.getAuthorizationContext(anyString()))
                 .thenReturn(Mono.just(authCtx));
-        when(revocationWorkflow.revoke(anyString(), eq("Bearer testToken"), eq(issuanceId)))
+        when(revocationWorkflow.revoke(anyString(), eq("Bearer testToken"), eq(issuanceId), anyString()))
                 .thenReturn(Mono.empty());
 
         webTestClient.mutateWith(csrf())

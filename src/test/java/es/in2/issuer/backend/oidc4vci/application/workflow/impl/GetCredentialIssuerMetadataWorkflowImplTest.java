@@ -61,10 +61,11 @@ class GetCredentialIssuerMetadataWorkflowImplTest {
                 ))
                 .build();
         // Mock
-        when(credentialIssuerMetadataService.getCredentialIssuerMetadata())
+        String publicBaseUrl = "https://test.example/issuer";
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(publicBaseUrl))
                 .thenReturn(Mono.just(expectedCredentialIssuerMetadata));
         // Act
-        Mono<CredentialIssuerMetadata> result = getCredentialIssuerMetadataWorkflow.execute(processId);
+        Mono<CredentialIssuerMetadata> result = getCredentialIssuerMetadataWorkflow.execute(processId, publicBaseUrl);
         // Assert
         assertEquals(expectedCredentialIssuerMetadata, result.block());
     }

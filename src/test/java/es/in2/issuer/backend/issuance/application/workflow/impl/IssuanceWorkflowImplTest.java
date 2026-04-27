@@ -96,12 +96,12 @@ class IssuanceWorkflowImplTest {
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 eq(issuanceId.toString()), eq(configId), eq("authorization_code"),
-                eq("test@example.com"), eq("email"), eq("refresh-token-123")))
+                eq("test@example.com"), eq("email"), eq("refresh-token-123"), eq("https://test.example/issuer")))
                 .thenReturn(Mono.just(offerResult));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         // When & Then
-        StepVerifier.create(workflow.issueCredential(processId, request, idToken))
+        StepVerifier.create(workflow.issueCredential(processId, request, idToken, "https://test.example/issuer"))
                 .assertNext(response -> assertNotNull(response))
                 .verifyComplete();
 
@@ -109,7 +109,7 @@ class IssuanceWorkflowImplTest {
         verify(issuanceService).saveIssuance(any(Issuance.class));
         verify(credentialOfferService).createAndDeliverCredentialOffer(
                 eq(issuanceId.toString()), eq(configId), eq("authorization_code"),
-                eq("test@example.com"), eq("email"), eq("refresh-token-123"));
+                eq("test@example.com"), eq("email"), eq("refresh-token-123"), eq("https://test.example/issuer"));
     }
 
     @Test
@@ -122,7 +122,7 @@ class IssuanceWorkflowImplTest {
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         // When & Then
-        StepVerifier.create(workflow.issueCredential("p", request, "idToken"))
+        StepVerifier.create(workflow.issueCredential("p", request, "idToken", "https://test.example/issuer"))
                 .expectError(CredentialTypeUnsupportedException.class)
                 .verify();
     }
@@ -162,11 +162,11 @@ class IssuanceWorkflowImplTest {
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 eq(issuanceId.toString()), eq(configId), eq("authorization_code"),
-                eq("test@example.com"), eq("email"), eq("refresh-token-456")))
+                eq("test@example.com"), eq("email"), eq("refresh-token-456"), eq("https://test.example/issuer")))
                 .thenReturn(Mono.just(offerResult));
 
         // When & Then
-        StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request))
+        StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "https://test.example/issuer"))
                 .assertNext(response -> assertNotNull(response))
                 .verifyComplete();
 

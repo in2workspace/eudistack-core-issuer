@@ -5,7 +5,6 @@ import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.oidc4vci.domain.service.PreAuthorizedCodeService;
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
-import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
@@ -35,7 +34,6 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
 
     private static final String GRANT_TYPE_PRE_AUTHORIZED_CODE = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
 
-    private final IssuerProperties appConfig;
     private final PreAuthorizedCodeService preAuthorizedCodeService;
     private final TransientStore<String> issuerStateCacheStore;
     private final CredentialOfferCacheRepository credentialOfferCacheRepository;
@@ -47,32 +45,30 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
     @Observed(name = "oidc4vci.create-and-deliver-credential-offer", contextualName = "create-and-deliver-credential-offer")
     public Mono<CredentialOfferResult> createAndDeliverCredentialOffer(
             String issuanceId, String credentialConfigurationId, String grantType,
-            String email, String delivery, String credentialOfferRefreshToken) {
+            String email, String delivery, String credentialOfferRefreshToken,
+            String publicIssuerBaseUrl) {
 
-        return Mono.deferContextual(ctx -> {
-            String baseUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, appConfig.getIssuerBackendUrl());
-            boolean isEmailChannel = DELIVERY_EMAIL.equals(delivery);
-            log.info("Delivering credential offer via email? {}", isEmailChannel);
+        boolean isEmailChannel = DELIVERY_EMAIL.equals(delivery);
+        log.info("Delivering credential offer via email? {}", isEmailChannel);
 
-            return generateGrant(issuanceId, grantType)
-                    .flatMap(grantResult -> {
-                        CredentialOffer offer = CredentialOffer.builder()
-                                .credentialIssuer(baseUrl)
-                                .credentialConfigurationIds(List.of(credentialConfigurationId))
-                                .grants(grantResult.grants)
-                                .build();
+        return generateGrant(issuanceId, grantType)
+                .flatMap(grantResult -> {
+                    CredentialOffer offer = CredentialOffer.builder()
+                            .credentialIssuer(publicIssuerBaseUrl)
+                            .credentialConfigurationIds(List.of(credentialConfigurationId))
+                            .grants(grantResult.grants)
+                            .build();
 
-                        CredentialOfferData data = CredentialOfferData.builder()
-                                .credentialOffer(offer)
-                                .credentialEmail(email)
-                                .txCode(grantResult.txCode)
-                                .build();
+                    CredentialOfferData data = CredentialOfferData.builder()
+                            .credentialOffer(offer)
+                            .credentialEmail(email)
+                            .txCode(grantResult.txCode)
+                            .build();
 
-                        return credentialOfferCacheRepository.saveCredentialOffer(data);
-                    })
-                    .flatMap(nonce -> buildCredentialOfferUri(baseUrl, nonce, isEmailChannel)
-                            .flatMap(uri -> deliverOffer(baseUrl, uri, issuanceId, credentialOfferRefreshToken, delivery)));
-        });
+                    return credentialOfferCacheRepository.saveCredentialOffer(data);
+                })
+                .flatMap(nonce -> buildCredentialOfferUri(publicIssuerBaseUrl, nonce, isEmailChannel)
+                        .flatMap(uri -> deliverOffer(publicIssuerBaseUrl, uri, issuanceId, credentialOfferRefreshToken, delivery)));
     }
 
     private Mono<CredentialOfferResult> deliverOffer(String baseUrl, String credentialOfferUri, String issuanceId,

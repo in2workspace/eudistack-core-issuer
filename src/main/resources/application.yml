@@ -126,12 +126,12 @@ credential:
 
 # Application
 app:
-  url: ${APP_URL:http://localhost:8080}
-  internal-url: ${APP_INTERNAL_URL:}
-  verifier-url: ${APP_VERIFIER_URL:https://verifier.example.com}
-  # Used by VerifierHealthIndicator to probe verifier availability from the
-  # aggregate /health endpoint without leaving the internal network.
-  verifier-internal-url: ${APP_VERIFIER_INTERNAL_URL:}
+  # Public URLs are NOT configured here: they are derived at runtime from the
+  # request exchange (UrlResolver, EUDI-017). The internal URLs below reach
+  # the intra-VPC peers and MUST include the service base-path (e.g. /issuer,
+  # /verifier) so that calls that append well-known paths resolve correctly.
+  internal-url: ${APP_INTERNAL_URL:http://localhost:8080/issuer}
+  verifier-internal-url: ${APP_VERIFIER_INTERNAL_URL:http://localhost:8081/verifier}
   cors:
     origins-path: ${APP_CORS_ORIGINS_PATH:}
   # mail-from removed — now per-tenant via tenant_config.issuer.mail_from

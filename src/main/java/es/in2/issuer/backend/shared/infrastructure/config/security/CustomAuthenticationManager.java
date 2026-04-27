@@ -6,10 +6,10 @@ import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
+import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationServiceException;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -18,11 +18,9 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
-import org.springframework.web.filter.reactive.ServerWebExchangeContextFilter;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
 import java.time.Instant;
@@ -31,56 +29,44 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * Authenticates JWT access tokens (and optional ID tokens) coming through
+ * the {@link AuthenticationWebFilter} pipeline.
+ *
+ * <p>Validation of the {@code iss} claim is <b>strictly</b> an exact match
+ * against URLs derived from the live {@link ServerWebExchange} via
+ * {@link UrlResolver}: either the issuer's own public base URL or the
+ * verifier's expected same-origin URL. No APP_URL fallback — if there is
+ * no exchange, the token is rejected.
+ */
 @Configuration
+@RequiredArgsConstructor
 @Slf4j
 public class CustomAuthenticationManager implements ReactiveAuthenticationManager {
 
     private final VerifierService verifierService;
     private final ObjectMapper objectMapper;
-    private final AppConfig appConfig;
     private final JWTService jwtService;
     private final CredentialProfileRegistry credentialProfileRegistry;
     private final AuditService auditService;
-    private final String configuredContextPath;
-
-    public CustomAuthenticationManager(
-            VerifierService verifierService,
-            ObjectMapper objectMapper,
-            AppConfig appConfig,
-            JWTService jwtService,
-            CredentialProfileRegistry credentialProfileRegistry,
-            AuditService auditService,
-            @Value("${spring.webflux.base-path:}") String contextPath
-    ) {
-        this.verifierService = verifierService;
-        this.objectMapper = objectMapper;
-        this.appConfig = appConfig;
-        this.jwtService = jwtService;
-        this.credentialProfileRegistry = credentialProfileRegistry;
-        this.auditService = auditService;
-        this.configuredContextPath = normalizeContextPath(contextPath);
-    }
+    private final UrlResolver urlResolver;
 
     @Override
     public Mono<Authentication> authenticate(Authentication authentication) {
         log.debug("CustomAuthenticationManager - authenticate - start");
         final String accessToken = String.valueOf(authentication.getCredentials());
-        final String maybeIdToken = (authentication instanceof es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication dta)
-                ? dta.getIdToken()
-                : null;
+        final String maybeIdToken;
+        final ServerWebExchange exchange;
+        if (authentication instanceof DualTokenAuthentication dta) {
+            maybeIdToken = dta.getIdToken();
+            exchange = dta.getRequestExchange();
+        } else {
+            maybeIdToken = null;
+            exchange = null;
+        }
 
         return extractIssuer(accessToken)
-                .flatMap(issuer -> Mono.deferContextual(ctx -> {
-                    // AuthenticationWebFilter runs before IssuerBaseUrlWebFilter
-                    // has written its key (contextWrite propagates upstream, not
-                    // downstream), so we derive the public base URL from the
-                    // ServerWebExchange directly. ServerWebExchangeContextFilter
-                    // is auto-registered by Spring Boot WebFlux.
-                    String requestBaseUrl = ServerWebExchangeContextFilter.getExchange(ctx)
-                            .map(this::buildBaseUrl)
-                            .orElse(null);
-                    return verifyAndParseJwtForIssuer(issuer, accessToken, requestBaseUrl);
-                }))
+                .flatMap(issuer -> verifyTokenByIssuer(issuer, accessToken, exchange))
                 .flatMap(accessJwt -> getPrincipalName(accessJwt, maybeIdToken)
                         .map(principalName -> (Authentication) new JwtAuthenticationToken(
                                 accessJwt,
@@ -99,7 +85,6 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
     // Returns the preferred principal: ID Token first; falls back to Access Token.
     private Mono<String> getPrincipalName(Jwt accessJwt, @Nullable String idToken) {
         log.debug("getPrincipalName - start");
-
         return getPrincipalFromIdToken(idToken)
                 .switchIfEmpty(getPrincipalFromAccessToken(accessJwt))
                 .doOnSuccess(p -> log.info("getPrincipalName - end with principal: {}", p));
@@ -110,10 +95,8 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
             log.debug("No ID Token provided");
             return Mono.empty();
         }
-
         log.debug("Resolving principal from ID Token");
-
-        return parseAndValidateJwt(idToken, false)
+        return parseJwt(idToken)
                 .map(validIdJwt -> {
                     String principal = jwtService.resolvePrincipal(validIdJwt);
                     return (principal == null || principal.isBlank()) ? null : principal;
@@ -130,8 +113,6 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
         return Mono.fromSupplier(() -> jwtService.resolvePrincipal(accessJwt));
     }
 
-
-
     private Mono<String> extractIssuer(String token) {
         return Mono.fromCallable(() -> {
                     try {
@@ -145,13 +126,11 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
                     try {
                         String issuer = signedJWT.getJWTClaimsSet().getIssuer();
                         log.debug("CustomAuthenticationManager - Issuer - {}", issuer);
-
                         if (issuer == null) {
                             log.error("Missing issuer (iss) claim");
                             return Mono.error(new BadCredentialsException("Missing issuer (iss) claim"));
                         }
                         return Mono.just(issuer);
-
                     } catch (ParseException e) {
                         return Mono.error(e);
                     }
@@ -162,35 +141,31 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
                 });
     }
 
-    private Mono<Jwt> verifyAndParseJwtForIssuer(String issuer, String token, @Nullable String requestBaseUrl) {
-        // Preferred path (HAIP-compliant): when the request reached us through a
-        // WebFilter chain, IssuerBaseUrlWebFilter put the public base URL in the
-        // Reactor context. Tokens issued by this backend are signed with iss set
-        // to the same value, so we can do an exact string match.
-        if (requestBaseUrl != null && issuer.equals(requestBaseUrl)) {
-            log.debug("Token from Credential Issuer (exact match with request base URL) - {}", issuer);
+    private Mono<Jwt> verifyTokenByIssuer(String issuer, String token, @Nullable ServerWebExchange exchange) {
+        if (exchange == null) {
+            log.warn("Authentication attempted without a request exchange; rejecting token");
+            return Mono.error(new BadCredentialsException("Request context unavailable"));
+        }
+        String expectedIssuer = urlResolver.publicIssuerBaseUrl(exchange);
+        if (expectedIssuer.equals(issuer)) {
+            log.debug("Token from Credential Issuer (exact match) - {}", issuer);
             return handleIssuerBackendToken(token);
         }
-        // Fallback path: APP_URL-based fuzzy match. Kept for contexts where the
-        // Reactor context is not propagated (internal M2M paths, tests) and for
-        // backwards compatibility. baseOriginMatches is intentionally fuzzy and
-        // would also match verifier URLs on the same domain (e.g. issuer.cgcom.*
-        // vs verifier.cgcom.*) — hence the verifier check is second.
-        if (appConfig.isIssuerBackendIssuer(issuer)) {
-            log.debug("Token from Credential Issuer (APP_URL fallback) - {}", issuer);
-            return handleIssuerBackendToken(token);
-        }
-        if (appConfig.isVerifierIssuer(issuer)) {
-            log.debug("Token from Verifier - issuer: {}", issuer);
+        String expectedVerifier = urlResolver.expectedVerifierBaseUrl(exchange);
+        if (expectedVerifier.equals(issuer)) {
+            log.debug("Token from Verifier (exact match) - {}", issuer);
             return handleVerifierToken(token);
         }
-        log.debug("Token from unknown issuer");
+        log.debug("Token from unknown issuer: iss={}, expectedIssuer={}, expectedVerifier={}",
+                issuer, expectedIssuer, expectedVerifier);
         return Mono.error(new BadCredentialsException("Unknown token issuer: " + issuer));
     }
 
     private Mono<Jwt> handleVerifierToken(String token) {
-        return verifierService.verifyToken(token)
-                .then(parseAndValidateJwt(token, Boolean.FALSE));
+        // The caller has already matched iss exactly against the expected
+        // verifier URL, so VerifierService skips its own iss check and
+        // validates only signature + expiration.
+        return verifierService.verifyToken(token).then(parseJwt(token));
     }
 
     private Mono<Jwt> handleIssuerBackendToken(String token) {
@@ -201,7 +176,7 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
                         log.error("Invalid JWT signature");
                         return Mono.error(new BadCredentialsException("Invalid JWT signature"));
                     }
-                    return parseAndValidateJwt(token, Boolean.FALSE);
+                    return parseJwt(token);
                 })
                 .onErrorMap(ParseException.class, e -> {
                     log.error("Failed to parse JWS", e);
@@ -209,39 +184,27 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
                 });
     }
 
-    private Mono<Jwt> parseAndValidateJwt(String token, boolean shouldValidateCredentialType) {
+    @SuppressWarnings("unchecked")
+    private Mono<Jwt> parseJwt(String token) {
         return Mono.fromCallable(() -> {
-            log.debug("parseAndValidateJwt");
+            log.debug("parseJwt");
             String[] parts = token.split("\\.");
             if (parts.length < 3) {
                 throw new BadCredentialsException("Invalid JWT token format");
             }
-
-            // Decode and parse headers
             String headerJson = new String(Base64.getUrlDecoder().decode(parts[0]), StandardCharsets.UTF_8);
             Map<String, Object> headers = objectMapper.readValue(headerJson, Map.class);
-
-            // Decode and parse payload
             String payloadJson = new String(Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8);
             Map<String, Object> claims = objectMapper.readValue(payloadJson, Map.class);
-
-            // Validate credential_type claim
-            if (shouldValidateCredentialType) validateCredentialType(claims);
-
-            // Extract issuedAt and expiresAt times if present
             Instant issuedAt = claims.containsKey("iat") ? Instant.ofEpochSecond(((Number) claims.get("iat")).longValue()) : Instant.now();
             Instant expiresAt = claims.containsKey("exp") ? Instant.ofEpochSecond(((Number) claims.get("exp")).longValue()) : Instant.now().plusSeconds(3600);
-
             return new Jwt(token, issuedAt, expiresAt, headers, claims);
         });
     }
 
-    private Set<String> getAcceptedVcTypes() {
-        return credentialProfileRegistry.getAllProfiles().values().stream()
-                .map(es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile::credentialType)
-                .collect(java.util.stream.Collectors.toSet());
-    }
-
+    // Reserved for controllers that need to validate credential_type server-side.
+    // Kept private to avoid misuse from other callers.
+    @SuppressWarnings("unused")
     private void validateCredentialType(Map<String, Object> claims) {
         Object credentialType = claims.get("credential_type");
         log.debug("validateCredentialType");
@@ -257,40 +220,9 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
         }
     }
 
-    // Mirrors IssuerBaseUrlWebFilter.buildBaseUrl — kept in sync so that tokens
-    // validated here match the iss written by services that read the key from
-    // the Reactor context (TokenController, ParController, etc.).
-    private String buildBaseUrl(ServerWebExchange exchange) {
-        URI uri = exchange.getRequest().getURI();
-        String scheme = uri.getScheme();
-        String host = uri.getHost();
-        int port = uri.getPort();
-        boolean defaultPort = port == -1
-                || ("https".equals(scheme) && port == 443)
-                || ("http".equals(scheme) && port == 80);
-
-        StringBuilder sb = new StringBuilder();
-        sb.append(scheme).append("://").append(host);
-        if (!defaultPort) {
-            sb.append(":").append(port);
-        }
-        if (configuredContextPath != null && !configuredContextPath.isBlank()) {
-            sb.append(configuredContextPath);
-        }
-        return sb.toString();
-    }
-
-    private static String normalizeContextPath(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
-        String trimmed = raw.trim();
-        if (!trimmed.startsWith("/")) {
-            trimmed = "/" + trimmed;
-        }
-        if (trimmed.length() > 1 && trimmed.endsWith("/")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 1);
-        }
-        return "/".equals(trimmed) ? null : trimmed;
+    private Set<String> getAcceptedVcTypes() {
+        return credentialProfileRegistry.getAllProfiles().values().stream()
+                .map(es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile::credentialType)
+                .collect(java.util.stream.Collectors.toSet());
     }
 }

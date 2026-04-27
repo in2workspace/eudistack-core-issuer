@@ -15,7 +15,6 @@ import es.in2.issuer.backend.shared.domain.service.DpopValidationService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.PkceVerifier;
 import es.in2.issuer.backend.shared.domain.service.RefreshTokenService;
-import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import io.micrometer.observation.annotation.Observed;
@@ -48,7 +47,6 @@ public class TokenServiceImpl implements TokenService {
     private final TransientStore<AuthorizationCodeData> authorizationCodeCacheStore;
     private final JWTService jwtService;
     private final RefreshTokenService refreshTokenService;
-    private final IssuerProperties appConfig;
     private final IssuanceService issuanceService;
     private final PkceVerifier pkceVerifier;
     private final DpopValidationService dpopValidationService;
@@ -58,27 +56,26 @@ public class TokenServiceImpl implements TokenService {
 
     @Override
     @Observed(name = "oid4vci.token", contextualName = "oid4vci-handle-token")
-    public Mono<TokenResponse> exchangeToken(TokenRequest request, String dpopHeader, String tokenEndpointUri) {
-        return Mono.deferContextual(ctx -> {
-            String baseUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, appConfig.getIssuerBackendUrl());
-            String grantType = request.grantType();
+    public Mono<TokenResponse> exchangeToken(TokenRequest request, String dpopHeader,
+                                             String tokenEndpointUri, String publicIssuerBaseUrl) {
+        String grantType = request.grantType();
 
-            Mono<TokenResponse> flow;
-            if (GRANT_TYPE.equals(grantType)) {
-                flow = handlePreAuthorizedCode(baseUrl, request.preAuthorizedCode(), request.txCode());
-            } else if (REFRESH_TOKEN_GRANT_TYPE.equals(grantType)) {
-                flow = handleRefreshToken(baseUrl, request.refreshToken());
-            } else if (AUTHORIZATION_CODE_GRANT_TYPE.equals(grantType)) {
-                flow = handleAuthorizationCode(baseUrl, request.code(), request.redirectUri(), request.codeVerifier(), dpopHeader, tokenEndpointUri);
-            } else {
-                return Mono.error(OAuthTokenException.unsupportedGrantType(grantType));
-            }
+        Mono<TokenResponse> flow;
+        if (GRANT_TYPE.equals(grantType)) {
+            flow = handlePreAuthorizedCode(publicIssuerBaseUrl, request.preAuthorizedCode(), request.txCode());
+        } else if (REFRESH_TOKEN_GRANT_TYPE.equals(grantType)) {
+            flow = handleRefreshToken(publicIssuerBaseUrl, request.refreshToken());
+        } else if (AUTHORIZATION_CODE_GRANT_TYPE.equals(grantType)) {
+            flow = handleAuthorizationCode(publicIssuerBaseUrl, request.code(), request.redirectUri(),
+                    request.codeVerifier(), dpopHeader, tokenEndpointUri);
+        } else {
+            return Mono.error(OAuthTokenException.unsupportedGrantType(grantType));
+        }
 
-            String grantTag = resolveGrantTag(grantType);
-            return flow
-                    .doOnSuccess(r -> issuanceMetrics.recordTokenRequest(grantTag, "success"))
-                    .doOnError(e -> issuanceMetrics.recordTokenRequest(grantTag, "error"));
-        });
+        String grantTag = resolveGrantTag(grantType);
+        return flow
+                .doOnSuccess(r -> issuanceMetrics.recordTokenRequest(grantTag, "success"))
+                .doOnError(e -> issuanceMetrics.recordTokenRequest(grantTag, "error"));
     }
 
     private String resolveGrantTag(String grantType) {

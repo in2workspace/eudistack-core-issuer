@@ -5,7 +5,6 @@ import es.in2.issuer.backend.oidc4vci.domain.service.PreAuthorizedCodeService;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotificationInfo;
 import es.in2.issuer.backend.shared.domain.model.dto.PreAuthorizedCodeResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.TxCode;
-import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
@@ -25,8 +24,6 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class CredentialOfferServiceImplTest {
 
-    @Mock
-    private IssuerProperties appConfig;
     @Mock
     private PreAuthorizedCodeService preAuthorizedCodeService;
     @Mock
@@ -48,7 +45,6 @@ class CredentialOfferServiceImplTest {
         String issuanceId = "test-issuance-id";
         String configId = "learcredential.employee.w3c.4";
 
-        when(appConfig.getIssuerBackendUrl()).thenReturn("https://example.com");
         when(preAuthorizedCodeService.issuePreAuthorizedCode(anyString(), any()))
                 .thenReturn(Mono.just(PreAuthorizedCodeResponse.builder()
                         .preAuthorizedCode("pre-auth-code-123")
@@ -59,7 +55,7 @@ class CredentialOfferServiceImplTest {
                 .thenReturn(Mono.just("cache-nonce"));
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
-                        issuanceId, configId, "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "ui", "refresh-token"))
+                        issuanceId, configId, "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "ui", "refresh-token", "https://example.com"))
                 .assertNext(result -> {
                     assertThat(result.credentialOfferUri()).startsWith("openid-credential-offer://");
                     assertThat(result.credentialOfferUri()).contains("credential_offer_uri=");
@@ -72,14 +68,13 @@ class CredentialOfferServiceImplTest {
         String issuanceId = "test-issuance-id";
         String configId = "learcredential.employee.w3c.4";
 
-        when(appConfig.getIssuerBackendUrl()).thenReturn("https://example.com");
         when(issuerStateCacheStore.add(anyString(), eq(issuanceId)))
                 .thenReturn(Mono.just("cached"));
         when(credentialOfferCacheRepository.saveCredentialOffer(any()))
                 .thenReturn(Mono.just("cache-nonce"));
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
-                        issuanceId, configId, "authorization_code", "test@example.com", "ui", "refresh-token"))
+                        issuanceId, configId, "authorization_code", "test@example.com", "ui", "refresh-token", "https://example.com"))
                 .assertNext(result -> {
                     assertThat(result.credentialOfferUri()).startsWith("openid-credential-offer://");
                     assertThat(result.credentialOfferUri()).contains("credential_offer_uri=");
@@ -92,7 +87,6 @@ class CredentialOfferServiceImplTest {
         String issuanceId = "test-issuance-id";
         String configId = "learcredential.employee.w3c.4";
 
-        when(appConfig.getIssuerBackendUrl()).thenReturn("https://example.com");
         when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
                 .thenReturn(Mono.just("https://wallet.example.com"));
         when(issuerStateCacheStore.add(anyString(), eq(issuanceId)))
@@ -106,7 +100,7 @@ class CredentialOfferServiceImplTest {
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
-                        issuanceId, configId, "authorization_code", "test@example.com", "email", "refresh-token"))
+                        issuanceId, configId, "authorization_code", "test@example.com", "email", "refresh-token", "https://example.com"))
                 .assertNext(result -> assertThat(result.credentialOfferUri()).isNull())
                 .verifyComplete();
 
@@ -119,7 +113,6 @@ class CredentialOfferServiceImplTest {
         String issuanceId = "test-issuance-id";
         String configId = "learcredential.employee.w3c.4";
 
-        when(appConfig.getIssuerBackendUrl()).thenReturn("https://example.com");
         when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
                 .thenReturn(Mono.just("https://wallet.example.com"));
         when(preAuthorizedCodeService.issuePreAuthorizedCode(anyString(), any()))
@@ -137,7 +130,7 @@ class CredentialOfferServiceImplTest {
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
-                        issuanceId, configId, "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "email", "refresh-token"))
+                        issuanceId, configId, "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "email", "refresh-token", "https://example.com"))
                 .assertNext(result -> assertThat(result.credentialOfferUri()).isNull())
                 .verifyComplete();
 

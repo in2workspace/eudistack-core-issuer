@@ -54,7 +54,8 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
 
     @Override
     @Observed(name = "notification.handle", contextualName = "notification-handle")
-    public Mono<Void> handleNotification(String processId, NotificationRequest request, String bearerToken) {
+    public Mono<Void> handleNotification(String processId, NotificationRequest request, String bearerToken,
+                                         String publicIssuerBaseUrl) {
         return Mono.justOrEmpty(request)
                 .switchIfEmpty(Mono.error(new InvalidNotificationRequestException("Request body is required")))
                 .doOnNext(this::validateRequest)
@@ -77,7 +78,7 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
                             })
                             .flatMap(issuanceId ->
                                     issuanceService.getIssuanceById(issuanceId)
-                                            .flatMap(proc -> handleEvent(processId, proc, event, eventDescription, bearerToken))
+                                            .flatMap(proc -> handleEvent(processId, proc, event, eventDescription, bearerToken, publicIssuerBaseUrl))
                             );
                 })
                 .onErrorResume(InvalidNotificationRequestException.class, e -> {
@@ -96,7 +97,8 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     }
 
     private Mono<Void> handleEvent(String processId, Issuance issuance,
-                                   NotificationEvent event, String eventDescription, String bearerToken) {
+                                   NotificationEvent event, String eventDescription, String bearerToken,
+                                   String publicIssuerBaseUrl) {
 
         String issuanceId = issuance.getIssuanceId().toString();
         CredentialStatusEnum currentStatus = issuance.getCredentialStatus();
@@ -114,7 +116,7 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
         return switch (event) {
             case CREDENTIAL_ACCEPTED -> handleAccepted(processId, issuance);
             case CREDENTIAL_FAILURE -> handleFailure(processId, issuance, eventDescription);
-            case CREDENTIAL_DELETED -> handleDeleted(processId, issuance, bearerToken);
+            case CREDENTIAL_DELETED -> handleDeleted(processId, issuance, bearerToken, publicIssuerBaseUrl);
         };
     }
 
@@ -181,12 +183,13 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     /**
      * credential_deleted: DRAFT -> WITHDRAWN + revoke status list entry
      */
-    private Mono<Void> handleDeleted(String processId, Issuance issuance, String bearerToken) {
+    private Mono<Void> handleDeleted(String processId, Issuance issuance, String bearerToken,
+                                     String publicIssuerBaseUrl) {
         String issuanceId = issuance.getIssuanceId().toString();
         log.info("[{}] credential_deleted: withdrawing issuanceId={}", processId, issuanceId);
 
         return issuanceService.withdrawIssuance(issuanceId)
-                .then(revokeCredentialFromDecoded(processId, issuance, bearerToken))
+                .then(revokeCredentialFromDecoded(processId, issuance, bearerToken, publicIssuerBaseUrl))
                 .doOnSuccess(v -> log.info("[{}] credential_deleted: issuanceId={} withdrawn and status list entry revoked",
                         processId, issuanceId))
                 .onErrorResume(e -> {
@@ -196,9 +199,10 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
                 });
     }
 
-    private Mono<Void> revokeCredentialFromDecoded(String processId, Issuance issuance, String bearerToken) {
+    private Mono<Void> revokeCredentialFromDecoded(String processId, Issuance issuance, String bearerToken,
+                                                   String publicIssuerBaseUrl) {
         String issuanceId = issuance.getIssuanceId().toString();
-        return revocationWorkflow.revokeSystem(processId, bearerToken, issuanceId)
+        return revocationWorkflow.revokeSystem(processId, bearerToken, issuanceId, publicIssuerBaseUrl)
                 .doFirst(() -> log.info("processId={} action=revokeCredential status=started issuanceId={}",
                         processId, issuanceId))
                 .doOnSuccess(v -> log.info("processId={} action=revokeCredential status=completed issuanceId={}",

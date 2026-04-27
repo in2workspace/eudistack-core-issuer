@@ -4,7 +4,6 @@ import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuerMetadataService;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
-import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -14,22 +13,17 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL_CONTEXT_KEY;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.*;
-import static es.in2.issuer.backend.shared.infrastructure.util.HttpUtils.ensureUrlHasProtocol;
 
 @Slf4j
 @Service
 public class CredentialIssuerMetadataServiceImpl implements CredentialIssuerMetadataService {
 
-    private final String fallbackUrl;
     private final Map<String, CredentialIssuerMetadata.CredentialConfiguration> allConfigurations;
     private final TenantCredentialProfileService tenantCredentialProfileService;
 
-    public CredentialIssuerMetadataServiceImpl(IssuerProperties appConfig,
-                                                CredentialProfileRegistry credentialProfileRegistry,
+    public CredentialIssuerMetadataServiceImpl(CredentialProfileRegistry credentialProfileRegistry,
                                                 TenantCredentialProfileService tenantCredentialProfileService) {
-        this.fallbackUrl = ensureUrlHasProtocol(appConfig.getIssuerBackendUrl());
         this.tenantCredentialProfileService = tenantCredentialProfileService;
 
         this.allConfigurations = credentialProfileRegistry.getAllProfiles().entrySet().stream()
@@ -38,17 +32,13 @@ public class CredentialIssuerMetadataServiceImpl implements CredentialIssuerMeta
                         entry -> mapProfileToConfiguration(entry.getValue())
                 ));
 
-        log.info("CredentialIssuerMetadata initialized: fallbackUrl={}, configurations={}",
-                fallbackUrl, allConfigurations.keySet());
+        log.info("CredentialIssuerMetadata initialized: configurations={}", allConfigurations.keySet());
     }
 
     @Override
-    public Mono<CredentialIssuerMetadata> getCredentialIssuerMetadata() {
-        return Mono.deferContextual(ctx -> {
-            String baseUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, fallbackUrl);
-            return tenantCredentialProfileService.getEnabledConfigurationIds()
-                    .map(enabledIds -> buildMetadata(baseUrl, enabledIds));
-        });
+    public Mono<CredentialIssuerMetadata> getCredentialIssuerMetadata(String publicIssuerBaseUrl) {
+        return tenantCredentialProfileService.getEnabledConfigurationIds()
+                .map(enabledIds -> buildMetadata(publicIssuerBaseUrl, enabledIds));
     }
 
     private CredentialIssuerMetadata buildMetadata(String baseUrl, Set<String> enabledIds) {

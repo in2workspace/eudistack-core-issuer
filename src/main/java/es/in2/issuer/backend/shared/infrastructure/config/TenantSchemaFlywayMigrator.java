@@ -39,27 +39,18 @@ public class TenantSchemaFlywayMigrator implements ApplicationRunner {
         String username = r2dbcProperties.getUsername();
         String password = r2dbcProperties.getPassword();
 
-        migratePublicSchema(jdbcUrl, username, password);
+        // public.tenant_registry is NOT owned by the Issuer. It is provisioned by the
+        // platform (init-databases.sh locally, seed-tenants.*.sql in STG/PROD, and the
+        // future tenant-onboarding service). The Issuer only reads from it on startup
+        // to know which tenant schemas to create/migrate.
 
         List<String> tenants = loadActiveTenants(jdbcUrl, username, password);
         for (String tenant : tenants) {
             migrateTenantSchema(jdbcUrl, username, password, tenant + SCHEMA_SUFFIX);
         }
 
-        log.info("Flyway multi-schema migration completed: public + {} tenant schemas (suffix '{}')",
+        log.info("Flyway multi-schema migration completed: {} tenant schemas (suffix '{}')",
                 tenants.size(), SCHEMA_SUFFIX);
-    }
-
-    private void migratePublicSchema(String jdbcUrl, String username, String password) {
-        log.info("Migrating public schema...");
-        Flyway.configure()
-                .dataSource(jdbcUrl, username, password)
-                .locations("classpath:db/migration")
-                .defaultSchema("public")
-                .schemas("public")
-                .baselineOnMigrate(true)
-                .load()
-                .migrate();
     }
 
     private List<String> loadActiveTenants(String jdbcUrl, String username, String password) {

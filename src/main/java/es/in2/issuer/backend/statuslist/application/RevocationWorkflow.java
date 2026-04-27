@@ -38,24 +38,26 @@ public class RevocationWorkflow {
     }
 
     @Observed(name = "revocation.revoke", contextualName = "revocation-revoke")
-    public Mono<Void> revoke(String processId, String bearerToken, String issuanceId) {
+    public Mono<Void> revoke(String processId, String bearerToken, String issuanceId, String publicIssuerBaseUrl) {
         return revokeInternal(
                 processId,
                 bearerToken,
                 issuanceId,
                 statusListPdpService::validateRevokeCredential,
-                "revokeCredential"
+                "revokeCredential",
+                publicIssuerBaseUrl
         );
     }
 
     @Observed(name = "revocation.revoke-system", contextualName = "revocation-revoke-system")
-    public Mono<Void> revokeSystem(String processId, String bearerToken, String issuanceId) {
+    public Mono<Void> revokeSystem(String processId, String bearerToken, String issuanceId, String publicIssuerBaseUrl) {
         return revokeInternal(
                 processId,
                 bearerToken,
                 issuanceId,
                 (pid, token, issuance) -> statusListPdpService.validateRevokeCredentialSystem(pid, issuance),
-                "revokeSystemCredential"
+                "revokeSystemCredential",
+                publicIssuerBaseUrl
         );
     }
 
@@ -64,11 +66,13 @@ public class RevocationWorkflow {
             String bearerToken,
             String issuanceId,
             RevocationValidator validator,
-            String action
+            String action,
+            String publicIssuerBaseUrl
     ) {
         requireNonNullParam(processId, "processId");
         requireNonNullParam(bearerToken, "bearerToken");
         requireNonNullParam(issuanceId, "issuanceId");
+        requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
 
         return accessTokenService.getCleanBearerToken(bearerToken)
                 .doFirst(() -> log.info(
@@ -91,7 +95,7 @@ public class RevocationWorkflow {
                                 )
                 )
                 .flatMap(ctx ->
-                        statusListProvider.revoke(issuanceId, ctx.token)
+                        statusListProvider.revoke(issuanceId, ctx.token, publicIssuerBaseUrl)
                                 .then(issuanceService.updateIssuanceStatusToRevoked(ctx.issuance)
                                         .doOnSuccess(v -> log.info(
                                                 "processId={} action={} step=issuanceUpdated issuanceId={}",

@@ -12,26 +12,36 @@ import es.in2.issuer.backend.shared.domain.exception.JWTVerificationException;
 import es.in2.issuer.backend.shared.domain.exception.WellKnownInfoFetchException;
 import es.in2.issuer.backend.shared.domain.model.dto.OpenIDProviderMetadata;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
-import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
+import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 
-import java.net.URI;
 import java.text.ParseException;
 import java.util.Date;
 
-import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH;
-
+/**
+ * Fetches verifier metadata and validates tokens signed by the verifier.
+ *
+ * <p><b>Iss validation</b> is delegated to the caller (see {@link VerifierService}).
+ * This service assumes the token's {@code iss} has already been matched
+ * exactly against {@code UrlResolver.expectedVerifierBaseUrl(exchange)}.
+ *
+ * <p>Internal URLs (well-known, JWKS) are composed via
+ * {@link UriComponentsBuilder} to avoid the class of bugs where a path
+ * starting with {@code /} concatenated to a base URL carrying a base-path
+ * silently strips or duplicates the prefix.
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class VerifierServiceImpl implements VerifierService {
 
-    private final IssuerProperties appConfig;
     private final WebClient oauth2VerifierWebClient;
+    private final UrlResolver urlResolver;
 
     // Lazily-initialized, cached JWK Set (populated on first use via Mono.cache())
     private volatile Mono<JWKSet> cachedJWKSet;
@@ -48,7 +58,6 @@ public class VerifierServiceImpl implements VerifierService {
 
     @Override
     public Mono<Void> verifyTokenWithoutExpiration(String accessToken) {
-        // This method will not validate the expiration
         return parseAndValidateJwt(accessToken, false)
                 .doOnSuccess(unused -> log.info("The verification of the token without expiration is valid"))
                 .onErrorResume(e -> {
@@ -62,23 +71,18 @@ public class VerifierServiceImpl implements VerifierService {
                 .flatMap(metadata -> fetchJWKSet(metadata.jwksUri()))
                 .flatMap(jwkSet -> {
                     try {
-                        //todo usar jwtservice.parseJWT?
                         SignedJWT signedJWT = SignedJWT.parse(accessToken);
                         JWTClaimsSet claims = signedJWT.getJWTClaimsSet();
 
-                        // Validate the issuer (multi-tenant: accept any tenant subdomain)
-                        if (!appConfig.isVerifierIssuer(claims.getIssuer())) {
-                            log.info("Configured verifier URL: {}", appConfig.getVerifierUrl());
-                            log.info("Token issuer: {}", claims.getIssuer());
-                            return Mono.error(new JWTVerificationException("Invalid issuer"));
-                        }
+                        // Iss is validated upstream by CustomAuthenticationManager
+                        // via UrlResolver.expectedVerifierBaseUrl(exchange). We only
+                        // check expiration (when requested) and signature here.
 
-                        // Validate expiration time if requested
-                        if (checkExpiration && (claims.getExpirationTime() == null || new Date().after(claims.getExpirationTime()))) {
+                        if (checkExpiration && (claims.getExpirationTime() == null
+                                || new Date().after(claims.getExpirationTime()))) {
                             return Mono.error(new JWTVerificationException("Token has expired"));
                         }
 
-                        // Verify the signature
                         JWSVerifier verifier = getJWSVerifier(signedJWT, jwkSet);
                         if (!signedJWT.verify(verifier)) {
                             return Mono.error(new JWTVerificationException("Invalid token signature"));
@@ -87,7 +91,7 @@ public class VerifierServiceImpl implements VerifierService {
                         return Mono.empty(); // Valid token
                     } catch (ParseException | JOSEException e) {
                         log.error("Error parsing or verifying JWT", e);
-                        return Mono.error(new JWTParsingException("Error parsing or verifying JWT (custom nou ParseAuthenticationException)"));
+                        return Mono.error(new JWTParsingException("Error parsing or verifying JWT"));
                     }
                 });
     }
@@ -98,8 +102,6 @@ public class VerifierServiceImpl implements VerifierService {
         if (jwk == null) {
             throw new JOSEException("No matching JWK found for Key ID: " + keyId);
         }
-
-        // Create the appropriate verifier based on the key type
         return switch (jwk.getKeyType().toString()) {
             case "RSA" -> new RSASSAVerifier(((RSAKey) jwk).toRSAPublicKey());
             case "EC" -> new ECDSAVerifier(((ECKey) jwk).toECPublicKey());
@@ -113,10 +115,11 @@ public class VerifierServiceImpl implements VerifierService {
         if (cached != null) {
             return cached;
         }
-        // Rewrite the absolute jwksUri to use the internal (HTTP) URL for server-to-server calls,
-        // since the well-known response returns the public-facing URL which may use HTTPS with
-        // certificates not trusted by this JVM (e.g. mkcert in local dev).
-        String internalJwksUri = appConfig.getVerifierInternalUrl() + URI.create(jwksUri).getPath();
+        // Rewrite public jwks_uri to hit the verifier over the intra-VPC
+        // network. The rewrite preserves the public path (which already
+        // carries the verifier base-path) and swaps only the origin —
+        // UrlResolver implements this without duplicating the prefix.
+        String internalJwksUri = urlResolver.rewriteToInternalVerifier(jwksUri);
         Mono<JWKSet> newCached = oauth2VerifierWebClient.get()
                 .uri(internalJwksUri)
                 .retrieve()
@@ -137,7 +140,14 @@ public class VerifierServiceImpl implements VerifierService {
 
     @Override
     public Mono<OpenIDProviderMetadata> getWellKnownInfo() {
-        String wellKnownInfoEndpoint = appConfig.getVerifierInternalUrl() + AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH;
+        // Compose with UriComponentsBuilder so the internal base URL's
+        // base-path is preserved and the well-known path segments are
+        // appended correctly — never concatenate a "/path" suffix with "+".
+        String wellKnownInfoEndpoint = UriComponentsBuilder
+                .fromUriString(urlResolver.internalVerifierBaseUrl())
+                .pathSegment(".well-known", "openid-configuration")
+                .build()
+                .toUriString();
 
         return oauth2VerifierWebClient.get()
                 .uri(wellKnownInfoEndpoint)
@@ -145,5 +155,4 @@ public class VerifierServiceImpl implements VerifierService {
                 .bodyToMono(OpenIDProviderMetadata.class)
                 .onErrorMap(e -> new WellKnownInfoFetchException("Error fetching OpenID Provider Metadata", e));
     }
-
 }

@@ -46,7 +46,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     public Mono<IssuanceResponse> issueCredential(
             String processId,
             IssuanceRequest request,
-            String idToken) {
+            String idToken,
+            String publicIssuerBaseUrl) {
 
         var sample = issuanceMetrics.startTimer();
         String configId = request.credentialConfigurationId();
@@ -55,7 +56,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         return validateRequest(request, idToken)
                 .then(Mono.defer(() -> payloadSchemaValidator.validate(configId, request.payload())))
                 .then(Mono.defer(() -> issuancePdpService.authorize(configId, request.payload(), idToken)))
-                .then(Mono.defer(() -> performIssuanceFlow(processId, request)))
+                .then(Mono.defer(() -> performIssuanceFlow(processId, request, publicIssuerBaseUrl)))
                 .doOnSuccess(r -> {
                     issuanceMetrics.recordSuccess(sample, configId, delivery);
                     auditService.auditSuccess("credential.issued", null, "credential", configId,
@@ -68,11 +69,12 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     @Observed(name = "issuance.execute-bootstrap", contextualName = "issuance-execute-bootstrap")
     public Mono<IssuanceResponse> issueCredentialWithoutAuthorization(
             String processId,
-            IssuanceRequest request) {
+            IssuanceRequest request,
+            String publicIssuerBaseUrl) {
 
         return validateRequest(request, null)
                 .then(Mono.defer(() -> payloadSchemaValidator.validate(request.credentialConfigurationId(), request.payload())))
-                .then(Mono.defer(() -> performIssuanceFlow(processId, request)));
+                .then(Mono.defer(() -> performIssuanceFlow(processId, request, publicIssuerBaseUrl)));
     }
 
     private Mono<Void> validateRequest(IssuanceRequest request, String idToken) {
@@ -88,7 +90,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         return Mono.empty();
     }
 
-    private Mono<IssuanceResponse> performIssuanceFlow(String processId, IssuanceRequest request) {
+    private Mono<IssuanceResponse> performIssuanceFlow(String processId, IssuanceRequest request,
+                                                       String publicIssuerBaseUrl) {
         String configId = request.credentialConfigurationId();
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
         String delivery = request.delivery() != null ? request.delivery() : DEFAULT_DELIVERY;
@@ -104,7 +107,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                             .doOnSuccess(saved -> log.info("ProcessId: {} - Created issuance: {}", processId, saved.getIssuanceId()))
                             .flatMap(saved -> credentialOfferService.createAndDeliverCredentialOffer(
                                             saved.getIssuanceId().toString(), configId, grantType, request.email(),
-                                            delivery, saved.getCredentialOfferRefreshToken())
+                                            delivery, saved.getCredentialOfferRefreshToken(),
+                                            publicIssuerBaseUrl)
                                     .map(offerResult -> IssuanceResponse.builder()
                                             .credentialOfferUri(offerResult.credentialOfferUri())
                                             .build())
