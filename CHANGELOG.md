@@ -49,6 +49,9 @@ code reads URLs from config or from the Reactor context any more.
   receives it explicitly as `publicIssuerBaseUrl`; controllers inject
   `UrlResolver` and resolve from the exchange. ~30 files touched.
 
+### Fixed
+- Resolved `SyntaxError: Unexpected token '<'` in wallet frontedn. The `credential_offer_uri` now correctly points to the raw metadata JSON endpoint instead of the nested wallet UI URL.
+
 ### Removed
 
 - `AppConfig.getIssuerBackendUrl`, `getVerifierUrl`,
