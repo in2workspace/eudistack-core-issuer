@@ -67,7 +67,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
 
                     return credentialOfferCacheRepository.saveCredentialOffer(data);
                 })
-                .flatMap(nonce -> buildCredentialOfferUri(publicIssuerBaseUrl, nonce, isEmailChannel)
+                .flatMap(nonce -> buildCredentialOfferUri(publicIssuerBaseUrl, nonce)
                         .flatMap(uri -> deliverOffer(publicIssuerBaseUrl, uri, issuanceId, credentialOfferRefreshToken, delivery)));
     }
 
@@ -155,25 +155,14 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                 });
     }
 
-    private Mono<String> buildCredentialOfferUri(String baseUrl, String nonce, boolean isEmailChannel) {
+    private Mono<String> buildCredentialOfferUri(String baseUrl, String nonce) {
         String rawIssuerOfferUrl = ensureUrlHasProtocol(baseUrl + OID4VCI_CREDENTIAL_OFFER_PATH + "/" + nonce);
         String encodedRawUrl = URLEncoder.encode(rawIssuerOfferUrl, StandardCharsets.UTF_8);
 
-        if (!isEmailChannel) {
-            String finalUri = "openid-credential-offer://?credential_offer_uri=" + encodedRawUrl;
-            log.info("BUILDING URI - Channel: UI (OpenID), Result: {}", finalUri);
-            return Mono.just(finalUri);
-        }
+        // Siempre devolvemos el formato estándar, independientemente del canal
+        String finalUri = "openid-credential-offer://?credential_offer_uri=" + encodedRawUrl;
+        log.info("BUILDING URI - Result: {}", finalUri);
 
-        // Email channel: wallet URL is per-tenant (no global fallback).
-        return tenantConfigService.getStringOrThrow("issuer.wallet_url")
-                .map(walletUrl -> {
-                    String walletOfferUrl = walletUrl + "/offer?credential_offer_uri="
-                            + URLEncoder.encode(rawIssuerOfferUrl, StandardCharsets.UTF_8);
-                    String finalUri = walletUrl + "/protocol/callback?credential_offer_uri="
-                            + URLEncoder.encode(walletOfferUrl, StandardCharsets.UTF_8);
-                    log.info("BUILDING URI - Channel: EMAIL (Nested), Result: {}", finalUri);
-                    return finalUri;
-                });
+        return Mono.just(finalUri);
     }
 }

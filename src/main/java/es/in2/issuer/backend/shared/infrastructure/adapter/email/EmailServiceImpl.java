@@ -102,11 +102,11 @@ public class EmailServiceImpl implements EmailService {
                     helper.setTo(to);
                     helper.setSubject(translationService.translate(subject));
 
-                    // Generate QR code image from the credential offer URI
-                    byte[] qrImageBytes = generateQrCodeImage(credentialOfferUri, 300, 300);
-
                     // Build wallet deep link: extract the HTTPS URL from the openid-credential-offer:// URI
                     String walletDeepLink = buildWalletDeepLink(credentialOfferUri, walletUrl);
+
+                    // Generate QR code image from the credential offer URI
+                    byte[] qrImageBytes = generateQrCodeImage(walletDeepLink, 300, 300);
 
                     Context context = createLocalizedContext();
                     context.setVariable("organization", organization);
@@ -153,8 +153,11 @@ public class EmailServiceImpl implements EmailService {
                     .map(value -> URLDecoder.decode(value, StandardCharsets.UTF_8))
                     .orElse(credentialOfferUri);
 
+            // Si necesitas la estructura anidada que tenías en el Service principal:
+            String walletOfferUrl = walletUrl + "/offer?credential_offer_uri=" + URLEncoder.encode(credentialOffer, StandardCharsets.UTF_8);
+
             String path = "/protocol/callback";
-            String query = "credential_offer_uri=" + URLEncoder.encode(credentialOffer, StandardCharsets.UTF_8);
+            String query = "credential_offer_uri=" + URLEncoder.encode(walletOfferUrl, StandardCharsets.UTF_8);
             String base = walletUrl.endsWith("/") ? walletUrl.substring(0, walletUrl.length() - 1) : walletUrl;
 
             return base + path + "?" + query;
