@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Changed emails templates colours to match the new EUDIStack palette.
+- **Refactor:** Migrated manual string manipulation in `buildWalletDeepLink` to a more robust approach using `UriComponentsBuilder`.
+
+### Fixed
+- Resolved `SyntaxError: Unexpected token '<'` in wallet frontedn. The `credential_offer_uri` now correctly points to the raw metadata JSON endpoint instead of the nested wallet UI URL.
 
 ## [3.6.0] - 2026-04-24
 
@@ -54,9 +58,6 @@ code reads URLs from config or from the Reactor context any more.
   `BitstringStatusList`): every method that needed the issuer base URL now
   receives it explicitly as `publicIssuerBaseUrl`; controllers inject
   `UrlResolver` and resolve from the exchange. ~30 files touched.
-
-### Fixed
-- Resolved `SyntaxError: Unexpected token '<'` in wallet frontedn. The `credential_offer_uri` now correctly points to the raw metadata JSON endpoint instead of the nested wallet UI URL.
 
 ### Removed
 

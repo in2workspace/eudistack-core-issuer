@@ -20,16 +20,20 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeTypeUtils;
+import org.springframework.web.util.UriBuilder;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import java.io.ByteArrayOutputStream;
+import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.UTF_8;
@@ -142,20 +146,37 @@ public class EmailServiceImpl implements EmailService {
     }
 
     private String buildWalletDeepLink(String credentialOfferUri, String walletUrl) {
-        // credentialOfferUri format: openid-credential-offer://?credential_offer_uri=https%3A%2F%2F...
-        // Extract the HTTPS URL from the query parameter
-        String jsonEndpoint;
-        String paramName = "credential_offer_uri=";
+        try {
+            URI uri = URI.create(credentialOfferUri);
 
-        if (credentialOfferUri.contains(paramName)) {
-            int index = credentialOfferUri.indexOf(paramName) + paramName.length();
-            String extracted = credentialOfferUri.substring(index);
-            jsonEndpoint = URLDecoder.decode(extracted, StandardCharsets.UTF_8);
-        } else {
-            jsonEndpoint = credentialOfferUri;
+            String credentialOffer = extractQueryParam(uri, "credential_offer_uri")
+                    .map(value -> URLDecoder.decode(value, StandardCharsets.UTF_8))
+                    .orElse(credentialOfferUri);
+
+            String path = "/protocol/callback";
+            String query = "credential_offer_uri=" + URLEncoder.encode(credentialOffer, StandardCharsets.UTF_8);
+            String base = walletUrl.endsWith("/") ? walletUrl.substring(0, walletUrl.length() - 1) : walletUrl;
+
+            return base + path + "?" + query;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid credentialOfferUri: " + credentialOfferUri, e);
         }
-        return walletUrl + "/protocol/callback?credential_offer_uri="
-                + URLEncoder.encode(jsonEndpoint, StandardCharsets.UTF_8);
+    }
+
+    private Optional<String> extractQueryParam(URI uri, String paramName) {
+        String query = uri.getQuery();
+        if (query == null && uri.getRawSchemeSpecificPart() != null) {
+            String ssp = uri.getRawSchemeSpecificPart();
+            if (ssp.contains("?")) {
+                query = ssp.substring(ssp.indexOf("?") + 1);
+            }
+        }
+        if (query == null) return Optional.empty();
+        return Arrays.stream(query.split("&"))
+                .map(param -> param.split("=", 2))
+                .filter(pair -> pair.length == 2 && pair[0].equals(paramName))
+                .map(pair -> pair[1])
+                .findFirst();
     }
 
     @Override
