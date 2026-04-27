@@ -25,6 +25,7 @@ import org.thymeleaf.context.Context;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import java.io.ByteArrayOutputStream;
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
@@ -143,11 +144,18 @@ public class EmailServiceImpl implements EmailService {
     private String buildWalletDeepLink(String credentialOfferUri, String walletUrl) {
         // credentialOfferUri format: openid-credential-offer://?credential_offer_uri=https%3A%2F%2F...
         // Extract the HTTPS URL from the query parameter
-        String prefix = "openid-credential-offer://?credential_offer_uri=";
-        String httpsUrl = credentialOfferUri.startsWith(prefix)
-                ? credentialOfferUri.substring(prefix.length())
-                : URLEncoder.encode(credentialOfferUri, StandardCharsets.UTF_8);
-        return walletUrl + "/protocol/callback?credential_offer_uri=" + httpsUrl;
+        String jsonEndpoint;
+        String paramName = "credential_offer_uri=";
+
+        if (credentialOfferUri.contains(paramName)) {
+            int index = credentialOfferUri.indexOf(paramName) + paramName.length();
+            String extracted = credentialOfferUri.substring(index);
+            jsonEndpoint = URLDecoder.decode(extracted, StandardCharsets.UTF_8);
+        } else {
+            jsonEndpoint = credentialOfferUri;
+        }
+        return walletUrl + "/protocol/callback?credential_offer_uri="
+                + URLEncoder.encode(jsonEndpoint, StandardCharsets.UTF_8);
     }
 
     @Override
