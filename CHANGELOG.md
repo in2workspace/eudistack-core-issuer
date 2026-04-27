@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.2] - 2026-04-27
+
+### Changed
+
+- **Refactor:** Migrated manual string manipulation in `buildWalletDeepLink` to a more robust approach using `UriComponentsBuilder`.
+
+### Fixed
+- Resolved `SyntaxError: Unexpected token '<'` in wallet frontedn. The `credential_offer_uri` now correctly points to the raw metadata JSON endpoint instead of the nested wallet UI URL.
+
 ## [3.6.1] - 2026-04-27
 
 ### Changed
