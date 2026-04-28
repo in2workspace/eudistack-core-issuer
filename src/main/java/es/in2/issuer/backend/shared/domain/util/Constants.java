@@ -66,6 +66,7 @@ public final class Constants {
     // DELIVERY MODES
     public static final String DELIVERY_UI = "ui";
     public static final String DELIVERY_EMAIL = "email";
+    public static final String DELIVERY_DIRECT = "direct";
 
     // HTTP
     public static final String BEARER_PREFIX = "Bearer ";
