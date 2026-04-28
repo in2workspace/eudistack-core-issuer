@@ -6,11 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.2] - 2026-04-27
+
+### Changed
+- Refactored `CredentialOfferServiceImpl` and `EmailServiceImpl` to eliminate redundant URI building logic, centralizing wallet-specific URL formatting in the email adapter.
+
+### Fixed
+- Resolved `SyntaxError: Unexpected token '<'` in wallet frontedn. The `credential_offer_uri` now correctly points to the raw metadata JSON endpoint instead of the nested wallet UI URL.
+- Improved email QR code compatibility. The QR code now uses an HTTPS deep link, allowing users to scan it directly with native mobile cameras instead of requiring the specific wallet app camera.
+
 ## [3.6.1] - 2026-04-27
 
 ### Changed
 
 - Changed emails templates colours to match the new EUDIStack palette.
+- **Refactor:** Migrated manual string manipulation in `buildWalletDeepLink` to a more robust approach using `UriComponentsBuilder`.
+
+### Fixed
+- Resolved `SyntaxError: Unexpected token '<'` in wallet frontedn. The `credential_offer_uri` now correctly points to the raw metadata JSON endpoint instead of the nested wallet UI URL.
 
 ## [3.6.0] - 2026-04-24
 

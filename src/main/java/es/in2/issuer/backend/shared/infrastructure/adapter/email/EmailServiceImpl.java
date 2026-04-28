@@ -20,18 +20,22 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeTypeUtils;
+import org.springframework.web.util.UriBuilder;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import java.io.ByteArrayOutputStream;
+import java.net.URI;
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE;
-import static es.in2.issuer.backend.shared.domain.util.Constants.UTF_8;
+import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 @Slf4j
 @Service
@@ -97,11 +101,11 @@ public class EmailServiceImpl implements EmailService {
                     helper.setTo(to);
                     helper.setSubject(translationService.translate(subject));
 
-                    // Generate QR code image from the credential offer URI
-                    byte[] qrImageBytes = generateQrCodeImage(credentialOfferUri, 300, 300);
-
                     // Build wallet deep link: extract the HTTPS URL from the openid-credential-offer:// URI
                     String walletDeepLink = buildWalletDeepLink(credentialOfferUri, walletUrl);
+
+                    // Generate QR code image from the credential offer URI
+                    byte[] qrImageBytes = generateQrCodeImage(walletDeepLink, 300, 300);
 
                     Context context = createLocalizedContext();
                     context.setVariable("organization", organization);
@@ -141,13 +145,10 @@ public class EmailServiceImpl implements EmailService {
     }
 
     private String buildWalletDeepLink(String credentialOfferUri, String walletUrl) {
-        // credentialOfferUri format: openid-credential-offer://?credential_offer_uri=https%3A%2F%2F...
-        // Extract the HTTPS URL from the query parameter
-        String prefix = "openid-credential-offer://?credential_offer_uri=";
-        String httpsUrl = credentialOfferUri.startsWith(prefix)
-                ? credentialOfferUri.substring(prefix.length())
+        String httpsUrl = credentialOfferUri.startsWith(CREDENTIAL_OFFER_PREFIX)
+                ? credentialOfferUri.substring(CREDENTIAL_OFFER_PREFIX.length())
                 : URLEncoder.encode(credentialOfferUri, StandardCharsets.UTF_8);
-        return walletUrl + "/protocol/callback?credential_offer_uri=" + httpsUrl;
+        return walletUrl + WALLET_PROTOCOL_CALLBACK + "?" + CREDENTIAL_OFFER_URI_PARAMETER + "=" + httpsUrl;
     }
 
     @Override
