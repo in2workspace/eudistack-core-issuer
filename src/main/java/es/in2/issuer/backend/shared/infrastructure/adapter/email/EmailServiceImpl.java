@@ -148,9 +148,15 @@ public class EmailServiceImpl implements EmailService {
         try {
             URI uri = URI.create(credentialOfferUri);
 
-            String credentialOffer = extractQueryParam(uri, CREDENTIAL_OFFER_URI_PARAMETER)
-                    .map(value -> URLDecoder.decode(value, StandardCharsets.UTF_8))
-                    .orElse(credentialOfferUri);
+            String queryParams = uri.getQuery();
+            String credentialOffer = (queryParams != null)
+                    ? Arrays.stream(queryParams.split("&"))
+                      .map(param -> param.split("=", 2))
+                      .filter(pair -> pair.length == 2 && pair[0].equals(CREDENTIAL_OFFER_URI_PARAMETER))
+                      .map(pair -> URLDecoder.decode(pair[1], StandardCharsets.UTF_8))
+                      .findFirst()
+                      .orElse(credentialOfferUri)
+                    : credentialOfferUri;
 
             String walletOfferUrl = walletUrl + "/offer?" + CREDENTIAL_OFFER_URI_PARAMETER + "=" + URLEncoder.encode(credentialOffer, StandardCharsets.UTF_8);
             String query = CREDENTIAL_OFFER_URI_PARAMETER + "=" + URLEncoder.encode(walletOfferUrl, StandardCharsets.UTF_8);
@@ -160,22 +166,6 @@ public class EmailServiceImpl implements EmailService {
         } catch (Exception e) {
             throw new IllegalArgumentException("Invalid credentialOfferUri: " + credentialOfferUri, e);
         }
-    }
-
-    private Optional<String> extractQueryParam(URI uri, String paramName) {
-        String query = uri.getQuery();
-        //if (query == null && uri.getRawSchemeSpecificPart() != null) {
-        //    String ssp = uri.getRawSchemeSpecificPart();
-        //    if (ssp.contains("?")) {
-        //        query = ssp.substring(ssp.indexOf("?") + 1);
-        //    }
-        //}
-        if (query == null) return Optional.empty();
-        return Arrays.stream(query.split("&"))
-                .map(param -> param.split("=", 2))
-                .filter(pair -> pair.length == 2 && pair[0].equals(paramName))
-                .map(pair -> pair[1])
-                .findFirst();
     }
 
     @Override
