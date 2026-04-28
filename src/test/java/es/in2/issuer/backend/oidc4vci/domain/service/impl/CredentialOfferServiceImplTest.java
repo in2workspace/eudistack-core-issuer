@@ -87,6 +87,8 @@ class CredentialOfferServiceImplTest {
         String issuanceId = "test-issuance-id";
         String configId = "learcredential.employee.w3c.4";
 
+        when(tenantConfigService.getStringOrThrow("issuer.frontend_url"))
+                .thenReturn(Mono.just("https://frontend.example.com/issuer"));
         when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
                 .thenReturn(Mono.just("https://wallet.example.com"));
         when(issuerStateCacheStore.add(anyString(), eq(issuanceId)))
@@ -113,6 +115,8 @@ class CredentialOfferServiceImplTest {
         String issuanceId = "test-issuance-id";
         String configId = "learcredential.employee.w3c.4";
 
+        when(tenantConfigService.getStringOrThrow("issuer.frontend_url"))
+                .thenReturn(Mono.just("https://frontend.example.com/issuer"));
         when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
                 .thenReturn(Mono.just("https://wallet.example.com"));
         when(preAuthorizedCodeService.issuePreAuthorizedCode(anyString(), any()))
