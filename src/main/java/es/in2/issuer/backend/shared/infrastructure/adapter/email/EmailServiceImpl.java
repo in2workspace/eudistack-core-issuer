@@ -145,27 +145,10 @@ public class EmailServiceImpl implements EmailService {
     }
 
     private String buildWalletDeepLink(String credentialOfferUri, String walletUrl) {
-        try {
-            URI uri = URI.create(credentialOfferUri);
-
-            String queryParams = uri.getQuery();
-            String credentialOffer = (queryParams != null)
-                    ? Arrays.stream(queryParams.split("&"))
-                      .map(param -> param.split("=", 2))
-                      .filter(pair -> pair.length == 2 && pair[0].equals(CREDENTIAL_OFFER_URI_PARAMETER))
-                      .map(pair -> URLDecoder.decode(pair[1], StandardCharsets.UTF_8))
-                      .findFirst()
-                      .orElse(credentialOfferUri)
-                    : credentialOfferUri;
-
-            String walletOfferUrl = walletUrl + "/offer?" + CREDENTIAL_OFFER_URI_PARAMETER + "=" + URLEncoder.encode(credentialOffer, StandardCharsets.UTF_8);
-            String query = CREDENTIAL_OFFER_URI_PARAMETER + "=" + URLEncoder.encode(walletOfferUrl, StandardCharsets.UTF_8);
-            String base = walletUrl.endsWith("/") ? walletUrl.substring(0, walletUrl.length() - 1) : walletUrl;
-
-            return base + WALLET_PROTOCOL_CALLBACK + "?" + query;
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Invalid credentialOfferUri: " + credentialOfferUri, e);
-        }
+        String httpsUrl = credentialOfferUri.startsWith(CREDENTIAL_OFFER_PREFIX)
+                ? credentialOfferUri.substring(CREDENTIAL_OFFER_PREFIX.length())
+                : URLEncoder.encode(credentialOfferUri, StandardCharsets.UTF_8);
+        return walletUrl + WALLET_PROTOCOL_CALLBACK + "?" + CREDENTIAL_OFFER_URI_PARAMETER + "=" + httpsUrl;
     }
 
     @Override
