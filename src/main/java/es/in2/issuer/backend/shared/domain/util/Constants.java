@@ -24,6 +24,11 @@ public final class Constants {
     // CREDENTIAL CONTEXTS
     public static final String CREDENTIALS_CONTEXT_V2 = "https://www.w3.org/ns/credentials/v2";
 
+    // OIDC4VCI
+    public static final String CREDENTIAL_OFFER_PREFIX = "openid-credential-offer://?credential_offer_uri=";
+    public static final String CREDENTIAL_OFFER_URI_PARAMETER = "credential_offer_uri";
+    public static final String WALLET_PROTOCOL_CALLBACK = "/protocol/callback";
+
     // CREDENTIAL JSON FIELDS
     public static final String CREDENTIAL_SUBJECT = "credentialSubject";
     public static final String MANDATE = "mandate";
