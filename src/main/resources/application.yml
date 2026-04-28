@@ -177,7 +177,3 @@ issuance:
   cleanup-cron: ${ISSUANCE_CLEANUP_CRON:0 0 2 * * *}
   delivery-timeout-minutes: ${ISSUANCE_DELIVERY_TIMEOUT_MINUTES:60}
   delivery-timeout-cron: ${ISSUANCE_DELIVERY_TIMEOUT_CRON:0 */5 * * * ?}
-
-# Email feature flags
-email:
-  v2-tenants: ${EMAIL_V2_TENANTS:kpmg}

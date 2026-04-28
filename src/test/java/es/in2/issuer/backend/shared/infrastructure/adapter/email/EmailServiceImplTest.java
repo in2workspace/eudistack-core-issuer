@@ -228,7 +228,7 @@ class EmailServiceImplTest {
     }
 
     @Test
-    void sendCredentialOfferEmailV2_sendsEmailWithCorrectTemplateAndVariables() {
+    void sendBrandedCredentialOfferEmail_sendsEmailWithCorrectTemplateAndVariables() {
         // Arrange
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
@@ -239,7 +239,7 @@ class EmailServiceImplTest {
         String reissueUrl = "https://issuer.example.com/credential-offer/refresh/abc";
 
         // Act
-        StepVerifier.create(emailService.sendCredentialOfferEmailV2(
+        StepVerifier.create(emailService.sendBrandedCredentialOfferEmail(
                 "user@kpmg.com",
                 "email.activation.subject",
                 credentialOfferUri,
@@ -263,12 +263,12 @@ class EmailServiceImplTest {
     }
 
     @Test
-    void sendCredentialOfferEmailV2_onMailError_propagatesException() {
+    void sendBrandedCredentialOfferEmail_onMailError_propagatesException() {
         // Arrange
         when(javaMailSender.createMimeMessage()).thenThrow(new RuntimeException("SMTP down"));
 
         // Act & Assert
-        StepVerifier.create(emailService.sendCredentialOfferEmailV2(
+        StepVerifier.create(emailService.sendBrandedCredentialOfferEmail(
                 "user@kpmg.com",
                 "email.activation.subject",
                 "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fcredential-offer%2Fnonce",

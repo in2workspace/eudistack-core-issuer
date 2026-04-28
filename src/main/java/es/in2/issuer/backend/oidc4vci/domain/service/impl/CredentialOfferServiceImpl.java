@@ -12,7 +12,6 @@ import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -40,9 +39,6 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
     private final EmailService emailService;
     private final IssuanceService issuanceService;
     private final TenantConfigService tenantConfigService;
-
-    @Value("${email.v2-tenants:}")
-    private String v2Tenants;
 
     @Override
     @Observed(name = "oidc4vci.create-and-deliver-credential-offer", contextualName = "create-and-deliver-credential-offer")
@@ -88,9 +84,9 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                 .flatMap(emailInfo -> buildRefreshUrl(credentialOfferRefreshToken)
                         .flatMap(refreshUrl -> Mono.deferContextual(ctx -> {
                                 String tenantDomain = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
-                                return !tenantDomain.isEmpty() && v2Tenants.contains(tenantDomain)
-                                        ? sendV2Email(credentialOfferUri, refreshUrl, emailInfo)
-                                        : sendV1Email(credentialOfferUri, refreshUrl, emailInfo);
+                                return tenantDomain.contains("kpmg")
+                                        ? sendBrandedCredentialOfferEmail(credentialOfferUri, refreshUrl, emailInfo)
+                                        : sendLegacyCredentialOfferEmail(credentialOfferUri, refreshUrl, emailInfo);
                                 })
                                 .doOnSuccess(v -> log.info("Credential offer email sent for issuanceId={}", issuanceId))
                                 .doOnError(ex -> log.error("Email sending failed for issuanceId={}: {}", issuanceId, ex.getMessage(), ex))
@@ -98,8 +94,8 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                                 .thenReturn(CredentialOfferResult.builder().build())));
     }
 
-    private Mono<Void> sendV1Email(String credentialOfferUri, String refreshUrl,
-                                   CredentialOfferEmailNotificationInfo emailInfo) {
+    private Mono<Void> sendLegacyCredentialOfferEmail(String credentialOfferUri, String refreshUrl,
+                                                      CredentialOfferEmailNotificationInfo emailInfo) {
         return tenantConfigService.getStringOrThrow("issuer.wallet_url")
                 .flatMap(walletUrl -> emailService.sendCredentialOfferEmail(
                         emailInfo.email(),
@@ -112,17 +108,17 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                 ));
     }
 
-    private Mono<Void> sendV2Email(String credentialOfferUri, String refreshUrl,
-                                   CredentialOfferEmailNotificationInfo emailInfo) {
+    private Mono<Void> sendBrandedCredentialOfferEmail(String credentialOfferUri, String refreshUrl,
+                                                       CredentialOfferEmailNotificationInfo emailInfo) {
         return tenantConfigService.getStringOrThrow("issuer.wallet_url")
-                .flatMap(walletUrl -> emailService.sendCredentialOfferEmailV2(
-                emailInfo.email(),
-                CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
-                credentialOfferUri,
-                refreshUrl,
-                walletUrl,
-                emailInfo.organization()
-        ));
+                .flatMap(walletUrl -> emailService.sendBrandedCredentialOfferEmail(
+                        emailInfo.email(),
+                        CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
+                        credentialOfferUri,
+                        refreshUrl,
+                        walletUrl,
+                        emailInfo.organization()
+                ));
     }
 
     private Mono<String> buildRefreshUrl(String credentialOfferRefreshToken) {

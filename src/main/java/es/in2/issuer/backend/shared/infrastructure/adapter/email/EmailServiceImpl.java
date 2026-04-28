@@ -92,7 +92,22 @@ public class EmailServiceImpl implements EmailService {
     @Observed(name = "issuance.send-email", contextualName = "issuance-send-email")
     @Override
     public Mono<Void> sendCredentialOfferEmail(String to, String subject, String credentialOfferUri,
-                                                String reissueUrl, String walletUrl, String organization, String txCode) {
+                                               String reissueUrl, String walletUrl, String organization, String txCode) {
+        return doSendCredentialOfferEmail("credential-offer-email", to, subject,
+                credentialOfferUri, reissueUrl, walletUrl, organization, txCode);
+    }
+
+    @Observed(name = "issuance.send-email", contextualName = "issuance-send-email")
+    @Override
+    public Mono<Void> sendBrandedCredentialOfferEmail(String to, String subject, String credentialOfferUri,
+                                                      String reissueUrl, String walletUrl, String organization) {
+        return doSendCredentialOfferEmail("credential-offer-email-v2", to, subject,
+                credentialOfferUri, reissueUrl, walletUrl, organization, null);
+    }
+
+    private Mono<Void> doSendCredentialOfferEmail(String template, String to, String subject,
+                                                   String credentialOfferUri, String reissueUrl,
+                                                   String walletUrl, String organization, String txCode) {
         return tenantConfigService.getStringOrThrow(MAIL_FROM_KEY)
                 .flatMap(mailFrom -> Mono.fromCallable(() -> {
                     MimeMessage mimeMessage = javaMailSender.createMimeMessage();
@@ -101,10 +116,7 @@ public class EmailServiceImpl implements EmailService {
                     helper.setTo(to);
                     helper.setSubject(translationService.translate(subject));
 
-                    // Build wallet deep link: extract the HTTPS URL from the openid-credential-offer:// URI
                     String walletDeepLink = buildWalletDeepLink(credentialOfferUri, walletUrl);
-
-                    // Generate QR code image from the credential offer URI
                     byte[] qrImageBytes = generateQrCodeImage(walletDeepLink, 300, 300);
 
                     Context context = createLocalizedContext();
@@ -116,42 +128,7 @@ public class EmailServiceImpl implements EmailService {
                         context.setVariable("txCode", txCode);
                     }
 
-                    String htmlContent = templateEngine.process("credential-offer-email", context);
-                    helper.setText(htmlContent, true);
-
-                    InputStreamSource qrImageSource = new ByteArrayResource(qrImageBytes);
-                    helper.addInline("qr-credential-offer.png", qrImageSource, MimeTypeUtils.IMAGE_PNG_VALUE);
-
-                    javaMailSender.send(mimeMessage);
-                    return null;
-                }).subscribeOn(Schedulers.boundedElastic()))
-                .then();
-    }
-
-    @Override
-    public Mono<Void> sendCredentialOfferEmailV2(String to, String subject, String credentialOfferUri,
-                                                 String reissueUrl, String walletUrl, String organization) {
-        return tenantConfigService.getStringOrThrow(MAIL_FROM_KEY)
-                .flatMap(mailFrom -> Mono.fromCallable(() -> {
-                    MimeMessage mimeMessage = javaMailSender.createMimeMessage();
-                    MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
-                    helper.setFrom(mailFrom);
-                    helper.setTo(to);
-                    helper.setSubject(translationService.translate(subject));
-
-                    // Build wallet deep link: extract the HTTPS URL from the openid-credential-offer:// URI
-                    String walletDeepLink = buildWalletDeepLink(credentialOfferUri, walletUrl);
-
-                    // Generate QR code image from the credential offer URI
-                    byte[] qrImageBytes = generateQrCodeImage(walletDeepLink, 300, 300);
-
-                    Context context = createLocalizedContext();
-                    context.setVariable("organization",   organization);
-                    context.setVariable("qrImageCid",     "cid:qr-credential-offer.png");
-                    context.setVariable("reissueUrl",     reissueUrl);
-                    context.setVariable("walletDeepLink", walletDeepLink);
-
-                    String htmlContent = templateEngine.process("credential-offer-email-v2", context);
+                    String htmlContent = templateEngine.process(template, context);
                     helper.setText(htmlContent, true);
 
                     InputStreamSource qrImageSource = new ByteArrayResource(qrImageBytes);

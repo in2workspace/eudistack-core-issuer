@@ -9,13 +9,11 @@ import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -42,11 +40,6 @@ class CredentialOfferServiceImplTest {
 
     @InjectMocks
     private CredentialOfferServiceImpl credentialOfferService;
-
-    @BeforeEach
-    void setUp() {
-        ReflectionTestUtils.setField(credentialOfferService, "v2Tenants", "kpmg");
-    }
 
     @Test
     void createAndDeliverCredentialOffer_withPreAuthorizedCodeAndUiDelivery_shouldReturnUri() {
@@ -151,7 +144,7 @@ class CredentialOfferServiceImplTest {
     }
 
     @Test
-    void createAndDeliverCredentialOffer_withKpmgTenantAndEmailDelivery_callsSendV2Email() {
+    void createAndDeliverCredentialOffer_withKpmgTenantAndEmailDelivery_callsSendBrandedEmail() {
         // Arrange
         when(tenantConfigService.getStringOrThrow("issuer.frontend_url"))
                 .thenReturn(Mono.just("https://kpmg.eudistack.net/issuer"));
@@ -166,7 +159,7 @@ class CredentialOfferServiceImplTest {
                 .thenReturn(Mono.just("nonce"));
         when(issuanceService.findCredentialOfferEmailInfoByIssuanceId("issuance-kpmg"))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("user@kpmg.com", "KPMG")));
-        when(emailService.sendCredentialOfferEmailV2(anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
+        when(emailService.sendBrandedCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.empty());
 
         // Act & Assert
@@ -178,13 +171,13 @@ class CredentialOfferServiceImplTest {
                 .assertNext(result -> assertThat(result.credentialOfferUri()).isNull())
                 .verifyComplete();
 
-        verify(emailService).sendCredentialOfferEmailV2(
+        verify(emailService).sendBrandedCredentialOfferEmail(
                 eq("user@kpmg.com"), anyString(), anyString(), anyString(), eq("https://kpmg.eudistack.net/wallet"), eq("KPMG"));
         verify(emailService, never()).sendCredentialOfferEmail(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
-    void createAndDeliverCredentialOffer_withNonKpmgTenantAndEmailDelivery_callsSendV1Email() {
+    void createAndDeliverCredentialOffer_withNonKpmgTenantAndEmailDelivery_callsSendLegacyEmail() {
         // Arrange
         when(tenantConfigService.getStringOrThrow("issuer.frontend_url"))
                 .thenReturn(Mono.just("https://sandbox.eudistack.net/issuer"));
@@ -213,6 +206,6 @@ class CredentialOfferServiceImplTest {
 
         verify(emailService).sendCredentialOfferEmail(
                 eq("user@sandbox.com"), any(), any(), any(), any(), eq("Sandbox Org"), isNull());
-        verify(emailService, never()).sendCredentialOfferEmailV2(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
+        verify(emailService, never()).sendBrandedCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
     }
 }
