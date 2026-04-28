@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.2] - 2026-04-28
+
+### Fixed
+
+- **Credential offer double-send** — `GET /credential-offer/refresh/{token}` eliminado. El refresco de la oferta pasa ahora a una página Angular en el MFE (`credential-offer/refresh/:token`), evitando que los escáneres de email (ATP Safe Links) activen el reenvío al seguir el enlace automáticamente. El backend expone únicamente `POST /credential-offer/refresh/{token}` (JSON, sin Thymeleaf), con CORS habilitado para las llamadas cross-origin del MFE.
+- **`buildRefreshUrl`** — la URL de refresco incluida en el email apunta ahora a `issuer.frontend_url` (MFE) en lugar de a la URL pública del backend.
+- Eliminadas las plantillas Thymeleaf `credential-offer-refresh-*.html`, sustituidas por la página Angular.
+
 ## [3.6.1] - 2026-04-27
 
 ### Changed

@@ -70,6 +70,7 @@ public class SecurityConfig {
         return http
                 .securityMatcher(ServerWebExchangeMatchers.pathMatchers(CREDENTIAL_OFFER_REFRESH_PATH))
                 .authorizeExchange(exchange -> exchange.anyExchange().permitAll())
+                .cors(cors -> cors.configurationSource(corsConfig.corsConfigurationSource()))
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .build();
     }
