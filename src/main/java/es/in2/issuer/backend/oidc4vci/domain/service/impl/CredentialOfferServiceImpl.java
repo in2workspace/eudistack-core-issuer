@@ -13,7 +13,6 @@ import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 
 import java.net.URLEncoder;
@@ -82,31 +81,26 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
 
         log.info("Delivering credential offer via email for issuance: {}", issuanceId);
         return issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId)
-                .flatMap(emailInfo -> {
-                    String refreshUrl = buildRefreshUrl(baseUrl, credentialOfferRefreshToken);
-                    return tenantConfigService.getStringOrThrow("issuer.wallet_url")
-                            .flatMap(walletUrl -> emailService.sendCredentialOfferEmail(
-                                    emailInfo.email(),
-                                    CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
-                                    credentialOfferUri,
-                                    refreshUrl,
-                                    walletUrl,
-                                    emailInfo.organization(),
-                                    null
-                            ))
-                            .doOnSuccess(v -> log.info("Credential offer email sent for issuanceId={}", issuanceId))
-                            .doOnError(ex -> log.error("Email sending failed for issuanceId={}: {}", issuanceId, ex.getMessage(), ex))
-                            .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE))
-                            .thenReturn(CredentialOfferResult.builder().build());
-                });
+                .flatMap(emailInfo -> buildRefreshUrl(credentialOfferRefreshToken)
+                        .flatMap(refreshUrl -> tenantConfigService.getStringOrThrow("issuer.wallet_url")
+                                .flatMap(walletUrl -> emailService.sendCredentialOfferEmail(
+                                        emailInfo.email(),
+                                        CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
+                                        credentialOfferUri,
+                                        refreshUrl,
+                                        walletUrl,
+                                        emailInfo.organization(),
+                                        null
+                                ))
+                                .doOnSuccess(v -> log.info("Credential offer email sent for issuanceId={}", issuanceId))
+                                .doOnError(ex -> log.error("Email sending failed for issuanceId={}: {}", issuanceId, ex.getMessage(), ex))
+                                .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE))
+                                .thenReturn(CredentialOfferResult.builder().build())));
     }
 
-    private String buildRefreshUrl(String baseUrl, String credentialOfferRefreshToken) {
-        return UriComponentsBuilder
-                .fromUriString(baseUrl)
-                .path("/credential-offer/refresh/" + credentialOfferRefreshToken)
-                .build()
-                .toUriString();
+    private Mono<String> buildRefreshUrl(String credentialOfferRefreshToken) {
+        return tenantConfigService.getStringOrThrow("issuer.frontend_url")
+                .map(frontendUrl -> frontendUrl + "/credential-offer-refresh/" + credentialOfferRefreshToken);
     }
 
     private record GrantResult(CredentialOfferGrants grants, String txCode) {}
