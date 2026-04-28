@@ -100,7 +100,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
 
     private Mono<String> buildRefreshUrl(String credentialOfferRefreshToken) {
         return tenantConfigService.getStringOrThrow("issuer.frontend_url")
-                .map(frontendUrl -> frontendUrl + "/credential-offer/refresh/" + credentialOfferRefreshToken);
+                .map(frontendUrl -> frontendUrl + "/credential-offer-refresh/" + credentialOfferRefreshToken);
     }
 
     private record GrantResult(CredentialOfferGrants grants, String txCode) {}

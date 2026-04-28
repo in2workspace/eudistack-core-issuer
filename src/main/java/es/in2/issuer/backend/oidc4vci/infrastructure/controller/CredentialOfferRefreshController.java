@@ -28,7 +28,7 @@ public class CredentialOfferRefreshController {
     public Mono<ResponseEntity<Void>> redirectToMfe(@PathVariable String credentialOfferRefreshToken) {
         return tenantConfigService.getStringOrThrow("issuer.frontend_url")
                 .map(frontendUrl -> {
-                    URI location = URI.create(frontendUrl + "/credential-offer/refresh/" + credentialOfferRefreshToken);
+                    URI location = URI.create(frontendUrl + "/credential-offer-refresh/" + credentialOfferRefreshToken);
                     return ResponseEntity.status(HttpStatus.FOUND).<Void>location(location).build();
                 });
     }
