@@ -159,8 +159,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
         String rawIssuerOfferUrl = ensureUrlHasProtocol(baseUrl + OID4VCI_CREDENTIAL_OFFER_PATH + "/" + nonce);
         String encodedRawUrl = URLEncoder.encode(rawIssuerOfferUrl, StandardCharsets.UTF_8);
 
-        // Siempre devolvemos el formato estándar, independientemente del canal
-        String finalUri = "openid-credential-offer://?credential_offer_uri=" + encodedRawUrl;
+        String finalUri = CREDENTIAL_OFFER_PREFIX + encodedRawUrl;
         log.info("BUILDING URI - Result: {}", finalUri);
 
         return Mono.just(finalUri);

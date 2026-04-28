@@ -35,8 +35,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE;
-import static es.in2.issuer.backend.shared.domain.util.Constants.UTF_8;
+import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 @Slf4j
 @Service
@@ -149,18 +148,15 @@ public class EmailServiceImpl implements EmailService {
         try {
             URI uri = URI.create(credentialOfferUri);
 
-            String credentialOffer = extractQueryParam(uri, "credential_offer_uri")
+            String credentialOffer = extractQueryParam(uri, CREDENTIAL_OFFER_URI_PARAMETER)
                     .map(value -> URLDecoder.decode(value, StandardCharsets.UTF_8))
                     .orElse(credentialOfferUri);
 
-            // Si necesitas la estructura anidada que tenías en el Service principal:
-            String walletOfferUrl = walletUrl + "/offer?credential_offer_uri=" + URLEncoder.encode(credentialOffer, StandardCharsets.UTF_8);
-
-            String path = "/protocol/callback";
-            String query = "credential_offer_uri=" + URLEncoder.encode(walletOfferUrl, StandardCharsets.UTF_8);
+            String walletOfferUrl = walletUrl + "/offer?" + CREDENTIAL_OFFER_URI_PARAMETER + "=" + URLEncoder.encode(credentialOffer, StandardCharsets.UTF_8);
+            String query = CREDENTIAL_OFFER_URI_PARAMETER + "=" + URLEncoder.encode(walletOfferUrl, StandardCharsets.UTF_8);
             String base = walletUrl.endsWith("/") ? walletUrl.substring(0, walletUrl.length() - 1) : walletUrl;
 
-            return base + path + "?" + query;
+            return base + WALLET_PROTOCOL_CALLBACK + "?" + query;
         } catch (Exception e) {
             throw new IllegalArgumentException("Invalid credentialOfferUri: " + credentialOfferUri, e);
         }
