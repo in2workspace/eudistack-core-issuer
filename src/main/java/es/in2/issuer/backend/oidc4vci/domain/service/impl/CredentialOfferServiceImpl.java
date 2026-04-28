@@ -12,6 +12,7 @@ import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -39,6 +40,9 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
     private final EmailService emailService;
     private final IssuanceService issuanceService;
     private final TenantConfigService tenantConfigService;
+
+    @Value("${email.v2-tenants:}")
+    private String v2Tenants;
 
     @Override
     @Observed(name = "oidc4vci.create-and-deliver-credential-offer", contextualName = "create-and-deliver-credential-offer")
@@ -82,20 +86,43 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
         log.info("Delivering credential offer via email for issuance: {}", issuanceId);
         return issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId)
                 .flatMap(emailInfo -> buildRefreshUrl(credentialOfferRefreshToken)
-                        .flatMap(refreshUrl -> tenantConfigService.getStringOrThrow("issuer.wallet_url")
-                                .flatMap(walletUrl -> emailService.sendCredentialOfferEmail(
-                                        emailInfo.email(),
-                                        CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
-                                        credentialOfferUri,
-                                        refreshUrl,
-                                        walletUrl,
-                                        emailInfo.organization(),
-                                        null
-                                ))
+                        .flatMap(refreshUrl -> Mono.deferContextual(ctx -> {
+                                String tenantDomain = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
+                                return !tenantDomain.isEmpty() && v2Tenants.contains(tenantDomain)
+                                        ? sendV2Email(credentialOfferUri, refreshUrl, emailInfo)
+                                        : sendV1Email(credentialOfferUri, refreshUrl, emailInfo);
+                                })
                                 .doOnSuccess(v -> log.info("Credential offer email sent for issuanceId={}", issuanceId))
                                 .doOnError(ex -> log.error("Email sending failed for issuanceId={}: {}", issuanceId, ex.getMessage(), ex))
                                 .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE))
                                 .thenReturn(CredentialOfferResult.builder().build())));
+    }
+
+    private Mono<Void> sendV1Email(String credentialOfferUri, String refreshUrl,
+                                   CredentialOfferEmailNotificationInfo emailInfo) {
+        return tenantConfigService.getStringOrThrow("issuer.wallet_url")
+                .flatMap(walletUrl -> emailService.sendCredentialOfferEmail(
+                        emailInfo.email(),
+                        CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
+                        credentialOfferUri,
+                        refreshUrl,
+                        walletUrl,
+                        emailInfo.organization(),
+                        null
+                ));
+    }
+
+    private Mono<Void> sendV2Email(String credentialOfferUri, String refreshUrl,
+                                   CredentialOfferEmailNotificationInfo emailInfo) {
+        return tenantConfigService.getStringOrThrow("issuer.wallet_url")
+                .flatMap(walletUrl -> emailService.sendCredentialOfferEmailV2(
+                emailInfo.email(),
+                CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
+                credentialOfferUri,
+                refreshUrl,
+                walletUrl,
+                emailInfo.organization()
+        ));
     }
 
     private Mono<String> buildRefreshUrl(String credentialOfferRefreshToken) {

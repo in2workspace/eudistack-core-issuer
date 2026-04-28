@@ -9,14 +9,17 @@ import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -39,6 +42,11 @@ class CredentialOfferServiceImplTest {
 
     @InjectMocks
     private CredentialOfferServiceImpl credentialOfferService;
+
+    @BeforeEach
+    void setUp() {
+        ReflectionTestUtils.setField(credentialOfferService, "v2Tenants", "kpmg");
+    }
 
     @Test
     void createAndDeliverCredentialOffer_withPreAuthorizedCodeAndUiDelivery_shouldReturnUri() {
@@ -140,5 +148,71 @@ class CredentialOfferServiceImplTest {
 
         verify(emailService).sendCredentialOfferEmail(
                 eq("test@example.com"), anyString(), anyString(), anyString(), anyString(), eq("TestOrg"), isNull());
+    }
+
+    @Test
+    void createAndDeliverCredentialOffer_withKpmgTenantAndEmailDelivery_callsSendV2Email() {
+        // Arrange
+        when(tenantConfigService.getStringOrThrow("issuer.frontend_url"))
+                .thenReturn(Mono.just("https://kpmg.eudistack.net/issuer"));
+        when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
+                .thenReturn(Mono.just("https://kpmg.eudistack.net/wallet"));
+        when(preAuthorizedCodeService.issuePreAuthorizedCode(anyString(), any()))
+                .thenReturn(Mono.just(PreAuthorizedCodeResponse.builder()
+                        .preAuthorizedCode("pre-auth-code")
+                        .txCode(TxCode.builder().length(6).inputMode("numeric").build())
+                        .txCodeValue("123456").build()));
+        when(credentialOfferCacheRepository.saveCredentialOffer(any()))
+                .thenReturn(Mono.just("nonce"));
+        when(issuanceService.findCredentialOfferEmailInfoByIssuanceId("issuance-kpmg"))
+                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("user@kpmg.com", "KPMG")));
+        when(emailService.sendCredentialOfferEmailV2(anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(Mono.empty());
+
+        // Act & Assert
+        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
+                        "issuance-kpmg", "learcredential.employee.sd.1",
+                        "urn:ietf:params:oauth:grant-type:pre-authorized_code",
+                        "user@kpmg.com", "email", "refresh-token", "https://kpmg.eudistack.net/issuer")
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "kpmg")))
+                .assertNext(result -> assertThat(result.credentialOfferUri()).isNull())
+                .verifyComplete();
+
+        verify(emailService).sendCredentialOfferEmailV2(
+                eq("user@kpmg.com"), anyString(), anyString(), anyString(), eq("https://kpmg.eudistack.net/wallet"), eq("KPMG"));
+        verify(emailService, never()).sendCredentialOfferEmail(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void createAndDeliverCredentialOffer_withNonKpmgTenantAndEmailDelivery_callsSendV1Email() {
+        // Arrange
+        when(tenantConfigService.getStringOrThrow("issuer.frontend_url"))
+                .thenReturn(Mono.just("https://sandbox.eudistack.net/issuer"));
+        when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
+                .thenReturn(Mono.just("https://sandbox.eudistack.net/wallet"));
+        when(preAuthorizedCodeService.issuePreAuthorizedCode(anyString(), any()))
+                .thenReturn(Mono.just(PreAuthorizedCodeResponse.builder()
+                        .preAuthorizedCode("pre-auth-code")
+                        .txCode(TxCode.builder().length(6).inputMode("numeric").build())
+                        .txCodeValue("123456").build()));
+        when(credentialOfferCacheRepository.saveCredentialOffer(any()))
+                .thenReturn(Mono.just("nonce"));
+        when(issuanceService.findCredentialOfferEmailInfoByIssuanceId("issuance-sandbox"))
+                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("user@sandbox.com", "Sandbox Org")));
+        when(emailService.sendCredentialOfferEmail(any(), any(), any(), any(), any(), any(), isNull()))
+                .thenReturn(Mono.empty());
+
+        // Act & Assert
+        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
+                        "issuance-sandbox", "learcredential.employee.sd.1",
+                        "urn:ietf:params:oauth:grant-type:pre-authorized_code",
+                        "user@sandbox.com", "email", "refresh-token", "https://sandbox.eudistack.net/issuer")
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "sandbox")))
+                .assertNext(result -> assertThat(result.credentialOfferUri()).isNull())
+                .verifyComplete();
+
+        verify(emailService).sendCredentialOfferEmail(
+                eq("user@sandbox.com"), any(), any(), any(), any(), eq("Sandbox Org"), isNull());
+        verify(emailService, never()).sendCredentialOfferEmailV2(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
     }
 }

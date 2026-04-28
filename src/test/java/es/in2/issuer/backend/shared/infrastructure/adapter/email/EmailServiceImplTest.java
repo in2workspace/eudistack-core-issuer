@@ -18,6 +18,7 @@ import reactor.test.StepVerifier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -223,6 +224,58 @@ class EmailServiceImplTest {
         // Act & Assert
         StepVerifier.create(emailService.sendCredentialFailureNotification("to@example.com", "some error"))
                 .expectError(EmailCommunicationException.class)
+                .verify();
+    }
+
+    @Test
+    void sendCredentialOfferEmailV2_sendsEmailWithCorrectTemplateAndVariables() {
+        // Arrange
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("credential-offer-email-v2"), any(Context.class))).thenReturn("<html>v2</html>");
+
+        String credentialOfferUri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fcredential-offer%2Fnonce";
+        String walletUrl = "https://wallet.example.com";
+        String reissueUrl = "https://issuer.example.com/credential-offer/refresh/abc";
+
+        // Act
+        StepVerifier.create(emailService.sendCredentialOfferEmailV2(
+                "user@kpmg.com",
+                "email.activation.subject",
+                credentialOfferUri,
+                reissueUrl,
+                walletUrl,
+                "KPMG Spain"
+        )).verifyComplete();
+
+        // Assert
+        verify(javaMailSender).send(mimeMessage);
+        ArgumentCaptor<Context> ctxCaptor = ArgumentCaptor.forClass(Context.class);
+        verify(templateEngine).process(eq("credential-offer-email-v2"), ctxCaptor.capture());
+        Context ctx = ctxCaptor.getValue();
+        assertEquals("KPMG Spain", ctx.getVariable("organization"));
+        assertEquals("cid:qr-credential-offer.png", ctx.getVariable("qrImageCid"));
+        assertEquals(reissueUrl, ctx.getVariable("reissueUrl"));
+        // walletDeepLink must be an HTTPS URL built by buildWalletDeepLink, not the raw openid-credential-offer:// URI
+        String walletDeepLink = (String) ctx.getVariable("walletDeepLink");
+        assertTrue(walletDeepLink.startsWith("https://wallet.example.com/protocol/callback"),
+                "walletDeepLink should be an HTTPS callback URL, was: " + walletDeepLink);
+    }
+
+    @Test
+    void sendCredentialOfferEmailV2_onMailError_propagatesException() {
+        // Arrange
+        when(javaMailSender.createMimeMessage()).thenThrow(new RuntimeException("SMTP down"));
+
+        // Act & Assert
+        StepVerifier.create(emailService.sendCredentialOfferEmailV2(
+                "user@kpmg.com",
+                "email.activation.subject",
+                "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fcredential-offer%2Fnonce",
+                "https://issuer.example.com/credential-offer/refresh/abc",
+                "https://wallet.example.com",
+                "KPMG Spain"
+        )).expectError(RuntimeException.class)
                 .verify();
     }
 }
