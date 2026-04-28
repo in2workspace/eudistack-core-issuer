@@ -164,12 +164,12 @@ public class EmailServiceImpl implements EmailService {
 
     private Optional<String> extractQueryParam(URI uri, String paramName) {
         String query = uri.getQuery();
-        if (query == null && uri.getRawSchemeSpecificPart() != null) {
-            String ssp = uri.getRawSchemeSpecificPart();
-            if (ssp.contains("?")) {
-                query = ssp.substring(ssp.indexOf("?") + 1);
-            }
-        }
+        //if (query == null && uri.getRawSchemeSpecificPart() != null) {
+        //    String ssp = uri.getRawSchemeSpecificPart();
+        //    if (ssp.contains("?")) {
+        //        query = ssp.substring(ssp.indexOf("?") + 1);
+        //    }
+        //}
         if (query == null) return Optional.empty();
         return Arrays.stream(query.split("&"))
                 .map(param -> param.split("=", 2))
