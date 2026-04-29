@@ -12,6 +12,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.policy.service.IssuancePdpService;
 import es.in2.issuer.backend.shared.domain.service.*;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
@@ -27,7 +28,6 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -109,13 +109,10 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private Mono<IssuanceResponse> performIssuanceFlow(String processId, IssuanceRequest request, String idToken,
                                                         String publicIssuerBaseUrl, String delivery) {
-        Set<String> modes = Arrays.stream(delivery.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toSet());
+        Set<DeliveryMode> modes = DeliveryMode.parse(delivery);
 
-        boolean hasDirect = modes.contains(DELIVERY_DIRECT);
-        boolean hasOid4vci = modes.contains(DELIVERY_EMAIL) || modes.contains(DELIVERY_UI);
+        boolean hasDirect  = modes.stream().anyMatch(m -> !m.isOid4vci);
+        boolean hasOid4vci = modes.stream().anyMatch(m -> m.isOid4vci);
 
         Mono<IssuanceResponse> directMono = hasDirect
                 ? performDirectIssuance(processId, request, idToken, publicIssuerBaseUrl, delivery)
@@ -253,16 +250,18 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         return CredentialStatusEnum.VALID;
     }
 
-    private String extractOid4vciDelivery(Set<String> modes) {
-        return modes.contains(DELIVERY_EMAIL) ? DELIVERY_EMAIL : DELIVERY_UI;
+    private String extractOid4vciDelivery(Set<DeliveryMode> modes) {
+        return modes.stream()
+                .filter(m -> m.isOid4vci)
+                .map(m -> m.value)
+                .collect(Collectors.joining(","));
     }
 
     private String stripDirectMode(String delivery) {
-        String stripped = Arrays.stream(delivery.split(","))
-                .map(String::trim)
-                .filter(m -> !DELIVERY_DIRECT.equals(m))
+        return DeliveryMode.parse(delivery).stream()
+                .filter(m -> m.isOid4vci)
+                .map(m -> m.value)
                 .collect(Collectors.joining(","));
-        return stripped.isEmpty() ? DEFAULT_DELIVERY : stripped;
     }
 
     private boolean requiresIdToken(CredentialProfile profile) {

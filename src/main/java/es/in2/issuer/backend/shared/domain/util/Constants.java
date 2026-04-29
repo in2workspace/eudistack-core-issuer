@@ -63,11 +63,6 @@ public final class Constants {
     public static final String PRE_AUTHORIZATION_CODE = "pre-authorization_code";
     public static final String AUTHORIZATION_CODE = "authorization_code";
 
-    // DELIVERY MODES
-    public static final String DELIVERY_UI = "ui";
-    public static final String DELIVERY_EMAIL = "email";
-    public static final String DELIVERY_DIRECT = "direct";
-
     // HTTP
     public static final String BEARER_PREFIX = "Bearer ";
     public static final String UTF_8 = "UTF-8";
