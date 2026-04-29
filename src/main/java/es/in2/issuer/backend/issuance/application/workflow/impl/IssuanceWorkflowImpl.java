@@ -69,7 +69,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         return validateRequest(request, idToken)
                 .then(Mono.defer(() -> payloadSchemaValidator.validate(configId, request.payload())))
                 .then(Mono.defer(() -> issuancePdpService.authorize(configId, request.payload(), idToken)))
-                .then(Mono.defer(() -> performIssuanceFlow(processId, request, publicIssuerBaseUrl, delivery)))
+                .then(Mono.defer(() -> performIssuanceFlow(processId, request, idToken, publicIssuerBaseUrl, delivery)))
                 .doOnSuccess(r -> {
                     issuanceMetrics.recordSuccess(sample, configId, delivery);
                     auditService.auditSuccess("credential.issued", null, "credential", configId,
@@ -83,6 +83,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     public Mono<IssuanceResponse> issueCredentialWithoutAuthorization(
             String processId,
             IssuanceRequest request,
+            String token,
             String publicIssuerBaseUrl) {
 
         String delivery = request.delivery() != null ? request.delivery() : DEFAULT_DELIVERY;
@@ -90,7 +91,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         return validateRequest(request, null)
                 .then(Mono.defer(() -> payloadSchemaValidator.validate(request.credentialConfigurationId(), request.payload())))
-                .then(Mono.defer(() -> performIssuanceFlow(processId, request, publicIssuerBaseUrl, safeDelivery)));
+                .then(Mono.defer(() -> performIssuanceFlow(processId, request, token, publicIssuerBaseUrl, safeDelivery)));
     }
 
     private Mono<Void> validateRequest(IssuanceRequest request, String idToken) {
@@ -106,7 +107,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         return Mono.empty();
     }
 
-    private Mono<IssuanceResponse> performIssuanceFlow(String processId, IssuanceRequest request,
+    private Mono<IssuanceResponse> performIssuanceFlow(String processId, IssuanceRequest request, String idToken,
                                                         String publicIssuerBaseUrl, String delivery) {
         Set<String> modes = Arrays.stream(delivery.split(","))
                 .map(String::trim)
@@ -117,7 +118,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         boolean hasOid4vci = modes.contains(DELIVERY_EMAIL) || modes.contains(DELIVERY_UI);
 
         Mono<IssuanceResponse> directMono = hasDirect
-                ? performDirectIssuance(processId, request, publicIssuerBaseUrl, delivery)
+                ? performDirectIssuance(processId, request, idToken, publicIssuerBaseUrl, delivery)
                 : Mono.just(IssuanceResponse.builder().build());
 
         Mono<IssuanceResponse> oid4vciMono = hasOid4vci
@@ -132,7 +133,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         );
     }
 
-    private Mono<IssuanceResponse> performDirectIssuance(String processId, IssuanceRequest request,
+    private Mono<IssuanceResponse> performDirectIssuance(String processId, IssuanceRequest request, String token,
                                                           String publicIssuerBaseUrl, String originalDelivery) {
         String configId = request.credentialConfigurationId();
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
@@ -153,7 +154,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                         issuanceId.toString(), request.email())
                                 .flatMap(enrichedDataSet ->
                                         statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, statusFormat,
-                                                        issuanceId.toString(), null, publicIssuerBaseUrl)
+                                                        issuanceId.toString(), token, publicIssuerBaseUrl)
                                                 .map(entry -> {
                                                     CredentialStatus credStatus = CredentialStatus.fromStatusListEntry(entry);
                                                     return genericCredentialBuilder.injectCredentialStatus(
