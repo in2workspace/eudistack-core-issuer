@@ -86,7 +86,6 @@ public class GenericCredentialBuilder {
      */
     private String buildW3cCredential(CredentialProfile profile, JsonNode payload,
                                        String validFrom, String validUntil) {
-        log.info("profile: {}, payload: {}", profile, payload);
         ObjectNode credential = objectMapper.createObjectNode();
 
         credential.set("@context", objectMapper.valueToTree(profile.credentialDefinition().context()));
