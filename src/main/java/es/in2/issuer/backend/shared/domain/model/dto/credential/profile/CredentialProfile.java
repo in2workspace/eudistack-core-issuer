@@ -30,7 +30,8 @@ public record CredentialProfile(
         @JsonProperty("json_schema") String jsonSchema,
         @JsonProperty("policy_extraction") PolicyExtraction policyExtraction,
         @JsonProperty("issuance_policy") IssuancePolicy issuancePolicy,
-        @JsonProperty("token_claims_mapping") TokenClaimsMapping tokenClaimsMapping
+        @JsonProperty("token_claims_mapping") TokenClaimsMapping tokenClaimsMapping,
+        @JsonProperty("validation") Validation validation
 ) {
 
     @Builder
@@ -97,6 +98,12 @@ public record CredentialProfile(
             @JsonProperty("powers_path") String powersPath,
             @JsonProperty("mandator_path") String mandatorPath,
             @JsonProperty("org_id_field") String orgIdField
+    ) {}
+
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Validation(
+            @JsonProperty("mandator_org_id_path") String mandatorOrgIdPath
     ) {}
 
     @Builder
