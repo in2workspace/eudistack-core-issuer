@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.5] - 2026-04-29
+
+### Fixed
+
+- Credential mandatorPath validation - Fixed organization path validation
+
 ## [3.6.4] - 2026-04-28
 
 ### Added

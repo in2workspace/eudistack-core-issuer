@@ -381,12 +381,7 @@ public class IssuanceServiceImpl implements IssuanceService {
                         objectMapper.readTree(issuance.getCredentialDataSet())
                 )
                 .map(credential -> {
-                    // Resolve mandator node dynamically from profile's policy_extraction.mandator_path
-                    // W3C: "credentialSubject.mandate.mandator"
-                    // SD-JWT: "mandate.mandator"
-                    String mandatorPath = (profile != null && profile.policyExtraction() != null)
-                            ? profile.policyExtraction().mandatorPath()
-                            : null;
+                    String mandatorPath = mandatorPathFromValidation(profile);
                     JsonNode mandator = resolveJsonPath(credential, mandatorPath);
                     String org = (mandator != null && mandator.has(ORGANIZATION))
                             ? mandator.get(ORGANIZATION).asText()
@@ -401,6 +396,16 @@ public class IssuanceServiceImpl implements IssuanceService {
                                 "Error parsing credential for issuanceId: " + issuanceId
                         )
                 );
+    }
+
+    private String mandatorPathFromValidation(CredentialProfile profile) {
+        if (profile == null || profile.validation() == null
+                || profile.validation().mandatorOrgIdPath() == null) {
+            return null;
+        }
+        String orgIdPath = profile.validation().mandatorOrgIdPath();
+        int lastDot = orgIdPath.lastIndexOf('.');
+        return lastDot > 0 ? orgIdPath.substring(0, lastDot) : null;
     }
 
     private JsonNode resolveJsonPath(JsonNode root, String path) {
