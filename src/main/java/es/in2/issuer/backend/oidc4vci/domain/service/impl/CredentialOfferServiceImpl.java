@@ -71,12 +71,13 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
     }
 
     private Mono<CredentialOfferResult> deliverOffer(String baseUrl, String credentialOfferUri, String issuanceId,
-                                                      String credentialOfferRefreshToken, String delivery) {
+                                                     String credentialOfferRefreshToken, String delivery) {
         if (DELIVERY_UI.equals(delivery)) {
             log.info("Delivering credential offer via URI for issuance: {}", issuanceId);
-            return Mono.just(CredentialOfferResult.builder()
-                    .credentialOfferUri(credentialOfferUri)
-                    .build());
+            return tenantConfigService.getStringOrThrow("issuer.wallet_url")
+                    .map(walletUrl -> CredentialOfferResult.builder()
+                            .credentialOfferUri(buildWalletDeepLink(credentialOfferUri, walletUrl))
+                            .build());
         }
 
         log.info("Delivering credential offer via email for issuance: {}", issuanceId);
@@ -119,6 +120,13 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                         walletUrl,
                         emailInfo.organization()
                 ));
+    }
+
+    private String buildWalletDeepLink(String credentialOfferUri, String walletUrl) {
+        String httpsUrl = credentialOfferUri.startsWith(CREDENTIAL_OFFER_PREFIX)
+                ? credentialOfferUri.substring(CREDENTIAL_OFFER_PREFIX.length())
+                : URLEncoder.encode(credentialOfferUri, StandardCharsets.UTF_8);
+        return walletUrl + WALLET_PROTOCOL_CALLBACK + "?credential_offer_uri=" + httpsUrl;
     }
 
     private Mono<String> buildRefreshUrl(String credentialOfferRefreshToken) {

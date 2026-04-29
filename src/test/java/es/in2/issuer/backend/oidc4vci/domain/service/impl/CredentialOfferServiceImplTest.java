@@ -54,11 +54,13 @@ class CredentialOfferServiceImplTest {
                         .build()));
         when(credentialOfferCacheRepository.saveCredentialOffer(any()))
                 .thenReturn(Mono.just("cache-nonce"));
+        when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
+                .thenReturn(Mono.just("https://wallet.example.com"));
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
                         issuanceId, configId, "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "ui", "refresh-token", "https://example.com"))
                 .assertNext(result -> {
-                    assertThat(result.credentialOfferUri()).startsWith("openid-credential-offer://");
+                    assertThat(result.credentialOfferUri()).startsWith("https://wallet.example.com/protocol/callback");
                     assertThat(result.credentialOfferUri()).contains("credential_offer_uri=");
                 })
                 .verifyComplete();
@@ -73,11 +75,13 @@ class CredentialOfferServiceImplTest {
                 .thenReturn(Mono.just("cached"));
         when(credentialOfferCacheRepository.saveCredentialOffer(any()))
                 .thenReturn(Mono.just("cache-nonce"));
+        when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
+                .thenReturn(Mono.just("https://wallet.example.com"));
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
                         issuanceId, configId, "authorization_code", "test@example.com", "ui", "refresh-token", "https://example.com"))
                 .assertNext(result -> {
-                    assertThat(result.credentialOfferUri()).startsWith("openid-credential-offer://");
+                    assertThat(result.credentialOfferUri()).startsWith("https://wallet.example.com/protocol/callback");
                     assertThat(result.credentialOfferUri()).contains("credential_offer_uri=");
                 })
                 .verifyComplete();
