@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.7] - 2026-04-30
+
+### Fixed
+
+- UI QR credential offer now returns HTTPS wallet URL instead of openid-credential-offer://
+
 ## [3.6.6] - 2026-04-30
 
 ### Changed
