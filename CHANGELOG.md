@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.4] - 2026-04-28
+
+### Added
+
+- **Credential offer email v2**: implemented tenant-specific email template rendering for the KPMG tenant.
+
 ## [3.6.3] - 2026-04-28
 
 ### Fixed

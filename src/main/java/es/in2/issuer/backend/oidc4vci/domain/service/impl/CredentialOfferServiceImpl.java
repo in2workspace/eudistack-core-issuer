@@ -82,20 +82,43 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
         log.info("Delivering credential offer via email for issuance: {}", issuanceId);
         return issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId)
                 .flatMap(emailInfo -> buildRefreshUrl(credentialOfferRefreshToken)
-                        .flatMap(refreshUrl -> tenantConfigService.getStringOrThrow("issuer.wallet_url")
-                                .flatMap(walletUrl -> emailService.sendCredentialOfferEmail(
-                                        emailInfo.email(),
-                                        CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
-                                        credentialOfferUri,
-                                        refreshUrl,
-                                        walletUrl,
-                                        emailInfo.organization(),
-                                        null
-                                ))
+                        .flatMap(refreshUrl -> Mono.deferContextual(ctx -> {
+                                String tenantDomain = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
+                                return tenantDomain.contains("kpmg")
+                                        ? sendBrandedCredentialOfferEmail(credentialOfferUri, refreshUrl, emailInfo)
+                                        : sendLegacyCredentialOfferEmail(credentialOfferUri, refreshUrl, emailInfo);
+                                })
                                 .doOnSuccess(v -> log.info("Credential offer email sent for issuanceId={}", issuanceId))
                                 .doOnError(ex -> log.error("Email sending failed for issuanceId={}: {}", issuanceId, ex.getMessage(), ex))
                                 .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE))
                                 .thenReturn(CredentialOfferResult.builder().build())));
+    }
+
+    private Mono<Void> sendLegacyCredentialOfferEmail(String credentialOfferUri, String refreshUrl,
+                                                      CredentialOfferEmailNotificationInfo emailInfo) {
+        return tenantConfigService.getStringOrThrow("issuer.wallet_url")
+                .flatMap(walletUrl -> emailService.sendCredentialOfferEmail(
+                        emailInfo.email(),
+                        CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
+                        credentialOfferUri,
+                        refreshUrl,
+                        walletUrl,
+                        emailInfo.organization(),
+                        null
+                ));
+    }
+
+    private Mono<Void> sendBrandedCredentialOfferEmail(String credentialOfferUri, String refreshUrl,
+                                                       CredentialOfferEmailNotificationInfo emailInfo) {
+        return tenantConfigService.getStringOrThrow("issuer.wallet_url")
+                .flatMap(walletUrl -> emailService.sendBrandedCredentialOfferEmail(
+                        emailInfo.email(),
+                        CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
+                        credentialOfferUri,
+                        refreshUrl,
+                        walletUrl,
+                        emailInfo.organization()
+                ));
     }
 
     private Mono<String> buildRefreshUrl(String credentialOfferRefreshToken) {
