@@ -15,9 +15,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
+
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Set;
 
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.TX_CODE_SIZE;
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.TX_INPUT_MODE;
@@ -47,8 +50,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
             String email, String delivery, String credentialOfferRefreshToken,
             String publicIssuerBaseUrl) {
 
-        boolean isEmailChannel = DELIVERY_EMAIL.equals(delivery);
-        log.info("Delivering credential offer via email? {}", isEmailChannel);
+        log.info("Delivering credential offer for issuance={} delivery={}", issuanceId, delivery);
 
         return generateGrant(issuanceId, grantType)
                 .flatMap(grantResult -> {
@@ -72,26 +74,30 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
 
     private Mono<CredentialOfferResult> deliverOffer(String baseUrl, String credentialOfferUri, String issuanceId,
                                                       String credentialOfferRefreshToken, String delivery) {
-        if (DELIVERY_UI.equals(delivery)) {
-            log.info("Delivering credential offer via URI for issuance: {}", issuanceId);
-            return Mono.just(CredentialOfferResult.builder()
-                    .credentialOfferUri(credentialOfferUri)
-                    .build());
-        }
+        Set<DeliveryMode> modes = DeliveryMode.parse(delivery);
 
-        log.info("Delivering credential offer via email for issuance: {}", issuanceId);
-        return issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId)
-                .flatMap(emailInfo -> buildRefreshUrl(credentialOfferRefreshToken)
-                        .flatMap(refreshUrl -> Mono.deferContextual(ctx -> {
-                                String tenantDomain = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
-                                return tenantDomain.contains("kpmg")
-                                        ? sendBrandedCredentialOfferEmail(credentialOfferUri, refreshUrl, emailInfo)
-                                        : sendLegacyCredentialOfferEmail(credentialOfferUri, refreshUrl, emailInfo);
-                                })
+        boolean includeUri = modes.stream().anyMatch(m -> m.returnsUri);
+        boolean sendEmail  = modes.contains(DeliveryMode.EMAIL);
+
+        log.info("Delivering credential offer for issuance={} — sendEmail={}, includeUri={}", issuanceId, sendEmail, includeUri);
+
+        Mono<Void> emailTask = sendEmail
+                ? issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId)
+                        .flatMap(emailInfo -> buildRefreshUrl(credentialOfferRefreshToken)
+                                .flatMap(refreshUrl -> Mono.deferContextual(ctx -> {
+                                    String tenantDomain = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
+                                    return tenantDomain.contains("kpmg")
+                                            ? sendBrandedCredentialOfferEmail(credentialOfferUri, refreshUrl, emailInfo)
+                                            : sendLegacyCredentialOfferEmail(credentialOfferUri, refreshUrl, emailInfo);
+                                }))
                                 .doOnSuccess(v -> log.info("Credential offer email sent for issuanceId={}", issuanceId))
                                 .doOnError(ex -> log.error("Email sending failed for issuanceId={}: {}", issuanceId, ex.getMessage(), ex))
-                                .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE))
-                                .thenReturn(CredentialOfferResult.builder().build())));
+                                .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE)))
+                : Mono.empty();
+
+        return emailTask.thenReturn(CredentialOfferResult.builder()
+                .credentialOfferUri(includeUri ? credentialOfferUri : null)
+                .build());
     }
 
     private Mono<Void> sendLegacyCredentialOfferEmail(String credentialOfferUri, String refreshUrl,

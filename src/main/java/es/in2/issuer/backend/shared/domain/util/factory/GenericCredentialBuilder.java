@@ -86,6 +86,7 @@ public class GenericCredentialBuilder {
      */
     private String buildW3cCredential(CredentialProfile profile, JsonNode payload,
                                        String validFrom, String validUntil) {
+        log.info("profile: {}, payload: {}", profile, payload);
         ObjectNode credential = objectMapper.createObjectNode();
 
         credential.set("@context", objectMapper.valueToTree(profile.credentialDefinition().context()));
@@ -104,8 +105,10 @@ public class GenericCredentialBuilder {
             credentialSubjectNode = objectMapper.createObjectNode();
             credentialSubjectNode.set("mandate", payload);
         }
-        // W3C VCDM 2.0: credentialSubject.id is required for jwt_vc_json
-        credentialSubjectNode.put("id", "urn:uuid:" + UUID.randomUUID());
+        // W3C VCDM 2.0: credentialSubject.id is required for jwt_vc_json; preserve caller-supplied id
+        if (!credentialSubjectNode.has("id")) {
+            credentialSubjectNode.put("id", "urn:uuid:" + UUID.randomUUID());
+        }
         credential.set("credentialSubject", credentialSubjectNode);
 
         credential.put("validFrom", validFrom);
