@@ -56,12 +56,13 @@ class CredentialOfferEmailV2TemplateTest {
         assertThat(html).contains("Hello,");
         assertThat(html).contains("KPMG Spain has issued your credential");
         assertThat(html).contains("How to activate your credential");
-        assertThat(html).contains("Scan the QR code with your device camera");
-        assertThat(html).contains("Your Wallet will open automatically");
-        assertThat(html).contains("Download the Wallet on your device");
+        assertThat(html).contains("Download Wallet");
+        assertThat(html).contains("Open the app on your device");
+        assertThat(html).contains("Scan the QR code below");
         assertThat(html).contains("Activate the credential and add it to your Wallet");
         assertThat(html).contains("This QR code is valid for 10 minutes");
         assertThat(html).contains("On a mobile device? Open it directly in your Wallet");
+        assertThat(html).contains("Not available on iPhone");
         assertThat(html).contains("Open in Wallet");
         assertThat(html).contains("QR code expired?");
         assertThat(html).contains("Request a new one");
@@ -79,10 +80,11 @@ class CredentialOfferEmailV2TemplateTest {
         assertThat(html).contains("Hola,");
         assertThat(html).contains("KPMG España ha emitido tu credencial");
         assertThat(html).contains("Cómo activar tu credencial");
-        assertThat(html).contains("Escanea el código QR");
-        assertThat(html).contains("Se abrirá automáticamente tu Wallet");
-        assertThat(html).contains("Descarga la Wallet en tu dispositivo");
+        assertThat(html).contains("Descarga Wallet");
+        assertThat(html).contains("Abre la aplicación en tu dispositivo");
+        assertThat(html).contains("Escanea el código QR de abajo");
         assertThat(html).contains("Activa la credencial");
+        assertThat(html).contains("No disponible en iPhone");
         assertThat(html).contains("¿QR expirado?");
         assertThat(html).contains("Solicitar uno nuevo");
     }
