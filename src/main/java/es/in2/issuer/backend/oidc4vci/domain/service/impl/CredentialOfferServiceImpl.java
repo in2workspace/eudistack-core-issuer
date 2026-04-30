@@ -101,9 +101,8 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                 .flatMap(walletUrl -> emailService.sendCredentialOfferEmail(
                         emailInfo.email(),
                         CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
-                        credentialOfferUri,
+                        buildWalletDeepLink(credentialOfferUri, walletUrl),
                         refreshUrl,
-                        walletUrl,
                         emailInfo.organization(),
                         null
                 ));
@@ -115,9 +114,8 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                 .flatMap(walletUrl -> emailService.sendBrandedCredentialOfferEmail(
                         emailInfo.email(),
                         CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
-                        credentialOfferUri,
+                        buildWalletDeepLink(credentialOfferUri, walletUrl),
                         refreshUrl,
-                        walletUrl,
                         emailInfo.organization()
                 ));
     }
