@@ -169,7 +169,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                             buildResult, enrichedWithStatus,
                                                             request.email(), originalDelivery, finalStatus);
                                                     return issuanceService.saveIssuance(issuance)
-                                                            .doOnSuccess(saved -> log.info(
+                                                            .doOnSuccess(saved -> log.debug(
                                                                     "ProcessId: {} - Direct issuance saved: {} status={}",
                                                                     processId, saved.getIssuanceId(), finalStatus))
                                                             .thenReturn(IssuanceResponse.builder()
@@ -193,7 +193,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                             buildResult, request.email(), oid4vciDelivery);
 
                     return issuanceService.saveIssuance(issuance)
-                            .doOnSuccess(saved -> log.info("ProcessId: {} - Created OID4VCI issuance: {}", processId, saved.getIssuanceId()))
+                            .doOnSuccess(saved -> log.debug("ProcessId: {} - Created OID4VCI issuance: {}", processId, saved.getIssuanceId()))
                             .flatMap(saved -> credentialOfferService.createAndDeliverCredentialOffer(
                                             saved.getIssuanceId().toString(), configId, grantType, request.email(),
                                             oid4vciDelivery, saved.getCredentialOfferRefreshToken(),
