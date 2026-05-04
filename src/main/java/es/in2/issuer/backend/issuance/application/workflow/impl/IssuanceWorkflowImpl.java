@@ -87,7 +87,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
             String publicIssuerBaseUrl) {
 
         String delivery = request.delivery() != null ? request.delivery() : DEFAULT_DELIVERY;
-        String safeDelivery = stripDirectMode(delivery);
+        String safeDelivery = keepOnlyOid4vciDeliveryModes(delivery);
 
         return validateRequest(request, null)
                 .then(Mono.defer(() -> payloadSchemaValidator.validate(request.credentialConfigurationId(), request.payload())))
@@ -116,10 +116,24 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         Mono<IssuanceResponse> directMono = hasDirect
                 ? performDirectIssuance(processId, request, idToken, publicIssuerBaseUrl, delivery)
+                .doOnError(e -> log.error(
+                        "ProcessId: {} - Direct issuance failed for credentialConfigurationId={} delivery={}",
+                        processId,
+                        request.credentialConfigurationId(),
+                        delivery,
+                        e
+                ))
                 : Mono.just(IssuanceResponse.builder().build());
 
         Mono<IssuanceResponse> oid4vciMono = hasOid4vci
                 ? performOid4VciIssuance(processId, request, publicIssuerBaseUrl, extractOid4vciDelivery(modes))
+                .doOnError(e -> log.error(
+                        "ProcessId: {} - OID4VCI issuance failed for credentialConfigurationId={} delivery={}",
+                        processId,
+                        request.credentialConfigurationId(),
+                        extractOid4vciDelivery(modes),
+                        e
+                ))
                 : Mono.just(IssuanceResponse.builder().build());
 
         return Mono.zip(directMono, oid4vciMono, (direct, oid4vci) ->
@@ -257,11 +271,19 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 .collect(Collectors.joining(","));
     }
 
-    private String stripDirectMode(String delivery) {
-        return DeliveryMode.parse(delivery).stream()
+    private String keepOnlyOid4vciDeliveryModes(String delivery) {
+        String oid4vciDelivery = DeliveryMode.parse(delivery).stream()
                 .filter(m -> m.isOid4vci)
                 .map(m -> m.value)
                 .collect(Collectors.joining(","));
+
+        if (oid4vciDelivery.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Bootstrap issuance requires at least one OID4VCI delivery mode."
+            );
+        }
+
+        return oid4vciDelivery;
     }
 
     private boolean requiresIdToken(CredentialProfile profile) {

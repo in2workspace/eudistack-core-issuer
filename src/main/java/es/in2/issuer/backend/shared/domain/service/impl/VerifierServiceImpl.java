@@ -77,8 +77,10 @@ public class VerifierServiceImpl implements VerifierService {
                         signedJWT = SignedJWT.parse(accessToken);
                         claims = signedJWT.getJWTClaimsSet();
                     } catch (ParseException e) {
-                        log.error("Error parsing JWT");
-                        return Mono.error(new JWTParsingException("Error parsing JWT"));
+                        log.error("Error parsing JWT", e);
+                        JWTParsingException jwtParsingException = new JWTParsingException("Error parsing JWT");
+                        jwtParsingException.initCause(e);
+                        return Mono.error(jwtParsingException);
                     }
 
                     // Iss is validated upstream by CustomAuthenticationManager

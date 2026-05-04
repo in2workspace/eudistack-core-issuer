@@ -21,7 +21,11 @@ public enum DeliveryMode {
     }
 
     public static Set<DeliveryMode> parse(String delivery) {
-        return Arrays.stream(delivery.split(","))
+        if (delivery == null || delivery.isBlank()) {
+            throw new IllegalArgumentException("Delivery mode must not be null or blank");
+        }
+
+        Set<DeliveryMode> modes = Arrays.stream(delivery.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .map(s -> Arrays.stream(values())
@@ -29,5 +33,11 @@ public enum DeliveryMode {
                         .findFirst()
                         .orElseThrow(() -> new IllegalArgumentException("Unknown delivery mode: " + s)))
                 .collect(Collectors.toSet());
+
+        if (modes.isEmpty()) {
+            throw new IllegalArgumentException("At least one delivery mode is required");
+        }
+
+        return modes;
     }
 }

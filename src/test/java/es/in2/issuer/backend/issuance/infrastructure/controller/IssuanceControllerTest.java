@@ -80,7 +80,7 @@ class IssuanceControllerTest {
     private TenantRegistryService tenantRegistryService;
 
     @MockitoBean
-    private UrlResolver urlResolver;;
+    private UrlResolver urlResolver;
 
     @Test
     void createIssuance_WhenCredentialOfferUriIsPresent_Returns200WithBody() throws JsonProcessingException {
