@@ -123,6 +123,7 @@ public class EmailServiceImpl implements EmailService {
                     context.setVariable("organization", organization);
                     context.setVariable("qrImageCid", "cid:qr-credential-offer.png");
                     context.setVariable("walletDeepLink", walletDeepLink);
+                    context.setVariable("walletInstallUrl", walletUrl.endsWith("/") ? walletUrl : walletUrl + "/");
                     context.setVariable("reissueUrl", reissueUrl);
                     if (txCode != null) {
                         context.setVariable("txCode", txCode);
