@@ -11,7 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - UI QR credential offer now returns HTTPS wallet URL instead of openid-credential-offer://
-- Consolidated buildWalletDeepLink conversion into CredentialOfferServiceImpl, removing duplicate URL conversion logic from EmailServiceImpl.
 
 ## [3.6.6] - 2026-04-30
 
