@@ -470,6 +470,46 @@ class MaskingPatternLayoutTest {
         // Assert
         assertThat(result).isEqualTo(plainMessage);
     }
+
+    // ─── Regression: false-positive fixes ────────────────────────────────────
+
+    @Test
+    void mask_KeyNameContainingSecretAsSubstring_NotMasked() {
+        // Arrange – "notsecret=value": the word boundary must prevent matching 'secret' mid-word
+        String input = "notsecret=sensitiveValue";
+
+        // Act
+        String result = MaskingPatternLayout.mask(input);
+
+        // Assert
+        assertThat(result).isEqualTo(input);
+    }
+
+    @Test
+    void mask_PaddedJwtWithEqualsSign_MasksJwt() {
+        // Arrange – base64url segments that include '=' padding characters
+        String paddedJwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzIn0=.SflKxwRJSMeKKF2QT4fw==";
+
+        // Act
+        String result = MaskingPatternLayout.mask(paddedJwt);
+
+        // Assert
+        assertThat(result)
+                .isEqualTo(REPLACEMENT)
+                .doesNotContain("eyJhbGciOiJSUzI1NiJ9");
+    }
+
+    @Test
+    void mask_EyJPrefixWithoutValidTwoSeparators_NotMasked() {
+        // Arrange – 'eyJ' with only one dot segment should NOT be treated as a JWT
+        String notAJwt = "eyJ.onlyone";
+
+        // Act
+        String result = MaskingPatternLayout.mask(notAJwt);
+
+        // Assert
+        assertThat(result).isEqualTo(notAJwt);
+    }
 }
 
 

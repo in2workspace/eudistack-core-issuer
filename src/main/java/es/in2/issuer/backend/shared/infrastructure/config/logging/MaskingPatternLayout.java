@@ -16,16 +16,19 @@ public class MaskingPatternLayout extends PatternLayout {
             new AbstractMap.SimpleImmutableEntry<>(
                     Pattern.compile("[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}"),
                     REPLACEMENT),
+            // Require non-empty segments (+) and allow base64url padding (=)
             new AbstractMap.SimpleImmutableEntry<>(
-                    Pattern.compile("eyJ[a-zA-Z0-9_\\-]*\\.[a-zA-Z0-9_\\-]*\\.[a-zA-Z0-9_\\-]*"),
+                    Pattern.compile("eyJ[a-zA-Z0-9_\\-=]+\\.[a-zA-Z0-9_\\-=]+\\.[a-zA-Z0-9_\\-=]+"),
                     REPLACEMENT),
             new AbstractMap.SimpleImmutableEntry<>(
                     Pattern.compile("(?i)(Bearer\\s+)\\S+"),
                     "$1" + REPLACEMENT),
+            // (?<!\\w) prevents matching key names that are substrings of larger words (e.g. notsecret=).
+            // client_secret is listed before secret to avoid premature alternation short-circuit.
             new AbstractMap.SimpleImmutableEntry<>(
                     Pattern.compile(
-                            "(?i)(\"?(?:tx_code|access_token|refresh_token|password"
-                                    + "|secret|client_secret)\"?\\s*[:=]\\s*\"?)([^\"&\\s,}]+)"),
+                            "(?i)(?<!\\w)(\"?(?:tx_code|access_token|refresh_token|password"
+                                    + "|client_secret|secret)\"?\\s*[:=]\\s*\"?)([^\"&\\s,}]+)"),
                     "$1" + REPLACEMENT)
     );
 

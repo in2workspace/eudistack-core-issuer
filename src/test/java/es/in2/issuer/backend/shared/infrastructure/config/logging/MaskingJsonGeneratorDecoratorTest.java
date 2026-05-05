@@ -5,8 +5,6 @@ import net.logstash.logback.mask.ValueMasker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Field;
-import java.util.List;
 
 import static es.in2.issuer.backend.shared.infrastructure.config.logging.MaskingPatternLayout.REPLACEMENT;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,17 +19,9 @@ class MaskingJsonGeneratorDecoratorTest {
     private ValueMasker piiValueMasker;
 
     @BeforeEach
-    void setUp() throws Exception {
-        // Arrange (shared): instantiate decorator and extract the private PiiValueMasker
-        MaskingJsonGeneratorDecorator decorator = new MaskingJsonGeneratorDecorator();
-
-        Field valueMaskersField = net.logstash.logback.mask.MaskingJsonGeneratorDecorator.class
-                .getDeclaredField("valueMaskers");
-        valueMaskersField.setAccessible(true);
-
-        @SuppressWarnings("unchecked")
-        List<ValueMasker> maskers = (List<ValueMasker>) valueMaskersField.get(decorator);
-        piiValueMasker = maskers.getFirst();
+    void setUp() {
+        // Arrange (shared): obtain masker via package-private factory – no reflection needed
+        piiValueMasker = MaskingJsonGeneratorDecorator.newPiiValueMasker();
     }
 
     // ─── Constructor ──────────────────────────────────────────────────────────
@@ -44,21 +34,6 @@ class MaskingJsonGeneratorDecoratorTest {
         assertThatCode(MaskingJsonGeneratorDecorator::new).doesNotThrowAnyException();
     }
 
-    @Test
-    void constructor_WhenInstantiated_RegistersExactlyOnePiiValueMasker() throws Exception {
-        // Arrange
-        MaskingJsonGeneratorDecorator decorator = new MaskingJsonGeneratorDecorator();
-        Field field = net.logstash.logback.mask.MaskingJsonGeneratorDecorator.class
-                .getDeclaredField("valueMaskers");
-        field.setAccessible(true);
-
-        // Act
-        @SuppressWarnings("unchecked")
-        List<ValueMasker> maskers = (List<ValueMasker>) field.get(decorator);
-
-        // Assert
-        assertThat(maskers).hasSize(1);
-    }
 
     // ─── PiiValueMasker – non-String values ──────────────────────────────────
 

@@ -10,6 +10,10 @@ public class MaskingJsonGeneratorDecorator
         addValueMasker(new PiiValueMasker());
     }
 
+    static ValueMasker newPiiValueMasker() {
+        return new PiiValueMasker();
+    }
+
     private static final class PiiValueMasker implements ValueMasker {
 
         @Override
