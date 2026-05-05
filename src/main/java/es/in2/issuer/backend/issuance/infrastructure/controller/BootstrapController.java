@@ -66,7 +66,7 @@ public class BootstrapController {
             log.info("[{}] Bootstrap issuance initiated for tenant '{}'", processId, tenant);
 
             return issuanceWorkflow
-                    .issueCredentialWithoutAuthorization(processId, request.toIssuanceRequest(), publicIssuerBaseUrl)
+                    .issueCredentialWithoutAuthorization(processId, request.toIssuanceRequest(), bootstrapToken, publicIssuerBaseUrl)
                     .<ResponseEntity<Void>>map(response -> {
                         if (response.credentialOfferUri() != null) {
                             return ResponseEntity.created(URI.create(response.credentialOfferUri())).build();
