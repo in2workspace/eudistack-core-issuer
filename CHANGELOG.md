@@ -6,15 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-<<<<<<< fix/logback-masking-filter
-## [3.6.8] - 2026-05-05
+## [3.6.9] - 2026-05-05
 
 ### Added
 
 - Centralized regex-based masking to prevent leakage of PII and secrets in logs.
 
-## [3.6.7] - 2026-05-04
-=======
 ## [3.6.8] - 2026-05-04
 
 ### Added
@@ -31,7 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - When mapping W3C credentials, `credentialSubject.id` is no longer overwritten if already present.
 
 ## [3.6.7] - 2026-04-30
->>>>>>> release
 
 ### Fixed
 
