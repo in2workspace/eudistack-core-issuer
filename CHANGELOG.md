@@ -6,6 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<<<<<<< fix/logback-masking-filter
 ## [3.6.8] - 2026-05-05
 
 ### Added
@@ -13,6 +14,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Centralized regex-based masking to prevent leakage of PII and secrets in logs.
 
 ## [3.6.7] - 2026-05-04
+=======
+## [3.6.8] - 2026-05-04
+
+### Added
+
+- Direct delivery issuance: the credential is signed and returned immediately at issuance time.
+
+### Changed
+
+- The `delivery` parameter in the issuance request is expected to be a comma-separated string, e.g. `"email,direct"`.
+
+### Fixed
+
+- The `proof` parameter is no longer required by default; it is required only when cryptographic binding is requested.
+- When mapping W3C credentials, `credentialSubject.id` is no longer overwritten if already present.
+
+## [3.6.7] - 2026-04-30
+>>>>>>> release
 
 ### Fixed
 

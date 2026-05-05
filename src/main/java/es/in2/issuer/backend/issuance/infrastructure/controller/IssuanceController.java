@@ -128,10 +128,15 @@ public class IssuanceController {
     }
 
     private ResponseEntity<IssuanceResponse> toResponseEntity(IssuanceResponse response) {
-        if (response.credentialOfferUri() != null) {
+        boolean hasSignedCredential = response.signedCredential() != null;
+        boolean hasCredentialOfferUri = response.credentialOfferUri() != null;
+        log.debug("Issuance process completed. Signed Credential present: {}, Credential Offer URI present: {}", hasSignedCredential, hasCredentialOfferUri);
+
+        if (hasSignedCredential || hasCredentialOfferUri) {
             return ResponseEntity.ok(response);
         }
-        return ResponseEntity.status(HttpStatus.ACCEPTED).build();
+
+        return ResponseEntity.accepted().build();
     }
 
 }
