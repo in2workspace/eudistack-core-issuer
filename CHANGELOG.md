@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.7] - 2026-05-05
+
+### Changed
+
+- **Credential offer email v2**: Simplified steps assuming Wallet is already installed — removed download steps, replaced with open Wallet → scan QR with Wallet scanner → confirm. Removed "Open in Wallet" button section.
+- **i18n**: Updated `step1-v2`, `step2-v2`, `step3-v2` keys and added `*-detail-v2` variants in `messages.properties` and `messages_es.properties`. Removed `step4-v2` and `wallet-hint-v2`.
+
 ## [3.6.6] - 2026-04-30
 
 ### Changed
