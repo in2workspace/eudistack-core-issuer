@@ -18,7 +18,6 @@ import reactor.test.StepVerifier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -39,6 +38,8 @@ class EmailServiceImplTest {
         );
         lenient().when(tenantConfigService.getStringOrThrow("issuer.mail_from"))
                 .thenReturn(Mono.just("noreply@example.com"));
+        lenient().when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
+                .thenReturn(Mono.just("https://wallet.example.com"));
         lenient().when(translationService.getLocale()).thenReturn("en");
         lenient().when(translationService.translate(any(String.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
@@ -77,8 +78,8 @@ class EmailServiceImplTest {
         // Act
         StepVerifier.create(emailService.sendCredentialOfferEmail(
                 "to@example.com", "subject.key",
-                "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fexample.com",
-                "https://example.com/reissue", "https://wallet.example.com",
+                "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fexample.com",
+                "https://example.com/reissue",
                 "ACME Corp", "TX123"
         )).verifyComplete();
 
@@ -102,8 +103,8 @@ class EmailServiceImplTest {
         // Act & Assert
         StepVerifier.create(emailService.sendCredentialOfferEmail(
                 "to@example.com", "subject.key",
-                "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fexample.com",
-                "https://example.com/reissue", "https://wallet.example.com",
+                "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fexample.com",
+                "https://example.com/reissue",
                 "ACME Corp", null
         )).verifyComplete();
 
@@ -119,8 +120,8 @@ class EmailServiceImplTest {
         // Act & Assert
         StepVerifier.create(emailService.sendCredentialOfferEmail(
                 "to@example.com", "subject.key",
-                "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fexample.com",
-                "https://example.com/reissue", "https://wallet.example.com",
+                "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fexample.com",
+                "https://example.com/reissue",
                 "ACME Corp", "TX123"
         )).expectError(RuntimeException.class)
                 .verify();
@@ -234,17 +235,15 @@ class EmailServiceImplTest {
         when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
         when(templateEngine.process(eq("credential-offer-email-v2"), any(Context.class))).thenReturn("<html>v2</html>");
 
-        String credentialOfferUri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fcredential-offer%2Fnonce";
-        String walletUrl = "https://wallet.example.com";
+        String walletDeepLink = "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fcredential-offer%2Fnonce";
         String reissueUrl = "https://issuer.example.com/credential-offer/refresh/abc";
 
         // Act
         StepVerifier.create(emailService.sendBrandedCredentialOfferEmail(
                 "user@kpmg.com",
                 "email.activation.subject",
-                credentialOfferUri,
+                walletDeepLink,
                 reissueUrl,
-                walletUrl,
                 "KPMG Spain"
         )).verifyComplete();
 
@@ -256,10 +255,7 @@ class EmailServiceImplTest {
         assertEquals("KPMG Spain", ctx.getVariable("organization"));
         assertEquals("cid:qr-credential-offer.png", ctx.getVariable("qrImageCid"));
         assertEquals(reissueUrl, ctx.getVariable("reissueUrl"));
-        // walletDeepLink must be an HTTPS URL built by buildWalletDeepLink, not the raw openid-credential-offer:// URI
-        String walletDeepLink = (String) ctx.getVariable("walletDeepLink");
-        assertTrue(walletDeepLink.startsWith("https://wallet.example.com/protocol/callback"),
-                "walletDeepLink should be an HTTPS callback URL, was: " + walletDeepLink);
+        assertEquals(walletDeepLink, ctx.getVariable("walletDeepLink"));
     }
 
     @Test
@@ -271,9 +267,8 @@ class EmailServiceImplTest {
         StepVerifier.create(emailService.sendBrandedCredentialOfferEmail(
                 "user@kpmg.com",
                 "email.activation.subject",
-                "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fcredential-offer%2Fnonce",
+                "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fcredential-offer%2Fnonce",
                 "https://issuer.example.com/credential-offer/refresh/abc",
-                "https://wallet.example.com",
                 "KPMG Spain"
         )).expectError(RuntimeException.class)
                 .verify();

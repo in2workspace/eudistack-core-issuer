@@ -6,11 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.6.7] - 2026-05-05
+## [3.6.8] - 2026-05-05
 
 ### Added
+
 - Centralized regex-based masking to prevent leakage of PII and secrets in logs.
 - Unit tests to verify correct masking of email addresses, JWTs, and generic secrets.
+
+## [3.6.7] - 2026-05-04
+
+### Fixed
+
+- UI QR credential offer now returns HTTPS wallet URL instead of openid-credential-offer://
 
 ## [3.6.6] - 2026-04-30
 
