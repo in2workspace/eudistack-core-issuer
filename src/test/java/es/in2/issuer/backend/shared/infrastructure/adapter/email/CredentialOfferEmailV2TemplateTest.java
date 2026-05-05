@@ -55,15 +55,14 @@ class CredentialOfferEmailV2TemplateTest {
         assertThat(html).contains("Spring Meeting 2026");
         assertThat(html).contains("Hello,");
         assertThat(html).contains("KPMG Spain has issued your credential");
-        assertThat(html).contains("How to activate your credential");
-        assertThat(html).contains("Download Wallet");
-        assertThat(html).contains("Open the app on your device");
-        assertThat(html).contains("Scan the QR code below");
-        assertThat(html).contains("Activate the credential and add it to your Wallet");
+        assertThat(html).contains("How to add the credential to your Wallet");
+        assertThat(html).contains("Open Wallet on your device");
+        assertThat(html).contains("Launch the Wallet app you already have installed.");
+        assertThat(html).contains("Scan the QR code with the Wallet scanner");
+        assertThat(html).contains("Use the QR scanner inside the Wallet app. Do not use your device camera.");
+        assertThat(html).contains("Confirm to add the credential");
+        assertThat(html).contains("Follow the on-screen instructions to complete the process.");
         assertThat(html).contains("This QR code is valid for 10 minutes");
-        assertThat(html).contains("On a mobile device? Open it directly in your Wallet");
-        assertThat(html).contains("Not available on iPhone");
-        assertThat(html).contains("Open in Wallet");
         assertThat(html).contains("QR code expired?");
         assertThat(html).contains("Request a new one");
     }
@@ -79,12 +78,13 @@ class CredentialOfferEmailV2TemplateTest {
         assertThat(html).contains("Encuentro de Primavera 2026");
         assertThat(html).contains("Hola,");
         assertThat(html).contains("KPMG España ha emitido tu credencial");
-        assertThat(html).contains("Cómo activar tu credencial");
-        assertThat(html).contains("Descarga Wallet");
-        assertThat(html).contains("Abre la aplicación en tu dispositivo");
-        assertThat(html).contains("Escanea el código QR de abajo");
-        assertThat(html).contains("Activa la credencial");
-        assertThat(html).contains("No disponible en iPhone");
+        assertThat(html).contains("Cómo añadir la credencial a tu Wallet");
+        assertThat(html).contains("Abre Wallet en tu dispositivo");
+        assertThat(html).contains("Lanza la app Wallet que ya tienes instalada.");
+        assertThat(html).contains("Escanea el código QR con el escáner de Wallet");
+        assertThat(html).contains("Usa el escáner QR dentro de la app Wallet. No uses la cámara del dispositivo.");
+        assertThat(html).contains("Confirma para añadir la credencial");
+        assertThat(html).contains("Sigue las instrucciones en pantalla para completar el proceso.");
         assertThat(html).contains("¿QR expirado?");
         assertThat(html).contains("Solicitar uno nuevo");
     }
@@ -114,7 +114,7 @@ class CredentialOfferEmailV2TemplateTest {
     }
 
     @Test
-    void render_walletDeepLinkAndReissueUrl_appearInHrefAttributes() {
+    void render_reissueUrl_appearsInHrefAttribute() {
         String walletDeepLink = "https://wallet.example.com/callback?credential_offer_uri=https%3A%2F%2Fexample.com";
         String reissueUrl = "https://issuer.example.com/credential-offer/refresh/mytoken";
 
@@ -122,7 +122,6 @@ class CredentialOfferEmailV2TemplateTest {
 
         String html = templateEngine.process("credential-offer-email-v2", ctx);
 
-        assertThat(html).contains("href=\"" + walletDeepLink + "\"");
         assertThat(html).contains("href=\"" + reissueUrl + "\"");
     }
 
