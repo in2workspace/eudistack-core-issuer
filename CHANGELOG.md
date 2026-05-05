@@ -11,7 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Centralized regex-based masking to prevent leakage of PII and secrets in logs.
-- Unit tests to verify correct masking of email addresses, JWTs, and generic secrets.
 
 ## [3.6.7] - 2026-05-04
 
