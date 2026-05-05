@@ -104,8 +104,10 @@ public class GenericCredentialBuilder {
             credentialSubjectNode = objectMapper.createObjectNode();
             credentialSubjectNode.set("mandate", payload);
         }
-        // W3C VCDM 2.0: credentialSubject.id is required for jwt_vc_json
-        credentialSubjectNode.put("id", "urn:uuid:" + UUID.randomUUID());
+        // W3C VCDM 2.0: credentialSubject.id is required for jwt_vc_json; preserve caller-supplied id
+        if (!credentialSubjectNode.has("id")) {
+            credentialSubjectNode.put("id", "urn:uuid:" + UUID.randomUUID());
+        }
         credential.set("credentialSubject", credentialSubjectNode);
 
         credential.put("validFrom", validFrom);
