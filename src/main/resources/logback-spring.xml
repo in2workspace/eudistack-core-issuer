@@ -1,23 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <!-- Console text appender (default, local development) -->
+    <!-- Uses MaskingPatternLayout to redact PII & secrets        -->
     <appender name="CONSOLE_TEXT" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n</pattern>
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="es.in2.issuer.backend.shared.infrastructure.config.logging.MaskingPatternLayout">
+                <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n</pattern>
+            </layout>
         </encoder>
     </appender>
 
-    <!-- Default profile: text logging -->
+    <!-- Default profile: plain-text logging -->
     <springProfile name="!json-logging">
         <root level="info">
             <appender-ref ref="CONSOLE_TEXT"/>
         </root>
     </springProfile>
 
-    <!-- JSON logging profile (production, staging) -->
+    <!-- Uses MaskingJsonGeneratorDecorator on LogstashEncoder    -->
     <springProfile name="json-logging">
         <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
             <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <!-- Redact PII & secrets at the Jackson generator level -->
+                <jsonGeneratorDecorator
+                        class="es.in2.issuer.backend.shared.infrastructure.config.logging.MaskingJsonGeneratorDecorator"/>
                 <includeMdcKeyName>traceId</includeMdcKeyName>
                 <includeMdcKeyName>spanId</includeMdcKeyName>
                 <includeMdcKeyName>audit.event</includeMdcKeyName>
