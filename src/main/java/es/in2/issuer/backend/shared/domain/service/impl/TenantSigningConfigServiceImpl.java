@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -23,13 +25,15 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
 
     private final TenantSigningConfigRepository repository;
     private final Cache<String, RemoteSignatureDto> signatureCache;
+    private final ObjectMapper objectMapper;
 
-    public TenantSigningConfigServiceImpl(TenantSigningConfigRepository repository) {
+    public TenantSigningConfigServiceImpl(TenantSigningConfigRepository repository, ObjectMapper objectMapper) {
         this.repository = repository;
         this.signatureCache = Caffeine.newBuilder()
                 .expireAfterWrite(CACHE_TTL)
                 .maximumSize(50)
                 .build();
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -52,16 +56,19 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
     }
 
     private RemoteSignatureDto toRemoteSignatureDto(TenantSigningConfig config) {
-        JsonNode psc = config.providerSpecificConfig();
-        return new RemoteSignatureDto(
-                psc.path("url").asText(),
-                psc.path("clientId").asText(),
-                psc.path("clientSecret").asText(),
-                psc.path("credentialId").asText(),
-                psc.path("credentialPwd").asText(),
-                psc.path("certCacheTtl").asText(null),
-                psc.hasNonNull("signPath") ? psc.get("signPath").asText() : "sign-hash"
-        );
+        try {
+            JsonNode psc = objectMapper.readTree(config.providerSpecificConfig());
+            return new RemoteSignatureDto(
+                    psc.path("url").asText(),
+                    psc.path("clientId").asText(),
+                    psc.path("clientSecret").asText(),
+                    psc.path("credentialId").asText(),
+                    psc.path("credentialPwd").asText(),
+                    psc.path("certCacheTtl").asText(null),
+                    psc.hasNonNull("signPath") ? psc.get("signPath").asText() : "sign-hash"
+            );
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
     }
-
 }

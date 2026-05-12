@@ -17,7 +17,7 @@ public record TenantSigningConfig(
         String provider,
 
         @Column("provider_specific_config")
-        JsonNode providerSpecificConfig,
+        String providerSpecificConfig,
 
         @Column("created_at")
         Instant createdAt,
