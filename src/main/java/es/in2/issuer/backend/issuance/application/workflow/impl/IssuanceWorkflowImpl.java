@@ -109,7 +109,14 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private Mono<IssuanceResponse> performIssuanceFlow(String processId, IssuanceRequest request, String idToken,
                                                         String publicIssuerBaseUrl, String delivery) {
-        Set<DeliveryMode> modes = DeliveryMode.parse(delivery);
+        Set<DeliveryMode> modes;
+        try {
+            modes = DeliveryMode.parse(delivery);
+        } catch (IllegalArgumentException e) {
+            return Mono.error(new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Invalid delivery mode: " + delivery, e));
+        }
 
         boolean hasDirect  = modes.stream().anyMatch(m -> !m.isOid4vci);
         boolean hasOid4vci = modes.stream().anyMatch(m -> m.isOid4vci);
@@ -174,7 +181,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                 )
                                 .flatMap(enrichedWithStatus ->
                                         credentialSignerWorkflow.signCredential(
-                                                        null, enrichedWithStatus, configId, credentialFormat,
+                                                        token, enrichedWithStatus, configId, credentialFormat,
                                                         null, issuanceId.toString(), request.email())
                                                 .flatMap(signedCredential -> {
                                                     CredentialStatusEnum finalStatus = determineFinalStatus(buildResult);
