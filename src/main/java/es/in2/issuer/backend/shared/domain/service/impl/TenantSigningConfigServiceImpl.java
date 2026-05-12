@@ -2,6 +2,7 @@ package es.in2.issuer.backend.shared.domain.service.impl;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.fasterxml.jackson.databind.JsonNode;
 import es.in2.issuer.backend.shared.domain.model.entities.TenantSigningConfig;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.shared.infrastructure.repository.TenantSigningConfigRepository;
@@ -51,14 +52,15 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
     }
 
     private RemoteSignatureDto toRemoteSignatureDto(TenantSigningConfig config) {
+        JsonNode psc = config.providerSpecificConfig();
         return new RemoteSignatureDto(
-                config.remoteUrl(),
-                config.remoteClientId(),
-                config.remoteClientSecret(),
-                config.remoteCredentialId(),
-                config.remoteCredentialPwd(),
-                config.remoteCertCacheTtl(),
-                config.remoteSignPath() != null ? config.remoteSignPath() : "sign-hash"
+                psc.path("url").asText(),
+                psc.path("clientId").asText(),
+                psc.path("clientSecret").asText(),
+                psc.path("credentialId").asText(),
+                psc.path("credentialPwd").asText(),
+                psc.path("certCacheTtl").asText(null),
+                psc.hasNonNull("signPath") ? psc.get("signPath").asText() : "sign-hash"
         );
     }
 

@@ -76,18 +76,11 @@ CREATE TABLE IF NOT EXISTS tenant_credential_profile (
 -- tenant_signing_config: QTSP configuration per tenant
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS tenant_signing_config (
-    id                      UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-    provider                VARCHAR(100) NOT NULL,
-    remote_type             VARCHAR(50),
-    remote_url              VARCHAR(500),
-    remote_sign_path        VARCHAR(255),
-    remote_client_id        VARCHAR(255),
-    remote_client_secret    VARCHAR(500),
-    remote_credential_id    VARCHAR(255),
-    remote_credential_pwd   VARCHAR(500),
-    remote_cert_cache_ttl   VARCHAR(50)  DEFAULT 'PT10M',
-    created_at              TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    updated_at              TIMESTAMPTZ  NOT NULL DEFAULT now()
+    id                       UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider                 VARCHAR(100) NOT NULL,
+    provider_specific_config JSONB        NOT NULL,
+    created_at               TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at               TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
 -- =============================================================================
