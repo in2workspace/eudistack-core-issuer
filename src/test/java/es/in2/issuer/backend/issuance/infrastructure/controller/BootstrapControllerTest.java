@@ -23,12 +23,14 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import reactor.util.context.Context;
 
+import java.util.Map;
+
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -73,25 +75,81 @@ class BootstrapControllerTest {
         BootstrapRequest request = buildRequest();
         ServerWebExchange exchange = newExchange();
 
-        lenient().when(urlResolver.publicIssuerBaseUrl(any(ServerWebExchange.class))).thenReturn(PUBLIC_BASE_URL);
         when(bootstrapTokenService.consumeIfValid(token)).thenReturn(true);
-        when(issuanceWorkflow.issueCredentialWithoutAuthorization(anyString(), any(IssuanceRequest.class), eq(PUBLIC_BASE_URL)))
-                .thenReturn(Mono.just(IssuanceResponse.builder().credentialOfferUri(credentialOfferUri).build()));
+        when(urlResolver.publicIssuerBaseUrl(exchange)).thenReturn(PUBLIC_BASE_URL);
+        when(issuanceWorkflow.issueCredentialWithoutAuthorization(
+                anyString(),
+                any(IssuanceRequest.class),
+                eq(token),
+                eq(PUBLIC_BASE_URL)))
+                .thenReturn(Mono.just(IssuanceResponse.builder()
+                        .credentialOfferUri(credentialOfferUri)
+                        .build()));
 
         StepVerifier.create(bootstrapController.bootstrapIssueCredential(token, request, exchange)
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, "sandbox")))
                 .assertNext(response -> {
-                    assertEquals(HttpStatus.CREATED, response.getStatusCode());
-                    assertEquals(credentialOfferUri, response.getHeaders().getLocation().toString());
+                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+                    assertThat(response.getHeaders().getLocation()).hasToString(credentialOfferUri);
                 })
                 .verifyComplete();
 
-        ArgumentCaptor<IssuanceRequest> captor = ArgumentCaptor.forClass(IssuanceRequest.class);
+        ArgumentCaptor<String> processIdCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<IssuanceRequest> issuanceRequestCaptor = ArgumentCaptor.forClass(IssuanceRequest.class);
+
         verify(bootstrapTokenService).consumeIfValid(token);
-        verify(issuanceWorkflow).issueCredentialWithoutAuthorization(anyString(), captor.capture(), eq(PUBLIC_BASE_URL));
-        IssuanceRequest forwarded = captor.getValue();
-        assertEquals("learcredential.employee.w3c.4", forwarded.credentialConfigurationId());
-        assertEquals("seed@example.com", forwarded.email());
+        verify(urlResolver).publicIssuerBaseUrl(exchange);
+        verify(auditService).auditSuccess(
+                eq("bootstrap.token.used"),
+                eq(null),
+                eq("bootstrap"),
+                processIdCaptor.capture(),
+                eq(Map.of("tenant", "sandbox")));
+
+        verify(issuanceWorkflow).issueCredentialWithoutAuthorization(
+                eq(processIdCaptor.getValue()),
+                issuanceRequestCaptor.capture(),
+                eq(token),
+                eq(PUBLIC_BASE_URL));
+
+        IssuanceRequest forwarded = issuanceRequestCaptor.getValue();
+
+        assertThat(processIdCaptor.getValue()).isNotBlank();
+        assertThat(forwarded.credentialConfigurationId()).isEqualTo("learcredential.employee.w3c.4");
+        assertThat(forwarded.email()).isEqualTo("seed@example.com");
+    }
+
+    @Test
+    void shouldReturnAcceptedWhenValidTokenAndNoCredentialOfferUri() {
+        String token = "valid-bootstrap-token";
+        BootstrapRequest request = buildRequest();
+        ServerWebExchange exchange = newExchange();
+
+        when(bootstrapTokenService.consumeIfValid(token)).thenReturn(true);
+        when(urlResolver.publicIssuerBaseUrl(exchange)).thenReturn(PUBLIC_BASE_URL);
+        when(issuanceWorkflow.issueCredentialWithoutAuthorization(
+                anyString(),
+                any(IssuanceRequest.class),
+                eq(token),
+                eq(PUBLIC_BASE_URL)))
+                .thenReturn(Mono.just(IssuanceResponse.builder()
+                        .credentialOfferUri(null)
+                        .build()));
+
+        StepVerifier.create(bootstrapController.bootstrapIssueCredential(token, request, exchange)
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, "sandbox")))
+                .assertNext(response ->
+                        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED))
+                .verifyComplete();
+
+        verify(bootstrapTokenService).consumeIfValid(token);
+        verify(urlResolver).publicIssuerBaseUrl(exchange);
+        verify(auditService).auditSuccess(
+                eq("bootstrap.token.used"),
+                eq(null),
+                eq("bootstrap"),
+                anyString(),
+                eq(Map.of("tenant", "sandbox")));
     }
 
     @Test
@@ -100,18 +158,25 @@ class BootstrapControllerTest {
         BootstrapRequest request = buildRequest();
         ServerWebExchange exchange = newExchange();
 
-        lenient().when(urlResolver.publicIssuerBaseUrl(any(ServerWebExchange.class))).thenReturn(PUBLIC_BASE_URL);
         when(bootstrapTokenService.consumeIfValid(token)).thenReturn(true);
+        when(urlResolver.publicIssuerBaseUrl(exchange)).thenReturn(PUBLIC_BASE_URL);
 
         StepVerifier.create(bootstrapController.bootstrapIssueCredential(token, request, exchange))
                 .expectErrorMatches(throwable ->
-                        throwable instanceof ResponseStatusException rse
-                                && rse.getStatusCode() == HttpStatus.BAD_REQUEST
-                                && rse.getReason() != null
-                                && rse.getReason().contains("INVALID_TENANT"))
+                        throwable instanceof ResponseStatusException responseStatusException
+                                && responseStatusException.getStatusCode() == HttpStatus.BAD_REQUEST
+                                && responseStatusException.getReason() != null
+                                && responseStatusException.getReason().contains("INVALID_TENANT"))
                 .verify();
 
-        verify(issuanceWorkflow, never()).issueCredentialWithoutAuthorization(anyString(), any(), anyString());
+        verify(bootstrapTokenService).consumeIfValid(token);
+        verify(urlResolver).publicIssuerBaseUrl(exchange);
+        verify(auditService, never()).auditSuccess(anyString(), any(), anyString(), anyString(), anyMap());
+        verify(issuanceWorkflow, never()).issueCredentialWithoutAuthorization(
+                anyString(),
+                any(IssuanceRequest.class),
+                anyString(),
+                anyString());
     }
 
     @Test
@@ -125,11 +190,20 @@ class BootstrapControllerTest {
         StepVerifier.create(bootstrapController.bootstrapIssueCredential(token, request, exchange)
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, "sandbox")))
                 .expectErrorMatches(throwable ->
-                        throwable instanceof ResponseStatusException rse
-                                && rse.getStatusCode() == HttpStatus.UNAUTHORIZED)
+                        throwable instanceof ResponseStatusException responseStatusException
+                                && responseStatusException.getStatusCode() == HttpStatus.UNAUTHORIZED
+                                && responseStatusException.getReason() != null
+                                && responseStatusException.getReason().contains("Invalid or already consumed bootstrap token"))
                 .verify();
 
-        verify(issuanceWorkflow, never()).issueCredentialWithoutAuthorization(anyString(), any(), anyString());
+        verify(bootstrapTokenService).consumeIfValid(token);
+        verify(urlResolver, never()).publicIssuerBaseUrl(any(ServerWebExchange.class));
+        verify(auditService, never()).auditSuccess(anyString(), any(), anyString(), anyString(), anyMap());
+        verify(issuanceWorkflow, never()).issueCredentialWithoutAuthorization(
+                anyString(),
+                any(IssuanceRequest.class),
+                anyString(),
+                anyString());
     }
 
     @Test
@@ -143,8 +217,17 @@ class BootstrapControllerTest {
         StepVerifier.create(bootstrapController.bootstrapIssueCredential(token, request, exchange)
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, "sandbox")))
                 .expectErrorMatches(throwable ->
-                        throwable instanceof ResponseStatusException rse
-                                && rse.getStatusCode() == HttpStatus.UNAUTHORIZED)
+                        throwable instanceof ResponseStatusException responseStatusException
+                                && responseStatusException.getStatusCode() == HttpStatus.UNAUTHORIZED)
                 .verify();
+
+        verify(bootstrapTokenService).consumeIfValid(token);
+        verify(urlResolver, never()).publicIssuerBaseUrl(any(ServerWebExchange.class));
+        verify(auditService, never()).auditSuccess(anyString(), any(), anyString(), anyString(), anyMap());
+        verify(issuanceWorkflow, never()).issueCredentialWithoutAuthorization(
+                anyString(),
+                any(IssuanceRequest.class),
+                anyString(),
+                anyString());
     }
 }
