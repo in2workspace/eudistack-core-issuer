@@ -6,16 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.6.9] - 2026-05-05
+## [3.6.8] - 2026-05-05
 
 ### Added
 
 - Centralized regex-based masking to prevent leakage of PII and secrets in logs.
-
-## [3.6.8] - 2026-05-04
-
-### Added
-
 - Direct delivery issuance: the credential is signed and returned immediately at issuance time.
 
 ### Changed
@@ -32,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - UI QR credential offer now returns HTTPS wallet URL instead of openid-credential-offer://
+
+### Changed
+
+- **Credential offer email v2**: Simplified steps assuming Wallet is already installed — removed download steps, replaced with open Wallet → scan QR with Wallet scanner → confirm. Removed "Open in Wallet" button section.
+- **i18n**: Updated `step1-v2`, `step2-v2`, `step3-v2` keys and added `*-detail-v2` variants in `messages.properties` and `messages_es.properties`. Removed `step4-v2` and `wallet-hint-v2`.
 
 ## [3.6.6] - 2026-04-30
 
