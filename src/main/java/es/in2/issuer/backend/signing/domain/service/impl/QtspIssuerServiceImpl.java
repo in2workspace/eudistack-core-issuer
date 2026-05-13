@@ -46,7 +46,7 @@ import static es.in2.issuer.backend.signing.domain.util.PathConstants.LIST_PATH;
 public class QtspIssuerServiceImpl implements QtspIssuerService {
 
     private final ObjectMapper objectMapper;
-    private final QtspAuthPort qtspAuthClient;
+    private final QtspAuthPort qtspAuthPort;
     private final ConcurrentMap<String, CacheEntry> certificateInfoCache= new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Mono<String>> certificateInfoInFlight = new ConcurrentHashMap<>();
     private final HttpUtils httpUtils;
@@ -81,7 +81,8 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
     public Mono<Boolean> validateCredentials(RemoteSignatureDto cfg) {
         requireCfg(cfg);
         SigningRequest signatureRequest = SigningRequest.builder().remoteSignature(cfg).build();
-        return qtspAuthClient.requestAccessToken(signatureRequest, SIGNATURE_REMOTE_SCOPE_SERVICE)
+        System.out.println("hola sub1");
+        return qtspAuthPort.requestAccessToken(signatureRequest, SIGNATURE_REMOTE_SCOPE_SERVICE)
                 .flatMap(accessToken -> validateCertificate(cfg, accessToken));
     }
 
@@ -207,7 +208,8 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
                         return Mono.error(new RemoteSignatureException("Credentials mismatch."));
                     }
                     SigningRequest req = SigningRequest.builder().remoteSignature(cfg).build();
-                    return qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_SERVICE)
+                    System.out.println("hola sub2");
+                    return qtspAuthPort.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_SERVICE)
                             .flatMap(token -> requestCertificateInfo(cfg, token, cfg.credentialId()))
                             .flatMap(this::extractIssuerFromCertificateInfo);
                 });

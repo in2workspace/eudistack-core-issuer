@@ -40,7 +40,12 @@ class QtspIssuerServiceImplTest {
                 "clientId", "clientSecret",
                 "credId", "pwd",
                 "PT10M",
-                "sign-hash"
+                "sign-hash",
+                "",
+                "",
+                "",
+                "",
+                ""
         );
 
         qtspIssuerService = new QtspIssuerServiceImpl(
@@ -136,7 +141,12 @@ class QtspIssuerServiceImplTest {
                 "clientId", "clientSecret",
                 "EXPECTED_ID", "pwd",
                 "PT10M",
-                "sign-hash"
+                "sign-hash",
+                "",
+                "",
+                "",
+                "",
+                ""
         );
 
         when(qtspAuthClient.requestAccessToken(any(SigningRequest.class), anyString()))

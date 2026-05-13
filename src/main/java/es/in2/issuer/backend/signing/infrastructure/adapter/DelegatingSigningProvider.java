@@ -29,6 +29,7 @@ public class DelegatingSigningProvider implements SigningProvider {
 
     public static final String OP_SIGN_HASH = "sign-hash";
     public static final String OP_SIGN_DOC = "sign-doc";
+    public static final String OP_VINTEGRIS_SIGN_HASH = "vintegris-sign-hash";
 
     private final Map<String, SigningProvider> providersByOperation;
     private final TenantSigningConfigService tenantSigningConfigService;
@@ -46,6 +47,9 @@ public class DelegatingSigningProvider implements SigningProvider {
                                 "signingOperation is required in the QTSP configuration. " +
                                 "Set it to 'sign-hash' or 'sign-doc'."));
                     }
+
+                    log.info("Hola signature configuration: {}", cfg);
+                    System.out.println("Hola signature configuration: " + cfg);
 
                     operation = operation.trim().toLowerCase();
                     SigningProvider delegate = providersByOperation.get(operation);

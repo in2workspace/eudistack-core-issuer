@@ -12,6 +12,7 @@ import es.in2.issuer.backend.signing.infrastructure.adapter.CscSignHashSigningPr
 import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningProperties;
 import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
+import es.in2.issuer.backend.signing.infrastructure.qtsp.vintegris.VintegrisAuthClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -32,6 +33,7 @@ class SigningProviderConfigTest {
     @Mock private JwsSignHashService jwsSignHashService;
     @Mock private JadesHeaderBuilderService jadesHeaderBuilder;
     @Mock private CscSigningProperties cscSigningProperties;
+    @Mock private VintegrisAuthClient  vintegrisAuthClient;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -40,6 +42,7 @@ class SigningProviderConfigTest {
                 tenantSigningConfigService,
                 remoteSignatureService,
                 qtspAuthClient,
+                vintegrisAuthClient,
                 qtspIssuerService,
                 jwsSignHashService,
                 jadesHeaderBuilder,
@@ -59,7 +62,7 @@ class SigningProviderConfigTest {
                 (Map<String, SigningProvider>) ReflectionTestUtils.getField(provider, "providersByOperation");
 
         assertNotNull(providersByOperation);
-        assertEquals(2, providersByOperation.size());
+        assertEquals(3, providersByOperation.size());
         assertTrue(providersByOperation.containsKey(DelegatingSigningProvider.OP_SIGN_HASH));
         assertTrue(providersByOperation.containsKey(DelegatingSigningProvider.OP_SIGN_DOC));
 
@@ -79,7 +82,7 @@ class SigningProviderConfigTest {
         assertSame(remoteSignatureService, ReflectionTestUtils.getField(cscDoc, "remoteSignatureService"));
 
         Object cscHash = providersByOperation.get(DelegatingSigningProvider.OP_SIGN_HASH);
-        assertSame(qtspAuthClient, ReflectionTestUtils.getField(cscHash, "qtspAuthClient"));
+        assertSame(qtspAuthClient, ReflectionTestUtils.getField(cscHash, "qtspAuthPort"));
         assertSame(qtspIssuerService, ReflectionTestUtils.getField(cscHash, "qtspIssuerService"));
         assertSame(jwsSignHashService, ReflectionTestUtils.getField(cscHash, "jwsSignHashService"));
         assertSame(jadesHeaderBuilder, ReflectionTestUtils.getField(cscHash, "jadesHeaderBuilder"));

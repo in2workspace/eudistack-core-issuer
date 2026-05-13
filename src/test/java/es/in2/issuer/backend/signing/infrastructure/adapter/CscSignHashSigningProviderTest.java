@@ -44,7 +44,12 @@ class CscSignHashSigningProviderTest {
         return new RemoteSignatureDto(
                 "https://qtsp.example.com",
                 "client", "secret", "cred-123", "password", "PT10M",
-                "sign-hash"
+                "sign-hash",
+                "",
+                "sign-hash",
+                "",
+                "",
+                ""
         );
     }
 

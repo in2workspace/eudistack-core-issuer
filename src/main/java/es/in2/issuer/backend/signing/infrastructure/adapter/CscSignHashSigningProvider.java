@@ -11,11 +11,11 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.service.JadesHeaderBuilderService;
 import es.in2.issuer.backend.signing.domain.service.JwsSignHashService;
+import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.domain.spi.SigningRequestValidator;
 import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
 import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningProperties;
-import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
@@ -29,7 +29,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOT
 @RequiredArgsConstructor
 public class CscSignHashSigningProvider implements SigningProvider {
 
-    private final QtspAuthClient qtspAuthClient;
+    private final QtspAuthPort qtspAuthPort;
     private final QtspIssuerService qtspIssuerService;
     private final JwsSignHashService jwsSignHashService;
     private final JadesHeaderBuilderService jadesHeaderBuilder;
@@ -47,11 +47,14 @@ public class CscSignHashSigningProvider implements SigningProvider {
 
             JadesProfile profile = cscSigningProperties.signatureProfile();
             RemoteSignatureDto cfg = request.remoteSignature();
+            log.info("Hola 2 sign hash");
+            System.out.println("HOllaaa 2 - La request: " + request);
             if (cfg == null) {
                 return Mono.error(new SigningException("SigningRequest.remoteSignature is null — tenant QTSP config missing"));
             }
 
-            return qtspAuthClient.requestAccessToken(request, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, false)
+            System.out.println("hola csc-sign-hash");
+            return qtspAuthPort.requestAccessToken(request, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, false)
                     .flatMap(accessToken ->
                             qtspIssuerService.requestCertificateInfo(cfg, accessToken, cfg.credentialId())
                                     .flatMap(this::parseJsonToMap)

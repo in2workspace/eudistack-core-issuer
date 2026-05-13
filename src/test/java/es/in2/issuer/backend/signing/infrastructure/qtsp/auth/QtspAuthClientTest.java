@@ -49,7 +49,12 @@ class QtspAuthClientTest {
                 "cred-id",
                 "pwd",
                 "PT10M",
-                "sign-hash"
+                "sign-hash",
+                "",
+                "sign-hash",
+                "",
+                "",
+                ""
         );
     }
 

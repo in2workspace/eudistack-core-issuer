@@ -28,6 +28,8 @@ public class CscSignDocSigningProvider implements SigningProvider {
             String issuanceId = ctx.issuanceId();
             String email = ctx.email();
 
+            System.out.println("Hola 2 signdoc");
+
             boolean isIssued = issuanceId != null && !issuanceId.isBlank();
 
             log.debug("Signing request received. type={}, issued={}, issuanceId={}",

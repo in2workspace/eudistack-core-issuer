@@ -50,6 +50,7 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
                     .map(this::toRemoteSignatureDto)
                     .doOnNext(dto -> {
                         signatureCache.put(tenant, dto);
+                        System.out.println("hola tenant signing config: " + dto);
                         log.debug("Loaded tenant signing config for '{}': provider at {}", tenant, dto.url());
                     });
         });
@@ -65,7 +66,12 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
                     psc.path("credentialId").asText(),
                     psc.path("credentialPwd").asText(),
                     psc.path("certCacheTtl").asText(null),
-                    psc.hasNonNull("signPath") ? psc.get("signPath").asText() : "sign-hash"
+                    psc.hasNonNull("signPath") ? psc.get("signPath").asText() : "sign-hash",
+                    psc.path("applicationName").asText(),
+                    psc.path("qtspTenantId").asText(),
+                    psc.path("appId").asText(),
+                    psc.path("accessKey").asText(),
+                    psc.path("managerId").asText()
             );
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);

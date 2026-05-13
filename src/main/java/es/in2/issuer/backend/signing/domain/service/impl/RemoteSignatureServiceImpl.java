@@ -182,6 +182,7 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
 
     public Mono<String> getSignedDocumentExternal(SigningRequest signingRequest) {
         log.info("Requesting signature to external service");
+        System.out.println("hola sub3");
         return qtspAuthClient.requestAccessToken(signingRequest, SIGNATURE_REMOTE_SCOPE_CREDENTIAL)
                 .flatMap(accessToken -> requestSad(signingRequest, accessToken)
                         .flatMap(sad -> sendSigningRequest(signingRequest, accessToken, sad)

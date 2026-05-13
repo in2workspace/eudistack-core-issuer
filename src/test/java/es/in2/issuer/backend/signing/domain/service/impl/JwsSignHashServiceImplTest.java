@@ -34,7 +34,12 @@ class JwsSignHashServiceImplTest {
                 "client", "secret",
                 "cred", "pwd",
                 "PT10M",
-                "sign-hash"
+                "sign-hash",
+                "",
+                "",
+                "",
+                "",
+                ""
         );
     }
 

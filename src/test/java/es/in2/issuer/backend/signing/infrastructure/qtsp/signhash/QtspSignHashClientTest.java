@@ -39,7 +39,12 @@ class QtspSignHashClientTest {
                 "clientId", "clientSecret",
                 "cred-123", "pwd",
                 "PT10M",
-                "sign-hash"
+                "sign-hash",
+                "",
+                "sign-hash",
+                "",
+                "",
+                ""
         );
     }
 

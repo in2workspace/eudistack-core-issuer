@@ -48,6 +48,7 @@ public class QtspAuthClient implements QtspAuthPort {
     }
 
     public Mono<String> requestAccessToken(SigningRequest signingRequest, String scope) {
+        System.out.println("hola sí mateix");
         return requestAccessToken(signingRequest, scope, true);
     }
 

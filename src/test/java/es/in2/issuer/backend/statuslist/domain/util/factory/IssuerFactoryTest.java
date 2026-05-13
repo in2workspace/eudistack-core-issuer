@@ -36,7 +36,12 @@ class IssuerFactoryTest {
                 "https://qtsp",
                 "client", "secret", "cred", "pwd",
                 "PT10M",
-                "sign-hash"
+                "sign-hash",
+                "",
+                "sign-hash",
+                "",
+                "",
+                ""
         );
     }
 

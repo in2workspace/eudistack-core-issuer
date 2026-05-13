@@ -38,7 +38,12 @@ class DelegatingSigningProviderTest {
         return new RemoteSignatureDto(
                 "https://mock-qtsp.example.com",
                 "client", "secret", "cred-001", "password", "PT10M",
-                operation
+                operation,
+                "",
+                "sign-hash",
+                "",
+                "",
+                ""
         );
     }
 
