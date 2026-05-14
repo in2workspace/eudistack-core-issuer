@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [3.6.9] - 2026-05-15
 
 ### Fixed
-- allow onboarding delegation to tenant admins if is issuing "on behalf" and tenant is multi-org and
+- allow onboarding delegation to tenant admins if issuing "on behalf" and tenant is multi-org
 
 ## [3.6.8] - 2026-05-13
 
