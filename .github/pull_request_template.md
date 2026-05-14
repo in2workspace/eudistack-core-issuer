@@ -22,3 +22,4 @@
 - [ ] C3: PRD status updated to **Implemented**
 - [ ] C4: TASKS.md tasks marked as `completed`
 - [ ] C5: Version bump (ask architect)
+- [ ] C6: Knowledge Base updated if the feature changes user-facing behavior
