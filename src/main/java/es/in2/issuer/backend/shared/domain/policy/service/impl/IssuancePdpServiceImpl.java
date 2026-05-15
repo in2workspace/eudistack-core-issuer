@@ -8,7 +8,6 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.Credenti
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
 import es.in2.issuer.backend.shared.domain.policy.rules.*;
 import es.in2.issuer.backend.shared.domain.policy.service.IssuancePdpService;
-import es.in2.issuer.backend.shared.domain.util.DynamicCredentialParser;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
@@ -32,7 +31,6 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
     private final RequireCertificationIssuanceRule requireCertificationIssuanceRule;
     private final RequireCredentialProfileAllowedForTenantRule requireCredentialProfileAllowedForTenantRule;
     private final CredentialProfileRegistry credentialProfileRegistry;
-    private final DynamicCredentialParser credentialParser;
     private final AuditService auditService;
 
     @Observed(name = "issuance.pdp-authorize", contextualName = "issuance-pdp-authorize")
@@ -79,7 +77,7 @@ public class IssuancePdpServiceImpl implements IssuancePdpService {
         String ruleName = ruleNames.get(0);
         return switch (ruleName) {
             case "RequireLearCredentialIssuance" ->
-                    new RequireLearCredentialIssuanceRule(objectMapper, credentialParser).evaluate(ctx, payload);
+                    new RequireLearCredentialIssuanceRule(objectMapper).evaluate(ctx, payload);
             case "RequireCertificationIssuance" ->
                     requireCertificationIssuanceRule.evaluate(ctx, idToken);
             default -> Mono.error(new InsufficientPermissionException(

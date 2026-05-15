@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.9] - 2026-05-15
+
+### Fixed
+- Allow tenant admins to delegate onboarding when issuing credentials on behalf of a tenant in multi-organization setups.
+- Fix organization ID extraction from the token when validating LEAR credential power delegation.
+
 ## [3.6.8] - 2026-05-13
 
 ### Added
