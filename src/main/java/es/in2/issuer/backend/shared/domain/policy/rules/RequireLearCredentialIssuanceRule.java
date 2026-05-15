@@ -43,9 +43,9 @@ public class RequireLearCredentialIssuanceRule implements PolicyRule<JsonNode> {
 
     @Override
     public Mono<Void> evaluate(PolicyContext context, JsonNode payload) {
-        log.debug("evaluate: credentialType='{}', sysAdmin={}, tenantAdmin={}, tenantType='{}', tenantDomain='{}', operatorOrgId='{}', payload='{}'",
+        log.debug("evaluate: credentialType='{}', sysAdmin={}, tenantAdmin={}, tenantType='{}', tenantDomain='{}', operatorOrgId='{}'",
                 context.credentialType(), context.sysAdmin(), context.tenantAdmin(),
-                context.tenantType(), context.tenantDomain(), context.organizationIdentifier(), payload);
+                context.tenantType(), context.tenantDomain(), context.organizationIdentifier());
 
         if (context.sysAdmin()) {
             log.debug("LEAR issuance rule met: SysAdmin bypass.");
