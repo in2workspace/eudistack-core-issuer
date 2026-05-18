@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.10] - 2026-05-18
+
+### Added
+
+- Centralized regex-based masking to prevent leakage of PII and secrets in logs.
+- Direct delivery issuance: the credential is signed and returned immediately at issuance time.
+
+### Changed
+
+- The `delivery` parameter in the issuance request is expected to be a comma-separated string, e.g. `"email,direct"`.
+
+### Fixed
+
+- The `proof` parameter is no longer required by default; it is required only when cryptographic binding is requested.
+- When mapping W3C credentials, `credentialSubject.id` is no longer overwritten if already present.
+- UI QR credential offer now returns HTTPS wallet URL instead of openid-credential-offer://
+
 ## [3.6.9] - 2026-05-15
 
 ### Fixed
