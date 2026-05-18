@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.signing.infrastructure.csc.v2.mapper;
+package es.in2.issuer.backend.signing.infrastructure.csc.v1.mapper;
 
 import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
 import org.springframework.stereotype.Component;
@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 @Component
-public class CscV2CertificateInfoMapper {
+public class CscV1CertificateInfoMapper {
 
     public CertificateInfo map(Map<String, Object> response) {
         if (response == null) {

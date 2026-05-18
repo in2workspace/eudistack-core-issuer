@@ -5,7 +5,7 @@ import java.util.Optional;
 
 public enum CscApiVersion {
 
-    V2("v2");
+    V1("v1");
 
     private final String value;
 
@@ -19,7 +19,7 @@ public enum CscApiVersion {
 
     public static CscApiVersion fromValue(String value) {
         if (value == null || value.isBlank()) {
-            return V2;
+            return V1;
         }
         return Arrays.stream(values())
                 .filter(v -> v.value.equalsIgnoreCase(value.trim()))

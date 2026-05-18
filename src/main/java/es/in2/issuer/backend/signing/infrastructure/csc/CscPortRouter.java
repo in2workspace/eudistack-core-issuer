@@ -3,7 +3,7 @@ package es.in2.issuer.backend.signing.infrastructure.csc;
 import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.spi.CscPort;
-import es.in2.issuer.backend.signing.infrastructure.csc.v2.CscV2Adapter;
+import es.in2.issuer.backend.signing.infrastructure.csc.v1.CscV1Adapter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
@@ -20,9 +20,9 @@ public class CscPortRouter implements CscPort {
 
     private final Map<CscApiVersion, CscPort> adaptersByVersion;
 
-    public CscPortRouter(List<CscV2Adapter> adapters) {
+    public CscPortRouter(List<CscV1Adapter> adapters) {
         Map<CscApiVersion, CscPort> map = new EnumMap<>(CscApiVersion.class);
-        for (CscV2Adapter adapter : adapters) {
+        for (CscV1Adapter adapter : adapters) {
             CscPort previous = map.putIfAbsent(adapter.supportedVersion(), adapter);
             if (previous != null) {
                 throw new IllegalStateException(

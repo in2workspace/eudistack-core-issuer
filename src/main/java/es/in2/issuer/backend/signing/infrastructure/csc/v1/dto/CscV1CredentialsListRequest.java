@@ -1,8 +1,8 @@
-package es.in2.issuer.backend.signing.infrastructure.csc.v2.dto;
+package es.in2.issuer.backend.signing.infrastructure.csc.v1.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-public record CscV2CredentialsListRequest(
+public record CscV1CredentialsListRequest(
         @JsonProperty("credentialInfo") boolean credentialInfo,
         @JsonProperty("certificates")   String certificates,
         @JsonProperty("certInfo")       boolean certInfo,

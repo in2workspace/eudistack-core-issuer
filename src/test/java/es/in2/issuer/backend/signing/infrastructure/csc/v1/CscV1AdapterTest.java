@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.signing.infrastructure.csc.v2;
+package es.in2.issuer.backend.signing.infrastructure.csc.v1;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
@@ -7,7 +7,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
 import es.in2.issuer.backend.signing.infrastructure.csc.auth.CscAuthStrategy;
 import es.in2.issuer.backend.signing.infrastructure.csc.auth.CscAuthStrategyResolver;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
-import es.in2.issuer.backend.signing.infrastructure.csc.v2.mapper.CscV2CertificateInfoMapper;
+import es.in2.issuer.backend.signing.infrastructure.csc.v1.mapper.CscV1CertificateInfoMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,19 +26,19 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-class CscV2AdapterTest {
+class CscV1AdapterTest {
 
     @Mock private CscAuthStrategyResolver authStrategyResolver;
-    @Mock private CscV2CertificateInfoMapper certificateInfoMapper;
+    @Mock private CscV1CertificateInfoMapper certificateInfoMapper;
     @Mock private HttpUtils httpUtils;
 
-    private CscV2Adapter adapter;
+    private CscV1Adapter adapter;
     private RemoteSignatureDto cfg;
 
     @BeforeEach
     void setUp() {
         ObjectMapper objectMapper = new ObjectMapper();
-        adapter = new CscV2Adapter(authStrategyResolver, certificateInfoMapper, objectMapper, httpUtils);
+        adapter = new CscV1Adapter(authStrategyResolver, certificateInfoMapper, objectMapper, httpUtils);
 
         cfg = new RemoteSignatureDto(
                 "oauth2",
@@ -59,7 +59,7 @@ class CscV2AdapterTest {
     @Test
     void authorizeForHash_success_returnsSad() {
         when(httpUtils.postRequest(
-                eq("https://qtsp.test" + CscV2Paths.AUTHORIZE),
+                eq("https://qtsp.test" + CscV1Paths.AUTHORIZE),
                 anyList(),
                 anyString()
         )).thenReturn(Mono.just("{\"SAD\":\"sad-token-123\"}"));
@@ -103,7 +103,7 @@ class CscV2AdapterTest {
     @Test
     void signHash_success_returnsFirstSignature() {
         when(httpUtils.postRequest(
-                eq("https://qtsp.test" + CscV2Paths.SIGN_HASH),
+                eq("https://qtsp.test" + CscV1Paths.SIGN_HASH),
                 anyList(),
                 anyString()
         )).thenReturn(Mono.just("{\"signatures\":[\"sig-abc\"]}"));
@@ -150,7 +150,7 @@ class CscV2AdapterTest {
     @Test
     void authorizeForDoc_success_returnsSad() {
         when(httpUtils.postRequest(
-                eq("https://qtsp.test" + CscV2Paths.AUTHORIZE),
+                eq("https://qtsp.test" + CscV1Paths.AUTHORIZE),
                 anyList(),
                 anyString()
         )).thenReturn(Mono.just("{\"SAD\":\"doc-sad-456\"}"));
@@ -177,7 +177,7 @@ class CscV2AdapterTest {
     void signDoc_success_returnsFirstDocument() {
         String docB64 = "c2lnbmVk";
         when(httpUtils.postRequest(
-                eq("https://qtsp.test" + CscV2Paths.SIGN_DOC),
+                eq("https://qtsp.test" + CscV1Paths.SIGN_DOC),
                 anyList(),
                 anyString()
         )).thenReturn(Mono.just("{\"DocumentWithSignature\":[\"" + docB64 + "\"]}"));
@@ -206,7 +206,7 @@ class CscV2AdapterTest {
         );
 
         when(httpUtils.postRequest(
-                eq("https://qtsp.test" + CscV2Paths.INFO),
+                eq("https://qtsp.test" + CscV1Paths.INFO),
                 anyList(),
                 anyString()
         )).thenReturn(Mono.just("{\"key\":{},\"cert\":{}}"));
@@ -220,7 +220,7 @@ class CscV2AdapterTest {
     @Test
     void validateCredentialId_returnsTrueWhenPresent() {
         when(httpUtils.postRequest(
-                eq("https://qtsp.test" + CscV2Paths.LIST),
+                eq("https://qtsp.test" + CscV1Paths.LIST),
                 anyList(),
                 anyString()
         )).thenReturn(Mono.just("{\"credentialIDs\":[\"cred-123\"]}"));
@@ -243,7 +243,7 @@ class CscV2AdapterTest {
     @Test
     void listCredentialIds_returnsIds() {
         when(httpUtils.postRequest(
-                eq("https://qtsp.test" + CscV2Paths.LIST),
+                eq("https://qtsp.test" + CscV1Paths.LIST),
                 anyList(),
                 anyString()
         )).thenReturn(Mono.just("{\"credentialIDs\":[\"id-1\",\"id-2\"]}"));
