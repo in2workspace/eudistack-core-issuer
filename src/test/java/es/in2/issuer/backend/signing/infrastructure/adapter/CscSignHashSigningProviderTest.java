@@ -1,7 +1,6 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter;
 
 
-import org.mockito.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.JadesProfile;
@@ -14,23 +13,25 @@ import es.in2.issuer.backend.signing.domain.service.JadesHeaderBuilderService;
 import es.in2.issuer.backend.signing.domain.service.JwsSignHashService;
 import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
 import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningProperties;
-import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthClient;
+import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
-import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
 
 @ExtendWith(MockitoExtension.class)
 class CscSignHashSigningProviderTest {
 
-    @Mock private QtspAuthClient qtspAuthClient;
+    @Mock private QtspAuthService qtspAuthService;
     @Mock private QtspIssuerService qtspIssuerService;
     @Mock private JwsSignHashService jwsSignHashService;
     @Mock private JadesHeaderBuilderService jadesHeaderBuilder;
@@ -42,11 +43,15 @@ class CscSignHashSigningProviderTest {
 
     private static RemoteSignatureDto cfg() {
         return new RemoteSignatureDto(
-                "https://qtsp.example.com",
-                "client", "secret", "cred-123", "password", "PT10M",
+                "provider",
+                "1",
+                "https://qtsp.test",
+                "sign-hash",
+                "clientId", "clientSecret",
+                "PT10M",
+                "cred-123", "pwd",
                 "sign-hash",
                 "",
-                "sign-hash",
                 "",
                 "",
                 ""
@@ -67,7 +72,7 @@ class CscSignHashSigningProviderTest {
     void setUp() {
         objectMapper = new ObjectMapper();
         provider = new CscSignHashSigningProvider(
-                qtspAuthClient,
+                qtspAuthService,
                 qtspIssuerService,
                 jwsSignHashService,
                 jadesHeaderBuilder,
@@ -83,7 +88,7 @@ class CscSignHashSigningProviderTest {
 
         when(cscSigningProperties.signatureProfile()).thenReturn(JadesProfile.JADES_B_T);
 
-        when(qtspAuthClient.requestAccessToken(request, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, false))
+        when(qtspAuthService.requestAccessToken(request, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, false))
                 .thenReturn(Mono.just("access-token"));
 
         when(qtspIssuerService.requestCertificateInfo(cfg, "access-token", "cred-123"))
@@ -114,7 +119,7 @@ class CscSignHashSigningProviderTest {
         RemoteSignatureDto cfg = request.remoteSignature();
 
         when(cscSigningProperties.signatureProfile()).thenReturn(JadesProfile.JADES_B_T);
-        when(qtspAuthClient.requestAccessToken(request, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, false))
+        when(qtspAuthService.requestAccessToken(request, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, false))
                 .thenReturn(Mono.just("access-token"));
 
         when(qtspIssuerService.requestCertificateInfo(cfg, "access-token", "cred-123"))
@@ -135,7 +140,7 @@ class CscSignHashSigningProviderTest {
         SigningRequest request = requestWithCfg();
 
         when(cscSigningProperties.signatureProfile()).thenReturn(JadesProfile.JADES_B_T);
-        when(qtspAuthClient.requestAccessToken(request, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, false))
+        when(qtspAuthService.requestAccessToken(request, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, false))
                 .thenReturn(Mono.error(new SigningException("boom")));
 
         StepVerifier.create(provider.sign(request))

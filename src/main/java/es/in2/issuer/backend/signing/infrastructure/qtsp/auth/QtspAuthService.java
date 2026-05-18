@@ -1,13 +1,9 @@
-package es.in2.issuer.backend.signing.domain.spi;
+package es.in2.issuer.backend.signing.infrastructure.qtsp.auth;
 
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
-import es.in2.issuer.backend.signing.infrastructure.model.QtspProvider;
 import reactor.core.publisher.Mono;
 
-public interface QtspAuthPort {
-
-    QtspProvider supportedProvider();
+public interface QtspAuthService {
 
     Mono<String> requestAccessToken(SigningRequest signingRequest, String scope, boolean includeAuthorizationDetails);
-
 }

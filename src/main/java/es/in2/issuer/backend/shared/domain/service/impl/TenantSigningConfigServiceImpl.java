@@ -60,6 +60,8 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
         try {
             JsonNode psc = objectMapper.readTree(config.providerSpecificConfig());
             return new RemoteSignatureDto(
+                    config.provider(),
+                    config.cscApiVersion(),
                     psc.path("url").asText(),
                     psc.path("clientId").asText(),
                     psc.path("clientSecret").asText(),

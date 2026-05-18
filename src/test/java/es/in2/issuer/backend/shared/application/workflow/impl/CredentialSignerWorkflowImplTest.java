@@ -8,6 +8,7 @@ import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegis
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -34,7 +35,7 @@ class CredentialSignerWorkflowImplTest {
     private ObjectMapper objectMapper = new ObjectMapper();
 
     @Mock
-    private SigningProvider signingProvider;
+    private DelegatingSigningProvider delegatingSigningProvider;
 
     @Mock
     private GenericCredentialBuilder genericCredentialBuilder;
@@ -71,7 +72,7 @@ class CredentialSignerWorkflowImplTest {
 
         when(genericCredentialBuilder.buildJwtPayload(eq(profile), eq(enrichedDataSet), any()))
                 .thenReturn(Mono.just(unsignedPayload));
-        when(signingProvider.sign(any()))
+        when(delegatingSigningProvider.sign(any()))
                 .thenReturn(Mono.just(new SigningResult(SigningType.JADES, signedCredential)));
 
         StepVerifier.create(
@@ -83,7 +84,7 @@ class CredentialSignerWorkflowImplTest {
                 .verifyComplete();
 
         verify(genericCredentialBuilder).buildJwtPayload(eq(profile), eq(enrichedDataSet), any());
-        verify(signingProvider).sign(argThat(req -> "vc+jwt".equals(req.typ())));
+        verify(delegatingSigningProvider).sign(argThat(req -> "vc+jwt".equals(req.typ())));
     }
 
     @Test
@@ -135,7 +136,7 @@ class CredentialSignerWorkflowImplTest {
 
         when(genericCredentialBuilder.buildJwtPayload(eq(profile), eq(enrichedDataSet), any()))
                 .thenReturn(Mono.just(unsignedPayload));
-        when(signingProvider.sign(any()))
+        when(delegatingSigningProvider.sign(any()))
                 .thenReturn(Mono.just(new SigningResult(SigningType.JADES, signedCredential)));
 
         StepVerifier.create(
@@ -159,7 +160,7 @@ class CredentialSignerWorkflowImplTest {
 
         when(genericCredentialBuilder.buildJwtPayload(eq(profile), eq(enrichedDataSet), any()))
                 .thenReturn(Mono.just(unsignedPayload));
-        when(signingProvider.sign(any()))
+        when(delegatingSigningProvider.sign(any()))
                 .thenReturn(Mono.just(new SigningResult(SigningType.JADES, signedCredential)));
 
         StepVerifier.create(
@@ -170,6 +171,6 @@ class CredentialSignerWorkflowImplTest {
                 .assertNext(result -> assertEquals(signedCredential, result))
                 .verifyComplete();
 
-        verify(signingProvider).sign(argThat(req -> "vc+jwt".equals(req.typ())));
+        verify(delegatingSigningProvider).sign(argThat(req -> "vc+jwt".equals(req.typ())));
     }
 }

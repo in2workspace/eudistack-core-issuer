@@ -1,13 +1,9 @@
 package es.in2.issuer.backend.signing.domain.service.impl;
 
-import java.util.*;
-import java.time.Duration;
-import java.time.Instant;
-import es.in2.issuer.backend.shared.domain.exception.*;
-
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
 import es.in2.issuer.backend.signing.domain.exception.OrganizationIdentifierNotFoundException;
@@ -15,7 +11,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.CacheEntry;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
-import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
+import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -31,6 +27,9 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.regex.Matcher;
@@ -46,7 +45,7 @@ import static es.in2.issuer.backend.signing.domain.util.PathConstants.LIST_PATH;
 public class QtspIssuerServiceImpl implements QtspIssuerService {
 
     private final ObjectMapper objectMapper;
-    private final QtspAuthPort qtspAuthPort;
+    private final QtspAuthService qtspAuthService;
     private final ConcurrentMap<String, CacheEntry> certificateInfoCache= new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Mono<String>> certificateInfoInFlight = new ConcurrentHashMap<>();
     private final HttpUtils httpUtils;
@@ -82,7 +81,7 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
         requireCfg(cfg);
         SigningRequest signatureRequest = SigningRequest.builder().remoteSignature(cfg).build();
         System.out.println("hola sub1");
-        return qtspAuthPort.requestAccessToken(signatureRequest, SIGNATURE_REMOTE_SCOPE_SERVICE)
+        return qtspAuthService.requestAccessToken(signatureRequest, SIGNATURE_REMOTE_SCOPE_SERVICE, true)
                 .flatMap(accessToken -> validateCertificate(cfg, accessToken));
     }
 
@@ -209,7 +208,7 @@ public class QtspIssuerServiceImpl implements QtspIssuerService {
                     }
                     SigningRequest req = SigningRequest.builder().remoteSignature(cfg).build();
                     System.out.println("hola sub2");
-                    return qtspAuthPort.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_SERVICE)
+                    return qtspAuthService.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_SERVICE, true)
                             .flatMap(token -> requestCertificateInfo(cfg, token, cfg.credentialId()))
                             .flatMap(this::extractIssuerFromCertificateInfo);
                 });

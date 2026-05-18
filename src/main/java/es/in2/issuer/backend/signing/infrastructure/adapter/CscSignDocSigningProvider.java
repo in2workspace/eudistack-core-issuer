@@ -7,15 +7,23 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.service.RemoteSignatureService;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.domain.spi.SigningRequestValidator;
+import es.in2.issuer.backend.signing.infrastructure.model.CscSignType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 @Slf4j
+@Service
 @RequiredArgsConstructor
 public class CscSignDocSigningProvider implements SigningProvider {
 
     private final RemoteSignatureService remoteSignatureService;
+
+    @Override
+    public CscSignType supportedProvider() {
+        return CscSignType.CSC_SIGN_DOC;
+    }
 
     @Override
     public Mono<SigningResult> sign(SigningRequest request) {

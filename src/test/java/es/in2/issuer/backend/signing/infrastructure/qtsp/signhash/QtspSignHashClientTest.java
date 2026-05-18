@@ -35,13 +35,15 @@ class QtspSignHashClientTest {
         client = new QtspSignHashClient(objectMapper, httpUtils);
 
         cfg = new RemoteSignatureDto(
+                "provider",
+                "1",
                 "https://qtsp.test",
+                "sign-hash",
                 "clientId", "clientSecret",
-                "cred-123", "pwd",
                 "PT10M",
+                "cred-123", "pwd",
                 "sign-hash",
                 "",
-                "sign-hash",
                 "",
                 "",
                 ""

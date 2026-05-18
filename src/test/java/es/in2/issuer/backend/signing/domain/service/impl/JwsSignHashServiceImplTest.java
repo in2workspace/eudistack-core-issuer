@@ -30,12 +30,14 @@ class JwsSignHashServiceImplTest {
 
     private static RemoteSignatureDto cfg() {
         return new RemoteSignatureDto(
-                "https://qtsp",
-                "client", "secret",
-                "cred", "pwd",
-                "PT10M",
+                "provider",
+                "1",
+                "https://qtsp.test",
                 "sign-hash",
-                "",
+                "clientId", "clientSecret",
+                "PT10M",
+                "cred-123", "pwd",
+                "sign-hash",
                 "",
                 "",
                 "",

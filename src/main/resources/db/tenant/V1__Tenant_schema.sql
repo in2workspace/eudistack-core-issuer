@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS tenant_credential_profile (
 CREATE TABLE IF NOT EXISTS tenant_signing_config (
     id                       UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     provider                 VARCHAR(100) NOT NULL,
+    csc_api_version          VARCHAR(100) NOT NULL,
     provider_specific_config JSONB        NOT NULL,
     created_at               TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at               TIMESTAMPTZ  NOT NULL DEFAULT now()

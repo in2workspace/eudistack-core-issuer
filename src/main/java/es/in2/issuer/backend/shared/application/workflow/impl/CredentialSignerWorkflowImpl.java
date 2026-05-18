@@ -16,7 +16,7 @@ import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
-import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,7 +39,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
 
     private final ObjectMapper objectMapper;
-    private final SigningProvider signingProvider;
+    private final DelegatingSigningProvider delegatingSigningProvider;
     private final GenericCredentialBuilder genericCredentialBuilder;
     private final CredentialProfileRegistry credentialProfileRegistry;
     private final SdJwtPayloadBuilder sdJwtPayloadBuilder;
@@ -87,7 +87,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
 
                             System.out.println("Hola 1");
 
-                            return signingProvider.sign(signingRequest)
+                            return delegatingSigningProvider.sign(signingRequest)
                                     .map(SigningResult::data);
                         });
 
@@ -170,7 +170,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                 .data(cborBase64)
                 .context(new SigningContext(token, issuanceId, email))
                 .build();
-        return signingProvider.sign(signingRequest)
+        return delegatingSigningProvider.sign(signingRequest)
                 .map(SigningResult::data)
                 .map(Base64.getDecoder()::decode);
     }
@@ -202,7 +202,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                             .context(new SigningContext(token, issuanceId, email))
                             .typ(DC_SD_JWT)
                             .build();
-                    return signingProvider.sign(signingRequest)
+                    return delegatingSigningProvider.sign(signingRequest)
                             .map(result -> {
                                 StringBuilder sb = new StringBuilder(result.data());
                                 for (Disclosure d : components.disclosures()) {

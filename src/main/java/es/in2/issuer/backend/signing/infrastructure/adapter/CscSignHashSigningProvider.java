@@ -4,20 +4,22 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.JadesProfile;
+import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
-import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.service.JadesHeaderBuilderService;
 import es.in2.issuer.backend.signing.domain.service.JwsSignHashService;
-import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
+import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.domain.spi.SigningRequestValidator;
-import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
+import es.in2.issuer.backend.signing.infrastructure.model.CscSignType;
 import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningProperties;
+import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
@@ -26,15 +28,21 @@ import java.util.Map;
 import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
 
 @Slf4j
+@Service
 @RequiredArgsConstructor
 public class CscSignHashSigningProvider implements SigningProvider {
 
-    private final QtspAuthPort qtspAuthPort;
+    private final QtspAuthService qtspAuthService;
     private final QtspIssuerService qtspIssuerService;
     private final JwsSignHashService jwsSignHashService;
     private final JadesHeaderBuilderService jadesHeaderBuilder;
     private final CscSigningProperties cscSigningProperties;
     private final ObjectMapper objectMapper;
+
+    @Override
+    public CscSignType supportedProvider() {
+        return CscSignType.CSC_SIGN_HASH;
+    }
 
     @Override
     public Mono<SigningResult> sign(SigningRequest request) {
@@ -54,7 +62,8 @@ public class CscSignHashSigningProvider implements SigningProvider {
             }
 
             System.out.println("hola csc-sign-hash");
-            return qtspAuthPort.requestAccessToken(request, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, false)
+
+            return qtspAuthService.requestAccessToken(request, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, false)
                     .flatMap(accessToken ->
                             qtspIssuerService.requestCertificateInfo(cfg, accessToken, cfg.credentialId())
                                     .flatMap(this::parseJsonToMap)
@@ -70,7 +79,6 @@ public class CscSignHashSigningProvider implements SigningProvider {
                             : new SigningException("Signing failed via CSC signHash provider: " + ex.getMessage(), ex));
         });
     }
-
 
     private Mono<Map<String, Object>> parseJsonToMap(String json) {
         return Mono.fromCallable(() ->

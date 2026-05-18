@@ -29,29 +29,29 @@ import static org.mockito.Mockito.*;
 import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
 
 @ExtendWith(MockitoExtension.class)
-class QtspAuthClientTest {
+class QtspOAuth2ClientTest {
 
     @Mock private HashGeneratorService hashGeneratorService;
     @Mock private HttpUtils httpUtils;
 
-    private QtspAuthClient client;
+    private QtspOAuth2Client client;
     private RemoteSignatureDto cfg;
 
     @BeforeEach
     void setUp() {
         ObjectMapper objectMapper = new ObjectMapper();
-        client = new QtspAuthClient(objectMapper, hashGeneratorService, httpUtils);
+        client = new QtspOAuth2Client(objectMapper, hashGeneratorService, httpUtils);
 
         cfg = new RemoteSignatureDto(
-                "https://qtsp",
-                "clientId",
-                "clientSecret",
-                "cred-id",
-                "pwd",
+                "provider",
+                "1",
+                "https://qtsp.test",
+                "sign-hash",
+                "clientId", "clientSecret",
                 "PT10M",
+                "cred-123", "pwd",
                 "sign-hash",
                 "",
-                "sign-hash",
                 "",
                 "",
                 ""
@@ -67,7 +67,7 @@ class QtspAuthClientTest {
         when(httpUtils.postRequest(anyString(), anyList(), anyString()))
                 .thenReturn(Mono.just("{\"access_token\":\"tok123\"}"));
 
-        StepVerifier.create(client.requestAccessToken(request("x"), "some-scope"))
+        StepVerifier.create(client.requestAccessToken(request("x"), "some-scope", true))
                 .assertNext(token -> assertEquals("tok123", token))
                 .verifyComplete();
 
@@ -79,7 +79,7 @@ class QtspAuthClientTest {
         when(httpUtils.postRequest(anyString(), anyList(), anyString()))
                 .thenReturn(Mono.just("{\"token_type\":\"bearer\"}"));
 
-        StepVerifier.create(client.requestAccessToken(request("x"), "some-scope"))
+        StepVerifier.create(client.requestAccessToken(request("x"), "some-scope", true))
                 .expectErrorMatches(e ->
                         e instanceof RemoteSignatureException &&
                                 e.getMessage().contains("Unexpected error retrieving access token"))
@@ -96,7 +96,7 @@ class QtspAuthClientTest {
 
         SigningRequest sr = request("{\"vc\":1}");
 
-        StepVerifier.create(client.requestAccessToken(sr, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
+        StepVerifier.create(client.requestAccessToken(sr, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, true))
                 .assertNext(token -> assertEquals("tok123", token))
                 .verifyComplete();
 
@@ -145,7 +145,7 @@ class QtspAuthClientTest {
         when(httpUtils.postRequest(anyString(), anyList(), anyString()))
                 .thenReturn(Mono.error(unauthorized));
 
-        StepVerifier.create(client.requestAccessToken(request("x"), "some-scope"))
+        StepVerifier.create(client.requestAccessToken(request("x"), "some-scope",true))
                 .expectError(RemoteSignatureException.class)
                 .verify();
     }
@@ -155,7 +155,7 @@ class QtspAuthClientTest {
         when(httpUtils.postRequest(anyString(), anyList(), anyString()))
                 .thenReturn(Mono.error(new RuntimeException("boom")));
 
-        StepVerifier.create(client.requestAccessToken(request("x"), "some-scope"))
+        StepVerifier.create(client.requestAccessToken(request("x"), "some-scope", true))
                 .expectError(RemoteSignatureException.class)
                 .verify();
     }
@@ -164,6 +164,6 @@ class QtspAuthClientTest {
     void requestAccessToken_failsIfRemoteSignatureMissing() {
         SigningRequest sr = SigningRequest.builder().data("x").build();
         assertThrows(IllegalStateException.class,
-                () -> client.requestAccessToken(sr, "some-scope"));
+                () -> client.requestAccessToken(sr, "some-scope", true));
     }
 }

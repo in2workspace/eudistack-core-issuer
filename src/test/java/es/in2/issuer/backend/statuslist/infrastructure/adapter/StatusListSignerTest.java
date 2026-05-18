@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
-import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
 import es.in2.issuer.backend.statuslist.domain.exception.StatusListCredentialSerializationException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -19,17 +19,17 @@ import reactor.test.StepVerifier;
 import java.lang.reflect.Method;
 import java.util.Map;
 
-import static org.mockito.Mockito.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class StatusListSignerTest {
 
     @Mock
-    private SigningProvider signingProvider;
+    private DelegatingSigningProvider delegatingSigningProvider;
 
     @Mock
     private ObjectMapper objectMapper;
@@ -40,7 +40,7 @@ class StatusListSignerTest {
     @Test
     void sign_shouldReturnJwt_whenSigningProviderSucceeds() throws Exception {
         // Arrange
-        StatusListSigner signer = new StatusListSigner(signingProvider, objectMapper);
+        StatusListSigner signer = new StatusListSigner(delegatingSigningProvider, objectMapper);
 
         Map<String, Object> payload = Map.of("id", "abc", "foo", "bar");
         String token = "token-123";
@@ -52,7 +52,7 @@ class StatusListSignerTest {
         SigningResult signingResult = mock(SigningResult.class);
         when(signingResult.data()).thenReturn("jwt-value");
 
-        when(signingProvider.sign(any()))
+        when(delegatingSigningProvider.sign(any()))
                 .thenReturn(Mono.just(signingResult));
 
         // Act + Assert
@@ -61,7 +61,7 @@ class StatusListSignerTest {
                 .verifyComplete();
 
         // Verify request contents (light but useful checks)
-        verify(signingProvider, times(1)).sign(signingRequestCaptor.capture());
+        verify(delegatingSigningProvider, times(1)).sign(signingRequestCaptor.capture());
         SigningRequest req = signingRequestCaptor.getValue();
 
         Object typeValue = readProperty(req, "type");
@@ -75,7 +75,7 @@ class StatusListSignerTest {
     @Test
     void sign_shouldWrapProviderErrorsIntoSigningException_withListId() throws Exception {
         // Arrange
-        StatusListSigner signer = new StatusListSigner(signingProvider, objectMapper);
+        StatusListSigner signer = new StatusListSigner(delegatingSigningProvider, objectMapper);
 
         Map<String, Object> payload = Map.of("a", 1);
         String token = "t";
@@ -84,7 +84,7 @@ class StatusListSignerTest {
         when(objectMapper.writeValueAsString(payload)).thenReturn("{\"a\":1}");
 
         RuntimeException providerError = new RuntimeException("boom");
-        when(signingProvider.sign(any()))
+        when(delegatingSigningProvider.sign(any()))
                 .thenReturn(Mono.error(providerError));
 
         // Act + Assert
@@ -100,7 +100,7 @@ class StatusListSignerTest {
     @Test
     void sign_shouldWrapSerializationErrorIntoSigningException_andKeepCauseChain() throws Exception {
         // Arrange
-        StatusListSigner signer = new StatusListSigner(signingProvider, objectMapper);
+        StatusListSigner signer = new StatusListSigner(delegatingSigningProvider, objectMapper);
 
         Map<String, Object> payload = Map.of("a", 1);
         String token = "t";
@@ -120,13 +120,13 @@ class StatusListSignerTest {
                 })
                 .verify();
 
-        verifyNoInteractions(signingProvider);
+        verifyNoInteractions(delegatingSigningProvider);
     }
 
     @Test
     void sign_shouldErrorWhenSignerReturnsEmptyJwt() throws Exception {
         // Arrange
-        StatusListSigner signer = new StatusListSigner(signingProvider, objectMapper);
+        StatusListSigner signer = new StatusListSigner(delegatingSigningProvider, objectMapper);
 
         Map<String, Object> payload = Map.of("a", 1);
         String token = "t";
@@ -137,7 +137,7 @@ class StatusListSignerTest {
         SigningResult signingResult = mock(SigningResult.class);
         when(signingResult.data()).thenReturn("   ");
 
-        when(signingProvider.sign(any()))
+        when(delegatingSigningProvider.sign(any()))
                 .thenReturn(Mono.just(signingResult));
 
         // Act + Assert
@@ -152,13 +152,13 @@ class StatusListSignerTest {
 
     @Test
     void sign_shouldThrowImmediately_whenPayloadIsNull() {
-        StatusListSigner signer = new StatusListSigner(signingProvider, objectMapper);
+        StatusListSigner signer = new StatusListSigner(delegatingSigningProvider, objectMapper);
         assertThrows(RuntimeException.class, () -> signer.sign(null, "token", 1L, null));
     }
 
     @Test
     void sign_shouldThrowImmediately_whenTokenIsNull() {
-        StatusListSigner signer = new StatusListSigner(signingProvider, objectMapper);
+        StatusListSigner signer = new StatusListSigner(delegatingSigningProvider, objectMapper);
 
         assertThatThrownBy(() -> signer.sign(Map.of("a", 1), null, 1L, null))
                 .isInstanceOf(RuntimeException.class)

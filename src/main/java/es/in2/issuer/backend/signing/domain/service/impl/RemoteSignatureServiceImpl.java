@@ -1,19 +1,19 @@
 package es.in2.issuer.backend.signing.domain.service.impl;
 
-import es.in2.issuer.backend.shared.domain.exception.*;
-import java.util.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
+import es.in2.issuer.backend.shared.domain.exception.SadException;
 import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
-import es.in2.issuer.backend.signing.domain.util.JwtUtils;
 import es.in2.issuer.backend.signing.domain.exception.SignatureProcessingException;
 import es.in2.issuer.backend.signing.domain.exception.SigningResultParsingException;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.service.RemoteSignatureService;
+import es.in2.issuer.backend.signing.domain.util.JwtUtils;
 import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
-import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
+import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -27,6 +27,7 @@ import reactor.util.retry.Retry;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.*;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 import static es.in2.issuer.backend.signing.domain.util.PathConstants.AUTHORIZE_PATH;
@@ -38,7 +39,7 @@ import static es.in2.issuer.backend.signing.domain.util.PathConstants.SIGN_DOC_P
 public class RemoteSignatureServiceImpl implements RemoteSignatureService {
 
     private final ObjectMapper objectMapper;
-    private final QtspAuthPort qtspAuthClient;
+    private final QtspAuthService qtspAuthService;
     private final HttpUtils httpUtils;
     private final JwtUtils jwtUtils;
     private static final String SAD_NAME = "SAD";
@@ -183,7 +184,7 @@ public class RemoteSignatureServiceImpl implements RemoteSignatureService {
     public Mono<String> getSignedDocumentExternal(SigningRequest signingRequest) {
         log.info("Requesting signature to external service");
         System.out.println("hola sub3");
-        return qtspAuthClient.requestAccessToken(signingRequest, SIGNATURE_REMOTE_SCOPE_CREDENTIAL)
+        return qtspAuthService.requestAccessToken(signingRequest, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, true)
                 .flatMap(accessToken -> requestSad(signingRequest, accessToken)
                         .flatMap(sad -> sendSigningRequest(signingRequest, accessToken, sad)
                                 .flatMap(responseJson -> processSignatureResponse(signingRequest, responseJson))));

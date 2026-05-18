@@ -2,10 +2,10 @@ package es.in2.issuer.backend.signing.domain.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
-import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
-import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
+import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,7 +28,7 @@ class QtspIssuerServiceImplTest {
 
     private QtspIssuerServiceImpl qtspIssuerService;
 
-    @Mock private QtspAuthPort qtspAuthClient;
+    @Mock private QtspAuthService qtspAuthService;
     @Mock private HttpUtils httpUtils;
 
     private RemoteSignatureDto cfg;
@@ -36,12 +36,14 @@ class QtspIssuerServiceImplTest {
     @BeforeEach
     void setUp() {
         cfg = new RemoteSignatureDto(
-                "https://domain",
-                "clientId", "clientSecret",
-                "credId", "pwd",
-                "PT10M",
+                "provider",
+                "1",
+                "https://qtsp.test",
                 "sign-hash",
-                "",
+                "cred-123", "pwd",
+                "PT10M",
+                "clientId", "clientSecret",
+                "sign-hash",
                 "",
                 "",
                 "",
@@ -50,18 +52,18 @@ class QtspIssuerServiceImplTest {
 
         qtspIssuerService = new QtspIssuerServiceImpl(
                 objectMapper,
-                qtspAuthClient,
+                qtspAuthService,
                 httpUtils
         );
     }
 
     @Test
     void validateCredentials_returnsTrueWhenValid() {
-        when(qtspAuthClient.requestAccessToken(any(SigningRequest.class), anyString()))
+        when(qtspAuthService.requestAccessToken(any(SigningRequest.class), anyString(), anyBoolean()))
                 .thenReturn(Mono.just("token"));
 
         when(httpUtils.postRequest(contains("/csc/v2/credentials/list"), any(), any()))
-                .thenReturn(Mono.just("{\"credentialIDs\":[\"credId\"]}"));
+                .thenReturn(Mono.just("{\"credentialIDs\":[\"cred-123\"]}"));
 
         StepVerifier.create(qtspIssuerService.validateCredentials(cfg))
                 .assertNext(valid -> assertThat(valid).isTrue())
@@ -70,7 +72,7 @@ class QtspIssuerServiceImplTest {
 
     @Test
     void validateCredentials_returnsFalseWhenInvalid() {
-        when(qtspAuthClient.requestAccessToken(any(SigningRequest.class), anyString()))
+        when(qtspAuthService.requestAccessToken(any(SigningRequest.class), anyString(), anyBoolean()))
                 .thenReturn(Mono.just("token"));
 
         when(httpUtils.postRequest(contains("/csc/v2/credentials/list"), any(), any()))
@@ -86,7 +88,7 @@ class QtspIssuerServiceImplTest {
         ObjectMapper failingMapper = mock(ObjectMapper.class);
 
         QtspIssuerServiceImpl service = new QtspIssuerServiceImpl(
-                failingMapper, qtspAuthClient, httpUtils
+                failingMapper, qtspAuthService, httpUtils
         );
 
         doThrow(new JsonProcessingException("Error serializing request body to JSON") {})
@@ -102,11 +104,11 @@ class QtspIssuerServiceImplTest {
 
     @Test
     void resolveRemoteDetailedIssuer_validCredentials_returnsIssuer() {
-        when(qtspAuthClient.requestAccessToken(any(SigningRequest.class), anyString()))
+        when(qtspAuthService.requestAccessToken(any(SigningRequest.class), anyString(), anyBoolean()))
                 .thenReturn(Mono.just("token-1"));
 
-        when(httpUtils.postRequest(contains("/csc/v2/credentials/list"), any(), any()))
-                .thenReturn(Mono.just("{\"credentialIDs\":[\"credId\"]}"));
+        when(httpUtils.postRequest(contains("/csc/v2/credentials/list"), anyList(), any()))
+                .thenReturn(Mono.just("{\"credentialIDs\":[\"cred-123\"]}"));
 
         String orgId = "ORGID";
         String base64Cert = Base64.getEncoder()
@@ -137,19 +139,21 @@ class QtspIssuerServiceImplTest {
     @Test
     void resolveRemoteDetailedIssuer_invalidCredentials_returnsError() {
         RemoteSignatureDto expectedCfg = new RemoteSignatureDto(
-                "https://domain",
-                "clientId", "clientSecret",
-                "EXPECTED_ID", "pwd",
-                "PT10M",
+                "provider",
+                "1",
+                "https://qtsp.test",
                 "sign-hash",
-                "",
+                "cred-123", "pwd",
+                "PT10M",
+                "clientId", "clientSecret",
+                "sign-hash",
                 "",
                 "",
                 "",
                 ""
         );
 
-        when(qtspAuthClient.requestAccessToken(any(SigningRequest.class), anyString()))
+        when(qtspAuthService.requestAccessToken(any(SigningRequest.class), anyString(), anyBoolean()))
                 .thenReturn(Mono.just("access-token"));
 
         when(httpUtils.postRequest(contains("/csc/v2/credentials/list"), anyList(), anyString()))

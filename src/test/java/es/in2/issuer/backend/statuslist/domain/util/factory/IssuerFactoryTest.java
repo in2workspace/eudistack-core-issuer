@@ -33,12 +33,15 @@ class IssuerFactoryTest {
     @BeforeEach
     void setUp() {
         cfg = new RemoteSignatureDto(
-                "https://qtsp",
-                "client", "secret", "cred", "pwd",
-                "PT10M",
-                "sign-hash",
+                "provider",
+                "1",
                 "",
                 "sign-hash",
+                "cred", "pwd",
+                "PT10M",
+                "client", "secret",
+                "",
+                "",
                 "",
                 "",
                 ""

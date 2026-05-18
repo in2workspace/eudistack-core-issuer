@@ -1,13 +1,13 @@
-package es.in2.issuer.backend.signing.infrastructure.qtsp.vintegris;
+package es.in2.issuer.backend.signing.infrastructure.qtsp.auth;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.signing.domain.exception.AccessTokenException;
+import es.in2.issuer.backend.signing.infrastructure.model.QtspProvider;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
@@ -16,13 +16,9 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
-import java.util.Base64;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 @Slf4j
-@Component
 public class VintegrisAuthClient implements QtspAuthPort {
 
     private static final String AUTHORIZE_PATH = "/trustedapps/v1/trusted/app/authorize";
@@ -40,9 +36,8 @@ public class VintegrisAuthClient implements QtspAuthPort {
     }
 
     @Override
-    public Mono<String> requestAccessToken(SigningRequest request, String scope) {
-        System.out.println("hola vintegris");
-        return requestAccessToken(request, scope, true);
+    public QtspProvider supportedProvider() {
+        return QtspProvider.VINTEGRIS;
     }
 
     @Override

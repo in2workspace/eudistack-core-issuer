@@ -16,6 +16,9 @@ public record TenantSigningConfig(
         @Column("provider")
         String provider,
 
+        @Column("csc_api_version")
+        String cscApiVersion,
+
         @Column("provider_specific_config")
         String providerSpecificConfig,
 

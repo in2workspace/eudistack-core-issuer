@@ -7,6 +7,7 @@ import es.in2.issuer.backend.signing.domain.exception.AccessTokenException;
 import es.in2.issuer.backend.signing.domain.exception.AuthorizationDetailsException;
 import es.in2.issuer.backend.signing.domain.exception.HashGenerationException;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
+import es.in2.issuer.backend.signing.infrastructure.model.QtspProvider;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.service.HashGeneratorService;
@@ -30,7 +31,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOT
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class QtspAuthClient implements QtspAuthPort {
+public class QtspOAuth2Client implements QtspAuthPort {
 
     private final ObjectMapper objectMapper;
     private final HashGeneratorService hashGeneratorService;
@@ -47,9 +48,9 @@ public class QtspAuthClient implements QtspAuthPort {
         return request.remoteSignature();
     }
 
-    public Mono<String> requestAccessToken(SigningRequest signingRequest, String scope) {
-        System.out.println("hola sí mateix");
-        return requestAccessToken(signingRequest, scope, true);
+    @Override
+    public QtspProvider supportedProvider() {
+        return QtspProvider.OAUTH_2;
     }
 
     public Mono<String> requestAccessToken(SigningRequest signingRequest, String scope, boolean includeAuthorizationDetails) {

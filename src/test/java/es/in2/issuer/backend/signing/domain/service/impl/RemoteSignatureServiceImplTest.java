@@ -3,14 +3,14 @@ package es.in2.issuer.backend.signing.domain.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.SadException;
 import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
-import es.in2.issuer.backend.signing.domain.util.JwtUtils;
 import es.in2.issuer.backend.signing.domain.exception.SignatureProcessingException;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
-import es.in2.issuer.backend.signing.domain.spi.QtspAuthPort;
+import es.in2.issuer.backend.signing.domain.util.JwtUtils;
+import es.in2.issuer.backend.signing.infrastructure.qtsp.auth.QtspAuthService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -27,7 +27,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.*;
+import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -36,21 +36,23 @@ import static org.mockito.Mockito.*;
 class RemoteSignatureServiceImplTest {
 
     @Mock private ObjectMapper objectMapper;
-    @Mock private QtspAuthPort qtspAuthClient;
     @Mock private HttpUtils httpUtils;
     @Mock private JwtUtils jwtUtils;
+    @Mock private QtspAuthService qtspAuthService;
 
     @InjectMocks
     private RemoteSignatureServiceImpl remoteSignatureService;
 
     private static RemoteSignatureDto cfg() {
         return new RemoteSignatureDto(
-                "https://api.external.com",
-                "clientId", "clientSecret",
-                "cred-id", "pwd",
-                "PT10M",
+                "provider",
+                "1",
+                "https://qtsp.test",
                 "sign-hash",
-                "",
+                "clientId", "clientSecret",
+                "PT10M",
+                "cred-123", "pwd",
+                "sign-hash",
                 "",
                 "",
                 "",
@@ -72,7 +74,7 @@ class RemoteSignatureServiceImplTest {
     void signIssuedCredential_cscFlow_success() throws Exception {
         SigningRequest req = request(SigningType.JADES, "{\"vc\":1}");
 
-        when(qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
+        when(qtspAuthService.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, true))
                 .thenReturn(Mono.just("access-token"));
 
         when(httpUtils.postRequest(eq("https://api.external.com/csc/v2/credentials/authorize"), anyList(), anyString()))
@@ -107,7 +109,7 @@ class RemoteSignatureServiceImplTest {
     void signSystemCredential_cloudMode_success() throws Exception {
         SigningRequest req = request(SigningType.COSE, "{\"a\":1}");
 
-        when(qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
+        when(qtspAuthService.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL,true))
                 .thenReturn(Mono.just("access-token"));
 
         when(httpUtils.postRequest(eq("https://api.external.com/csc/v2/credentials/authorize"), anyList(), anyString()))
@@ -142,7 +144,7 @@ class RemoteSignatureServiceImplTest {
     void getSignedDocumentExternal_sadMissing_shouldFailWithSadException() throws Exception {
         SigningRequest req = request(SigningType.COSE, "{\"a\":1}");
 
-        when(qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
+        when(qtspAuthService.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL,true))
                 .thenReturn(Mono.just("access-token"));
 
         when(httpUtils.postRequest(
@@ -201,7 +203,7 @@ class RemoteSignatureServiceImplTest {
     void signIssuedCredential_cloudMode_retries_thenSucceeds() throws Exception {
         SigningRequest req = request(SigningType.COSE, "{\"a\":1}");
 
-        when(qtspAuthClient.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL))
+        when(qtspAuthService.requestAccessToken(req, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, true))
                 .thenReturn(Mono.just("access-token"));
 
         when(httpUtils.postRequest(eq("https://api.external.com/csc/v2/credentials/authorize"), anyList(), anyString()))
