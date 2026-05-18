@@ -317,7 +317,278 @@ class GenericCredentialBuilderTest {
                 .verifyComplete();
     }
 
+    @Test
+    void buildCredential_withW3cProfileAndMandateStrategy_shouldWrapPayloadInsideCredentialSubjectMandate() throws Exception {
+        CredentialProfile profile = employeeProfile();
+        JsonNode payload = mandatePayload();
+
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+                .assertNext(result -> {
+                    try {
+                        JsonNode credential = objectMapper.readTree(result.credentialDataSet());
+
+                        assertThat(credential.get("@context")).isNotNull();
+                        assertThat(credential.get("@context").get(0).asText())
+                                .isEqualTo("https://www.w3.org/ns/credentials/v2");
+
+                        assertThat(credential.get("id").asText()).startsWith("urn:uuid:");
+                        assertThat(credential.get("type").isArray()).isTrue();
+                        assertThat(credential.get("type").get(0).asText()).isEqualTo("VerifiableCredential");
+                        assertThat(credential.get("type").get(1).asText()).isEqualTo("learcredential.employee.w3c.4");
+
+                        assertThat(credential.get("description").asText())
+                                .isEqualTo("Verifiable Credential for employees of an organization");
+
+                        JsonNode credentialSubject = credential.get("credentialSubject");
+                        assertThat(credentialSubject).isNotNull();
+                        assertThat(credentialSubject.get("id").asText()).startsWith("urn:uuid:");
+                        assertThat(credentialSubject.get("mandate")).isEqualTo(payload);
+
+                        assertThat(credential.get("validFrom")).isNotNull();
+                        assertThat(credential.get("validUntil")).isNotNull();
+                        assertThat(credential.has("issuer")).isFalse();
+                        assertThat(credential.has("credentialStatus")).isFalse();
+                    } catch (Exception e) {
+                        throw new AssertionError(e);
+                    }
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void buildCredential_withW3cProfileAndDirectStrategy_shouldUseCredentialSubjectFromPayload() throws Exception {
+        CredentialProfile profile = directW3cProfile();
+
+        com.fasterxml.jackson.databind.node.ObjectNode credentialSubject = objectMapper.createObjectNode()
+                .put("id", "did:key:subject-123")
+                .put("firstName", "Jane")
+                .put("lastName", "Doe")
+                .put("email", "jane@example.com");
+
+        com.fasterxml.jackson.databind.node.ObjectNode payload = objectMapper.createObjectNode();
+        payload.set("credentialSubject", credentialSubject);
+        payload.set("mandator", objectMapper.createObjectNode()
+                .put("organizationIdentifier", "VATES-DIRECT123"));
+
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+                .assertNext(result -> {
+                    try {
+                        JsonNode credential = objectMapper.readTree(result.credentialDataSet());
+                        JsonNode resultCredentialSubject = credential.get("credentialSubject");
+
+                        assertThat(resultCredentialSubject).isNotNull();
+                        assertThat(resultCredentialSubject.get("id").asText()).isEqualTo("did:key:subject-123");
+                        assertThat(resultCredentialSubject.get("firstName").asText()).isEqualTo("Jane");
+                        assertThat(resultCredentialSubject.get("lastName").asText()).isEqualTo("Doe");
+                        assertThat(resultCredentialSubject.get("email").asText()).isEqualTo("jane@example.com");
+
+                        assertThat(resultCredentialSubject.has("mandate")).isFalse();
+                        assertThat(result.organizationIdentifier()).isEqualTo("VATES-DIRECT123");
+                        assertThat(result.subject()).isEqualTo("Jane Doe");
+                    } catch (Exception e) {
+                        throw new AssertionError(e);
+                    }
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void buildCredential_withW3cProfileAndDirectStrategyWithoutCredentialSubject_shouldUsePayloadAsCredentialSubject() {
+        CredentialProfile profile = directW3cProfileWithoutCredentialSubjectWrapper();
+
+        com.fasterxml.jackson.databind.node.ObjectNode payload = objectMapper.createObjectNode()
+                .put("firstName", "Alice")
+                .put("lastName", "Smith")
+                .put("email", "alice@example.com");
+
+        payload.set("mandator", objectMapper.createObjectNode()
+                .put("organizationIdentifier", "VATES-ALICE123"));
+
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+                .assertNext(result -> {
+                    try {
+                        JsonNode credential = objectMapper.readTree(result.credentialDataSet());
+                        JsonNode credentialSubject = credential.get("credentialSubject");
+
+                        assertThat(credentialSubject).isNotNull();
+                        assertThat(credentialSubject.get("id").asText()).startsWith("urn:uuid:");
+                        assertThat(credentialSubject.get("firstName").asText()).isEqualTo("Alice");
+                        assertThat(credentialSubject.get("lastName").asText()).isEqualTo("Smith");
+                        assertThat(credentialSubject.get("email").asText()).isEqualTo("alice@example.com");
+                        assertThat(credentialSubject.get("mandator").get("organizationIdentifier").asText())
+                                .isEqualTo("VATES-ALICE123");
+
+                        assertThat(result.organizationIdentifier()).isEqualTo("VATES-ALICE123");
+                        assertThat(result.subject()).isEqualTo("Alice Smith");
+                    } catch (Exception e) {
+                        throw new AssertionError(e);
+                    }
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void buildCredential_withW3cProfileAndDirectStrategyWithoutSubjectId_shouldGenerateCredentialSubjectId() {
+        CredentialProfile profile = directW3cProfile();
+
+        com.fasterxml.jackson.databind.node.ObjectNode credentialSubject = objectMapper.createObjectNode()
+                .put("firstName", "Jane")
+                .put("lastName", "Doe")
+                .put("email", "jane@example.com");
+
+        com.fasterxml.jackson.databind.node.ObjectNode payload = objectMapper.createObjectNode();
+        payload.set("credentialSubject", credentialSubject);
+        payload.set("mandator", objectMapper.createObjectNode()
+                .put("organizationIdentifier", "VATES-DIRECT123"));
+
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+                .assertNext(result -> {
+                    try {
+                        JsonNode credential = objectMapper.readTree(result.credentialDataSet());
+                        JsonNode resultCredentialSubject = credential.get("credentialSubject");
+
+                        assertThat(resultCredentialSubject.get("id").asText()).startsWith("urn:uuid:");
+                        assertThat(resultCredentialSubject.get("firstName").asText()).isEqualTo("Jane");
+                        assertThat(resultCredentialSubject.get("lastName").asText()).isEqualTo("Doe");
+                    } catch (Exception e) {
+                        throw new AssertionError(e);
+                    }
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void buildCredential_withW3cProfileWithoutDescription_shouldNotIncludeDescription() {
+        CredentialProfile profile = w3cProfileWithoutDescription();
+        JsonNode payload = mandatePayload();
+
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+                .assertNext(result -> {
+                    try {
+                        JsonNode credential = objectMapper.readTree(result.credentialDataSet());
+
+                        assertThat(credential.has("description")).isFalse();
+                        assertThat(credential.get("@context").get(0).asText())
+                                .isEqualTo("https://www.w3.org/ns/credentials/v2");
+                        assertThat(credential.get("type").get(0).asText()).isEqualTo("VerifiableCredential");
+                        assertThat(credential.get("credentialSubject").get("mandate")).isEqualTo(payload);
+                    } catch (Exception e) {
+                        throw new AssertionError(e);
+                    }
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void buildCredential_withW3cProfileAndValidityDaysGreaterThanZero_shouldIgnorePayloadDates() {
+        CredentialProfile profile = employeeProfile();
+
+        com.fasterxml.jackson.databind.node.ObjectNode payload = (com.fasterxml.jackson.databind.node.ObjectNode) mandatePayload();
+        payload.put("validFrom", "2020-01-01T00:00:00Z");
+        payload.put("validUntil", "2021-01-01T00:00:00Z");
+
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+                .assertNext(result -> {
+                    try {
+                        JsonNode credential = objectMapper.readTree(result.credentialDataSet());
+
+                        assertThat(credential.get("validFrom").asText()).isNotEqualTo("2020-01-01T00:00:00Z");
+                        assertThat(credential.get("validUntil").asText()).isNotEqualTo("2021-01-01T00:00:00Z");
+
+                        assertThat(result.validFrom().toInstant()).isAfter(Instant.parse("2020-01-01T00:00:00Z"));
+                        assertThat(result.validUntil().toInstant()).isAfter(result.validFrom().toInstant());
+                    } catch (Exception e) {
+                        throw new AssertionError(e);
+                    }
+                })
+                .verifyComplete();
+    }
+
     // --- Helper methods ---
+
+    private CredentialProfile directW3cProfileWithoutCredentialSubjectWrapper() {
+        return CredentialProfile.builder()
+                .credentialConfigurationId("learcredential.employee.w3c.4")
+                .format("jwt_vc_json")
+                .scope("lear_credential_employee")
+                .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
+                        .context(List.of("https://www.w3.org/ns/credentials/v2"))
+                        .type(List.of("VerifiableCredential", "learcredential.employee.w3c.4"))
+                        .build())
+                .cryptographicBindingMethodsSupported(Set.of("did:key"))
+                .credentialSigningAlgValuesSupported(Set.of("ES256"))
+                .validityDays(365)
+                .issuerType(CredentialProfile.IssuerType.DETAILED)
+                .cnfRequired(true)
+                .credentialSubjectStrategy("direct")
+                .description("Direct W3C employee credential")
+                .subjectExtraction(CredentialProfile.SubjectExtraction.builder()
+                        .strategy("concat")
+                        .fields(List.of("firstName", "lastName"))
+                        .separator(" ")
+                        .build())
+                .organizationExtraction(CredentialProfile.OrganizationExtraction.builder()
+                        .strategy("field")
+                        .field("mandator.organizationIdentifier")
+                        .build())
+                .build();
+    }
+
+    private CredentialProfile directW3cProfile() {
+        return CredentialProfile.builder()
+                .credentialConfigurationId("learcredential.employee.w3c.4")
+                .format("jwt_vc_json")
+                .scope("lear_credential_employee")
+                .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
+                        .context(List.of("https://www.w3.org/ns/credentials/v2"))
+                        .type(List.of("VerifiableCredential", "learcredential.employee.w3c.4"))
+                        .build())
+                .cryptographicBindingMethodsSupported(Set.of("did:key"))
+                .credentialSigningAlgValuesSupported(Set.of("ES256"))
+                .validityDays(365)
+                .issuerType(CredentialProfile.IssuerType.DETAILED)
+                .cnfRequired(true)
+                .credentialSubjectStrategy("direct")
+                .description("Direct W3C employee credential")
+                .subjectExtraction(CredentialProfile.SubjectExtraction.builder()
+                        .strategy("concat")
+                        .fields(List.of("credentialSubject.firstName", "credentialSubject.lastName"))
+                        .separator(" ")
+                        .build())
+                .organizationExtraction(CredentialProfile.OrganizationExtraction.builder()
+                        .strategy("field")
+                        .field("mandator.organizationIdentifier")
+                        .build())
+                .build();
+    }
+
+    private CredentialProfile w3cProfileWithoutDescription() {
+        return CredentialProfile.builder()
+                .credentialConfigurationId("learcredential.employee.w3c.4")
+                .format("jwt_vc_json")
+                .scope("lear_credential_employee")
+                .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
+                        .context(List.of("https://www.w3.org/ns/credentials/v2"))
+                        .type(List.of("VerifiableCredential", "learcredential.employee.w3c.4"))
+                        .build())
+                .cryptographicBindingMethodsSupported(Set.of("did:key"))
+                .credentialSigningAlgValuesSupported(Set.of("ES256"))
+                .validityDays(365)
+                .issuerType(CredentialProfile.IssuerType.DETAILED)
+                .cnfRequired(true)
+                .subjectExtraction(CredentialProfile.SubjectExtraction.builder()
+                        .strategy("concat")
+                        .fields(List.of("mandate.mandatee.firstName", "mandate.mandatee.lastName"))
+                        .separator(" ")
+                        .build())
+                .organizationExtraction(CredentialProfile.OrganizationExtraction.builder()
+                        .strategy("field")
+                        .field("mandate.mandator.organizationIdentifier")
+                        .build())
+                .build();
+    }
+
+
 
     private CredentialProfile employeeProfile() {
         return CredentialProfile.builder()

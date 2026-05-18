@@ -51,7 +51,7 @@ public class VerifierServiceImpl implements VerifierService {
         return parseAndValidateJwt(accessToken, true)
                 .doOnSuccess(unused -> log.info("The verification of the token is valid"))
                 .onErrorResume(e -> {
-                    log.error("Error while verifying token", e);
+                    log.error("Error while verifying token.", e);
                     return Mono.error(e);
                 });
     }
@@ -70,28 +70,43 @@ public class VerifierServiceImpl implements VerifierService {
         return getWellKnownInfo()
                 .flatMap(metadata -> fetchJWKSet(metadata.jwksUri()))
                 .flatMap(jwkSet -> {
+                    SignedJWT signedJWT;
+                    JWTClaimsSet claims;
+
                     try {
-                        SignedJWT signedJWT = SignedJWT.parse(accessToken);
-                        JWTClaimsSet claims = signedJWT.getJWTClaimsSet();
+                        signedJWT = SignedJWT.parse(accessToken);
+                        claims = signedJWT.getJWTClaimsSet();
+                    } catch (ParseException e) {
+                        log.error("Error parsing JWT", e);
+                        JWTParsingException jwtParsingException = new JWTParsingException("Error parsing JWT");
+                        jwtParsingException.initCause(e);
+                        return Mono.error(jwtParsingException);
+                    }
 
-                        // Iss is validated upstream by CustomAuthenticationManager
-                        // via UrlResolver.expectedVerifierBaseUrl(exchange). We only
-                        // check expiration (when requested) and signature here.
+                    // Iss is validated upstream by CustomAuthenticationManager
+                    // via UrlResolver.expectedVerifierBaseUrl(exchange). We only
+                    // check expiration (when requested) and signature here.
 
-                        if (checkExpiration && (claims.getExpirationTime() == null
-                                || new Date().after(claims.getExpirationTime()))) {
-                            return Mono.error(new JWTVerificationException("Token has expired"));
-                        }
+                    if (checkExpiration && (claims.getExpirationTime() == null
+                            || new Date().after(claims.getExpirationTime()))) {
+                        log.error("JWT validation failed: token has expired. expirationTime={}",
+                                claims.getExpirationTime());
 
+                        return Mono.error(new JWTVerificationException("Token has expired"));
+                    }
+
+                    try {
                         JWSVerifier verifier = getJWSVerifier(signedJWT, jwkSet);
+
                         if (!signedJWT.verify(verifier)) {
+                            log.error("JWT validation failed: invalid token signature");
                             return Mono.error(new JWTVerificationException("Invalid token signature"));
                         }
 
                         return Mono.empty(); // Valid token
-                    } catch (ParseException | JOSEException e) {
-                        log.error("Error parsing or verifying JWT", e);
-                        return Mono.error(new JWTParsingException("Error parsing or verifying JWT"));
+                    } catch (JOSEException e) {
+                        log.error("Error verifying JWT signature.", e);
+                        return Mono.error(new JWTVerificationException("Error verifying JWT signature"));
                     }
                 });
     }
