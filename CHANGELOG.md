@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.10] - 2026-05-18
+
+### Fixed
+- **Auth Endpoint:** Exposed `tenantType` in the `/api/v1/me` response payload by retrieving it from the tenant configuration service.
+
 ## [3.6.9] - 2026-05-15
 
 ### Fixed

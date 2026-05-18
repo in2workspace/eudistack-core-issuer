@@ -9,11 +9,13 @@ import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
  * @param role                   the resolved user role ({@link UserRole})
  * @param readOnly               true when the user is a SysAdmin operating from the
  *                               {@code platform} tenant (cross-tenant read-only view)
+ * @param tenantType             the type of the current tenant
  */
 public record AuthorizationContext(
         String organizationIdentifier,
         UserRole role,
-        boolean readOnly
+        boolean readOnly,
+        String tenantType
 ) {
     public boolean isSysAdmin() {
         return role == UserRole.SYSADMIN;

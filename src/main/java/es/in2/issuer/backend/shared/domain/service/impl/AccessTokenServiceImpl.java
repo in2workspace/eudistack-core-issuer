@@ -73,11 +73,14 @@ public class AccessTokenServiceImpl implements AccessTokenService {
                         return new TokenInfo(root, orgId);
                     }).onErrorMap(e -> e instanceof InvalidTokenException ? e : new InvalidTokenException()))
                     .flatMap(info -> resolveRole(info.root, info.orgId)
-                            .map(role -> {
-                                boolean readOnly = role == UserRole.SYSADMIN
-                                        && PLATFORM_TENANT.equals(currentTenant);
-                                return new AuthorizationContext(info.orgId, role, readOnly);
-                            }))
+                            .flatMap(role -> tenantConfigService.getStringOrThrow("tenant_type")
+                                    .map(tenantType -> {
+                                        boolean readOnly = role == UserRole.SYSADMIN
+                                                && PLATFORM_TENANT.equals(currentTenant);
+                                        return new AuthorizationContext(info.orgId, role, readOnly, tenantType);
+                                    })
+                            )
+                    )
                     .switchIfEmpty(Mono.error(new InvalidTokenException()));
         });
     }
