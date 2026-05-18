@@ -8,7 +8,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import es.in2.issuer.backend.shared.domain.model.entities.TenantSigningConfig;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.shared.infrastructure.repository.TenantSigningConfigRepository;
-import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
+import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;

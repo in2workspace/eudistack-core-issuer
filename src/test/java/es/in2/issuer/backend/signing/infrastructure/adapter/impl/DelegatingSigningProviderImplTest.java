@@ -3,7 +3,7 @@ package es.in2.issuer.backend.signing.infrastructure.adapter.impl;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
-import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
+import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;

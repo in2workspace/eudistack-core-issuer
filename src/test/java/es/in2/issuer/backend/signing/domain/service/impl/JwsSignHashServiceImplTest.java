@@ -2,10 +2,10 @@ package es.in2.issuer.backend.signing.domain.service.impl;
 
 import org.mockito.*;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
-import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
+import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.service.HashGeneratorService;
 import es.in2.issuer.backend.signing.domain.util.Base64UrlUtils;
-import es.in2.issuer.backend.signing.domain.spi.QtspSignHashPort;
+import es.in2.issuer.backend.signing.domain.spi.CscPort;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -24,7 +24,7 @@ import static es.in2.issuer.backend.signing.domain.service.impl.JwsSignHashServi
 class JwsSignHashServiceImplTest {
 
     @Mock HashGeneratorService hashGeneratorService;
-    @Mock QtspSignHashPort qtspSignHashClient;
+    @Mock CscPort cscPort;
 
     @InjectMocks JwsSignHashServiceImpl sut;
 
@@ -64,10 +64,10 @@ class JwsSignHashServiceImplTest {
 
         when(hashGeneratorService.sha256Digest(signingInputBytes)).thenReturn(digest);
 
-        when(qtspSignHashClient.authorizeForHash(cfg, accessToken, expectedHashB64Url, HASH_ALGO_OID_SHA256))
+        when(cscPort.authorizeForHash(cfg, accessToken, expectedHashB64Url, HASH_ALGO_OID_SHA256))
                 .thenReturn(Mono.just("sad-1"));
 
-        when(qtspSignHashClient.signHash(
+        when(cscPort.signHash(
                 cfg,
                 accessToken,
                 "sad-1",
@@ -80,9 +80,9 @@ class JwsSignHashServiceImplTest {
                 .assertNext(jws -> assertEquals(signingInput + ".sigB64Url", jws))
                 .verifyComplete();
 
-        verify(qtspSignHashClient).authorizeForHash(cfg, accessToken, expectedHashB64Url, HASH_ALGO_OID_SHA256);
-        verify(qtspSignHashClient).signHash(cfg, accessToken, "sad-1", expectedHashB64Url, HASH_ALGO_OID_SHA256, signAlgoOid);
-        verifyNoMoreInteractions(qtspSignHashClient);
+        verify(cscPort).authorizeForHash(cfg, accessToken, expectedHashB64Url, HASH_ALGO_OID_SHA256);
+        verify(cscPort).signHash(cfg, accessToken, "sad-1", expectedHashB64Url, HASH_ALGO_OID_SHA256, signAlgoOid);
+        verifyNoMoreInteractions(cscPort);
     }
 
     @Test
@@ -104,7 +104,7 @@ class JwsSignHashServiceImplTest {
                 })
                 .verify();
 
-        verifyNoInteractions(qtspSignHashClient);
+        verifyNoInteractions(cscPort);
     }
 
     @Test
@@ -128,7 +128,7 @@ class JwsSignHashServiceImplTest {
                     .verify();
 
             verifyNoInteractions(hashGeneratorService);
-            verifyNoInteractions(qtspSignHashClient);
+            verifyNoInteractions(cscPort);
         }
     }
 
@@ -141,7 +141,7 @@ class JwsSignHashServiceImplTest {
 
         when(hashGeneratorService.sha256Digest(any())).thenReturn(new byte[] {9, 9, 9});
 
-        when(qtspSignHashClient.authorizeForHash(any(), anyString(), anyString(), anyString()))
+        when(cscPort.authorizeForHash(any(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.error(new RemoteSignatureException("authorize failed")));
 
         StepVerifier.create(sut.signJwtWithSignHash(cfg, accessToken, headerJson, payloadJson, "1.2.840.10045.4.3.2"))
@@ -151,8 +151,8 @@ class JwsSignHashServiceImplTest {
                 })
                 .verify();
 
-        verify(qtspSignHashClient, times(1)).authorizeForHash(any(), anyString(), anyString(), anyString());
-        verify(qtspSignHashClient, never()).signHash(any(), anyString(), anyString(), anyString(), anyString(), anyString());
+        verify(cscPort, times(1)).authorizeForHash(any(), anyString(), anyString(), anyString());
+        verify(cscPort, never()).signHash(any(), anyString(), anyString(), anyString(), anyString(), anyString());
     }
 
     @Test
@@ -164,10 +164,10 @@ class JwsSignHashServiceImplTest {
 
         when(hashGeneratorService.sha256Digest(any())).thenReturn(new byte[] {7, 7, 7});
 
-        when(qtspSignHashClient.authorizeForHash(any(), anyString(), anyString(), anyString()))
+        when(cscPort.authorizeForHash(any(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.just("sad-1"));
 
-        when(qtspSignHashClient.signHash(any(), anyString(), anyString(), anyString(), anyString(), anyString()))
+        when(cscPort.signHash(any(), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.error(new RemoteSignatureException("signHash failed")));
 
         StepVerifier.create(sut.signJwtWithSignHash(cfg, accessToken, headerJson, payloadJson, "1.2.840.10045.4.3.2"))
@@ -177,7 +177,7 @@ class JwsSignHashServiceImplTest {
                 })
                 .verify();
 
-        verify(qtspSignHashClient, times(1)).authorizeForHash(any(), anyString(), anyString(), anyString());
-        verify(qtspSignHashClient, times(1)).signHash(any(), anyString(), anyString(), anyString(), anyString(), anyString());
+        verify(cscPort, times(1)).authorizeForHash(any(), anyString(), anyString(), anyString());
+        verify(cscPort, times(1)).signHash(any(), anyString(), anyString(), anyString(), anyString(), anyString());
     }
 }
