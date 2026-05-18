@@ -76,7 +76,6 @@ class IssuancePdpServiceImplTest {
                 certificationRule,
                 requireCredentialProfileAllowedForTenantRule,
                 credentialProfileRegistry,
-                credentialParser,
                 auditService
         );
     }
@@ -208,10 +207,10 @@ class IssuancePdpServiceImplTest {
         List<Power> delegated = List.of(Power.builder().function("Onboarding").action("Execute").build());
 
         StepVerifier.create(issuancePdpService.authorize(EMPLOYEE_CFG,
-                        payloadWith(OPERATOR_ORG, delegated), "id")
+                                payloadWith(OPERATOR_ORG, delegated), "id")
                         .contextWrite(withSecurityContext("t")))
                 .expectErrorMatches(e -> e instanceof InsufficientPermissionException
-                        && e.getMessage().contains("non-delegable power Onboarding/Execute"))
+                        && e.getMessage().contains("Onboarding/Execute delegation requires TenantAdmin"))
                 .verify();
     }
 
@@ -228,10 +227,10 @@ class IssuancePdpServiceImplTest {
         List<Power> delegated = List.of(Power.builder().function("Certification").action("Attest").build());
 
         StepVerifier.create(issuancePdpService.authorize(EMPLOYEE_CFG,
-                        payloadWith(OPERATOR_ORG, delegated), "id")
+                                payloadWith(OPERATOR_ORG, delegated), "id")
                         .contextWrite(withSecurityContext("t")))
                 .expectErrorMatches(e -> e instanceof InsufficientPermissionException
-                        && e.getMessage().contains("non-delegable power Certification/Attest"))
+                        && e.getMessage().contains("Certification/Attest delegation requires TenantAdmin"))
                 .verify();
     }
 

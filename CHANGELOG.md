@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.6.8] - 2026-05-05
+## [3.6.10] - 2026-05-18
 
 ### Added
 
@@ -21,12 +21,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The `proof` parameter is no longer required by default; it is required only when cryptographic binding is requested.
 - When mapping W3C credentials, `credentialSubject.id` is no longer overwritten if already present.
+- UI QR credential offer now returns HTTPS wallet URL instead of openid-credential-offer://
 
-## [3.6.7] - 2026-04-30
+## [3.6.9] - 2026-05-15
 
 ### Fixed
+- Allow tenant admins to delegate onboarding when issuing credentials on behalf of a tenant in multi-organization setups.
+- Fix organization ID extraction from the token when validating LEAR credential power delegation.
 
-- UI QR credential offer now returns HTTPS wallet URL instead of openid-credential-offer://
+## [3.6.8] - 2026-05-13
+
+### Added
+
+- **Credential offer email**: Added knowledge base link to the credential offer email to help users access support resources.
+
+## [3.6.7] - 2026-05-05
 
 ### Changed
 
