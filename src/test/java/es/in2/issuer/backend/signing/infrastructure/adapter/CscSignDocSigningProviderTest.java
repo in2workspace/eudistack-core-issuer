@@ -39,7 +39,7 @@ class CscSignDocSigningProviderTest {
         SigningContext context = new SigningContext("token", "issuanceId", "email@example.com");
         SigningRequest request = buildRequest(SigningType.JADES, "data", context);
         SigningResult signedData = new SigningResult(SigningType.JADES, "signedData");
-        when(signDocService.signIssuedCredential(any(SigningRequest.class), eq("token"), eq("issuanceId"), eq("email@example.com")))
+        when(signDocService.signIssuedCredential(any(SigningRequest.class), eq("issuanceId")))
                 .thenReturn(Mono.just(signedData));
         StepVerifier.create(cscSignDocSigningProvider.sign(request))
                 .assertNext(result -> {
@@ -78,8 +78,8 @@ class CscSignDocSigningProviderTest {
         SigningContext context = new SigningContext("token", "issuanceId", "email@example.com");
         SigningRequest request = buildRequest(SigningType.JADES, "data", context);
 
-        when(signDocService.signIssuedCredential(any(SigningRequest.class), eq("token"), eq("issuanceId"),
-                eq("email@example.com"))).thenReturn(Mono.error(new RuntimeException("remote error")));
+        when(signDocService.signIssuedCredential(any(SigningRequest.class), eq("issuanceId")))
+                .thenReturn(Mono.error(new RuntimeException("remote error")));
 
         StepVerifier.create(cscSignDocSigningProvider.sign(request)).expectError(SigningException.class).verify();
     }

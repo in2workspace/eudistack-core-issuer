@@ -187,7 +187,6 @@ public class GenericCredentialBuilder {
                 credential.set("issuer", issuerNode);
             }
 
-            System.out.println("hola issuer field setted");
             return Mono.just(objectMapper.writeValueAsString(credential));
         } catch (Exception e) {
             return Mono.error(new IllegalStateException("Failed to bind issuer", e));

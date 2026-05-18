@@ -2,6 +2,7 @@
 package es.in2.issuer.backend.signing.infrastructure.csc.auth;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
@@ -68,17 +69,18 @@ public class OAuth2AuthStrategy implements CscAuthStrategy {
         headers.add(new AbstractMap.SimpleEntry<>(HttpHeaders.AUTHORIZATION, basicAuthHeader));
         headers.add(new AbstractMap.SimpleEntry<>(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_FORM_URLENCODED_VALUE));
 
-        System.out.println("Request: " + signatureGetAccessTokenEndpoint + " " + headers + " " + requestBodyString);
-
         return httpUtils.postRequest(signatureGetAccessTokenEndpoint, headers, requestBodyString)
                 .flatMap(responseJson -> Mono.fromCallable(() -> {
                     try {
-                        System.out.println("Response: " + responseJson);
-                        Map<String, Object> responseMap = objectMapper.readValue(responseJson, Map.class);
-                        if (!responseMap.containsKey(ACCESS_TOKEN_NAME)) {
+                        JsonNode response = objectMapper.readTree(responseJson);
+
+                        JsonNode accessTokenNode = response.get(ACCESS_TOKEN_NAME);
+
+                        if (accessTokenNode == null || accessTokenNode.isNull()) {
                             throw new AccessTokenException("Access token missing in response");
                         }
-                        return (String) responseMap.get(ACCESS_TOKEN_NAME);
+
+                        return accessTokenNode.asText();
                     } catch (JsonProcessingException e) {
                         throw new AccessTokenException("Error parsing access token response", e);
                     }

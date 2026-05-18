@@ -5,6 +5,6 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import reactor.core.publisher.Mono;
 
 public interface SignDocService {
-    Mono<SigningResult> signIssuedCredential(SigningRequest signingRequest, String token, String issuanceId, String email);
-    Mono<SigningResult> signSystemCredential(SigningRequest signingRequest, String token);
+    Mono<SigningResult> signIssuedCredential(SigningRequest signingRequest, String issuanceId);
+    Mono<SigningResult> signSystemCredential(SigningRequest signingRequest);
 }

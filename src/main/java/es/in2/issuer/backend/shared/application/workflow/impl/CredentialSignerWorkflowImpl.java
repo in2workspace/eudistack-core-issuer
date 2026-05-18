@@ -50,8 +50,6 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                                        String format, Map<String, Object> cnf, String issuanceId, String email) {
         log.debug("signCredential issuanceId={} format={}", issuanceId, format);
 
-        System.out.println("Hola credential signer");
-
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialType);
         if (profile == null) {
             log.error("Unsupported credential type: {}", credentialType);
@@ -84,8 +82,6 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                                     .context(new SigningContext(token, issuanceId, email))
                                     .typ(VC_JWT_TYP)
                                     .build();
-
-                            System.out.println("Hola 1");
 
                             return delegatingSigningProvider.sign(signingRequest)
                                     .map(SigningResult::data);

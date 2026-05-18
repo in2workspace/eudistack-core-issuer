@@ -102,16 +102,12 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                 .flatMap(proc -> validateProcedureState(proc)
                         .then(credentialIssuerMetadataService.getCredentialIssuerMetadata(publicIssuerBaseUrl))
                         .flatMap(metadata -> {
-                            System.out.println("Holaa oid4vci");
                             log.info("[{}] Processing credential request: issuanceId={}, type={}, format={}",
                                     processId, issuanceId, proc.getCredentialType(), proc.getCredentialFormat());
 
                             return validateAndDetermineBindingInfo(proc, metadata, credentialRequest)
                                     .defaultIfEmpty(new BindingInfo(null, null))
-                                    .flatMap(bindingInfo -> {
-                                        System.out.println("Holaa oid4vci2 pre-enrichAndSign");
-                                        return enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken(), publicIssuerBaseUrl);
-                                    });
+                                    .flatMap(bindingInfo -> enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken(), publicIssuerBaseUrl));
                         })
                 );
     }
@@ -131,8 +127,6 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             String rawToken,
             String publicIssuerBaseUrl) {
 
-        System.out.println("Holaa oid4vci2 enrichAndSign");
-
         String issuanceId = proc.getIssuanceId().toString();
         String credentialType = proc.getCredentialType();
         String email = proc.getEmail();
@@ -148,32 +142,23 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         StatusListFormat statusFormat = DC_SD_JWT.equals(credentialFormat)
                 ? StatusListFormat.TOKEN_JWT : StatusListFormat.BITSTRING_VC;
 
-        System.out.println("Holaa oid4vci casi, profile: ");
-
         // Step 1: Bind issuer to the credential dataSet (in memory, NOT persisted)
         return genericCredentialBuilder.bindIssuer(profile, proc.getCredentialDataSet(), issuanceId, email)
                 // Step 2: Allocate status list entry and inject credentialStatus
-                .flatMap(enrichedDataSet -> {
-                    System.out.println("Holaa oid4vci2 enrichDataSet");
-                            return statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, statusFormat, issuanceId, token, publicIssuerBaseUrl)
-                                    .map(entry -> {
-                                        CredentialStatus status = CredentialStatus.fromStatusListEntry(entry);
-                                        System.out.println("Holaa oid4vci2a");
-                                        return genericCredentialBuilder.injectCredentialStatus(
-                                                enrichedDataSet, status, credentialFormat);
-                                    });
-                        }
+                .flatMap(enrichedDataSet -> statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, statusFormat, issuanceId, token, publicIssuerBaseUrl)
+                        .map(entry -> {
+                            CredentialStatus status = CredentialStatus.fromStatusListEntry(entry);
+                            return genericCredentialBuilder.injectCredentialStatus(
+                                    enrichedDataSet, status, credentialFormat);
+                        })
                 )
                 .flatMap(enrichedWithStatus ->
                         // Step 3: Cache enriched dataSet for later persistence on credential_accepted
-                        {
-                            System.out.println("holaa 5 sign");
-                            return enrichmentCacheStore.add(issuanceId, enrichedWithStatus)
-                                    // Step 4: Sign using enriched data directly (no DB read)
-                                    .then(credentialSignerWorkflow.signCredential(
-                                            token, enrichedWithStatus, credentialType,
-                                            credentialFormat, cnf, issuanceId, email));
-                        }
+                        enrichmentCacheStore.add(issuanceId, enrichedWithStatus)
+                                // Step 4: Sign using enriched data directly (no DB read)
+                                .then(credentialSignerWorkflow.signCredential(
+                                        token, enrichedWithStatus, credentialType,
+                                        credentialFormat, cnf, issuanceId, email))
                 )
                 .flatMap(signedCredential -> {
                     // Step 5: Generate notification_id and cache mapping

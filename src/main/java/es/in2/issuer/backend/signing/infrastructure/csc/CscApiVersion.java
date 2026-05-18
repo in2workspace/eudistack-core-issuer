@@ -1,8 +1,10 @@
 package es.in2.issuer.backend.signing.infrastructure.csc;
 
-import java.util.Arrays;
-import java.util.Optional;
+import lombok.Getter;
 
+import java.util.Arrays;
+
+@Getter
 public enum CscApiVersion {
 
     V1("v2");
@@ -13,10 +15,6 @@ public enum CscApiVersion {
         this.value = value;
     }
 
-    public String getValue() {
-        return value;
-    }
-
     public static CscApiVersion fromValue(String value) {
         if (value == null || value.isBlank()) {
             return V1;
@@ -25,14 +23,5 @@ public enum CscApiVersion {
                 .filter(v -> v.value.equalsIgnoreCase(value.trim()))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Unsupported CSC API version: " + value));
-    }
-
-    public static Optional<CscApiVersion> parseOptional(String value) {
-        if (value == null || value.isBlank()) {
-            return Optional.empty();
-        }
-        return Arrays.stream(values())
-                .filter(v -> v.value.equalsIgnoreCase(value.trim()))
-                .findFirst();
     }
 }

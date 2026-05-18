@@ -81,7 +81,7 @@ class SignDocServiceImplTest {
         when(jwtUtils.decodePayload(signedJwt)).thenReturn("{\"vc\":1}");
         when(jwtUtils.areJsonsEqual("{\"vc\":1}", req.data())).thenReturn(true);
 
-        StepVerifier.create(signDocService.signIssuedCredential(req, "token", "proc", "email"))
+        StepVerifier.create(signDocService.signIssuedCredential(req, "proc"))
                 .assertNext(result -> {
                     assertThat(result.type()).isEqualTo(SigningType.JADES);
                     assertThat(result.data()).isEqualTo(signedJwt);
@@ -106,7 +106,7 @@ class SignDocServiceImplTest {
         when(jwtUtils.decodePayload(signedJwt)).thenReturn("{\"a\":1}");
         when(jwtUtils.areJsonsEqual("{\"a\":1}", req.data())).thenReturn(true);
 
-        StepVerifier.create(signDocService.signSystemCredential(req, "ignored-token"))
+        StepVerifier.create(signDocService.signSystemCredential(req))
                 .assertNext(result -> {
                     assertThat(result.type()).isEqualTo(SigningType.COSE);
                     assertThat(result.data()).isEqualTo(signedJwt);
@@ -131,7 +131,7 @@ class SignDocServiceImplTest {
         when(jwtUtils.decodePayload(signedJwt)).thenReturn("{\"vc\":999}");
         when(jwtUtils.areJsonsEqual("{\"vc\":999}", req.data())).thenReturn(false);
 
-        StepVerifier.create(signDocService.signIssuedCredential(req, "token", "proc", "email"))
+        StepVerifier.create(signDocService.signIssuedCredential(req, "proc"))
                 .expectErrorSatisfies(ex -> {
                     assertThat(ex).isInstanceOf(SignatureProcessingException.class);
                     assertThat(ex.getMessage()).contains("does not match");
@@ -160,11 +160,13 @@ class SignDocServiceImplTest {
         when(cscPort.authorizeForDoc(cfg, "access-token"))
                 .thenReturn(Mono.just("sad-123"));
         when(cscPort.signDoc(eq(cfg), eq("access-token"), eq("sad-123"), anyString(), eq(SIGN_ALGO_OID)))
-                .thenReturn(Mono.error(serverError), Mono.error(serverError), Mono.just(signedB64));
+                .thenReturn(Mono.error(serverError))
+                .thenReturn(Mono.error(serverError))
+                .thenReturn(Mono.just(signedB64));
         when(jwtUtils.decodePayload(signedJwt)).thenReturn("{\"vc\":1}");
         when(jwtUtils.areJsonsEqual("{\"vc\":1}", req.data())).thenReturn(true);
 
-        StepVerifier.create(signDocService.signIssuedCredential(req, "token", "proc", "email"))
+        StepVerifier.create(signDocService.signIssuedCredential(req, "proc"))
                 .assertNext(result -> assertThat(result.data()).isEqualTo(signedJwt))
                 .verifyComplete();
 

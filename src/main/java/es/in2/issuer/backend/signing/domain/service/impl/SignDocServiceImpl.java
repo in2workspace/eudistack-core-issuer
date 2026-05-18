@@ -31,14 +31,14 @@ public class SignDocServiceImpl implements SignDocService {
     private final JwtUtils jwtUtils;
 
     @Override
-    public Mono<SigningResult> signIssuedCredential(SigningRequest signingRequest, String token, String issuanceId, String email) {
+    public Mono<SigningResult> signIssuedCredential(SigningRequest signingRequest, String issuanceId) {
         log.debug("SignDocServiceImpl - signIssuedCredential, issuanceId: {}", issuanceId);
         return signWithRetry(signingRequest, "signIssuedCredential")
-                .doOnSuccess(result -> log.info("Successfully signed credential for issuanceId: {}", issuanceId));
+                .doOnSuccess(_ -> log.info("Successfully signed credential for issuanceId: {}", issuanceId));
     }
 
     @Override
-    public Mono<SigningResult> signSystemCredential(SigningRequest signingRequest, String token) {
+    public Mono<SigningResult> signSystemCredential(SigningRequest signingRequest) {
         log.debug("SignDocServiceImpl - signSystemCredential");
         return signWithRetry(signingRequest, "signSystemCredential");
     }

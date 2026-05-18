@@ -31,17 +31,15 @@ public class CscSignDocSigningProvider implements SigningProvider {
             SigningRequestValidator.validate(request);
 
             SigningContext ctx = request.context();
-            String token = ctx.token();
             String issuanceId = ctx.issuanceId();
-            String email = ctx.email();
 
             boolean isIssued = issuanceId != null && !issuanceId.isBlank();
 
             log.debug("Signing request received. type={}, issued={}, issuanceId={}", request.type(), isIssued, issuanceId);
 
             Mono<SigningResult> signingMono = isIssued
-                    ? signDocService.signIssuedCredential(request, token, issuanceId, email)
-                    : signDocService.signSystemCredential(request, token);
+                    ? signDocService.signIssuedCredential(request, issuanceId)
+                    : signDocService.signSystemCredential(request);
 
             return signingMono
                     .map(result -> new SigningResult(result.type(), result.data()))

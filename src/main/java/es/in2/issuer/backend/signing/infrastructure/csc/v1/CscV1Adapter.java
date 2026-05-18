@@ -31,6 +31,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class CscV1Adapter implements CscPort {
 
+    private static final String CHAIN = "chain";
     private final CscAuthStrategyResolver authResolver;
     private final CscV1CertificateInfoMapper certificateInfoMapper;
     private final ObjectMapper objectMapper;
@@ -53,7 +54,7 @@ public class CscV1Adapter implements CscPort {
 
     @Override
     public Mono<CertificateInfo> getCredentialInfo(RemoteSignatureDto cfg, String accessToken, String credentialId) {
-        CscV1CredentialsInfoRequest body = new CscV1CredentialsInfoRequest(credentialId, "chain", true, true);
+        CscV1CredentialsInfoRequest body = new CscV1CredentialsInfoRequest(credentialId, CHAIN, true, true);
         return post(cfg.url() + CscV1Paths.INFO, accessToken, body)
                 .flatMap(json -> Mono.fromCallable(() -> {
                     Map<String, Object> map = objectMapper.readValue(json, new TypeReference<>() {});
@@ -65,9 +66,8 @@ public class CscV1Adapter implements CscPort {
 
     @Override
     public Mono<Boolean> validateCredentialId(RemoteSignatureDto cfg, String accessToken, String credentialId) {
-        CscV1CredentialsListRequest body = new CscV1CredentialsListRequest(true, "chain", true, true, true, 0, "string");
+        CscV1CredentialsListRequest body = new CscV1CredentialsListRequest(true, CHAIN, true, true, true, 0, "string");
 
-        System.out.println("List Credentials Request: " + cfg.url() + CscV1Paths.LIST + " " + accessToken + " " + body);
         return post(cfg.url() + CscV1Paths.LIST, accessToken, body)
                 .flatMap(json -> Mono.fromCallable(() -> {
                     CscV1CredentialsListResponse resp = objectMapper.readValue(json, CscV1CredentialsListResponse.class);
@@ -81,7 +81,7 @@ public class CscV1Adapter implements CscPort {
 
     @Override
     public Mono<List<String>> listCredentialIds(RemoteSignatureDto cfg, String accessToken) {
-        CscV1CredentialsListRequest body = new CscV1CredentialsListRequest(true, "chain", true, true, true, 0, "string");
+        CscV1CredentialsListRequest body = new CscV1CredentialsListRequest(true, CHAIN, true, true, true, 0, "string");
         return post(cfg.url() + CscV1Paths.LIST, accessToken, body)
                 .flatMap(json -> Mono.fromCallable(() -> {
                     CscV1CredentialsListResponse resp = objectMapper.readValue(json, CscV1CredentialsListResponse.class);
@@ -128,10 +128,10 @@ public class CscV1Adapter implements CscPort {
         return post(cfg.url() + CscV1Paths.SIGN_HASH, accessToken, body)
                 .flatMap(json -> Mono.fromCallable(() -> objectMapper.readValue(json, CscV1SignHashResponse.class)))
                 .flatMap(resp -> {
-                    if (resp.signatures() == null || resp.signatures().isEmpty() || resp.signatures().get(0) == null) {
+                    if (resp.signatures() == null || resp.signatures().isEmpty() || resp.signatures().getFirst() == null) {
                         return Mono.error(new RemoteSignatureException("signHash response missing signatures[0]"));
                     }
-                    return Mono.just(resp.signatures().get(0));
+                    return Mono.just(resp.signatures().getFirst());
                 })
                 .onErrorResume(WebClientResponseException.class, ex -> {
                     if (ex.getStatusCode() == HttpStatus.UNAUTHORIZED) {
@@ -185,7 +185,7 @@ public class CscV1Adapter implements CscPort {
                     if (resp.documentWithSignature() == null || resp.documentWithSignature().isEmpty()) {
                         throw new RemoteSignatureException("signDoc response missing DocumentWithSignature");
                     }
-                    return resp.documentWithSignature().get(0);
+                    return resp.documentWithSignature().getFirst();
                 }))
                 .doOnError(error -> log.error("Error in signDoc: {}", error.getMessage()));
     }

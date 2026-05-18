@@ -50,7 +50,6 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
                     .map(this::toRemoteSignatureDto)
                     .doOnNext(dto -> {
                         signatureCache.put(tenant, dto);
-                        System.out.println("hola tenant signing config: " + dto);
                         log.debug("Loaded tenant signing config for '{}': provider at {}", tenant, dto.url());
                     });
         });
