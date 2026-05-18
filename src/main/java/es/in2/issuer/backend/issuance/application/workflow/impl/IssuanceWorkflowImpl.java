@@ -174,7 +174,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                 )
                                 .flatMap(enrichedWithStatus ->
                                         credentialSignerWorkflow.signCredential(
-                                                        null, enrichedWithStatus, configId, credentialFormat,
+                                                        token, enrichedWithStatus, configId, credentialFormat,
                                                         null, issuanceId.toString(), request.email())
                                                 .flatMap(signedCredential -> {
                                                     CredentialStatusEnum finalStatus = determineFinalStatus(buildResult);

@@ -155,7 +155,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusEntry));
         when(genericCredentialBuilder.injectCredentialStatus(eq("enriched-data-set"), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(isNull(), eq("enriched-with-status"), eq(CONFIG_ID),
+        when(credentialSignerWorkflow.signCredential(eq("id-token"), eq("enriched-with-status"), eq(CONFIG_ID),
                 anyString(), isNull(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
@@ -191,7 +191,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(isNull(), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
@@ -249,7 +249,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(isNull(), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(directIssuance));
@@ -462,7 +462,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(isNull(), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
@@ -500,7 +500,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(isNull(), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
@@ -539,7 +539,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(isNull(), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
