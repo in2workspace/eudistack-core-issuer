@@ -2,8 +2,9 @@ package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
 import es.in2.issuer.backend.oidc4vci.application.workflow.CredentialOfferRefreshWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
-import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
+import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
@@ -19,7 +20,6 @@ import reactor.core.publisher.Mono;
 public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefreshWorkflow {
 
     private static final String DEFAULT_GRANT_TYPE = "authorization_code";
-    private static final String DELIVERY_EMAIL = "email";
 
     private final IssuanceService issuanceService;
     private final CredentialOfferService credentialOfferService;
@@ -38,7 +38,7 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
                         issuance.getCredentialType(),
                         DEFAULT_GRANT_TYPE,
                         issuance.getEmail(),
-                        DELIVERY_EMAIL,
+                        DeliveryMode.EMAIL.value,
                         credentialOfferRefreshToken,
                         publicIssuerBaseUrl))
                 .doOnSuccess(v -> log.info("Credential offer refreshed successfully for credentialOfferRefreshToken: {}", credentialOfferRefreshToken))
