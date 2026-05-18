@@ -5,7 +5,7 @@ import java.util.Optional;
 
 public enum CscApiVersion {
 
-    V1("v1");
+    V1("v2");
 
     private final String value;
 

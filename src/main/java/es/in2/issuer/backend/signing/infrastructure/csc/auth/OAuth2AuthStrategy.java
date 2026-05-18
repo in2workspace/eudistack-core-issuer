@@ -68,9 +68,12 @@ public class OAuth2AuthStrategy implements CscAuthStrategy {
         headers.add(new AbstractMap.SimpleEntry<>(HttpHeaders.AUTHORIZATION, basicAuthHeader));
         headers.add(new AbstractMap.SimpleEntry<>(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_FORM_URLENCODED_VALUE));
 
+        System.out.println("Request: " + signatureGetAccessTokenEndpoint + " " + headers + " " + requestBodyString);
+
         return httpUtils.postRequest(signatureGetAccessTokenEndpoint, headers, requestBodyString)
                 .flatMap(responseJson -> Mono.fromCallable(() -> {
                     try {
+                        System.out.println("Response: " + responseJson);
                         Map<String, Object> responseMap = objectMapper.readValue(responseJson, Map.class);
                         if (!responseMap.containsKey(ACCESS_TOKEN_NAME)) {
                             throw new AccessTokenException("Access token missing in response");

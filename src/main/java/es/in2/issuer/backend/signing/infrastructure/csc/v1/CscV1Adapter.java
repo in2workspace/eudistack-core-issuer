@@ -66,6 +66,8 @@ public class CscV1Adapter implements CscPort {
     @Override
     public Mono<Boolean> validateCredentialId(RemoteSignatureDto cfg, String accessToken, String credentialId) {
         CscV1CredentialsListRequest body = new CscV1CredentialsListRequest(true, "chain", true, true, true, 0, "string");
+
+        System.out.println("List Credentials Request: " + cfg.url() + CscV1Paths.LIST + " " + accessToken + " " + body);
         return post(cfg.url() + CscV1Paths.LIST, accessToken, body)
                 .flatMap(json -> Mono.fromCallable(() -> {
                     CscV1CredentialsListResponse resp = objectMapper.readValue(json, CscV1CredentialsListResponse.class);
