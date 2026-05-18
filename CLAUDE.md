@@ -24,7 +24,8 @@ Repo group: `com.eudistack` · current version: see `build.gradle`.
 - **Nimbus JOSE+JWT** + BouncyCastle for crypto
 - **WebClient** for outbound HTTP (Verifier, QTSP, Trust Framework)
 - **Testcontainers** for integration tests
-- **Checkstyle**, **JaCoCo**, **OWASP dependency-check** in CI
+- **Checkstyle** + **JaCoCo** wired into CI (`./gradlew build` runs them via `check`).
+- **OWASP dependency-check** plugin available locally (`./gradlew dependencyCheckAnalyze`); not yet bound to CI.
 
 ## Architecture (hexagonal)
 
@@ -47,8 +48,8 @@ Strict rules in `../eudistack-platform-dev/.claude/rules/hexagonal-discipline.md
 
 ## Multi-tenancy
 
-- Tenant resolved from `X-Tenant-Id` header via `TenantContextHolder` (Reactor Context, never `ThreadLocal`).
-- One PostgreSQL schema per tenant; `search_path` reset on connection release.
+- Tenant resolved from `X-Tenant-Id` header by `TenantDomainWebFilter` and stored under the `tenantDomain` key in the Reactor `Context` (never `ThreadLocal`).
+- One PostgreSQL schema per tenant; `TenantAwareConnectionFactoryDecorator` issues `SET search_path TO <tenant><suffix>, public` when a connection is borrowed (no explicit reset on release — connections are short-lived and re-set per borrow).
 - See `../eudistack-platform-dev/.claude/rules/tenant-isolation.md`.
 
 ## Common commands
@@ -58,22 +59,21 @@ Strict rules in `../eudistack-platform-dev/.claude/rules/hexagonal-discipline.md
 | Task | Command |
 |------|---------|
 | Compile | `./gradlew compileJava` |
-| Unit tests | `./gradlew test` |
-| Integration tests (Testcontainers) | `./gradlew integrationTest` |
+| Unit + integration tests (Testcontainers `*IT`) | `./gradlew test` |
 | Full check (compile + tests + checkstyle + jacoco) | `./gradlew check` |
 | Rebuild Docker image for stack | `cd ../eudistack-platform-dev && make rebuild-issuer-service` |
 | Tail logs in stack | `cd ../eudistack-platform-dev && make logs-issuer` |
-| OWASP dependency check | `./gradlew dependencyCheckAnalyze` |
+| OWASP dependency check (local only) | `./gradlew dependencyCheckAnalyze` |
 | Format check | `./gradlew checkstyleMain checkstyleTest` |
 
 ## Testing conventions
 
 - `*Test.java` — unit (JUnit 5 + Mockito, no Spring).
-- `*IT.java` — integration (Spring + Testcontainers Postgres).
+- `*IT.java` — integration (Spring + Testcontainers Postgres). Runs in the same `test` task — there is no separate `integrationTest` task / source set.
 - Naming: `Class_methodUnderTest_expectedBehavior`.
 - WebFlux endpoints: `WebTestClient`.
 - One assertion concept per test.
-- Aim ≥80% line coverage on new code (JaCoCo gate).
+- **CI JaCoCo gate (enforced):** 40% overall, 60% changed files (`.github/workflows/ci.yml` via `madrapps/jacoco-report`). Aim higher (≥80% on new code) but the build only fails below those numbers.
 
 ## Protocols implemented
 
