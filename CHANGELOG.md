@@ -6,11 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.6.10] - 2026-05-18
+## [3.6.11] - 2026-05-19
 
 ### Fixed
 - **Auth Endpoint:** Exposed `tenantType` in the `/api/v1/me` response payload by retrieving it from the tenant configuration service.
 
+## [3.6.10] - 2026-05-18
 ### Added
 
 - Centralized regex-based masking to prevent leakage of PII and secrets in logs.
