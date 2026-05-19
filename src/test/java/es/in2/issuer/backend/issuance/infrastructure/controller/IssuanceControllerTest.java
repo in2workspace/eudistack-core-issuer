@@ -167,7 +167,7 @@ class IssuanceControllerTest {
     @Test
     void getAllIssuances_ReturnsIssuanceList() {
         String orgId = "testOrganizationId";
-        AuthorizationContext authCtx = new AuthorizationContext(orgId, UserRole.LEAR, false);
+        AuthorizationContext authCtx = new AuthorizationContext(orgId, UserRole.LEAR, false, "multi_org");
 
         IssuanceSummary summary = IssuanceSummary.builder()
                 .issuanceId(UUID.randomUUID())
@@ -200,7 +200,7 @@ class IssuanceControllerTest {
     void getIssuance_ReturnsCredentialDetails() {
         String orgId = "testOrganizationId";
         String issuanceId = "test-issuance-id";
-        AuthorizationContext authCtx = new AuthorizationContext(orgId, UserRole.LEAR, false);
+        AuthorizationContext authCtx = new AuthorizationContext(orgId, UserRole.LEAR, false, "multi_org");
 
         CredentialDetails details = CredentialDetails.builder()
                 .issuanceId(UUID.randomUUID())
@@ -228,7 +228,7 @@ class IssuanceControllerTest {
     void updateIssuanceStatus_WithdrawnByTenantAdmin_Returns204() throws JsonProcessingException {
         String issuanceId = UUID.randomUUID().toString();
         UpdateIssuanceStatusRequest request = new UpdateIssuanceStatusRequest(CredentialStatusEnum.WITHDRAWN);
-        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.TENANT_ADMIN, false);
+        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.TENANT_ADMIN, false, "multi_org");
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(accessTokenService.getAuthorizationContext(anyString()))
@@ -250,7 +250,7 @@ class IssuanceControllerTest {
     void updateIssuanceStatus_ArchivedByTenantAdmin_Returns204() throws JsonProcessingException {
         String issuanceId = UUID.randomUUID().toString();
         UpdateIssuanceStatusRequest request = new UpdateIssuanceStatusRequest(CredentialStatusEnum.ARCHIVED);
-        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.TENANT_ADMIN, false);
+        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.TENANT_ADMIN, false, "multi_org");
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(accessTokenService.getAuthorizationContext(anyString()))
@@ -272,7 +272,7 @@ class IssuanceControllerTest {
     void updateIssuanceStatus_Revoked_Returns204() throws JsonProcessingException {
         String issuanceId = UUID.randomUUID().toString();
         UpdateIssuanceStatusRequest request = new UpdateIssuanceStatusRequest(CredentialStatusEnum.REVOKED);
-        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.TENANT_ADMIN, false);
+        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.TENANT_ADMIN, false, "multi_org");
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(accessTokenService.getAuthorizationContext(anyString()))
@@ -294,7 +294,7 @@ class IssuanceControllerTest {
     void updateIssuanceStatus_UnsupportedStatus_Returns400() throws JsonProcessingException {
         String issuanceId = UUID.randomUUID().toString();
         UpdateIssuanceStatusRequest request = new UpdateIssuanceStatusRequest(CredentialStatusEnum.VALID);
-        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.TENANT_ADMIN, false);
+        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.TENANT_ADMIN, false, "multi_org");
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(accessTokenService.getAuthorizationContext(anyString()))
@@ -314,7 +314,7 @@ class IssuanceControllerTest {
     void updateIssuanceStatus_WhenReadOnlyContext_Returns403() throws JsonProcessingException {
         String issuanceId = UUID.randomUUID().toString();
         UpdateIssuanceStatusRequest request = new UpdateIssuanceStatusRequest(CredentialStatusEnum.WITHDRAWN);
-        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.LEAR, true);
+        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.LEAR, true, "multi_org");
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(accessTokenService.getAuthorizationContext(anyString()))

@@ -366,7 +366,7 @@ class IssuanceServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.LEAR, false), issuanceId);
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.LEAR, false, "multi-org"), issuanceId);
 
         // Then
         StepVerifier.create(result)
@@ -407,7 +407,7 @@ class IssuanceServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.SYSADMIN, false), issuanceId);
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.SYSADMIN, false, "multi_org"), issuanceId);
 
         // Then
         StepVerifier.create(result)
@@ -434,7 +434,7 @@ class IssuanceServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.LEAR, false), issuanceId);
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.LEAR, false, "multi_org"), issuanceId);
 
         // Then
         StepVerifier.create(result)
@@ -456,7 +456,7 @@ class IssuanceServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.SYSADMIN, false), issuanceId);
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.SYSADMIN, false, "multi_org"), issuanceId);
 
         // Then
         StepVerifier.create(result)
@@ -483,7 +483,7 @@ class IssuanceServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.LEAR, false), issuanceId);
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.LEAR, false, "multi_org"), issuanceId);
 
         // Then
         StepVerifier.create(result)
@@ -597,7 +597,7 @@ class IssuanceServiceImplTest {
         }
 
         // When
-        Mono<IssuanceList> mono = issuanceService.getAllIssuancesVisibleFor(new AuthorizationContext(adminOrg, UserRole.SYSADMIN, false));
+        Mono<IssuanceList> mono = issuanceService.getAllIssuancesVisibleFor(new AuthorizationContext(adminOrg, UserRole.SYSADMIN, false, "multi_org"));
 
         // Then
         StepVerifier.create(mono)
@@ -662,7 +662,7 @@ class IssuanceServiceImplTest {
                 .when(spyService).getAllIssuanceSummariesByOrganizationId(orgId);
 
         // When
-        Mono<IssuanceList> mono = spyService.getAllIssuancesVisibleFor(new AuthorizationContext(orgId, UserRole.LEAR, false));
+        Mono<IssuanceList> mono = spyService.getAllIssuancesVisibleFor(new AuthorizationContext(orgId, UserRole.LEAR, false, "multi_org"));
 
         // Then
         StepVerifier.create(mono)
@@ -687,7 +687,7 @@ class IssuanceServiceImplTest {
                 .thenReturn(Flux.empty());
 
         // When
-        Mono<IssuanceList> mono = issuanceService.getAllIssuancesVisibleFor(new AuthorizationContext(ADMIN_ORG_ID, UserRole.SYSADMIN, false));
+        Mono<IssuanceList> mono = issuanceService.getAllIssuancesVisibleFor(new AuthorizationContext(ADMIN_ORG_ID, UserRole.SYSADMIN, false, "multi_org"));
 
         // Then
         StepVerifier.create(mono)
