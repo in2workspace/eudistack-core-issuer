@@ -11,6 +11,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
+import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
@@ -32,6 +33,7 @@ public class AccessTokenServiceImpl implements AccessTokenService {
     private final ObjectMapper objectMapper;
     private final IssuerProperties appConfig;
     private final TenantConfigService tenantConfigService;
+    private final TenantRegistryService tenantRegistryService;
 
     private static final String DPOP_PREFIX = "DPoP ";
 
@@ -73,7 +75,7 @@ public class AccessTokenServiceImpl implements AccessTokenService {
                         return new TokenInfo(root, orgId);
                     }).onErrorMap(e -> e instanceof InvalidTokenException ? e : new InvalidTokenException()))
                     .flatMap(info -> resolveRole(info.root, info.orgId)
-                            .flatMap(role -> tenantConfigService.getStringOrThrow("tenant_type")
+                            .flatMap(role -> tenantRegistryService.getTenantType(currentTenant)
                                     .map(tenantType -> {
                                         boolean readOnly = role == UserRole.SYSADMIN
                                                 && PLATFORM_TENANT.equals(currentTenant);
