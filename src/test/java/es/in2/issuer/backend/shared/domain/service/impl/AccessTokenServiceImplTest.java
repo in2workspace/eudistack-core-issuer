@@ -14,6 +14,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
+import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -50,6 +51,8 @@ class AccessTokenServiceImplTest {
     private TenantConfigService mockTenantConfigService;
     @InjectMocks
     private AccessTokenServiceImpl accessTokenServiceImpl;
+    @Mock
+    private TenantRegistryService mockTenantRegistryService;
 
     @Test
     void testGetCleanBearerToken_Valid() {
@@ -346,7 +349,7 @@ class AccessTokenServiceImplTest {
             when(mockSignedJwt.getPayload()).thenReturn(new Payload(jwtPayload));
             when(mockObjectMapper.readTree(jwtPayload)).thenReturn(new ObjectMapper().readTree(jwtPayload));
             when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
-            when(mockTenantConfigService.getStringOrThrow("tenant_type")).thenReturn(Mono.just("multi_org"));
+            when(mockTenantRegistryService.getTenantType(anyString())).thenReturn(Mono.just("multi_org"));
 
             Mono<AuthorizationContext> result = accessTokenServiceImpl.getAuthorizationContext("Bearer " + token)
                     .contextWrite(ctx -> ctx.put("tenantDomain", "sandbox"));
@@ -373,7 +376,7 @@ class AccessTokenServiceImplTest {
             when(mockSignedJwt.getPayload()).thenReturn(new Payload(jwtPayload));
             when(mockObjectMapper.readTree(jwtPayload)).thenReturn(new ObjectMapper().readTree(jwtPayload));
             when(mockAppConfig.getManagementTokenOrgIdJsonPath()).thenReturn("mandator.organizationIdentifier");
-            when(mockTenantConfigService.getStringOrThrow("tenant_type")).thenReturn(Mono.just("platform"));
+            when(mockTenantRegistryService.getTenantType(anyString())).thenReturn(Mono.just("platform"));
 
             Mono<AuthorizationContext> result = accessTokenServiceImpl.getAuthorizationContext("Bearer " + token)
                     .contextWrite(ctx -> ctx.put("tenantDomain", "platform"));
@@ -405,7 +408,7 @@ class AccessTokenServiceImplTest {
             when(mockAppConfig.getManagementTokenAdminPowerAction()).thenReturn("Execute");
             when(mockTenantConfigService.getStringOrThrow("admin_organization_id"))
                     .thenReturn(Mono.just(adminOrgId));
-            when(mockTenantConfigService.getStringOrThrow("tenant_type")).thenReturn(Mono.just("multi_org"));
+            when(mockTenantRegistryService.getTenantType(anyString())).thenReturn(Mono.just("multi_org"));
 
             Mono<AuthorizationContext> result = accessTokenServiceImpl.getAuthorizationContext("Bearer " + token)
                     .contextWrite(ctx -> ctx.put("tenantDomain", "dome"));
@@ -440,7 +443,7 @@ class AccessTokenServiceImplTest {
 
             Mono<AuthorizationContext> result = accessTokenServiceImpl.getAuthorizationContext("Bearer " + token)
                     .contextWrite(ctx -> ctx.put("tenantDomain", "dome"));
-            when(mockTenantConfigService.getStringOrThrow("tenant_type")).thenReturn(Mono.just("simple"));
+            when(mockTenantRegistryService.getTenantType(anyString())).thenReturn(Mono.just("simple"));
 
             StepVerifier.create(result)
                     .expectNextMatches(ctx ->
