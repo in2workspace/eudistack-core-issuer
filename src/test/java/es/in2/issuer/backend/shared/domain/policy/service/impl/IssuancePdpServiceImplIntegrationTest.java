@@ -112,7 +112,6 @@ class IssuancePdpServiceImplIntegrationTest {
                 certificationRule,
                 requireCredentialProfileAllowedForTenantRule,
                 credentialProfileRegistry,
-                credentialParser,
                 auditService
         );
     }
@@ -222,9 +221,6 @@ class IssuancePdpServiceImplIntegrationTest {
                 }
                 """;
         JsonNode jsonNode = objectMapper.readTree(json);
-
-        // RequireMandatorDelegationRule uses credentialParser.extractOrganizationId on the PolicyContext credential
-        when(credentialParser.extractOrganizationId(any(), any())).thenReturn("VATES-B60645900");
 
         StepVerifier.create(
                         issuancePdpService.authorize(CREDENTIAL_TYPE, jsonNode, "dummy-id-token")

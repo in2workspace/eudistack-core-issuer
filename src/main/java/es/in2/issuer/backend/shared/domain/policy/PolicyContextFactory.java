@@ -232,15 +232,25 @@ public class PolicyContextFactory {
      * domain=KPMG) from being accepted as TenantAdmin on a different tenant (e.g. DOME).
      */
     private Mono<Boolean> resolveTenantAdmin(String orgId, List<Power> powers, String tenantDomain) {
-        if (orgId == null || tenantDomain == null || tenantDomain.isBlank()) return Mono.just(false);
+        if (orgId == null || tenantDomain == null || tenantDomain.isBlank()) {
+            log.debug("TenantAdmin resolution skipped: orgId='{}', tenantDomain='{}'", orgId, tenantDomain);
+            return Mono.just(false);
+        }
         boolean hasDomainPower = powers.stream().anyMatch(p ->
                 "Onboarding".equals(p.function())
                         && PolicyContext.hasAction(p, "Execute")
                         && tenantDomain.equalsIgnoreCase(p.domain()));
+        log.debug("TenantAdmin resolution: orgId='{}', tenantDomain='{}', hasDomainOnboardingExecutePower={}",
+                orgId, tenantDomain, hasDomainPower);
         if (!hasDomainPower) return Mono.just(false);
 
         return tenantConfigService.getStringOrThrow("admin_organization_id")
-                .map(adminOrgId -> orgId.equals(adminOrgId));
+                .map(adminOrgId -> {
+                    boolean match = orgId.equals(adminOrgId);
+                    log.debug("TenantAdmin org check: operatorOrgId='{}', configAdminOrgId='{}', match={}",
+                            orgId, adminOrgId, match);
+                    return match;
+                });
     }
 
     private Mono<String> resolveTenantType(String tenantDomain) {

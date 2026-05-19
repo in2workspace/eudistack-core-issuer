@@ -20,15 +20,11 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeTypeUtils;
-import org.springframework.web.util.UriBuilder;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import java.io.ByteArrayOutputStream;
-import java.net.URI;
-import java.net.URLDecoder;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Locale;
@@ -91,54 +87,58 @@ public class EmailServiceImpl implements EmailService {
 
     @Observed(name = "issuance.send-email", contextualName = "issuance-send-email")
     @Override
-    public Mono<Void> sendCredentialOfferEmail(String to, String subject, String credentialOfferUri,
-                                               String reissueUrl, String walletUrl, String organization, String txCode) {
+    public Mono<Void> sendCredentialOfferEmail(String to, String subject, String walletDeepLink,
+                                               String reissueUrl, String organization, String txCode) {
         return doSendCredentialOfferEmail("credential-offer-email", to, subject,
-                credentialOfferUri, reissueUrl, walletUrl, organization, txCode);
+                walletDeepLink, reissueUrl, organization, txCode);
     }
 
     @Observed(name = "issuance.send-email", contextualName = "issuance-send-email")
     @Override
-    public Mono<Void> sendBrandedCredentialOfferEmail(String to, String subject, String credentialOfferUri,
-                                                      String reissueUrl, String walletUrl, String organization) {
+    public Mono<Void> sendBrandedCredentialOfferEmail(String to, String subject, String walletDeepLink,
+                                                      String reissueUrl, String organization) {
         return doSendCredentialOfferEmail("credential-offer-email-v2", to, subject,
-                credentialOfferUri, reissueUrl, walletUrl, organization, null);
+                walletDeepLink, reissueUrl, organization, null);
     }
 
     private Mono<Void> doSendCredentialOfferEmail(String template, String to, String subject,
-                                                   String credentialOfferUri, String reissueUrl,
-                                                   String walletUrl, String organization, String txCode) {
-        return tenantConfigService.getStringOrThrow(MAIL_FROM_KEY)
-                .flatMap(mailFrom -> Mono.fromCallable(() -> {
-                    MimeMessage mimeMessage = javaMailSender.createMimeMessage();
-                    MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
-                    helper.setFrom(mailFrom);
-                    helper.setTo(to);
-                    helper.setSubject(translationService.translate(subject));
+                                                   String walletDeepLink, String reissueUrl,
+                                                   String organization, String txCode) {
+        return Mono.zip(
+                tenantConfigService.getStringOrThrow(MAIL_FROM_KEY),
+                tenantConfigService.getStringOrThrow("issuer.wallet_url")
+        ).flatMap(tuple -> {
+            String mailFrom = tuple.getT1();
+            String walletUrl = tuple.getT2();
+            return Mono.fromCallable(() -> {
+                MimeMessage mimeMessage = javaMailSender.createMimeMessage();
+                MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
+                helper.setFrom(mailFrom);
+                helper.setTo(to);
+                helper.setSubject(translationService.translate(subject));
 
-                    String walletDeepLink = buildWalletDeepLink(credentialOfferUri, walletUrl);
-                    byte[] qrImageBytes = generateQrCodeImage(walletDeepLink, 300, 300);
+                byte[] qrImageBytes = generateQrCodeImage(walletDeepLink, 300, 300);
 
-                    Context context = createLocalizedContext();
-                    context.setVariable("organization", organization);
-                    context.setVariable("qrImageCid", "cid:qr-credential-offer.png");
-                    context.setVariable("walletDeepLink", walletDeepLink);
-                    context.setVariable("walletInstallUrl", walletUrl.endsWith("/") ? walletUrl : walletUrl + "/");
-                    context.setVariable("reissueUrl", reissueUrl);
-                    if (txCode != null) {
-                        context.setVariable("txCode", txCode);
-                    }
+                Context context = createLocalizedContext();
+                context.setVariable("organization", organization);
+                context.setVariable("qrImageCid", "cid:qr-credential-offer.png");
+                context.setVariable("walletDeepLink", walletDeepLink);
+                context.setVariable("walletInstallUrl", walletUrl.endsWith("/") ? walletUrl : walletUrl + "/");
+                context.setVariable("reissueUrl", reissueUrl);
+                if (txCode != null) {
+                    context.setVariable("txCode", txCode);
+                }
 
-                    String htmlContent = templateEngine.process(template, context);
-                    helper.setText(htmlContent, true);
+                String htmlContent = templateEngine.process(template, context);
+                helper.setText(htmlContent, true);
 
-                    InputStreamSource qrImageSource = new ByteArrayResource(qrImageBytes);
-                    helper.addInline("qr-credential-offer.png", qrImageSource, MimeTypeUtils.IMAGE_PNG_VALUE);
+                InputStreamSource qrImageSource = new ByteArrayResource(qrImageBytes);
+                helper.addInline("qr-credential-offer.png", qrImageSource, MimeTypeUtils.IMAGE_PNG_VALUE);
 
-                    javaMailSender.send(mimeMessage);
-                    return null;
-                }).subscribeOn(Schedulers.boundedElastic()))
-                .then();
+                javaMailSender.send(mimeMessage);
+                return null;
+            }).subscribeOn(Schedulers.boundedElastic());
+        }).then();
     }
 
     private byte[] generateQrCodeImage(String content, int width, int height) {
@@ -155,13 +155,6 @@ public class EmailServiceImpl implements EmailService {
         } catch (Exception e) {
             throw new EmailCommunicationException("Failed to generate QR code image");
         }
-    }
-
-    private String buildWalletDeepLink(String credentialOfferUri, String walletUrl) {
-        String httpsUrl = credentialOfferUri.startsWith(CREDENTIAL_OFFER_PREFIX)
-                ? credentialOfferUri.substring(CREDENTIAL_OFFER_PREFIX.length())
-                : URLEncoder.encode(credentialOfferUri, StandardCharsets.UTF_8);
-        return walletUrl + WALLET_PROTOCOL_CALLBACK + "?" + CREDENTIAL_OFFER_URI_PARAMETER + "=" + httpsUrl;
     }
 
     @Override
