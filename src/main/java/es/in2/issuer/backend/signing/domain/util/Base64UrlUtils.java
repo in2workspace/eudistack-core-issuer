@@ -14,7 +14,4 @@ public final class Base64UrlUtils {
         return encode(s.getBytes(StandardCharsets.UTF_8));
     }
 
-    public static byte[] decode(String b64url) {
-        return Base64.getUrlDecoder().decode(b64url);
-    }
 }

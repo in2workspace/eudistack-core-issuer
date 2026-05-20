@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.shared.domain.service;
 
-import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
+import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import reactor.core.publisher.Mono;
 
 /**

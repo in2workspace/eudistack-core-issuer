@@ -4,8 +4,8 @@ import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
-import es.in2.issuer.backend.signing.domain.model.dto.RemoteSignatureDto;
-import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
+import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
+import es.in2.issuer.backend.signing.domain.service.IssuerCertificateService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(MockitoExtension.class)
 class IssuerFactoryTest {
 
-    @Mock private QtspIssuerService qtspIssuerService;
+    @Mock private IssuerCertificateService issuerCertificateService;
     @Mock private TenantSigningConfigService tenantSigningConfigService;
     @InjectMocks private IssuerFactory issuerFactory;
 
@@ -33,10 +33,18 @@ class IssuerFactoryTest {
     @BeforeEach
     void setUp() {
         cfg = new RemoteSignatureDto(
-                "https://qtsp",
-                "client", "secret", "cred", "pwd",
+                "provider",
+                "1",
+                "",
+                "sign-hash",
+                "cred", "pwd",
                 "PT10M",
-                "sign-hash"
+                "client", "secret",
+                "",
+                "",
+                "",
+                "",
+                ""
         );
     }
 
@@ -52,14 +60,14 @@ class IssuerFactoryTest {
                 .build();
 
         when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.just(cfg));
-        when(qtspIssuerService.resolveRemoteDetailedIssuer(cfg))
+        when(issuerCertificateService.resolveRemoteDetailedIssuer(cfg))
                 .thenReturn(Mono.just(expected));
 
         StepVerifier.create(issuerFactory.createDetailedIssuer())
                 .expectNext(expected)
                 .verifyComplete();
 
-        verify(qtspIssuerService).resolveRemoteDetailedIssuer(cfg);
+        verify(issuerCertificateService).resolveRemoteDetailedIssuer(cfg);
     }
 
     @Test
@@ -69,34 +77,34 @@ class IssuerFactoryTest {
                 .build();
 
         when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.just(cfg));
-        when(qtspIssuerService.resolveRemoteDetailedIssuer(cfg))
+        when(issuerCertificateService.resolveRemoteDetailedIssuer(cfg))
                 .thenReturn(Mono.just(detailed));
 
         StepVerifier.create(issuerFactory.createSimpleIssuer())
                 .assertNext(simple -> assertEquals("issuer-id", simple.getId()))
                 .verifyComplete();
 
-        verify(qtspIssuerService).resolveRemoteDetailedIssuer(cfg);
+        verify(issuerCertificateService).resolveRemoteDetailedIssuer(cfg);
     }
 
     @Test
     void createDetailedIssuer_Remote_Error_PropagatesError() {
         RemoteSignatureException ex = new RemoteSignatureException("boom");
         when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.just(cfg));
-        when(qtspIssuerService.resolveRemoteDetailedIssuer(cfg))
+        when(issuerCertificateService.resolveRemoteDetailedIssuer(cfg))
                 .thenReturn(Mono.error(ex));
 
         StepVerifier.create(issuerFactory.createDetailedIssuer())
                 .expectErrorSatisfies(err -> assertEquals(ex, err))
                 .verify();
 
-        verify(qtspIssuerService).resolveRemoteDetailedIssuer(cfg);
+        verify(issuerCertificateService).resolveRemoteDetailedIssuer(cfg);
     }
 
     @Test
     void createDetailedIssuer_Remote_RecoverableErrors_ThenRetryExhausted() {
         when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.just(cfg));
-        when(qtspIssuerService.resolveRemoteDetailedIssuer(cfg))
+        when(issuerCertificateService.resolveRemoteDetailedIssuer(cfg))
                 .thenReturn(Mono.error(new TimeoutException("t1")))
                 .thenReturn(Mono.error(new TimeoutException("t2")))
                 .thenReturn(Mono.error(new TimeoutException("t3")))
@@ -109,7 +117,7 @@ class IssuerFactoryTest {
                 })
                 .verify();
 
-        verify(qtspIssuerService, atLeast(1)).resolveRemoteDetailedIssuer(cfg);
+        verify(issuerCertificateService, atLeast(1)).resolveRemoteDetailedIssuer(cfg);
     }
 
     @Test
@@ -123,6 +131,6 @@ class IssuerFactoryTest {
                 })
                 .verify();
 
-        verify(qtspIssuerService, never()).resolveRemoteDetailedIssuer(any());
+        verify(issuerCertificateService, never()).resolveRemoteDetailedIssuer(any());
     }
 }

@@ -29,6 +29,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import javax.naming.ConfigurationException;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -95,6 +96,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
 
         final String issuanceId = accessTokenContext.issuanceId();
 
+
         return issuanceService.getIssuanceById(issuanceId)
                 .switchIfEmpty(Mono.error(new InvalidTokenException("Procedure not found: " + issuanceId)))
                 .flatMap(proc -> validateProcedureState(proc)
@@ -105,8 +107,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
 
                             return validateAndDetermineBindingInfo(proc, metadata, credentialRequest)
                                     .defaultIfEmpty(new BindingInfo(null, null))
-                                    .flatMap(bindingInfo ->
-                                            enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken(), publicIssuerBaseUrl));
+                                    .flatMap(bindingInfo -> enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken(), publicIssuerBaseUrl));
                         })
                 );
     }
@@ -144,13 +145,12 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         // Step 1: Bind issuer to the credential dataSet (in memory, NOT persisted)
         return genericCredentialBuilder.bindIssuer(profile, proc.getCredentialDataSet(), issuanceId, email)
                 // Step 2: Allocate status list entry and inject credentialStatus
-                .flatMap(enrichedDataSet ->
-                        statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, statusFormat, issuanceId, token, publicIssuerBaseUrl)
-                                .map(entry -> {
-                                    CredentialStatus status = CredentialStatus.fromStatusListEntry(entry);
-                                    return genericCredentialBuilder.injectCredentialStatus(
-                                            enrichedDataSet, status, credentialFormat);
-                                })
+                .flatMap(enrichedDataSet -> statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, statusFormat, issuanceId, token, publicIssuerBaseUrl)
+                        .map(entry -> {
+                            CredentialStatus status = CredentialStatus.fromStatusListEntry(entry);
+                            return genericCredentialBuilder.injectCredentialStatus(
+                                    enrichedDataSet, status, credentialFormat);
+                        })
                 )
                 .flatMap(enrichedWithStatus ->
                         // Step 3: Cache enriched dataSet for later persistence on credential_accepted
@@ -167,7 +167,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                             // Step 5b: Mark delivery attempt timestamp for timeout detection
                             .then(issuanceService.getIssuanceById(issuanceId))
                             .flatMap(issuance -> {
-                                issuance.setDeliveryAttemptedAt(java.time.Instant.now());
+                                issuance.setDeliveryAttemptedAt(Instant.now());
                                 return issuanceService.updateIssuance(issuance);
                             })
                             .thenReturn(CredentialResponse.builder()
