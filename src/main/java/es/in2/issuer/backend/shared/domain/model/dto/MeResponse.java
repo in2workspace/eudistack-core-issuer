@@ -16,5 +16,6 @@ public record MeResponse(
         String organizationIdentifier,
         UserRole role,
         boolean readOnly,
-        String tenant
+        String tenant,
+        String tenantType
 ) {}
