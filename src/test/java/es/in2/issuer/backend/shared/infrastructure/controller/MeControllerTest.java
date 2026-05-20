@@ -28,7 +28,7 @@ class MeControllerTest {
     void getMe_returnsAuthorizationContextAndTenant() {
         String authHeader = "Bearer token";
         AuthorizationContext auth = new AuthorizationContext(
-                "VATES-A78446333", UserRole.TENANT_ADMIN, false);
+                "VATES-A78446333", UserRole.TENANT_ADMIN, false, "simple");
         when(accessTokenService.getAuthorizationContext(authHeader)).thenReturn(Mono.just(auth));
 
         Mono<MeResponse> result = meController.getMe(authHeader)
@@ -39,7 +39,8 @@ class MeControllerTest {
                         "VATES-A78446333",
                         UserRole.TENANT_ADMIN,
                         false,
-                        "kpmg"))
+                        "kpmg",
+                        "simple"))
                 .verifyComplete();
     }
 
@@ -47,7 +48,7 @@ class MeControllerTest {
     void getMe_readonlySysAdminOnPlatform() {
         String authHeader = "Bearer token";
         AuthorizationContext auth = new AuthorizationContext(
-                "VATES-A15456585", UserRole.SYSADMIN, true);
+                "VATES-A15456585", UserRole.SYSADMIN, true, "simple");
         when(accessTokenService.getAuthorizationContext(authHeader)).thenReturn(Mono.just(auth));
 
         Mono<MeResponse> result = meController.getMe(authHeader)
@@ -58,7 +59,8 @@ class MeControllerTest {
                         "VATES-A15456585",
                         UserRole.SYSADMIN,
                         true,
-                        "platform"))
+                        "platform",
+                        "simple"))
                 .verifyComplete();
     }
 }

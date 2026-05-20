@@ -39,7 +39,8 @@ public class MeController {
                             auth.organizationIdentifier(),
                             auth.role(),
                             auth.readOnly(),
-                            tenant
+                            tenant,
+                            auth.tenantType()
                     ));
         });
     }
