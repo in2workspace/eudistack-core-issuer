@@ -4,14 +4,19 @@ import com.nimbusds.jose.crypto.bc.BouncyCastleProviderSingleton;
 import es.in2.issuer.backend.dome.domain.model.keymigration.KmsKeyMigration;
 import es.in2.issuer.backend.dome.domain.model.keymigration.LegacyKeyId;
 import es.in2.issuer.backend.dome.domain.spi.KmsKeyMigrationRepositoryPort;
+import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import org.bouncycastle.jce.ECNamedCurveTable;
 import org.bouncycastle.jce.interfaces.ECPublicKey;
 import org.bouncycastle.jce.spec.ECParameterSpec;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -24,7 +29,9 @@ import reactor.core.publisher.Mono;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.util.HexFormat;
+import java.util.List;
 
+import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
@@ -88,6 +95,22 @@ class JwksControllerDualPlanBIT {
     @MockitoBean
     private KmsKeyMigrationRepositoryPort migrationRepository;
 
+    /**
+     * Pre-configured TenantRegistryService mock provided via @TestConfiguration so that
+     * reactive @Scheduled schedulers can build their Publisher chain during
+     * ScheduledAnnotationBeanPostProcessor processing — before any @BeforeEach runs.
+     */
+    @TestConfiguration
+    static class TenantStubConfig {
+        @Bean
+        @Primary
+        TenantRegistryService tenantRegistryService() {
+            TenantRegistryService mock = Mockito.mock(TenantRegistryService.class);
+            when(mock.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("localhost")));
+            return mock;
+        }
+    }
+
     @BeforeEach
     void setUp() {
         // Arrange — simulate a migration row at status PLAN_B_REISSUE
@@ -126,8 +149,7 @@ class JwksControllerDualPlanBIT {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                // Legacy key kid is prefixed with "legacy-" — assert it differs from the new key
-                .jsonPath("$.keys[?(@.kid =~ /^legacy-.+/)].length()").isEqualTo(1);
+                // Legacy key kid is prefixed with "legacy-" — assert exactly one key matches
+                .jsonPath("$.keys[?(@.kid =~ /^legacy-.+/)]").value(hasSize(1));
     }
 }
-
