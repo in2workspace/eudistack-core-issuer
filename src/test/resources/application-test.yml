@@ -1,0 +1,14 @@
+# Test profile overrides — DB credentials dummies (Spring context starts without actual PG)
+# TenantSchemaFlywayMigrator handles missing DB gracefully (try/catch → 0 tenants).
+# R2DBC connections are lazy — never established because all repo calls are @MockitoBean'd.
+spring:
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/test
+    username: test
+    password: test
+  webflux:
+    # Flat base-path to keep test URIs simple (avoids /issuer prefix in assertions)
+    base-path: /
+  flyway:
+    url: jdbc:postgresql://localhost:5432/test
+
