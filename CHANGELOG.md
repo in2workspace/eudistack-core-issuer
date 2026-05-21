@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.13] - 2026-05-21
+
+### Changed
+
+- **BBDD**: restore flyway migration for V1 and modify tenant_signing_config to V5
+
 ## [3.6.12] - 2026-05-19
 
 ### Changed
