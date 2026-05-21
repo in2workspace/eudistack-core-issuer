@@ -177,3 +177,16 @@ issuance:
   cleanup-cron: ${ISSUANCE_CLEANUP_CRON:0 0 2 * * *}
   delivery-timeout-minutes: ${ISSUANCE_DELIVERY_TIMEOUT_MINUTES:60}
   delivery-timeout-cron: ${ISSUANCE_DELIVERY_TIMEOUT_CRON:0 */5 * * * ?}
+
+# DOME key migration (feature flags default to false — AC-05 deploy-safe)
+issuer:
+  dome:
+    key-migration:
+      plan-a-enabled: ${DOME_KEY_MIGRATION_PLAN_A_ENABLED:false}
+      plan-b-enabled: ${DOME_KEY_MIGRATION_PLAN_B_ENABLED:false}
+      kms-alias: ${DOME_KMS_ALIAS:alias/dome/signing}
+      kms-alias-v2: ${DOME_KMS_ALIAS_V2:alias/dome/signing-v2}
+      legacy-key-id: ${DOME_LEGACY_KEY_ID:}
+      legacy-public-key-hex: ${DOME_LEGACY_PUBLIC_KEY_HEX:}
+      cache-jwks-ttl-seconds: ${DOME_JWKS_CACHE_TTL_SECONDS:60}
+
