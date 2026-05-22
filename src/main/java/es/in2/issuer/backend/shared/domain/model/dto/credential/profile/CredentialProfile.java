@@ -75,7 +75,8 @@ public record CredentialProfile(
     public record SubjectExtraction(
             @JsonProperty("strategy") String strategy,
             @JsonProperty("fields") List<String> fields,
-            @JsonProperty("separator") String separator
+            @JsonProperty("separator") String separator,
+            @JsonProperty("last_segment_delimiter") String lastSegmentDelimiter
     ) {}
 
     @Builder

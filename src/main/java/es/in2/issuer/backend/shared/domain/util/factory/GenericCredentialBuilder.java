@@ -22,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Component
@@ -263,13 +264,20 @@ public class GenericCredentialBuilder {
                 .filter(v -> v != null && !v.isBlank())
                 .toList();
 
+        String result;
         if ("concat".equals(extraction.strategy())) {
             String separator = extraction.separator() != null ? extraction.separator() : " ";
-            return String.join(separator, values);
+            result = String.join(separator, values);
+        } else {
+            result = values.isEmpty() ? "" : values.getFirst();
         }
 
-        // "field" strategy — return first value
-        return values.isEmpty() ? "" : values.getFirst();
+        if (!result.isEmpty() && extraction.lastSegmentDelimiter() != null) {
+            String[] parts = result.split(Pattern.quote(extraction.lastSegmentDelimiter()), -1);
+            result = parts[parts.length - 1];
+        }
+
+        return result;
     }
 
     private Mono<String> extractOrganizationIdentifier(CredentialProfile profile, JsonNode payload) {
