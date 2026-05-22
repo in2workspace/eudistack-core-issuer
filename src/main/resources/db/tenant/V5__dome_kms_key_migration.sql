@@ -34,7 +34,7 @@ CREATE INDEX IF NOT EXISTS idx_kms_key_migration_status
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS migration_audit (
     id               UUID        NOT NULL DEFAULT gen_random_uuid(),
-    source_record_id UUID        NOT NULL,
+    source_record_id UUID,
     target_record_id UUID,
     source_hash      VARCHAR(64),
     target_hash      VARCHAR(64),
