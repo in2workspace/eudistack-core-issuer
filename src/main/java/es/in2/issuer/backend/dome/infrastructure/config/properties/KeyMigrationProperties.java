@@ -11,7 +11,8 @@ public record KeyMigrationProperties(
         @DefaultValue("alias/dome/signing-v2") String kmsAliasV2,
         @DefaultValue("") String legacyKeyId,
         @DefaultValue("") String legacyPublicKeyHex,
-        @DefaultValue("60") int cacheJwksTtlSeconds
+        @DefaultValue("60") int cacheJwksTtlSeconds,
+        @DefaultValue("http://localhost:8200") String vaultEndpoint
 ) {
 }
 
