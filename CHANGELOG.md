@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.15] - 2026-05-26
+
+### Fixed
+- **Mail**: Fix default mail address
+
 ## [3.6.14] - 2026-05-22
 
 ### Fixed
