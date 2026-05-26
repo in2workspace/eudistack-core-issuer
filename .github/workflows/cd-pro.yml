@@ -2,7 +2,7 @@ name: cd-pro
 
 on:
   workflow_dispatch:
-    
+
 env:
   PROJECT_NAME: eudistack
   FROM_ENV: stg
