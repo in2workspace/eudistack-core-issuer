@@ -34,9 +34,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
-/**
- * Integration test — AC-02: Plan-A production import transitions DB to PLAN_A_OK.
- */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @Testcontainers
@@ -92,9 +89,6 @@ class KeyMigrationScriptProductionIT {
 
     @BeforeEach
     void stubMocks() {
-        // Ensure a POC_OK row exists so executeProduction can transition POC_OK → PLAN_A_OK.
-        // If the row is already PLAN_A_OK (second test in the same context), keep it as-is
-        // — transitionTo has a no-op guard for current == target.
         migrationRepo.findByLegacyKeyId(new LegacyKeyId(LEGACY_KEY_ID))
                 .switchIfEmpty(migrationRepo.save(
                         DomeKeyMigrationFixtureFactory.pocOkMigration(LEGACY_KEY_ID)))
@@ -118,7 +112,7 @@ class KeyMigrationScriptProductionIT {
         // Act
         keyMigrationWorkflow.executeProduction(LEGACY_KEY_ID).block();
 
-        // Assert — DB row has PLAN_A_OK status
+        // Assert
         var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(LEGACY_KEY_ID)).block();
         assertThat(row).isNotNull();
         assertThat(row.getMigrationStatus()).isEqualTo("PLAN_A_OK");
@@ -130,7 +124,7 @@ class KeyMigrationScriptProductionIT {
         // Act
         keyMigrationWorkflow.executeProduction(LEGACY_KEY_ID).block();
 
-        // Assert — status confirms full pipeline succeeded (audit is a side-effect)
+        // Assert
         var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(LEGACY_KEY_ID)).block();
         assertThat(row).isNotNull();
         assertThat(row.getMigrationStatus()).isEqualTo("PLAN_A_OK");

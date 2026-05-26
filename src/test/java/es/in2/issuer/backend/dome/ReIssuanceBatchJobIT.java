@@ -36,10 +36,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
-/**
- * Integration test — AC-03: Plan-B batch re-issuance processes 5 active,
- * skips 1 expired + 1 revoked, fails 0.
- */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @Testcontainers
@@ -101,12 +97,10 @@ class ReIssuanceBatchJobIT {
 
     @BeforeEach
     void setupFixtures() {
-        // Arrange — insert a PENDING migration record for the legacy key
         migrationRepo.findByLegacyKeyId(new LegacyKeyId(LEGACY_KEY_ID))
                 .switchIfEmpty(migrationRepo.save(DomeKeyMigrationFixtureFactory.pendingMigration(LEGACY_KEY_ID)))
                 .block();
 
-        // Arrange — 5 active, 1 expired, 1 revoked credentials
         var credentials = Flux.just(
                 DomeKeyMigrationFixtureFactory.activeIssuance(),
                 DomeKeyMigrationFixtureFactory.activeIssuance(),
@@ -118,7 +112,6 @@ class ReIssuanceBatchJobIT {
         );
         when(issuanceRepository.findAllOrderByUpdatedDesc()).thenReturn(credentials);
 
-        // IssueSignedCredentialWorkflow: always succeeds returning a dummy signed credential
         when(issueSignedCredentialWorkflow.reissue(any()))
                 .thenReturn(Mono.just("{\"vc\":\"signed-credential\"}"));
     }

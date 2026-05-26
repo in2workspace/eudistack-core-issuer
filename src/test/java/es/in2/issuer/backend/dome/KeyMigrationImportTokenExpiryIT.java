@@ -34,10 +34,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
-/**
- * Integration test — EC-02: Import-token expiry is retried up to 3 times.
- * Succeeds on the 3rd attempt and transitions DB to PLAN_A_OK.
- */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @Testcontainers
@@ -91,10 +87,6 @@ class KeyMigrationImportTokenExpiryIT {
         }
     }
 
-    /**
-     * Synthetic exception whose simple class name contains "ExpiredImportToken"
-     * — required by {@code KeyMigrationWorkflow.isImportTokenExpiry()}.
-     */
     static class ExpiredImportTokenException extends RuntimeException {
         ExpiredImportTokenException(String msg) {
             super(msg);
@@ -103,7 +95,6 @@ class KeyMigrationImportTokenExpiryIT {
 
     @BeforeEach
     void stubRetries() {
-        // Ensure a POC_OK row exists so executeProduction can transition POC_OK → PLAN_A_OK
         migrationRepo.findByLegacyKeyId(new LegacyKeyId(LEGACY_KEY_ID))
                 .switchIfEmpty(migrationRepo.save(
                         DomeKeyMigrationFixtureFactory.pocOkMigration(LEGACY_KEY_ID)))
@@ -116,8 +107,6 @@ class KeyMigrationImportTokenExpiryIT {
         when(vaultExportPort.exportWrapped(any(LegacyKeyId.class), any()))
                 .thenReturn(Mono.just(new EncryptedKeyEnvelope(new byte[]{7}, "RSAES_OAEP_SHA_256", "")));
 
-        // Arrange — first 2 calls to importKeyMaterial fail with ExpiredImportTokenException,
-        // 3rd call succeeds → Reactor retryWhen(Retry.max(3).filter(isImportTokenExpiry)) handles it
         when(kmsImportPort.importKeyMaterial(any(), any(), any()))
                 .thenReturn(Mono.error(new ExpiredImportTokenException("token expired")))
                 .thenReturn(Mono.error(new ExpiredImportTokenException("token expired")))
@@ -133,7 +122,7 @@ class KeyMigrationImportTokenExpiryIT {
         // Act
         keyMigrationWorkflow.executeProduction(LEGACY_KEY_ID).block();
 
-        // Assert — workflow retried and eventually succeeded
+        // Assert
         var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(LEGACY_KEY_ID)).block();
         assertThat(row).isNotNull();
         assertThat(row.getMigrationStatus()).isEqualTo("PLAN_A_OK");

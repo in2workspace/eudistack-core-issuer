@@ -24,14 +24,6 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
-/**
- * Integration test — ES-03 (tenant not configured / defensive fallback).
- *
- * <p>Verifies that {@code GET /.well-known/jwks.json} gracefully falls back to
- * a single-key response (no HTTP 5xx) when plan B is enabled but no
- * {@code kms_key_migration} row exists for the configured {@code legacyKeyId}.
- * This prevents outages during partial rollouts or misconfigured deployments.
- */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
@@ -49,11 +41,6 @@ class JwksControllerTenantNotConfiguredIT {
     @MockitoBean
     private KmsKeyMigrationRepositoryPort migrationRepository;
 
-    /**
-     * Pre-configured TenantRegistryService mock provided via @TestConfiguration so that
-     * reactive @Scheduled schedulers can build their Publisher chain during
-     * ScheduledAnnotationBeanPostProcessor processing — before any @BeforeEach runs.
-     */
     @TestConfiguration
     static class TenantStubConfig {
         @Bean

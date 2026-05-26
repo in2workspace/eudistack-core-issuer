@@ -25,10 +25,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/**
- * Integration test — AC-05: When both planAEnabled and planBEnabled are false (deploy-safe
- * defaults), the JWKS endpoint returns exactly one key and NO migration ports are invoked.
- */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
@@ -66,7 +62,7 @@ class KeyMigrationDefaultsIT {
     @Test
     @DisplayName("getJwks_WhenBothPlansDisabled_ReturnsSingleKeyWithoutCallingMigrationPorts")
     void getJwks_WhenBothPlansDisabled_ReturnsSingleKeyWithoutCallingMigrationPorts() {
-        // Act + Assert — HTTP level
+        // Act + Assert
         webTestClient.get()
                 .uri(JWKS_URI)
                 .exchange()
@@ -78,7 +74,7 @@ class KeyMigrationDefaultsIT {
                 .jsonPath("$.keys[0].kty").isEqualTo("EC")
                 .jsonPath("$.keys[0].crv").isEqualTo("P-256");
 
-        // Assert — no migration infrastructure was touched
+        // Assert
         verify(kmsImportPort, never()).describeKey(Mockito.any());
         verify(kmsImportPort, never()).getParametersForImport(Mockito.any());
         verify(vaultExportPort, never()).exportWrapped(Mockito.any(), Mockito.any());

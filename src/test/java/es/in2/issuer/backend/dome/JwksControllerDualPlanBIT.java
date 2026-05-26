@@ -35,18 +35,6 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
-/**
- * Integration test — AC-06 (plan B re-issuance path).
- *
- * <p>Verifies that {@code GET /.well-known/jwks.json} returns exactly two distinct EC keys
- * when plan B re-issuance is active and the {@code kms_key_migration} row has status
- * {@code PLAN_B_REISSUE}.  The "dual JWKS" window allows wallets holding credentials
- * signed with the legacy key to continue verifying them during re-issuance.
- *
- * <p>The legacy public key used in this test is generated synthetically via
- * {@link KeyPairGenerator} at class-load time to comply with the prohibition of
- * hardcoding real cryptographic material in test code.
- */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
@@ -59,10 +47,6 @@ class JwksControllerDualPlanBIT {
     private static final String JWKS_URI = "/.well-known/jwks.json";
     private static final String LEGACY_KEY_ID = "test-legacy-key";
 
-    /**
-     * Synthetic EC P-256 public key (uncompressed, 65 bytes) generated at class-load
-     * time.  Never logs or exposes private material — only the public coordinates are used.
-     */
     private static final String LEGACY_PUBLIC_KEY_HEX;
 
     static {
@@ -73,7 +57,6 @@ class JwksControllerDualPlanBIT {
             kpg.initialize(ecSpec);
             KeyPair kp = kpg.generateKeyPair();
 
-            // Cast to BouncyCastle ECPublicKey to access the raw EC point
             ECPublicKey bcPubKey = (ECPublicKey) kp.getPublic();
             // false = uncompressed encoding (04 || x || y), 65 bytes for P-256
             byte[] uncompressedPoint = bcPubKey.getQ().getEncoded(false);
@@ -95,11 +78,6 @@ class JwksControllerDualPlanBIT {
     @MockitoBean
     private KmsKeyMigrationRepositoryPort migrationRepository;
 
-    /**
-     * Pre-configured TenantRegistryService mock provided via @TestConfiguration so that
-     * reactive @Scheduled schedulers can build their Publisher chain during
-     * ScheduledAnnotationBeanPostProcessor processing — before any @BeforeEach runs.
-     */
     @TestConfiguration
     static class TenantStubConfig {
         @Bean
@@ -113,7 +91,7 @@ class JwksControllerDualPlanBIT {
 
     @BeforeEach
     void setUp() {
-        // Arrange — simulate a migration row at status PLAN_B_REISSUE
+        // Arrange
         KmsKeyMigration migration = KmsKeyMigration.builder()
                 .legacyKeyId(LEGACY_KEY_ID)
                 .migrationStatus("PLAN_B_REISSUE")

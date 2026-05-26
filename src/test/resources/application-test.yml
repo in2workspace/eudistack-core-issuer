@@ -1,6 +1,8 @@
-# Test profile overrides — DB credentials dummies (Spring context starts without actual PG)
+# Test profile overrides — base DB credentials (dummies for unit/slice tests).
 # TenantSchemaFlywayMigrator handles missing DB gracefully (try/catch → 0 tenants).
-# R2DBC connections are lazy — never established because all repo calls are @MockitoBean'd.
+# Note: integration tests that use real R2DBC repos (e.g. KmsKeyMigrationRepositoryPort,
+# R2dbcMigrationAuditRepository) override these values via @DynamicPropertySource pointing
+# to a Testcontainers PostgreSQL instance. In those tests, DB connections ARE established.
 spring:
   r2dbc:
     url: r2dbc:postgresql://localhost:5432/test

@@ -26,14 +26,6 @@ import java.util.HexFormat;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Orchestrates Plan-B DOME key migration: re-issues all active credentials
- * signed with the legacy key, using the new KMS v2 alias.
- *
- * <p>ES-08: per-credential errors are absorbed (logged + counted) — the batch
- * continues. {@code onErrorResume} is used per element; {@code onErrorContinue}
- * is intentionally avoided (WebFlux anti-pattern).
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -46,20 +38,8 @@ public class ReissuanceBatchWorkflow {
     private final KeyMigrationProperties properties;
     private final IssueSignedCredentialWorkflow issueWorkflow;
 
-    /**
-     * Summary of a completed re-issuance batch run.
-     *
-     * @param ok      credentials successfully re-issued and audit-recorded.
-     * @param skipped credentials skipped (already done, expired, or revoked).
-     * @param failed  credentials that produced an error during re-issuance.
-     */
     public record BatchSummary(int ok, int skipped, int failed) {}
 
-    /**
-     * Executes the Plan-B batch re-issuance for the given legacy key ID.
-     *
-     * @throws ConflictingMigrationStateException (ES-04) if the record is already {@code PLAN_A_OK}.
-     */
     public Mono<BatchSummary> execute(String legacyKeyIdStr) {
         LegacyKeyId legacyKeyId = new LegacyKeyId(legacyKeyIdStr);
         UUID batchId = UUID.randomUUID();
@@ -89,9 +69,6 @@ public class ReissuanceBatchWorkflow {
                 .then(Mono.fromCallable(() -> new BatchSummary(ok.get(), skipped.get(), failed.get())));
     }
 
-    // ------------------------------------------------------------------
-    // Private helpers
-    // ------------------------------------------------------------------
 
     private Mono<Void> processCredential(Issuance issuance,
                                           AtomicInteger ok,

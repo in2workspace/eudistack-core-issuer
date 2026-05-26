@@ -8,6 +8,7 @@ import es.in2.issuer.backend.dome.domain.spi.KmsImportPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 import software.amazon.awssdk.core.SdkBytes;
@@ -35,6 +36,7 @@ import java.util.concurrent.TimeoutException;
 
 @Slf4j
 @Lazy
+@Profile("key-migration")
 @Component
 @RequiredArgsConstructor
 public class AwsKmsImportAdapter implements KmsImportPort {
@@ -149,8 +151,5 @@ public class AwsKmsImportAdapter implements KmsImportPort {
         return "-----BEGIN PUBLIC KEY-----\n" + base64 + "\n-----END PUBLIC KEY-----";
     }
 }
-
-
-
 
 

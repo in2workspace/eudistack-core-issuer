@@ -2,6 +2,10 @@
 -- Init script for PostgreSQLContainer in DOME key-migration integration tests.
 -- Creates the tables needed by the migration module (same DDL as V5 Flyway migration).
 
+-- Enable pgcrypto so gen_random_uuid() is available even on older Postgres images
+-- (built-in since PG13, but pgcrypto is idempotent and guarantees portability).
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE IF NOT EXISTS kms_key_migration (
     id                  UUID         NOT NULL DEFAULT gen_random_uuid(),
     legacy_key_id       VARCHAR(255) NOT NULL,

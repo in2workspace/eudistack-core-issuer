@@ -36,11 +36,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
-/**
- * Integration test — AC-04 + NFR-S-143-01:
- * No sensitive key material (ciphertext, PEM headers, private key bytes) leaks into
- * structured logs during a PoC migration run.
- */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
@@ -99,7 +94,6 @@ class KeyMaterialConfidentialityIT {
 
     @BeforeEach
     void stubMocks() {
-        // Stub KMS import port — all operations succeed
         when(kmsImportPort.describeKey(any(KmsAlias.class)))
                 .thenReturn(Mono.just(new KmsImportPort.KmsKeyDescription("kms-id", "SIGN_VERIFY", true)));
         when(kmsImportPort.getParametersForImport(any(KmsAlias.class)))
@@ -111,7 +105,6 @@ class KeyMaterialConfidentialityIT {
         when(kmsImportPort.sign(any(KmsAlias.class), any()))
                 .thenReturn(Mono.just("c2lnbmF0dXJl"));
 
-        // Stub repository — allow state transitions
         KmsKeyMigration pending = KmsKeyMigration.builder()
                 .id(java.util.UUID.randomUUID())
                 .legacyKeyId(LEGACY_KEY_ID)
@@ -130,7 +123,6 @@ class KeyMaterialConfidentialityIT {
                     return Mono.just(updated);
                 });
 
-        // Stub audit repository
         when(auditRepository.save(any(MigrationAuditEntry.class)))
                 .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
         when(auditRepository.findBySourceRecordId(any()))
@@ -144,10 +136,9 @@ class KeyMaterialConfidentialityIT {
         try {
             keyMigrationWorkflow.executePoc(LEGACY_KEY_ID).block();
         } catch (Exception ignored) {
-            // Even on failure, the log-content assertions must hold
         }
 
-        // Assert — no log event contains sensitive key material
+        // Assert
         List<String> logMessages = listAppender.list.stream()
                 .map(ILoggingEvent::getFormattedMessage)
                 .toList();

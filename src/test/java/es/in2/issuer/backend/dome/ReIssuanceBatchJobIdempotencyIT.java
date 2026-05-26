@@ -38,10 +38,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
-/**
- * Integration test — AC-07: Re-issuance batch is idempotent — running execute() twice
- * produces no duplicate audit rows for the same credential.
- */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @Testcontainers
@@ -115,11 +111,9 @@ class ReIssuanceBatchJobIdempotencyIT {
                 .switchIfEmpty(migrationRepo.save(DomeKeyMigrationFixtureFactory.pendingMigration(LEGACY_KEY_ID)))
                 .block();
 
-        // Always return the same 3 active credentials (same IDs → idempotency testable)
         var c1 = DomeKeyMigrationFixtureFactory.activeIssuance();
         var c2 = DomeKeyMigrationFixtureFactory.activeIssuance();
         var c3 = DomeKeyMigrationFixtureFactory.activeIssuance();
-        // Force fixed IDs for idempotency testing
         c1.setIssuanceId(ISSUANCE_ID_1);
         c2.setIssuanceId(ISSUANCE_ID_2);
         c3.setIssuanceId(ISSUANCE_ID_3);
@@ -133,24 +127,21 @@ class ReIssuanceBatchJobIdempotencyIT {
     @Test
     @DisplayName("execute_CalledTwiceWithSameDataset_AuditRowsNotDuplicatedOnSecondRun")
     void execute_CalledTwiceWithSameDataset_AuditRowsNotDuplicatedOnSecondRun() {
-        // Act — first run
+        // Act
         BatchSummary first = reissuanceBatchWorkflow.execute(LEGACY_KEY_ID).block();
 
-        // Act — second run with the same credentials
         BatchSummary second = reissuanceBatchWorkflow.execute(LEGACY_KEY_ID).block();
 
-        // Assert — first run reissued 3 credentials
+        // Assert
         assertThat(first).isNotNull();
         assertThat(first.ok()).isEqualTo(3);
         assertThat(first.failed()).isEqualTo(0);
 
-        // Assert — second run skips all 3 (already migrated) and produces 0 ok
         assertThat(second).isNotNull();
         assertThat(second.ok()).isEqualTo(0);
         assertThat(second.skipped()).isEqualTo(3);
         assertThat(second.failed()).isEqualTo(0);
 
-        // Assert — no duplicate audit entries for each source_record_id (unique index enforces this)
         for (UUID issuanceId : List.of(ISSUANCE_ID_1, ISSUANCE_ID_2, ISSUANCE_ID_3)) {
             var entry = auditRepository.findBySourceRecordId(issuanceId).block();
             assertThat(entry).isNotNull()

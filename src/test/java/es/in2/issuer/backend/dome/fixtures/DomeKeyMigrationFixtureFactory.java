@@ -23,28 +23,12 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
-/**
- * Static factory that produces synthetic test fixtures for DOME key-migration
- * integration tests.
- *
- * <p>All key material generated here is ephemeral and used only within the test
- * JVM — no real credentials or secrets are created.
- */
 public final class DomeKeyMigrationFixtureFactory {
 
     private DomeKeyMigrationFixtureFactory() {
         // utility class — no instances
     }
 
-    // ------------------------------------------------------------------
-    // Key pair helpers
-    // ------------------------------------------------------------------
-
-    /**
-     * Generates a synthetic EC P-256 key pair for test use.
-     *
-     * @return a fresh {@link KeyPair} using the {@code secp256r1} curve
-     */
     public static KeyPair generateEcP256KeyPair() {
         try {
             KeyPairGenerator kpg = KeyPairGenerator.getInstance("EC");
@@ -55,13 +39,6 @@ public final class DomeKeyMigrationFixtureFactory {
         }
     }
 
-    /**
-     * Signs {@code data} using ECDSA-SHA-256 (ES256) with the provided EC private key.
-     *
-     * @param key  the EC private key — must correspond to a P-256 curve
-     * @param data the payload bytes to sign
-     * @return the compact JWS serialization of the resulting signature
-     */
     public static String signWithEcKey(PrivateKey key, byte[] data) {
         try {
             ECDSASigner signer = new ECDSASigner((ECPrivateKey) key);
@@ -75,17 +52,6 @@ public final class DomeKeyMigrationFixtureFactory {
         }
     }
 
-    // ------------------------------------------------------------------
-    // KmsKeyMigration fixtures
-    // ------------------------------------------------------------------
-
-    /**
-     * Builds a {@link KmsKeyMigration} entity in {@code PENDING} state
-     * suitable for insertion into the test database.
-     *
-     * @param legacyKeyId the synthetic legacy key identifier
-     * @return an unsaved entity with a random ID and timestamps set to now
-     */
     public static KmsKeyMigration pendingMigration(String legacyKeyId) {
         return KmsKeyMigration.builder()
                 .id(UUID.randomUUID())
@@ -98,13 +64,6 @@ public final class DomeKeyMigrationFixtureFactory {
                 .build();
     }
 
-    /**
-     * Builds a {@link KmsKeyMigration} entity in {@code POC_OK} state, representing
-     * a completed PoC run from which {@code executeProduction} can transition to PLAN_A_OK.
-     *
-     * @param legacyKeyId the synthetic legacy key identifier
-     * @return an unsaved entity with status POC_OK
-     */
     public static KmsKeyMigration pocOkMigration(String legacyKeyId) {
         return KmsKeyMigration.builder()
                 .id(UUID.randomUUID())
@@ -117,13 +76,6 @@ public final class DomeKeyMigrationFixtureFactory {
                 .build();
     }
 
-    /**
-     * Builds a {@link KmsKeyMigration} entity in {@code PLAN_A_OK} state
-     * suitable for rollback (EC-03) tests.
-     *
-     * @param legacyKeyId the synthetic legacy key identifier
-     * @return an unsaved entity with status PLAN_A_OK
-     */
     public static KmsKeyMigration planAOkMigration(String legacyKeyId) {
         return KmsKeyMigration.builder()
                 .id(UUID.randomUUID())
@@ -136,17 +88,6 @@ public final class DomeKeyMigrationFixtureFactory {
                 .build();
     }
 
-    // ------------------------------------------------------------------
-    // MigrationAuditEntry fixtures
-    // ------------------------------------------------------------------
-
-    /**
-     * Builds a minimal {@link MigrationAuditEntry} for auditing assertions.
-     *
-     * @param sourceId the credential or key event identifier
-     * @param outcome  the audit outcome string (e.g. "OK", "FAILED")
-     * @return an unsaved audit entry
-     */
     public static MigrationAuditEntry auditEntry(UUID sourceId, String outcome) {
         return MigrationAuditEntry.builder()
                 .id(UUID.randomUUID())
@@ -157,15 +98,6 @@ public final class DomeKeyMigrationFixtureFactory {
                 .build();
     }
 
-    // ------------------------------------------------------------------
-    // Issuance credential fixtures
-    // ------------------------------------------------------------------
-
-    /**
-     * Builds an active (non-expired, non-revoked) {@link Issuance} entity.
-     *
-     * @return a synthetic credential in VALID status, valid for 365 days
-     */
     public static Issuance activeIssuance() {
         Instant now = Instant.now();
         return Issuance.builder()
@@ -181,11 +113,6 @@ public final class DomeKeyMigrationFixtureFactory {
                 .build();
     }
 
-    /**
-     * Builds an expired {@link Issuance} entity (validUntil in the past).
-     *
-     * @return a synthetic credential that expired yesterday
-     */
     public static Issuance expiredIssuance() {
         Instant now = Instant.now();
         return Issuance.builder()
@@ -201,11 +128,6 @@ public final class DomeKeyMigrationFixtureFactory {
                 .build();
     }
 
-    /**
-     * Builds a revoked {@link Issuance} entity.
-     *
-     * @return a synthetic credential with REVOKED status
-     */
     public static Issuance revokedIssuance() {
         Instant now = Instant.now();
         return Issuance.builder()
@@ -221,4 +143,3 @@ public final class DomeKeyMigrationFixtureFactory {
                 .build();
     }
 }
-

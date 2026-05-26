@@ -36,9 +36,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
-/**
- * Integration test — AC-01: Plan-A PoC succeeds and persists POC_OK status.
- */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @Testcontainers
@@ -66,7 +63,6 @@ class KeyMigrationScriptPocIT {
         r.add("spring.flyway.url", postgres::getJdbcUrl);
         r.add("spring.flyway.username", postgres::getUsername);
         r.add("spring.flyway.password", postgres::getPassword);
-        // WireMock / Vault placeholder — VaultExportPort is @MockitoBean below
         r.add("issuer.dome.key-migration.vault-endpoint", () -> "http://localhost:9999");
     }
 
@@ -95,7 +91,6 @@ class KeyMigrationScriptPocIT {
 
     @BeforeEach
     void stubMocks() {
-        // Arrange — KMS always succeeds; Vault returns a dummy envelope
         when(kmsImportPort.describeKey(any(KmsAlias.class)))
                 .thenReturn(Mono.just(new KmsImportPort.KmsKeyDescription("kms-key-id", "SIGN_VERIFY", true)));
         when(kmsImportPort.getParametersForImport(any(KmsAlias.class)))
@@ -105,12 +100,11 @@ class KeyMigrationScriptPocIT {
         when(kmsImportPort.importKeyMaterial(any(), any(), any()))
                 .thenReturn(Mono.empty());
         when(kmsImportPort.sign(any(KmsAlias.class), any()))
-                .thenReturn(Mono.just("c2lnbmF0dXJl")); // base64 of "signature"
+                .thenReturn(Mono.just("c2lnbmF0dXJl"));
     }
 
     @BeforeEach
     void cleanDb() {
-        // Ensure isolation between test runs
         migrationRepo.findByLegacyKeyId(new LegacyKeyId(LEGACY_KEY_ID))
                 .flatMap(existing -> migrationRepo.save(
                         DomeKeyMigrationFixtureFactory.pendingMigration(LEGACY_KEY_ID)))
@@ -128,7 +122,7 @@ class KeyMigrationScriptPocIT {
             // Act
             keyMigrationWorkflow.executePoc(LEGACY_KEY_ID).block();
 
-            // Assert — DB row has POC_OK status
+            // Assert
             var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(LEGACY_KEY_ID)).block();
             assertThat(row).isNotNull();
             assertThat(row.getMigrationStatus()).isEqualTo("POC_OK");
@@ -140,7 +134,7 @@ class KeyMigrationScriptPocIT {
             // Act
             keyMigrationWorkflow.executePoc(LEGACY_KEY_ID).block();
 
-            // Assert — audit entry for POC is written (verified via state: workflow completed)
+            // Assert
             var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(LEGACY_KEY_ID)).block();
             assertThat(row).isNotNull();
             assertThat(row.getMigrationStatus()).isEqualTo("POC_OK");

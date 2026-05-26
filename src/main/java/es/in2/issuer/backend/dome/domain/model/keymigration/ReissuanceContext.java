@@ -4,10 +4,6 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
-/**
- * Immutable value object carrying the context needed to re-issue a credential
- * during Plan-B re-issuance.
- */
 public record ReissuanceContext(
         UUID sourceIssuanceId,
         String holderCnfJwk,

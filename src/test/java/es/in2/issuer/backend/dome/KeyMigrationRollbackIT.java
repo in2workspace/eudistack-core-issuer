@@ -35,10 +35,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/**
- * Integration test — EC-03: Rollback deletes imported key material and transitions
- * DB status to ROLLED_BACK. The KMS alias itself remains (only material is deleted).
- */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @Testcontainers
@@ -94,7 +90,6 @@ class KeyMigrationRollbackIT {
 
     @BeforeEach
     void stubKms() {
-        // deleteImportedKeyMaterial is the rollback operation; mock it to succeed
         when(kmsImportPort.deleteImportedKeyMaterial(any(KmsAlias.class)))
                 .thenReturn(Mono.empty());
     }
@@ -102,14 +97,14 @@ class KeyMigrationRollbackIT {
     @Test
     @DisplayName("rollback_WhenStatusIsPlanAOk_TransitionsDbToRolledBack")
     void rollback_WhenStatusIsPlanAOk_TransitionsDbToRolledBack() {
-        // Arrange — insert a PLAN_A_OK row (rollback is only valid from PLAN_A_OK)
+        // Arrange
         migrationRepo.save(DomeKeyMigrationFixtureFactory.planAOkMigration(LEGACY_KEY_ID)).block();
 
-        // Act — rollback: delete key material + transition state to ROLLED_BACK
+        // Act
         kmsImportPort.deleteImportedKeyMaterial(new KmsAlias("alias/dome/signing")).block();
         stateService.transitionTo(new LegacyKeyId(LEGACY_KEY_ID), MigrationStatus.ROLLED_BACK).block();
 
-        // Assert — DB row has ROLLED_BACK status
+        // Assert
         var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(LEGACY_KEY_ID)).block();
         assertThat(row).isNotNull();
         assertThat(row.getMigrationStatus()).isEqualTo("ROLLED_BACK");

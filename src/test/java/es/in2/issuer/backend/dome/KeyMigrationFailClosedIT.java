@@ -36,11 +36,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
-/**
- * Integration test — AC-08: Fail-closed guarantee.
- * Any error in the migration pipeline must transition the record to FAILED
- * and never leave an intermediate inconsistent state.
- */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @Testcontainers
@@ -94,7 +89,6 @@ class KeyMigrationFailClosedIT {
 
     @BeforeEach
     void stubBaseOk() {
-        // Default happy-path stubs; individual tests override what they need
         when(kmsImportPort.describeKey(any(KmsAlias.class)))
                 .thenReturn(Mono.just(new KmsImportPort.KmsKeyDescription("id", "SIGN_VERIFY", true)));
         when(kmsImportPort.getParametersForImport(any(KmsAlias.class)))
@@ -115,16 +109,14 @@ class KeyMigrationFailClosedIT {
 
         @BeforeEach
         void makeKeyIdUnique() {
-            // Use a distinct key so each nested sub-test has a clean DB row
         }
 
         @Test
         @DisplayName("executePoc_WhenVaultThrows_TransitionsDbToFailed")
         void executePoc_WhenVaultThrows_TransitionsDbToFailed() {
-            // Arrange — Vault export fails
+            // Arrange
             when(vaultExportPort.exportWrapped(any(LegacyKeyId.class), any()))
                     .thenReturn(Mono.error(new RuntimeException("vault_unavailable")));
-            // Ensure a fresh key ID
             String keyId = "fail-vault-" + System.nanoTime();
             migrationRepo.save(DomeKeyMigrationFixtureFactory.pendingMigration(keyId)).block();
 
@@ -133,7 +125,7 @@ class KeyMigrationFailClosedIT {
                 keyMigrationWorkflow.executePoc(keyId).block();
             } catch (Exception ignored) { /* expected */ }
 
-            // Assert — DB must be FAILED or PENDING, never an intermediate state
+            // Assert
             var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(keyId)).block();
             assertThat(row).isNotNull();
             assertThat(row.getMigrationStatus())
@@ -148,7 +140,7 @@ class KeyMigrationFailClosedIT {
         @Test
         @DisplayName("executePoc_WhenKmsImportThrows_TransitionsDbToFailed")
         void executePoc_WhenKmsImportThrows_TransitionsDbToFailed() {
-            // Arrange — KMS importKeyMaterial fails with a non-retryable error
+            // Arrange
             when(kmsImportPort.importKeyMaterial(any(), any(), any()))
                     .thenReturn(Mono.error(new RuntimeException("ThrottlingException: KMS throttled")));
             String keyId = "fail-kms-" + System.nanoTime();
@@ -173,7 +165,7 @@ class KeyMigrationFailClosedIT {
         @Test
         @DisplayName("executePoc_WhenSignThrowsTimeout_TransitionsDbToFailed")
         void executePoc_WhenSignThrowsTimeout_TransitionsDbToFailed() {
-            // Arrange — sign fails with a PostImportValidationFailedException (maps from TimeoutException)
+            // Arrange
             when(kmsImportPort.sign(any(KmsAlias.class), any()))
                     .thenReturn(Mono.error(
                             new PostImportValidationFailedException("sign timeout exceeded 10s")));

@@ -17,13 +17,6 @@ public class KeyMigrationStateService {
 
     private final KmsKeyMigrationRepositoryPort migrationRepo;
 
-    /**
-     * Transitions the migration record identified by {@code keyId} to the given {@code target} status.
-     * <p>If no record exists yet, a new one is created with status {@code PENDING} before
-     * applying the requested transition.
-     *
-     * @throws IllegalStateException if the transition is not allowed by the state machine.
-     */
     public Mono<KmsKeyMigration> transitionTo(LegacyKeyId keyId, MigrationStatus target) {
         log.debug("transitionTo: keyId={} target={}", keyId.value(), target);
         return migrationRepo.findByLegacyKeyId(keyId)
@@ -50,10 +43,6 @@ public class KeyMigrationStateService {
                 });
     }
 
-    /**
-     * Returns the current {@link MigrationStatus} for the given legacy key ID,
-     * or {@code Mono.empty()} if no record exists.
-     */
     public Mono<MigrationStatus> currentStatus(String legacyKeyId) {
         log.debug("currentStatus: legacyKeyId={}", legacyKeyId);
         return migrationRepo.findByLegacyKeyId(new LegacyKeyId(legacyKeyId))

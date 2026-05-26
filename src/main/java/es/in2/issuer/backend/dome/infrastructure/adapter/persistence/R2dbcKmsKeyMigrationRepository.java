@@ -22,17 +22,6 @@ public class R2dbcKmsKeyMigrationRepository implements KmsKeyMigrationRepository
         return springDataRepo.findByLegacyKeyId(keyId.value());
     }
 
-    /**
-     * Saves the entity using upsert semantics keyed on {@code legacy_key_id}.
-     * <ul>
-     *   <li>If the entity has no {@code id} (new) → INSERT.</li>
-     *   <li>If the entity has an {@code id} that exists in the database → UPDATE.</li>
-     *   <li>If the entity has an {@code id} that does <em>not</em> exist in the database
-     *       (e.g. a test fixture or a pre-built entity) → look up the existing row by
-     *       {@code legacy_key_id} and update it; if no existing row is found → INSERT with
-     *       the id cleared so the database generates one.</li>
-     * </ul>
-     */
     @Override
     public Mono<KmsKeyMigration> save(KmsKeyMigration entity) {
         log.debug("Saving KmsKeyMigration entity, id={}", entity.getId());
@@ -44,7 +33,6 @@ public class R2dbcKmsKeyMigrationRepository implements KmsKeyMigrationRepository
                     if (idExists) {
                         return springDataRepo.save(entity);
                     }
-                    // UUID does not match any row — upsert by legacy_key_id
                     return springDataRepo.findByLegacyKeyId(entity.getLegacyKeyId())
                             .flatMap(existing -> {
                                 entity.setId(existing.getId());

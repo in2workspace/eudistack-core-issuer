@@ -9,7 +9,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("MigrationStatus — state machine transitions")
 class MigrationStatusTest {
 
-    // --- Valid transitions ---
 
     @ParameterizedTest(name = "{0} -> {1} should be allowed")
     @CsvSource({
@@ -39,7 +38,6 @@ class MigrationStatusTest {
         assertThat(result).isTrue();
     }
 
-    // --- Invalid transitions ---
 
     @ParameterizedTest(name = "{0} -> {1} should NOT be allowed")
     @CsvSource({

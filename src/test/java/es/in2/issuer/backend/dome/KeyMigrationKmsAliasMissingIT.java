@@ -35,10 +35,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
-/**
- * Integration test — ES-02: When the KMS alias is not provisioned,
- * executePoc must surface KmsAliasNotProvisionedException and set DB status to FAILED.
- */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @Testcontainers
@@ -94,7 +90,6 @@ class KeyMigrationKmsAliasMissingIT {
 
     @BeforeEach
     void stubAliasNotProvisioned() {
-        // Arrange — KMS alias does not exist → describeKey throws
         when(kmsImportPort.describeKey(any(KmsAlias.class)))
                 .thenReturn(Mono.error(new KmsAliasNotProvisionedException(
                         "KMS alias not provisioned (ES-02): alias/dome/missing")));
@@ -103,10 +98,10 @@ class KeyMigrationKmsAliasMissingIT {
     @Test
     @DisplayName("executePoc_WhenAliasNotProvisioned_ThrowsKmsAliasNotProvisionedException")
     void executePoc_WhenAliasNotProvisioned_ThrowsKmsAliasNotProvisionedException() {
-        // Arrange — insert a pending record so stateService has something to transition
+        // Arrange
         migrationRepo.save(DomeKeyMigrationFixtureFactory.pendingMigration(LEGACY_KEY_ID)).block();
 
-        // Act + Assert — exception surfaces to the caller
+        // Act + Assert
         assertThatThrownBy(() -> keyMigrationWorkflow.executePoc(LEGACY_KEY_ID).block())
                 .isInstanceOf(KmsAliasNotProvisionedException.class);
     }

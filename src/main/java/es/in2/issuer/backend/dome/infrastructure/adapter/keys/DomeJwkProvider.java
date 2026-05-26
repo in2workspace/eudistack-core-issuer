@@ -26,19 +26,6 @@ import java.time.Duration;
 import java.util.HexFormat;
 import java.util.List;
 
-/**
- * Resolves the public JWKS to be served at {@code /.well-known/jwks.json}.
- *
- * <p>When {@code planBEnabled=false} (default) it returns a single-key JWKSet backed by the
- * current AS {@link ECKey}.  When {@code planBEnabled=true} and the migration row is in status
- * {@code PLAN_B_REISSUE}, it returns a dual-key JWKSet (new key + legacy key) so that wallets
- * holding credentials signed with the old key can still verify them during the re-issuance
- * window (AC-06).
- *
- * <p>The result is cached with a configurable TTL (default 60 s) to avoid hitting the database
- * on every inbound JWKS request.  The endpoint is public and must never return HTTP 5xx — any
- * error falls back to the single-key JWKSet.
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -60,9 +47,6 @@ public class DomeJwkProvider {
                 .build();
     }
 
-    /**
-     * Returns the public JWKSet to publish.  Never emits an error signal.
-     */
     public Mono<JWKSet> resolvePublicJwks() {
         JWKSet cached = jwksCache.getIfPresent(CACHE_KEY);
         if (cached != null) {
@@ -77,9 +61,6 @@ public class DomeJwkProvider {
                 });
     }
 
-    // ------------------------------------------------------------------
-    // Internal helpers
-    // ------------------------------------------------------------------
 
     private Mono<JWKSet> buildJwks() {
         if (!migrationProperties.planBEnabled()) {
@@ -119,11 +100,6 @@ public class DomeJwkProvider {
                 .map(legacyKey -> new JWKSet(List.of(ecKey.toPublicJWK(), legacyKey)));
     }
 
-    /**
-     * Reconstructs an EC P-256 public {@link ECKey} from an uncompressed or compressed point
-     * encoded as a hex string.  Runs on the bounded-elastic scheduler because it uses
-     * blocking BouncyCastle operations.
-     */
     private Mono<ECKey> buildLegacyPublicKey(String hexPublicKey) {
         return Mono.fromCallable(() -> {
             byte[] publicKeyBytes = HexFormat.of().parseHex(hexPublicKey);

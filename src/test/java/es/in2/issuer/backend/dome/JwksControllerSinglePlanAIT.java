@@ -21,12 +21,6 @@ import java.util.List;
 
 import static org.mockito.Mockito.when;
 
-/**
- * Integration test — AC-06 (plan A path).
- *
- * <p>Verifies that {@code GET /.well-known/jwks.json} returns exactly one EC P-256 key
- * when plan B re-issuance is disabled (the default / plan A state).
- */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
@@ -47,12 +41,6 @@ class JwksControllerSinglePlanAIT {
     @MockitoBean
     private KmsKeyMigrationRepositoryPort migrationRepository;
 
-    /**
-     * Pre-configured TenantRegistryService mock provided via @TestConfiguration so that
-     * reactive @Scheduled schedulers (CredentialActivationScheduler etc.) can build their
-     * Publisher chain during ScheduledAnnotationBeanPostProcessor processing — before
-     * any @BeforeEach stub setup would run.
-     */
     @TestConfiguration
     static class TenantStubConfig {
         @Bean

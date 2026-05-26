@@ -10,13 +10,6 @@ import org.springframework.shell.standard.ShellComponent;
 import org.springframework.shell.standard.ShellMethod;
 import org.springframework.shell.standard.ShellOption;
 
-/**
- * Spring Shell commands for Plan-B DOME credential re-issuance batch.
- * <p>
- * ES-01: {@code System.out} is acceptable here — it is the sole place in the project
- * where direct console output to the operator is legitimate.
- * </p>
- */
 @Slf4j
 @ShellComponent
 @Profile("key-migration")
@@ -27,10 +20,6 @@ public class ReissuanceBatchScript {
     private final CliOperatorAuthFilter filter;
     private final KeyMigrationProperties properties;
 
-    /**
-     * Runs Plan-B re-issuance batch: re-issues all active credentials previously
-     * signed with the legacy key, using the new KMS v2 alias.
-     */
     @ShellMethod("Run Plan-B re-issuance batch")
     public void reissuanceBatch(@ShellOption("--operator-id") String operatorId) {
         filter.validatePlanB(operatorId);

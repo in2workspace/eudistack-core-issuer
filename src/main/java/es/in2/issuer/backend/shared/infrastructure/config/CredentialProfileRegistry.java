@@ -40,8 +40,6 @@ public class CredentialProfileRegistry {
         try {
             resources = resourcePatternResolver.getResources(profilesPattern);
         } catch (FileNotFoundException e) {
-            // Profiles directory does not exist — start with an empty registry (valid in dev / test
-            // environments that have not yet populated credential profiles).
             log.warn("Credential profiles directory not found at '{}', starting with empty registry. "
                     + "Ensure '{}' is populated before issuing credentials.", profilesPattern, profilesPattern);
             resources = new Resource[0];

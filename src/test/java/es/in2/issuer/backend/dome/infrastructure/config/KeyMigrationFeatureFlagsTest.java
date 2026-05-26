@@ -7,10 +7,6 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Verifies AC-05: both feature flags default to {@code false} when no environment
- * variable is configured, guaranteeing a deploy-safe behaviour out of the box.
- */
 @DisplayName("KeyMigrationProperties — feature flag defaults (AC-05)")
 class KeyMigrationFeatureFlagsTest {
 

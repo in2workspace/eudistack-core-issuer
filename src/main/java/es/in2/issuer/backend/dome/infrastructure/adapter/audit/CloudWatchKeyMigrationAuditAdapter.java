@@ -18,18 +18,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-/**
- * CloudWatch-backed implementation of {@link KeyMigrationAuditPort}.
- * <p>
- * Persists each audit event to the {@code migration_audit} table via
- * {@link R2dbcMigrationAuditRepository}, and additionally emits structured
- * log entries tagged with {@code AUDIT_KEY_MIGRATION} via {@link KeyMigrationAuditLogger}.
- * </p>
- * <p>
- * NFR-07: the {@code details} map passed to {@link #emitCloudWatchAudit} is validated
- * against a strict deny-list of keys that could carry cryptographic material.
- * </p>
- */
 @Slf4j
 @Primary
 @Component
@@ -86,26 +74,21 @@ public class CloudWatchKeyMigrationAuditAdapter implements KeyMigrationAuditPort
     }
 
     @Override
-    public Mono<Void> recordFailure(LegacyKeyId keyId, String errorMessage) {
+    public Mono<Void> recordFailure(LegacyKeyId keyId, Throwable cause) {
+        // NFR-07: persist the full message to DB for debugging, but only log the class name.
+        String errorClass = cause.getClass().getSimpleName();
         MigrationAuditEntry entry = MigrationAuditEntry.builder()
                 .sourceHash(keyId.value())
                 .migratedAt(Instant.now())
                 .replayAttempt(0)
                 .outcome("FAILED")
-                .errorMessage(errorMessage)
+                .errorMessage(cause.getMessage())
                 .build();
         return auditRepository.save(entry)
-                .doOnSuccess(saved -> auditLogger.logFailure(keyId, errorMessage))
+                .doOnSuccess(saved -> auditLogger.logFailure(keyId, errorClass))
                 .then();
     }
 
-    /**
-     * Fire-and-forget. Validates the details map against FORBIDDEN_DETAIL_KEYS,
-     * then emits a structured audit log via {@link KeyMigrationAuditLogger}.
-     * Any exception from the logger is caught and re-logged via SLF4J without propagation.
-     *
-     * @throws IllegalArgumentException if {@code details} contains a forbidden key
-     */
     @Override
     public void emitCloudWatchAudit(String event, Map<String, Object> details) {
         validateDetails(details);
@@ -117,9 +100,6 @@ public class CloudWatchKeyMigrationAuditAdapter implements KeyMigrationAuditPort
         }
     }
 
-    // ------------------------------------------------------------------
-    // Private helpers
-    // ------------------------------------------------------------------
 
     private void validateDetails(Map<String, Object> details) {
         if (details == null) {

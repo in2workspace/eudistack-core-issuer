@@ -5,6 +5,7 @@ import es.in2.issuer.backend.dome.domain.model.keymigration.LegacyKeyId;
 import es.in2.issuer.backend.dome.domain.spi.VaultExportPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientException;
@@ -16,6 +17,7 @@ import java.util.Base64;
 import java.util.Map;
 
 @Slf4j
+@Profile("key-migration")
 @Component
 @RequiredArgsConstructor
 public class VaultBYOKExportAdapter implements VaultExportPort {
@@ -50,5 +52,4 @@ public class VaultBYOKExportAdapter implements VaultExportPort {
 
     private record VaultData(String ciphertext) {}
 }
-
 
