@@ -10,6 +10,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.ResourcePatternResolver;
 import org.springframework.stereotype.Component;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -35,29 +36,36 @@ public class CredentialProfileRegistry {
         Map<String, CredentialProfile> typeMap = new LinkedHashMap<>();
         Map<String, JsonNode> rawMap = new LinkedHashMap<>();
 
+        Resource[] resources;
         try {
-            Resource[] resources = resourcePatternResolver.getResources(profilesPattern);
-
-            List<Resource> coreResources = new ArrayList<>();
-            Map<String, JsonNode> profileOverrides = new LinkedHashMap<>();
-
-            for (Resource resource : resources) {
-                String filename = resource.getFilename();
-                if (filename != null && filename.endsWith(".profile.json")) {
-                    JsonNode profileJson = readJsonResource(objectMapper, resource);
-                    String configId = extractConfigurationId(profileJson, filename);
-                    profileOverrides.put(configId, profileJson);
-                    log.debug("Loaded profile overlay '{}' from {}", configId, filename);
-                } else {
-                    coreResources.add(resource);
-                }
-            }
-
-            for (Resource resource : coreResources) {
-                loadCoreWithOptionalProfile(objectMapper, resource, profileOverrides, configIdMap, typeMap, rawMap);
-            }
+            resources = resourcePatternResolver.getResources(profilesPattern);
+        } catch (FileNotFoundException e) {
+            // Profiles directory does not exist — start with an empty registry (valid in dev / test
+            // environments that have not yet populated credential profiles).
+            log.warn("Credential profiles directory not found at '{}', starting with empty registry. "
+                    + "Ensure '{}' is populated before issuing credentials.", profilesPattern, profilesPattern);
+            resources = new Resource[0];
         } catch (IOException e) {
             throw new IllegalStateException("Failed to load credential profiles from " + profilesPattern, e);
+        }
+
+        List<Resource> coreResources = new ArrayList<>();
+        Map<String, JsonNode> profileOverrides = new LinkedHashMap<>();
+
+        for (Resource resource : resources) {
+            String filename = resource.getFilename();
+            if (filename != null && filename.endsWith(".profile.json")) {
+                JsonNode profileJson = readJsonResource(objectMapper, resource);
+                String configId = extractConfigurationId(profileJson, filename);
+                profileOverrides.put(configId, profileJson);
+                log.debug("Loaded profile overlay '{}' from {}", configId, filename);
+            } else {
+                coreResources.add(resource);
+            }
+        }
+
+        for (Resource resource : coreResources) {
+            loadCoreWithOptionalProfile(objectMapper, resource, profileOverrides, configIdMap, typeMap, rawMap);
         }
 
         if (configIdMap.isEmpty()) {
