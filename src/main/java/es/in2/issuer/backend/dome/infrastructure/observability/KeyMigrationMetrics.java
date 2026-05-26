@@ -45,11 +45,7 @@ public class KeyMigrationMetrics {
     private final AtomicLong auditWithEvidence = new AtomicLong(0);
     private final AtomicLong auditTotalFinal = new AtomicLong(0);
 
-    /**
-     * Pre-registered counters keyed by "outcome:reason".
-     * All valid combinations are created at construction time to prevent
-     * unbounded meter cardinality in production.
-     */
+
     private final Map<String, Counter> reissuanceCounters = new ConcurrentHashMap<>();
 
     public KeyMigrationMetrics(MeterRegistry registry,

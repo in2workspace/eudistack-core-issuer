@@ -121,8 +121,7 @@ class KeyMigrationRollbackIT {
         KmsAlias alias = new KmsAlias("alias/dome/signing");
         kmsImportPort.deleteImportedKeyMaterial(alias).block();
 
-        // Assert — deleteImportedKeyMaterial was called (EC-03: deletes material, not the alias)
-        //           The alias can still be described (it's not deleted, only material is gone)
+        // Assert
         verify(kmsImportPort).deleteImportedKeyMaterial(alias);
     }
 }

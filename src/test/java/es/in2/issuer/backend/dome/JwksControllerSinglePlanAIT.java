@@ -34,10 +34,7 @@ class JwksControllerSinglePlanAIT {
     @Autowired
     private WebTestClient webTestClient;
 
-    /**
-     * No implementation of this port exists yet; mock it so the Spring context starts.
-     * With planBEnabled=false, DomeJwkProvider never calls it.
-     */
+
     @MockitoBean
     private KmsKeyMigrationRepositoryPort migrationRepository;
 

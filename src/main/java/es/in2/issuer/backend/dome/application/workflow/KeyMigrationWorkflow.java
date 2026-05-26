@@ -69,7 +69,7 @@ public class KeyMigrationWorkflow {
                 .then(Mono.defer(() -> kmsImportPort.sign(alias, POC_TEST_DATA)))
                 // Timeout and PostImportValidationFailedException mapping are handled
                 // centrally in AwsKmsImportAdapter.sign(). No second timeout here to
-                // avoid duplicate handling and inconsistent error messages (ES-07).
+                // avoid duplicate handling and inconsistent error messages.
                 .flatMap(sig -> {
                     if (sig == null || sig.isBlank()) {
                         return Mono.error(new PostImportValidationFailedException("KMS returned empty signature"));

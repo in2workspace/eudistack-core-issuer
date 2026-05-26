@@ -74,14 +74,12 @@ public class ReissuanceBatchWorkflow {
                                           AtomicInteger ok,
                                           AtomicInteger skipped,
                                           AtomicInteger failed) {
-        // EC-05: skip if already expired
         if (issuance.getValidUntil() != null
                 && issuance.getValidUntil().toInstant().isBefore(Instant.now())) {
             log.debug("skipping expired issuanceId={}", issuance.getIssuanceId());
             skipped.incrementAndGet();
             return Mono.empty();
         }
-        // EC-06: skip if revoked
         if (issuance.getCredentialStatus() == CredentialStatusEnum.REVOKED) {
             log.debug("skipping revoked issuanceId={}", issuance.getIssuanceId());
             skipped.incrementAndGet();
@@ -122,7 +120,6 @@ public class ReissuanceBatchWorkflow {
                     String sourceHash = sha256(issuance.getCredentialDataSet());
                     String targetHash = sha256(signedCredential);
 
-                    // ES-09: detect hash computation failure (defensive)
                     if (targetHash == null || targetHash.isBlank()) {
                         return Mono.error(new HashMismatchException(
                                 "targetHash is blank for issuanceId=" + issuance.getIssuanceId()));

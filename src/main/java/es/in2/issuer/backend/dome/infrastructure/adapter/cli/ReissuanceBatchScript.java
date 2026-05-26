@@ -25,7 +25,6 @@ public class ReissuanceBatchScript {
         filter.validatePlanB(operatorId);
         BatchSummary result = reissuanceBatchWorkflow.execute(properties.legacyKeyId()).block();
         if (result != null) {
-            // ES-01: direct operator feedback via System.out — acceptable in @ShellMethod only
             System.out.printf("Batch complete: ok=%d skipped=%d failed=%d%n",
                     result.ok(), result.skipped(), result.failed());
         }

@@ -25,9 +25,7 @@ import java.util.UUID;
 
 public final class DomeKeyMigrationFixtureFactory {
 
-    private DomeKeyMigrationFixtureFactory() {
-        // utility class — no instances
-    }
+    private DomeKeyMigrationFixtureFactory() {}
 
     public static KeyPair generateEcP256KeyPair() {
         try {

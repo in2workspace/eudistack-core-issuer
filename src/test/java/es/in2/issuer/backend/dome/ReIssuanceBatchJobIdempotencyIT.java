@@ -100,7 +100,6 @@ class ReIssuanceBatchJobIdempotencyIT {
         }
     }
 
-    // Fixed issuance IDs so the second run finds the same source_record_ids in audit
     private static final UUID ISSUANCE_ID_1 = UUID.randomUUID();
     private static final UUID ISSUANCE_ID_2 = UUID.randomUUID();
     private static final UUID ISSUANCE_ID_3 = UUID.randomUUID();

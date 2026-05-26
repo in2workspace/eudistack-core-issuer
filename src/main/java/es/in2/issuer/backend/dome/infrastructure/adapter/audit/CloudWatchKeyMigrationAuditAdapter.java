@@ -75,7 +75,6 @@ public class CloudWatchKeyMigrationAuditAdapter implements KeyMigrationAuditPort
 
     @Override
     public Mono<Void> recordFailure(LegacyKeyId keyId, Throwable cause) {
-        // NFR-07: persist the full message to DB for debugging, but only log the class name.
         String errorClass = cause.getClass().getSimpleName();
         MigrationAuditEntry entry = MigrationAuditEntry.builder()
                 .sourceHash(keyId.value())

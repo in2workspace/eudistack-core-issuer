@@ -16,7 +16,7 @@ class KeyMigrationFeatureFlagsTest {
     @Test
     @DisplayName("plan A flag defaults to false when no environment variable is set")
     void planAEnabled_WhenNoEnvVarSet_DefaultsFalse() {
-        // Arrange — no properties set, only @DefaultValue annotations in effect
+        // Arrange
         contextRunner.run(ctx -> {
             // Act
             KeyMigrationProperties props = ctx.getBean(KeyMigrationProperties.class);
@@ -31,7 +31,7 @@ class KeyMigrationFeatureFlagsTest {
     @Test
     @DisplayName("plan B flag defaults to false when no environment variable is set")
     void planBEnabled_WhenNoEnvVarSet_DefaultsFalse() {
-        // Arrange — no properties set, only @DefaultValue annotations in effect
+        // Arrange
         contextRunner.run(ctx -> {
             // Act
             KeyMigrationProperties props = ctx.getBean(KeyMigrationProperties.class);

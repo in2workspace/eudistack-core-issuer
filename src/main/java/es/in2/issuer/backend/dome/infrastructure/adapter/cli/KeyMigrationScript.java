@@ -26,7 +26,6 @@ public class KeyMigrationScript {
     public void poc(@ShellOption("--operator-id") String operatorId) {
         filter.validatePlanA(operatorId);
         keyMigrationWorkflow.executePoc(properties.legacyKeyId()).block();
-        // ES-01: direct operator feedback via System.out — acceptable in @ShellMethod only
         System.out.println("PoC completed successfully. alias=" + properties.kmsAlias()
                 + " legacyKeyId=" + properties.legacyKeyId());
     }
@@ -35,7 +34,6 @@ public class KeyMigrationScript {
     public void production(@ShellOption("--operator-id") String operatorId) {
         filter.validatePlanA(operatorId);
         keyMigrationWorkflow.executeProduction(properties.legacyKeyId()).block();
-        // ES-01: direct operator feedback via System.out — acceptable in @ShellMethod only
         System.out.println("Production import completed. alias=" + properties.kmsAlias()
                 + " legacyKeyId=" + properties.legacyKeyId());
     }
@@ -47,7 +45,6 @@ public class KeyMigrationScript {
         log.warn("rollback: deleting imported key material alias={} operatorId={}",
                 properties.kmsAlias(), maskedOperator);
         kmsImportPort.deleteImportedKeyMaterial(new KmsAlias(properties.kmsAlias())).block();
-        // ES-01: direct operator feedback via System.out — acceptable in @ShellMethod only
         System.out.println("Rollback complete: key material deleted for alias=" + properties.kmsAlias());
     }
 }

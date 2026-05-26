@@ -118,7 +118,7 @@ class KeyMigrationKmsAliasMissingIT {
             keyMigrationWorkflow.executePoc(uniqueKeyId).block();
         } catch (KmsAliasNotProvisionedException ignored) { /* expected */ }
 
-        // Assert — DB row is FAILED (fail-closed, AC-08)
+        // Assert
         var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(uniqueKeyId)).block();
         assertThat(row).isNotNull();
         assertThat(row.getMigrationStatus()).isEqualTo("FAILED");

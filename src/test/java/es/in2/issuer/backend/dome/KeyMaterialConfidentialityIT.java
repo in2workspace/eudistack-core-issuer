@@ -146,13 +146,11 @@ class KeyMaterialConfidentialityIT {
         assertThat(logMessages).noneMatch(msg -> msg.contains("-----BEGIN PRIVATE"));
         assertThat(logMessages).noneMatch(msg -> msg.contains("-----BEGIN EC PRIVATE"));
         assertThat(logMessages).noneMatch(msg -> msg.contains("privateKey"));
-        // REDACTED string is allowed; raw ciphertext value must NOT appear
         assertThat(logMessages).noneMatch(msg ->
                 msg.contains("ciphertext=") && !msg.contains("REDACTED"));
-        // No suspiciously long base64 blobs that could be key material (>100 chars of base64)
         assertThat(logMessages).noneMatch(msg ->
                 msg.matches("(?s).*[A-Za-z0-9+/]{100,}={0,2}.*")
-                        && !msg.contains("c2lnbmF0dXJl")); // our test signature token
+                        && !msg.contains("c2lnbmF0dXJl"));
     }
 }
 

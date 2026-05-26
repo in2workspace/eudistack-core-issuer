@@ -54,7 +54,7 @@ class JwksControllerTenantNotConfiguredIT {
 
     @BeforeEach
     void setUp() {
-        // Arrange — simulate ES-03: no row found in kms_key_migration for the tenant
+        // Arrange
         when(migrationRepository.findByLegacyKeyId(any(LegacyKeyId.class)))
                 .thenReturn(Mono.empty());
     }

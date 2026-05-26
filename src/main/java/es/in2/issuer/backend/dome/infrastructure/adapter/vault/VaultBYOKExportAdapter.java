@@ -22,7 +22,6 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class VaultBYOKExportAdapter implements VaultExportPort {
 
-    /** Field name matches bean name "vaultWebClient" — Spring resolves by name among multiple WebClient beans. */
     private final WebClient vaultWebClient;
 
     @Override

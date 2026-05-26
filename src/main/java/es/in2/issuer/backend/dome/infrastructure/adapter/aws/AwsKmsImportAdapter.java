@@ -73,7 +73,6 @@ public class AwsKmsImportAdapter implements KmsImportPort {
                 .build();
         return Mono.fromCompletionStage(kmsClient.importKeyMaterial(request))
                 .doFinally(signal -> {
-                    // ES-06: best-effort cleanup of ciphertext buffer
                     Arrays.fill(envelope.ciphertext(), (byte) 0);
                     Arrays.fill(tokenBytes, (byte) 0);
                 })
