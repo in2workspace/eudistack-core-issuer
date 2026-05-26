@@ -99,6 +99,25 @@ public final class DomeKeyMigrationFixtureFactory {
     }
 
     /**
+     * Builds a {@link KmsKeyMigration} entity in {@code POC_OK} state, representing
+     * a completed PoC run from which {@code executeProduction} can transition to PLAN_A_OK.
+     *
+     * @param legacyKeyId the synthetic legacy key identifier
+     * @return an unsaved entity with status POC_OK
+     */
+    public static KmsKeyMigration pocOkMigration(String legacyKeyId) {
+        return KmsKeyMigration.builder()
+                .id(UUID.randomUUID())
+                .legacyKeyId(legacyKeyId)
+                .kmsAlias("alias/dome/signing")
+                .migrationStatus(MigrationStatus.POC_OK.name())
+                .replayAttempt(0)
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build();
+    }
+
+    /**
      * Builds a {@link KmsKeyMigration} entity in {@code PLAN_A_OK} state
      * suitable for rollback (EC-03) tests.
      *

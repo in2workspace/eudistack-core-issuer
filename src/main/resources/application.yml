@@ -178,7 +178,7 @@ issuance:
   delivery-timeout-minutes: ${ISSUANCE_DELIVERY_TIMEOUT_MINUTES:60}
   delivery-timeout-cron: ${ISSUANCE_DELIVERY_TIMEOUT_CRON:0 */5 * * * ?}
 
-# DOME key migration (feature flags default to false — AC-05 deploy-safe)
+# DOME key migration
 issuer:
   dome:
     key-migration:

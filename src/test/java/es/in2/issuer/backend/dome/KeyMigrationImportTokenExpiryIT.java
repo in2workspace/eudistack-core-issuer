@@ -103,6 +103,12 @@ class KeyMigrationImportTokenExpiryIT {
 
     @BeforeEach
     void stubRetries() {
+        // Ensure a POC_OK row exists so executeProduction can transition POC_OK → PLAN_A_OK
+        migrationRepo.findByLegacyKeyId(new LegacyKeyId(LEGACY_KEY_ID))
+                .switchIfEmpty(migrationRepo.save(
+                        DomeKeyMigrationFixtureFactory.pocOkMigration(LEGACY_KEY_ID)))
+                .block();
+
         when(kmsImportPort.describeKey(any(KmsAlias.class)))
                 .thenReturn(Mono.just(new KmsImportPort.KmsKeyDescription("id", "SIGN_VERIFY", true)));
         when(kmsImportPort.getParametersForImport(any(KmsAlias.class)))

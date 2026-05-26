@@ -55,7 +55,7 @@ public enum MigrationStatus {
     };
 
     private static final Set<MigrationStatus> VALID_FROM_PENDING =
-            EnumSet.of(POC_OK, POC_FAILED, FAILED, PLAN_A_OK);
+            EnumSet.of(POC_OK, POC_FAILED, FAILED);
     private static final Set<MigrationStatus> VALID_FROM_POC_OK =
             EnumSet.of(PLAN_A_OK, PLAN_B_REISSUE, FAILED);
     private static final Set<MigrationStatus> VALID_FROM_POC_FAILED =

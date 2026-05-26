@@ -7,6 +7,7 @@ import es.in2.issuer.backend.dome.domain.model.keymigration.LegacyKeyId;
 import es.in2.issuer.backend.dome.domain.spi.KmsImportPort;
 import es.in2.issuer.backend.dome.domain.spi.KmsKeyMigrationRepositoryPort;
 import es.in2.issuer.backend.dome.domain.spi.VaultExportPort;
+import es.in2.issuer.backend.dome.fixtures.DomeKeyMigrationFixtureFactory;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -91,6 +92,14 @@ class KeyMigrationScriptProductionIT {
 
     @BeforeEach
     void stubMocks() {
+        // Ensure a POC_OK row exists so executeProduction can transition POC_OK → PLAN_A_OK.
+        // If the row is already PLAN_A_OK (second test in the same context), keep it as-is
+        // — transitionTo has a no-op guard for current == target.
+        migrationRepo.findByLegacyKeyId(new LegacyKeyId(LEGACY_KEY_ID))
+                .switchIfEmpty(migrationRepo.save(
+                        DomeKeyMigrationFixtureFactory.pocOkMigration(LEGACY_KEY_ID)))
+                .block();
+
         when(kmsImportPort.describeKey(any(KmsAlias.class)))
                 .thenReturn(Mono.just(new KmsImportPort.KmsKeyDescription("kms-key-id", "SIGN_VERIFY", true)));
         when(kmsImportPort.getParametersForImport(any(KmsAlias.class)))
