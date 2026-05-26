@@ -22,13 +22,13 @@ public class R2dbcCredentialSyncAdapter implements CredentialSyncPort {
     @Override
     public Flux<JsonNode> findByHolderKey(String tenant, HolderKeyThumbprint thumbprint) {
 
-        String sql = "SELECT credential_data FROM dome_issuer.issuance WHERE holder_key_thumbprint = :thumbprint";
+        String sql = "SELECT credential_data_set FROM dome_issuer.issuance WHERE holder_key_thumbprint = :thumbprint";
 
         return databaseClient.sql(sql)
                 .bind("thumbprint", thumbprint.value())
                 .map((row, rowMetadata) -> {
                     try {
-                        String json = row.get("credential_data", String.class);
+                        String json = row.get("credential_data_set", String.class);
                         return objectMapper.readTree(json);
                     } catch (Exception e) {
                         throw new RuntimeException("Error parsing JSON from database", e);
