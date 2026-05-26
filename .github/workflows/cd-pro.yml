@@ -20,9 +20,6 @@ jobs:
   cd:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    env:
-      CLUSTER: ${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-ecs-${{ env.REGION_CODE }}
-      SERVICE: ${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-ecs-${{ env.REGION_CODE }}-${{ env.APP_NAME }}-service
    
     steps:
       - name: Configure AWS credentials (${{ env.FROM_ENV }})
@@ -86,27 +83,31 @@ jobs:
       - name: Force new ECS deployment
         run: |
           set -euo pipefail
+          CLUSTER="${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-ecs-${{ env.REGION_CODE }}"
+          SERVICE="${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-ecs-${{ env.REGION_CODE }}-${{ env.APP_NAME }}-service"
 
-          echo "Deploying ${{ env.SERVICE }} on cluster ${{ env.CLUSTER }}..."
+          echo "Deploying ${SERVICE} on cluster ${CLUSTER}..."
           aws ecs update-service \
-            --cluster "${{ env.CLUSTER }}" \
-            --service "${{ env.SERVICE }}" \
+            --cluster "${CLUSTER}" \
+            --service "${SERVICE}" \
             --force-new-deployment \
             --region "${{ secrets.AWS_REGION }}" \
             --no-cli-pager
 
           echo "### 🚀 Deployment triggered" >> $GITHUB_STEP_SUMMARY
-          echo "- **Cluster:** ${{ env.CLUSTER }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Service:** ${{ env.SERVICE }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cluster:** ${CLUSTER}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Service:** ${SERVICE}" >> $GITHUB_STEP_SUMMARY
 
       - name: Wait for deployment stability
         run: |
           set -euo pipefail
+          CLUSTER="${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-ecs-${{ env.REGION_CODE }}"
+          SERVICE="${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-ecs-${{ env.REGION_CODE }}-${{ env.APP_NAME }}-service"
 
           echo "Waiting for service stability (timeout: 10 min)..."
           aws ecs wait services-stable \
-            --cluster "${{ env.CLUSTER }}" \
-            --services "${{ env.SERVICE }}" \
+            --cluster "${CLUSTER}" \
+            --services "${SERVICE}" \
             --region "${{ secrets.AWS_REGION }}" \
             --no-cli-pager || {
               echo "::warning::Service did not stabilize within timeout"
