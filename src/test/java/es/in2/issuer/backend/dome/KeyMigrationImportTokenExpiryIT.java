@@ -35,7 +35,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@ActiveProfiles("test")
+@ActiveProfiles({"test", "key-migration"})
 @Testcontainers
 @TestPropertySource(properties = {
         "issuer.dome.key-migration.plan-a-enabled=true",
