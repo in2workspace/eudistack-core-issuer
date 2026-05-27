@@ -20,6 +20,8 @@ import org.springframework.security.web.server.util.matcher.ServerWebExchangeMat
 import java.time.Duration;
 
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.*;
+import es.in2.issuer.backend.dome.infrastructure.security.DpopValidationFilter;
+import es.in2.issuer.backend.dome.infrastructure.security.SyncCredentialsAuthorizationManager;
 
 @Slf4j
 @Configuration
@@ -46,7 +48,8 @@ public class SecurityConfig {
                         OID4VCI_CREDENTIAL_PATH,
                         OID4VCI_NOTIFICATION_PATH,
                         // Other authenticated paths
-                        STATUS_LIST_PATH)
+                        STATUS_LIST_PATH,
+                        "/internal/dome/sync-credentials")
         );
 
         authenticationWebFilter.setServerAuthenticationConverter(new DualTokenServerAuthenticationConverter());
@@ -80,7 +83,9 @@ public class SecurityConfig {
     public SecurityWebFilterChain unifiedFilterChain(
             ServerHttpSecurity http,
             ProblemAuthenticationEntryPoint entryPoint,
-            ProblemAccessDeniedHandler deniedH
+            ProblemAccessDeniedHandler deniedH,
+            SyncCredentialsAuthorizationManager syncAuthManager,
+            DpopValidationFilter dpopFilter
     ) {
         log.debug("unifiedFilterChain - inside");
 
@@ -101,7 +106,8 @@ public class SecurityConfig {
                         TOKEN_STATUS_LIST_PATH,
                         HEALTH_PATH,
                         PROMETHEUS_PATH,
-                        SPRINGDOC_PATH
+                        SPRINGDOC_PATH,
+                        "/internal/dome/sync-credentials"
                 ))
                 .cors(cors -> cors.configurationSource(corsConfig.corsConfigurationSource()))
                 .headers(headers -> headers
@@ -137,12 +143,14 @@ public class SecurityConfig {
                         .pathMatchers(HttpMethod.POST, OID4VCI_PAR_PATH).permitAll()
                         .pathMatchers(HttpMethod.GET, OID4VCI_AUTHORIZE_PATH).permitAll()
                         .pathMatchers(HttpMethod.POST, OID4VCI_NONCE_PATH).permitAll()
+                        .pathMatchers(HttpMethod.POST, "/internal/dome/sync-credentials").access(syncAuthManager)
                         // Authenticated endpoints (all go through CustomAuthenticationManager)
                         .anyExchange().authenticated()
                 )
                 // CSRF disabled: all routes use Bearer token authentication (no cookies/sessions)
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .addFilterAt(customAuthenticationWebFilter(entryPoint), SecurityWebFiltersOrder.AUTHENTICATION)
+                .addFilterAt(dpopFilter, SecurityWebFiltersOrder.AUTHENTICATION)
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(deniedH)

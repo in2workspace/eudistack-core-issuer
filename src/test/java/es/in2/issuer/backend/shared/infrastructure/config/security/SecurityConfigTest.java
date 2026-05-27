@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
+import es.in2.issuer.backend.dome.infrastructure.security.DpopValidationFilter;
+import es.in2.issuer.backend.dome.infrastructure.security.SyncCredentialsAuthorizationManager;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -53,10 +55,15 @@ class SecurityConfigTest {
                 corsConfig
         );
 
+        SyncCredentialsAuthorizationManager syncAuthManagerMock = mock(SyncCredentialsAuthorizationManager.class);
+        DpopValidationFilter dpopFilterMock = mock(DpopValidationFilter.class);
+
         SecurityWebFilterChain chain = securityConfig.unifiedFilterChain(
                 ServerHttpSecurity.http(),
                 entryPoint,
-                deniedHandler
+                deniedHandler,
+                syncAuthManagerMock,
+                dpopFilterMock
         );
 
         securityProxy = new WebFilterChainProxy(chain);
