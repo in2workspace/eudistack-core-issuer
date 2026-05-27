@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS migration_audit (
     target_hash      VARCHAR(64),
     migrated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     replay_attempt   INTEGER     NOT NULL DEFAULT 0,
-    outcome          VARCHAR(20) NOT NULL,
+    outcome          VARCHAR(50) NOT NULL,
     error_message    TEXT,
 
     CONSTRAINT pk_migration_audit PRIMARY KEY (id)

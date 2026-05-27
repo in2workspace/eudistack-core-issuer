@@ -14,12 +14,15 @@ import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.infrastructure.repository.IssuanceRepository;
 import es.in2.issuer.shared.canonicalization.JsonCanonicalizer;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.util.Base64;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -34,6 +37,7 @@ public class ReissuanceBatchWorkflow {
     private final KeyMigrationStateService stateService;
     private final KeyMigrationProperties properties;
     private final IssueSignedCredentialWorkflow issueWorkflow;
+    private final ObjectMapper objectMapper;
 
     public record BatchSummary(int ok, int skipped, int failed) {}
 
@@ -107,7 +111,7 @@ public class ReissuanceBatchWorkflow {
                 ? issuance.getValidFrom().toInstant() : Instant.now();
         Instant validUntil = issuance.getValidUntil() != null
                 ? issuance.getValidUntil().toInstant() : null;
-        String holderCnfJwk = issuance.getSubject() != null ? issuance.getSubject() : "";
+        String holderCnfJwk = extractCnfJwkFromSignedCredential(issuance.getSignedCredential());
 
         ReissuanceContext context = new ReissuanceContext(
                 issuance.getIssuanceId(), holderCnfJwk, validFrom, validUntil);
@@ -138,6 +142,39 @@ public class ReissuanceBatchWorkflow {
                             })
                             .then();
                 });
+    }
+
+    private String extractCnfJwkFromSignedCredential(String signedCredential) {
+        if (signedCredential == null || signedCredential.isBlank()) {
+            return "";
+        }
+        try {
+            // SD-JWT uses '~' as separator — keep only the JWT portion
+            String jwt = signedCredential.contains("~")
+                    ? signedCredential.split("~")[0]
+                    : signedCredential;
+
+            String[] parts = jwt.split("\\.");
+            if (parts.length < 2) {
+                return "";
+            }
+
+            byte[] payloadBytes = Base64.getUrlDecoder().decode(parts[1]);
+            Map<?, ?> payload = objectMapper.readValue(payloadBytes, Map.class);
+
+            Object cnf = payload.get("cnf");
+            if (cnf instanceof Map<?, ?> cnfMap) {
+                Object jwk = cnfMap.get("jwk");
+                if (jwk != null) {
+                    return objectMapper.writeValueAsString(jwk);
+                }
+            }
+            return "";
+        } catch (Exception e) {
+            log.warn("extractCnfJwkFromSignedCredential: could not parse cnf.jwk, proceeding without holder binding: {}",
+                    e.getMessage());
+            return "";
+        }
     }
 }
 
