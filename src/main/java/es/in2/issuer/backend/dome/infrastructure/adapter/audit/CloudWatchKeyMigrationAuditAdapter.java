@@ -33,11 +33,11 @@ public class CloudWatchKeyMigrationAuditAdapter implements KeyMigrationAuditPort
     @Override
     public Mono<Void> recordPocResult(LegacyKeyId keyId, MigrationStatus result, String evidenceUri) {
         MigrationAuditEntry entry = MigrationAuditEntry.builder()
-                .sourceHash(keyId.value())
+                .sourceHash(null)
                 .migratedAt(Instant.now())
                 .replayAttempt(0)
                 .outcome("POC_RESULT:" + result.name())
-                .errorMessage(evidenceUri)
+                .errorMessage("legacyKeyId=" + keyId.value() + " | " + evidenceUri)
                 .build();
         return auditRepository.save(entry)
                 .doOnSuccess(saved -> auditLogger.logPocResult(keyId, result))
@@ -47,11 +47,11 @@ public class CloudWatchKeyMigrationAuditAdapter implements KeyMigrationAuditPort
     @Override
     public Mono<Void> recordPlanAOk(LegacyKeyId keyId, KmsAlias alias, String evidenceUri) {
         MigrationAuditEntry entry = MigrationAuditEntry.builder()
-                .sourceHash(keyId.value())
+                .sourceHash(null)
                 .migratedAt(Instant.now())
                 .replayAttempt(0)
                 .outcome("PLAN_A_OK")
-                .errorMessage(evidenceUri)
+                .errorMessage("legacyKeyId=" + keyId.value() + " | " + evidenceUri)
                 .build();
         return auditRepository.save(entry)
                 .doOnSuccess(saved -> auditLogger.logPlanAOk(keyId, alias))
@@ -77,11 +77,11 @@ public class CloudWatchKeyMigrationAuditAdapter implements KeyMigrationAuditPort
     public Mono<Void> recordFailure(LegacyKeyId keyId, Throwable cause) {
         String errorClass = cause.getClass().getSimpleName();
         MigrationAuditEntry entry = MigrationAuditEntry.builder()
-                .sourceHash(keyId.value())
+                .sourceHash(null)
                 .migratedAt(Instant.now())
                 .replayAttempt(0)
                 .outcome("FAILED")
-                .errorMessage(cause.getMessage())
+                .errorMessage("legacyKeyId=" + keyId.value() + " | " + cause.getMessage())
                 .build();
         return auditRepository.save(entry)
                 .doOnSuccess(saved -> auditLogger.logFailure(keyId, errorClass))

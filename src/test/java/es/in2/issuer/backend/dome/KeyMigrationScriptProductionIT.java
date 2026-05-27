@@ -4,10 +4,12 @@ import es.in2.issuer.backend.dome.application.workflow.KeyMigrationWorkflow;
 import es.in2.issuer.backend.dome.domain.model.keymigration.EncryptedKeyEnvelope;
 import es.in2.issuer.backend.dome.domain.model.keymigration.KmsAlias;
 import es.in2.issuer.backend.dome.domain.model.keymigration.LegacyKeyId;
+import es.in2.issuer.backend.dome.domain.model.keymigration.MigrationAuditEntry;
 import es.in2.issuer.backend.dome.domain.spi.KmsImportPort;
 import es.in2.issuer.backend.dome.domain.spi.KmsKeyMigrationRepositoryPort;
 import es.in2.issuer.backend.dome.domain.spi.VaultExportPort;
 import es.in2.issuer.backend.dome.fixtures.DomeKeyMigrationFixtureFactory;
+import es.in2.issuer.backend.dome.infrastructure.adapter.persistence.R2dbcMigrationAuditRepository;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -32,6 +34,8 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -76,6 +80,9 @@ class KeyMigrationScriptProductionIT {
     @MockitoBean
     private VaultExportPort vaultExportPort;
 
+    @MockitoBean
+    private R2dbcMigrationAuditRepository auditRepository;
+
     @TestConfiguration
     static class TenantStubConfig {
         @Bean
@@ -104,6 +111,8 @@ class KeyMigrationScriptProductionIT {
                 .thenReturn(Mono.empty());
         when(kmsImportPort.sign(any(KmsAlias.class), any()))
                 .thenReturn(Mono.just("c2lnbmF0dXJl"));
+        when(auditRepository.save(any(MigrationAuditEntry.class)))
+                .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
     }
 
     @Test
@@ -125,9 +134,7 @@ class KeyMigrationScriptProductionIT {
         keyMigrationWorkflow.executeProduction(LEGACY_KEY_ID).block();
 
         // Assert
-        var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(LEGACY_KEY_ID)).block();
-        assertThat(row).isNotNull();
-        assertThat(row.getMigrationStatus()).isEqualTo("PLAN_A_OK");
+        verify(auditRepository).save(argThat(entry ->
+                "PLAN_A_OK".equals(entry.getOutcome())));
     }
 }
-

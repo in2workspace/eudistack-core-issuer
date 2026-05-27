@@ -83,8 +83,8 @@ public class ReissuanceBatchWorkflow {
             return Mono.empty();
         }
 
-        return auditRepo.findBySourceRecordId(issuance.getIssuanceId())
-                .map(existing -> "OK".equals(existing.getOutcome()))
+        return auditRepo.findOkBySourceRecordId(issuance.getIssuanceId())
+                .map(existing -> true)
                 .defaultIfEmpty(false)
                 .flatMap(alreadyOk -> {
                     if (alreadyOk) {

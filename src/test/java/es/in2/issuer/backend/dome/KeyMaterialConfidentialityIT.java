@@ -125,7 +125,7 @@ class KeyMaterialConfidentialityIT {
 
         when(auditRepository.save(any(MigrationAuditEntry.class)))
                 .thenAnswer(inv -> Mono.just(inv.getArgument(0)));
-        when(auditRepository.findBySourceRecordId(any()))
+        when(auditRepository.findOkBySourceRecordId(any()))
                 .thenReturn(Mono.empty());
     }
 

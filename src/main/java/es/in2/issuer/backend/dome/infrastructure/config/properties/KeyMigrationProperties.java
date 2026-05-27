@@ -12,7 +12,8 @@ public record KeyMigrationProperties(
         @DefaultValue("") String legacyKeyId,
         @DefaultValue("") String legacyPublicKeyHex,
         @DefaultValue("60") int cacheJwksTtlSeconds,
-        @DefaultValue("http://localhost:8200") String vaultEndpoint
+        @DefaultValue("http://localhost:8200") String vaultEndpoint,
+        @DefaultValue("dome") String tenantDomain
 ) {
 }
 

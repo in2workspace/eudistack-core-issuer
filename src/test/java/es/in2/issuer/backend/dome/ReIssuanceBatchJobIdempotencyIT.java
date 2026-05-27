@@ -142,7 +142,7 @@ class ReIssuanceBatchJobIdempotencyIT {
         assertThat(second.failed()).isEqualTo(0);
 
         for (UUID issuanceId : List.of(ISSUANCE_ID_1, ISSUANCE_ID_2, ISSUANCE_ID_3)) {
-            var entry = auditRepository.findBySourceRecordId(issuanceId).block();
+            var entry = auditRepository.findOkBySourceRecordId(issuanceId).block();
             assertThat(entry).isNotNull()
                     .extracting(e -> e.getOutcome()).isEqualTo("OK");
         }

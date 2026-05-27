@@ -20,9 +20,8 @@ public class R2dbcMigrationAuditRepository {
         return springDataRepo.save(entry);
     }
 
-    public Mono<MigrationAuditEntry> findBySourceRecordId(UUID sourceRecordId) {
-        log.debug("Looking up MigrationAuditEntry by sourceRecordId={}", sourceRecordId);
-        return springDataRepo.findBySourceRecordId(sourceRecordId);
+    public Mono<MigrationAuditEntry> findOkBySourceRecordId(UUID sourceRecordId) {
+        log.debug("Looking up OK MigrationAuditEntry by sourceRecordId={}", sourceRecordId);
+        return springDataRepo.findBySourceRecordIdAndOutcome(sourceRecordId, "OK");
     }
 }
-

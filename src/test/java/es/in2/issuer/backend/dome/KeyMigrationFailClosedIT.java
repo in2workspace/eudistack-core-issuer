@@ -128,8 +128,7 @@ class KeyMigrationFailClosedIT {
             // Assert
             var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(keyId)).block();
             assertThat(row).isNotNull();
-            assertThat(row.getMigrationStatus())
-                    .isIn("FAILED", "PENDING");
+            assertThat(row.getMigrationStatus()).isEqualTo("FAILED");
         }
     }
 
@@ -154,7 +153,7 @@ class KeyMigrationFailClosedIT {
             // Assert
             var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(keyId)).block();
             assertThat(row).isNotNull();
-            assertThat(row.getMigrationStatus()).isIn("FAILED", "PENDING");
+            assertThat(row.getMigrationStatus()).isEqualTo("FAILED");
         }
     }
 
@@ -180,7 +179,7 @@ class KeyMigrationFailClosedIT {
             // Assert
             var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(keyId)).block();
             assertThat(row).isNotNull();
-            assertThat(row.getMigrationStatus()).isIn("FAILED", "PENDING");
+            assertThat(row.getMigrationStatus()).isEqualTo("FAILED");
         }
     }
 }
