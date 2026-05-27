@@ -61,7 +61,7 @@ class ArchUnitTest {
                     BASE_PACKAGE + ".shared.domain.service.impl.TenantRegistryServiceImpl",
                     BASE_PACKAGE + ".shared.infrastructure.config.TenantSchemaFlywayMigrator");
 
-//todo foo
+//todo
 //    @ArchTest
 //    static final ArchRule packageDependenciesAreRespected = layeredArchitecture()
 //            .consideringOnlyDependenciesInLayers()
