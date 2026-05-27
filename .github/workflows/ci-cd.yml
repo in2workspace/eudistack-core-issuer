@@ -24,6 +24,8 @@ jobs:
   ci:
     name: Build, Push & Tag
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
     env:
       ENVIRONMENT: stg
     steps:
@@ -39,6 +41,25 @@ jobs:
 
       - name: Make Gradlew Executable
         run: chmod +x ./gradlew
+
+      - name: Get Project Metadata
+        id: metadata
+        run: |
+          VERSION=$(./gradlew -q properties | grep '^version:' | awk '{print $2}')
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Check Release Does Not Exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="v${{ env.VERSION }}"
+          if gh release view "${TAG}" --repo "${{ github.repository }}" > /dev/null 2>&1; then
+            echo "::error::Release ${TAG} already exists. Bump the version before merging."
+            exit 1
+          fi
+          echo "Release ${TAG} does not exist — proceeding."
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -59,14 +80,19 @@ jobs:
           set -euo pipefail
 
           ECR_IMAGE="${ECR_REGISTRY}/${ECR_REPOSITORY}:${{ env.ENVIRONMENT }}"
-          ECR_IMAGE="${ECR_REGISTRY}/${ECR_REPOSITORY}:${{ env.ENVIRONMENT }}"
           ECR_LATEST="${ECR_REGISTRY}/${ECR_REPOSITORY}:latest"
+          ECR_VERSION="${ECR_REGISTRY}/${ECR_REPOSITORY}:v${{ env.VERSION }}"
+          ECR_SHA="${ECR_REGISTRY}/${ECR_REPOSITORY}:${{ github.sha }}"
 
           docker build --build-arg SKIP_TESTS=true -t "${ECR_IMAGE}" .
           docker tag "${ECR_IMAGE}" "${ECR_LATEST}"
+          docker tag "${ECR_IMAGE}" "${ECR_VERSION}"
+          docker tag "${ECR_IMAGE}" "${ECR_SHA}"
 
           docker push "${ECR_IMAGE}"
           docker push "${ECR_LATEST}"
+          docker push "${ECR_VERSION}"
+          docker push "${ECR_SHA}"
   cd-stg:
     name: Deploy to Staging
     needs: ci
@@ -110,11 +136,15 @@ jobs:
             --cluster "${CLUSTER}" \
             --services "${SERVICE}" \
             --region "${{ secrets.AWS_REGION }}" \
-            --no-cli-pager
+            --no-cli-pager || {
+              echo "::warning::Service did not stabilize within timeout"
+              exit 1
+            }
 
-          echo "### ✅ Deployment successful" >> $GITHUB_STEP_SUMMARY      
+          echo "### ✅ Deployment successful" >> $GITHUB_STEP_SUMMARY
   cd-pro:
     name: Deploy to Production
+    needs: [ci, cd-stg]
     runs-on: ubuntu-latest
     environment: 
       name: pro
@@ -140,7 +170,7 @@ jobs:
         run: |
           set -euo pipefail
           
-          STG_IMAGE="${ECR_REGISTRY_STG}/${ECR_REPOSITORY_STG}:latest"
+          STG_IMAGE="${ECR_REGISTRY_STG}/${ECR_REPOSITORY_STG}:${{ github.sha }}"
           echo "Pulling staging image: ${STG_IMAGE}"
           docker pull "${STG_IMAGE}"
 
@@ -164,17 +194,23 @@ jobs:
         run: |
           set -euo pipefail
           
-          STG_IMAGE="${ECR_REGISTRY_STG}/${ECR_REPOSITORY_STG}:latest"
+          STG_IMAGE="${ECR_REGISTRY_STG}/${ECR_REPOSITORY_STG}:${{ github.sha }}"
           PRO_IMAGE="${ECR_REGISTRY_PRO}/${ECR_REPOSITORY_PRO}:${{ env.ENVIRONMENT }}"
           PRO_LATEST="${ECR_REGISTRY_PRO}/${ECR_REPOSITORY_PRO}:latest"
+          PRO_VERSION="${ECR_REGISTRY_PRO}/${ECR_REPOSITORY_PRO}:v${{ needs.ci.outputs.version }}"
+          PRO_SHA="${ECR_REGISTRY_PRO}/${ECR_REPOSITORY_PRO}:${{ github.sha }}"
           
           echo "Tagging for production..."
           docker tag "${STG_IMAGE}" "${PRO_IMAGE}"
           docker tag "${STG_IMAGE}" "${PRO_LATEST}"
+          docker tag "${STG_IMAGE}" "${PRO_VERSION}"
+          docker tag "${STG_IMAGE}" "${PRO_SHA}"
           
           echo "Pushing to production ECR..."
           docker push "${PRO_IMAGE}"
           docker push "${PRO_LATEST}"
+          docker push "${PRO_VERSION}"
+          docker push "${PRO_SHA}"
           
           echo "### 📦 Image promoted" >> $GITHUB_STEP_SUMMARY
           echo "- **From:** ${STG_IMAGE}" >> $GITHUB_STEP_SUMMARY
@@ -214,6 +250,18 @@ jobs:
               exit 1
             }
 
-          echo "### ✅ Deployment successful" >> $GITHUB_STEP_SUMMARY   
+          echo "### ✅ Deployment successful" >> $GITHUB_STEP_SUMMARY
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="v${{ needs.ci.outputs.version }}"
+          gh release create "${TAG}" \
+            --repo "${{ github.repository }}" \
+            --title "${TAG}" \
+            --generate-notes
+          echo "### 🏷️ GitHub Release published: ${TAG}" >> $GITHUB_STEP_SUMMARY
 
 
