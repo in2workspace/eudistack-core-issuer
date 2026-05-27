@@ -13,7 +13,7 @@ import es.in2.issuer.backend.dome.infrastructure.config.properties.KeyMigrationP
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.infrastructure.repository.IssuanceRepository;
-import es.in2.issuer.shared.canonicalization.JsonCanonicalizer;
+import es.in2.issuer.backend.shared.domain.util.JsonCanonicalizer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

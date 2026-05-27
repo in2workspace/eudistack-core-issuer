@@ -1,4 +1,4 @@
-package es.in2.issuer.shared.canonicalization;
+package es.in2.issuer.backend.shared.domain.util;
 
 import org.junit.jupiter.api.Test;
 

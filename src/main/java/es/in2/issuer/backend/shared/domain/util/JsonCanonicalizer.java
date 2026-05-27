@@ -1,4 +1,4 @@
-package es.in2.issuer.shared.canonicalization;
+package es.in2.issuer.backend.shared.domain.util;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
