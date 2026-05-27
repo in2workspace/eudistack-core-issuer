@@ -11,14 +11,14 @@ import es.in2.issuer.backend.dome.domain.spi.VaultExportPort;
 import es.in2.issuer.backend.dome.infrastructure.config.properties.KeyMigrationProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Lazy;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
 @Slf4j
-@Lazy
 @Service
+@Profile("key-migration")
 @RequiredArgsConstructor
 public class KeyMigrationWorkflow {
 
