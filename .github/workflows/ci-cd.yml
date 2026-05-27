@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   ci:
-    name: Build, Push & Tag
+    name: Build > Tag > Push
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.metadata.outputs.version }}
