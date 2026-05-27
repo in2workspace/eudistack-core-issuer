@@ -13,16 +13,13 @@ import es.in2.issuer.backend.dome.infrastructure.config.properties.KeyMigrationP
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.infrastructure.repository.IssuanceRepository;
+import es.in2.issuer.shared.canonicalization.JsonCanonicalizer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
-import java.util.HexFormat;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -117,8 +114,8 @@ public class ReissuanceBatchWorkflow {
 
         return issueWorkflow.reissue(context)
                 .flatMap(signedCredential -> {
-                    String sourceHash = sha256(issuance.getCredentialDataSet());
-                    String targetHash = sha256(signedCredential);
+                    String sourceHash = JsonCanonicalizer.sha256(issuance.getCredentialDataSet());
+                    String targetHash = JsonCanonicalizer.sha256(signedCredential);
 
                     if (targetHash == null || targetHash.isBlank()) {
                         return Mono.error(new HashMismatchException(
@@ -141,17 +138,6 @@ public class ReissuanceBatchWorkflow {
                             })
                             .then();
                 });
-    }
-
-    private String sha256(String input) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] digest = md.digest(input != null
-                    ? input.getBytes(StandardCharsets.UTF_8) : new byte[0]);
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("SHA-256 not available", e);
-        }
     }
 }
 
