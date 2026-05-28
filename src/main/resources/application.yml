@@ -177,3 +177,13 @@ issuance:
   cleanup-cron: ${ISSUANCE_CLEANUP_CRON:0 0 2 * * *}
   delivery-timeout-minutes: ${ISSUANCE_DELIVERY_TIMEOUT_MINUTES:60}
   delivery-timeout-cron: ${ISSUANCE_DELIVERY_TIMEOUT_CRON:0 */5 * * * ?}
+
+# DOME Key Migration (key-migration profile)
+issuer:
+  dome:
+    key-migration:
+      plan-a-enabled: ${DOME_KEY_MIGRATION_PLAN_A_ENABLED:false}
+      legacy-key-id: ${DOME_LEGACY_KEY_ID:}
+      vault-endpoint: ${DOME_VAULT_ENDPOINT:http://localhost:8200}
+      tenant-domain: ${DOME_TENANT_DOMAIN:dome}
+

@@ -85,6 +85,9 @@ dependencies {
     runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
     implementation 'net.logstash.logback:logstash-logback-encoder:8.0'
 
+    // --- CLI  ---
+    implementation 'org.springframework.shell:spring-shell-starter:3.3.3'
+
     // --- DevTools ---
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
     implementation 'org.jetbrains:annotations:24.1.0'
@@ -100,6 +103,7 @@ dependencies {
     // --- Integration Testing ---
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
 }
 
 configurations.configureEach {
