@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Component
 public class CscV1CertificateInfoMapper {
@@ -16,7 +17,7 @@ public class CscV1CertificateInfoMapper {
 
         Map<String, Object> key = castMap(response.get("key"), "key");
         String keyStatus = (String) key.get("status");
-        if (!"enabled".equalsIgnoreCase(keyStatus)) {
+        if (!Set.of("enabled", "valid").contains(keyStatus.toLowerCase())) {
             throw new IllegalStateException("Signing key is not enabled: " + keyStatus);
         }
 
