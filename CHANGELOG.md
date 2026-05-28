@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.16] - 2026-05-28
+
+### Fixed
+- **Signature**: Validate key status for enabled and valid states
+
 ## [3.6.15] - 2026-05-26
 
 ### Fixed

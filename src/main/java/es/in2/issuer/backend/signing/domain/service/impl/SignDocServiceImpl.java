@@ -25,8 +25,6 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOT
 @RequiredArgsConstructor
 public class SignDocServiceImpl implements SignDocService {
 
-    private static final String SIGN_ALGO_OID = "OID_sign_algorithm";
-
     private final CscPort cscPort;
     private final JwtUtils jwtUtils;
 
@@ -64,8 +62,12 @@ public class SignDocServiceImpl implements SignDocService {
         String docB64 = Base64.getEncoder().encodeToString(request.data().getBytes(StandardCharsets.UTF_8));
 
         return cscPort.requestAccessToken(cfg, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, true, request.data())
-                .flatMap(accessToken -> cscPort.authorizeForDoc(cfg, accessToken)
-                        .flatMap(sad -> cscPort.signDoc(cfg, accessToken, sad, docB64, SIGN_ALGO_OID))
+                .flatMap(accessToken -> cscPort.getCredentialInfo(cfg, accessToken, cfg.credentialId())
+                        .flatMap(certInfo -> {
+                            String signAlgoOid = certInfo.keyAlgorithms().getFirst();
+                            return cscPort.authorizeForDoc(cfg, accessToken)
+                                    .flatMap(sad -> cscPort.signDoc(cfg, accessToken, sad, docB64, signAlgoOid));
+                        })
                 )
                 .flatMap(signedDocB64 -> verifyAndBuild(request, signedDocB64));
     }
