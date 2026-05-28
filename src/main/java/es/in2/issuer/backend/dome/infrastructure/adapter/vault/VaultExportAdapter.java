@@ -3,7 +3,6 @@ package es.in2.issuer.backend.dome.infrastructure.adapter.vault;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import es.in2.issuer.backend.dome.domain.model.keymigration.LegacyKeyId;
 import es.in2.issuer.backend.dome.domain.spi.VaultExportPort;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Profile;
@@ -18,12 +17,14 @@ import java.util.Map;
 
 @Component
 @Profile("key-migration")
-@RequiredArgsConstructor
 @Slf4j
 public class VaultExportAdapter implements VaultExportPort {
 
-    @Qualifier("vaultWebClient")
     private final WebClient vaultWebClient;
+
+    public VaultExportAdapter(@Qualifier("vaultWebClient") WebClient vaultWebClient) {
+        this.vaultWebClient = vaultWebClient;
+    }
 
     @Override
     public Mono<byte[]> exportPrivateKey(LegacyKeyId keyId) {
@@ -48,4 +49,3 @@ public class VaultExportAdapter implements VaultExportPort {
 
     private record VaultExportData(@JsonProperty("keys") Map<String, String> keys) {}
 }
-
