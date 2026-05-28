@@ -8,6 +8,8 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 import org.springframework.security.oauth2.jwt.Jwt;
 
+import java.util.Arrays;
+
 @Component
 public class SyncCredentialsAuthorizationManager implements ReactiveAuthorizationManager<AuthorizationContext> {
 
@@ -15,21 +17,36 @@ public class SyncCredentialsAuthorizationManager implements ReactiveAuthorizatio
     public Mono<AuthorizationDecision> check(Mono<Authentication> authentication, AuthorizationContext context) {
         return authentication
                 .map(auth -> {
-                    // Comprobamos si el token es un JWT
-                    if (auth.getPrincipal() instanceof Jwt jwt) {
-                        // Extraemos el claim "tenant"
-                        String tenant = jwt.getClaimAsString("tenant");
-                        boolean hasTenant = "dome".equals(tenant);
 
-                        // Extraemos la lista de scopes/permisos
-                        var scopes = jwt.getClaimAsStringList("scope");
-                        boolean hasPermission = scopes != null && scopes.contains("DomeRecovery/Sync");
-
-                        return new AuthorizationDecision(hasTenant && hasPermission);
+                    if (!(auth.getPrincipal() instanceof Jwt jwt)) {
+                        return new AuthorizationDecision(false);
                     }
-                    return new AuthorizationDecision(false);
+
+                    String tenant = jwt.getClaimAsString("tenant");
+                    boolean hasTenant = "dome".equals(tenant);
+
+                    // scope puede venir como string o lista
+                    boolean hasPermission = false;
+
+                    Object scopeClaim = jwt.getClaims().get("scope");
+
+                    if (scopeClaim instanceof String scopeString) {
+
+                        hasPermission =
+                                java.util.Arrays.stream(scopeString.split(" "))
+                                        .anyMatch("DomeRecovery/Sync"::equals);
+
+                    } else if (scopeClaim instanceof java.util.Collection<?> scopes) {
+
+                        hasPermission =
+                                scopes.contains("DomeRecovery/Sync");
+                    }
+
+                    return new AuthorizationDecision(
+                            hasTenant && hasPermission
+                    );
                 })
-                .defaultIfEmpty(new AuthorizationDecision(false)); // Si no hay token, denegado
+                .defaultIfEmpty(new AuthorizationDecision(false));
     }
 }
 
