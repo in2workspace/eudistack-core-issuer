@@ -2,6 +2,7 @@ package es.in2.issuer.backend.signing.domain.service.impl;
 
 import es.in2.issuer.backend.signing.domain.exception.SignatureProcessingException;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
+import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.spi.CscPort;
@@ -20,6 +21,7 @@ import reactor.test.StepVerifier;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.List;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
@@ -71,9 +73,12 @@ class SignDocServiceImplTest {
 
         String signedJwt = "signed-jwt";
         String signedB64 = Base64.getEncoder().encodeToString(signedJwt.getBytes(StandardCharsets.UTF_8));
+        CertificateInfo certInfo = new CertificateInfo(List.of(), null, null, null, null, null, List.of(SIGN_ALGO_OID), null);
 
         when(cscPort.requestAccessToken(cfg, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, true, req.data()))
                 .thenReturn(Mono.just("access-token"));
+        when(cscPort.getCredentialInfo(cfg, "access-token", cfg.credentialId()))
+                .thenReturn(Mono.just(certInfo));
         when(cscPort.authorizeForDoc(cfg, "access-token"))
                 .thenReturn(Mono.just("sad-123"));
         when(cscPort.signDoc(eq(cfg), eq("access-token"), eq("sad-123"), anyString(), eq(SIGN_ALGO_OID)))
@@ -96,9 +101,12 @@ class SignDocServiceImplTest {
 
         String signedJwt = "signed-jwt";
         String signedB64 = Base64.getEncoder().encodeToString(signedJwt.getBytes(StandardCharsets.UTF_8));
+        CertificateInfo certInfo = new CertificateInfo(List.of(), null, null, null, null, null, List.of(SIGN_ALGO_OID), null);
 
         when(cscPort.requestAccessToken(cfg, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, true, req.data()))
                 .thenReturn(Mono.just("access-token"));
+        when(cscPort.getCredentialInfo(cfg, "access-token", cfg.credentialId()))
+                .thenReturn(Mono.just(certInfo));
         when(cscPort.authorizeForDoc(cfg, "access-token"))
                 .thenReturn(Mono.just("sad-123"));
         when(cscPort.signDoc(eq(cfg), eq("access-token"), eq("sad-123"), anyString(), eq(SIGN_ALGO_OID)))
@@ -121,9 +129,12 @@ class SignDocServiceImplTest {
 
         String signedJwt = "signed-jwt";
         String signedB64 = Base64.getEncoder().encodeToString(signedJwt.getBytes(StandardCharsets.UTF_8));
+        CertificateInfo certInfo = new CertificateInfo(List.of(), null, null, null, null, null, List.of(SIGN_ALGO_OID), null);
 
         when(cscPort.requestAccessToken(cfg, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, true, req.data()))
                 .thenReturn(Mono.just("access-token"));
+        when(cscPort.getCredentialInfo(cfg, "access-token", cfg.credentialId()))
+                .thenReturn(Mono.just(certInfo));
         when(cscPort.authorizeForDoc(cfg, "access-token"))
                 .thenReturn(Mono.just("sad-123"));
         when(cscPort.signDoc(eq(cfg), eq("access-token"), eq("sad-123"), anyString(), eq(SIGN_ALGO_OID)))
@@ -146,6 +157,7 @@ class SignDocServiceImplTest {
 
         String signedJwt = "signed-jwt";
         String signedB64 = Base64.getEncoder().encodeToString(signedJwt.getBytes(StandardCharsets.UTF_8));
+        CertificateInfo certInfo = new CertificateInfo(List.of(), null, null, null, null, null, List.of(SIGN_ALGO_OID), null);
 
         WebClientResponseException serverError = WebClientResponseException.create(
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),
@@ -157,6 +169,8 @@ class SignDocServiceImplTest {
 
         when(cscPort.requestAccessToken(cfg, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, true, req.data()))
                 .thenReturn(Mono.just("access-token"));
+        when(cscPort.getCredentialInfo(cfg, "access-token", cfg.credentialId()))
+                .thenReturn(Mono.just(certInfo));
         when(cscPort.authorizeForDoc(cfg, "access-token"))
                 .thenReturn(Mono.just("sad-123"));
         when(cscPort.signDoc(eq(cfg), eq("access-token"), eq("sad-123"), anyString(), eq(SIGN_ALGO_OID)))
