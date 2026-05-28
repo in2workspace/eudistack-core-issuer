@@ -1,0 +1,24 @@
+spring:
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/test
+    username: test
+    password: test
+  webflux:
+    base-path: /
+  flyway:
+    url: jdbc:postgresql://localhost:5432/test
+    enabled: false
+  shell:
+    interactive:
+      enabled: false
+  main:
+    allow-bean-definition-overriding: true
+
+management:
+  tracing:
+    enabled: false
+
+credential:
+  profiles:
+    path: classpath:credentials/profiles
+
