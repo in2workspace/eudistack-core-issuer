@@ -1,17 +1,17 @@
 -- Tabla de seguimiento del estado de migración
-CREATE TABLE IF NOT EXISTS kms_key_migration (
+CREATE TABLE IF NOT EXISTS dome_key_migration (
     id               UUID         NOT NULL DEFAULT gen_random_uuid(),
     legacy_key_id    VARCHAR(255) NOT NULL,
     migration_status VARCHAR(50)  NOT NULL DEFAULT 'PENDING',
     notes            TEXT,
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    CONSTRAINT pk_kms_key_migration PRIMARY KEY (id),
-    CONSTRAINT uq_kms_key_migration_legacy_key_id UNIQUE (legacy_key_id)
+    CONSTRAINT pk_dome_key_migration PRIMARY KEY (id),
+    CONSTRAINT uq_dome_key_migration_legacy_key_id UNIQUE (legacy_key_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_kms_key_migration_status
-    ON kms_key_migration (migration_status);
+CREATE INDEX IF NOT EXISTS idx_dome_key_migration_status
+    ON dome_key_migration (migration_status);
 
 -- Tabla placeholder para la clave privada (sustituir por la tabla
 -- definitiva cuando esté disponible)

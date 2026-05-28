@@ -1,9 +1,9 @@
 package es.in2.issuer.backend.dome.infrastructure.adapter.persistence;
 
-import es.in2.issuer.backend.dome.domain.model.keymigration.KmsKeyMigration;
+import es.in2.issuer.backend.dome.domain.model.keymigration.DomeKeyMigration;
 import es.in2.issuer.backend.dome.domain.model.keymigration.LegacyKeyId;
 import es.in2.issuer.backend.dome.domain.model.keymigration.MigrationStatus;
-import es.in2.issuer.backend.dome.domain.spi.KmsKeyMigrationRepositoryPort;
+import es.in2.issuer.backend.dome.domain.spi.DomeKeyMigrationRepositoryPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
@@ -12,17 +12,17 @@ import reactor.core.publisher.Mono;
 @Repository
 @RequiredArgsConstructor
 @Slf4j
-public class R2dbcKmsKeyMigrationRepository implements KmsKeyMigrationRepositoryPort {
+public class R2dbcDomeKeyMigrationRepository implements DomeKeyMigrationRepositoryPort {
 
-    private final KmsKeyMigrationR2dbcRepo repo;
+    private final DomeKeyMigrationR2dbcRepo repo;
 
     @Override
-    public Mono<KmsKeyMigration> findByLegacyKeyId(LegacyKeyId keyId) {
+    public Mono<DomeKeyMigration> findByLegacyKeyId(LegacyKeyId keyId) {
         return repo.findByLegacyKeyId(keyId.value());
     }
 
     @Override
-    public Mono<KmsKeyMigration> save(KmsKeyMigration entity) {
+    public Mono<DomeKeyMigration> save(DomeKeyMigration entity) {
         if (entity.getId() == null) {
             return repo.save(entity);
         }
@@ -41,10 +41,10 @@ public class R2dbcKmsKeyMigrationRepository implements KmsKeyMigrationRepository
     }
 
     @Override
-    public Mono<KmsKeyMigration> updateStatus(LegacyKeyId keyId, MigrationStatus status) {
+    public Mono<DomeKeyMigration> updateStatus(LegacyKeyId keyId, MigrationStatus status) {
         return repo.findByLegacyKeyId(keyId.value())
                 .switchIfEmpty(Mono.error(new IllegalStateException(
-                        "No KmsKeyMigration found for legacyKeyId: " + keyId.value())))
+                        "No DomeKeyMigration found for legacyKeyId: " + keyId.value())))
                 .flatMap(entity -> {
                     MigrationStatus current = MigrationStatus.valueOf(entity.getMigrationStatus());
                     if (!current.canTransitionTo(status)) {

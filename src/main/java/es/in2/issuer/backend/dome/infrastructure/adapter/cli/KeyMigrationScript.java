@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.dome.infrastructure.adapter.cli;
 
-import es.in2.issuer.backend.dome.application.KeyMigrationWorkflow;
+import es.in2.issuer.backend.dome.application.workflow.KeyMigrationWorkflow;
 import es.in2.issuer.backend.dome.infrastructure.config.properties.KeyMigrationProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

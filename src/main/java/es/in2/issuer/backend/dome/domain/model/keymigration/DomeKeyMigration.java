@@ -14,13 +14,13 @@ import org.springframework.data.relational.core.mapping.Table;
 import java.time.Instant;
 import java.util.UUID;
 
-@Table("kms_key_migration")
+@Table("dome_key_migration")
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class KmsKeyMigration {
+public class DomeKeyMigration {
 
     @Id
     @Column("id")
