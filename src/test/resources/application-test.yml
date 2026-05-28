@@ -11,6 +11,8 @@ spring:
   shell:
     interactive:
       enabled: false
+    script:
+      enabled: false
   main:
     allow-bean-definition-overriding: true
 
