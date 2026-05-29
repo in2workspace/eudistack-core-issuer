@@ -5,8 +5,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- Creating tables here (not in public) ensures tests exercise the same
 -- schema-per-tenant isolation as production.
 CREATE SCHEMA IF NOT EXISTS localhost_issuer;
-SET search_path TO localhost_issuer;
-
+SET search_path TO localhost_issuer, public;
 CREATE TABLE IF NOT EXISTS dome_key_migration (
     id               UUID         NOT NULL DEFAULT gen_random_uuid(),
     legacy_key_id    VARCHAR(255) NOT NULL,
