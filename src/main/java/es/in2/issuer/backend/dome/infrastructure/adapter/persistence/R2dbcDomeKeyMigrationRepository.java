@@ -36,8 +36,10 @@ public class R2dbcDomeKeyMigrationRepository implements DomeKeyMigrationReposito
                                 entity.setId(existing.getId());
                                 return repo.save(entity);
                             })
-                            .switchIfEmpty(repo.save(entity));
-                });
+                            .switchIfEmpty(Mono.defer(() -> {
+                                entity.setId(null);
+                                return repo.save(entity);
+                            }));
     }
 
     @Override
