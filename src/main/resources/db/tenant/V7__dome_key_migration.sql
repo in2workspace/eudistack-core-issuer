@@ -56,7 +56,7 @@ REVOKE ALL ON holder_key FROM PUBLIC;
 
 DO $$
 BEGIN
-    GRANT SELECT, INSERT ON holder_key TO ebw_app_role;
+    GRANT SELECT, INSERT, UPDATE ON holder_key TO ebw_app_role;
 EXCEPTION
     WHEN undefined_object THEN NULL;
 END
