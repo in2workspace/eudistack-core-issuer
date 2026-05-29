@@ -40,6 +40,7 @@ public class R2dbcDomeKeyMigrationRepository implements DomeKeyMigrationReposito
                                 entity.setId(null);
                                 return repo.save(entity);
                             }));
+        });
     }
 
     @Override
