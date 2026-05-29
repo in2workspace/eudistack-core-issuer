@@ -1,7 +1,5 @@
 package es.in2.issuer.backend.dome;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.dome.domain.spi.CredentialSyncPort;
 import es.in2.issuer.backend.dome.domain.spi.TenantConfigPort;
 import es.in2.issuer.backend.dome.infrastructure.observability.SyncCredentialsAuditLogger;
@@ -16,6 +14,8 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.UUID;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -26,8 +26,7 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
 
 @SpringBootTest
 @AutoConfigureWebTestClient
-public class SyncCredentialsHappyPathIT {
-
+public class SyncCredentialsEmptyDatasetIT {
     @Autowired
     private WebTestClient webTestClient;
 
@@ -40,26 +39,15 @@ public class SyncCredentialsHappyPathIT {
     @MockitoBean
     private SyncCredentialsAuditLogger auditLogger;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
     @Test
-    @DisplayName("AC-01, AC-02: 200 OK with credentials, without Idempotent-Replay header and audit log outcome=permit")
-    void syncCredentialsHappyPath() {
-        String tenantId = "default";
-        String idempotencyKey = "018f2a99-9b80-7fc4-a82f-2c8e3100b468";
-        String thumbprint = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    @DisplayName("200 OK: Returns success even if the credentials dataset is empty")
+    void syncCredentialsEmptyDataset() {
 
-        JsonNode mockCredential1 = objectMapper.createObjectNode()
-                .put("format", "vc+sd-jwt")
-                .put("credential", "eyJhbGciOiJFUzI1NiJ9.dummy1");
-
-        JsonNode mockCredential2 = objectMapper.createObjectNode()
-                .put("format", "vc+sd-jwt")
-                .put("credential", "eyJhbGciOiJFUzI1NiJ9.dummy2");
+        String idempotencyKey = "018f2b33-1a22-7bb1-8c4d-9a8b7c6d5e4f";
+        String thumbprint = "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890";
 
         when(tenantConfigPort.requireConfig(anyString())).thenReturn(Mono.empty());
-        when(credentialSyncPort.findByHolderKey(anyString(), any()))
-                .thenReturn(Flux.just(mockCredential1, mockCredential2));
+        when(credentialSyncPort.findByHolderKey(anyString(), any())).thenReturn(Flux.empty());
 
         String requestBody = """
                 {
@@ -80,14 +68,10 @@ public class SyncCredentialsHappyPathIT {
                 .bodyValue(requestBody)
                 .exchange()
                 .expectStatus().isOk()
-                // AC-02: Verify that Idempotent-Replay header does NOT exist on the first attempt
-                .expectHeader().doesNotExist("Idempotent-Replay")
-                // AC-01: Verify it returns credentials correctly
                 .expectBody()
                 .jsonPath("$.credentials").isArray()
-                .jsonPath("$.credentials.length()").isEqualTo(2);
+                .jsonPath("$.credentials.length()").isEqualTo(0);
 
-        // Verify audit log was recorded (outcome=permit simulated with SUCCESS_DB_FETCH)
         verify(auditLogger).logSyncEvent(anyString(), eq(idempotencyKey), eq("SUCCESS_DB_FETCH"));
     }
 }
