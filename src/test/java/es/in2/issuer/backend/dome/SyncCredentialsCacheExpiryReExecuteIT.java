@@ -10,6 +10,7 @@ import es.in2.issuer.backend.dome.domain.model.sync.SyncCredentialsResult;
 import es.in2.issuer.backend.dome.domain.spi.CredentialSyncPort;
 import es.in2.issuer.backend.dome.domain.spi.TenantConfigPort;
 import es.in2.issuer.backend.dome.infrastructure.observability.SyncCredentialsAuditLogger;
+import static es.in2.issuer.backend.dome.support.DpopTestUtils.generateValidDpop;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -109,6 +110,7 @@ public class SyncCredentialsCacheExpiryReExecuteIT {
         webTestClient.mutateWith(csrf())
                 .mutateWith(mockJwt().jwt(b -> b.claim("tenant", "dome").claim("scope", "DomeRecovery/Sync")))
                 .post().uri("/internal/dome/sync-credentials")
+                .header("DPoP", generateValidDpop("POST", "/internal/dome/sync-credentials"))
                 .contentType(MediaType.APPLICATION_JSON).bodyValue(requestBody)
                 .exchange().expectStatus().isOk()
                 .expectHeader().doesNotExist("Idempotent-Replay");
@@ -120,6 +122,7 @@ public class SyncCredentialsCacheExpiryReExecuteIT {
         webTestClient.mutateWith(csrf())
                 .mutateWith(mockJwt().jwt(b -> b.claim("tenant", "dome").claim("scope", "DomeRecovery/Sync")))
                 .post().uri("/internal/dome/sync-credentials")
+                .header("DPoP", generateValidDpop("POST", "/internal/dome/sync-credentials"))
                 .contentType(MediaType.APPLICATION_JSON).bodyValue(requestBody)
                 .exchange().expectStatus().isOk()
                 .expectHeader().doesNotExist("Idempotent-Replay"); // No header because it's a fresh execution

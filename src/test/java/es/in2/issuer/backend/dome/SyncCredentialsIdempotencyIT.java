@@ -16,6 +16,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import static es.in2.issuer.backend.dome.support.DpopTestUtils.generateValidDpop;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.times;
@@ -68,6 +69,7 @@ public class SyncCredentialsIdempotencyIT {
                 .mutateWith(mockJwt().jwt(builder -> builder.claim("tenant", "dome").claim("scope", "DomeRecovery/Sync")))
                 .post()
                 .uri("/internal/dome/sync-credentials")
+                .header("DPoP", generateValidDpop("POST", "/internal/dome/sync-credentials"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(requestBody)
                 .exchange()
@@ -80,6 +82,7 @@ public class SyncCredentialsIdempotencyIT {
                 .mutateWith(mockJwt().jwt(builder -> builder.claim("tenant", "dome").claim("scope", "DomeRecovery/Sync")))
                 .post()
                 .uri("/internal/dome/sync-credentials")
+                .header("DPoP", generateValidDpop("POST", "/internal/dome/sync-credentials"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(requestBody)
                 .exchange()
