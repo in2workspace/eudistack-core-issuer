@@ -5,5 +5,9 @@ import reactor.core.publisher.Mono;
 public interface KeyMigrationWorkflow {
 
     Mono<Void> executePoc(String legacyKeyId);
+
+    Mono<Void> executeMigration(String legacyKeyId);
+
+    Mono<Void> executeRollback(String legacyKeyId);
 }
 

@@ -8,6 +8,7 @@ import com.nimbusds.jose.crypto.ECDSASigner;
 import com.nimbusds.jose.crypto.ECDSAVerifier;
 import com.nimbusds.jose.crypto.bc.BouncyCastleProviderSingleton;
 import es.in2.issuer.backend.dome.application.service.KeyMigrationStateService;
+import es.in2.issuer.backend.dome.domain.exception.ConflictingMigrationStateException;
 import es.in2.issuer.backend.dome.domain.exception.HashMismatchException;
 import es.in2.issuer.backend.dome.domain.model.keymigration.DomeSigningKey;
 import es.in2.issuer.backend.dome.domain.model.keymigration.LegacyKeyId;
@@ -73,6 +74,51 @@ public class KeyMigrationWorkflowImpl
                         .then(Mono.error(ex)));
     }
 
+    @Override
+    public Mono<Void> executeMigration(String legacyKeyIdStr) {
+        LegacyKeyId legacyKeyId = new LegacyKeyId(legacyKeyIdStr);
+
+        return stateService.currentStatus(legacyKeyIdStr)
+                .switchIfEmpty(Mono.error(new ConflictingMigrationStateException(
+                        "Migration can only be executed from POC_OK state. Current state: PENDING")))
+                .flatMap(current -> {
+                    if (current != MigrationStatus.POC_OK) {
+                        return Mono.<DomeSigningKey>error(new ConflictingMigrationStateException(
+                                "Migration can only be executed from POC_OK state. Current state: " + current));
+                    }
+                    return domeSigningKeyRepo.findActiveByLegacyKeyId(legacyKeyIdStr)
+                            .switchIfEmpty(Mono.error(new IllegalStateException(
+                                    "No active signing key found for legacyKeyId: " + legacyKeyIdStr)));
+                })
+                .then(stateService.transitionTo(legacyKeyId, MigrationStatus.MIGRATED))
+                .doOnSuccess(entity -> log.info(AUDIT, "event=MIGRATED legacyKeyId={}", legacyKeyId.value()))
+                .then();
+    }
+
+    @Override
+    public Mono<Void> executeRollback(String legacyKeyIdStr) {
+        LegacyKeyId legacyKeyId = new LegacyKeyId(legacyKeyIdStr);
+
+        return stateService.currentStatus(legacyKeyIdStr)
+                .switchIfEmpty(Mono.error(new ConflictingMigrationStateException(
+                        "Migration can only be executed from POC_OK state. Current state: PENDING")))
+                .flatMap(current -> {
+                    if (current == MigrationStatus.MIGRATED) {
+                        return Mono.<MigrationStatus>error(new ConflictingMigrationStateException(
+                                "Cannot roll back a completed migration. State: MIGRATED"));
+                    }
+                    if (current != MigrationStatus.POC_OK) {
+                        return Mono.<MigrationStatus>error(new ConflictingMigrationStateException(
+                                "Migration can only be executed from POC_OK state. Current state: " + current));
+                    }
+                    return Mono.just(current);
+                })
+                .then(domeSigningKeyRepo.deactivateByLegacyKeyId(legacyKeyIdStr))
+                .then(stateService.transitionTo(legacyKeyId, MigrationStatus.ROLLED_BACK))
+                .doOnSuccess(entity -> log.info(AUDIT, "event=ROLLED_BACK legacyKeyId={}", legacyKeyId.value()))
+                .then();
+    }
+
     private Mono<Void> validateKey(byte[] keyMaterial) {
         return Mono.fromCallable(() -> {
                     KeyFactory kf = KeyFactory.getInstance("EC", BouncyCastleProviderSingleton.getInstance());
@@ -99,4 +145,3 @@ public class KeyMigrationWorkflowImpl
                 .then();
     }
 }
-
