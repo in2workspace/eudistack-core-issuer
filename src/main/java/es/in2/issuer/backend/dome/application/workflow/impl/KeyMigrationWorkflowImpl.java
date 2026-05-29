@@ -50,11 +50,9 @@ public class KeyMigrationWorkflowImpl
     private static final String TENANT_REQUIRED_MSG =
             "Tenant domain must be present in Reactor context for key migration operations";
 
-    private final VaultExportPort vaultExportPort;
-    private final DomeSigningKeyRepositoryPort domeSigningKeyRepo;
-    private final KeyMigrationStateService stateService;
-    private final KeyMigrationProperties properties;
-
+private final VaultExportPort vaultExportPort;
+private final DomeSigningKeyRepositoryPort domeSigningKeyRepo;
+private final KeyMigrationStateService stateService;
     @Override
     public Mono<Void> executePoc(String legacyKeyIdStr) {
         LegacyKeyId legacyKeyId = new LegacyKeyId(legacyKeyIdStr);
