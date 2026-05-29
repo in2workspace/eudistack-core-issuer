@@ -30,14 +30,17 @@ public class KeyMigrationScript {
         System.out.println("PoC completed. legacyKeyId=" + properties.legacyKeyId());
     }
 
-    @ShellMethod("Execute production migration: mark key as MIGRATED in DB")
-    public void migrate(@ShellOption("--operator-id") String operatorId) {
-        filter.validatePlanA(operatorId);
-        keyMigrationWorkflow.executeMigration(properties.legacyKeyId())
-                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, properties.tenantDomain()))
-                .block();
-        System.out.println("Migration completed. State: MIGRATED. legacyKeyId=" + properties.legacyKeyId());
+@ShellMethod("Execute production migration: mark key as MIGRATED in DB")
+public void migrate(@ShellOption("--operator-id") String operatorId) {
+    filter.validatePlanA(operatorId);
+    if (properties.legacyKeyId() == null || properties.legacyKeyId().isBlank()) {
+        throw new IllegalStateException("Missing required property: issuer.dome.key-migration.legacy-key-id");
     }
+    keyMigrationWorkflow.executeMigration(properties.legacyKeyId())
+            .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, properties.tenantDomain()))
+            .block();
+    System.out.println("Migration completed. State: MIGRATED. legacyKeyId=" + properties.legacyKeyId());
+}
 
 @ShellMethod("Roll back migration: deactivate key in DB and mark as ROLLED_BACK")
 public void rollback(@ShellOption("--operator-id") String operatorId) {
