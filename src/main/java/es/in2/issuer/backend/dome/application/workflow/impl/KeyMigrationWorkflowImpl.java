@@ -17,7 +17,6 @@ import es.in2.issuer.backend.dome.domain.model.keymigration.LegacyKeyId;
 import es.in2.issuer.backend.dome.domain.model.keymigration.MigrationStatus;
 import es.in2.issuer.backend.dome.domain.spi.DomeSigningKeyRepositoryPort;
 import es.in2.issuer.backend.dome.domain.spi.VaultExportPort;
-import es.in2.issuer.backend.dome.infrastructure.config.properties.KeyMigrationProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.jce.ECNamedCurveTable;
