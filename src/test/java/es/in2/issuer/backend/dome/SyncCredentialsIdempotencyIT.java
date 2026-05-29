@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.dome;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.dome.domain.spi.CredentialSyncPort;
 import es.in2.issuer.backend.dome.domain.spi.TenantConfigPort;
 import es.in2.issuer.backend.dome.infrastructure.observability.SyncCredentialsAuditLogger;
@@ -16,7 +18,7 @@ import reactor.core.publisher.Mono;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.csrf;
@@ -24,7 +26,8 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
 
 @SpringBootTest
 @AutoConfigureWebTestClient
-public class SyncCredentialsEmptyDatasetIT {
+public class SyncCredentialsIdempotencyIT {
+
     @Autowired
     private WebTestClient webTestClient;
 
@@ -37,15 +40,20 @@ public class SyncCredentialsEmptyDatasetIT {
     @MockitoBean
     private SyncCredentialsAuditLogger auditLogger;
 
-    @Test
-    @DisplayName("200 OK: Returns success even if the credentials dataset is empty")
-    void syncCredentialsEmptyDataset() {
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-        String idempotencyKey = "018f2b33-1a22-7bb1-8c4d-9a8b7c6d5e4f";
-        String thumbprint = "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890";
+    @Test
+    @DisplayName("AC-04: Multiple POST requests with the same idempotencyKey return cached responses and add the Idempotent-Replay header")
+    void syncCredentialsIdempotency() {
+        String idempotencyKey = "018f2a99-9b80-7fc4-a82f-2c8e3100b468";
+        String thumbprint = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+        JsonNode mockCredential = objectMapper.createObjectNode()
+                .put("format", "vc+sd-jwt")
+                .put("credential", "dummy-jwt");
 
         when(tenantConfigPort.requireConfig(anyString())).thenReturn(Mono.empty());
-        when(credentialSyncPort.findByHolderKey(anyString(), any())).thenReturn(Flux.empty());
+        when(credentialSyncPort.findByHolderKey(anyString(), any())).thenReturn(Flux.just(mockCredential));
 
         String requestBody = """
                 {
@@ -54,22 +62,31 @@ public class SyncCredentialsEmptyDatasetIT {
                 }
                 """.formatted(idempotencyKey, thumbprint);
 
+        // Original request
         webTestClient
                 .mutateWith(csrf())
-                .mutateWith(mockJwt().jwt(builder -> builder
-                        .claim("tenant", "dome")
-                        .claim("scope", "DomeRecovery/Sync")
-                ))
+                .mutateWith(mockJwt().jwt(builder -> builder.claim("tenant", "dome").claim("scope", "DomeRecovery/Sync")))
                 .post()
                 .uri("/internal/dome/sync-credentials")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(requestBody)
                 .exchange()
                 .expectStatus().isOk()
-                .expectBody()
-                .jsonPath("$.credentials").isArray()
-                .jsonPath("$.credentials.length()").isEqualTo(0);
+                .expectHeader().doesNotExist("Idempotent-Replay"); // No debe existir la primera vez
 
-        verify(auditLogger).logSyncEvent(anyString(), eq(idempotencyKey), eq("SUCCESS_DB_FETCH"));
+        // Repeated request (Idempotency)
+        webTestClient
+                .mutateWith(csrf())
+                .mutateWith(mockJwt().jwt(builder -> builder.claim("tenant", "dome").claim("scope", "DomeRecovery/Sync")))
+                .post()
+                .uri("/internal/dome/sync-credentials")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(requestBody)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals("Idempotent-Replay", "true"); // AHORA SÍ debe existir
+
+        // Verify that the database was queried only once; the second attempt was served from cache
+        verify(credentialSyncPort, times(1)).findByHolderKey(anyString(), any());
     }
 }
