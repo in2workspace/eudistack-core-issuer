@@ -15,6 +15,6 @@ public class HexStringValidator implements ConstraintValidator<HexString, String
     @Override
     public boolean isValid(String value, ConstraintValidatorContext context) {
         if (value == null || value.length() != requiredLength) return false;
-        return value.matches("^[0-9a-fA-F]+$]");
+        return value.matches("^[0-9a-fA-F]{64}$");
     }
 }

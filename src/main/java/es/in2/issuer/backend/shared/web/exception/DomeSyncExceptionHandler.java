@@ -11,11 +11,15 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.net.URI;
 import java.util.concurrent.TimeoutException;
 
+import org.springframework.core.annotation.Order;
+import org.springframework.core.Ordered;
+
 /**
  * Global exception handler for DOME Sync Credentials operations.
  * Maps backend exceptions to RFC 9457 Problem+JSON responses.
  */
 @RestControllerAdvice
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class DomeSyncExceptionHandler {
 
     @ExceptionHandler(TenantNotConfiguredException.class)

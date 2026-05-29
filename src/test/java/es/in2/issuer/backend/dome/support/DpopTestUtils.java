@@ -9,14 +9,21 @@ public class DpopTestUtils {
     private DpopTestUtils() {}
 
     /**
-     * Generates a dynamic, valid DPoP proof for tests.
+     * Standard method for happy paths: Generates a random JTI automatically.
      */
     public static String generateValidDpop(String htm, String htu) {
+        return generateDpopWithJti(htm, htu, UUID.randomUUID().toString());
+    }
+
+    /**
+     * Advanced method for testing replay attacks: Allows passing a specific JTI.
+     */
+    public static String generateDpopWithJti(String htm, String htu, String jti) {
         String header = Base64.getUrlEncoder().withoutPadding().encodeToString(
                 "{\"typ\":\"dpop+jwt\",\"alg\":\"ES256\"}".getBytes()
         );
 
-        String payloadJson = "{\"jti\":\"" + UUID.randomUUID() +
+        String payloadJson = "{\"jti\":\"" + jti +
                 "\",\"htm\":\"" + htm +
                 "\",\"htu\":\"" + htu +
                 "\",\"iat\":" + Instant.now().getEpochSecond() + "}";
