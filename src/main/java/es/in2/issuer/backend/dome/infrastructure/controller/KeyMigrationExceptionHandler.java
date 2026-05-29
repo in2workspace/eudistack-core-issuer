@@ -45,10 +45,10 @@ public class KeyMigrationExceptionHandler {
     ) {
         return errors.handleWith(
                 ex, request,
-                "HASH_MISMATCH",
-                "Hash mismatch",
+                "KEY_MATERIAL_VALIDATION_FAILURE",
+                "Key material validation failure",
                 HttpStatus.INTERNAL_SERVER_ERROR,
-                "The key material hash does not match the expected value"
+                "The exported key material failed signature self-verification"
         );
     }
 }

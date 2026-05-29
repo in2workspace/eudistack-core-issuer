@@ -91,7 +91,9 @@ class KeyMigrationScriptPocIT {
                 .block();
 
         // Assert
-        var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(legacyKeyId)).block();
+        var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(legacyKeyId))
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                .block();
         assertThat(row).isNotNull();
         assertThat(row.getMigrationStatus()).isEqualTo("POC_OK");
     }
@@ -105,7 +107,9 @@ class KeyMigrationScriptPocIT {
                 .block();
 
         // Assert
-        var key = domeSigningKeyRepo.findActiveByLegacyKeyId(legacyKeyId).block();
+        var key = domeSigningKeyRepo.findActiveByLegacyKeyId(legacyKeyId)
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                .block();
         assertThat(key).isNotNull();
         assertThat(key.isActive()).isTrue();
     }

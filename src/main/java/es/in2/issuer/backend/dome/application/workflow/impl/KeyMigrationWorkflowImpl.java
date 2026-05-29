@@ -48,6 +48,8 @@ public class KeyMigrationWorkflowImpl
         implements es.in2.issuer.backend.dome.application.workflow.KeyMigrationWorkflow {
 
     private static final Marker AUDIT = MarkerFactory.getMarker("AUDIT_KEY_MIGRATION");
+    private static final String TENANT_REQUIRED_MSG =
+            "Tenant domain must be present in Reactor context for key migration operations";
 
     private final VaultExportPort vaultExportPort;
     private final DomeSigningKeyRepositoryPort domeSigningKeyRepo;
@@ -61,22 +63,28 @@ public class KeyMigrationWorkflowImpl
 
         return Mono.deferContextual(ctx -> {
             String tenantId = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
+            if (tenantId.isBlank()) {
+                return Mono.error(new IllegalStateException(TENANT_REQUIRED_MSG));
+            }
 
-            return vaultExportPort.exportPrivateKey(legacyKeyId)
-                    .flatMap(keyMaterial -> computePublicJwk(keyMaterial)
-                            .map(publicJwk -> DomeSigningKey.builder()
-                                    .keyId(UUID.randomUUID().toString())
-                                    .holderId(legacyKeyId.value())
-                                    .credentialId(legacyKeyId.value())
-                                    .tenantId(tenantId)
-                                    .privateKey(keyMaterial)
-                                    .publicJwk(publicJwk)
-                                    .algorithm("ES256")
-                                    .format("dc+sd-jwt")
-                                    .createdAt(Instant.now())
-                                    .build()))
-                    .flatMap(domeSigningKeyRepo::save)
-                    .flatMap(saved -> domeSigningKeyRepo.findActiveByLegacyKeyId(legacyKeyId.value()))
+            // Idempotent: reuse existing active key if the PoC was already run,
+            // avoiding a unique-constraint violation on re-runs.
+            return domeSigningKeyRepo.findActiveByLegacyKeyId(legacyKeyId.value())
+                    .switchIfEmpty(
+                            vaultExportPort.exportPrivateKey(legacyKeyId)
+                                    .flatMap(keyMaterial -> computePublicJwk(keyMaterial)
+                                            .map(publicJwk -> DomeSigningKey.builder()
+                                                    .keyId(UUID.randomUUID().toString())
+                                                    .holderId(legacyKeyId.value())
+                                                    .credentialId(legacyKeyId.value())
+                                                    .tenantId(tenantId)
+                                                    .privateKey(keyMaterial)
+                                                    .publicJwk(publicJwk)
+                                                    .algorithm("ES256")
+                                                    .format("dc+sd-jwt")
+                                                    .createdAt(Instant.now())
+                                                    .build()))
+                                    .flatMap(domeSigningKeyRepo::save))
                     .flatMap(retrieved -> validateKey(retrieved.getPrivateKey()))
                     .then(stateService.transitionTo(legacyKeyId, MigrationStatus.POC_OK))
                     .doOnSuccess(entity -> log.info(AUDIT, "event=POC_OK legacyKeyId={}", legacyKeyId.value()))
@@ -90,45 +98,60 @@ public class KeyMigrationWorkflowImpl
     public Mono<Void> executeMigration(String legacyKeyIdStr) {
         LegacyKeyId legacyKeyId = new LegacyKeyId(legacyKeyIdStr);
 
-        return stateService.currentStatus(legacyKeyIdStr)
-                .switchIfEmpty(Mono.error(new ConflictingMigrationStateException(
-                        "Migration can only be executed from POC_OK state. Current state: PENDING")))
-                .flatMap(current -> {
-                    if (current != MigrationStatus.POC_OK) {
-                        return Mono.<DomeSigningKey>error(new ConflictingMigrationStateException(
-                                "Migration can only be executed from POC_OK state. Current state: " + current));
-                    }
-                    return domeSigningKeyRepo.findActiveByLegacyKeyId(legacyKeyIdStr)
-                            .switchIfEmpty(Mono.error(new IllegalStateException(
-                                    "No active signing key found for legacyKeyId: " + legacyKeyIdStr)));
-                })
-                .then(stateService.transitionTo(legacyKeyId, MigrationStatus.MIGRATED))
-                .doOnSuccess(entity -> log.info(AUDIT, "event=MIGRATED legacyKeyId={}", legacyKeyId.value()))
-                .then();
+        return Mono.deferContextual(ctx -> {
+            String tenantId = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
+            if (tenantId.isBlank()) {
+                return Mono.error(new IllegalStateException(TENANT_REQUIRED_MSG));
+            }
+
+            return stateService.currentStatus(legacyKeyIdStr)
+                    .switchIfEmpty(Mono.error(new ConflictingMigrationStateException(
+                            "Migration can only be executed from POC_OK state. " +
+                            "No migration record found for legacyKeyId: " + legacyKeyIdStr)))
+                    .flatMap(current -> {
+                        if (current != MigrationStatus.POC_OK) {
+                            return Mono.<DomeSigningKey>error(new ConflictingMigrationStateException(
+                                    "Migration can only be executed from POC_OK state. Current state: " + current));
+                        }
+                        return domeSigningKeyRepo.findActiveByLegacyKeyId(legacyKeyIdStr)
+                                .switchIfEmpty(Mono.error(new IllegalStateException(
+                                        "No active signing key found for legacyKeyId: " + legacyKeyIdStr)));
+                    })
+                    .then(stateService.transitionTo(legacyKeyId, MigrationStatus.MIGRATED))
+                    .doOnSuccess(entity -> log.info(AUDIT, "event=MIGRATED legacyKeyId={}", legacyKeyId.value()))
+                    .then();
+        });
     }
 
     @Override
     public Mono<Void> executeRollback(String legacyKeyIdStr) {
         LegacyKeyId legacyKeyId = new LegacyKeyId(legacyKeyIdStr);
 
-        return stateService.currentStatus(legacyKeyIdStr)
-                .switchIfEmpty(Mono.error(new ConflictingMigrationStateException(
-                        "Migration can only be executed from POC_OK state. Current state: PENDING")))
-                .flatMap(current -> {
-                    if (current == MigrationStatus.MIGRATED) {
-                        return Mono.<MigrationStatus>error(new ConflictingMigrationStateException(
-                                "Cannot roll back a completed migration. State: MIGRATED"));
-                    }
-                    if (current != MigrationStatus.POC_OK) {
-                        return Mono.<MigrationStatus>error(new ConflictingMigrationStateException(
-                                "Migration can only be executed from POC_OK state. Current state: " + current));
-                    }
-                    return Mono.just(current);
-                })
-                .then(domeSigningKeyRepo.deactivateByLegacyKeyId(legacyKeyIdStr))
-                .then(stateService.transitionTo(legacyKeyId, MigrationStatus.ROLLED_BACK))
-                .doOnSuccess(entity -> log.info(AUDIT, "event=ROLLED_BACK legacyKeyId={}", legacyKeyId.value()))
-                .then();
+        return Mono.deferContextual(ctx -> {
+            String tenantId = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
+            if (tenantId.isBlank()) {
+                return Mono.error(new IllegalStateException(TENANT_REQUIRED_MSG));
+            }
+
+            return stateService.currentStatus(legacyKeyIdStr)
+                    .switchIfEmpty(Mono.error(new ConflictingMigrationStateException(
+                            "Cannot roll back: no migration record found for legacyKeyId: " + legacyKeyIdStr)))
+                    .flatMap(current -> {
+                        if (current == MigrationStatus.MIGRATED) {
+                            return Mono.<MigrationStatus>error(new ConflictingMigrationStateException(
+                                    "Cannot roll back a completed migration. State: MIGRATED"));
+                        }
+                        if (current != MigrationStatus.POC_OK) {
+                            return Mono.<MigrationStatus>error(new ConflictingMigrationStateException(
+                                    "Migration can only be executed from POC_OK state. Current state: " + current));
+                        }
+                        return Mono.just(current);
+                    })
+                    .then(domeSigningKeyRepo.deactivateByLegacyKeyId(legacyKeyIdStr))
+                    .then(stateService.transitionTo(legacyKeyId, MigrationStatus.ROLLED_BACK))
+                    .doOnSuccess(entity -> log.info(AUDIT, "event=ROLLED_BACK legacyKeyId={}", legacyKeyId.value()))
+                    .then();
+        });
     }
 
     private Mono<String> computePublicJwk(byte[] keyMaterial) {

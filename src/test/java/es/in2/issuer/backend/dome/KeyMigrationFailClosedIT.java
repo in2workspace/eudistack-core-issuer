@@ -29,6 +29,7 @@ import reactor.core.publisher.Mono;
 import java.util.List;
 import java.util.UUID;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
@@ -75,6 +76,8 @@ class KeyMigrationFailClosedIT {
     @BeforeEach
     void setUpId() {
         legacyKeyId = "fail-" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        // Default: no active key exists — each nested class can override for specific scenarios
+        when(domeSigningKeyRepo.findActiveByLegacyKeyId(any())).thenReturn(Mono.empty());
     }
 
     @Nested
@@ -83,7 +86,9 @@ class KeyMigrationFailClosedIT {
 
         @BeforeEach
         void setUp() {
-            migrationRepo.save(DomeKeyMigrationFixtureFactory.pendingMigration(legacyKeyId)).block();
+            migrationRepo.save(DomeKeyMigrationFixtureFactory.pendingMigration(legacyKeyId))
+                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                    .block();
             when(vaultExportPort.exportPrivateKey(any()))
                     .thenReturn(Mono.error(new RuntimeException("vault down")));
         }
@@ -93,13 +98,17 @@ class KeyMigrationFailClosedIT {
         void executePoc_WhenVaultFails_StatusIsFailed() {
             // Act
             try {
-                keyMigrationWorkflow.executePoc(legacyKeyId).block();
+                keyMigrationWorkflow.executePoc(legacyKeyId)
+                        .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                        .block();
             } catch (Exception ignored) {
                 // expected
             }
 
             // Assert
-            var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(legacyKeyId)).block();
+            var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(legacyKeyId))
+                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                    .block();
             assertThat(row).isNotNull();
             assertThat(row.getMigrationStatus()).isEqualTo("FAILED");
         }
@@ -111,7 +120,9 @@ class KeyMigrationFailClosedIT {
 
         @BeforeEach
         void setUp() {
-            migrationRepo.save(DomeKeyMigrationFixtureFactory.pendingMigration(legacyKeyId)).block();
+            migrationRepo.save(DomeKeyMigrationFixtureFactory.pendingMigration(legacyKeyId))
+                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                    .block();
             var keyPair = DomeKeyMigrationFixtureFactory.generateEcP256KeyPair();
             when(vaultExportPort.exportPrivateKey(any()))
                     .thenReturn(Mono.just(keyPair.getPrivate().getEncoded()));
@@ -124,13 +135,17 @@ class KeyMigrationFailClosedIT {
         void executePoc_WhenDbSaveFails_StatusIsFailed() {
             // Act
             try {
-                keyMigrationWorkflow.executePoc(legacyKeyId).block();
+                keyMigrationWorkflow.executePoc(legacyKeyId)
+                        .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                        .block();
             } catch (Exception ignored) {
                 // expected
             }
 
             // Assert
-            var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(legacyKeyId)).block();
+            var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(legacyKeyId))
+                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                    .block();
             assertThat(row).isNotNull();
             assertThat(row.getMigrationStatus()).isEqualTo("FAILED");
         }
@@ -144,7 +159,9 @@ class KeyMigrationFailClosedIT {
 
         @BeforeEach
         void setUp() {
-            migrationRepo.save(DomeKeyMigrationFixtureFactory.pendingMigration(legacyKeyId)).block();
+            migrationRepo.save(DomeKeyMigrationFixtureFactory.pendingMigration(legacyKeyId))
+                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                    .block();
             when(vaultExportPort.exportPrivateKey(any()))
                     .thenReturn(Mono.just(INVALID_KEY_MATERIAL));
             when(domeSigningKeyRepo.save(any()))
@@ -160,13 +177,17 @@ class KeyMigrationFailClosedIT {
         void executePoc_WhenKeyMaterialInvalid_StatusIsFailed() {
             // Act
             try {
-                keyMigrationWorkflow.executePoc(legacyKeyId).block();
+                keyMigrationWorkflow.executePoc(legacyKeyId)
+                        .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                        .block();
             } catch (Exception ignored) {
                 // expected
             }
 
             // Assert
-            var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(legacyKeyId)).block();
+            var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(legacyKeyId))
+                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                    .block();
             assertThat(row).isNotNull();
             assertThat(row.getMigrationStatus()).isEqualTo("FAILED");
         }
@@ -192,4 +213,3 @@ class KeyMigrationFailClosedIT {
         }
     }
 }
-

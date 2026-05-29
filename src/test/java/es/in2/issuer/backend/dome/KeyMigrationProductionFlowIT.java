@@ -97,10 +97,14 @@ class KeyMigrationProductionFlowIT {
         @DisplayName("executeMigration — when state is POC_OK — transitions to MIGRATED")
         void executeMigration_WhenStateIsPocOk_TransitionsToMigrated() {
             // Act
-            keyMigrationWorkflow.executeMigration(legacyKeyId).block();
+            keyMigrationWorkflow.executeMigration(legacyKeyId)
+                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                    .block();
 
             // Assert
-            var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(legacyKeyId)).block();
+            var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(legacyKeyId))
+                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                    .block();
             assertThat(row).isNotNull();
             assertThat(row.getMigrationStatus()).isEqualTo("MIGRATED");
         }
@@ -109,10 +113,14 @@ class KeyMigrationProductionFlowIT {
         @DisplayName("executeMigration — when state is POC_OK — key remains active in DB")
         void executeMigration_WhenStateIsPocOk_KeyRemainsActiveInDb() {
             // Act
-            keyMigrationWorkflow.executeMigration(legacyKeyId).block();
+            keyMigrationWorkflow.executeMigration(legacyKeyId)
+                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                    .block();
 
             // Assert
-            var key = domeSigningKeyRepo.findActiveByLegacyKeyId(legacyKeyId).block();
+            var key = domeSigningKeyRepo.findActiveByLegacyKeyId(legacyKeyId)
+                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                    .block();
             assertThat(key).isNotNull();
             assertThat(key.isActive()).isTrue();
         }
@@ -124,7 +132,9 @@ class KeyMigrationProductionFlowIT {
             String freshLegacyKeyId = "fresh-" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
 
             // Act + Assert
-            assertThatThrownBy(() -> keyMigrationWorkflow.executeMigration(freshLegacyKeyId).block())
+            assertThatThrownBy(() -> keyMigrationWorkflow.executeMigration(freshLegacyKeyId)
+                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                    .block())
                     .isInstanceOf(ConflictingMigrationStateException.class);
         }
     }
@@ -137,10 +147,14 @@ class KeyMigrationProductionFlowIT {
         @DisplayName("executeRollback — when state is POC_OK — transitions to ROLLED_BACK")
         void executeRollback_WhenStateIsPocOk_TransitionsToRolledBack() {
             // Act
-            keyMigrationWorkflow.executeRollback(legacyKeyId).block();
+            keyMigrationWorkflow.executeRollback(legacyKeyId)
+                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                    .block();
 
             // Assert
-            var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(legacyKeyId)).block();
+            var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(legacyKeyId))
+                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                    .block();
             assertThat(row).isNotNull();
             assertThat(row.getMigrationStatus()).isEqualTo("ROLLED_BACK");
         }
@@ -149,10 +163,14 @@ class KeyMigrationProductionFlowIT {
         @DisplayName("executeRollback — when state is POC_OK — key is deactivated in DB")
         void executeRollback_WhenStateIsPocOk_KeyIsDeactivatedInDb() {
             // Act
-            keyMigrationWorkflow.executeRollback(legacyKeyId).block();
+            keyMigrationWorkflow.executeRollback(legacyKeyId)
+                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                    .block();
 
             // Assert: the key was deactivated, so findActiveByLegacyKeyId returns empty
-            var key = domeSigningKeyRepo.findActiveByLegacyKeyId(legacyKeyId).block();
+            var key = domeSigningKeyRepo.findActiveByLegacyKeyId(legacyKeyId)
+                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                    .block();
             assertThat(key).isNull();
         }
     }
