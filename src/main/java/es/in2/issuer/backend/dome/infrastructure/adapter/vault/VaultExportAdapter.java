@@ -55,8 +55,7 @@ public class VaultExportAdapter implements VaultExportPort {
                     return Base64.getDecoder().decode(base64Key);
                 })
                 .onErrorMap(ex -> {
-                    log.warn("Vault export failed for keyId={} exception={}", keyId.value(),
-                            ex.getClass().getName());
+                    log.warn("Vault export failed for keyId={} error={}", keyId.value(), ex.getMessage(), ex);
                     return new RuntimeException("vault_export_failed: " + keyId.value(), ex);
                 });
     }
