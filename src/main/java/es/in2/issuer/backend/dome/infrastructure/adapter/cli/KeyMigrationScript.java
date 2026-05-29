@@ -21,14 +21,17 @@ public class KeyMigrationScript {
     private final CliOperatorAuthFilter filter;
     private final KeyMigrationProperties properties;
 
-    @ShellMethod("Run PoC: export key from Vault and validate in DB")
-    public void poc(@ShellOption("--operator-id") String operatorId) {
-        filter.validatePlanA(operatorId);
-        keyMigrationWorkflow.executePoc(properties.legacyKeyId())
-                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, properties.tenantDomain()))
-                .block();
-        System.out.println("PoC completed. legacyKeyId=" + properties.legacyKeyId());
+@ShellMethod("Run PoC: export key from Vault and validate in DB")
+public void poc(@ShellOption("--operator-id") String operatorId) {
+    filter.validatePlanA(operatorId);
+    if (properties.legacyKeyId() == null || properties.legacyKeyId().isBlank()) {
+        throw new IllegalStateException("Missing required property: issuer.dome.key-migration.legacy-key-id");
     }
+    keyMigrationWorkflow.executePoc(properties.legacyKeyId())
+            .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, properties.tenantDomain()))
+            .block();
+    System.out.println("PoC completed. legacyKeyId=" + properties.legacyKeyId());
+}
 
 @ShellMethod("Execute production migration: mark key as MIGRATED in DB")
 public void migrate(@ShellOption("--operator-id") String operatorId) {
