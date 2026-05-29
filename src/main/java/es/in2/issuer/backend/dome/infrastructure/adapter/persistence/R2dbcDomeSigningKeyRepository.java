@@ -16,8 +16,17 @@ public class R2dbcDomeSigningKeyRepository implements DomeSigningKeyRepositoryPo
 
     @Override
     public Mono<DomeSigningKey> save(DomeSigningKey key) {
-        log.debug("Saving DomeSigningKey id={}, legacyKeyId={}", key.getId(), key.getLegacyKeyId());
-        return repo.save(key);
+        log.debug("Saving DomeSigningKey keyId={}, holderId={}", key.getKeyId(), key.getHolderId());
+        return repo.insertKey(
+                key.getKeyId(),
+                key.getHolderId(),
+                key.getCredentialId(),
+                key.getTenantId(),
+                key.getPrivateKey(),
+                key.getPublicJwk(),
+                key.getAlgorithm(),
+                key.getFormat(),
+                key.getCreatedAt());
     }
 
     @Override
@@ -30,4 +39,3 @@ public class R2dbcDomeSigningKeyRepository implements DomeSigningKeyRepositoryPo
         return repo.deactivateByLegacyKeyId(legacyKeyId);
     }
 }
-

@@ -13,19 +13,52 @@ CREATE TABLE IF NOT EXISTS dome_key_migration (
 CREATE INDEX IF NOT EXISTS idx_dome_key_migration_status
     ON dome_key_migration (migration_status);
 
--- Tabla placeholder para la clave privada (sustituir por la tabla
--- definitiva cuando esté disponible)
-CREATE TABLE IF NOT EXISTS dome_signing_key (
-    id            UUID         NOT NULL DEFAULT gen_random_uuid(),
-    legacy_key_id VARCHAR(255) NOT NULL,
-    key_material  BYTEA        NOT NULL,
-    key_type      VARCHAR(50)  NOT NULL DEFAULT 'EC_P256',
-    active        BOOLEAN      NOT NULL DEFAULT true,
-    created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    CONSTRAINT pk_dome_signing_key PRIMARY KEY (id)
+-- holder_key: one key pair per (tenant_id, holder_id, credential_id)
+-- Private key stored as raw BYTEA; at-rest protection by RDS TDE (ADR-099).
+-- EUDISTACK-119 — key-manager module (US-02)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS holder_key (
+    key_id         VARCHAR(36)  NOT NULL,
+    holder_id      VARCHAR(255) NOT NULL,
+    credential_id  VARCHAR(255) NOT NULL,
+    tenant_id      VARCHAR(255) NOT NULL,
+    private_key    BYTEA        NOT NULL,
+    public_jwk     JSONB        NOT NULL,
+    algorithm      VARCHAR(20)  NOT NULL,
+    format         VARCHAR(30)  NOT NULL,
+    created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    revoked_at     TIMESTAMPTZ,
+
+    CONSTRAINT pk_holder_key
+        PRIMARY KEY (key_id),
+
+    CONSTRAINT uq_holder_key_tenant_holder_credential
+        UNIQUE (tenant_id, holder_id, credential_id),
+
+    CONSTRAINT chk_holder_key_private_key_nonempty
+        CHECK (octet_length(private_key) > 0),
+
+    CONSTRAINT chk_holder_key_algorithm
+        CHECK (algorithm IN ('ES256', 'ES384', 'EdDSA')),
+
+    CONSTRAINT chk_holder_key_format
+        CHECK (format IN ('dc+sd-jwt', 'jwt_vc_json'))
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_dome_signing_key_active
-    ON dome_signing_key (legacy_key_id)
-    WHERE active = true;
+CREATE INDEX IF NOT EXISTS idx_holder_key_holder_id
+    ON holder_key (holder_id);
+
+CREATE INDEX IF NOT EXISTS idx_holder_key_active
+    ON holder_key (holder_id, credential_id)
+    WHERE revoked_at IS NULL;
+
+REVOKE ALL ON holder_key FROM PUBLIC;
+
+DO $$
+BEGIN
+    GRANT SELECT, INSERT ON holder_key TO ebw_app_role;
+EXCEPTION
+    WHEN undefined_object THEN NULL;
+END
+$$;
 

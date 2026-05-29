@@ -10,9 +10,8 @@ import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
 import java.time.Instant;
-import java.util.UUID;
 
-@Table("dome_signing_key")
+@Table("holder_key")
 @Getter
 @Setter
 @Builder
@@ -21,27 +20,45 @@ import java.util.UUID;
 public class DomeSigningKey {
 
     @Id
-    @Column("id")
-    private UUID id;
+    @Column("key_id")
+    private String keyId;
 
-    @Column("legacy_key_id")
-    private String legacyKeyId;
+    @Column("holder_id")
+    private String holderId;
 
-    @Column("key_material")
-    private byte[] keyMaterial;
+    @Column("credential_id")
+    private String credentialId;
 
-    @Column("key_type")
-    private String keyType;
+    @Column("tenant_id")
+    private String tenantId;
 
-    @Column("active")
-    private boolean active;
+    @Column("private_key")
+    private byte[] privateKey;
+
+    @Column("public_jwk")
+    private String publicJwk;
+
+    @Column("algorithm")
+    private String algorithm;
+
+    @Column("format")
+    private String format;
 
     @Column("created_at")
     private Instant createdAt;
 
+    @Column("revoked_at")
+    private Instant revokedAt;
+
+    /**
+     * Convenience helper: a key is active when it has not been revoked.
+     */
+    public boolean isActive() {
+        return revokedAt == null;
+    }
+
     @Override
     public String toString() {
-        return "DomeSigningKey[id=" + id + ", legacyKeyId=" + legacyKeyId + ", keyMaterial=REDACTED]";
+        return "DomeSigningKey[keyId=" + keyId + ", holderId=" + holderId + ", privateKey=REDACTED]";
     }
 }
-

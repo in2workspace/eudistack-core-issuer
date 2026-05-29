@@ -7,6 +7,7 @@ import es.in2.issuer.backend.dome.domain.model.keymigration.MigrationStatus;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.spec.ECGenParameterSpec;
+import java.util.UUID;
 
 public final class DomeKeyMigrationFixtureFactory {
 
@@ -38,10 +39,14 @@ public final class DomeKeyMigrationFixtureFactory {
 
     public static DomeSigningKey activeDomeSigningKey(String legacyKeyId, byte[] keyMaterial) {
         return DomeSigningKey.builder()
-                .legacyKeyId(legacyKeyId)
-                .keyMaterial(keyMaterial)
-                .keyType("EC_P256")
-                .active(true)
+                .keyId(UUID.randomUUID().toString())
+                .holderId(legacyKeyId)
+                .credentialId(legacyKeyId)
+                .tenantId("localhost")
+                .privateKey(keyMaterial)
+                .publicJwk("{\"kty\":\"EC\",\"crv\":\"P-256\"}")
+                .algorithm("ES256")
+                .format("dc+sd-jwt")
                 .build();
     }
 }

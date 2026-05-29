@@ -29,6 +29,7 @@ import java.security.KeyPair;
 import java.util.List;
 import java.util.UUID;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
@@ -85,7 +86,9 @@ class KeyMigrationScriptPocIT {
     @DisplayName("executePoc — when Vault exports valid key — transitions to POC_OK")
     void executePoc_WhenVaultExportsValidKey_TransitionsToPocOk() {
         // Act
-        keyMigrationWorkflow.executePoc(legacyKeyId).block();
+        keyMigrationWorkflow.executePoc(legacyKeyId)
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                .block();
 
         // Assert
         var row = migrationRepo.findByLegacyKeyId(new LegacyKeyId(legacyKeyId)).block();
@@ -97,7 +100,9 @@ class KeyMigrationScriptPocIT {
     @DisplayName("executePoc — when Vault exports valid key — key stored active in DB")
     void executePoc_WhenVaultExportsValidKey_KeyStoredActiveInDb() {
         // Act
-        keyMigrationWorkflow.executePoc(legacyKeyId).block();
+        keyMigrationWorkflow.executePoc(legacyKeyId)
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                .block();
 
         // Assert
         var key = domeSigningKeyRepo.findActiveByLegacyKeyId(legacyKeyId).block();

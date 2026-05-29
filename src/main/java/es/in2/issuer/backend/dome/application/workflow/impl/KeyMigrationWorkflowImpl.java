@@ -7,6 +7,8 @@ import com.nimbusds.jose.Payload;
 import com.nimbusds.jose.crypto.ECDSASigner;
 import com.nimbusds.jose.crypto.ECDSAVerifier;
 import com.nimbusds.jose.crypto.bc.BouncyCastleProviderSingleton;
+import com.nimbusds.jose.jwk.Curve;
+import com.nimbusds.jose.jwk.ECKey;
 import es.in2.issuer.backend.dome.application.service.KeyMigrationStateService;
 import es.in2.issuer.backend.dome.domain.exception.ConflictingMigrationStateException;
 import es.in2.issuer.backend.dome.domain.exception.HashMismatchException;
@@ -34,6 +36,9 @@ import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.ECPublicKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.time.Instant;
+import java.util.UUID;
+
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 @Service
 @Profile("key-migration")
@@ -54,24 +59,31 @@ public class KeyMigrationWorkflowImpl
         LegacyKeyId legacyKeyId = new LegacyKeyId(legacyKeyIdStr);
         log.info("executePoc: starting legacyKeyId={}", legacyKeyId.value());
 
-        return vaultExportPort.exportPrivateKey(legacyKeyId)
-                .flatMap(keyMaterial -> {
-                    DomeSigningKey key = DomeSigningKey.builder()
-                            .legacyKeyId(legacyKeyId.value())
-                            .keyMaterial(keyMaterial)
-                            .keyType("EC_P256")
-                            .active(true)
-                            .createdAt(Instant.now())
-                            .build();
-                    return domeSigningKeyRepo.save(key);
-                })
-                .flatMap(saved -> domeSigningKeyRepo.findActiveByLegacyKeyId(legacyKeyId.value()))
-                .flatMap(retrieved -> validateKey(retrieved.getKeyMaterial()))
-                .then(stateService.transitionTo(legacyKeyId, MigrationStatus.POC_OK))
-                .doOnSuccess(entity -> log.info(AUDIT, "event=POC_OK legacyKeyId={}", legacyKeyId.value()))
-                .then()
-                .onErrorResume(ex -> stateService.transitionTo(legacyKeyId, MigrationStatus.FAILED)
-                        .then(Mono.error(ex)));
+        return Mono.deferContextual(ctx -> {
+            String tenantId = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
+
+            return vaultExportPort.exportPrivateKey(legacyKeyId)
+                    .flatMap(keyMaterial -> computePublicJwk(keyMaterial)
+                            .map(publicJwk -> DomeSigningKey.builder()
+                                    .keyId(UUID.randomUUID().toString())
+                                    .holderId(legacyKeyId.value())
+                                    .credentialId(legacyKeyId.value())
+                                    .tenantId(tenantId)
+                                    .privateKey(keyMaterial)
+                                    .publicJwk(publicJwk)
+                                    .algorithm("ES256")
+                                    .format("dc+sd-jwt")
+                                    .createdAt(Instant.now())
+                                    .build()))
+                    .flatMap(domeSigningKeyRepo::save)
+                    .flatMap(saved -> domeSigningKeyRepo.findActiveByLegacyKeyId(legacyKeyId.value()))
+                    .flatMap(retrieved -> validateKey(retrieved.getPrivateKey()))
+                    .then(stateService.transitionTo(legacyKeyId, MigrationStatus.POC_OK))
+                    .doOnSuccess(entity -> log.info(AUDIT, "event=POC_OK legacyKeyId={}", legacyKeyId.value()))
+                    .then()
+                    .onErrorResume(ex -> stateService.transitionTo(legacyKeyId, MigrationStatus.FAILED)
+                            .then(Mono.error(ex)));
+        });
     }
 
     @Override
@@ -117,6 +129,23 @@ public class KeyMigrationWorkflowImpl
                 .then(stateService.transitionTo(legacyKeyId, MigrationStatus.ROLLED_BACK))
                 .doOnSuccess(entity -> log.info(AUDIT, "event=ROLLED_BACK legacyKeyId={}", legacyKeyId.value()))
                 .then();
+    }
+
+    private Mono<String> computePublicJwk(byte[] keyMaterial) {
+        return Mono.fromCallable(() -> {
+                    KeyFactory kf = KeyFactory.getInstance("EC", BouncyCastleProviderSingleton.getInstance());
+                    ECPrivateKey privateKey = (ECPrivateKey) kf.generatePrivate(
+                            new PKCS8EncodedKeySpec(keyMaterial));
+
+                    BigInteger s = privateKey.getS();
+                    ECParameterSpec bcSpec = ECNamedCurveTable.getParameterSpec("secp256r1");
+                    org.bouncycastle.math.ec.ECPoint q = bcSpec.getG().multiply(s);
+                    ECPublicKeySpec pubSpec = new ECPublicKeySpec(q, bcSpec);
+                    ECPublicKey publicKey = (ECPublicKey) kf.generatePublic(pubSpec);
+
+                    return new ECKey.Builder(Curve.P_256, publicKey).build().toJSONString();
+                })
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     private Mono<Void> validateKey(byte[] keyMaterial) {

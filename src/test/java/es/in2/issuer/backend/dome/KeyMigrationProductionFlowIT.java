@@ -35,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles({"test", "key-migration"})
@@ -83,7 +84,9 @@ class KeyMigrationProductionFlowIT {
         when(vaultExportPort.exportPrivateKey(any()))
                 .thenReturn(Mono.just(keyPair.getPrivate().getEncoded()));
         // Execute PoC to reach POC_OK as initial state
-        keyMigrationWorkflow.executePoc(legacyKeyId).block();
+        keyMigrationWorkflow.executePoc(legacyKeyId)
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "localhost"))
+                .block();
     }
 
     @Nested
