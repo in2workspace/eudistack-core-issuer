@@ -3,10 +3,12 @@ package es.in2.issuer.backend.dome.infrastructure.adapter.persistence;
 import es.in2.issuer.backend.dome.domain.model.keymigration.DomeSigningKey;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
+import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
 
+@Repository
 public interface DomeSigningKeyR2dbcRepo extends ReactiveCrudRepository<DomeSigningKey, String> {
 
     // RETURNING casts public_jwk to text so the R2DBC driver maps it to String without a JSONB converter

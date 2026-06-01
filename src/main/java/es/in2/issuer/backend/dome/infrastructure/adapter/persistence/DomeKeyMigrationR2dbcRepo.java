@@ -3,10 +3,12 @@ package es.in2.issuer.backend.dome.infrastructure.adapter.persistence;
 import es.in2.issuer.backend.dome.domain.model.keymigration.DomeKeyMigration;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
+import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Mono;
 
 import java.util.UUID;
 
+@Repository
 public interface DomeKeyMigrationR2dbcRepo extends ReactiveCrudRepository<DomeKeyMigration, UUID> {
 
     @Query("SELECT * FROM dome_key_migration WHERE legacy_key_id = :legacyKeyId LIMIT 1")
