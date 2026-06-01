@@ -3,8 +3,6 @@ package es.in2.issuer.backend.dome.domain.model.keymigration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.time.Instant;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("LegacyKeyId — compact record with validation")
