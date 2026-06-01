@@ -65,30 +65,53 @@ public class KeyMigrationWorkflowImpl
                 return Mono.error(new IllegalStateException(TENANT_REQUIRED_MSG));
             }
 
-            // Idempotent: reuse existing active key if the PoC was already run,
-            // avoiding a unique-constraint violation on re-runs.
-            return domeSigningKeyRepo.findActiveByLegacyKeyId(legacyKeyId.value())
-                    .switchIfEmpty(
-                            vaultExportPort.exportPrivateKey(legacyKeyId)
-                                    .flatMap(keyMaterial -> computePublicJwk(keyMaterial)
-                                            .map(publicJwk -> DomeSigningKey.builder()
-                                                    .keyId(UUID.randomUUID().toString())
-                                                    .holderId(legacyKeyId.value())
-                                                    .credentialId(legacyKeyId.value())
-                                                    .tenantId(tenantId)
-                                                    .privateKey(keyMaterial)
-                                                    .publicJwk(publicJwk)
-                                                    .algorithm("ES256")
-                                                    .format("dc+sd-jwt")
-                                                    .createdAt(Instant.now())
-                                                    .build()))
-                                    .flatMap(domeSigningKeyRepo::save))
-                    .flatMap(retrieved -> validateKey(retrieved.getPrivateKey()))
-                    .then(stateService.transitionTo(legacyKeyId, MigrationStatus.POC_OK))
-                    .doOnSuccess(entity -> log.info(AUDIT, "event=POC_OK legacyKeyId={}", legacyKeyId.value()))
-                    .then()
-                    .onErrorResume(ex -> stateService.transitionTo(legacyKeyId, MigrationStatus.FAILED)
-                            .then(Mono.error(ex)));
+            // Reject terminal states before any side-effectful work to give a
+            // clear, actionable error instead of a DB-constraint/state-machine cascade.
+            return stateService.currentStatus(legacyKeyIdStr)
+                    .defaultIfEmpty(MigrationStatus.PENDING)
+                    .flatMap(current -> {
+                        if (current == MigrationStatus.MIGRATED || current == MigrationStatus.ROLLED_BACK) {
+                            return Mono.<Void>error(new ConflictingMigrationStateException(
+                                    "PoC cannot be re-executed from terminal state: " + current));
+                        }
+                        // Idempotent: reuse existing active key if the PoC was already run,
+                        // avoiding a unique-constraint violation on re-runs.
+                        return domeSigningKeyRepo.findActiveByLegacyKeyId(legacyKeyId.value())
+                                .switchIfEmpty(
+                                        vaultExportPort.exportPrivateKey(legacyKeyId)
+                                                .flatMap(keyMaterial -> computePublicJwk(keyMaterial)
+                                                        .map(publicJwk -> DomeSigningKey.builder()
+                                                                .keyId(UUID.randomUUID().toString())
+                                                                .holderId(legacyKeyId.value())
+                                                                .credentialId(legacyKeyId.value())
+                                                                .tenantId(tenantId)
+                                                                .privateKey(keyMaterial)
+                                                                .publicJwk(publicJwk)
+                                                                .algorithm("ES256")
+                                                                .format("dc+sd-jwt")
+                                                                .createdAt(Instant.now())
+                                                                .build()))
+                                                .flatMap(domeSigningKeyRepo::save))
+                                .flatMap(retrieved -> validateKey(retrieved.getPrivateKey()))
+                                .then(stateService.transitionTo(legacyKeyId, MigrationStatus.POC_OK))
+                                .doOnSuccess(entity -> log.info(AUDIT, "event=POC_OK legacyKeyId={}", legacyKeyId.value()))
+                                .then();
+                    })
+                    .onErrorResume(ex -> {
+                        // ConflictingMigrationStateException means we deliberately rejected
+                        // the operation — do NOT attempt to record a FAILED transition.
+                        if (ex instanceof ConflictingMigrationStateException) {
+                            return Mono.error(ex);
+                        }
+                        return stateService.transitionTo(legacyKeyId, MigrationStatus.FAILED)
+                                .onErrorResume(transitionEx -> {
+                                    // The DB may itself be down; log but never swallow the original error.
+                                    log.warn("Failed to record FAILED state for legacyKeyId={}: {}",
+                                            legacyKeyId.value(), transitionEx.getMessage());
+                                    return Mono.empty();
+                                })
+                                .then(Mono.error(ex));
+                    });
         });
     }
 

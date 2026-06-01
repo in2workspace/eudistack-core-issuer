@@ -2,7 +2,6 @@ package es.in2.issuer.backend.dome.infrastructure.adapter.persistence;
 
 import es.in2.issuer.backend.dome.domain.model.keymigration.DomeKeyMigration;
 import es.in2.issuer.backend.dome.domain.model.keymigration.LegacyKeyId;
-import es.in2.issuer.backend.dome.domain.model.keymigration.MigrationStatus;
 import es.in2.issuer.backend.dome.domain.spi.DomeKeyMigrationRepositoryPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,22 +41,4 @@ public class R2dbcDomeKeyMigrationRepository implements DomeKeyMigrationReposito
                             }));
         });
     }
-
-    @Override
-    public Mono<DomeKeyMigration> updateStatus(LegacyKeyId keyId, MigrationStatus status) {
-        return repo.findByLegacyKeyId(keyId.value())
-                .switchIfEmpty(Mono.error(new IllegalStateException(
-                        "No DomeKeyMigration found for legacyKeyId: " + keyId.value())))
-                .flatMap(entity -> {
-                    MigrationStatus current = MigrationStatus.valueOf(entity.getMigrationStatus());
-                    if (!current.canTransitionTo(status)) {
-                        return Mono.error(new IllegalStateException(
-                                "Invalid transition from " + current + " to " + status
-                                        + " for legacyKeyId: " + keyId.value()));
-                    }
-                    entity.setMigrationStatus(status.name());
-                    return repo.save(entity);
-                });
-    }
 }
-
