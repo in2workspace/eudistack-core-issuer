@@ -1,7 +1,8 @@
--- =============================================================================
--- V7__dome_key_migration.sql
--- DOME key migration: tracking table + holder_key for migrated signing key material.
--- =============================================================================
+-- gen_random_uuid() is built-in from PostgreSQL 13+; this guard ensures
+-- compatibility with older clusters where pgcrypto is required.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- Tabla de seguimiento del estado de migración
 CREATE TABLE IF NOT EXISTS dome_key_migration (
     id               UUID         NOT NULL DEFAULT gen_random_uuid(),
     legacy_key_id    VARCHAR(255) NOT NULL,
