@@ -33,7 +33,7 @@ public class KeyMigrationExceptionHandler {
         return errors.handleWith(
                 ex, request,
                 "CONFLICTING_MIGRATION_STATE",
-                "Conflicting migration state",
+                "conflicting migration state",
                 HttpStatus.CONFLICT,
                 "The migration state transition is not allowed"
         );

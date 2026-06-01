@@ -7,7 +7,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.Instant;
 
-interface DomeSigningKeyR2dbcRepo extends ReactiveCrudRepository<DomeSigningKey, String> {
+public interface DomeSigningKeyR2dbcRepo extends ReactiveCrudRepository<DomeSigningKey, String> {
 
     // RETURNING casts public_jwk to text so the R2DBC driver maps it to String without a JSONB converter
     @Query("INSERT INTO holder_key " +

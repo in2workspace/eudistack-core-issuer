@@ -7,7 +7,7 @@ import reactor.core.publisher.Mono;
 
 import java.util.UUID;
 
-interface DomeKeyMigrationR2dbcRepo extends ReactiveCrudRepository<DomeKeyMigration, UUID> {
+public interface DomeKeyMigrationR2dbcRepo extends ReactiveCrudRepository<DomeKeyMigration, UUID> {
 
     @Query("SELECT * FROM dome_key_migration WHERE legacy_key_id = :legacyKeyId LIMIT 1")
     Mono<DomeKeyMigration> findByLegacyKeyId(String legacyKeyId);
