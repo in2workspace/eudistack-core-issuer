@@ -1,4 +1,7 @@
--- Tabla de seguimiento del estado de migración
+-- =============================================================================
+-- V7__dome_key_migration.sql
+-- DOME key migration: tracking table + holder_key for migrated signing key material.
+-- =============================================================================
 CREATE TABLE IF NOT EXISTS dome_key_migration (
     id               UUID         NOT NULL DEFAULT gen_random_uuid(),
     legacy_key_id    VARCHAR(255) NOT NULL,
