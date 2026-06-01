@@ -46,16 +46,20 @@ class KeyMigrationWorkflowImplTest {
                 .legacyKeyId(LEGACY_KEY_ID).migrationStatus(MigrationStatus.FAILED.name()).build();
         DomeKeyMigration pocOkStub = DomeKeyMigration.builder()
                 .legacyKeyId(LEGACY_KEY_ID).migrationStatus(MigrationStatus.POC_OK.name()).build();
+        DomeKeyMigration migratedStub = DomeKeyMigration.builder()
+                .legacyKeyId(LEGACY_KEY_ID).migrationStatus(MigrationStatus.MIGRATED.name()).build();
+        DomeKeyMigration rolledBackStub = DomeKeyMigration.builder()
+                .legacyKeyId(LEGACY_KEY_ID).migrationStatus(MigrationStatus.ROLLED_BACK.name()).build();
         lenient().when(stateService.transitionTo(new LegacyKeyId(LEGACY_KEY_ID), MigrationStatus.FAILED))
                 .thenReturn(Mono.just(failedStub));
         lenient().when(stateService.transitionTo(new LegacyKeyId(LEGACY_KEY_ID), MigrationStatus.POC_OK))
                 .thenReturn(Mono.just(pocOkStub));
         lenient().when(stateService.transitionTo(new LegacyKeyId(LEGACY_KEY_ID), MigrationStatus.MIGRATED))
-                .thenReturn(Mono.just(pocOkStub));
+                .thenReturn(Mono.just(migratedStub));
         lenient().when(domeSigningKeyRepo.deactivateByLegacyKeyId(LEGACY_KEY_ID))
                 .thenReturn(Mono.empty());
         lenient().when(stateService.transitionTo(new LegacyKeyId(LEGACY_KEY_ID), MigrationStatus.ROLLED_BACK))
-                .thenReturn(Mono.just(failedStub));
+                .thenReturn(Mono.just(rolledBackStub));
     }
 
     @Nested
