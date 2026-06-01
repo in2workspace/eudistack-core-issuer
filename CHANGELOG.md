@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `migrate` (transitions to `MIGRATED`) and `rollback` (deactivates key,
   transitions to `ROLLED_BACK`). Fail-closed: any error transitions to `FAILED`.
 - **Flyway V7**: tables `dome_key_migration` (migration FSM tracking) and
-  `dome_signing_key` (placeholder for PKCS#8 key material as `BYTEA`).
+  `holder_key` (stores exported signing key material as PKCS#8 `BYTEA` plus its public JWK).
 
 ## [3.6.15] - 2026-05-26
 
