@@ -27,6 +27,6 @@ public interface DomeSigningKeyR2dbcRepo extends ReactiveCrudRepository<DomeSign
             "FROM holder_key WHERE holder_id = :legacyKeyId AND credential_id = :legacyKeyId AND revoked_at IS NULL LIMIT 1")
     Mono<DomeSigningKey> findActiveByLegacyKeyId(String legacyKeyId);
 
-    @Query("UPDATE holder_key SET revoked_at = now() WHERE holder_id = :legacyKeyId AND revoked_at IS NULL")
+    @Query("UPDATE holder_key SET revoked_at = now() WHERE holder_id = :legacyKeyId AND credential_id = :legacyKeyId AND revoked_at IS NULL")
     Mono<Void> deactivateByLegacyKeyId(String legacyKeyId);
 }
