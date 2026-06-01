@@ -47,7 +47,7 @@ public class KeyMigrationExceptionHandler {
     ) {
         return errors.handleWith(
                 ex, request,
-                "KEY_MATERIAL_VALIDATION_FAILURE",
+                "key_material_validation_failure",
                 "Key material validation failure",
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "The exported key material failed signature self-verification"
