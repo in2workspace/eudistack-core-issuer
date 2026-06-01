@@ -164,7 +164,7 @@ public class KeyMigrationWorkflowImpl
                         }
                         if (current != MigrationStatus.POC_OK) {
                             return Mono.<MigrationStatus>error(new ConflictingMigrationStateException(
-                                    "Migration can only be executed from POC_OK state. Current state: " + current));
+                                    "Rollback can only be executed from POC_OK state. Current state: " + current));
                         }
                         return Mono.just(current);
                     })
