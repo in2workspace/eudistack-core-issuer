@@ -6,18 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.7.0] - 2026-06-01
+## [3.6.16] - 2026-05-28
 
-### Added
-
-- **DOME key migration module**: exports the DOME tenant EC P-256 signing key
-  from HashiCorp Vault and stores it in PostgreSQL (RDS TDE). Three CLI commands
-  behind `@Profile("key-migration")` and feature flag `DOME_KEY_MIGRATION_PLAN_A_ENABLED`:
-  `poc` (validates key cryptographically, transitions to `POC_OK`),
-  `migrate` (transitions to `MIGRATED`) and `rollback` (deactivates key,
-  transitions to `ROLLED_BACK`). Fail-closed: any error transitions to `FAILED`.
-- **Flyway V7**: tables `dome_key_migration` (migration FSM tracking) and
-  `holder_key` (stores exported signing key material as PKCS#8 `BYTEA` plus its public JWK).
+### Fixed
+- **Signature**: Validate key status for enabled and valid states
 
 ## [3.6.15] - 2026-05-26
 
