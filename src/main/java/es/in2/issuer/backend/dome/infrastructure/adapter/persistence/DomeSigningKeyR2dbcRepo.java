@@ -24,7 +24,7 @@ public interface DomeSigningKeyR2dbcRepo extends ReactiveCrudRepository<DomeSign
     // SELECT casts public_jwk to text for the same reason
     @Query("SELECT key_id, holder_id, credential_id, tenant_id, private_key, " +
             "public_jwk::text AS public_jwk, algorithm, format, created_at, revoked_at " +
-            "FROM holder_key WHERE holder_id = :legacyKeyId AND revoked_at IS NULL LIMIT 1")
+            "FROM holder_key WHERE holder_id = :legacyKeyId AND credential_id = :legacyKeyId AND revoked_at IS NULL LIMIT 1")
     Mono<DomeSigningKey> findActiveByLegacyKeyId(String legacyKeyId);
 
     @Query("UPDATE holder_key SET revoked_at = now() WHERE holder_id = :legacyKeyId AND revoked_at IS NULL")
