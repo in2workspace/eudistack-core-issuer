@@ -36,21 +36,24 @@ public class VaultExportAdapter implements VaultExportPort {
                 .timeout(Duration.ofSeconds(30))
                 .retryWhen(Retry.backoff(3, Duration.ofSeconds(1)).maxBackoff(Duration.ofSeconds(4)))
                 .map(response -> {
-                    Map<String, String> keys = response.data().keys();
+                    Map<String, String> keys = (response == null || response.data() == null)
+                            ? null
+                            : response.data().keys();
                     if (keys == null || keys.isEmpty()) {
                         throw new RuntimeException(
                                 "vault_export_empty_keys: no key versions returned for keyId=" + keyId.value());
                     }
                     // Select the highest available version (Vault versions are numeric strings)
                     String highestVersion = keys.keySet().stream()
+                            .filter(v -> v != null && v.chars().allMatch(Character::isDigit))
                             .max(Comparator.comparingInt(Integer::parseInt))
                             .orElseThrow(() -> new RuntimeException(
-                                    "vault_export_empty_keys: no key versions returned for keyId=" + keyId.value()));
+                                    "vault_export_empty_keys: no numeric key versions returned for keyId=" + keyId.value()));
                     String base64Key = keys.get(highestVersion);
                     if (base64Key == null || base64Key.isBlank()) {
                         throw new RuntimeException(
                                 "vault_export_null_key_material: version=" + highestVersion
-                                + " keyId=" + keyId.value());
+                                        + " keyId=" + keyId.value());
                     }
                     return Base64.getDecoder().decode(base64Key);
                 })
