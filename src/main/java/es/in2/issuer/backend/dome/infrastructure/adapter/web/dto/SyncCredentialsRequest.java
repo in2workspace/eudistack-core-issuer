@@ -8,7 +8,7 @@ import jakarta.validation.constraints.Size;
 import java.util.UUID;
 
 /**
- * Request DTO for the sync-credentials endpoint
+ * DTO for the synchronization credentials request.
  */
 public record SyncCredentialsRequest(
         @NotNull(message = "idempotencyKey cannot be null")

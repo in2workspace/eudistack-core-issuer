@@ -121,4 +121,13 @@ public final class Constants {
     // (e.g. tenant "sandbox" -> schema "sandbox_issuer"). Prevents flyway_schema_history
     // collisions when multiple services share the same database.
     public static final String SCHEMA_SUFFIX = "_issuer";
+
+    // DOME AUTO-RECOVERY & SYNC
+    public static final String SYNC_CREDENTIALS_FORMAT_VC_LIST = "vc-list";
+    public static final String SYNC_ENDPOINT = "/internal/dome/sync-credentials";
+    public static final String TENANT_DOME = "dome";
+    public static final String HEADER_IDEMPOTENT_REPLAY = "Idempotent-Replay";
+    public static final String SCOPE_DOME_RECOVERY_SYNC = "DomeRecovery/Sync";
+    public static final String JWT_CLAIM_SCOPE = "scope";
+    public static final String JWT_CLAIM_TENANT = "tenant";
 }

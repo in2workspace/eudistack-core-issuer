@@ -5,17 +5,14 @@ import es.in2.issuer.backend.dome.domain.model.sync.HolderKeyThumbprint;
 import reactor.core.publisher.Flux;
 
 /**
- * Port to retrieve migrate credentials from the database.
+ * Outgoing port to retrieve migrated credentials from the underlying database.
+ * Defines the contract for data fetching, decoupling the domain logic from the
+ * specific database implementation.
  */
 public interface CredentialSyncPort {
 
     /**
-     * Finds credentials by the holder's key thumbprint.
-     *
-     * @param tenant        the tenant identifier
-     * @param thumbprint    the holder's key thumbprint
-     *
-     * @return a Flux emitting the found credentials.
+     * Finds and streams all pre-existing credentials associated with a specific holder's key thumbprint.
      */
     Flux<JsonNode> findByHolderKey(String tenant, HolderKeyThumbprint thumbprint);
 }

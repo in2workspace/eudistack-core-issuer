@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
 
 /**
- * Response DTO for the sync-credentials endpoint
+ * DTO for the synchronization credentials response.
  */
 public record SyncCredentialsResponse(
         List<JsonNode> credentials,

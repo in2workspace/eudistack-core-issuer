@@ -8,6 +8,11 @@ import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
 
+/**
+ * Secondary adapter for retrivieving migrated credentials from the database.
+ * It implements the domain's CredentialSyncPort using R2DBC for non-blocking,
+ * reactive database interactions.
+ */
 @Repository
 public class R2dbcCredentialSyncAdapter implements CredentialSyncPort {
 

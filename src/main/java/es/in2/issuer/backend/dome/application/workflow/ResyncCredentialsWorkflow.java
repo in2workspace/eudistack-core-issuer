@@ -15,6 +15,11 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 
+/**
+ * Application workflow orchestrating the credential synchronization process.
+ * It handles tenant validation, cache checking for idempotency, database fetching,
+ * timeout handling, and observability (metrics and audit logging).
+ */
 @Service
 public class ResyncCredentialsWorkflow {
 
@@ -37,6 +42,14 @@ public class ResyncCredentialsWorkflow {
         this.auditLogger = auditLogger;
     }
 
+    /**
+     * Executes the credential synchronization workflow.
+     *
+     * @param tenant         The identifier of the requested tenant.
+     * @param idempotencyKey The unique identifier for the current sync request.
+     * @param thumbprint     The cryptographic thumbprint identifying the user's wallet.
+     * @return A Mono emitting the result of the workflow, including the credentials and cache status.
+     */
     public Mono<ResyncWorkflowResult> execute(String tenant, IdempotencyKey idempotencyKey, HolderKeyThumbprint thumbprint) {
         IdempotencyCacheKey cacheKey = new IdempotencyCacheKey(tenant, idempotencyKey, thumbprint);
         long startTime = System.currentTimeMillis();
@@ -75,6 +88,11 @@ public class ResyncCredentialsWorkflow {
                 });
     }
 
+    /**
+     * Record holding the result of the synchronization workflow.
+     * @param syncCredentialsResult The credentials retrieved (from cache or DB).
+     * @param isCacheHit            Flag indicating if the response was served from cache.
+     */
     public record ResyncWorkflowResult(
             SyncCredentialsResult syncCredentialsResult,
             boolean isCacheHit

@@ -3,6 +3,11 @@ package es.in2.issuer.backend.shared.validation;
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;
 
+/**
+ * Validator implementation for the @HexString annotation.
+ * Ensures that a given String consists only of a valid hexadecimal characters
+ * and matches the exact required length.
+ */
 public class HexStringValidator implements ConstraintValidator<HexString, String> {
 
     private int requiredLength;

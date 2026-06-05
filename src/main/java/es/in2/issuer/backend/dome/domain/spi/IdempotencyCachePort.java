@@ -6,25 +6,14 @@ import reactor.core.publisher.Mono;
 import java.util.Optional;
 
 /**
- * Port to manage the idempotency cache for credential synchronization.
+ * Outgoing port to manage the idempotency cache for credential synchronization.
+ * Defines the contract for storing and retrieving caching data without tying the domain
+ * to a specific database technology.
  */
 public interface IdempotencyCachePort {
 
-    /**
-     * Retrieves the cached result for a given idempotency key.
-     *
-     * @param key   the compound idempotency cache key.
-     * @return a Mono emitting an Optional containing the result if found
-     */
     Mono<Optional<SyncCredentialsResult>> get(IdempotencyCacheKey key);
 
-    /**
-     * Stores a synchronization result in the cache
-     *
-     * @param key       the compound idempotency cache key
-     * @param result    the result to cache.
-     * @return an empty Mono signaling completion
-     */
     Mono<Void> put(IdempotencyCacheKey key, SyncCredentialsResult result);
 
 }
