@@ -46,9 +46,9 @@ public class SyncCredentialsCacheCollisionIT {
     @Test
     @DisplayName("ES-05: Same idempotencyKey but different holder is correctly distinguished (No collision)")
     void syncCredentialsCacheCollision() {
-        String idempotencyKey = "018f2b44-2c33-7dd2-9e5f-1a2b3c4d5e6f";
-        String holder1 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-        String holder2 = "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890";
+        String idempotencyKey = DomeSyncFixtureFactory.generateIdempotencyKey();
+        String holder1 = DomeSyncFixtureFactory.HOLDER_1_THUMBPRINT;
+        String holder2 = DomeSyncFixtureFactory.HOLDER_2_THUMBPRINT;
 
         JsonNode mockCredential = objectMapper.createObjectNode()
                 .put("format", "vc+sd-jwt")

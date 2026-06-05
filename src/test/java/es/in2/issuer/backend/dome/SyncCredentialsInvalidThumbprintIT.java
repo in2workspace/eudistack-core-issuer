@@ -36,8 +36,6 @@ public class SyncCredentialsInvalidThumbprintIT {
 
     @BeforeEach
     void setUp() {
-        // SIEMPRE debes mockear el tenantConfigPort para devolver Mono.empty()
-        // o Mono.just(...) para que no devuelva null y no rompa la cadena reactiva.
         when(tenantConfigPort.requireConfig(anyString())).thenReturn(Mono.empty());
         when(credentialSyncPort.findByHolderKey(anyString(), any())).thenReturn(Flux.empty());
     }

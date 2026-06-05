@@ -29,25 +29,19 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
 @AutoConfigureWebTestClient
 public class SyncCredentialsIdempotencyIT {
 
-    @Autowired
-    private WebTestClient webTestClient;
+    @Autowired private WebTestClient webTestClient;
 
-    @MockitoBean
-    private CredentialSyncPort credentialSyncPort;
-
-    @MockitoBean
-    private TenantConfigPort tenantConfigPort;
-
-    @MockitoBean
-    private SyncCredentialsAuditLogger auditLogger;
+    @MockitoBean private CredentialSyncPort credentialSyncPort;
+    @MockitoBean private TenantConfigPort tenantConfigPort;
+    @MockitoBean private SyncCredentialsAuditLogger auditLogger;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
     @DisplayName("AC-04: Multiple POST requests with the same idempotencyKey return cached responses and add the Idempotent-Replay header")
     void syncCredentialsIdempotency() {
-        String idempotencyKey = "018f2a99-9b80-7fc4-a82f-2c8e3100b468";
-        String thumbprint = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        String idempotencyKey = DomeSyncFixtureFactory.generateIdempotencyKey();
+        String thumbprint = DomeSyncFixtureFactory.HOLDER_1_THUMBPRINT;
 
         JsonNode mockCredential = objectMapper.createObjectNode()
                 .put("format", "vc+sd-jwt")

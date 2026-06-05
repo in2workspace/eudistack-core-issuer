@@ -89,8 +89,8 @@ public class SyncCredentialsCacheTtlWindowIT {
     @Test
     @DisplayName("NFR-S-144-02: Test TTL window (cached at 270s, expired at 330s)")
     void syncCredentialsCacheTtlWindow() {
-        String idempotencyKey = "018f2a99-9b80-7fc4-a82f-2c8e3100b468";
-        String thumbprint = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        String idempotencyKey = DomeSyncFixtureFactory.generateIdempotencyKey();
+        String thumbprint = DomeSyncFixtureFactory.HOLDER_1_THUMBPRINT;
 
         JsonNode mockCredential = objectMapper.createObjectNode()
                 .put("format", "vc+sd-jwt")

@@ -4,6 +4,9 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.UUID;
 
+/**
+ * Utility class to generate synthetic DPoP tokens for integration tests.
+ */
 public class DpopTestUtils {
 
     private DpopTestUtils() {}

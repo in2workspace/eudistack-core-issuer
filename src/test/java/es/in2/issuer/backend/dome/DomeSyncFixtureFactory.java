@@ -13,8 +13,8 @@ import java.util.UUID;
  */
 public class DomeSyncFixtureFactory {
 
-    public static final String HOLDER_1_THUMBPRINT = "N-5a-s1M9T8y3t1jP_Z2vQ-X5lY8K7G6V_x_Q_abc123=";
-    public static final String HOLDER_2_THUMBPRINT = "A-1b-c2D3E4f5g6H_I7jK-L8mN9O0P_q_R_xyz987=";
+    public static final String HOLDER_1_THUMBPRINT = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    public static final String HOLDER_2_THUMBPRINT = "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92";
 
     /**
      * Loads the successful credentials JSON for Holder 1.
@@ -34,7 +34,7 @@ public class DomeSyncFixtureFactory {
      * Generates a simulated idempotency key (UUID v7 format simulation)
      */
     public static String generateIdempotencyKey() {
-        return UUID.randomUUID().toString();
+        return "019d3f1a-5d00-7000-8000-000000000000";
     }
 
     /**

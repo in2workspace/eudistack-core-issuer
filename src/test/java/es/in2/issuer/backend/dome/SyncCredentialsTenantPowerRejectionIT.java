@@ -21,8 +21,8 @@ public class SyncCredentialsTenantPowerRejectionIT {
     @Test
     @DisplayName("AC-08: Rejects request with 403 when tenant is not 'dome' and required scope is missing")
     void syncCredentialsRejectsInvalidTenantAndScope() {
-        String idempotencyKey = "018f2a99-9b80-7fc4-a82f-2c8e3100b468";
-        String thumbprint = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        String idempotencyKey = DomeSyncFixtureFactory.generateIdempotencyKey();
+        String thumbprint = DomeSyncFixtureFactory.HOLDER_1_THUMBPRINT;
 
         String requestBody = """
                 {
@@ -51,8 +51,8 @@ public class SyncCredentialsTenantPowerRejectionIT {
     @Test
     @DisplayName("AC-08: Rejects request with 403 when required scope is missing")
     void syncCredentialsRejectsInvalidScope() {
-        String idempotencyKey = "018f2a99-9b80-7fc4-a82f-2c8e3100b468";
-        String thumbprint = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        String idempotencyKey = DomeSyncFixtureFactory.generateIdempotencyKey();
+        String thumbprint = DomeSyncFixtureFactory.HOLDER_1_THUMBPRINT;
 
         String requestBody = """
                 {
@@ -81,8 +81,8 @@ public class SyncCredentialsTenantPowerRejectionIT {
     @Test
     @DisplayName("AC-08: Rejects request with 403 when tenant is not 'dome'")
     void syncCredentialsRejectsInvalidTenant() {
-        String idempotencyKey = "018f2a99-9b80-7fc4-a82f-2c8e3100b468";
-        String thumbprint = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        String idempotencyKey = DomeSyncFixtureFactory.generateIdempotencyKey();
+        String thumbprint = DomeSyncFixtureFactory.HOLDER_1_THUMBPRINT;
 
         String requestBody = """
                 {
