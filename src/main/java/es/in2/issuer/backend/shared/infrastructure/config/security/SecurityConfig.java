@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
+import es.in2.issuer.backend.shared.domain.util.Constants;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
@@ -49,7 +50,7 @@ public class SecurityConfig {
                         OID4VCI_NOTIFICATION_PATH,
                         // Other authenticated paths
                         STATUS_LIST_PATH,
-                        "/internal/dome/sync-credentials")
+                        Constants.SYNC_ENDPOINT)
         );
 
         authenticationWebFilter.setServerAuthenticationConverter(new DualTokenServerAuthenticationConverter());
@@ -143,7 +144,7 @@ public class SecurityConfig {
                         .pathMatchers(HttpMethod.POST, OID4VCI_PAR_PATH).permitAll()
                         .pathMatchers(HttpMethod.GET, OID4VCI_AUTHORIZE_PATH).permitAll()
                         .pathMatchers(HttpMethod.POST, OID4VCI_NONCE_PATH).permitAll()
-                        .pathMatchers(HttpMethod.POST, "/internal/dome/sync-credentials").access(syncAuthManager)
+                        .pathMatchers(HttpMethod.POST, Constants.SYNC_ENDPOINT).access(syncAuthManager)
                         // Authenticated endpoints (all go through CustomAuthenticationManager)
                         .anyExchange().authenticated()
                 )

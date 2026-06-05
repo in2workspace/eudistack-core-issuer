@@ -46,7 +46,7 @@ public class SyncCredentialsHappyPathIT {
     @Test
     @DisplayName("AC-01, AC-02: 200 OK with credentials, without Idempotent-Replay header and audit log outcome=permit")
     void syncCredentialsHappyPath() {
-        String idempotencyKey = DomeSyncFixtureFactory.generateIdempotencyKey();
+        String idempotencyKey = "018f2a99-9b80-7fc4-a82f-2c8e3100b461";
         String thumbprint = DomeSyncFixtureFactory.HOLDER_1_THUMBPRINT;
 
         JsonNode mockCredential1 = objectMapper.createObjectNode()

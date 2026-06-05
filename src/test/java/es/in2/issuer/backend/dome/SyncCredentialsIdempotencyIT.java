@@ -40,7 +40,7 @@ public class SyncCredentialsIdempotencyIT {
     @Test
     @DisplayName("AC-04: Multiple POST requests with the same idempotencyKey return cached responses and add the Idempotent-Replay header")
     void syncCredentialsIdempotency() {
-        String idempotencyKey = DomeSyncFixtureFactory.generateIdempotencyKey();
+        String idempotencyKey = "018f2a99-9b80-7fc4-a82f-2c8e3100b464";
         String thumbprint = DomeSyncFixtureFactory.HOLDER_1_THUMBPRINT;
 
         JsonNode mockCredential = objectMapper.createObjectNode()

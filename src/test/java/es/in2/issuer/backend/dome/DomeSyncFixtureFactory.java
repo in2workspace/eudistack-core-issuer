@@ -34,7 +34,7 @@ public class DomeSyncFixtureFactory {
      * Generates a simulated idempotency key (UUID v7 format simulation)
      */
     public static String generateIdempotencyKey() {
-        return "019d3f1a-5d00-7000-8000-000000000000";
+        return "018f2a99-9b80-7fc4-a82f-2c8e3100b468";
     }
 
     /**

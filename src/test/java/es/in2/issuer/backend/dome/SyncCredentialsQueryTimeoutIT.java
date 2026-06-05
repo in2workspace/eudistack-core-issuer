@@ -47,7 +47,7 @@ public class SyncCredentialsQueryTimeoutIT {
                         .cast(JsonNode.class)
                         .delayElements(Duration.ofSeconds(6)));
 
-        String body = "{\"idempotencyKey\": \"018f2a99-9b80-7fc4-a82f-2c8e3100b468\", \"holderKeyThumbprint\": \"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}";
+        String body = "{\"idempotencyKey\": \"018f2a99-9b80-7fc4-a82f-2c8e3100b465\", \"holderKeyThumbprint\": \"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}";
 
         webTestClient
                 .mutate()

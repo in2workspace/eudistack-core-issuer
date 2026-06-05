@@ -42,7 +42,7 @@ public class SyncCredentialsEmptyDatasetIT {
     @DisplayName("200 OK: Returns success even if the credentials dataset is empty")
     void syncCredentialsEmptyDataset() {
 
-        String idempotencyKey = DomeSyncFixtureFactory.generateIdempotencyKey();
+        String idempotencyKey = "018f2a99-9b80-7fc4-a82f-2c8e3100b463";
         String thumbprint = DomeSyncFixtureFactory.HOLDER_2_THUMBPRINT;
 
         when(tenantConfigPort.requireConfig(anyString())).thenReturn(Mono.empty());

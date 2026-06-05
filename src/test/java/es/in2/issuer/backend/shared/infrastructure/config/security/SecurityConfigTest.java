@@ -2,6 +2,7 @@ package es.in2.issuer.backend.shared.infrastructure.config.security;
 
 import es.in2.issuer.backend.dome.infrastructure.security.DpopValidationFilter;
 import es.in2.issuer.backend.dome.infrastructure.security.SyncCredentialsAuthorizationManager;
+import org.mockito.junit.jupiter.MockitoSettings;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.quality.Strictness;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -33,6 +35,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class SecurityConfigTest {
 
     @Mock
@@ -57,6 +60,12 @@ class SecurityConfigTest {
 
         SyncCredentialsAuthorizationManager syncAuthManagerMock = mock(SyncCredentialsAuthorizationManager.class);
         DpopValidationFilter dpopFilterMock = mock(DpopValidationFilter.class);
+
+        when(dpopFilterMock.filter(any(), any())).thenAnswer(invocation -> {
+            org.springframework.web.server.ServerWebExchange exchange = invocation.getArgument(0);
+            org.springframework.web.server.WebFilterChain chain = invocation.getArgument(1);
+            return chain.filter(exchange);
+        });
 
         SecurityWebFilterChain chain = securityConfig.unifiedFilterChain(
                 ServerHttpSecurity.http(),
