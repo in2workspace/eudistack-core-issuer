@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **EUDISTACK-144**: 
+  - Added `SyncCredentialsController` endpoint for DOME wallet credential recovery and synchronization.
+  - Added `ResyncCredentialsWorkflow` application workflow to orchestrate tenant validation, credential lookup, idempotency handling, and response generation.
+  - Added `CredentialSyncPort` domain port for holder-based credential synchronization.
+  - Added `IdempotencyCachePort` domain port for replay-safe recovery requests.
+  - Added `R2dbcCredentialSyncAdapter` persistence adapter for credential retrieval using holder key thumbprints.
+  - Added in-memory idempotency cache support for recovery request replay protection.
+  - Added Bean Validation support for UUIDv7 and hexadecimal thumbprint validation.
+  - Added DOME credential synchronization metrics and audit logging.
+  - **Security**: Added DPoP protection for the credential synchronization endpoint, including replay detection through JTI validation.
+  - **Security**: Added PBAC authorization enforcement requiring the `DomeRecovery/Sync` power and DOME tenant context.
+  - **Database**: Added database index for efficient credential lookup by holder key thumbprint.
+
+### Changed
+- **EUDISTACK-144**: 
+  - Extended security configuration to protect the DOME credential synchronization endpoint.
+  - Added Problem Details (RFC 9457) error handling for recovery-specific validation and infrastructure failures.
+
 ## [3.6.11] - 2026-05-19
 
 ### Fixed
