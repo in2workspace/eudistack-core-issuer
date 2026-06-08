@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.dome.domain.model.sync;
 
-import es.in2.issuer.backend.shared.validation.HexString;
+import es.in2.issuer.backend.dome.infrastructure.validation.HexString;
 
 /**
  * Value object representing the cryptographic thumbprint of the holder's key.
