@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.18] - 2026-06-08
+
+### Fixed
+- **PBAC — Revocation**: `PolicyContext.hasPowerWithDomain` now uses case-insensitive domain comparison (`equalsIgnoreCase`) to match the behaviour of `PolicyContextFactory.resolveTenantAdmin`. A user with `Onboarding/Execute/domain=DOME` (uppercase in JWT) was rejected when the request `X-Tenant-Id` header arrived as `dome` (lowercase), causing an erroneous 401 on credential revocation despite holding the correct power.
+
 ## [3.6.17] - 2026-06-08
 
 ### Fixed
