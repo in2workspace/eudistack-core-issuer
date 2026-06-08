@@ -641,19 +641,46 @@ class GenericCredentialBuilderTest {
 
     private CredentialProfile labelProfile() {
         return CredentialProfile.builder()
-                .credentialConfigurationId("gx.labelcredential.w3c.1")
+                .credentialConfigurationId("gx.labelcredential.w3c.2")
                 .format("jwt_vc_json")
                 .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
                         .context(List.of("https://www.w3.org/ns/credentials/v2"))
-                        .type(List.of("gx.labelcredential.w3c.1", "VerifiableCredential"))
+                        .type(List.of("gx.labelcredential.w3c.2", "VerifiableCredential"))
                         .build())
                 .validityDays(0)
                 .issuerType(CredentialProfile.IssuerType.SIMPLE)
                 .cnfRequired(false)
+                .credentialSubjectStrategy("direct")
+                .subjectExtraction(CredentialProfile.SubjectExtraction.builder()
+                        .strategy("fields")
+                        .fields(List.of("credentialSubject.id"))
+                        .lastSegmentDelimiter(":")
+                        .build())
                 .organizationExtraction(CredentialProfile.OrganizationExtraction.builder()
                         .strategy("session")
                         .build())
                 .build();
+    }
+
+    @Test
+    void buildCredential_labelCredential_shouldExtractUuidSuffixFromCredentialSubjectId() {
+        CredentialProfile profile = labelProfile();
+
+        com.fasterxml.jackson.databind.node.ObjectNode cs = objectMapper.createObjectNode();
+        cs.put("id", "urn:ngsi-ld:product-specification:44419ccd-6e93-4a8f-8825-25bd4b9f67EE");
+        com.fasterxml.jackson.databind.node.ObjectNode payload = objectMapper.createObjectNode();
+        payload.set("credentialSubject", cs);
+        payload.put("validFrom", "2024-08-22T00:00:00Z");
+        payload.put("validUntil", "2025-10-22T00:00:00Z");
+
+        when(accessTokenService.getOrganizationIdFromCurrentSession()).thenReturn(Mono.just("VATES-B12345678"));
+
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+                .assertNext(result -> {
+                    assertThat(result.subject()).isEqualTo("44419ccd-6e93-4a8f-8825-25bd4b9f67EE");
+                    assertThat(result.organizationIdentifier()).isEqualTo("VATES-B12345678");
+                })
+                .verifyComplete();
     }
 
     private JsonNode mandatePayload() {

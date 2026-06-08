@@ -6,7 +6,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 
-import es.in2.issuer.backend.signing.domain.service.RemoteSignatureService;
+import es.in2.issuer.backend.signing.domain.service.SignDocService;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ExtendWith(MockitoExtension.class)
 class CscSignDocSigningProviderTest {
     @Mock
-    private RemoteSignatureService remoteSignatureService;
+    private SignDocService signDocService;
 
     @InjectMocks
     private CscSignDocSigningProvider cscSignDocSigningProvider;
@@ -39,7 +39,7 @@ class CscSignDocSigningProviderTest {
         SigningContext context = new SigningContext("token", "issuanceId", "email@example.com");
         SigningRequest request = buildRequest(SigningType.JADES, "data", context);
         SigningResult signedData = new SigningResult(SigningType.JADES, "signedData");
-        when(remoteSignatureService.signIssuedCredential(any(SigningRequest.class), eq("token"), eq("issuanceId"), eq("email@example.com")))
+        when(signDocService.signIssuedCredential(any(SigningRequest.class), eq("issuanceId")))
                 .thenReturn(Mono.just(signedData));
         StepVerifier.create(cscSignDocSigningProvider.sign(request))
                 .assertNext(result -> {
@@ -74,12 +74,12 @@ class CscSignDocSigningProviderTest {
     }
 
     @Test
-    void signPropagatesRemoteSignatureServiceError() {
+    void signPropagatesSignDocServiceError() {
         SigningContext context = new SigningContext("token", "issuanceId", "email@example.com");
         SigningRequest request = buildRequest(SigningType.JADES, "data", context);
 
-        when(remoteSignatureService.signIssuedCredential(any(SigningRequest.class), eq("token"), eq("issuanceId"),
-                eq("email@example.com"))).thenReturn(Mono.error(new RuntimeException("remote error")));
+        when(signDocService.signIssuedCredential(any(SigningRequest.class), eq("issuanceId")))
+                .thenReturn(Mono.error(new RuntimeException("remote error")));
 
         StepVerifier.create(cscSignDocSigningProvider.sign(request)).expectError(SigningException.class).verify();
     }

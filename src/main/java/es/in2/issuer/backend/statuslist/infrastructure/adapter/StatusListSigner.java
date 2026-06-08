@@ -3,11 +3,11 @@ package es.in2.issuer.backend.statuslist.infrastructure.adapter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
+import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
-import es.in2.issuer.backend.signing.domain.model.SigningType;
-import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
 import es.in2.issuer.backend.statuslist.domain.exception.StatusListCredentialSerializationException;
 import es.in2.issuer.backend.statuslist.domain.spi.CredentialPayloadSigner;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +22,7 @@ import static es.in2.issuer.backend.statuslist.domain.util.Preconditions.require
 @Component
 public class StatusListSigner implements CredentialPayloadSigner {
 
-    private final SigningProvider signingProvider;
+    private final DelegatingSigningProvider delegatingSigningProvider;
     private final ObjectMapper objectMapper;
 
     public Mono<String> sign(Map<String, Object> payload, String token, Long listId, String typ) {
@@ -30,7 +30,7 @@ public class StatusListSigner implements CredentialPayloadSigner {
         requireNonNullParam(token, "token");
 
         return toSignatureRequest(payload, token, typ)
-                .flatMap(signingProvider::sign)
+                .flatMap(delegatingSigningProvider::sign)
                 .onErrorMap(ex -> new RemoteSignatureException("StatusList signing failed; list ID: " + listId, ex))
                 .map(signingResult -> extractJwt(signingResult, listId));
     }

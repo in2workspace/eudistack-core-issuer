@@ -25,6 +25,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Extended security configuration to protect the DOME credential synchronization endpoint.
   - Added Problem Details (RFC 9457) error handling for recovery-specific validation and infrastructure failures.
 
+
+## [3.6.18] - 2026-06-08
+
+### Fixed
+- **PBAC — Revocation**: `PolicyContext.hasPowerWithDomain` now uses case-insensitive domain comparison (`equalsIgnoreCase`) to match the behaviour of `PolicyContextFactory.resolveTenantAdmin`. A user with `Onboarding/Execute/domain=DOME` (uppercase in JWT) was rejected when the request `X-Tenant-Id` header arrived as `dome` (lowercase), causing an erroneous 401 on credential revocation despite holding the correct power.
+
+## [3.6.17] - 2026-06-08
+
+### Fixed
+- **Mail**: Improve fallback alt text for blocked QR images
+
+## [3.6.16] - 2026-05-28
+
+### Fixed
+- **Signature**: Validate key status for enabled and valid states
+
+## [3.6.15] - 2026-05-26
+
+### Fixed
+- **Mail**: Fix default mail address
+
+## [3.6.14] - 2026-05-22
+
+### Fixed
+- **Label Credential**: Fixed `subject` field showing empty in the credential procedure list — now correctly extracts the identifier from the end of the credential subject ID.
+
+## [3.6.13] - 2026-05-21
+
+### Changed
+
+- **BBDD**: restore flyway migration for V1 and modify tenant_signing_config to V5
+
+## [3.6.12] - 2026-05-19
+
+### Changed
+
+- **Signature**: add multiversion and multiprovider signature support
+
 ## [3.6.11] - 2026-05-19
 
 ### Fixed
