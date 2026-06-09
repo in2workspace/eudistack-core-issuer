@@ -44,6 +44,7 @@ class SignDocServiceImplTest {
                 "provider",
                 "1",
                 "https://api.external.com",
+                "https://api.external.com",
                 "sign-doc",
                 "cred-123", "pwd",
                 "PT10M",
@@ -73,7 +74,7 @@ class SignDocServiceImplTest {
 
         String signedJwt = "signed-jwt";
         String signedB64 = Base64.getEncoder().encodeToString(signedJwt.getBytes(StandardCharsets.UTF_8));
-        CertificateInfo certInfo = new CertificateInfo(List.of(), null, null, null, null, null, List.of(SIGN_ALGO_OID), null);
+        CertificateInfo certInfo = new CertificateInfo(List.of(), null, null, null, null, null, List.of(SIGN_ALGO_OID), null, false);
 
         when(cscPort.requestAccessToken(cfg, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, true, req.data()))
                 .thenReturn(Mono.just("access-token"));
@@ -101,7 +102,7 @@ class SignDocServiceImplTest {
 
         String signedJwt = "signed-jwt";
         String signedB64 = Base64.getEncoder().encodeToString(signedJwt.getBytes(StandardCharsets.UTF_8));
-        CertificateInfo certInfo = new CertificateInfo(List.of(), null, null, null, null, null, List.of(SIGN_ALGO_OID), null);
+        CertificateInfo certInfo = new CertificateInfo(List.of(), null, null, null, null, null, List.of(SIGN_ALGO_OID), null, false);
 
         when(cscPort.requestAccessToken(cfg, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, true, req.data()))
                 .thenReturn(Mono.just("access-token"));
@@ -129,7 +130,7 @@ class SignDocServiceImplTest {
 
         String signedJwt = "signed-jwt";
         String signedB64 = Base64.getEncoder().encodeToString(signedJwt.getBytes(StandardCharsets.UTF_8));
-        CertificateInfo certInfo = new CertificateInfo(List.of(), null, null, null, null, null, List.of(SIGN_ALGO_OID), null);
+        CertificateInfo certInfo = new CertificateInfo(List.of(), null, null, null, null, null, List.of(SIGN_ALGO_OID), null, false);
 
         when(cscPort.requestAccessToken(cfg, SIGNATURE_REMOTE_SCOPE_CREDENTIAL, true, req.data()))
                 .thenReturn(Mono.just("access-token"));
@@ -157,7 +158,7 @@ class SignDocServiceImplTest {
 
         String signedJwt = "signed-jwt";
         String signedB64 = Base64.getEncoder().encodeToString(signedJwt.getBytes(StandardCharsets.UTF_8));
-        CertificateInfo certInfo = new CertificateInfo(List.of(), null, null, null, null, null, List.of(SIGN_ALGO_OID), null);
+        CertificateInfo certInfo = new CertificateInfo(List.of(), null, null, null, null, null, List.of(SIGN_ALGO_OID), null, false);
 
         WebClientResponseException serverError = WebClientResponseException.create(
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),

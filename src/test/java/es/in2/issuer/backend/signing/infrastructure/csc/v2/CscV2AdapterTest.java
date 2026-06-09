@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.signing.infrastructure.csc.v1;
+package es.in2.issuer.backend.signing.infrastructure.csc.v2;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
@@ -7,7 +7,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
 import es.in2.issuer.backend.signing.infrastructure.csc.auth.CscAuthStrategy;
 import es.in2.issuer.backend.signing.infrastructure.csc.auth.CscAuthStrategyResolver;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
-import es.in2.issuer.backend.signing.infrastructure.csc.v1.mapper.CscV1CertificateInfoMapper;
+import es.in2.issuer.backend.signing.infrastructure.csc.v2.mapper.CscV2CertificateInfoMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,29 +21,28 @@ import reactor.test.StepVerifier;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-class CscV1AdapterTest {
+class CscV2AdapterTest {
 
     @Mock private CscAuthStrategyResolver authStrategyResolver;
-    @Mock private CscV1CertificateInfoMapper certificateInfoMapper;
+    @Mock private CscV2CertificateInfoMapper certificateInfoMapper;
     @Mock private HttpUtils httpUtils;
 
-    private CscV1Adapter adapter;
+    private CscV2Adapter adapter;
     private RemoteSignatureDto cfg;
 
     @BeforeEach
     void setUp() {
         ObjectMapper objectMapper = new ObjectMapper();
-        adapter = new CscV1Adapter(authStrategyResolver, certificateInfoMapper, objectMapper, httpUtils);
+        adapter = new CscV2Adapter(authStrategyResolver, certificateInfoMapper, objectMapper, httpUtils);
 
         cfg = new RemoteSignatureDto(
                 "oauth2",
-                "v1",
+                "v2",
                 "https://qtsp.test",
                 "https://qtsp.test",
                 "sign-hash",
@@ -59,36 +58,15 @@ class CscV1AdapterTest {
     }
 
     @Test
-    void supportedVersion_returnsV1() {
-        assertTrue(adapter.supportedVersion().equalsIgnoreCase("v1"));
-    }
-
-    @Test
     void authorizeForHash_success_returnsSad() {
         when(httpUtils.postRequest(
-                eq("https://qtsp.test" + CscV1Paths.AUTHORIZE),
+                eq("https://qtsp.test" + CscV2Paths.AUTHORIZE),
                 anyList(),
                 anyString()
-        )).thenReturn(Mono.just("{\"SAD\":\"sad-token-v1\"}"));
+        )).thenReturn(Mono.just("{\"SAD\":\"sad-token-123\"}"));
 
         StepVerifier.create(adapter.authorizeForHash(cfg, "access-token", "hashB64Url", "2.16.840.1.101.3.4.2.1"))
-                .expectNext("sad-token-v1")
-                .verifyComplete();
-    }
-
-    @Test
-    void authorizeForHash_sendsCredentialIdAndHash_withoutPin() {
-        when(httpUtils.postRequest(
-                anyString(),
-                anyList(),
-                argThat(body -> body.contains("\"credentialID\"")
-                        && body.contains("\"hash\"")
-                        && !body.contains("\"PIN\"")
-                        && !body.contains("authData"))
-        )).thenReturn(Mono.just("{\"SAD\":\"sad-no-pin\"}"));
-
-        StepVerifier.create(adapter.authorizeForHash(cfg, "access-token", "hashB64Url", "2.16.840.1.101.3.4.2.1"))
-                .expectNext("sad-no-pin")
+                .expectNext("sad-token-123")
                 .verifyComplete();
     }
 
@@ -99,7 +77,7 @@ class CscV1AdapterTest {
 
         StepVerifier.create(adapter.authorizeForHash(cfg, "access-token", "hashB64Url", "2.16.840.1.101.3.4.2.1"))
                 .expectErrorSatisfies(ex -> {
-                    assertInstanceOf(RemoteSignatureException.class, ex);
+                    assertTrue(ex instanceof RemoteSignatureException);
                     assertTrue(ex.getMessage().contains("Empty authorize response"));
                 })
                 .verify();
@@ -117,7 +95,7 @@ class CscV1AdapterTest {
 
         StepVerifier.create(adapter.authorizeForHash(cfg, "access-token", "hashB64Url", "2.16.840.1.101.3.4.2.1"))
                 .expectErrorSatisfies(ex -> {
-                    assertInstanceOf(RemoteSignatureException.class, ex);
+                    assertTrue(ex instanceof RemoteSignatureException);
                     assertTrue(ex.getMessage().contains("Unauthorized on credentials/authorize (hash)"));
                 })
                 .verify();
@@ -126,14 +104,14 @@ class CscV1AdapterTest {
     @Test
     void signHash_success_returnsFirstSignature() {
         when(httpUtils.postRequest(
-                eq("https://qtsp.test" + CscV1Paths.SIGN_HASH),
+                eq("https://qtsp.test" + CscV2Paths.SIGN_HASH),
                 anyList(),
                 anyString()
-        )).thenReturn(Mono.just("{\"signatures\":[\"sig-v1-abc\"]}"));
+        )).thenReturn(Mono.just("{\"signatures\":[\"sig-abc\"]}"));
 
         StepVerifier.create(adapter.signHash(cfg, "access-token", "sad-1", "hashB64Url",
                         "2.16.840.1.101.3.4.2.1", "1.2.840.10045.4.3.2"))
-                .expectNext("sig-v1-abc")
+                .expectNext("sig-abc")
                 .verifyComplete();
     }
 
@@ -145,7 +123,7 @@ class CscV1AdapterTest {
         StepVerifier.create(adapter.signHash(cfg, "access-token", "sad-1", "hashB64Url",
                         "2.16.840.1.101.3.4.2.1", "1.2.840.10045.4.3.2"))
                 .expectErrorSatisfies(ex -> {
-                    assertInstanceOf(RemoteSignatureException.class, ex);
+                    assertTrue(ex instanceof RemoteSignatureException);
                     assertTrue(ex.getMessage().contains("signHash response missing signatures[0]"));
                 })
                 .verify();
@@ -164,9 +142,59 @@ class CscV1AdapterTest {
         StepVerifier.create(adapter.signHash(cfg, "access-token", "sad-1", "hashB64Url",
                         "2.16.840.1.101.3.4.2.1", "1.2.840.10045.4.3.2"))
                 .expectErrorSatisfies(ex -> {
-                    assertInstanceOf(RemoteSignatureException.class, ex);
+                    assertTrue(ex instanceof RemoteSignatureException);
                     assertTrue(ex.getMessage().contains("Unauthorized on signatures/signHash"));
                 })
+                .verify();
+    }
+
+    @Test
+    void authorizeForDoc_success_returnsSad() {
+        when(httpUtils.postRequest(
+                eq("https://qtsp.test" + CscV2Paths.AUTHORIZE),
+                anyList(),
+                anyString()
+        )).thenReturn(Mono.just("{\"SAD\":\"doc-sad-456\"}"));
+
+        StepVerifier.create(adapter.authorizeForDoc(cfg, "access-token"))
+                .expectNext("doc-sad-456")
+                .verifyComplete();
+    }
+
+    @Test
+    void authorizeForDoc_emptySad_shouldError() {
+        when(httpUtils.postRequest(anyString(), anyList(), anyString()))
+                .thenReturn(Mono.just("{}"));
+
+        StepVerifier.create(adapter.authorizeForDoc(cfg, "access-token"))
+                .expectErrorSatisfies(ex -> {
+                    assertTrue(ex instanceof RemoteSignatureException);
+                    assertTrue(ex.getMessage().contains("Empty authorize response"));
+                })
+                .verify();
+    }
+
+    @Test
+    void signDoc_success_returnsFirstDocument() {
+        String docB64 = "c2lnbmVk";
+        when(httpUtils.postRequest(
+                eq("https://qtsp.test" + CscV2Paths.SIGN_DOC),
+                anyList(),
+                anyString()
+        )).thenReturn(Mono.just("{\"DocumentWithSignature\":[\"" + docB64 + "\"]}"));
+
+        StepVerifier.create(adapter.signDoc(cfg, "access-token", "sad-1", "rawDocB64", "1.2.840.10045.4.3.2"))
+                .expectNext(docB64)
+                .verifyComplete();
+    }
+
+    @Test
+    void signDoc_missingDocument_shouldError() {
+        when(httpUtils.postRequest(anyString(), anyList(), anyString()))
+                .thenReturn(Mono.just("{\"DocumentWithSignature\":[]}"));
+
+        StepVerifier.create(adapter.signDoc(cfg, "access-token", "sad-1", "rawDocB64", "1.2.840.10045.4.3.2"))
+                .expectErrorSatisfies(ex -> assertTrue(ex instanceof RemoteSignatureException))
                 .verify();
     }
 
@@ -179,7 +207,7 @@ class CscV1AdapterTest {
         );
 
         when(httpUtils.postRequest(
-                eq("https://qtsp.test" + CscV1Paths.INFO),
+                eq("https://qtsp.test" + CscV2Paths.INFO),
                 anyList(),
                 anyString()
         )).thenReturn(Mono.just("{\"key\":{},\"cert\":{}}"));
@@ -193,7 +221,7 @@ class CscV1AdapterTest {
     @Test
     void validateCredentialId_returnsTrueWhenPresent() {
         when(httpUtils.postRequest(
-                eq("https://qtsp.test" + CscV1Paths.LIST),
+                eq("https://qtsp.test" + CscV2Paths.LIST),
                 anyList(),
                 anyString()
         )).thenReturn(Mono.just("{\"credentialIDs\":[\"cred-123\"]}"));
@@ -216,7 +244,7 @@ class CscV1AdapterTest {
     @Test
     void listCredentialIds_returnsIds() {
         when(httpUtils.postRequest(
-                eq("https://qtsp.test" + CscV1Paths.LIST),
+                eq("https://qtsp.test" + CscV2Paths.LIST),
                 anyList(),
                 anyString()
         )).thenReturn(Mono.just("{\"credentialIDs\":[\"id-1\",\"id-2\"]}"));
@@ -236,25 +264,5 @@ class CscV1AdapterTest {
         StepVerifier.create(adapter.requestAccessToken(cfg, "scope", false, null))
                 .expectNext("delegated-token")
                 .verifyComplete();
-    }
-
-    @Test
-    void authorizeForDoc_notSupported() {
-        StepVerifier.create(adapter.authorizeForDoc(cfg, "access-token"))
-                .expectErrorSatisfies(ex -> {
-                    assertInstanceOf(RemoteSignatureException.class, ex);
-                    assertTrue(ex.getMessage().contains("not supported in CSC v1"));
-                })
-                .verify();
-    }
-
-    @Test
-    void signDoc_notSupported() {
-        StepVerifier.create(adapter.signDoc(cfg, "access-token", "sad", "docB64", "1.2.840.10045.4.3.2"))
-                .expectErrorSatisfies(ex -> {
-                    assertInstanceOf(RemoteSignatureException.class, ex);
-                    assertTrue(ex.getMessage().contains("not supported in CSC v1"));
-                })
-                .verify();
     }
 }

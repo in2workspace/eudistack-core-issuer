@@ -6,6 +6,7 @@ public record RemoteSignatureDto(
         @NotBlank String provider,
         @NotBlank String cscApiVersion,
         @NotBlank String url,
+        @NotBlank String authUrl,
         @NotBlank String signingOperation,
         @NotBlank String credentialId,
         @NotBlank String credentialPassword,

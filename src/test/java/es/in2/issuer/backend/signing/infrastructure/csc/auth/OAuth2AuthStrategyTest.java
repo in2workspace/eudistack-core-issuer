@@ -46,6 +46,7 @@ class OAuth2AuthStrategyTest {
                 "provider",
                 "1",
                 "https://qtsp",
+                "https://qtsp",
                 "sign-hash",
                 "cred-123", "pwd",
                 "PT10M",
