@@ -176,6 +176,49 @@ public class GenericCredentialBuilder {
         };
     }
 
+    /**
+     * Injects the holder's DID (derived from the OID4VCI proof JWK) into the credential's mandatee.id.
+     * Ensures cnf.jwk and mandatee.id reference the same key pair.
+     * Format-aware: updates credentialSubject.mandate.mandatee.id (W3C) or mandate.mandatee.id (SD-JWT).
+     */
+    public String bindHolderDid(String credentialJson, String holderDid) {
+        try {
+            ObjectNode credential = (ObjectNode) objectMapper.readTree(credentialJson);
+
+            // W3C format: credentialSubject.mandate.mandatee.id
+            if (credential.has("credentialSubject")) {
+                JsonNode cs = credential.get("credentialSubject");
+                if (cs instanceof ObjectNode csNode && csNode.has("mandate")) {
+                    JsonNode mandate = csNode.get("mandate");
+                    if (mandate instanceof ObjectNode mandateNode && mandateNode.has("mandatee")) {
+                        JsonNode mandatee = mandateNode.get("mandatee");
+                        if (mandatee instanceof ObjectNode mandateeNode) {
+                            mandateeNode.put("id", holderDid);
+                            return objectMapper.writeValueAsString(credential);
+                        }
+                    }
+                }
+            }
+
+            // SD-JWT flat format: mandate.mandatee.id (top-level)
+            if (credential.has("mandate")) {
+                JsonNode mandate = credential.get("mandate");
+                if (mandate instanceof ObjectNode mandateNode && mandateNode.has("mandatee")) {
+                    JsonNode mandatee = mandateNode.get("mandatee");
+                    if (mandatee instanceof ObjectNode mandateeNode) {
+                        mandateeNode.put("id", holderDid);
+                        return objectMapper.writeValueAsString(credential);
+                    }
+                }
+            }
+
+            return credentialJson;
+        } catch (Exception e) {
+            log.warn("Could not bind holder DID to credential, mandatee.id unchanged: {}", e.getMessage());
+            return credentialJson;
+        }
+    }
+
     private Mono<String> setIssuerField(CredentialProfile profile, String decodedCredentialJson, Object issuer) {
         try {
             ObjectNode credential = (ObjectNode) objectMapper.readTree(decodedCredentialJson);

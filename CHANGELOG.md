@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.19] - 2026-06-09
+
+### Fixed
+
+- **OID4VCI — Holder Binding**: `cnf.jwk` and `credentialSubject.mandate.mandatee.id` now reference the same P-256 key pair. Previously `buildFromJwk()` assigned a random UUID as `subjectId`, so `mandatee.id` was pre-set to an arbitrary `did:key` from the portal form while `cnf.jwk` held the actual wallet key. Fixed by deriving `did:key` from the proof JWK (compressed EC point + P-256 multicodec varint `[0x80, 0x24]` + base58btc) and injecting it into `mandatee.id` at signing time. Affects all LEARCredentials with `mandate.mandatee` structure (`jwt_vc_json` and `dc+sd-jwt`) in both browser mode (Wallet PWA) and server mode (EBW).
+
+## [3.6.18] - 2026-06-08
+
+### Fixed
+- **PBAC — Revocation**: `PolicyContext.hasPowerWithDomain` now uses case-insensitive domain comparison (`equalsIgnoreCase`) to match the behaviour of `PolicyContextFactory.resolveTenantAdmin`. A user with `Onboarding/Execute/domain=DOME` (uppercase in JWT) was rejected when the request `X-Tenant-Id` header arrived as `dome` (lowercase), causing an erroneous 401 on credential revocation despite holding the correct power.
+
+## [3.6.17] - 2026-06-08
+
+### Fixed
+- **Mail**: Improve fallback alt text for blocked QR images
+
 ## [3.6.16] - 2026-05-28
 
 ### Fixed
