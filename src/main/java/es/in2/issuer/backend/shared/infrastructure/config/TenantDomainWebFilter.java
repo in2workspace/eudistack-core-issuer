@@ -14,7 +14,7 @@ import java.util.regex.Pattern;
 import java.util.Set;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
-import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_ID_HEADER;
+import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.HEALTH_PATH;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.PROMETHEUS_PATH;
 
@@ -24,13 +24,14 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.PROMET
  *
  * <p>Resolution order:
  * <ol>
- *     <li>{@code X-Tenant-Id} header (local dev via nginx; service-to-service calls;
- *         API Gateway route).</li>
- *     <li>First segment of the request host (AWS: CloudFront/ALB preserve the host,
- *         no header injection). Example: {@code kpmg.eudistack.net} &rarr; {@code kpmg}.</li>
+ *     <li>First segment of the request host — with {@code forward-headers-strategy: framework}
+ *         this is already the effective forwarded host, so CloudFront/ALB deployments
+ *         work transparently. Example: {@code kpmg.eudistack.net} &rarr; {@code kpmg}.</li>
+ *     <li>{@code X-Tenant} header (fallback for local dev via nginx, service-to-service
+ *         calls, or any context where the host has no multi-segment subdomain).</li>
  * </ol>
  *
- * <p>If neither produces a value (missing/empty host — internal calls, healthchecks),
+ * <p>If neither produces a value (bare IP, missing host — internal calls, healthchecks),
  * the request passes through without a tenant in context.
  *
  * <p>Tenant-agnostic operational paths bypass this filter entirely:
@@ -73,15 +74,14 @@ public class TenantDomainWebFilter implements WebFilter {
             return chain.filter(exchange);
         }
 
-        String headerValue = exchange.getRequest().getHeaders().getFirst(TENANT_ID_HEADER);
-        String tenantDomain;
-        String source;
-        if (headerValue != null && !headerValue.isBlank()) {
-            tenantDomain = headerValue.trim();
-            source = TENANT_ID_HEADER + " header";
-        } else {
-            tenantDomain = extractTenantFromHost(exchange);
-            source = "request host";
+        String tenantDomain = extractTenantFromHost(exchange);
+        String source = "request host";
+        if (tenantDomain == null || tenantDomain.isBlank()) {
+            String headerValue = exchange.getRequest().getHeaders().getFirst(X_TENANT_HEADER);
+            if (headerValue != null && !headerValue.isBlank()) {
+                tenantDomain = headerValue.trim();
+                source = X_TENANT_HEADER + " header";
+            }
         }
 
         if (tenantDomain == null || tenantDomain.isBlank()) {
