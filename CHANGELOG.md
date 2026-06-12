@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.20] - 2026-06-12
+
+### Changed
+- **Tenant Resolution**: `TenantDomainWebFilter` now resolves the tenant from the request host subdomain first (already the effective forwarded host with `forward-headers-strategy: framework`), falling back to the `X-Tenant` header (renamed from `X-Tenant-Id`) for service-to-service calls and local dev environments without a multi-segment host.
+
 ### Fixed
 - **Mail — kpmg template**: Remove unused `<style>` block with `@media` queries and `display: none` from `credential-offer-email-v2.html`. The CSS classes defined were never applied to any element (dead code), but the `display: none !important` rule was triggering corporate email filters (Exchange/Outlook) causing silent delivery failure. Fix has no visual impact. Also replace hardcoded event-specific header text (`Spring Meeting 2026` / `Encuentro de Primavera 2026`) with the generic `email.credential-offer.header` value.
 
