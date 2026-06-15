@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Removed duplicated `sub` JWT claim from W3C credentials, relying on `credentialSubject.id` as the subject identifier.
+
 ### Fixed
 - **Mail — kpmg template**: Remove unused `<style>` block with `@media` queries and `display: none` from `credential-offer-email-v2.html`. The CSS classes defined were never applied to any element (dead code), but the `display: none !important` rule was triggering corporate email filters (Exchange/Outlook) causing silent delivery failure. Fix has no visual impact. Also replace hardcoded event-specific header text (`Spring Meeting 2026` / `Encuentro de Primavera 2026`) with the generic `email.credential-offer.header` value.
 
