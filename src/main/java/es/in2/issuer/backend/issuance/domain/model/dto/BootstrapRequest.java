@@ -10,8 +10,8 @@ import lombok.Builder;
 /**
  * Request body for the cross-tenant bootstrap endpoint.
  *
- * <p>The destination tenant is declared via the {@code X-Tenant-Id} HTTP
- * header (same convention as the rest of the API). It is NOT part of the
+ * <p>The destination tenant is resolved from the request host subdomain or,
+ * as fallback, from the {@code X-Tenant} HTTP header. It is NOT part of the
  * body. Validation and registry lookup are performed by
  * {@code TenantDomainWebFilter} before the controller is invoked.
  */
