@@ -6,9 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.6.20] - 2026-06-12
-
-### Changed
+### Changed - 2026-06-12
 - **Tenant Resolution**: `TenantDomainWebFilter` now gives precedence to the `X-Tenant` header over the request host subdomain. If the header is absent, the tenant is resolved from the first host segment, using the effective forwarded host when `forward-headers-strategy: framework` is enabled. Environment suffixes such as `-stg`, `-dev` and `-pre` are stripped before the tenant registry lookup.
 
 ### Fixed
