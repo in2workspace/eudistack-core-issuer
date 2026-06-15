@@ -66,8 +66,8 @@ class TenantDomainWebFilterTest {
     }
 
     @Test
-    void filter_hostAndHeaderPresent_hostTakesPrecedence() {
-        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("kpmg")));
+    void filter_hostAndHeaderPresent_headerTakesPrecedence() {
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("kpmg", "altia")));
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("https://kpmg.eudistack.net/issuer/ping")
                         .header(X_TENANT_HEADER, "altia"));
@@ -79,7 +79,32 @@ class TenantDomainWebFilterTest {
 
         StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
 
-        assertEquals("kpmg", captured.get());
+        assertEquals("altia", captured.get());
+    }
+
+    @Test
+    void filter_validHostAndUnknownHeader_returns404() {
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("kpmg")));
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("https://kpmg.eudistack.net/issuer/ping")
+                        .header(X_TENANT_HEADER, "altia"));
+        WebFilterChain chain = ex -> Mono.error(new AssertionError("chain must not be invoked"));
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertEquals(HttpStatus.NOT_FOUND, exchange.getResponse().getStatusCode());
+    }
+
+    @Test
+    void filter_validHostAndMalformedHeader_returns400() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("https://kpmg.eudistack.net/issuer/ping")
+                        .header(X_TENANT_HEADER, "bad tenant!"));
+        WebFilterChain chain = ex -> Mono.error(new AssertionError("chain must not be invoked"));
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertEquals(HttpStatus.BAD_REQUEST, exchange.getResponse().getStatusCode());
     }
 
     @Test
