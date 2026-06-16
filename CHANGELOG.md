@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Removed duplicated `sub` JWT claim from W3C credentials, relying on `credentialSubject.id` as the subject identifier.
 - **Tenant Resolution**: `TenantDomainWebFilter` now gives precedence to the `X-Tenant` header over the request host subdomain. If the header is absent, the tenant is resolved from the first host segment, using the effective forwarded host when `forward-headers-strategy: framework` is enabled. Environment suffixes such as `-stg`, `-dev` and `-pre` are stripped before the tenant registry lookup.
+- Improved GDPR compliance by reducing PII logging.
 
 ### Fixed
 - **Mail — kpmg template**: Remove unused `<style>` block with `@media` queries and `display: none` from `credential-offer-email-v2.html`. The CSS classes defined were never applied to any element (dead code), but the `display: none !important` rule was triggering corporate email filters (Exchange/Outlook) causing silent delivery failure. Fix has no visual impact. Also replace hardcoded event-specific header text (`Spring Meeting 2026` / `Encuentro de Primavera 2026`) with the generic `email.credential-offer.header` value.
