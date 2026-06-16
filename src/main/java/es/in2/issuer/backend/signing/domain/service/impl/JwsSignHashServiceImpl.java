@@ -42,6 +42,12 @@ public class JwsSignHashServiceImpl implements JwsSignHashService {
         String signingInput = headerB64Url + "." + payloadB64Url;
         byte[] signingInputBytes = signingInput.getBytes(StandardCharsets.US_ASCII);
 
+        // The digest is encoded as base64url here (the canonical JOSE form, and
+        // what the CSC v2 / DSS path expects). Per-QTSP hash encoding is the
+        // adapter's responsibility: the Vintegris v1 adapter transcodes this to
+        // standard Base64, which that provider requires. The hash is only the
+        // transport of the digest to the QTSP and never becomes part of the
+        // final JWS, so the returned signature is unaffected by the encoding.
         final String hashB64Url;
         try {
             byte[] digest = hashGeneratorService.sha256Digest(signingInputBytes);

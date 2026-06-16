@@ -8,6 +8,8 @@ import java.util.List;
 
 public interface CscPort {
 
+    String supportedVersion();
+
     Mono<String> requestAccessToken(RemoteSignatureDto cfg, String scope, boolean includeAuthDetails, String credentialData);
 
     default Mono<String> requestAccessToken(RemoteSignatureDto cfg, String scope, boolean includeAuthDetails) {

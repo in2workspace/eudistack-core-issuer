@@ -23,6 +23,7 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
 
     private static final String AUTHORIZE_PATH = "/trustedapps/v1/trusted/app/authorize";
     private static final String SIMPLE_TOKEN_PATH = "/trustedapps/v1/trusted/app/login/first";
+    private static final String ROBUST_TOKEN_PATH = "/trustedapps/v1/trusted/app/login/second";
 
     private final ObjectMapper objectMapper;
     private final WebClient webClient;
@@ -45,7 +46,8 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
         RemoteSignatureDto cfg = request.remoteSignature();
         return Mono.fromCallable(() -> buildJwt(cfg))
                 .flatMap(jwt -> authorizeApp(cfg, jwt))
-                .flatMap(appToken -> fetchSimpleToken(cfg, appToken))
+                .flatMap(appToken -> fetchSimpleToken(cfg, appToken)
+                        .flatMap(simpleToken -> fetchRobustToken(cfg, appToken, simpleToken)))
                 .onErrorMap(
                         e -> !(e instanceof AccessTokenException),
                         e -> new AccessTokenException("Vintegris auth failed: " + e.getMessage(), e));
@@ -72,12 +74,12 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
 
     private Mono<String> authorizeApp(RemoteSignatureDto cfg, String jwt) {
         return webClient.post()
-                .uri(cfg.url() + AUTHORIZE_PATH)
+                .uri(cfg.authUrl() + AUTHORIZE_PATH)
                 .header("Authorization", jwt)
                 .retrieve()
                 .bodyToMono(TrustedAppActivationResponse.class)
                 .map(r -> r.content().authorization())
-                .doOnNext(t -> log.debug("Vintegris trusted app authorized"))
+                .doOnNext(_ -> log.debug("Vintegris trusted app authorized"))
                 .doOnError(e -> log.error("Vintegris trusted app authorization failed", e));
     }
 
@@ -85,13 +87,32 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
         String encodedUsername = Base64.getEncoder()
                 .encodeToString(cfg.managerId().getBytes(StandardCharsets.UTF_8));
         return webClient.post()
-                .uri(cfg.url() + SIMPLE_TOKEN_PATH + "?username=" + encodedUsername)
+                .uri(cfg.authUrl() + SIMPLE_TOKEN_PATH + "?username=" + encodedUsername)
                 .header("Application", appToken)
                 .retrieve()
                 .bodyToMono(SimpleTokenResponse.class)
                 .map(r -> r.content().token())
-                .doOnNext(t -> log.debug("Vintegris simple token acquired"))
+                .doOnNext(_ -> log.debug("Vintegris simple token acquired"))
                 .doOnError(e -> log.error("Vintegris simple token fetch failed", e));
+    }
+
+    /**
+     * Exchanges the simple token for a robust token via {@code login/second}.
+     * The CSC signing operations ({@code credentials/authorize},
+     * {@code signatures/signHash}) require this robust token; the simple token
+     * alone yields a 400 on authorize. Both the simple token (Authorization)
+     * and the app token (Application) are sent as {@code Bearer} credentials.
+     */
+    private Mono<String> fetchRobustToken(RemoteSignatureDto cfg, String appToken, String simpleToken) {
+        return webClient.post()
+                .uri(cfg.authUrl() + ROBUST_TOKEN_PATH)
+                .header("Authorization", "Bearer " + simpleToken)
+                .header("Application", "Bearer " + appToken)
+                .retrieve()
+                .bodyToMono(SimpleTokenResponse.class)
+                .map(r -> r.content().token())
+                .doOnNext(_ -> log.debug("Vintegris robust token acquired"))
+                .doOnError(e -> log.error("Vintegris robust token fetch failed", e));
     }
 
     private byte[] sha256(String value) throws Exception {
