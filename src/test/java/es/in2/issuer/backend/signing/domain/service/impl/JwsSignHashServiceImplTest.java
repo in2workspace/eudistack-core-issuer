@@ -33,6 +33,7 @@ class JwsSignHashServiceImplTest {
                 "provider",
                 "1",
                 "https://qtsp.test",
+                "https://qtsp.test",
                 "sign-hash",
                 "clientId", "clientSecret",
                 "PT10M",
@@ -60,6 +61,7 @@ class JwsSignHashServiceImplTest {
         byte[] signingInputBytes = signingInput.getBytes(StandardCharsets.US_ASCII);
 
         byte[] digest = new byte[] {1, 2, 3};
+        // Shared service emits base64url; per-QTSP transcoding happens in the adapter.
         String expectedHashB64Url = Base64UrlUtils.encode(digest);
 
         when(hashGeneratorService.sha256Digest(signingInputBytes)).thenReturn(digest);

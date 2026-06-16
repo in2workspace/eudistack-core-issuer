@@ -53,6 +53,7 @@ class DelegatingSigningProviderImplTest {
                 "provider",
                 "1",
                 "https://qtsp.test",
+                "https://qtsp.test",
                 operation,
                 "cred-123", "pwd",
                 "PT10M",

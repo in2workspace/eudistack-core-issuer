@@ -52,7 +52,7 @@ class CredentialOfferEmailV2TemplateTest {
 
         String html = templateEngine.process("credential-offer-email-v2", ctx);
 
-        assertThat(html).contains("Spring Meeting 2026");
+        assertThat(html).contains("Your Credential is Ready");
         assertThat(html).contains("Hello,");
         assertThat(html).contains("KPMG Spain has issued your credential");
         assertThat(html).contains("How to add the credential to your Wallet");
@@ -75,7 +75,7 @@ class CredentialOfferEmailV2TemplateTest {
 
         String html = templateEngine.process("credential-offer-email-v2", ctx);
 
-        assertThat(html).contains("Encuentro de Primavera 2026");
+        assertThat(html).contains("Tu credencial está lista");
         assertThat(html).contains("Hola,");
         assertThat(html).contains("KPMG España ha emitido tu credencial");
         assertThat(html).contains("Cómo añadir la credencial a tu Wallet");

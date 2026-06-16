@@ -33,6 +33,7 @@ class IssuerCertificateServiceImplTest {
                 "provider",
                 "1",
                 "https://qtsp.test",
+                "https://qtsp.test",
                 "sign-hash",
                 "cred-123", "pwd",
                 "PT10M",
@@ -48,7 +49,7 @@ class IssuerCertificateServiceImplTest {
     private static CertificateInfo certInfo(String subjectDN, String serialNumber, List<String> certs) {
         return new CertificateInfo(certs, "CN=CA", subjectDN, serialNumber,
                 "2024-01-01T00:00:00Z", "2026-01-01T00:00:00Z",
-                List.of("1.2.840.10045.4.3.2"), 256);
+                List.of("1.2.840.10045.4.3.2"), 256, false);
     }
 
     @Test

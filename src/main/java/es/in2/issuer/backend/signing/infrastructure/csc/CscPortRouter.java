@@ -3,7 +3,6 @@ package es.in2.issuer.backend.signing.infrastructure.csc;
 import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.spi.CscPort;
-import es.in2.issuer.backend.signing.infrastructure.csc.v1.CscV1Adapter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
@@ -20,10 +19,11 @@ public class CscPortRouter implements CscPort {
 
     private final Map<CscApiVersion, CscPort> adaptersByVersion;
 
-    public CscPortRouter(List<CscV1Adapter> adapters) {
+    public CscPortRouter(List<CscPort> adapters) {
         Map<CscApiVersion, CscPort> map = new EnumMap<>(CscApiVersion.class);
-        for (CscV1Adapter adapter : adapters) {
-            CscPort previous = map.putIfAbsent(adapter.supportedVersion(), adapter);
+        for (CscPort adapter : adapters) {
+            CscApiVersion version = CscApiVersion.fromValue(adapter.supportedVersion());
+            CscPort previous = map.putIfAbsent(version, adapter);
             if (previous != null) {
                 throw new IllegalStateException(
                         "Duplicate CscPort registration for version " + adapter.supportedVersion());
@@ -31,6 +31,11 @@ public class CscPortRouter implements CscPort {
         }
         this.adaptersByVersion = Map.copyOf(map);
         log.info("CSC adapters registered for versions: {}", adaptersByVersion.keySet());
+    }
+
+    @Override
+    public String supportedVersion() {
+        throw new UnsupportedOperationException("CscPortRouter is a router, not a versioned adapter");
     }
 
     @Override

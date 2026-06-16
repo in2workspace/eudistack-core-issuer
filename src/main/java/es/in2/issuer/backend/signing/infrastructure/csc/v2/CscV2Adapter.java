@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.signing.infrastructure.csc.v1;
+package es.in2.issuer.backend.signing.infrastructure.csc.v2;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -6,13 +6,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.infrastructure.util.HttpUtils;
 import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
+import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.spi.CscPort;
 import es.in2.issuer.backend.signing.infrastructure.csc.CscApiVersion;
+import es.in2.issuer.backend.signing.infrastructure.csc.v2.dto.*;
+import es.in2.issuer.backend.signing.infrastructure.csc.v2.mapper.CscV2CertificateInfoMapper;
 import es.in2.issuer.backend.signing.infrastructure.csc.auth.CscAuthStrategyResolver;
-import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
-import es.in2.issuer.backend.signing.infrastructure.csc.v1.dto.*;
-import es.in2.issuer.backend.signing.infrastructure.csc.v1.mapper.CscV1CertificateInfoMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -23,24 +23,23 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import reactor.core.publisher.Mono;
 
 import java.util.AbstractMap;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class CscV1Adapter implements CscPort {
+public class CscV2Adapter implements CscPort {
 
     private static final String CHAIN = "chain";
     private final CscAuthStrategyResolver authResolver;
-    private final CscV1CertificateInfoMapper certificateInfoMapper;
+    private final CscV2CertificateInfoMapper certificateInfoMapper;
     private final ObjectMapper objectMapper;
     private final HttpUtils httpUtils;
 
     @Override
     public String supportedVersion() {
-        return CscApiVersion.V1.getValue();
+        return CscApiVersion.V2.getValue();
     }
 
     @Override
@@ -56,8 +55,8 @@ public class CscV1Adapter implements CscPort {
 
     @Override
     public Mono<CertificateInfo> getCredentialInfo(RemoteSignatureDto cfg, String accessToken, String credentialId) {
-        CscV1CredentialsInfoRequest body = new CscV1CredentialsInfoRequest(credentialId, CHAIN, true, true);
-        return post(cfg.url() + CscV1Paths.INFO, accessToken, body)
+        CscV2CredentialsInfoRequest body = new CscV2CredentialsInfoRequest(credentialId, CHAIN, true, true);
+        return post(cfg.url() + CscV2Paths.INFO, accessToken, body)
                 .flatMap(json -> Mono.fromCallable(() -> {
                     Map<String, Object> map = objectMapper.readValue(json, new TypeReference<>() {});
                     return certificateInfoMapper.map(map);
@@ -68,12 +67,12 @@ public class CscV1Adapter implements CscPort {
 
     @Override
     public Mono<Boolean> validateCredentialId(RemoteSignatureDto cfg, String accessToken, String credentialId) {
-        CscV1CredentialsListRequest body = new CscV1CredentialsListRequest(credentialId);
+        CscV2CredentialsListRequest body = new CscV2CredentialsListRequest(true, CHAIN, true, true, true, 0, "string");
 
-        String url = cfg.url() + CscV1Paths.LIST;
+        String url = cfg.url() + CscV2Paths.LIST;
         return post(url, accessToken, body)
                 .flatMap(json -> Mono.fromCallable(() -> {
-                    CscV1CredentialsListResponse resp = objectMapper.readValue(json, CscV1CredentialsListResponse.class);
+                    CscV2CredentialsListResponse resp = objectMapper.readValue(json, CscV2CredentialsListResponse.class);
                     List<String> ids = resp.credentialIds();
                     return ids != null && ids.stream().anyMatch(id -> id.trim().equalsIgnoreCase(credentialId.trim()));
                 }))
@@ -84,10 +83,10 @@ public class CscV1Adapter implements CscPort {
 
     @Override
     public Mono<List<String>> listCredentialIds(RemoteSignatureDto cfg, String accessToken) {
-        CscV1CredentialsListRequest body = new CscV1CredentialsListRequest(null);
-        return post(cfg.url() + CscV1Paths.LIST, accessToken, body)
+        CscV2CredentialsListRequest body = new CscV2CredentialsListRequest(true, CHAIN, true, true, true, 0, "string");
+        return post(cfg.url() + CscV2Paths.LIST, accessToken, body)
                 .flatMap(json -> Mono.fromCallable(() -> {
-                    CscV1CredentialsListResponse resp = objectMapper.readValue(json, CscV1CredentialsListResponse.class);
+                    CscV2CredentialsListResponse resp = objectMapper.readValue(json, CscV2CredentialsListResponse.class);
                     return resp.credentialIds() != null ? resp.credentialIds() : List.<String>of();
                 }))
                 .onErrorMap(e -> !(e instanceof RemoteSignatureException),
@@ -96,13 +95,15 @@ public class CscV1Adapter implements CscPort {
 
     @Override
     public Mono<String> authorizeForHash(RemoteSignatureDto cfg, String accessToken, String hashB64Url, String hashAlgoOid) {
-        CscV1AuthorizeRequest body = new CscV1AuthorizeRequest(
+        CscV2AuthorizeRequest body = new CscV2AuthorizeRequest(
                 cfg.credentialId(),
                 1,
-                List.of(toStandardBase64(hashB64Url))
+                List.of(hashB64Url),
+                hashAlgoOid,
+                List.of(Map.of("id", "password", "value", cfg.credentialPassword()))
         );
-        return post(cfg.url() + CscV1Paths.AUTHORIZE, accessToken, body)
-                .flatMap(json -> Mono.fromCallable(() -> objectMapper.readValue(json, CscV1AuthorizeResponse.class)))
+        return post(cfg.url() + CscV2Paths.AUTHORIZE, accessToken, body)
+                .flatMap(json -> Mono.fromCallable(() -> objectMapper.readValue(json, CscV2AuthorizeResponse.class)))
                 .flatMap(resp -> {
                     if (resp.sad() == null || resp.sad().isBlank()) {
                         return Mono.error(new RemoteSignatureException("Empty authorize response (missing SAD)"));
@@ -113,21 +114,21 @@ public class CscV1Adapter implements CscPort {
                     if (ex.getStatusCode() == HttpStatus.UNAUTHORIZED) {
                         return Mono.error(new RemoteSignatureException("Unauthorized on credentials/authorize (hash)"));
                     }
-                    return Mono.error(new RemoteSignatureException("CSC v1 authorize(hash) failed", ex));
+                    return Mono.error(new RemoteSignatureException("CSC v2 authorize(hash) failed", ex));
                 });
     }
 
     @Override
     public Mono<String> signHash(RemoteSignatureDto cfg, String accessToken, String sad, String hashB64Url, String hashAlgoOid, String signAlgoOid) {
-        CscV1SignHashRequest body = new CscV1SignHashRequest(
+        CscV2SignHashRequest body = new CscV2SignHashRequest(
                 cfg.credentialId(),
                 sad,
-                List.of(toStandardBase64(hashB64Url)),
+                List.of(hashB64Url),
                 hashAlgoOid,
                 signAlgoOid
         );
-        return post(cfg.url() + CscV1Paths.SIGN_HASH, accessToken, body)
-                .flatMap(json -> Mono.fromCallable(() -> objectMapper.readValue(json, CscV1SignHashResponse.class)))
+        return post(cfg.url() + CscV2Paths.SIGN_HASH, accessToken, body)
+                .flatMap(json -> Mono.fromCallable(() -> objectMapper.readValue(json, CscV2SignHashResponse.class)))
                 .flatMap(resp -> {
                     if (resp.signatures() == null || resp.signatures().isEmpty() || resp.signatures().getFirst() == null) {
                         return Mono.error(new RemoteSignatureException("signHash response missing signatures[0]"));
@@ -138,18 +139,57 @@ public class CscV1Adapter implements CscPort {
                     if (ex.getStatusCode() == HttpStatus.UNAUTHORIZED) {
                         return Mono.error(new RemoteSignatureException("Unauthorized on signatures/signHash"));
                     }
-                    return Mono.error(new RemoteSignatureException("CSC v1 signHash failed", ex));
+                    return Mono.error(new RemoteSignatureException("CSC v2 signHash failed", ex));
                 });
     }
 
     @Override
     public Mono<String> authorizeForDoc(RemoteSignatureDto cfg, String accessToken) {
-        return Mono.error(new RemoteSignatureException("authorizeForDoc not supported in CSC v1"));
+        CscV2AuthorizeRequest body = new CscV2AuthorizeRequest(
+                cfg.credentialId(),
+                1,
+                null,
+                null,
+                List.of(Map.of("id", "password", "value", cfg.credentialPassword()))
+        );
+        return post(cfg.url() + CscV2Paths.AUTHORIZE, accessToken, body)
+                .flatMap(json -> Mono.fromCallable(() -> objectMapper.readValue(json, CscV2AuthorizeResponse.class)))
+                .flatMap(resp -> {
+                    if (resp.sad() == null || resp.sad().isBlank()) {
+                        return Mono.error(new RemoteSignatureException("Empty authorize response (missing SAD)"));
+                    }
+                    return Mono.just(resp.sad());
+                })
+                .onErrorResume(WebClientResponseException.class, ex -> {
+                    if (ex.getStatusCode() == HttpStatus.UNAUTHORIZED) {
+                        return Mono.error(new RemoteSignatureException("Unauthorized on credentials/authorize (doc)"));
+                    }
+                    return Mono.error(new RemoteSignatureException("CSC v2 authorize(doc) failed", ex));
+                });
     }
 
     @Override
     public Mono<String> signDoc(RemoteSignatureDto cfg, String accessToken, String sad, String docB64, String signAlgoOid) {
-        return Mono.error(new RemoteSignatureException("signDoc not supported in CSC v1"));
+        CscV2SignDocRequest body = new CscV2SignDocRequest(
+                cfg.credentialId(),
+                sad,
+                "eu_eidas_aesealqc",
+                List.of(Map.of(
+                        "document", docB64,
+                        "signature_format", "J",
+                        "conformance_level", "Ades-B",
+                        "signAlgo", signAlgoOid
+                ))
+        );
+        return post(cfg.url() + CscV2Paths.SIGN_DOC, accessToken, body)
+                .flatMap(json -> Mono.fromCallable(() -> {
+                    CscV2SignDocResponse resp = objectMapper.readValue(json, CscV2SignDocResponse.class);
+                    if (resp.documentWithSignature() == null || resp.documentWithSignature().isEmpty()) {
+                        throw new RemoteSignatureException("signDoc response missing DocumentWithSignature");
+                    }
+                    return resp.documentWithSignature().getFirst();
+                }))
+                .doOnError(error -> log.error("Error in signDoc: {}", error.getMessage()));
     }
 
     private Mono<String> post(String url, String accessToken, Object body) {
@@ -157,7 +197,7 @@ public class CscV1Adapter implements CscPort {
         try {
             json = objectMapper.writeValueAsString(body);
         } catch (JsonProcessingException e) {
-            return Mono.error(new RemoteSignatureException("Error serializing CSC v1 request body", e));
+            return Mono.error(new RemoteSignatureException("Error serializing CSC v2 request body", e));
         }
 
         List<Map.Entry<String, String>> headers = List.of(
@@ -166,16 +206,5 @@ public class CscV1Adapter implements CscPort {
         );
 
         return httpUtils.postRequest(url, headers, json);
-    }
-
-    /**
-     * Vintegris (CSC v1) requires the {@code hash} parameter as standard Base64
-     * (RFC 4648, with padding); a base64url value is rejected with
-     * {@code 400 "Invalid parameter 'hash'"}. The shared signing service emits
-     * base64url, so transcode here. Same digest bytes, different alphabet — the
-     * resulting signature is unaffected.
-     */
-    private static String toStandardBase64(String hashB64Url) {
-        return Base64.getEncoder().encodeToString(Base64.getUrlDecoder().decode(hashB64Url));
     }
 }

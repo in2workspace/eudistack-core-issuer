@@ -111,6 +111,34 @@ class JadesHeaderBuilderServiceImplTest {
         assertEquals("ES512", node.get("alg").asText());
     }
 
+    @Test
+    void buildHeader_mapsGenericRsaEncryptionOid_rs256() throws Exception {
+        CertificateInfo certInfo = certificateInfo(
+                List.of("CERT"),
+                List.of("1.2.840.113549.1.1.1") // rsaEncryption (generic RSA key OID, as Vintegris reports)
+        );
+
+        JsonNode node = objectMapper.readTree(
+                sut.buildHeader(certInfo, JadesProfile.JADES_B_B, null)
+        );
+
+        assertEquals("RS256", node.get("alg").asText());
+    }
+
+    @Test
+    void buildHeader_mapsGenericEcPublicKeyOid_es256() throws Exception {
+        CertificateInfo certInfo = certificateInfo(
+                List.of("CERT"),
+                List.of("1.2.840.10045.2.1") // id-ecPublicKey (generic EC key OID)
+        );
+
+        JsonNode node = objectMapper.readTree(
+                sut.buildHeader(certInfo, JadesProfile.JADES_B_B, null)
+        );
+
+        assertEquals("ES256", node.get("alg").asText());
+    }
+
     // --------------------------------------------------
     // ERROR CASES
     // --------------------------------------------------
@@ -203,7 +231,8 @@ class JadesHeaderBuilderServiceImplTest {
                 "2024-01-01",
                 "2026-01-01",
                 keyAlgorithms,
-                256
+                256,
+                false
         );
     }
 }
