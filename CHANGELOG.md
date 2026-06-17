@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (17-06-2026)
 - Added custom domains registry to allow Issuer and Verifier URL for non-canonical deployments.
+- **CORS**: Added CORS configuration to `bootstrapFilterChain` and registered `/w3c/**` and `/token/**` paths in `CorsConfig` to cover status list endpoints accessible by external wallets.
 
 ### Changed
 - Removed duplicated `sub` JWT claim from W3C credentials, relying on `credentialSubject.id` as the subject identifier.
