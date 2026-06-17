@@ -1,12 +1,15 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
+import es.in2.issuer.backend.shared.infrastructure.config.tenantconfig.TenantCustomDomainsLoader;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 
 import java.net.URI;
+
+import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
 
 /**
  * Implementation of {@link UrlResolver}.
@@ -26,22 +29,29 @@ public class UrlResolverImpl implements UrlResolver {
     private final String verifierContextPath;
     private final String issuerInternalUrl;
     private final String verifierInternalUrl;
+    private final TenantCustomDomainsLoader tenantCustomDomainsLoader;
 
     public UrlResolverImpl(
             @Value("${spring.webflux.base-path:}") String issuerContextPath,
             @Value("${app.verifier-base-path:/verifier}") String verifierContextPath,
             @Value("${app.internal-url:}") String issuerInternalUrl,
-            @Value("${app.verifier-internal-url:}") String verifierInternalUrl
+            @Value("${app.verifier-internal-url:}") String verifierInternalUrl,
+            TenantCustomDomainsLoader tenantCustomDomainsLoader
     ) {
         this.issuerContextPath = normalizeContextPath(issuerContextPath);
         this.verifierContextPath = normalizeContextPath(verifierContextPath);
         this.issuerInternalUrl = stripTrailingSlash(issuerInternalUrl);
         this.verifierInternalUrl = stripTrailingSlash(verifierInternalUrl);
+        this.tenantCustomDomainsLoader = tenantCustomDomainsLoader;
     }
 
     @Override
     public String publicIssuerBaseUrl(ServerWebExchange exchange) {
-        return publicOrigin(exchange) + nullToEmpty(issuerContextPath);
+        // X-Tenant is always injected by CloudFront in non-canonical deployments where
+        // the context path is not part of the external URL.
+        String tenantHeader = exchange.getRequest().getHeaders().getFirst(X_TENANT_HEADER);
+        boolean nonCanonical = tenantHeader != null && !tenantHeader.isBlank();
+        return publicOrigin(exchange) + (nonCanonical ? "" : nullToEmpty(issuerContextPath));
     }
 
     @Override
@@ -63,6 +73,12 @@ public class UrlResolverImpl implements UrlResolver {
 
     @Override
     public String expectedVerifierBaseUrl(ServerWebExchange exchange) {
+        // In non-canonical deployments (X-Tenant present) the verifier is a separate
+        // service whose URL cannot be derived from the issuer request origin.
+        String tenantHeader = exchange.getRequest().getHeaders().getFirst(X_TENANT_HEADER);
+        if (tenantHeader != null && !tenantHeader.isBlank()) {
+            return tenantCustomDomainsLoader.getVerifierUrl(tenantHeader.trim());
+        }
         return publicOrigin(exchange) + nullToEmpty(verifierContextPath);
     }
 

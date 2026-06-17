@@ -1,0 +1,19 @@
+# ---------------------------------------------------------------------------
+# Tenant Custom Domains Registry
+#
+# Maps each tenant to its canonical public URLs for non-canonical deployments
+# (i.e. requests that arrive via CloudFront and carry the X-Tenant header
+# instead of a per-tenant subdomain).
+#
+# Fields:
+#   id       - tenant identifier (must match the X-Tenant / tenantDomain value)
+#   issuer   - canonical public issuer base URL (informational; not used in URL resolution)
+#   verifier - canonical public verifier base URL (used by expectedVerifierBaseUrl())
+#   wallet   - canonical public wallet base URL (for future use)
+#
+# Path configurable via: app.tenant-custom-domains.path
+# Override via APP_TENANTS_CUSTOM_DOMAINS_PATH to load an external file.
+# See dev-tools/issuer/tenants-custom-domains.yaml (local) or platform-iac (AWS).
+# ---------------------------------------------------------------------------
+
+tenants: []

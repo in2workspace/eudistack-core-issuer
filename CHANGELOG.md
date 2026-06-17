@@ -6,15 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+### Fixed (17-06-2026)
 
 - **PBAC — Legacy credential resolution**: `PolicyContextFactory.resolveProfile` now falls back to `CredentialProfileRegistry.getByCredentialType(...)` when no profile matches by `credential_configuration_id`. Real DOME legacy credentials carry the bare semantic type in `type[]` (e.g. `LEARCredentialEmployee`) instead of the versioned config-id, so policy evaluation previously rejected them with `InvalidCredentialFormatException: No profile found for credential type`. Required for the dual-format read flow during the DOME sunset window.
 - **Tenant search path**: `TenantAwareConnectionFactoryDecorator` now wraps the resolved schema name in double quotes when issuing `SET search_path`, preventing case-sensitivity mismatches and identifier-syntax failures for tenants whose schema requires explicit quoting.
 
-### Changed
+### Changed (17-06-2026)
 
 - **Credential profile loading**: `CredentialProfileRegistry` now recursively scans `${credential.profiles.path}/**/*.json` (previously only the top-level directory) so DOME legacy profiles dropped under `legacy/` subfolders are picked up automatically. Sample profiles matching `*.sample*.json` are skipped to avoid polluting the registry with fixture data.
-### Changed
+
+### Changed (17-06-2026)
+- Added custom domains registry to allow Issuer and Verifier URL for non-canonical deployments.
+- **CORS**: Added CORS configuration to `bootstrapFilterChain` and registered `/w3c/**` and `/token/**` paths in `CorsConfig` to cover status list endpoints accessible by external wallets.
+
+### Changed (15-06-2026)
 - Removed duplicated `sub` JWT claim from W3C credentials, relying on `credentialSubject.id` as the subject identifier.
 - **Tenant Resolution**: `TenantDomainWebFilter` now gives precedence to the `X-Tenant` header over the request host subdomain. If the header is absent, the tenant is resolved from the first host segment, using the effective forwarded host when `forward-headers-strategy: framework` is enabled. Environment suffixes such as `-stg`, `-dev` and `-pre` are stripped before the tenant registry lookup.
 
