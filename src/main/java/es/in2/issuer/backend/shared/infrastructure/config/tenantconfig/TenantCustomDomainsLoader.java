@@ -58,7 +58,10 @@ public class TenantCustomDomainsLoader {
             validate(tenants);
             Map<String, TenantEntry> index = new HashMap<>();
             for (TenantEntry entry : tenants) {
-                index.put(entry.id(), entry);
+                TenantEntry previous = index.putIfAbsent(entry.id(), entry);
+                if (previous != null) {
+                    throw new IllegalArgumentException("Duplicate tenant id '" + entry.id() + "'");
+                }
             }
             this.entries = Map.copyOf(index);
             log.info("Loaded {} tenant custom domain(s) from '{}'", entries.size(), configPath);
@@ -81,7 +84,7 @@ public class TenantCustomDomainsLoader {
         if (entry == null) {
             throw new IllegalStateException(
                     "No custom domain config found for tenant '" + tenantId + "'. " +
-                    "Add it to the tenant custom domains file or check APP_TENANT_CUSTOM_DOMAINS_PATH.");
+                    "Add it to the tenant custom domains file or check APP_TENANTS_CUSTOM_DOMAINS_PATH.");
         }
         return entry.verifier();
     }
