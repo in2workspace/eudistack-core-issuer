@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+### Changed (17-06-2026)
 - Added custom domains registry to allow Issuer and Verifier URL for non-canonical deployments.
 
 ### Changed
