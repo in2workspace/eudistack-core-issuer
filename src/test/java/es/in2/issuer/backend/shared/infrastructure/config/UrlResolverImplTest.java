@@ -1,24 +1,38 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
+import es.in2.issuer.backend.shared.infrastructure.config.tenantconfig.TenantCustomDomainsLoader;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.web.server.ServerWebExchange;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class UrlResolverImplTest {
 
     private static UrlResolverImpl resolver(String issuerCtx, String verifierCtx,
                                             String issuerInternal, String verifierInternal) {
-        return new UrlResolverImpl(issuerCtx, verifierCtx, issuerInternal, verifierInternal);
+        return new UrlResolverImpl(issuerCtx, verifierCtx, issuerInternal, verifierInternal, null);
+    }
+
+    private static UrlResolverImpl resolverWith(String issuerCtx, String verifierCtx,
+                                                TenantCustomDomainsLoader loader) {
+        return new UrlResolverImpl(issuerCtx, verifierCtx, "", "", loader);
     }
 
     private static ServerWebExchange exchangeAt(String url) {
         return MockServerWebExchange.from(MockServerHttpRequest.get(url));
     }
 
-    // ── publicIssuerBaseUrl / publicOrigin ──────────────────────────────
+    private static ServerWebExchange exchangeWithTenant(String url, String tenantId) {
+        return MockServerWebExchange.from(
+                MockServerHttpRequest.get(url).header("X-Tenant", tenantId));
+    }
+
+    // ── publicIssuerBaseUrl — canonical (no X-Tenant) ───────────────────────
 
     @Test
     void publicIssuerBaseUrl_includesSchemeHostAndContextPath() {
@@ -48,6 +62,26 @@ class UrlResolverImplTest {
         assertEquals("https://host.example", r.publicIssuerBaseUrl(ex));
     }
 
+    // ── publicIssuerBaseUrl — non-canonical (X-Tenant present) ──────────────
+
+    @Test
+    void publicIssuerBaseUrl_nonCanonical_omitsContextPath() {
+        UrlResolverImpl r = resolver("/issuer", "/verifier", "", "");
+        ServerWebExchange ex = exchangeWithTenant("https://kpmg.eudistack.net/credential", "kpmg");
+        assertEquals("https://kpmg.eudistack.net", r.publicIssuerBaseUrl(ex));
+    }
+
+    @Test
+    void publicIssuerBaseUrl_blankXTenantValue_treatedAsCanonical() {
+        UrlResolverImpl r = resolver("/issuer", "/verifier", "", "");
+        ServerWebExchange ex = MockServerWebExchange.from(
+                MockServerHttpRequest.get("https://kpmg.eudistack.net/issuer/x")
+                        .header("X-Tenant", "   "));
+        assertEquals("https://kpmg.eudistack.net/issuer", r.publicIssuerBaseUrl(ex));
+    }
+
+    // ── publicOrigin ─────────────────────────────────────────────────────────
+
     @Test
     void publicOrigin_returnsOnlySchemeHostPort() {
         UrlResolverImpl r = resolver("/issuer", "/verifier", "", "");
@@ -55,7 +89,7 @@ class UrlResolverImplTest {
         assertEquals("https://sandbox-stg.eudistack.net", r.publicOrigin(ex));
     }
 
-    // ── expectedVerifierBaseUrl ─────────────────────────────────────────
+    // ── expectedVerifierBaseUrl — canonical (no X-Tenant) ───────────────────
 
     @Test
     void expectedVerifierBaseUrl_composesOriginPlusVerifierContextPath() {
@@ -71,7 +105,37 @@ class UrlResolverImplTest {
         assertEquals("https://host.example/v", r.expectedVerifierBaseUrl(ex));
     }
 
-    // ── internal URLs ────────────────────────────────────────────────────
+    // ── expectedVerifierBaseUrl — non-canonical (X-Tenant present) ──────────
+
+    @Test
+    void expectedVerifierBaseUrl_nonCanonical_usesConfiguredVerifierUrl() {
+        TenantCustomDomainsLoader loader = mock(TenantCustomDomainsLoader.class);
+        when(loader.getVerifierUrl("kpmg")).thenReturn("https://kpmg.eudistack.net/verifier");
+        UrlResolverImpl r = resolverWith("/issuer", "/verifier", loader);
+        ServerWebExchange ex = exchangeWithTenant("https://kpmg.eudistack.net/credential", "kpmg");
+        assertEquals("https://kpmg.eudistack.net/verifier", r.expectedVerifierBaseUrl(ex));
+    }
+
+    @Test
+    void expectedVerifierBaseUrl_nonCanonical_unknownTenant_throws() {
+        TenantCustomDomainsLoader loader = mock(TenantCustomDomainsLoader.class);
+        when(loader.getVerifierUrl("unknown")).thenThrow(
+                new IllegalStateException("No custom domain config found for tenant 'unknown'"));
+        UrlResolverImpl r = resolverWith("/issuer", "/verifier", loader);
+        ServerWebExchange ex = exchangeWithTenant("https://host.example/x", "unknown");
+        assertThrows(IllegalStateException.class, () -> r.expectedVerifierBaseUrl(ex));
+    }
+
+    @Test
+    void expectedVerifierBaseUrl_blankXTenantValue_treatedAsCanonical() {
+        UrlResolverImpl r = resolver("/issuer", "/verifier", "", "");
+        ServerWebExchange ex = MockServerWebExchange.from(
+                MockServerHttpRequest.get("https://host.example/issuer/x")
+                        .header("X-Tenant", "   "));
+        assertEquals("https://host.example/verifier", r.expectedVerifierBaseUrl(ex));
+    }
+
+    // ── internal URLs ─────────────────────────────────────────────────────────
 
     @Test
     void internalIssuerBaseUrl_returnsConfiguredValue() {
@@ -105,7 +169,7 @@ class UrlResolverImplTest {
         assertEquals("", r.internalVerifierBaseUrl());
     }
 
-    // ── rewriteToInternalVerifier — the critical method ─────────────────
+    // ── rewriteToInternalVerifier ─────────────────────────────────────────────
 
     @Test
     void rewriteToInternalVerifier_preservesPublicPathWithBasePath() {
@@ -137,8 +201,7 @@ class UrlResolverImplTest {
     void rewriteToInternalVerifier_handlesRootPath() {
         UrlResolverImpl r = resolver("/issuer", "/verifier",
                 "", "http://verifier-core:8080");
-        String rewritten = r.rewriteToInternalVerifier(
-                "https://host.example/");
+        String rewritten = r.rewriteToInternalVerifier("https://host.example/");
         assertEquals("http://verifier-core:8080/", rewritten);
     }
 }

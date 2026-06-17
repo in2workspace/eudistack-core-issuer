@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Added custom domains registry to allow Issuer and Verifier URL for non-canonical deployments.
+
+### Changed
 - Removed duplicated `sub` JWT claim from W3C credentials, relying on `credentialSubject.id` as the subject identifier.
 - **Tenant Resolution**: `TenantDomainWebFilter` now gives precedence to the `X-Tenant` header over the request host subdomain. If the header is absent, the tenant is resolved from the first host segment, using the effective forwarded host when `forward-headers-strategy: framework` is enabled. Environment suffixes such as `-stg`, `-dev` and `-pre` are stripped before the tenant registry lookup.
 
