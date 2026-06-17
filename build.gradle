@@ -12,6 +12,8 @@ plugins {
 group = 'com.eudistack'
 version = '3.6.19'
 
+ext['netty.version'] = '4.1.132.Final'
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
@@ -61,7 +63,7 @@ dependencies {
     // --- Cryptography ---
     implementation 'com.nimbusds:nimbus-jose-jwt:9.40'
     implementation 'com.nimbusds:oauth2-oidc-sdk:11.21.1'
-    implementation 'org.bouncycastle:bcprov-jdk18on:1.80'
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.84'
     implementation 'io.github.novacrypto:Base58:2022.01.17'
 
     // --- Email ---
