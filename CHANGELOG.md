@@ -6,7 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+### Changed (17-06-2026)
+- Added custom domains registry to allow Issuer and Verifier URL for non-canonical deployments.
+- **CORS**: Added CORS configuration to `bootstrapFilterChain` and registered `/w3c/**` and `/token/**` paths in `CorsConfig` to cover status list endpoints accessible by external wallets.
+
+### Changed (15-06-2026)
 - Removed duplicated `sub` JWT claim from W3C credentials, relying on `credentialSubject.id` as the subject identifier.
 - **Tenant Resolution**: `TenantDomainWebFilter` now gives precedence to the `X-Tenant` header over the request host subdomain. If the header is absent, the tenant is resolved from the first host segment, using the effective forwarded host when `forward-headers-strategy: framework` is enabled. Environment suffixes such as `-stg`, `-dev` and `-pre` are stripped before the tenant registry lookup.
 

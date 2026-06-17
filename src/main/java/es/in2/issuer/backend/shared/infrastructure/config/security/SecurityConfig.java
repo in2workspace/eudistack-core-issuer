@@ -60,6 +60,7 @@ public class SecurityConfig {
         return http
                 .securityMatcher(ServerWebExchangeMatchers.pathMatchers(BOOTSTRAP_PATH))
                 .authorizeExchange(exchange -> exchange.anyExchange().permitAll())
+                .cors(cors -> cors.configurationSource(corsConfig.corsConfigurationSource()))
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .build();
     }

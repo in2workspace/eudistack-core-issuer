@@ -37,6 +37,8 @@ public class CorsConfig {
         source.registerCorsConfiguration("/oid4vci/**", publicConfig);
         source.registerCorsConfiguration("/oauth/**", publicConfig);
         source.registerCorsConfiguration("/credential-offer/**", publicConfig);
+        source.registerCorsConfiguration("/w3c/**", publicConfig);
+        source.registerCorsConfiguration("/token/**", publicConfig);
         // API endpoints (backoffice, issuances) — same origin in Atlassian-style
         // If external clients need access, add specific origins via cors-origins.yaml
         source.registerCorsConfiguration("/api/**", publicConfig);
