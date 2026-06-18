@@ -6,8 +6,9 @@ import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.web.server.ServerWebExchange;
 
+import java.util.Optional;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -62,22 +63,26 @@ class UrlResolverImplTest {
         assertEquals("https://host.example", r.publicIssuerBaseUrl(ex));
     }
 
-    // ── publicIssuerBaseUrl — non-canonical (X-Tenant present) ──────────────
+    // ── publicIssuerBaseUrl — non-canonical (custom domain, empty context path) ─
 
     @Test
-    void publicIssuerBaseUrl_nonCanonical_omitsContextPath() {
-        UrlResolverImpl r = resolver("/issuer", "/verifier", "", "");
+    void publicIssuerBaseUrl_nonCanonical_emptyContextPath_omitsPrefix() {
+        // Non-canonical deployments configure spring.webflux.base-path as empty
+        // because the domain itself identifies the service. X-Tenant presence does
+        // not affect URL generation — only issuerContextPath does.
+        UrlResolverImpl r = resolver("", "/verifier", "", "");
         ServerWebExchange ex = exchangeWithTenant("https://kpmg.eudistack.net/credential", "kpmg");
         assertEquals("https://kpmg.eudistack.net", r.publicIssuerBaseUrl(ex));
     }
 
     @Test
-    void publicIssuerBaseUrl_blankXTenantValue_treatedAsCanonical() {
+    void publicIssuerBaseUrl_xTenantPresent_stillIncludesContextPath() {
+        // X-Tenant no longer drives URL generation. A canonical deployment that
+        // happens to receive X-Tenant (e.g. CloudFront origin header) must still
+        // include the configured context path.
         UrlResolverImpl r = resolver("/issuer", "/verifier", "", "");
-        ServerWebExchange ex = MockServerWebExchange.from(
-                MockServerHttpRequest.get("https://kpmg.eudistack.net/issuer/x")
-                        .header("X-Tenant", "   "));
-        assertEquals("https://kpmg.eudistack.net/issuer", r.publicIssuerBaseUrl(ex));
+        ServerWebExchange ex = exchangeWithTenant("https://sandbox.stg.eudistack.net/issuer/x", "sandbox");
+        assertEquals("https://sandbox.stg.eudistack.net/issuer", r.publicIssuerBaseUrl(ex));
     }
 
     // ── publicOrigin ─────────────────────────────────────────────────────────
@@ -105,34 +110,35 @@ class UrlResolverImplTest {
         assertEquals("https://host.example/v", r.expectedVerifierBaseUrl(ex));
     }
 
-    // ── expectedVerifierBaseUrl — non-canonical (X-Tenant present) ──────────
+    // ── expectedVerifierBaseUrl — X-Tenant + loader lookup ──────────────────
 
     @Test
-    void expectedVerifierBaseUrl_nonCanonical_usesConfiguredVerifierUrl() {
+    void expectedVerifierBaseUrl_xTenantPresent_loaderHasEntry_returnsCustomVerifierUrl() {
+        // Non-canonical: X-Tenant present, loader knows the tenant → custom domain
         TenantCustomDomainsLoader loader = mock(TenantCustomDomainsLoader.class);
-        when(loader.getVerifierUrl("kpmg")).thenReturn("https://kpmg.eudistack.net/verifier");
+        when(loader.findVerifierUrl("dome")).thenReturn(Optional.of("https://verifier.dome-marketplace.eu"));
         UrlResolverImpl r = resolverWith("/issuer", "/verifier", loader);
-        ServerWebExchange ex = exchangeWithTenant("https://kpmg.eudistack.net/credential", "kpmg");
-        assertEquals("https://kpmg.eudistack.net/verifier", r.expectedVerifierBaseUrl(ex));
+        ServerWebExchange ex = exchangeWithTenant("https://issuer.dome-marketplace.eu/oid4vci/x", "dome");
+        assertEquals("https://verifier.dome-marketplace.eu", r.expectedVerifierBaseUrl(ex));
     }
 
     @Test
-    void expectedVerifierBaseUrl_nonCanonical_unknownTenant_throws() {
+    void expectedVerifierBaseUrl_xTenantPresent_loaderHasNoEntry_fallsBackToOriginPlusContextPath() {
+        // Canonical with CloudFront-injected X-Tenant: loader has no entry → fallback
         TenantCustomDomainsLoader loader = mock(TenantCustomDomainsLoader.class);
-        when(loader.getVerifierUrl("unknown")).thenThrow(
-                new IllegalStateException("No custom domain config found for tenant 'unknown'"));
+        when(loader.findVerifierUrl("sandbox")).thenReturn(Optional.empty());
         UrlResolverImpl r = resolverWith("/issuer", "/verifier", loader);
-        ServerWebExchange ex = exchangeWithTenant("https://host.example/x", "unknown");
-        assertThrows(IllegalStateException.class, () -> r.expectedVerifierBaseUrl(ex));
+        ServerWebExchange ex = exchangeWithTenant("https://sandbox.stg.eudistack.net/issuer/x", "sandbox");
+        assertEquals("https://sandbox.stg.eudistack.net/verifier", r.expectedVerifierBaseUrl(ex));
     }
 
     @Test
-    void expectedVerifierBaseUrl_blankXTenantValue_treatedAsCanonical() {
-        UrlResolverImpl r = resolver("/issuer", "/verifier", "", "");
-        ServerWebExchange ex = MockServerWebExchange.from(
-                MockServerHttpRequest.get("https://host.example/issuer/x")
-                        .header("X-Tenant", "   "));
-        assertEquals("https://host.example/verifier", r.expectedVerifierBaseUrl(ex));
+    void expectedVerifierBaseUrl_noXTenant_fallsBackToOriginPlusContextPath() {
+        // No X-Tenant header at all → origin + verifierContextPath
+        TenantCustomDomainsLoader loader = mock(TenantCustomDomainsLoader.class);
+        UrlResolverImpl r = resolverWith("/issuer", "/verifier", loader);
+        ServerWebExchange ex = exchangeAt("https://sandbox.stg.eudistack.net/issuer/x");
+        assertEquals("https://sandbox.stg.eudistack.net/verifier", r.expectedVerifierBaseUrl(ex));
     }
 
     // ── internal URLs ─────────────────────────────────────────────────────────
