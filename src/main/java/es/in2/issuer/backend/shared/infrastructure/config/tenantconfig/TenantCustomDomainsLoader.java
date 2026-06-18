@@ -89,6 +89,17 @@ public class TenantCustomDomainsLoader {
         return entry.verifier();
     }
 
+    /**
+     * Returns the configured verifier base URL for the given tenant, or
+     * {@link java.util.Optional#empty()} if no entry exists for that tenant.
+     * Use this instead of {@link #getVerifierUrl} when falling back to
+     * origin-based resolution is acceptable (e.g. canonical deployments).
+     */
+    public java.util.Optional<String> findVerifierUrl(String tenantId) {
+        TenantEntry entry = entries.get(tenantId);
+        return entry != null ? java.util.Optional.of(entry.verifier()) : java.util.Optional.empty();
+    }
+
     private static void validate(List<TenantEntry> tenants) {
         for (TenantEntry entry : tenants) {
             if (entry.id() == null || entry.id().isBlank()) {

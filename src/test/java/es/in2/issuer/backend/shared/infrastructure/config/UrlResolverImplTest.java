@@ -1,17 +1,27 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
+import es.in2.issuer.backend.shared.infrastructure.config.tenantconfig.TenantCustomDomainsLoader;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.web.server.ServerWebExchange;
 
+import java.util.Optional;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class UrlResolverImplTest {
 
     private static UrlResolverImpl resolver(String issuerCtx, String verifierCtx,
                                             String issuerInternal, String verifierInternal) {
         return new UrlResolverImpl(issuerCtx, verifierCtx, issuerInternal, verifierInternal, null);
+    }
+
+    private static UrlResolverImpl resolverWith(String issuerCtx, String verifierCtx,
+                                                TenantCustomDomainsLoader loader) {
+        return new UrlResolverImpl(issuerCtx, verifierCtx, "", "", loader);
     }
 
     private static ServerWebExchange exchangeAt(String url) {
@@ -100,12 +110,34 @@ class UrlResolverImplTest {
         assertEquals("https://host.example/v", r.expectedVerifierBaseUrl(ex));
     }
 
-    // ── expectedVerifierBaseUrl — X-Tenant ignored ───────────────────────────
+    // ── expectedVerifierBaseUrl — X-Tenant + loader lookup ──────────────────
 
     @Test
-    void expectedVerifierBaseUrl_xTenantPresent_stillUsesOriginPlusContextPath() {
-        UrlResolverImpl r = resolver("/issuer", "/verifier", "", "");
+    void expectedVerifierBaseUrl_xTenantPresent_loaderHasEntry_returnsCustomVerifierUrl() {
+        // Non-canonical: X-Tenant present, loader knows the tenant → custom domain
+        TenantCustomDomainsLoader loader = mock(TenantCustomDomainsLoader.class);
+        when(loader.findVerifierUrl("dome")).thenReturn(Optional.of("https://verifier.dome-marketplace.eu"));
+        UrlResolverImpl r = resolverWith("/issuer", "/verifier", loader);
+        ServerWebExchange ex = exchangeWithTenant("https://issuer.dome-marketplace.eu/oid4vci/x", "dome");
+        assertEquals("https://verifier.dome-marketplace.eu", r.expectedVerifierBaseUrl(ex));
+    }
+
+    @Test
+    void expectedVerifierBaseUrl_xTenantPresent_loaderHasNoEntry_fallsBackToOriginPlusContextPath() {
+        // Canonical with CloudFront-injected X-Tenant: loader has no entry → fallback
+        TenantCustomDomainsLoader loader = mock(TenantCustomDomainsLoader.class);
+        when(loader.findVerifierUrl("sandbox")).thenReturn(Optional.empty());
+        UrlResolverImpl r = resolverWith("/issuer", "/verifier", loader);
         ServerWebExchange ex = exchangeWithTenant("https://sandbox.stg.eudistack.net/issuer/x", "sandbox");
+        assertEquals("https://sandbox.stg.eudistack.net/verifier", r.expectedVerifierBaseUrl(ex));
+    }
+
+    @Test
+    void expectedVerifierBaseUrl_noXTenant_fallsBackToOriginPlusContextPath() {
+        // No X-Tenant header at all → origin + verifierContextPath
+        TenantCustomDomainsLoader loader = mock(TenantCustomDomainsLoader.class);
+        UrlResolverImpl r = resolverWith("/issuer", "/verifier", loader);
+        ServerWebExchange ex = exchangeAt("https://sandbox.stg.eudistack.net/issuer/x");
         assertEquals("https://sandbox.stg.eudistack.net/verifier", r.expectedVerifierBaseUrl(ex));
     }
 
