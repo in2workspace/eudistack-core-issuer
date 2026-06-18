@@ -9,7 +9,6 @@ import org.springframework.web.server.ServerWebExchange;
 
 import java.net.URI;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
 
 /**
  * Implementation of {@link UrlResolver}.
@@ -69,12 +68,6 @@ public class UrlResolverImpl implements UrlResolver {
 
     @Override
     public String expectedVerifierBaseUrl(ServerWebExchange exchange) {
-        // In non-canonical deployments (X-Tenant present) the verifier is a separate
-        // service whose URL cannot be derived from the issuer request origin.
-        String tenantHeader = exchange.getRequest().getHeaders().getFirst(X_TENANT_HEADER);
-        if (tenantHeader != null && !tenantHeader.isBlank()) {
-            return tenantCustomDomainsLoader.getVerifierUrl(tenantHeader.trim());
-        }
         return publicOrigin(exchange) + nullToEmpty(verifierContextPath);
     }
 
