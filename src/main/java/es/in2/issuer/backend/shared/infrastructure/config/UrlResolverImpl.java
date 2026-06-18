@@ -47,11 +47,7 @@ public class UrlResolverImpl implements UrlResolver {
 
     @Override
     public String publicIssuerBaseUrl(ServerWebExchange exchange) {
-        // X-Tenant is always injected by CloudFront in non-canonical deployments where
-        // the context path is not part of the external URL.
-        String tenantHeader = exchange.getRequest().getHeaders().getFirst(X_TENANT_HEADER);
-        boolean nonCanonical = tenantHeader != null && !tenantHeader.isBlank();
-        return publicOrigin(exchange) + (nonCanonical ? "" : nullToEmpty(issuerContextPath));
+        return publicOrigin(exchange) + nullToEmpty(issuerContextPath);
     }
 
     @Override

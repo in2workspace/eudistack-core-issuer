@@ -62,22 +62,26 @@ class UrlResolverImplTest {
         assertEquals("https://host.example", r.publicIssuerBaseUrl(ex));
     }
 
-    // ── publicIssuerBaseUrl — non-canonical (X-Tenant present) ──────────────
+    // ── publicIssuerBaseUrl — non-canonical (custom domain, empty context path) ─
 
     @Test
-    void publicIssuerBaseUrl_nonCanonical_omitsContextPath() {
-        UrlResolverImpl r = resolver("/issuer", "/verifier", "", "");
+    void publicIssuerBaseUrl_nonCanonical_emptyContextPath_omitsPrefix() {
+        // Non-canonical deployments configure spring.webflux.base-path as empty
+        // because the domain itself identifies the service. X-Tenant presence does
+        // not affect URL generation — only issuerContextPath does.
+        UrlResolverImpl r = resolver("", "/verifier", "", "");
         ServerWebExchange ex = exchangeWithTenant("https://kpmg.eudistack.net/credential", "kpmg");
         assertEquals("https://kpmg.eudistack.net", r.publicIssuerBaseUrl(ex));
     }
 
     @Test
-    void publicIssuerBaseUrl_blankXTenantValue_treatedAsCanonical() {
+    void publicIssuerBaseUrl_xTenantPresent_stillIncludesContextPath() {
+        // X-Tenant no longer drives URL generation. A canonical deployment that
+        // happens to receive X-Tenant (e.g. CloudFront origin header) must still
+        // include the configured context path.
         UrlResolverImpl r = resolver("/issuer", "/verifier", "", "");
-        ServerWebExchange ex = MockServerWebExchange.from(
-                MockServerHttpRequest.get("https://kpmg.eudistack.net/issuer/x")
-                        .header("X-Tenant", "   "));
-        assertEquals("https://kpmg.eudistack.net/issuer", r.publicIssuerBaseUrl(ex));
+        ServerWebExchange ex = exchangeWithTenant("https://sandbox.stg.eudistack.net/issuer/x", "sandbox");
+        assertEquals("https://sandbox.stg.eudistack.net/issuer", r.publicIssuerBaseUrl(ex));
     }
 
     // ── publicOrigin ─────────────────────────────────────────────────────────
