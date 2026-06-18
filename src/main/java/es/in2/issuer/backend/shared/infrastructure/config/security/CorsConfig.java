@@ -9,19 +9,22 @@ import java.util.List;
 /**
  * CORS configuration for the Issuer.
  *
- * <p>With Atlassian-style routing, our own frontends are same-origin
- * with the APIs — no CORS needed between them.
+ * <p>External wallets always call from a different origin (cross-domain deployments
+ * like DOME where issuer and wallet have separate domains). All OID4VCI endpoints
+ * must return Access-Control-Allow-Origin on every response in the redirect chain,
+ * including 302 responses from the authorize endpoint.
  *
- * <p>External wallets (different origins) need CORS to call OID4VCI
- * endpoints (credential, nonce, well-known). These are configured
- * with wildcard origin to support any wallet.
+ * <p>A single /** pattern is used instead of per-path entries to ensure coverage
+ * regardless of the server context path (spring.webflux.base-path). Path-specific
+ * entries are matched after the base-path is stripped by the reactive
+ * UrlBasedCorsConfigurationSource, but proxy-level stripping is not guaranteed,
+ * so wildcard coverage is the only reliable approach.
  */
 @Configuration
 public class CorsConfig {
 
     @Bean
     public UrlBasedCorsConfigurationSource corsConfigurationSource() {
-        // Public OID4VCI endpoints — allow any origin (wallets)
         CorsConfiguration publicConfig = new CorsConfiguration();
         publicConfig.setAllowedOriginPatterns(List.of("*"));
         publicConfig.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
@@ -32,16 +35,7 @@ public class CorsConfig {
         publicConfig.setMaxAge(1800L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        // OID4VCI endpoints called by external wallets
-        source.registerCorsConfiguration("/.well-known/**", publicConfig);
-        source.registerCorsConfiguration("/oid4vci/**", publicConfig);
-        source.registerCorsConfiguration("/oauth/**", publicConfig);
-        source.registerCorsConfiguration("/credential-offer/**", publicConfig);
-        source.registerCorsConfiguration("/w3c/**", publicConfig);
-        source.registerCorsConfiguration("/token/**", publicConfig);
-        // API endpoints (backoffice, issuances) — same origin in Atlassian-style
-        // If external clients need access, add specific origins via cors-origins.yaml
-        source.registerCorsConfiguration("/api/**", publicConfig);
+        source.registerCorsConfiguration("/**", publicConfig);
 
         return source;
     }

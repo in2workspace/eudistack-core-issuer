@@ -81,4 +81,21 @@ class CorsConfigTest {
                 .contains("Content-Type", "Authorization", "DPoP",
                         "OAuth-Client-Attestation", "OAuth-Client-Attestation-PoP");
     }
+
+    // The authorize endpoint returns a 302 redirect. Chrome requires Access-Control-Allow-Origin
+    // on that 302 response for cross-origin XHR to follow the redirect and read response.url.
+    // This test covers the path that was previously missing CORS coverage.
+    @Test
+    void CorsConfigurationSource_AuthorizePath_AllowsAnyOriginOnRedirectResponse() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/oid4vci/v1/authorize").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedOriginPatterns()).contains("*");
+        assertThat(config.getAllowCredentials()).isNotEqualTo(Boolean.TRUE);
+    }
 }
