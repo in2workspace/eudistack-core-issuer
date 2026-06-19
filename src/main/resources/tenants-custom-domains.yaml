@@ -6,10 +6,10 @@
 # instead of a per-tenant subdomain).
 #
 # Fields:
-#   id       - tenant identifier (must match the X-Tenant / tenantDomain value)
-#   issuer   - canonical public issuer base URL (informational; not used in URL resolution)
-#   verifier - canonical public verifier base URL (used by expectedVerifierBaseUrl())
-#   wallet   - canonical public wallet base URL (for future use)
+#   id        - tenant identifier (must match the X-Tenant / tenantDomain value)
+#   issuer    - canonical public issuer base URL (informational; not used in URL resolution)
+#   verifiers - canonical public verifier base URLs (used by expectedVerifierBaseUrls()); list, at least one required
+#   wallet    - canonical public wallet base URL (for future use)
 #
 # Path configurable via: app.tenant-custom-domains.path
 # Override via APP_TENANTS_CUSTOM_DOMAINS_PATH to load an external file.

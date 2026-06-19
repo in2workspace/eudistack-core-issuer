@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (19-06-2026)
+- Accept multiple verifier URLs to validate `iss` in the access token.
+
 ### Fixed (18-06-2026)
 
 - **OID4VCI — Credential Offer URL**: `UrlResolverImpl.publicIssuerBaseUrl()` now derives the public URL from `issuerContextPath` (`spring.webflux.base-path`) instead of the `X-Tenant` header. CloudFront injects `X-Tenant` on all ALB-bound requests, including canonical deployments (e.g. `sandbox.stg.eudistack.net/issuer`), so the previous check incorrectly stripped the `/issuer` prefix, generating a credential offer URI that CloudFront routed to S3 instead of the ALB → 403. Non-canonical deployments (custom domain, empty base-path) are unaffected.

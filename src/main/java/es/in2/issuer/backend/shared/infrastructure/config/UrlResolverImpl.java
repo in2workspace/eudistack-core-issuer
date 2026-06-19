@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 
 import java.net.URI;
+import java.util.List;
 import java.util.Optional;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
@@ -70,15 +71,15 @@ public class UrlResolverImpl implements UrlResolver {
     }
 
     @Override
-    public String expectedVerifierBaseUrl(ServerWebExchange exchange) {
+    public List<String> expectedVerifierBaseUrls(ServerWebExchange exchange) {
         String tenantHeader = exchange.getRequest().getHeaders().getFirst(X_TENANT_HEADER);
         if (tenantHeader != null && !tenantHeader.isBlank()) {
-            Optional<String> customUrl = tenantCustomDomainsLoader.findVerifierUrl(tenantHeader.trim());
-            if (customUrl.isPresent()) {
-                return customUrl.get();
+            Optional<List<String>> customUrls = tenantCustomDomainsLoader.findVerifierUrls(tenantHeader.trim());
+            if (customUrls.isPresent()) {
+                return customUrls.get();
             }
         }
-        return publicOrigin(exchange) + nullToEmpty(verifierContextPath);
+        return List.of(publicOrigin(exchange) + nullToEmpty(verifierContextPath));
     }
 
     @Override
