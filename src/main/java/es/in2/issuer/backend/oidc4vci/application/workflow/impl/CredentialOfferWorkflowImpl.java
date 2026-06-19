@@ -22,6 +22,7 @@ public class CredentialOfferWorkflowImpl implements CredentialOfferWorkflow {
         return credentialOfferCacheRepository.findCredentialOfferById(id)
                 .flatMap(credentialOfferData -> {
                     if (credentialOfferData.txCode() != null) {
+                        log.info("Process ID: {} - TX code present, sending notification to: {}");
                         return emailService
                             .sendTxCodeNotification(
                                 credentialOfferData.credentialEmail(),
@@ -29,6 +30,7 @@ public class CredentialOfferWorkflowImpl implements CredentialOfferWorkflow {
                                 credentialOfferData.txCode())
                             .then(Mono.just(credentialOfferData.credentialOffer()));
                     }
+                    log.debug("Process ID: {} - No TX code, skipping email notification", processId);
                     return Mono.just(credentialOfferData.credentialOffer());
                 });
     }

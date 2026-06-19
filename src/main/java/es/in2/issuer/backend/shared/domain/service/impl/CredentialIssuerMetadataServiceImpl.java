@@ -53,6 +53,7 @@ public class CredentialIssuerMetadataServiceImpl implements CredentialIssuerMeta
                 .credentialEndpoint(baseUrl + OID4VCI_CREDENTIAL_PATH)
                 .nonceEndpoint(baseUrl + OID4VCI_NONCE_PATH)
                 .notificationEndpoint(baseUrl + OID4VCI_NOTIFICATION_PATH)
+                .deferredCredentialEndpoint(baseUrl + OID4VCI_DEFERRED_CREDENTIAL_PATH)
                 .credentialConfigurationsSupported(filteredConfigs)
                 .build();
     }

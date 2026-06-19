@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.20] - 2026-06-19
+
+### Changed
+- **OID4VCI — Credential Issuer Metadata**: Added `deferred_credential_endpoint` field to the `/.well-known/openid-credential-issuer` response. The endpoint URL is derived from the public issuer base URL at runtime, consistent with the other OID4VCI endpoint fields.
+- **CredentialOfferWorkflow**: Added structured log lines in `CredentialOfferWorkflowImpl.findCredentialOfferById` to trace TX code notification dispatch — `INFO` when a TX code is present and the notification email is sent, `DEBUG` when no TX code is found and the email step is skipped.
+
 ### Changed
 - Removed duplicated `sub` JWT claim from W3C credentials, relying on `credentialSubject.id` as the subject identifier.
 - **Tenant Resolution**: `TenantDomainWebFilter` now gives precedence to the `X-Tenant` header over the request host subdomain. If the header is absent, the tenant is resolved from the first host segment, using the effective forwarded host when `forward-headers-strategy: framework` is enabled. Environment suffixes such as `-stg`, `-dev` and `-pre` are stripped before the tenant registry lookup.

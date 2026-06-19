@@ -110,4 +110,41 @@ class CredentialIssuerMetadataServiceImplTest {
                 })
                 .verifyComplete();
     }
+
+    @Test
+    void getCredentialIssuerMetadata_withEnabledSubset_returnsOnlyEnabledConfigurations() {
+        CredentialProfile learProfile = CredentialProfile.builder()
+                .credentialConfigurationId("learcredential.employee.w3c.4")
+                .format(Constants.JWT_VC_JSON)
+                .scope("lear_credential_employee")
+                .build();
+
+        CredentialProfile eudiProfile = CredentialProfile.builder()
+                .credentialConfigurationId("eudiPid.1")
+                .format(Constants.JWT_VC_JSON)
+                .scope("eudi_pid")
+                .build();
+
+        when(credentialProfileRegistry.getAllProfiles()).thenReturn(
+                Map.of(
+                        "learcredential.employee.w3c.4", learProfile,
+                        "eudiPid.1", eudiProfile
+                )
+        );
+
+        when(tenantCredentialProfileService.getEnabledConfigurationIds())
+                .thenReturn(Mono.just(Set.of("eudiPid.1")));
+
+        var service = new CredentialIssuerMetadataServiceImpl(
+                credentialProfileRegistry, tenantCredentialProfileService);
+
+        StepVerifier.create(service.getCredentialIssuerMetadata(ISSUER_URL))
+                .assertNext(metadata -> {
+                    assertThat(metadata.credentialConfigurationsSupported())
+                            .containsOnlyKeys("eudiPid.1")
+                            .doesNotContainKey("learcredential.employee.w3c.4");
+                })
+                .verifyComplete();
+    }
+
 }

@@ -16,6 +16,7 @@ public record CredentialIssuerMetadata(
         @JsonProperty(value = "credential_endpoint", required = true) String credentialEndpoint,
         @JsonProperty("nonce_endpoint") String nonceEndpoint,
         @JsonProperty("notification_endpoint") String notificationEndpoint,
+        @JsonProperty("deferred_credential_endpoint") String deferredCredentialEndpoint,
         @JsonProperty(value = "credential_configurations_supported", required = true)
         Map<String, CredentialConfiguration> credentialConfigurationsSupported,
         @JsonProperty("display") List<CredentialProfile.DisplayInfo> display
