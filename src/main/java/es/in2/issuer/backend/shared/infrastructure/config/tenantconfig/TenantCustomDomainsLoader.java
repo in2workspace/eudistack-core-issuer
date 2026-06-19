@@ -15,6 +15,7 @@ import java.net.URI;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Loads the per-tenant custom domain registry from a YAML file at startup.
@@ -75,18 +76,29 @@ public class TenantCustomDomainsLoader {
     }
 
     /**
-     * Returns the configured verifier base URL for the given tenant.
+     * Returns the configured verifier base URLs for the given tenant.
      *
      * @throws IllegalStateException if the tenant has no entry in the registry
      */
-    public String getVerifierUrl(String tenantId) {
+    public List<String> getVerifierUrls(String tenantId) {
         TenantEntry entry = entries.get(tenantId);
         if (entry == null) {
             throw new IllegalStateException(
                     "No custom domain config found for tenant '" + tenantId + "'. " +
                     "Add it to the tenant custom domains file or check APP_TENANTS_CUSTOM_DOMAINS_PATH.");
         }
-        return entry.verifier();
+        return entry.verifiers();
+    }
+
+    /**
+     * Returns the configured verifier base URLs for the given tenant, or
+     * {@link Optional#empty()} if no entry exists for that tenant.
+     * Use this instead of {@link #getVerifierUrls} when falling back to
+     * origin-based resolution is acceptable (e.g. canonical deployments).
+     */
+    public Optional<List<String>> findVerifierUrls(String tenantId) {
+        TenantEntry entry = entries.get(tenantId);
+        return entry != null ? Optional.of(entry.verifiers()) : Optional.empty();
     }
 
     private static void validate(List<TenantEntry> tenants) {
@@ -94,9 +106,19 @@ public class TenantCustomDomainsLoader {
             if (entry.id() == null || entry.id().isBlank()) {
                 throw new IllegalArgumentException("A tenant entry has a blank id");
             }
-            validateUrl("issuer",   entry.id(), entry.issuer());
-            validateUrl("verifier", entry.id(), entry.verifier());
-            validateUrl("wallet",   entry.id(), entry.wallet());
+            validateUrl("issuer", entry.id(), entry.issuer());
+            validateUrl("wallet", entry.id(), entry.wallet());
+            validateVerifiers(entry.id(), entry.verifiers());
+        }
+    }
+
+    private static void validateVerifiers(String tenantId, List<String> verifiers) {
+        if (verifiers == null || verifiers.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Tenant '" + tenantId + "': field 'verifiers' must have at least one URL");
+        }
+        for (String url : verifiers) {
+            validateUrl("verifiers", tenantId, url);
         }
     }
 
@@ -118,9 +140,9 @@ public class TenantCustomDomainsLoader {
     ) {}
 
     public record TenantEntry(
-            @JsonProperty("id")       String id,
-            @JsonProperty("issuer")   String issuer,
-            @JsonProperty("verifier") String verifier,
-            @JsonProperty("wallet")   String wallet
+            @JsonProperty("id")        String id,
+            @JsonProperty("issuer")    String issuer,
+            @JsonProperty("verifiers") List<String> verifiers,
+            @JsonProperty("wallet")    String wallet
     ) {}
 }

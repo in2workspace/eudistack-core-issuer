@@ -8,8 +8,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 
 import java.net.URI;
+import java.util.List;
+import java.util.Optional;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
+
 
 /**
  * Implementation of {@link UrlResolver}.
@@ -47,11 +50,7 @@ public class UrlResolverImpl implements UrlResolver {
 
     @Override
     public String publicIssuerBaseUrl(ServerWebExchange exchange) {
-        // X-Tenant is always injected by CloudFront in non-canonical deployments where
-        // the context path is not part of the external URL.
-        String tenantHeader = exchange.getRequest().getHeaders().getFirst(X_TENANT_HEADER);
-        boolean nonCanonical = tenantHeader != null && !tenantHeader.isBlank();
-        return publicOrigin(exchange) + (nonCanonical ? "" : nullToEmpty(issuerContextPath));
+        return publicOrigin(exchange) + nullToEmpty(issuerContextPath);
     }
 
     @Override
@@ -72,14 +71,15 @@ public class UrlResolverImpl implements UrlResolver {
     }
 
     @Override
-    public String expectedVerifierBaseUrl(ServerWebExchange exchange) {
-        // In non-canonical deployments (X-Tenant present) the verifier is a separate
-        // service whose URL cannot be derived from the issuer request origin.
+    public List<String> expectedVerifierBaseUrls(ServerWebExchange exchange) {
         String tenantHeader = exchange.getRequest().getHeaders().getFirst(X_TENANT_HEADER);
         if (tenantHeader != null && !tenantHeader.isBlank()) {
-            return tenantCustomDomainsLoader.getVerifierUrl(tenantHeader.trim());
+            Optional<List<String>> customUrls = tenantCustomDomainsLoader.findVerifierUrls(tenantHeader.trim());
+            if (customUrls.isPresent()) {
+                return List.copyOf(customUrls.get());
+            }
         }
-        return publicOrigin(exchange) + nullToEmpty(verifierContextPath);
+        return List.of(publicOrigin(exchange) + nullToEmpty(verifierContextPath));
     }
 
     @Override
