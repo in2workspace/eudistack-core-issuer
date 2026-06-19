@@ -76,7 +76,7 @@ public class UrlResolverImpl implements UrlResolver {
         if (tenantHeader != null && !tenantHeader.isBlank()) {
             Optional<List<String>> customUrls = tenantCustomDomainsLoader.findVerifierUrls(tenantHeader.trim());
             if (customUrls.isPresent()) {
-                return customUrls.get();
+                return List.copyOf(customUrls.get());
             }
         }
         return List.of(publicOrigin(exchange) + nullToEmpty(verifierContextPath));
