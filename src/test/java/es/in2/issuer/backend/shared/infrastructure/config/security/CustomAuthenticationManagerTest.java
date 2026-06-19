@@ -26,6 +26,7 @@ import reactor.test.StepVerifier;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -62,7 +63,7 @@ class CustomAuthenticationManagerTest {
         );
         lenient().doReturn("principal@example.com").when(jwtService).resolvePrincipal(any());
         lenient().when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(ISSUER_BASE_URL);
-        lenient().when(urlResolver.expectedVerifierBaseUrl(any())).thenReturn(VERIFIER_BASE_URL);
+        lenient().when(urlResolver.expectedVerifierBaseUrls(any())).thenReturn(List.of(VERIFIER_BASE_URL));
     }
 
     // ── helpers ─────────────────────────────────────────────────────────

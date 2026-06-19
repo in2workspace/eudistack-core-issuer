@@ -2,6 +2,8 @@ package es.in2.issuer.backend.shared.domain.spi;
 
 import org.springframework.web.server.ServerWebExchange;
 
+import java.util.List;
+
 /**
  * Single source of truth for resolving the issuer's public and internal URLs.
  *
@@ -48,21 +50,22 @@ public interface UrlResolver {
     String publicOrigin(ServerWebExchange exchange);
 
     /**
-     * Base URL at which the verifier is expected to serve tokens reaching this issuer.
+     * All base URLs at which a verifier is expected to serve tokens reaching this issuer.
      * Used by the authentication layer to validate the {@code iss} claim of
-     * verifier-emitted tokens by exact match.
+     * verifier-emitted tokens by exact match against any element of the list.
      *
      * <ul>
-     *   <li><b>Canonical topology</b>: derived from {@code publicOrigin + verifierContextPath},
-     *       e.g. {@code https://sandbox-stg.eudistack.net/verifier}.</li>
+     *   <li><b>Canonical topology</b>: single-element list derived from
+     *       {@code publicOrigin + verifierContextPath},
+     *       e.g. {@code [https://sandbox-stg.eudistack.net/verifier]}.</li>
      *   <li><b>Non-canonical topology</b> (CloudFront, {@code X-Tenant} header present):
-     *       read from the tenant custom domains registry
-     *       ({@code tenants-custom-domains.yaml}, field {@code verifier}).
+     *       list read from the tenant custom domains registry
+     *       ({@code tenants-custom-domains.yaml}, field {@code verifiers}).
      *       The verifier is a separate service whose URL cannot be derived
      *       from the issuer request origin in this topology.</li>
      * </ul>
      */
-    String expectedVerifierBaseUrl(ServerWebExchange exchange);
+    List<String> expectedVerifierBaseUrls(ServerWebExchange exchange);
 
     /**
      * Intra-VPC base URL of the verifier, including its base-path.
