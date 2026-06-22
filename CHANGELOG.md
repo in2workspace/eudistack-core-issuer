@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed (15-06-2026)
 - Removed duplicated `sub` JWT claim from W3C credentials, relying on `credentialSubject.id` as the subject identifier.
 - **Tenant Resolution**: `TenantDomainWebFilter` now gives precedence to the `X-Tenant` header over the request host subdomain. If the header is absent, the tenant is resolved from the first host segment, using the effective forwarded host when `forward-headers-strategy: framework` is enabled. Environment suffixes such as `-stg`, `-dev` and `-pre` are stripped before the tenant registry lookup.
+- Improved GDPR compliance by reducing PII logging.
 - Upgraded `org.bouncycastle:bcprov-jdk18on` from `1.80` to `1.84` to address security advisories.
 - Added Netty version override to `4.1.132.Final` to remediate CVE-2026-33870 affecting `netty-codec-http`.
 
