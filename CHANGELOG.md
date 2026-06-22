@@ -6,10 +6,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+### Fixed (19-06-2026)
+
+- **PBAC — Legacy credential resolution**: `PolicyContextFactory.resolveProfile` now falls back to `CredentialProfileRegistry.getByCredentialType(...)` when no profile matches by `credential_configuration_id`. Real DOME legacy credentials carry the bare semantic type in `type[]` (e.g. `LEARCredentialEmployee`) instead of the versioned config-id, so policy evaluation previously rejected them with `InvalidCredentialFormatException: No profile found for credential type`. Required for the dual-format read flow during the DOME sunset window.
+- **Tenant search path**: `TenantAwareConnectionFactoryDecorator` now wraps the resolved schema name in double quotes when issuing `SET search_path`, preventing case-sensitivity mismatches and identifier-syntax failures for tenants whose schema requires explicit quoting.
+
+### Changed (19-06-2026)
+
+- **Credential profile loading**: `CredentialProfileRegistry` now recursively scans `${credential.profiles.path}/**/*.json` (previously only the top-level directory) so DOME legacy profiles dropped under `legacy/` subfolders are picked up automatically. Sample profiles matching `*.sample*.json` are skipped to avoid polluting the registry with fixture data.
+- Accept multiple verifier URLs to validate `iss` in the access token.
+
+### Fixed (18-06-2026)
+
+- **OID4VCI — Credential Offer URL**: `UrlResolverImpl.publicIssuerBaseUrl()` now derives the public URL from `issuerContextPath` (`spring.webflux.base-path`) instead of the `X-Tenant` header. CloudFront injects `X-Tenant` on all ALB-bound requests, including canonical deployments (e.g. `sandbox.stg.eudistack.net/issuer`), so the previous check incorrectly stripped the `/issuer` prefix, generating a credential offer URI that CloudFront routed to S3 instead of the ALB → 403. Non-canonical deployments (custom domain, empty base-path) are unaffected.
+- **OID4VCI — Verifier URL resolution**: `UrlResolverImpl.expectedVerifierBaseUrl()` now uses `TenantCustomDomainsLoader.findVerifierUrl()` (new `Optional`-returning method) when `X-Tenant` is present. If the loader has an entry for the tenant (non-canonical deployment), the configured verifier URL is returned; otherwise it falls back to `origin + verifierContextPath`. This avoids incorrectly deriving the verifier URL from the issuer origin on custom-domain deployments (e.g. `issuer.dome-marketplace-lcl.org/verifier` instead of the actual verifier domain).
+
+### Changed (17-06-2026)
+- Added custom domains registry to allow Issuer and Verifier URL for non-canonical deployments.
+- **CORS**: Added CORS configuration to `bootstrapFilterChain` and registered `/w3c/**` and `/token/**` paths in `CorsConfig` to cover status list endpoints accessible by external wallets.
+
+### Changed (15-06-2026)
 - Removed duplicated `sub` JWT claim from W3C credentials, relying on `credentialSubject.id` as the subject identifier.
 - **Tenant Resolution**: `TenantDomainWebFilter` now gives precedence to the `X-Tenant` header over the request host subdomain. If the header is absent, the tenant is resolved from the first host segment, using the effective forwarded host when `forward-headers-strategy: framework` is enabled. Environment suffixes such as `-stg`, `-dev` and `-pre` are stripped before the tenant registry lookup.
 - Improved GDPR compliance by reducing PII logging.
+- Upgraded `org.bouncycastle:bcprov-jdk18on` from `1.80` to `1.84` to address security advisories.
+- Added Netty version override to `4.1.132.Final` to remediate CVE-2026-33870 affecting `netty-codec-http`.
 
 ### Fixed
 - **Mail — kpmg template**: Remove unused `<style>` block with `@media` queries and `display: none` from `credential-offer-email-v2.html`. The CSS classes defined were never applied to any element (dead code), but the `display: none !important` rule was triggering corporate email filters (Exchange/Outlook) causing silent delivery failure. Fix has no visual impact. Also replace hardcoded event-specific header text (`Spring Meeting 2026` / `Encuentro de Primavera 2026`) with the generic `email.credential-offer.header` value.

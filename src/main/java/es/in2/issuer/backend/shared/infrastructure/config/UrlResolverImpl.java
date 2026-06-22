@@ -1,12 +1,18 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
+import es.in2.issuer.backend.shared.infrastructure.config.tenantconfig.TenantCustomDomainsLoader;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 
 import java.net.URI;
+import java.util.List;
+import java.util.Optional;
+
+import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
+
 
 /**
  * Implementation of {@link UrlResolver}.
@@ -26,17 +32,20 @@ public class UrlResolverImpl implements UrlResolver {
     private final String verifierContextPath;
     private final String issuerInternalUrl;
     private final String verifierInternalUrl;
+    private final TenantCustomDomainsLoader tenantCustomDomainsLoader;
 
     public UrlResolverImpl(
             @Value("${spring.webflux.base-path:}") String issuerContextPath,
             @Value("${app.verifier-base-path:/verifier}") String verifierContextPath,
             @Value("${app.internal-url:}") String issuerInternalUrl,
-            @Value("${app.verifier-internal-url:}") String verifierInternalUrl
+            @Value("${app.verifier-internal-url:}") String verifierInternalUrl,
+            TenantCustomDomainsLoader tenantCustomDomainsLoader
     ) {
         this.issuerContextPath = normalizeContextPath(issuerContextPath);
         this.verifierContextPath = normalizeContextPath(verifierContextPath);
         this.issuerInternalUrl = stripTrailingSlash(issuerInternalUrl);
         this.verifierInternalUrl = stripTrailingSlash(verifierInternalUrl);
+        this.tenantCustomDomainsLoader = tenantCustomDomainsLoader;
     }
 
     @Override
@@ -62,8 +71,15 @@ public class UrlResolverImpl implements UrlResolver {
     }
 
     @Override
-    public String expectedVerifierBaseUrl(ServerWebExchange exchange) {
-        return publicOrigin(exchange) + nullToEmpty(verifierContextPath);
+    public List<String> expectedVerifierBaseUrls(ServerWebExchange exchange) {
+        String tenantHeader = exchange.getRequest().getHeaders().getFirst(X_TENANT_HEADER);
+        if (tenantHeader != null && !tenantHeader.isBlank()) {
+            Optional<List<String>> customUrls = tenantCustomDomainsLoader.findVerifierUrls(tenantHeader.trim());
+            if (customUrls.isPresent()) {
+                return List.copyOf(customUrls.get());
+            }
+        }
+        return List.of(publicOrigin(exchange) + nullToEmpty(verifierContextPath));
     }
 
     @Override

@@ -132,6 +132,8 @@ app:
   # /verifier) so that calls that append well-known paths resolve correctly.
   internal-url: ${APP_INTERNAL_URL:http://localhost:8080/issuer}
   verifier-internal-url: ${APP_VERIFIER_INTERNAL_URL:http://localhost:8081/verifier}
+  tenant-custom-domains:
+    path: ${APP_TENANTS_CUSTOM_DOMAINS_PATH:classpath:tenants-custom-domains.yaml}
   cors:
     origins-path: ${APP_CORS_ORIGINS_PATH:}
   # mail-from removed — now per-tenant via tenant_config.issuer.mail_from
