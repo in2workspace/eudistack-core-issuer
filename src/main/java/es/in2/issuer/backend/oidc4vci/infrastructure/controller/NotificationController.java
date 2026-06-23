@@ -38,7 +38,7 @@ public class NotificationController {
                         log.info("Process ID: {} - Handle notification ok", processId)
                 )
                 .doOnError(e ->
-                        log.warn("Process ID: {} - Handle notification failed: {}", processId, e.getMessage(), e)
+                        log.warn("Process ID: {} - Handle notification failed: {}", processId, e.getClass().getSimpleName(), e)
                 );
     }
 }
