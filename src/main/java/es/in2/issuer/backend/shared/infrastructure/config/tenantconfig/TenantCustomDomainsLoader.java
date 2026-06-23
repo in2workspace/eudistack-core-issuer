@@ -35,6 +35,7 @@ public class TenantCustomDomainsLoader {
     private final ResourceLoader resourceLoader;
     private final String configPath;
     private Map<String, TenantEntry> entries = Map.of();
+    private Map<String, String> walletUrlByIssuerHost = Map.of();
 
     public TenantCustomDomainsLoader(
             ResourceLoader resourceLoader,
@@ -58,13 +59,22 @@ public class TenantCustomDomainsLoader {
             List<TenantEntry> tenants = data.tenants() != null ? data.tenants() : List.of();
             validate(tenants);
             Map<String, TenantEntry> index = new HashMap<>();
+            Map<String, String> walletIndex = new HashMap<>();
             for (TenantEntry entry : tenants) {
                 TenantEntry previous = index.putIfAbsent(entry.id(), entry);
                 if (previous != null) {
                     throw new IllegalArgumentException("Duplicate tenant id '" + entry.id() + "'");
                 }
+                String issuerHost = hostOf(entry.issuer());
+                if (issuerHost != null && entry.wallet() != null) {
+                    String prevWallet = walletIndex.putIfAbsent(issuerHost, entry.wallet());
+                    if (prevWallet != null) {
+                        throw new IllegalArgumentException("Duplicate issuer host '" + issuerHost + "'");
+                    }
+                }
             }
             this.entries = Map.copyOf(index);
+            this.walletUrlByIssuerHost = Map.copyOf(walletIndex);
             log.info("Loaded {} tenant custom domain(s) from '{}'", entries.size(), configPath);
         } catch (IllegalArgumentException e) {
             throw new IllegalStateException(
@@ -99,6 +109,32 @@ public class TenantCustomDomainsLoader {
     public Optional<List<String>> findVerifierUrls(String tenantId) {
         TenantEntry entry = entries.get(tenantId);
         return entry != null ? Optional.of(entry.verifiers()) : Optional.empty();
+    }
+
+    /**
+     * Returns the configured wallet base URL for the entry whose {@code issuer}
+     * URL has the given host, or {@link Optional#empty()} if no entry matches.
+     *
+     * <p>Used to build the credential-offer wallet deep-link. In non-canonical
+     * deployments the wallet runs on a separate host (e.g.
+     * {@code wallet.dome-marketplace.org}) that cannot be derived from the
+     * issuer request origin, so it MUST be read from this registry, matched by
+     * the host the request actually arrived through. In canonical (path-based)
+     * deployments the host is absent from the registry and callers fall back to
+     * origin-based resolution.
+     */
+    public Optional<String> findWalletUrlByIssuerHost(String issuerHost) {
+        if (issuerHost == null || issuerHost.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(walletUrlByIssuerHost.get(issuerHost));
+    }
+
+    private static String hostOf(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        return URI.create(url).getHost();
     }
 
     private static void validate(List<TenantEntry> tenants) {

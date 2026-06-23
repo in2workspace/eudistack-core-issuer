@@ -58,6 +58,19 @@ public class UrlResolverImpl implements UrlResolver {
 
     @Override
     public String publicWalletBaseUrl(ServerWebExchange exchange) {
+        // Non-canonical topology: the wallet runs on a separate host that cannot
+        // be derived from the issuer request origin. Match the request host
+        // against the custom-domains registry (issuer host -> wallet URL).
+        // We key on the request HOST, not the X-Tenant header: a tenant may be
+        // reached through several domains (canonical + custom) and X-Tenant
+        // carries the tenant id either way, so it cannot tell which domain was
+        // used. The request host can.
+        String requestHost = exchange.getRequest().getURI().getHost();
+        Optional<String> customWalletUrl = tenantCustomDomainsLoader.findWalletUrlByIssuerHost(requestHost);
+        if (customWalletUrl.isPresent()) {
+            return stripTrailingSlash(customWalletUrl.get());
+        }
+        // Canonical topology: issuer and wallet share the same origin (path-based).
         return publicOrigin(exchange) + nullToEmpty(walletContextPath);
     }
 
