@@ -29,6 +29,7 @@ class CredentialOfferRefreshWorkflowImplTest {
     private static final String CREDENTIAL_OFFER_REFRESH_TOKEN = "valid-refresh-token";
     private static final String UNKNOWN_CREDENTIAL_OFFER_REFRESH_TOKEN = "unknown-refresh-token";
     private static final String PUBLIC_ISSUER_BASE_URL = "https://test.example/issuer";
+    private static final String PUBLIC_WALLET_BASE_URL = "https://test.example/wallet";
     private static final String CREDENTIAL_TYPE = "learcredential.employee.w3c.4";
     private static final String EMAIL = "test@example.com";
     private static final String DEFAULT_GRANT_TYPE = "authorization_code";
@@ -56,10 +57,11 @@ class CredentialOfferRefreshWorkflowImplTest {
                 eq(EMAIL),
                 eq(DeliveryMode.EMAIL.value),
                 eq(CREDENTIAL_OFFER_REFRESH_TOKEN),
-                eq(PUBLIC_ISSUER_BASE_URL)))
+                eq(PUBLIC_ISSUER_BASE_URL),
+                eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(CredentialOfferResult.builder().build()));
 
-        StepVerifier.create(workflow.refreshCredentialOffer(CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL))
+        StepVerifier.create(workflow.refreshCredentialOffer(CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL, PUBLIC_WALLET_BASE_URL))
                 .verifyComplete();
 
         verify(issuanceService).getIssuanceByCredentialOfferRefreshToken(CREDENTIAL_OFFER_REFRESH_TOKEN);
@@ -70,7 +72,8 @@ class CredentialOfferRefreshWorkflowImplTest {
                 eq(EMAIL),
                 eq(DeliveryMode.EMAIL.value),
                 eq(CREDENTIAL_OFFER_REFRESH_TOKEN),
-                eq(PUBLIC_ISSUER_BASE_URL));
+                eq(PUBLIC_ISSUER_BASE_URL),
+                eq(PUBLIC_WALLET_BASE_URL));
     }
 
     @Test
@@ -78,7 +81,7 @@ class CredentialOfferRefreshWorkflowImplTest {
         when(issuanceService.getIssuanceByCredentialOfferRefreshToken(UNKNOWN_CREDENTIAL_OFFER_REFRESH_TOKEN))
                 .thenReturn(Mono.empty());
 
-        StepVerifier.create(workflow.refreshCredentialOffer(UNKNOWN_CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL))
+        StepVerifier.create(workflow.refreshCredentialOffer(UNKNOWN_CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL, PUBLIC_WALLET_BASE_URL))
                 .expectErrorMatches(error -> error instanceof ResponseStatusException responseStatusException
                         && responseStatusException.getStatusCode() == HttpStatus.NOT_FOUND
                         && "Invalid or unknown credential offer refresh token"
@@ -96,7 +99,7 @@ class CredentialOfferRefreshWorkflowImplTest {
         when(issuanceService.getIssuanceByCredentialOfferRefreshToken(CREDENTIAL_OFFER_REFRESH_TOKEN))
                 .thenReturn(Mono.just(issuance));
 
-        StepVerifier.create(workflow.refreshCredentialOffer(CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL))
+        StepVerifier.create(workflow.refreshCredentialOffer(CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL, PUBLIC_WALLET_BASE_URL))
                 .expectErrorMatches(error -> error instanceof ResponseStatusException responseStatusException
                         && responseStatusException.getStatusCode() == HttpStatus.GONE
                         && "This credential offer can no longer be refreshed"
@@ -114,7 +117,7 @@ class CredentialOfferRefreshWorkflowImplTest {
         when(issuanceService.getIssuanceByCredentialOfferRefreshToken(CREDENTIAL_OFFER_REFRESH_TOKEN))
                 .thenReturn(Mono.just(issuance));
 
-        StepVerifier.create(workflow.refreshCredentialOffer(CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL))
+        StepVerifier.create(workflow.refreshCredentialOffer(CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL, PUBLIC_WALLET_BASE_URL))
                 .expectErrorMatches(error -> error instanceof ResponseStatusException responseStatusException
                         && responseStatusException.getStatusCode() == HttpStatus.GONE
                         && "This credential offer can no longer be refreshed"
@@ -132,7 +135,7 @@ class CredentialOfferRefreshWorkflowImplTest {
         when(issuanceService.getIssuanceByCredentialOfferRefreshToken(CREDENTIAL_OFFER_REFRESH_TOKEN))
                 .thenReturn(Mono.just(issuance));
 
-        StepVerifier.create(workflow.refreshCredentialOffer(CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL))
+        StepVerifier.create(workflow.refreshCredentialOffer(CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL, PUBLIC_WALLET_BASE_URL))
                 .expectErrorMatches(error -> error instanceof ResponseStatusException responseStatusException
                         && responseStatusException.getStatusCode() == HttpStatus.GONE
                         && "This credential offer can no longer be refreshed"
@@ -158,10 +161,11 @@ class CredentialOfferRefreshWorkflowImplTest {
                 eq(EMAIL),
                 eq(DeliveryMode.EMAIL.value),
                 eq(CREDENTIAL_OFFER_REFRESH_TOKEN),
-                eq(PUBLIC_ISSUER_BASE_URL)))
+                eq(PUBLIC_ISSUER_BASE_URL),
+                eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.error(expectedException));
 
-        StepVerifier.create(workflow.refreshCredentialOffer(CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL))
+        StepVerifier.create(workflow.refreshCredentialOffer(CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL, PUBLIC_WALLET_BASE_URL))
                 .expectErrorMatches(error -> error == expectedException)
                 .verify();
 
@@ -173,7 +177,8 @@ class CredentialOfferRefreshWorkflowImplTest {
                 eq(EMAIL),
                 eq(DeliveryMode.EMAIL.value),
                 eq(CREDENTIAL_OFFER_REFRESH_TOKEN),
-                eq(PUBLIC_ISSUER_BASE_URL));
+                eq(PUBLIC_ISSUER_BASE_URL),
+                eq(PUBLIC_WALLET_BASE_URL));
     }
 
     private Issuance buildIssuance(UUID issuanceId, CredentialStatusEnum credentialStatus) {

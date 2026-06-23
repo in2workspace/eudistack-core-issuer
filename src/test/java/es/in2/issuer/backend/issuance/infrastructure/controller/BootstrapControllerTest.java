@@ -39,6 +39,7 @@ import static org.mockito.Mockito.when;
 class BootstrapControllerTest {
 
     private static final String PUBLIC_BASE_URL = "https://test.example/issuer";
+    private static final String PUBLIC_WALLET_URL = "https://test.example/wallet";
 
     @Mock
     private BootstrapTokenService bootstrapTokenService;
@@ -77,11 +78,13 @@ class BootstrapControllerTest {
 
         when(bootstrapTokenService.consumeIfValid(token)).thenReturn(true);
         when(urlResolver.publicIssuerBaseUrl(exchange)).thenReturn(PUBLIC_BASE_URL);
+        when(urlResolver.publicWalletBaseUrl(exchange)).thenReturn(PUBLIC_WALLET_URL);
         when(issuanceWorkflow.issueCredentialWithoutAuthorization(
                 anyString(),
                 any(IssuanceRequest.class),
                 eq(token),
-                eq(PUBLIC_BASE_URL)))
+                eq(PUBLIC_BASE_URL),
+                eq(PUBLIC_WALLET_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .credentialOfferUri(credentialOfferUri)
                         .build()));
@@ -110,7 +113,8 @@ class BootstrapControllerTest {
                 eq(processIdCaptor.getValue()),
                 issuanceRequestCaptor.capture(),
                 eq(token),
-                eq(PUBLIC_BASE_URL));
+                eq(PUBLIC_BASE_URL),
+                eq(PUBLIC_WALLET_URL));
 
         IssuanceRequest forwarded = issuanceRequestCaptor.getValue();
 
@@ -127,11 +131,13 @@ class BootstrapControllerTest {
 
         when(bootstrapTokenService.consumeIfValid(token)).thenReturn(true);
         when(urlResolver.publicIssuerBaseUrl(exchange)).thenReturn(PUBLIC_BASE_URL);
+        when(urlResolver.publicWalletBaseUrl(exchange)).thenReturn(PUBLIC_WALLET_URL);
         when(issuanceWorkflow.issueCredentialWithoutAuthorization(
                 anyString(),
                 any(IssuanceRequest.class),
                 eq(token),
-                eq(PUBLIC_BASE_URL)))
+                eq(PUBLIC_BASE_URL),
+                eq(PUBLIC_WALLET_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .credentialOfferUri(null)
                         .build()));
@@ -176,6 +182,7 @@ class BootstrapControllerTest {
                 anyString(),
                 any(IssuanceRequest.class),
                 anyString(),
+                anyString(),
                 anyString());
     }
 
@@ -203,6 +210,7 @@ class BootstrapControllerTest {
                 anyString(),
                 any(IssuanceRequest.class),
                 anyString(),
+                anyString(),
                 anyString());
     }
 
@@ -227,6 +235,7 @@ class BootstrapControllerTest {
         verify(issuanceWorkflow, never()).issueCredentialWithoutAuthorization(
                 anyString(),
                 any(IssuanceRequest.class),
+                anyString(),
                 anyString(),
                 anyString());
     }

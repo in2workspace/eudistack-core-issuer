@@ -46,6 +46,7 @@ import static org.mockito.Mockito.*;
 class IssuanceWorkflowImplTest {
 
     private static final String BASE_URL = "https://test.example/issuer";
+    private static final String WALLET_URL = "https://test.example/wallet";
     private static final String CONFIG_ID = "learcredential.employee.w3c.4";
     private static final String EMAIL = "test@example.com";
 
@@ -82,11 +83,11 @@ class IssuanceWorkflowImplTest {
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 eq(issuanceId.toString()), eq(CONFIG_ID), eq("authorization_code"),
-                eq(EMAIL), eq("email"), eq("refresh-token-123"), eq(BASE_URL)))
+                eq(EMAIL), eq("email"), eq("refresh-token-123"), eq(BASE_URL), eq(WALLET_URL)))
                 .thenReturn(Mono.just(offerResult));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL))
+        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
                 .assertNext(response -> {
                     assertNotNull(response.credentialOfferUri());
                     assertNull(response.signedCredential());
@@ -96,7 +97,7 @@ class IssuanceWorkflowImplTest {
         verify(issuanceService).saveIssuance(any(Issuance.class));
         verify(credentialOfferService).createAndDeliverCredentialOffer(
                 eq(issuanceId.toString()), eq(CONFIG_ID), eq("authorization_code"),
-                eq(EMAIL), eq("email"), eq("refresh-token-123"), eq(BASE_URL));
+                eq(EMAIL), eq("email"), eq("refresh-token-123"), eq(BASE_URL), eq(WALLET_URL));
     }
 
     @Test
@@ -105,7 +106,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId("UnknownType")).thenReturn(null);
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(workflow.issueCredential("p", request, "idToken", BASE_URL))
+        StepVerifier.create(workflow.issueCredential("p", request, "idToken", BASE_URL, WALLET_URL))
                 .expectError(CredentialTypeUnsupportedException.class)
                 .verify();
     }
@@ -123,10 +124,10 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
-        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
+        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
 
-        StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "bootstrap-token", BASE_URL))
+        StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "bootstrap-token", BASE_URL, WALLET_URL))
                 .assertNext(response -> assertNotNull(response))
                 .verifyComplete();
 
@@ -161,7 +162,7 @@ class IssuanceWorkflowImplTest {
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL))
+        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
                 .assertNext(response -> {
                     assertEquals("signed-jwt", response.signedCredential());
                     assertNull(response.credentialOfferUri());
@@ -196,7 +197,7 @@ class IssuanceWorkflowImplTest {
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL))
+        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
                 .assertNext(response -> assertEquals("signed-jwt", response.signedCredential()))
                 .verifyComplete();
 
@@ -221,7 +222,7 @@ class IssuanceWorkflowImplTest {
         when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL))
+        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
                 .expectError(CredentialTypeUnsupportedException.class)
                 .verify();
 
@@ -257,11 +258,11 @@ class IssuanceWorkflowImplTest {
         when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(oid4vciIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
-                eq(oid4vciIssuanceId.toString()), any(), any(), any(), eq("email"), eq("rt-123"), eq(BASE_URL)))
+                eq(oid4vciIssuanceId.toString()), any(), any(), any(), eq("email"), eq("rt-123"), eq(BASE_URL), eq(WALLET_URL)))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL))
+        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
                 .assertNext(response -> {
                     assertEquals("signed-jwt", response.signedCredential());
                     assertNotNull(response.credentialOfferUri());
@@ -270,7 +271,7 @@ class IssuanceWorkflowImplTest {
 
         verify(issuanceService, times(2)).saveIssuance(any(Issuance.class));
         verify(credentialSignerWorkflow).signCredential(any(), any(), any(), any(), any(), any(), any());
-        verify(credentialOfferService).createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any());
+        verify(credentialOfferService).createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -288,11 +289,11 @@ class IssuanceWorkflowImplTest {
         when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
-                eq(issuanceId.toString()), eq(CONFIG_ID), any(), eq(EMAIL), eq("ui"), eq("rt-ui"), eq(BASE_URL)))
+                eq(issuanceId.toString()), eq(CONFIG_ID), any(), eq(EMAIL), eq("ui"), eq("rt-ui"), eq(BASE_URL), eq(WALLET_URL)))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL))
+        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
                 .assertNext(response -> {
                     assertNotNull(response.credentialOfferUri());
                     assertNull(response.signedCredential());
@@ -316,15 +317,15 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
-        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
+        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
 
-        StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "bootstrap-token", BASE_URL))
+        StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "bootstrap-token", BASE_URL, WALLET_URL))
                 .assertNext(response -> assertNull(response.signedCredential()))
                 .verifyComplete();
 
         verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow);
-        verify(credentialOfferService).createAndDeliverCredentialOffer(any(), any(), any(), any(), eq("email"), any(), any());
+        verify(credentialOfferService).createAndDeliverCredentialOffer(any(), any(), any(), any(), eq("email"), any(), any(), any());
     }
 
     @Test
@@ -345,7 +346,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(workflow.issueCredential("p", request, null, BASE_URL))
+        StepVerifier.create(workflow.issueCredential("p", request, null, BASE_URL, WALLET_URL))
                 .expectError(MissingIdTokenHeaderException.class)
                 .verify();
     }
@@ -363,10 +364,10 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
-        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
+        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
 
-        StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "bootstrap-token", BASE_URL))
+        StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "bootstrap-token", BASE_URL, WALLET_URL))
                 .assertNext(response -> assertNotNull(response.credentialOfferUri()))
                 .verifyComplete();
 
@@ -397,11 +398,11 @@ class IssuanceWorkflowImplTest {
         when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
         when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
-        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
+        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL))
+        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
                 .assertNext(response -> assertNotNull(response.credentialOfferUri()))
                 .verifyComplete();
     }
@@ -429,10 +430,10 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
-        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
+        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
 
-        StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "token", BASE_URL))
+        StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "token", BASE_URL, WALLET_URL))
                 .assertNext(response -> assertNotNull(response))
                 .verifyComplete();
     }
@@ -467,7 +468,7 @@ class IssuanceWorkflowImplTest {
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL))
+        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
                 .assertNext(response -> assertEquals("signed-jwt", response.signedCredential()))
                 .verifyComplete();
 
@@ -505,7 +506,7 @@ class IssuanceWorkflowImplTest {
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL))
+        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
                 .assertNext(response -> assertEquals("signed-jwt", response.signedCredential()))
                 .verifyComplete();
 
@@ -544,7 +545,7 @@ class IssuanceWorkflowImplTest {
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL))
+        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
                 .assertNext(response -> assertEquals("signed-jwt", response.signedCredential()))
                 .verifyComplete();
 
@@ -568,17 +569,17 @@ class IssuanceWorkflowImplTest {
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 any(), eq(CONFIG_ID), eq("urn:ietf:params:oauth:grant-type:pre-authorized_code"),
-                eq(EMAIL), eq("email"), eq("rt-grant"), eq(BASE_URL)))
+                eq(EMAIL), eq("email"), eq("rt-grant"), eq(BASE_URL), eq(WALLET_URL)))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL))
+        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
                 .assertNext(response -> assertNotNull(response.credentialOfferUri()))
                 .verifyComplete();
 
         verify(credentialOfferService).createAndDeliverCredentialOffer(
                 any(), any(), eq("urn:ietf:params:oauth:grant-type:pre-authorized_code"),
-                any(), any(), any(), any());
+                any(), any(), any(), any(), any());
     }
 
     @Test
@@ -604,10 +605,10 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
-        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
+        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
 
-        StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "token", BASE_URL))
+        StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "token", BASE_URL, WALLET_URL))
                 .assertNext(response -> assertNotNull(response))
                 .verifyComplete();
     }

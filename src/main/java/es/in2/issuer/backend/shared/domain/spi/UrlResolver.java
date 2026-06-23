@@ -44,6 +44,29 @@ public interface UrlResolver {
     String publicIssuerBaseUrl(ServerWebExchange exchange);
 
     /**
+     * Public base URL of the wallet PWA as seen by the caller. Used as the
+     * base of the wallet deep-link embedded in credential-offer emails.
+     *
+     * <ul>
+     *   <li><b>Non-canonical topology</b> (custom domains): the wallet runs on a
+     *       separate host that cannot be derived from the issuer request origin
+     *       (e.g. issuer at {@code issuer.dome-marketplace.org}, wallet at
+     *       {@code wallet.dome-marketplace.org}). The URL is read from the
+     *       tenant custom domains registry ({@code tenants-custom-domains.yaml},
+     *       field {@code wallet}), matched by the <em>request host</em>. The host
+     *       — not the {@code X-Tenant} header — is the discriminator, because a
+     *       tenant may be reached through several domains (canonical and custom)
+     *       and {@code X-Tenant} carries the same tenant id for all of them.</li>
+     *   <li><b>Canonical topology</b> (subdomain per tenant, path-based per
+     *       EUDI-064): issuer and wallet share the same origin and the host is
+     *       absent from the registry, so the value falls back to the request
+     *       origin plus the wallet context-path — e.g.
+     *       {@code https://dome.stg.eudistack.net/wallet}.</li>
+     * </ul>
+     */
+    String publicWalletBaseUrl(ServerWebExchange exchange);
+
+    /**
      * Public origin of the current request (scheme + host + port, no path).
      * Example: {@code https://sandbox-stg.eudistack.net}.
      */

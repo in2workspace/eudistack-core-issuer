@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (23-06-2026)
+
+- **OID4VCI — Wallet deep-link in activation email**: the wallet base URL embedded in the credential-offer email (`{wallet}/protocol/callback?credential_offer_uri=...`) is now resolved per the topology the request arrived through, via the new `UrlResolver.publicWalletBaseUrl()`, instead of the static `issuer.wallet_url` tenant-config value. Previously a tenant accessed through a non-canonical custom domain received an email pointing at whatever single URL was stored in `tenant_config`, mismatching the domain the user actually used. Resolution is keyed on the **request host** (not the `X-Tenant` header, which carries the same tenant id for every domain a tenant is reached through and therefore cannot tell canonical from custom): if the host matches a custom-domains registry entry's `issuer` host, the entry's `wallet` URL is returned (non-canonical, separate wallet host); otherwise it falls back to `requestOrigin + /wallet` (canonical, path-based — issuer and wallet share the origin). Same registry-backed mechanism as `expectedVerifierBaseUrls`. `TenantCustomDomainsLoader` exposes a new host→wallet index (`findWalletUrlByIssuerHost`). `publicWalletBaseUrl` is threaded through `IssuanceController` / `BootstrapController` / `CredentialOfferRefreshController` → `IssuanceWorkflow` / `CredentialOfferRefreshWorkflow` → `CredentialOfferService.createAndDeliverCredentialOffer`. The `issuer.wallet_url` tenant-config lookup is no longer used for the deep link.
+
 ### Fixed (19-06-2026)
 
 - **PBAC — Legacy credential resolution**: `PolicyContextFactory.resolveProfile` now falls back to `CredentialProfileRegistry.getByCredentialType(...)` when no profile matches by `credential_configuration_id`. Real DOME legacy credentials carry the bare semantic type in `type[]` (e.g. `LEARCredentialEmployee`) instead of the versioned config-id, so policy evaluation previously rejected them with `InvalidCredentialFormatException: No profile found for credential type`. Required for the dual-format read flow during the DOME sunset window.

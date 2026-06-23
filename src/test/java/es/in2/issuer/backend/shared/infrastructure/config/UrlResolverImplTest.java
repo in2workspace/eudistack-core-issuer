@@ -17,12 +17,12 @@ class UrlResolverImplTest {
 
     private static UrlResolverImpl resolver(String issuerCtx, String verifierCtx,
                                             String issuerInternal, String verifierInternal) {
-        return new UrlResolverImpl(issuerCtx, verifierCtx, issuerInternal, verifierInternal, null);
+        return new UrlResolverImpl(issuerCtx, verifierCtx, "/wallet", issuerInternal, verifierInternal, null);
     }
 
     private static UrlResolverImpl resolverWith(String issuerCtx, String verifierCtx,
                                                 TenantCustomDomainsLoader loader) {
-        return new UrlResolverImpl(issuerCtx, verifierCtx, "", "", loader);
+        return new UrlResolverImpl(issuerCtx, verifierCtx, "/wallet", "", "", loader);
     }
 
     private static ServerWebExchange exchangeAt(String url) {
@@ -84,6 +84,68 @@ class UrlResolverImplTest {
         UrlResolverImpl r = resolver("/issuer", "/verifier", "", "");
         ServerWebExchange ex = exchangeWithTenant("https://sandbox.stg.eudistack.net/issuer/x", "sandbox");
         assertEquals("https://sandbox.stg.eudistack.net/issuer", r.publicIssuerBaseUrl(ex));
+    }
+
+    // ── publicWalletBaseUrl — canonical (request host not in registry) ──────
+
+    @Test
+    void publicWalletBaseUrl_hostNotInRegistry_composesOriginPlusWalletContextPath() {
+        // Canonical: the request host is not a configured custom domain, so the
+        // wallet shares the issuer origin (path-based).
+        TenantCustomDomainsLoader loader = mock(TenantCustomDomainsLoader.class);
+        UrlResolverImpl r = resolverWith("/issuer", "/verifier", loader);
+        ServerWebExchange ex = exchangeAt("https://dome.stg.eudistack.net/issuer/api/v1/issuances");
+        assertEquals("https://dome.stg.eudistack.net/wallet", r.publicWalletBaseUrl(ex));
+    }
+
+    @Test
+    void publicWalletBaseUrl_hostNotInRegistry_keepsNonDefaultPort() {
+        TenantCustomDomainsLoader loader = mock(TenantCustomDomainsLoader.class);
+        UrlResolverImpl r = resolverWith("/issuer", "/verifier", loader);
+        ServerWebExchange ex = exchangeAt("https://dome.127.0.0.1.nip.io:4443/issuer/x");
+        assertEquals("https://dome.127.0.0.1.nip.io:4443/wallet", r.publicWalletBaseUrl(ex));
+    }
+
+    // ── publicWalletBaseUrl — non-canonical (request host in registry) ──────
+
+    @Test
+    void publicWalletBaseUrl_hostInRegistry_returnsCustomWalletUrl() {
+        // Non-canonical: issuer and wallet are on SEPARATE hosts. The wallet URL
+        // cannot be derived from the issuer request origin — it is matched from
+        // the custom-domains registry by the request host.
+        TenantCustomDomainsLoader loader = mock(TenantCustomDomainsLoader.class);
+        when(loader.findWalletUrlByIssuerHost("issuer.dome-marketplace.org"))
+                .thenReturn(Optional.of("https://wallet.dome-marketplace.org/wallet"));
+        UrlResolverImpl r = resolverWith("/issuer", "/verifier", loader);
+        ServerWebExchange ex = exchangeAt("https://issuer.dome-marketplace.org/issuer/x");
+        assertEquals("https://wallet.dome-marketplace.org/wallet", r.publicWalletBaseUrl(ex));
+    }
+
+    @Test
+    void publicWalletBaseUrl_hostInRegistry_stripsTrailingSlash() {
+        TenantCustomDomainsLoader loader = mock(TenantCustomDomainsLoader.class);
+        when(loader.findWalletUrlByIssuerHost("issuer.dome-marketplace.org"))
+                .thenReturn(Optional.of("https://wallet.dome-marketplace.org/wallet/"));
+        UrlResolverImpl r = resolverWith("/issuer", "/verifier", loader);
+        ServerWebExchange ex = exchangeAt("https://issuer.dome-marketplace.org/issuer/x");
+        assertEquals("https://wallet.dome-marketplace.org/wallet", r.publicWalletBaseUrl(ex));
+    }
+
+    @Test
+    void publicWalletBaseUrl_canonicalAndCustomSameTenant_resolveToTheirOwnDomains() {
+        // Same tenant reached through two domains: canonical falls back to origin,
+        // custom resolves from the registry. X-Tenant is the same for both and
+        // therefore cannot discriminate — the request host does.
+        TenantCustomDomainsLoader loader = mock(TenantCustomDomainsLoader.class);
+        when(loader.findWalletUrlByIssuerHost("issuer.dome-marketplace.org"))
+                .thenReturn(Optional.of("https://wallet.dome-marketplace.org/wallet"));
+        UrlResolverImpl r = resolverWith("/issuer", "/verifier", loader);
+
+        ServerWebExchange canonical = exchangeWithTenant("https://dome.stg.eudistack.net/issuer/x", "dome");
+        assertEquals("https://dome.stg.eudistack.net/wallet", r.publicWalletBaseUrl(canonical));
+
+        ServerWebExchange custom = exchangeWithTenant("https://issuer.dome-marketplace.org/issuer/x", "dome");
+        assertEquals("https://wallet.dome-marketplace.org/wallet", r.publicWalletBaseUrl(custom));
     }
 
     // ── publicOrigin ─────────────────────────────────────────────────────────

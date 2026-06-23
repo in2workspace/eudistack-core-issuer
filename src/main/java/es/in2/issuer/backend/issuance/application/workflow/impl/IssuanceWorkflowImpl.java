@@ -60,7 +60,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
             String processId,
             IssuanceRequest request,
             String idToken,
-            String publicIssuerBaseUrl) {
+            String publicIssuerBaseUrl,
+            String publicWalletBaseUrl) {
 
         var sample = issuanceMetrics.startTimer();
         String configId = request.credentialConfigurationId();
@@ -69,7 +70,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         return validateRequest(request, idToken)
                 .then(Mono.defer(() -> payloadSchemaValidator.validate(configId, request.payload())))
                 .then(Mono.defer(() -> issuancePdpService.authorize(configId, request.payload(), idToken)))
-                .then(Mono.defer(() -> performIssuanceFlow(processId, request, idToken, publicIssuerBaseUrl, delivery)))
+                .then(Mono.defer(() -> performIssuanceFlow(processId, request, idToken, publicIssuerBaseUrl, publicWalletBaseUrl, delivery)))
                 .doOnSuccess(r -> {
                     issuanceMetrics.recordSuccess(sample, configId, delivery);
                     auditService.auditSuccess("credential.issued", null, "credential", configId,
@@ -84,14 +85,15 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
             String processId,
             IssuanceRequest request,
             String token,
-            String publicIssuerBaseUrl) {
+            String publicIssuerBaseUrl,
+            String publicWalletBaseUrl) {
 
         String delivery = request.delivery() != null ? request.delivery() : DEFAULT_DELIVERY;
         String safeDelivery = keepOnlyOid4vciDeliveryModes(delivery);
 
         return validateRequest(request, null)
                 .then(Mono.defer(() -> payloadSchemaValidator.validate(request.credentialConfigurationId(), request.payload())))
-                .then(Mono.defer(() -> performIssuanceFlow(processId, request, token, publicIssuerBaseUrl, safeDelivery)));
+                .then(Mono.defer(() -> performIssuanceFlow(processId, request, token, publicIssuerBaseUrl, publicWalletBaseUrl, safeDelivery)));
     }
 
     private Mono<Void> validateRequest(IssuanceRequest request, String idToken) {
@@ -108,7 +110,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     }
 
     private Mono<IssuanceResponse> performIssuanceFlow(String processId, IssuanceRequest request, String idToken,
-                                                        String publicIssuerBaseUrl, String delivery) {
+                                                        String publicIssuerBaseUrl, String publicWalletBaseUrl, String delivery) {
         Set<DeliveryMode> modes = DeliveryMode.parse(delivery);
 
         boolean hasDirect  = modes.stream().anyMatch(m -> !m.isOid4vci);
@@ -126,7 +128,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 : Mono.just(IssuanceResponse.builder().build());
 
         Mono<IssuanceResponse> oid4vciMono = hasOid4vci
-                ? performOid4VciIssuance(processId, request, publicIssuerBaseUrl, extractOid4vciDelivery(modes))
+                ? performOid4VciIssuance(processId, request, publicIssuerBaseUrl, publicWalletBaseUrl, extractOid4vciDelivery(modes))
                 .doOnError(e -> log.error(
                         "ProcessId: {} - OID4VCI issuance failed for credentialConfigurationId={} delivery={}",
                         processId,
@@ -195,7 +197,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     }
 
     private Mono<IssuanceResponse> performOid4VciIssuance(String processId, IssuanceRequest request,
-                                                           String publicIssuerBaseUrl, String oid4vciDelivery) {
+                                                           String publicIssuerBaseUrl, String publicWalletBaseUrl,
+                                                           String oid4vciDelivery) {
         String configId = request.credentialConfigurationId();
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
         String grantType = request.grantType() != null ? request.grantType() : DEFAULT_GRANT_TYPE;
@@ -211,7 +214,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                             .flatMap(saved -> credentialOfferService.createAndDeliverCredentialOffer(
                                             saved.getIssuanceId().toString(), configId, grantType, request.email(),
                                             oid4vciDelivery, saved.getCredentialOfferRefreshToken(),
-                                            publicIssuerBaseUrl)
+                                            publicIssuerBaseUrl, publicWalletBaseUrl)
                                     .map(offerResult -> IssuanceResponse.builder()
                                             .credentialOfferUri(offerResult.credentialOfferUri())
                                             .build())

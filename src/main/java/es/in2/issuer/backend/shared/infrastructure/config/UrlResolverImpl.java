@@ -30,6 +30,7 @@ public class UrlResolverImpl implements UrlResolver {
 
     private final String issuerContextPath;
     private final String verifierContextPath;
+    private final String walletContextPath;
     private final String issuerInternalUrl;
     private final String verifierInternalUrl;
     private final TenantCustomDomainsLoader tenantCustomDomainsLoader;
@@ -37,12 +38,14 @@ public class UrlResolverImpl implements UrlResolver {
     public UrlResolverImpl(
             @Value("${spring.webflux.base-path:}") String issuerContextPath,
             @Value("${app.verifier-base-path:/verifier}") String verifierContextPath,
+            @Value("${app.wallet-base-path:/wallet}") String walletContextPath,
             @Value("${app.internal-url:}") String issuerInternalUrl,
             @Value("${app.verifier-internal-url:}") String verifierInternalUrl,
             TenantCustomDomainsLoader tenantCustomDomainsLoader
     ) {
         this.issuerContextPath = normalizeContextPath(issuerContextPath);
         this.verifierContextPath = normalizeContextPath(verifierContextPath);
+        this.walletContextPath = normalizeContextPath(walletContextPath);
         this.issuerInternalUrl = stripTrailingSlash(issuerInternalUrl);
         this.verifierInternalUrl = stripTrailingSlash(verifierInternalUrl);
         this.tenantCustomDomainsLoader = tenantCustomDomainsLoader;
@@ -51,6 +54,24 @@ public class UrlResolverImpl implements UrlResolver {
     @Override
     public String publicIssuerBaseUrl(ServerWebExchange exchange) {
         return publicOrigin(exchange) + nullToEmpty(issuerContextPath);
+    }
+
+    @Override
+    public String publicWalletBaseUrl(ServerWebExchange exchange) {
+        // Non-canonical topology: the wallet runs on a separate host that cannot
+        // be derived from the issuer request origin. Match the request host
+        // against the custom-domains registry (issuer host -> wallet URL).
+        // We key on the request HOST, not the X-Tenant header: a tenant may be
+        // reached through several domains (canonical + custom) and X-Tenant
+        // carries the tenant id either way, so it cannot tell which domain was
+        // used. The request host can.
+        String requestHost = exchange.getRequest().getURI().getHost();
+        Optional<String> customWalletUrl = tenantCustomDomainsLoader.findWalletUrlByIssuerHost(requestHost);
+        if (customWalletUrl.isPresent()) {
+            return stripTrailingSlash(customWalletUrl.get());
+        }
+        // Canonical topology: issuer and wallet share the same origin (path-based).
+        return publicOrigin(exchange) + nullToEmpty(walletContextPath);
     }
 
     @Override
