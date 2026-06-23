@@ -49,6 +49,7 @@ public class BootstrapController {
         }
 
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
+        String publicWalletBaseUrl = urlResolver.publicWalletBaseUrl(exchange);
 
         // Tenant resolution and registry validation are performed by
         // TenantDomainWebFilter from the request host subdomain (or X-Tenant header).
@@ -66,7 +67,7 @@ public class BootstrapController {
             log.info("[{}] Bootstrap issuance initiated for tenant '{}'", processId, tenant);
 
             return issuanceWorkflow
-                    .issueCredentialWithoutAuthorization(processId, request.toIssuanceRequest(), bootstrapToken, publicIssuerBaseUrl)
+                    .issueCredentialWithoutAuthorization(processId, request.toIssuanceRequest(), bootstrapToken, publicIssuerBaseUrl, publicWalletBaseUrl)
                     .<ResponseEntity<Void>>map(response -> {
                         if (response.credentialOfferUri() != null) {
                             return ResponseEntity.created(URI.create(response.credentialOfferUri())).build();

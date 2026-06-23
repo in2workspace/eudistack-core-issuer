@@ -17,12 +17,12 @@ class UrlResolverImplTest {
 
     private static UrlResolverImpl resolver(String issuerCtx, String verifierCtx,
                                             String issuerInternal, String verifierInternal) {
-        return new UrlResolverImpl(issuerCtx, verifierCtx, issuerInternal, verifierInternal, null);
+        return new UrlResolverImpl(issuerCtx, verifierCtx, "/wallet", issuerInternal, verifierInternal, null);
     }
 
     private static UrlResolverImpl resolverWith(String issuerCtx, String verifierCtx,
                                                 TenantCustomDomainsLoader loader) {
-        return new UrlResolverImpl(issuerCtx, verifierCtx, "", "", loader);
+        return new UrlResolverImpl(issuerCtx, verifierCtx, "/wallet", "", "", loader);
     }
 
     private static ServerWebExchange exchangeAt(String url) {
@@ -84,6 +84,32 @@ class UrlResolverImplTest {
         UrlResolverImpl r = resolver("/issuer", "/verifier", "", "");
         ServerWebExchange ex = exchangeWithTenant("https://sandbox.stg.eudistack.net/issuer/x", "sandbox");
         assertEquals("https://sandbox.stg.eudistack.net/issuer", r.publicIssuerBaseUrl(ex));
+    }
+
+    // ── publicWalletBaseUrl ──────────────────────────────────────────────────
+
+    @Test
+    void publicWalletBaseUrl_composesOriginPlusWalletContextPath() {
+        UrlResolverImpl r = resolver("/issuer", "/verifier", "", "");
+        ServerWebExchange ex = exchangeAt("https://dome.stg.eudistack.net/issuer/api/v1/issuances");
+        assertEquals("https://dome.stg.eudistack.net/wallet", r.publicWalletBaseUrl(ex));
+    }
+
+    @Test
+    void publicWalletBaseUrl_nonCanonicalCustomDomain_followsRequestOrigin() {
+        // The wallet deep-link must match the domain the user reached the issuer from,
+        // whether canonical or a non-canonical custom domain.
+        UrlResolverImpl r = resolver("/issuer", "/verifier", "", "");
+        ServerWebExchange ex = exchangeWithTenant(
+                "https://wallet.dome-marketplace-lcl.org/issuer/x", "dome");
+        assertEquals("https://wallet.dome-marketplace-lcl.org/wallet", r.publicWalletBaseUrl(ex));
+    }
+
+    @Test
+    void publicWalletBaseUrl_keepsNonDefaultPort() {
+        UrlResolverImpl r = resolver("/issuer", "/verifier", "", "");
+        ServerWebExchange ex = exchangeAt("https://dome.127.0.0.1.nip.io:4443/issuer/x");
+        assertEquals("https://dome.127.0.0.1.nip.io:4443/wallet", r.publicWalletBaseUrl(ex));
     }
 
     // ── publicOrigin ─────────────────────────────────────────────────────────

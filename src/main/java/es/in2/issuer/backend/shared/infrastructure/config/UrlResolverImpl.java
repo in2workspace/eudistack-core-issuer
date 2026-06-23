@@ -30,6 +30,7 @@ public class UrlResolverImpl implements UrlResolver {
 
     private final String issuerContextPath;
     private final String verifierContextPath;
+    private final String walletContextPath;
     private final String issuerInternalUrl;
     private final String verifierInternalUrl;
     private final TenantCustomDomainsLoader tenantCustomDomainsLoader;
@@ -37,12 +38,14 @@ public class UrlResolverImpl implements UrlResolver {
     public UrlResolverImpl(
             @Value("${spring.webflux.base-path:}") String issuerContextPath,
             @Value("${app.verifier-base-path:/verifier}") String verifierContextPath,
+            @Value("${app.wallet-base-path:/wallet}") String walletContextPath,
             @Value("${app.internal-url:}") String issuerInternalUrl,
             @Value("${app.verifier-internal-url:}") String verifierInternalUrl,
             TenantCustomDomainsLoader tenantCustomDomainsLoader
     ) {
         this.issuerContextPath = normalizeContextPath(issuerContextPath);
         this.verifierContextPath = normalizeContextPath(verifierContextPath);
+        this.walletContextPath = normalizeContextPath(walletContextPath);
         this.issuerInternalUrl = stripTrailingSlash(issuerInternalUrl);
         this.verifierInternalUrl = stripTrailingSlash(verifierInternalUrl);
         this.tenantCustomDomainsLoader = tenantCustomDomainsLoader;
@@ -51,6 +54,11 @@ public class UrlResolverImpl implements UrlResolver {
     @Override
     public String publicIssuerBaseUrl(ServerWebExchange exchange) {
         return publicOrigin(exchange) + nullToEmpty(issuerContextPath);
+    }
+
+    @Override
+    public String publicWalletBaseUrl(ServerWebExchange exchange) {
+        return publicOrigin(exchange) + nullToEmpty(walletContextPath);
     }
 
     @Override

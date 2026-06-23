@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (23-06-2026)
+
+- **OID4VCI — Wallet deep-link in activation email**: the wallet base URL embedded in the credential-offer email (`{wallet}/protocol/callback?credential_offer_uri=...`) is now derived dynamically from the incoming request origin via the new `UrlResolver.publicWalletBaseUrl()`, instead of the static `issuer.wallet_url` tenant-config value. Previously a tenant accessed through a non-canonical custom domain (e.g. `wallet.dome-marketplace-lcl.org`) received an email pointing at whatever single URL was stored in `tenant_config`, mismatching the domain the user actually used. Now canonical requests yield the canonical wallet URL and non-canonical requests yield the matching custom-domain wallet URL — same mechanism already used for `publicIssuerBaseUrl`. `publicWalletBaseUrl` is threaded through `IssuanceController` / `BootstrapController` / `CredentialOfferRefreshController` → `IssuanceWorkflow` / `CredentialOfferRefreshWorkflow` → `CredentialOfferService.createAndDeliverCredentialOffer`. The `issuer.wallet_url` tenant-config lookup is no longer used for the deep link.
+
 ### Fixed (19-06-2026)
 
 - **PBAC — Legacy credential resolution**: `PolicyContextFactory.resolveProfile` now falls back to `CredentialProfileRegistry.getByCredentialType(...)` when no profile matches by `credential_configuration_id`. Real DOME legacy credentials carry the bare semantic type in `type[]` (e.g. `LEARCredentialEmployee`) instead of the versioned config-id, so policy evaluation previously rejected them with `InvalidCredentialFormatException: No profile found for credential type`. Required for the dual-format read flow during the DOME sunset window.

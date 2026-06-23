@@ -44,6 +44,18 @@ public interface UrlResolver {
     String publicIssuerBaseUrl(ServerWebExchange exchange);
 
     /**
+     * Public base URL of the wallet PWA as seen by the caller.
+     *
+     * <p>Derived from the same origin as the incoming request (same scheme,
+     * host and port) with the wallet context-path appended — e.g.
+     * {@code https://dome.stg.eudistack.net/wallet}.  This ensures that the
+     * wallet deep-link embedded in credential-offer emails always points to
+     * the same domain the user reached the issuer from, whether that is the
+     * canonical EUDIStack URL or a non-canonical custom domain.
+     */
+    String publicWalletBaseUrl(ServerWebExchange exchange);
+
+    /**
      * Public origin of the current request (scheme + host + port, no path).
      * Example: {@code https://sandbox-stg.eudistack.net}.
      */

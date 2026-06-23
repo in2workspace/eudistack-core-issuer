@@ -26,7 +26,7 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
 
     @Override
     @Observed(name = "issuance.refresh-offer", contextualName = "refresh-credential-offer")
-    public Mono<Void> refreshCredentialOffer(String credentialOfferRefreshToken, String publicIssuerBaseUrl) {
+    public Mono<Void> refreshCredentialOffer(String credentialOfferRefreshToken, String publicIssuerBaseUrl, String publicWalletBaseUrl) {
         log.info("Refreshing credential offer for credentialOfferRefreshToken: {}", credentialOfferRefreshToken);
 
         return issuanceService.getIssuanceByCredentialOfferRefreshToken(credentialOfferRefreshToken)
@@ -40,7 +40,8 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
                         issuance.getEmail(),
                         DeliveryMode.EMAIL.value,
                         credentialOfferRefreshToken,
-                        publicIssuerBaseUrl))
+                        publicIssuerBaseUrl,
+                        publicWalletBaseUrl))
                 .doOnSuccess(v -> log.info("Credential offer refreshed successfully for credentialOfferRefreshToken: {}", credentialOfferRefreshToken))
                 .then();
     }
