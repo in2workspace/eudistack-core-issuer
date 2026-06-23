@@ -42,7 +42,7 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
                         credentialOfferRefreshToken,
                         publicIssuerBaseUrl,
                         publicWalletBaseUrl))
-                .doOnSuccess(v -> log.info("Credential offer refreshed successfully for credentialOfferRefreshToken: {}", credentialOfferRefreshToken))
+                .doOnSuccess(v -> log.info("Credential offer refreshed successfully"))
                 .then();
     }
 
