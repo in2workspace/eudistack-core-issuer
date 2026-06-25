@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Tests (25-06-2026)
+
+- **Archive terminated procedures**: Added unit tests for `CredentialStatusEnum` covering ARCHIVED→ARCHIVED rejection, WITHDRAWN/REVOKED/EXPIRED→ARCHIVED allowed transitions, and ARCHIVED having no outgoing transitions (EC-02, ES-01).
+
 ## [3.6.20] - 2026-06-19
 
 ### Changed
