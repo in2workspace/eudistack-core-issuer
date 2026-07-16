@@ -10,7 +10,7 @@ plugins {
 }
 
 group = 'com.eudistack'
-version = '3.6.19'
+version = '3.6.21'
 
 java {
     toolchain {
@@ -100,6 +100,7 @@ dependencies {
     // --- Integration Testing ---
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
 }
 
 configurations.configureEach {

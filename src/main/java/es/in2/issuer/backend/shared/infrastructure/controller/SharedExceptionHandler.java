@@ -286,7 +286,7 @@ public class SharedExceptionHandler {
     }
 
     @ExceptionHandler(UnauthorizedRoleException.class)
-    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
     public Mono<GlobalErrorMessage> handleUnauthorizedRoleException(
             UnauthorizedRoleException ex,
             ServerHttpRequest request
@@ -295,8 +295,23 @@ public class SharedExceptionHandler {
                 ex, request,
                 GlobalErrorTypes.UNAUTHORIZED_ROLE.getCode(),
                 "Unauthorized role",
-                HttpStatus.UNAUTHORIZED,
+                HttpStatus.FORBIDDEN,
                 "The user role is not authorized to perform this action"
+        );
+    }
+
+    @ExceptionHandler(InvalidCredentialStatusTransitionException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Mono<GlobalErrorMessage> handleInvalidCredentialStatusTransitionException(
+            InvalidCredentialStatusTransitionException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.INVALID_CREDENTIAL_STATUS_TRANSITION.getCode(),
+                "Invalid credential status transition",
+                HttpStatus.CONFLICT,
+                "The credential is not in a status that allows this transition"
         );
     }
 

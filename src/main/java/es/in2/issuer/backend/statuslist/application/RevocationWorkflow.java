@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.statuslist.application;
 
+import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
@@ -81,6 +82,8 @@ public class RevocationWorkflow {
                 ))
                 .flatMap(token ->
                         issuanceService.getIssuanceById(issuanceId)
+                                .switchIfEmpty(Mono.error(new IssuanceNotFoundException(
+                                        "No issuance found for issuanceId: " + issuanceId)))
                                 .doOnSuccess(p -> log.debug(
                                         "processId={} action={} step=issuanceLoaded issuanceId={} credentialStatus={}",
                                         processId, action, issuanceId, p != null ? p.getCredentialStatus() : null

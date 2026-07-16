@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.21] - 2026-07-16
+
+### Added
+
+- **EUD-97 — Protect revocation against non-revocable states and out-of-scope credentials**
+  - `SharedExceptionHandler`: `UnauthorizedRoleException` now maps to **403 Forbidden** (was 401) — an authenticated operator denied by scope/capability is a permissions issue, not an authentication failure (AC-03, AC-05).
+  - `SharedExceptionHandler`: new handler for `InvalidCredentialStatusTransitionException` → **409 Conflict** with a readable detail, instead of falling through to the catch-all 500 (AC-06, ES-03).
+  - `GlobalErrorTypes`: added `INVALID_CREDENTIAL_STATUS_TRANSITION` error code.
+  - `RevocationWorkflow`: revoking a non-existent `issuanceId` now returns **404 Not Found** (`IssuanceNotFoundException`) instead of silently completing (ES-02).
+  - `RevokeCredentialRequest` / `BitstringStatusListController`: `issuanceId` is now validated as non-blank (`@NotBlank` + `@Valid`), returning **400 Bad Request** for empty/missing values (ES-01).
+  - Tests: `RequireValidStatusRuleTest` (parametrized over all non-VALID statuses), `BitstringStatusListControllerRevokeIT` (first Testcontainers-based integration test in this repo — covers AC-01..AC-06, EC-01, EC-03, ES-01, ES-02 end-to-end against a real Postgres and the real security filter chain).
+
 ### Tests (25-06-2026)
 
 - **Archive terminated procedures**: Added unit tests for `CredentialStatusEnum` covering ARCHIVED→ARCHIVED rejection, WITHDRAWN/REVOKED/EXPIRED→ARCHIVED allowed transitions, and ARCHIVED having no outgoing transitions (EC-02, ES-01).
