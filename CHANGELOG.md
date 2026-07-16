@@ -4,11 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.6.20] - 2026-07-16
 
-### Added (15-07-2026)
+### Added
 
-- Observability configuration wi
+- Observability configuration
+
+### Fixed
+
+- **OID4VCI — nonce consumed before signature validation**: `ProofValidationServiceImpl.verifyProof()` deleted the nonce from the cache before verifying the JWT signature. A 502 mid-flight caused the nonce to be lost; any subsequent retry propagated as `ProofValidationException("Error during JWT validation")` (generic catch) instead of surfacing the root cause. Refactored into a two-step flow: `checkNonce()` verifies the nonce exists but does NOT delete it; deletion only happens after `validateSignatureAccordingToHeader()` succeeds. Tests updated to assert the nonce is not consumed on signature failure.
+- **OID4VCI — `CacheStore.get()` emits error on cache miss**: `CacheStore.get()` returned `Mono.error(NoSuchElementException)` when the key was absent. Callers using `.switchIfEmpty()` never saw the empty signal — `switchIfEmpty` only fires on `Mono.empty()`, not on `Mono.error()` — so a cache miss bypassed the intended error mapping and propagated as an uncaught exception. Fixed to return `Mono.empty()` on miss. All callers that previously relied on `onErrorMap(NoSuchElementException.class, ...)` migrated to `switchIfEmpty(Mono.error(...))` (`AuthorizationServiceImpl`, `TokenServiceImpl` — 5 sites).
 
 ### Fixed (23-06-2026)
 

@@ -6,7 +6,6 @@ import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import lombok.RequiredArgsConstructor;
 import reactor.core.publisher.Mono;
 
-import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
@@ -36,11 +35,7 @@ public class CacheStore<T> implements TransientStore<T> {
     @Override
     public Mono<T> get(String key) {
         T value = cache.getIfPresent(key);
-        if (value != null) {
-            return Mono.just(value);
-        } else {
-            return Mono.error(new NoSuchElementException("Value is not present."));
-        }
+        return value != null ? Mono.just(value) : Mono.empty();
     }
 
     @Override

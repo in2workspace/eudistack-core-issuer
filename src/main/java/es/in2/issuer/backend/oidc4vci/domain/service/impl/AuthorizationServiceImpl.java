@@ -49,6 +49,7 @@ public class AuthorizationServiceImpl implements AuthorizationService {
 
     private Mono<URI> pushAuthorizationRequestAuthorization(String baseUrl, String requestUri, String state) {
         return parCacheStore.get(requestUri)
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("Invalid or expired request_uri")))
                 .flatMap(parRequest -> {
                     // Consume the PAR (one-time use)
                     return parCacheStore.delete(requestUri)
@@ -67,9 +68,7 @@ public class AuthorizationServiceImpl implements AuthorizationService {
                                     code,
                                     state != null ? state : parRequest.state()
                             ));
-                })
-                .onErrorMap(java.util.NoSuchElementException.class,
-                        ex -> new IllegalArgumentException("Invalid or expired request_uri"));
+                });
     }
 
     private Mono<URI> processDirectAuthorization(
