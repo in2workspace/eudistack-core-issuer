@@ -22,7 +22,7 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.time.Instant;
-import java.util.NoSuchElementException;
+
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.GRANT_TYPE;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -148,7 +148,7 @@ class TokenServiceImplTest {
     @Test
     void exchangeToken_WhenInvalidPreAuthorizedCode_ShouldReturnInvalidGrant() {
         when(txCodeCacheStore.get(TEST_PRE_AUTHORIZED_CODE))
-                .thenReturn(Mono.error(new NoSuchElementException("Not found")));
+                .thenReturn(Mono.empty());
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
 
@@ -182,7 +182,7 @@ class TokenServiceImplTest {
     @Test
     void exchangeToken_WhenCacheStoreThrowsException_ShouldReturnInvalidGrant() {
         when(txCodeCacheStore.get(TEST_PRE_AUTHORIZED_CODE))
-                .thenReturn(Mono.error(new NoSuchElementException()));
+                .thenReturn(Mono.empty());
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
 
