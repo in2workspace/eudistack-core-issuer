@@ -180,16 +180,16 @@ class TokenServiceImplTest {
     }
 
     @Test
-    void exchangeToken_WhenCacheStoreThrowsException_ShouldReturnInvalidGrant() {
+    void exchangeToken_WhenCacheStoreThrowsInfrastructureError_ShouldPropagateException() {
+        RuntimeException cacheFailure = new RuntimeException("Cache connection failed");
         when(txCodeCacheStore.get(TEST_PRE_AUTHORIZED_CODE))
-                .thenReturn(Mono.empty());
+                .thenReturn(Mono.error(cacheFailure));
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
 
         StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
-                .expectErrorMatches(throwable ->
-                        throwable instanceof OAuthTokenException ex &&
-                                "invalid_grant".equals(ex.getErrorCode()))
+                .expectErrorMatches(throwable -> throwable instanceof RuntimeException
+                        && "Cache connection failed".equals(throwable.getMessage()))
                 .verify();
 
         verify(txCodeCacheStore).get(TEST_PRE_AUTHORIZED_CODE);
