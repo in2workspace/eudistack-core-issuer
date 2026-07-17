@@ -310,15 +310,9 @@ public class JWTServiceImpl implements JWTService {
 
     @Override
     public String resolvePrincipal(Jwt jwt) {
-        Optional<String> email = extractMandateeEmail(jwt);
-        log.debug("resolvePrincipal - extracted email: {}", email.orElse("<empty>"));
-
-        String resolved = email
+        return extractMandateeEmail(jwt)
                 .filter(e -> !e.isBlank())
                 .orElse("anonymous");
-
-        log.debug("resolvePrincipal - returning: {}", resolved);
-        return resolved;
     }
 
     @Override
@@ -338,7 +332,6 @@ public class JWTServiceImpl implements JWTService {
         }
 
         if (email instanceof String s) {
-            log.debug("Email from the mandatee: {}", email);
             return Optional.of(s);
         }
 
@@ -348,7 +341,6 @@ public class JWTServiceImpl implements JWTService {
             topEmail = claims.get("emailAddress");
         }
         if (topEmail instanceof String s2) {
-            log.debug("Email from top level: {}", topEmail);
             return Optional.of(s2);
         }
 

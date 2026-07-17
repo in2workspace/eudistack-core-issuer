@@ -36,6 +36,7 @@ class IssuerFactoryTest {
                 "provider",
                 "1",
                 "",
+                "",
                 "sign-hash",
                 "cred", "pwd",
                 "PT10M",

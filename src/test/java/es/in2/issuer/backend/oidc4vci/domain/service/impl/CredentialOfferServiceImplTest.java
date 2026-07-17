@@ -54,13 +54,11 @@ class CredentialOfferServiceImplTest {
                         .build()));
         when(credentialOfferCacheRepository.saveCredentialOffer(any()))
                 .thenReturn(Mono.just("cache-nonce"));
-        when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
-                .thenReturn(Mono.just("https://wallet.example.com"));
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
-                        issuanceId, configId, "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "ui", "refresh-token", "https://example.com"))
+                        issuanceId, configId, "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "ui", "refresh-token", "https://example.com", "https://example.com/wallet"))
                 .assertNext(result -> {
-                    assertThat(result.credentialOfferUri()).startsWith("https://wallet.example.com/protocol/callback");
+                    assertThat(result.credentialOfferUri()).startsWith("https://example.com/wallet/protocol/callback");
                     assertThat(result.credentialOfferUri()).contains("credential_offer_uri=");
                 })
                 .verifyComplete();
@@ -75,13 +73,11 @@ class CredentialOfferServiceImplTest {
                 .thenReturn(Mono.just("cached"));
         when(credentialOfferCacheRepository.saveCredentialOffer(any()))
                 .thenReturn(Mono.just("cache-nonce"));
-        when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
-                .thenReturn(Mono.just("https://wallet.example.com"));
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
-                        issuanceId, configId, "authorization_code", "test@example.com", "ui", "refresh-token", "https://example.com"))
+                        issuanceId, configId, "authorization_code", "test@example.com", "ui", "refresh-token", "https://example.com", "https://example.com/wallet"))
                 .assertNext(result -> {
-                    assertThat(result.credentialOfferUri()).startsWith("https://wallet.example.com/protocol/callback");
+                    assertThat(result.credentialOfferUri()).startsWith("https://example.com/wallet/protocol/callback");
                     assertThat(result.credentialOfferUri()).contains("credential_offer_uri=");
                 })
                 .verifyComplete();
@@ -94,8 +90,6 @@ class CredentialOfferServiceImplTest {
 
         when(tenantConfigService.getStringOrThrow("issuer.frontend_url"))
                 .thenReturn(Mono.just("https://frontend.example.com/issuer"));
-        when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
-                .thenReturn(Mono.just("https://wallet.example.com"));
         when(issuerStateCacheStore.add(anyString(), eq(issuanceId)))
                 .thenReturn(Mono.just("cached"));
         when(credentialOfferCacheRepository.saveCredentialOffer(any()))
@@ -107,7 +101,7 @@ class CredentialOfferServiceImplTest {
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
-                        issuanceId, configId, "authorization_code", "test@example.com", "email", "refresh-token", "https://example.com"))
+                        issuanceId, configId, "authorization_code", "test@example.com", "email", "refresh-token", "https://example.com", "https://example.com/wallet"))
                 .assertNext(result -> assertThat(result.credentialOfferUri()).isNull())
                 .verifyComplete();
 
@@ -122,8 +116,6 @@ class CredentialOfferServiceImplTest {
 
         when(tenantConfigService.getStringOrThrow("issuer.frontend_url"))
                 .thenReturn(Mono.just("https://frontend.example.com/issuer"));
-        when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
-                .thenReturn(Mono.just("https://wallet.example.com"));
         when(preAuthorizedCodeService.issuePreAuthorizedCode(anyString(), any()))
                 .thenReturn(Mono.just(PreAuthorizedCodeResponse.builder()
                         .preAuthorizedCode("pre-auth-code-123")
@@ -139,7 +131,7 @@ class CredentialOfferServiceImplTest {
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
-                        issuanceId, configId, "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "email", "refresh-token", "https://example.com"))
+                        issuanceId, configId, "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "email", "refresh-token", "https://example.com", "https://example.com/wallet"))
                 .assertNext(result -> assertThat(result.credentialOfferUri()).isNull())
                 .verifyComplete();
 
@@ -152,8 +144,6 @@ class CredentialOfferServiceImplTest {
         // Arrange
         when(tenantConfigService.getStringOrThrow("issuer.frontend_url"))
                 .thenReturn(Mono.just("https://kpmg.eudistack.net/issuer"));
-        when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
-                .thenReturn(Mono.just("https://kpmg.eudistack.net/wallet"));
         when(preAuthorizedCodeService.issuePreAuthorizedCode(anyString(), any()))
                 .thenReturn(Mono.just(PreAuthorizedCodeResponse.builder()
                         .preAuthorizedCode("pre-auth-code")
@@ -170,7 +160,7 @@ class CredentialOfferServiceImplTest {
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
                         "issuance-kpmg", "learcredential.employee.sd.1",
                         "urn:ietf:params:oauth:grant-type:pre-authorized_code",
-                        "user@kpmg.com", "email", "refresh-token", "https://kpmg.eudistack.net/issuer")
+                        "user@kpmg.com", "email", "refresh-token", "https://kpmg.eudistack.net/issuer", "https://kpmg.eudistack.net/wallet")
                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "kpmg")))
                 .assertNext(result -> assertThat(result.credentialOfferUri()).isNull())
                 .verifyComplete();
@@ -185,8 +175,6 @@ class CredentialOfferServiceImplTest {
         // Arrange
         when(tenantConfigService.getStringOrThrow("issuer.frontend_url"))
                 .thenReturn(Mono.just("https://sandbox.eudistack.net/issuer"));
-        when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
-                .thenReturn(Mono.just("https://sandbox.eudistack.net/wallet"));
         when(preAuthorizedCodeService.issuePreAuthorizedCode(anyString(), any()))
                 .thenReturn(Mono.just(PreAuthorizedCodeResponse.builder()
                         .preAuthorizedCode("pre-auth-code")
@@ -203,7 +191,7 @@ class CredentialOfferServiceImplTest {
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
                         "issuance-sandbox", "learcredential.employee.sd.1",
                         "urn:ietf:params:oauth:grant-type:pre-authorized_code",
-                        "user@sandbox.com", "email", "refresh-token", "https://sandbox.eudistack.net/issuer")
+                        "user@sandbox.com", "email", "refresh-token", "https://sandbox.eudistack.net/issuer", "https://sandbox.eudistack.net/wallet")
                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "sandbox")))
                 .assertNext(result -> assertThat(result.credentialOfferUri()).isNull())
                 .verifyComplete();

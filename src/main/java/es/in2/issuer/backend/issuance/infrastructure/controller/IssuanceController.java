@@ -48,7 +48,8 @@ public class IssuanceController {
             ServerWebExchange exchange) {
         String processId = UUID.randomUUID().toString();
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
-        return issuanceWorkflow.issueCredential(processId, request, idToken, publicIssuerBaseUrl)
+        String publicWalletBaseUrl = urlResolver.publicWalletBaseUrl(exchange);
+        return issuanceWorkflow.issueCredential(processId, request, idToken, publicIssuerBaseUrl, publicWalletBaseUrl)
                 .map(this::toResponseEntity);
     }
 

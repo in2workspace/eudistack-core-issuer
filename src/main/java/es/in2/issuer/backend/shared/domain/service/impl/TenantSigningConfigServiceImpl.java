@@ -58,10 +58,13 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
     private RemoteSignatureDto toRemoteSignatureDto(TenantSigningConfig config) {
         try {
             JsonNode psc = objectMapper.readTree(config.providerSpecificConfig());
+            String cscUrl = psc.path("url").asText();
+            String authUrl = psc.hasNonNull("authUrl") ? psc.get("authUrl").asText() : cscUrl;
             return new RemoteSignatureDto(
                     config.provider(),
                     config.cscApiVersion(),
-                    psc.path("url").asText(),
+                    cscUrl,
+                    authUrl,
                     psc.hasNonNull("signPath") ? psc.get("signPath").asText() : "sign-hash",
                     psc.path("credentialId").asText(),
                     psc.path("credentialPwd").asText(),

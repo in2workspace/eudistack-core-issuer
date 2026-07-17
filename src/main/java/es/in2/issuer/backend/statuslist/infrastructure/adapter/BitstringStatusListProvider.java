@@ -127,7 +127,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
                         log.debug("method=revoke step=END issuanceId={}", issuanceId)
                 )
                 .doOnError(e ->
-                        log.warn("method=revoke step=ERROR issuanceId={} error={}", issuanceId, e.toString())
+                        log.warn("method=revoke step=ERROR issuanceId={} error={}", issuanceId, e.getClass().getSimpleName())
                 );
     }
 

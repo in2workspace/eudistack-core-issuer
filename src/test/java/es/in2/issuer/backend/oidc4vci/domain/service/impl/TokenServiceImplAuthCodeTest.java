@@ -23,7 +23,7 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.util.List;
-import java.util.NoSuchElementException;
+
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -169,7 +169,7 @@ class TokenServiceImplAuthCodeTest {
     @Test
     void exchangeToken_authCode_shouldFailOnInvalidCode() {
         when(authorizationCodeCacheStore.get("invalid-code"))
-                .thenReturn(Mono.error(new NoSuchElementException("Not found")));
+                .thenReturn(Mono.empty());
 
         TokenRequest request = authCodeRequest("invalid-code", "https://wallet/callback", "verifier");
 

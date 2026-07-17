@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.reactive.CorsWebFilter;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
@@ -13,6 +14,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CorsConfigTest {
 
     private final CorsConfig corsConfig = new CorsConfig();
+
+    @Test
+    void corsWebFilter_IsRegisteredAsStandaloneBean() {
+        CorsWebFilter filter = corsConfig.corsWebFilter();
+        assertThat(filter).isNotNull();
+    }
 
     @Test
     void CorsConfigurationSource_WellKnownPath_AllowsAnyOriginForExternalWallets() {
@@ -38,6 +45,22 @@ class CorsConfigTest {
 
         assertThat(config).isNotNull();
         assertThat(config.getAllowedOriginPatterns()).contains("*");
+    }
+
+    // The authorize endpoint returns a 302 redirect. Chrome requires Access-Control-Allow-Origin
+    // on that response for cross-origin XHR to follow the redirect and read response.url.
+    @Test
+    void CorsConfigurationSource_AuthorizePath_AllowsAnyOriginOnRedirectResponse() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/oid4vci/v1/authorize").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedOriginPatterns()).contains("*");
+        assertThat(config.getAllowCredentials()).isNotEqualTo(Boolean.TRUE);
     }
 
     @Test

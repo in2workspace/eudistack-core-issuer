@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import reactor.test.StepVerifier;
 
-import java.util.NoSuchElementException;
 import java.util.concurrent.TimeUnit;
 
 import static org.mockito.Mockito.*;
@@ -94,8 +93,7 @@ class CacheStoreTest {
 
         StepVerifier.create(cacheStore.get(key))
                 .expectSubscription()
-                .expectError(NoSuchElementException.class)
-                .verify();
+                .verifyComplete();
 
         verify(cache).getIfPresent(key);
     }

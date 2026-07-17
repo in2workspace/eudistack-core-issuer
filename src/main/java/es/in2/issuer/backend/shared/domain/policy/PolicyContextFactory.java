@@ -184,6 +184,9 @@ public class PolicyContextFactory {
     private CredentialProfile resolveProfile(String credentialType) {
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialType);
         if (profile == null) {
+            profile = credentialProfileRegistry.getByCredentialType(credentialType);
+        }
+        if (profile == null) {
             throw new InvalidCredentialFormatException(
                     "No profile found for credential type: " + credentialType);
         }

@@ -1,12 +1,18 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
+import es.in2.issuer.backend.shared.infrastructure.config.tenantconfig.TenantCustomDomainsLoader;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 
 import java.net.URI;
+import java.util.List;
+import java.util.Optional;
+
+import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
+
 
 /**
  * Implementation of {@link UrlResolver}.
@@ -24,24 +30,48 @@ public class UrlResolverImpl implements UrlResolver {
 
     private final String issuerContextPath;
     private final String verifierContextPath;
+    private final String walletContextPath;
     private final String issuerInternalUrl;
     private final String verifierInternalUrl;
+    private final TenantCustomDomainsLoader tenantCustomDomainsLoader;
 
     public UrlResolverImpl(
             @Value("${spring.webflux.base-path:}") String issuerContextPath,
             @Value("${app.verifier-base-path:/verifier}") String verifierContextPath,
+            @Value("${app.wallet-base-path:/wallet}") String walletContextPath,
             @Value("${app.internal-url:}") String issuerInternalUrl,
-            @Value("${app.verifier-internal-url:}") String verifierInternalUrl
+            @Value("${app.verifier-internal-url:}") String verifierInternalUrl,
+            TenantCustomDomainsLoader tenantCustomDomainsLoader
     ) {
         this.issuerContextPath = normalizeContextPath(issuerContextPath);
         this.verifierContextPath = normalizeContextPath(verifierContextPath);
+        this.walletContextPath = normalizeContextPath(walletContextPath);
         this.issuerInternalUrl = stripTrailingSlash(issuerInternalUrl);
         this.verifierInternalUrl = stripTrailingSlash(verifierInternalUrl);
+        this.tenantCustomDomainsLoader = tenantCustomDomainsLoader;
     }
 
     @Override
     public String publicIssuerBaseUrl(ServerWebExchange exchange) {
         return publicOrigin(exchange) + nullToEmpty(issuerContextPath);
+    }
+
+    @Override
+    public String publicWalletBaseUrl(ServerWebExchange exchange) {
+        // Non-canonical topology: the wallet runs on a separate host that cannot
+        // be derived from the issuer request origin. Match the request host
+        // against the custom-domains registry (issuer host -> wallet URL).
+        // We key on the request HOST, not the X-Tenant header: a tenant may be
+        // reached through several domains (canonical + custom) and X-Tenant
+        // carries the tenant id either way, so it cannot tell which domain was
+        // used. The request host can.
+        String requestHost = exchange.getRequest().getURI().getHost();
+        Optional<String> customWalletUrl = tenantCustomDomainsLoader.findWalletUrlByIssuerHost(requestHost);
+        if (customWalletUrl.isPresent()) {
+            return stripTrailingSlash(customWalletUrl.get());
+        }
+        // Canonical topology: issuer and wallet share the same origin (path-based).
+        return publicOrigin(exchange) + nullToEmpty(walletContextPath);
     }
 
     @Override
@@ -62,8 +92,15 @@ public class UrlResolverImpl implements UrlResolver {
     }
 
     @Override
-    public String expectedVerifierBaseUrl(ServerWebExchange exchange) {
-        return publicOrigin(exchange) + nullToEmpty(verifierContextPath);
+    public List<String> expectedVerifierBaseUrls(ServerWebExchange exchange) {
+        String tenantHeader = exchange.getRequest().getHeaders().getFirst(X_TENANT_HEADER);
+        if (tenantHeader != null && !tenantHeader.isBlank()) {
+            Optional<List<String>> customUrls = tenantCustomDomainsLoader.findVerifierUrls(tenantHeader.trim());
+            if (customUrls.isPresent()) {
+                return List.copyOf(customUrls.get());
+            }
+        }
+        return List.of(publicOrigin(exchange) + nullToEmpty(verifierContextPath));
     }
 
     @Override

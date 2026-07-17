@@ -30,7 +30,7 @@ public class CredentialProfileRegistry {
             ObjectMapper objectMapper,
             ResourcePatternResolver resourcePatternResolver,
             @Value("${credential.profiles.path:classpath:credentials/profiles}") String profilesBasePath) {
-        String profilesPattern = profilesBasePath + "/*.json";
+        String profilesPattern = profilesBasePath + "/**/*.json";
         Map<String, CredentialProfile> configIdMap = new LinkedHashMap<>();
         Map<String, CredentialProfile> typeMap = new LinkedHashMap<>();
         Map<String, JsonNode> rawMap = new LinkedHashMap<>();
@@ -43,6 +43,10 @@ public class CredentialProfileRegistry {
 
             for (Resource resource : resources) {
                 String filename = resource.getFilename();
+                if (filename != null && filename.matches(".*\\.sample.*\\.json")) {
+                    log.debug("Skipping sample credential profile file {}", filename);
+                    continue;
+                }
                 if (filename != null && filename.endsWith(".profile.json")) {
                     JsonNode profileJson = readJsonResource(objectMapper, resource);
                     String configId = extractConfigurationId(profileJson, filename);

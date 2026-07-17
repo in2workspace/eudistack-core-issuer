@@ -2,6 +2,8 @@ package es.in2.issuer.backend.shared.domain.spi;
 
 import org.springframework.web.server.ServerWebExchange;
 
+import java.util.List;
+
 /**
  * Single source of truth for resolving the issuer's public and internal URLs.
  *
@@ -27,11 +29,42 @@ import org.springframework.web.server.ServerWebExchange;
 public interface UrlResolver {
 
     /**
-     * Public base URL of this issuer backend as seen by the caller
-     * (scheme + host + port + context-path). Example:
-     * {@code https://sandbox-stg.eudistack.net/issuer}.
+     * Public base URL of this issuer backend as seen by the caller.
+     *
+     * <ul>
+     *   <li><b>Canonical topology</b> (subdomain per tenant, nginx): returns
+     *       {@code scheme + host + port + context-path}, e.g.
+     *       {@code https://sandbox-stg.eudistack.net/issuer}.</li>
+     *   <li><b>Non-canonical topology</b> (CloudFront, context-path absent from
+     *       the external URL): returns {@code scheme + host + port} only.
+     *       Detected by the presence of a non-blank {@code X-Tenant} header,
+     *       which CloudFront always injects in this deployment mode.</li>
+     * </ul>
      */
     String publicIssuerBaseUrl(ServerWebExchange exchange);
+
+    /**
+     * Public base URL of the wallet PWA as seen by the caller. Used as the
+     * base of the wallet deep-link embedded in credential-offer emails.
+     *
+     * <ul>
+     *   <li><b>Non-canonical topology</b> (custom domains): the wallet runs on a
+     *       separate host that cannot be derived from the issuer request origin
+     *       (e.g. issuer at {@code issuer.dome-marketplace.org}, wallet at
+     *       {@code wallet.dome-marketplace.org}). The URL is read from the
+     *       tenant custom domains registry ({@code tenants-custom-domains.yaml},
+     *       field {@code wallet}), matched by the <em>request host</em>. The host
+     *       — not the {@code X-Tenant} header — is the discriminator, because a
+     *       tenant may be reached through several domains (canonical and custom)
+     *       and {@code X-Tenant} carries the same tenant id for all of them.</li>
+     *   <li><b>Canonical topology</b> (subdomain per tenant, path-based per
+     *       EUDI-064): issuer and wallet share the same origin and the host is
+     *       absent from the registry, so the value falls back to the request
+     *       origin plus the wallet context-path — e.g.
+     *       {@code https://dome.stg.eudistack.net/wallet}.</li>
+     * </ul>
+     */
+    String publicWalletBaseUrl(ServerWebExchange exchange);
 
     /**
      * Public origin of the current request (scheme + host + port, no path).
@@ -40,13 +73,22 @@ public interface UrlResolver {
     String publicOrigin(ServerWebExchange exchange);
 
     /**
-     * Base URL at which the verifier is expected to serve tokens reaching
-     * this issuer under same-origin (Atlassian-style) routing:
-     * {@code ${publicOrigin}/verifier}. Used by the authentication layer
-     * to validate the {@code iss} claim of verifier-emitted tokens by
-     * exact match, with no dependency on {@code APP_VERIFIER_URL}.
+     * All base URLs at which a verifier is expected to serve tokens reaching this issuer.
+     * Used by the authentication layer to validate the {@code iss} claim of
+     * verifier-emitted tokens by exact match against any element of the list.
+     *
+     * <ul>
+     *   <li><b>Canonical topology</b>: single-element list derived from
+     *       {@code publicOrigin + verifierContextPath},
+     *       e.g. {@code [https://sandbox-stg.eudistack.net/verifier]}.</li>
+     *   <li><b>Non-canonical topology</b> (CloudFront, {@code X-Tenant} header present):
+     *       list read from the tenant custom domains registry
+     *       ({@code tenants-custom-domains.yaml}, field {@code verifiers}).
+     *       The verifier is a separate service whose URL cannot be derived
+     *       from the issuer request origin in this topology.</li>
+     * </ul>
      */
-    String expectedVerifierBaseUrl(ServerWebExchange exchange);
+    List<String> expectedVerifierBaseUrls(ServerWebExchange exchange);
 
     /**
      * Intra-VPC base URL of the verifier, including its base-path.

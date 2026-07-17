@@ -48,6 +48,7 @@ class IssuanceControllerTest {
 
     private static final String ISSUANCES_PATH = "/api/v1/issuances";
     private static final String PUBLIC_ISSUER_BASE_URL = "https://issuer.example.com";
+    private static final String PUBLIC_WALLET_BASE_URL = "https://issuer.example.com/wallet";
 
     @Autowired
     private WebTestClient webTestClient;
@@ -88,7 +89,8 @@ class IssuanceControllerTest {
         IssuanceRequest request = buildIssuanceRequest();
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(PUBLIC_ISSUER_BASE_URL)))
+        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .credentialOfferUri(credentialOfferUri)
                         .build()));
@@ -110,7 +112,8 @@ class IssuanceControllerTest {
         String signedCredential = "signed-credential-value";
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(PUBLIC_ISSUER_BASE_URL)))
+        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .signedCredential(signedCredential)
                         .build()));
@@ -131,7 +134,8 @@ class IssuanceControllerTest {
         IssuanceRequest request = buildIssuanceRequest();
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(PUBLIC_ISSUER_BASE_URL)))
+        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder().build()));
 
         webTestClient.mutateWith(csrf())
@@ -150,7 +154,8 @@ class IssuanceControllerTest {
         IssuanceRequest request = buildIssuanceRequest();
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(idToken), eq(PUBLIC_ISSUER_BASE_URL)))
+        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(idToken), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder().build()));
 
         webTestClient.mutateWith(csrf())

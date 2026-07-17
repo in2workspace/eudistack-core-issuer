@@ -55,6 +55,8 @@ logging:
   level:
     org.springframework.security: ${LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY:INFO}
     es.in2.issuer: ${LOGGING_LEVEL_ES_IN2_ISSUER:INFO}
+    io.micrometer.registry.otlp: DEBUG
+    io.opentelemetry.exporter: DEBUG
 
 # Actuator & Observability
 management:
@@ -101,7 +103,19 @@ management:
       service: ${spring.application.name}
   otlp:
     tracing:
+      # Primary export: HTTP → Jaeger (unchanged). A second, gRPC → OTel Collector → Zipkin
+      # export is added independently via OtlpGrpcTracingConfig (dual export, opt-in).
       endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+      grpc:
+        enabled: ${MANAGEMENT_OTLP_GRPC_TRACING_ENABLED:false}
+        endpoint: ${OTEL_COLLECTOR_GRPC_URL:http://127.0.0.1:4317}
+    metrics:
+      export:
+        enabled: ${MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED:false}
+        url: ${OTEL_COLLECTOR_GRPC_URL:http://127.0.0.1:4317}
+        step: 5s
+        resource-attributes:
+          service.name: ${spring.application.name}
 
 # OpenAPI / Swagger
 springdoc:
@@ -132,6 +146,8 @@ app:
   # /verifier) so that calls that append well-known paths resolve correctly.
   internal-url: ${APP_INTERNAL_URL:http://localhost:8080/issuer}
   verifier-internal-url: ${APP_VERIFIER_INTERNAL_URL:http://localhost:8081/verifier}
+  tenant-custom-domains:
+    path: ${APP_TENANTS_CUSTOM_DOMAINS_PATH:classpath:tenants-custom-domains.yaml}
   cors:
     origins-path: ${APP_CORS_ORIGINS_PATH:}
   # mail-from removed — now per-tenant via tenant_config.issuer.mail_from
