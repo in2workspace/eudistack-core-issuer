@@ -42,6 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Vintegris** Allow Vintegris signature
 
+## [3.6.20] - 2026-07-17
+
+### Added
+
+- **API Client — M2M authentication gate for unattended issuance intake (EUD-75 / US-02)**: external systems (HR platforms, onboarding, professional-body registration) can now authenticate as a registered API client via `POST /oauth/token` with `grant_type=client_credentials`, receiving a short-lived (≤ 5 min) JWT carrying `caller_type=M2M` and `can_trigger_issuance` claims. New `api_client` table (schema-per-tenant, `V7__Add_api_client_table.sql`) with `authorization_status` (`ACTIVE`/`REVOKED`/`SUSPENDED`) and BCrypt-hashed secrets. `IntakeCallerAuthorizationFilter` gates `/api/v1/intake` (the endpoint itself lands with EUD-74): rejects with `403` any request whose token is not `M2M` or lacks `can_trigger_issuance`, and with `401` any unauthenticated/expired/unknown-issuer request — fail-closed on repository failure. Invalid-client responses are uniform for a non-existent `client_id` and an incorrect secret to prevent client enumeration. Every gate decision (admitted or rejected) is audited with tenant, caller identity, result and cause, never the secret or full token.
+
 ## [3.6.19] - 2026-06-09
 
 ### Fixed
