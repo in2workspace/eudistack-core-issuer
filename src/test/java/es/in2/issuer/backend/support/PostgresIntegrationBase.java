@@ -81,7 +81,7 @@ public abstract class PostgresIntegrationBase {
                                         boolean canTriggerIssuance, String authorizationStatus) {
         String secretHash = apiClientPasswordEncoder.encode(rawSecret);
         String schema = tenant + SCHEMA_SUFFIX;
-        return databaseClient.sql("INSERT INTO " + schema + ".api_client "
+        return databaseClient.sql("INSERT INTO \"" + schema + "\".api_client "
                         + "(client_id, authorization_status, can_trigger_issuance, secret_hash) "
                         + "VALUES (:clientId, :status, :canTriggerIssuance, :secretHash)")
                 .bind("clientId", clientId)

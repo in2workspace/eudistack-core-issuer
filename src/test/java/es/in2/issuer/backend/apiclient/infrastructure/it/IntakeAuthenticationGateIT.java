@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.http.HttpHeaders;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.INTAKE_BASE_PATH;
 
 /**
@@ -37,6 +38,7 @@ class IntakeAuthenticationGateIT extends PostgresIntegrationBase {
     void intake_noAuthorizationHeader_returnsUnauthorized() {
         webTestClient()
                 .post().uri(INTAKE_BASE_PATH)
+                .header(X_TENANT_HEADER, TENANT)
                 .exchange()
                 .expectStatus().isUnauthorized();
     }
@@ -48,6 +50,7 @@ class IntakeAuthenticationGateIT extends PostgresIntegrationBase {
         webTestClient()
                 .post().uri(INTAKE_BASE_PATH)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                .header(X_TENANT_HEADER, TENANT)
                 .exchange()
                 // No EUD-74 controller exists yet: 404 proves the gate did not
                 // reject the request itself (no 401/403).
@@ -61,6 +64,7 @@ class IntakeAuthenticationGateIT extends PostgresIntegrationBase {
         webTestClient()
                 .post().uri(INTAKE_BASE_PATH)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                .header(X_TENANT_HEADER, TENANT)
                 .exchange()
                 .expectStatus().isForbidden();
     }

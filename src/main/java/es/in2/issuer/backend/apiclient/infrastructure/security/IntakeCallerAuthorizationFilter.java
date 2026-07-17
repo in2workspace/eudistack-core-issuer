@@ -53,7 +53,7 @@ public class IntakeCallerAuthorizationFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        if (!exchange.getRequest().getPath().value().startsWith(INTAKE_BASE_PATH)) {
+        if (!exchange.getRequest().getPath().pathWithinApplication().value().startsWith(INTAKE_BASE_PATH)) {
             return chain.filter(exchange);
         }
         // Mono<Void> never emits a value, so switchIfEmpty on the final Void
