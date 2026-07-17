@@ -134,7 +134,7 @@ class AuthorizationServiceImplTest {
     @Test
     void authorize_shouldFailWithInvalidPar() {
         when(parCacheStore.get(anyString()))
-                .thenReturn(Mono.error(new java.util.NoSuchElementException("Not found")));
+                .thenReturn(Mono.empty());
 
         StepVerifier.create(authorizationService.authorize(
                         "urn:ietf:params:oauth:request_uri:invalid", "client", null, null,

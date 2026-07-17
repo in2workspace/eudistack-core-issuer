@@ -4,7 +4,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.6.20] - 2026-07-17
+
+## [3.6.21] - 2026-07-17
 
 ### Added
 
@@ -14,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `IntakeCallerAuthorizationFilter` gates `/api/v1/intake` (endpoint itself lands with EUD-74): `403` if the token isn't `M2M` or lacks `can_trigger_issuance`, `401` if unauthenticated/expired/unknown-issuer — fail-closed on repository failure.
   - Uniform `invalid_client` response for a non-existent `client_id` vs. an incorrect secret, to prevent client enumeration.
   - Every gate decision (admitted or rejected) is audited with tenant, caller identity, result and cause — never the secret or full token.
+  - 
+## [3.6.20] - 2026-07-16
+
+### Added
+
+- Observability configuration
+
+### Fixed
+
+- **OID4VCI — nonce consumed before signature validation**: `ProofValidationServiceImpl.verifyProof()` deleted the nonce from the cache before verifying the JWT signature. A 502 mid-flight caused the nonce to be lost; any subsequent retry propagated as `ProofValidationException("Error during JWT validation")` (generic catch) instead of surfacing the root cause. Refactored into a two-step flow: `checkNonce()` verifies the nonce exists but does NOT delete it; deletion only happens after `validateSignatureAccordingToHeader()` succeeds. Tests updated to assert the nonce is not consumed on signature failure.
+- **OID4VCI — `CacheStore.get()` emits error on cache miss**: `CacheStore.get()` returned `Mono.error(NoSuchElementException)` when the key was absent. Callers using `.switchIfEmpty()` never saw the empty signal — `switchIfEmpty` only fires on `Mono.empty()`, not on `Mono.error()` — so a cache miss bypassed the intended error mapping and propagated as an uncaught exception. Fixed to return `Mono.empty()` on miss. All callers that previously relied on `onErrorMap(NoSuchElementException.class, ...)` migrated to `switchIfEmpty(Mono.error(...))` (`AuthorizationServiceImpl`, `TokenServiceImpl` — 5 sites).
 
 ### Fixed (23-06-2026)
 
@@ -120,6 +132,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Allow tenant admins to delegate onboarding when issuing credentials on behalf of a tenant in multi-organization setups.
 - Fix organization ID extraction from the token when validating LEAR credential power delegation.
+
+## [Unreleased]
+
+### Added
+- **CredentialProfile**: add `summary_claims`.
 
 ## [3.6.8] - 2026-05-13
 

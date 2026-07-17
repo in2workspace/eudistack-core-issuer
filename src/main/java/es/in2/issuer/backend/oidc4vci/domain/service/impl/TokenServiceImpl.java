@@ -30,7 +30,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.UUID;
 
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.ACCESS_TOKEN_EXPIRATION_MINUTES;
@@ -149,8 +148,7 @@ public class TokenServiceImpl implements TokenService {
     private Mono<Void> validatePreAuthorizedCodeAndTxCode(String preAuthorizedCode, String txCode) {
         return txCodeCacheStore
                 .get(preAuthorizedCode)
-                .onErrorMap(NoSuchElementException.class, ex ->
-                        OAuthTokenException.invalidGrant("Invalid pre-authorized code"))
+                .switchIfEmpty(Mono.error(OAuthTokenException.invalidGrant("Invalid pre-authorized code")))
                 .flatMap(data -> {
                     if (data.TxCode().equals(txCode)) {
                         return Mono.empty();
@@ -198,8 +196,7 @@ public class TokenServiceImpl implements TokenService {
         log.debug("Token request: grant_type=refresh_token");
         return refreshTokenCacheStore
                 .get(refreshToken)
-                .onErrorMap(NoSuchElementException.class, ex ->
-                        OAuthTokenException.invalidGrant("Invalid refresh token"))
+                .switchIfEmpty(Mono.error(OAuthTokenException.invalidGrant("Invalid refresh token")))
                 .flatMap(data -> validateRefreshTokenData(data, refreshToken)
                         .then(refreshTokenCacheStore.delete(refreshToken))
                         .then(Mono.defer(() -> buildRefreshedTokenResponse(baseUrl, data.issuanceId()))));
@@ -247,8 +244,7 @@ public class TokenServiceImpl implements TokenService {
     ) {
         log.debug("Token request: grant_type=authorization_code");
         return authorizationCodeCacheStore.get(code)
-                .onErrorMap(NoSuchElementException.class, ex ->
-                        OAuthTokenException.invalidGrant("Invalid or expired authorization code"))
+                .switchIfEmpty(Mono.error(OAuthTokenException.invalidGrant("Invalid or expired authorization code")))
                 .flatMap(codeData -> authorizationCodeCacheStore.delete(code)
                         .then(Mono.defer(() -> validateAndBuildAuthCodeToken(
                                 baseUrl, codeData, redirectUri, codeVerifier, dpopHeader, tokenEndpointUri))));
@@ -271,9 +267,8 @@ public class TokenServiceImpl implements TokenService {
                 : null;
 
         return issuerStateCacheStore.get(codeData.issuerState())
-                .map(issuanceId -> buildAuthCodeTokenResponse(baseUrl, dpopJkt, issuanceId))
-                .onErrorMap(NoSuchElementException.class, ex ->
-                        OAuthTokenException.invalidGrant("Invalid or expired issuer_state"));
+                .switchIfEmpty(Mono.error(OAuthTokenException.invalidGrant("Invalid or expired issuer_state")))
+                .map(issuanceId -> buildAuthCodeTokenResponse(baseUrl, dpopJkt, issuanceId));
     }
 
     private TokenResponse buildAuthCodeTokenResponse(String baseUrl, String dpopJkt, String issuanceId) {
