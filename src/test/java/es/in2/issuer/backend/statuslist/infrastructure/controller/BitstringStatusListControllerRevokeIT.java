@@ -210,7 +210,7 @@ class BitstringStatusListControllerRevokeIT {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearerToken)
                 .header(X_TENANT_HEADER, tenantHeader)
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(new RevokeCredentialRequest(issuanceId))
+                .bodyValue(new RevokeCredentialRequest(issuanceId, null))
                 .exchange();
     }
 

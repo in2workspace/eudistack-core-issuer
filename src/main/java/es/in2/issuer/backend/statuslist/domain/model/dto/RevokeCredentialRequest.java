@@ -5,5 +5,6 @@ import jakarta.validation.constraints.NotBlank;
 
 public record RevokeCredentialRequest(
         @NotBlank(message = "issuanceId is required")
-        @JsonProperty("issuanceId") String issuanceId) {
+        @JsonProperty("issuanceId") String issuanceId,
+        @JsonProperty("reason") String reason) {
 }

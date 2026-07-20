@@ -71,7 +71,7 @@ class RevocationWorkflowTest {
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.empty());
 
-        StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "https://issuer.example.com"))
+        StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com"))
                 .verifyComplete();
 
         verify(statusListProvider).revoke(ISSUANCE_ID, CLEAN_TOKEN, "https://issuer.example.com");
@@ -81,7 +81,7 @@ class RevocationWorkflowTest {
     void revoke_WithNullProcessId_ShouldThrowException() {
         assertThrows(
                 NullPointerException.class,
-                () -> revocationWorkflow.revoke(null, BEARER_TOKEN, ISSUANCE_ID, "https://issuer.example.com")
+                () -> revocationWorkflow.revoke(null, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com")
         );
     }
 
@@ -89,7 +89,7 @@ class RevocationWorkflowTest {
     void revoke_WithNullBearerToken_ShouldThrowException() {
         assertThrows(
                 NullPointerException.class,
-                () -> revocationWorkflow.revoke(PROCESS_ID, null, ISSUANCE_ID, "https://issuer.example.com")
+                () -> revocationWorkflow.revoke(PROCESS_ID, null, ISSUANCE_ID, null, "https://issuer.example.com")
         );
     }
 
@@ -97,7 +97,7 @@ class RevocationWorkflowTest {
     void revoke_WithNullProcedureId_ShouldThrowException() {
         assertThrows(
                 NullPointerException.class,
-                () -> revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, null, "https://issuer.example.com")
+                () -> revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, null, null, "https://issuer.example.com")
         );
     }
 
@@ -106,7 +106,7 @@ class RevocationWorkflowTest {
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.empty());
 
-        StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "https://issuer.example.com"))
+        StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com"))
                 .expectError(IssuanceNotFoundException.class)
                 .verify();
 
@@ -120,7 +120,7 @@ class RevocationWorkflowTest {
         when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure))
                 .thenReturn(Mono.error(new RuntimeException("Validation failed")));
 
-        StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "https://issuer.example.com"))
+        StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com"))
                 .expectError(RuntimeException.class)
                 .verify();
     }
@@ -136,7 +136,7 @@ class RevocationWorkflowTest {
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.empty());
 
-        StepVerifier.create(revocationWorkflow.revokeSystem(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "https://issuer.example.com"))
+        StepVerifier.create(revocationWorkflow.revokeSystem(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com"))
                 .verifyComplete();
 
         verify(statusListPdpService).validateRevokeCredentialSystem(PROCESS_ID, mockProcedure);
@@ -150,7 +150,7 @@ class RevocationWorkflowTest {
         when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure))
                 .thenReturn(Mono.error(new RuntimeException("System validation failed")));
 
-        StepVerifier.create(revocationWorkflow.revokeSystem(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "https://issuer.example.com"))
+        StepVerifier.create(revocationWorkflow.revokeSystem(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com"))
                 .expectError(RuntimeException.class)
                 .verify();
     }
