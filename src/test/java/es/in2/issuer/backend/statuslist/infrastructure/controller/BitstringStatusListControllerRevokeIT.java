@@ -1,5 +1,8 @@
 package es.in2.issuer.backend.statuslist.infrastructure.controller;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.ECDSASigner;
@@ -13,10 +16,12 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.infrastructure.repository.IssuanceRepository;
 import es.in2.issuer.backend.statuslist.domain.model.dto.RevokeCredentialRequest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -132,6 +137,7 @@ class BitstringStatusListControllerRevokeIT {
     private WebTestClient webTestClient;
     private String issuerOrigin;
     private ECKey signingKey;
+    private ListAppender<ILoggingEvent> auditAppender;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -148,6 +154,27 @@ class BitstringStatusListControllerRevokeIT {
         // treated as the tenant's admin-org bypass.
         seedAdminOrgPlaceholder(TENANT_A);
         seedAdminOrgPlaceholder(TENANT_B);
+    }
+
+    // EUD-98: capture the AUDIT logger's output so tests can assert the revocation
+    // audit trail (attempted/revoked/failed) against the real Spring context, real
+    // security filter chain and real policy rule chain — not mocks.
+    @BeforeEach
+    void attachAuditAppender() {
+        Logger auditLogger = (Logger) LoggerFactory.getLogger("AUDIT");
+        auditAppender = new ListAppender<>();
+        auditAppender.start();
+        auditLogger.addAppender(auditAppender);
+    }
+
+    @AfterEach
+    void detachAuditAppender() {
+        Logger auditLogger = (Logger) LoggerFactory.getLogger("AUDIT");
+        auditLogger.detachAppender(auditAppender);
+    }
+
+    private List<String> auditMessages() {
+        return auditAppender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
     }
 
     private void seedAdminOrgPlaceholder(String tenant) throws SQLException {
@@ -323,4 +350,47 @@ class BitstringStatusListControllerRevokeIT {
         revoke(TENANT_A, bearer, UUID.randomUUID().toString())
                 .expectStatus().isEqualTo(404);
     }
+
+    // ---------------------------------------------------------------- EUD-98: audit trail (AC-02/03, ES-02/03)
+    //
+    // AC-01 (enriched success audit) and EC-03 (race — second attempt) are NOT exercised here:
+    // both need a first revoke to actually succeed, which requires a real StatusListIndex row
+    // (issuanceId -> statusListId + bitstring position), normally created by the credential
+    // issuance flow's allocateEntry(). seedIssuance() only inserts a bare Issuance row, so
+    // BitstringStatusListProvider.revoke() throws StatusListIndexNotFoundException before ever
+    // reaching the audit code — a pre-existing gap in this harness (status-list allocation is
+    // EUD-96 territory, not EUD-98's). AC-01/EC-03 are covered at the unit level instead, in
+    // RevocationWorkflowTest (see revoke_success_emitsAttemptedThenEnrichedSuccessAudit), which
+    // mocks statusListProvider and isn't affected by this gap. Extending this harness with real
+    // status-list-index seeding is tracked as follow-up tech debt, not part of this Story.
+
+    @Test
+    void revoke_alreadyRevoked_emitsAttemptedAndFailedAuditWithInvalidStatus() throws Exception {
+        Issuance issuance = seedIssuance(TENANT_A, "ORG-A", CredentialStatusEnum.REVOKED);
+        String issuanceId = issuance.getIssuanceId().toString();
+        String bearer = token("ORG-A", TENANT_A, List.of(executePower(TENANT_A)));
+
+        revoke(TENANT_A, bearer, issuanceId).expectStatus().isEqualTo(409);
+
+        List<String> messages = auditMessages();
+        assertThat(messages).anyMatch(m ->
+                m.contains("event=credential.revoke.attempted") && m.contains("resourceId=" + issuanceId));
+        assertThat(messages).anyMatch(m ->
+                m.contains("event=credential.revoke.failed") && m.contains("errorType=invalid_status"));
+    }
+
+    @Test
+    void revoke_nonExistentIssuanceId_emitsAttemptedAndFailedAuditWithIssuanceNotFound() throws Exception {
+        String unknownId = UUID.randomUUID().toString();
+        String bearer = token("ORG-A", TENANT_A, List.of(executePower(TENANT_A)));
+
+        revoke(TENANT_A, bearer, unknownId).expectStatus().isEqualTo(404);
+
+        List<String> messages = auditMessages();
+        assertThat(messages).anyMatch(m ->
+                m.contains("event=credential.revoke.attempted") && m.contains("resourceId=" + unknownId));
+        assertThat(messages).anyMatch(m ->
+                m.contains("event=credential.revoke.failed") && m.contains("errorType=issuance_not_found"));
+    }
+
 }
