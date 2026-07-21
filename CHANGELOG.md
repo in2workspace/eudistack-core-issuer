@@ -4,7 +4,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.6.20] - 2026-07-16
+## [Unreleased]
+
+## [3.6.21] - 2026-07-16
+
+### Added
+
+- **EUD-97 — Protect revocation against non-revocable states and out-of-scope credentials**
+  - `SharedExceptionHandler`: `UnauthorizedRoleException` now maps to **403 Forbidden** (was 401) — an authenticated operator denied by scope/capability is a permissions issue, not an authentication failure (AC-03, AC-05).
+  - `SharedExceptionHandler`: new handler for `InvalidCredentialStatusTransitionException` → **409 Conflict** with a readable detail, instead of falling through to the catch-all 500 (AC-06, ES-03).
+  - `GlobalErrorTypes`: added `INVALID_CREDENTIAL_STATUS_TRANSITION` error code.
+  - `RevocationWorkflow`: revoking a non-existent `issuanceId` now returns **404 Not Found** (`IssuanceNotFoundException`) instead of silently completing (ES-02).
+  - `RevokeCredentialRequest` / `BitstringStatusListController`: `issuanceId` is now validated as non-blank (`@NotBlank` + `@Valid`), returning **400 Bad Request** for empty/missing values (ES-01).
+  - Tests: `RequireValidStatusRuleTest` (parametrized over all non-VALID statuses), `BitstringStatusListControllerRevokeIT` (first Testcontainers-based integration test in this repo — covers AC-01..AC-06, EC-01, EC-03, ES-01, ES-02 end-to-end against a real Postgres and the real security filter chain).
+
+### Tests (25-06-2026)
+
+- **Archive terminated procedures**: Added unit tests for `CredentialStatusEnum` covering ARCHIVED→ARCHIVED rejection, WITHDRAWN/REVOKED/EXPIRED→ARCHIVED allowed transitions, and ARCHIVED having no outgoing transitions (EC-02, ES-01).
+
+## [3.6.20] - 2026-06-19
+
+### Changed
+
+- **OID4VCI — Credential Issuer Metadata**: Added `deferred_credential_endpoint` field to the `/.well-known/openid-credential-issuer` response. The endpoint URL is derived from the public issuer base URL at runtime, consistent with the other OID4VCI endpoint fields.
+- **CredentialOfferWorkflow**: Added structured log lines in `CredentialOfferWorkflowImpl.findCredentialOfferById` to trace TX code notification dispatch — `INFO` when a TX code is present and the notification email is sent, `DEBUG` when no TX code is found and the email step is skipped.
 
 ### Added
 
@@ -30,7 +53,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Accept multiple verifier URLs to validate `iss` in the access token.
 
 ### Fixed (18-06-2026)
-
 - **OID4VCI — Credential Offer URL**: `UrlResolverImpl.publicIssuerBaseUrl()` now derives the public URL from `issuerContextPath` (`spring.webflux.base-path`) instead of the `X-Tenant` header. CloudFront injects `X-Tenant` on all ALB-bound requests, including canonical deployments (e.g. `sandbox.stg.eudistack.net/issuer`), so the previous check incorrectly stripped the `/issuer` prefix, generating a credential offer URI that CloudFront routed to S3 instead of the ALB → 403. Non-canonical deployments (custom domain, empty base-path) are unaffected.
 - **OID4VCI — Verifier URL resolution**: `UrlResolverImpl.expectedVerifierBaseUrl()` now uses `TenantCustomDomainsLoader.findVerifierUrl()` (new `Optional`-returning method) when `X-Tenant` is present. If the loader has an entry for the tenant (non-canonical deployment), the configured verifier URL is returned; otherwise it falls back to `origin + verifierContextPath`. This avoids incorrectly deriving the verifier URL from the issuer origin on custom-domain deployments (e.g. `issuer.dome-marketplace-lcl.org/verifier` instead of the actual verifier domain).
 

@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.shared.infrastructure.controller;
 
 import es.in2.issuer.backend.shared.domain.exception.*;
+import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
@@ -459,7 +460,7 @@ class SharedExceptionHandlerTest {
         var ex = new UnauthorizedRoleException("role not allowed");
         var type = GlobalErrorTypes.UNAUTHORIZED_ROLE.getCode();
         var title = "Unauthorized role";
-        var st = HttpStatus.UNAUTHORIZED;
+        var st = HttpStatus.FORBIDDEN;
         var fallback = "The user role is not authorized to perform this action";
         var expected = new GlobalErrorMessage(type, title, st.value(), "role not allowed", UUID.randomUUID().toString());
 
@@ -467,6 +468,26 @@ class SharedExceptionHandlerTest {
 
         StepVerifier.create(handler.handleUnauthorizedRoleException(ex, request))
                 .assertNext(gem -> assertGem(gem, type, title, st, "role not allowed"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    // -------------------- handleInvalidCredentialStatusTransitionException --------------------
+
+    @Test
+    void handleInvalidCredentialStatusTransitionException() {
+        var ex = new InvalidCredentialStatusTransitionException(CredentialStatusEnum.REVOKED, CredentialStatusEnum.REVOKED);
+        var type = GlobalErrorTypes.INVALID_CREDENTIAL_STATUS_TRANSITION.getCode();
+        var title = "Invalid credential status transition";
+        var st = HttpStatus.CONFLICT;
+        var fallback = "The credential is not in a status that allows this transition";
+        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleInvalidCredentialStatusTransitionException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, ex.getMessage()))
                 .verifyComplete();
 
         verify(errors).handleWith(ex, request, type, title, st, fallback);
