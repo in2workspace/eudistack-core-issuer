@@ -30,7 +30,7 @@ public class TranslationServiceImpl implements TranslationService {
             return "en";
         }
 
-        locale = locale.trim().toLowerCase();
+        locale = locale.trim().toLowerCase(Locale.ROOT);
 
         if (!SUPPORTED_LANGS.contains(locale)) {
             log.warn("Unsupported language '{}'. Falling back to 'en'", locale);
@@ -40,12 +40,36 @@ public class TranslationServiceImpl implements TranslationService {
     }
 
     @Override
+    public String getLocaleOrDefault(String requested) {
+        if (requested == null || requested.isBlank()) {
+            return getLocale();
+        }
+        String lang = requested.trim().toLowerCase(Locale.ROOT);
+        if (!SUPPORTED_LANGS.contains(lang)) {
+            log.warn("Unsupported language '{}'. Falling back to global default", requested);
+            return getLocale();
+        }
+        return lang;
+    }
+
+    @Override
     public String translate(String code, Object... args) {
-        var locale = Locale.forLanguageTag(getLocale());
+        return translateWithLocale(code, getLocale(), args);
+    }
+
+    @Override
+    public String translateWithLocale(String code, String locale, Object... args) {
+        String normalizedLocale = getLocaleOrDefault(locale);
+        Locale resolvedLocale = Locale.forLanguageTag(normalizedLocale);
+
         try {
-            return messageSource.getMessage(code, args, locale);
+            return messageSource.getMessage(code, args, resolvedLocale);
         } catch (NoSuchMessageException e) {
-            log.warn("Message code '{}' not found for locale {}. Falling back to code.", code, locale);
+            log.warn(
+                    "Message code '{}' not found for locale {}. Falling back to code.",
+                    code,
+                    resolvedLocale
+            );
             return code;
         }
     }

@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Per-tenant email language**: transactional emails are now localized per tenant instead of using a single global value. A new `issuer.default_lang` key in `tenant_config` (supported: `en`, `es`) drives the locale for every email — subject and template rendering. When the key is absent, blank, or unsupported for a tenant, it falls back to the global `APP_DEFAULT_LANG` (default `en`), so existing tenants are unaffected. `EmailServiceImpl` resolves the language reactively (alongside `issuer.mail_from`) while inside the tenant-scoped Reactor context, and threads the resolved locale into the Thymeleaf `Context` and into the new `TranslationService.translateWithLocale(...)` / `getLocaleOrDefault(...)` methods. Flyway migration `V7__Seed_default_lang.sql` seeds a placeholder `issuer.default_lang = 'en'` per tenant; real per-tenant values are set in the sibling `eudistack-platform-dev` repo (`postgres/seed-tenants[.stg].sql`).
+  - Note: the locale-aware API is named `translateWithLocale(code, locale, args)` (not a `translate` overload) on purpose — an overload with a `String locale` before `Object... args` is ambiguous with `translate(code, args)` under Java varargs resolution and would silently capture a string message argument as the locale.
+
 ## [3.6.21] - 2026-07-16
 
 ### Added
