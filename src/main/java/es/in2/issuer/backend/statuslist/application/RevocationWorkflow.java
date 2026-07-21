@@ -1,6 +1,9 @@
 package es.in2.issuer.backend.statuslist.application;
 
+import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
+import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
+import es.in2.issuer.backend.shared.domain.exception.UnauthorizedRoleException;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
@@ -19,6 +22,7 @@ import reactor.core.publisher.Mono;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static es.in2.issuer.backend.statuslist.domain.util.Constants.REVOKED;
 import static es.in2.issuer.backend.statuslist.domain.util.Preconditions.requireNonNullParam;
@@ -29,6 +33,8 @@ import static es.in2.issuer.backend.statuslist.domain.util.Preconditions.require
 public class RevocationWorkflow {
 
     private static final String EVENT_ATTEMPTED = "credential.revoke.attempted";
+    private static final String EVENT_SUCCESS = "credential.revoked";
+    private static final String EVENT_FAILED = "credential.revoke.failed";
     private static final String UNKNOWN_ACTOR = "unknown";
 
     private final StatusListProvider statusListProvider;
@@ -97,6 +103,53 @@ public class RevocationWorkflow {
         }
     }
 
+    private void safeAuditSuccess(String actor, Issuance issuance, String issuanceId, String reason,
+                                  String processId, String action) {
+        try {
+            String orgId = issuance != null ? issuance.getOrganizationIdentifier() : null;
+            Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
+                    actor, orgId, issuanceId, reason, "success", null));
+            details.put("processId", processId);
+            details.put("action", action);
+            auditService.auditSuccess(EVENT_SUCCESS, actor, "credential", issuanceId, details);
+        } catch (Exception e) {
+            log.warn("processId={} action={} step=auditSuccessFailed issuanceId={} error={}",
+                    processId, action, issuanceId, e.toString());
+        }
+    }
+
+    private void safeAuditFailure(String actor, Issuance issuance, String issuanceId, String reason,
+                                  String processId, String action, Throwable error) {
+        try {
+            String orgId = issuance != null ? issuance.getOrganizationIdentifier() : null;
+            String errorType = categorizeError(error);
+            Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
+                    actor, orgId, issuanceId, reason, "failure", errorType));
+            details.put("processId", processId);
+            details.put("action", action);
+            auditService.auditFailure(EVENT_FAILED, actor, errorType, details);
+        } catch (Exception e) {
+            log.warn("processId={} action={} step=auditFailureFailed issuanceId={} error={}",
+                    processId, action, issuanceId, e.toString());
+        }
+    }
+
+    private static String categorizeError(Throwable error) {
+        if (error instanceof IssuanceNotFoundException) {
+            return "issuance_not_found";
+        }
+        if (error instanceof InvalidStatusException) {
+            return "invalid_status";
+        }
+        if (error instanceof UnauthorizedRoleException) {
+            return "unauthorized_role";
+        }
+        if (error instanceof TenantMismatchException) {
+            return "tenant_mismatch";
+        }
+        return error.getClass().getSimpleName();
+    }
+
     private Mono<Void> revokeInternal(
             String processId,
             String bearerToken,
@@ -111,7 +164,11 @@ public class RevocationWorkflow {
         requireNonNullParam(issuanceId, "issuanceId");
         requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
 
+        AtomicReference<String> actorRef = new AtomicReference<>(UNKNOWN_ACTOR);
+        AtomicReference<Issuance> issuanceRef = new AtomicReference<>();
+
         return resolveActor()
+                .doOnNext(actorRef::set)
                 .flatMap(actor ->
                         accessTokenService.getCleanBearerToken(bearerToken)
                                 .doFirst(() -> log.info(
@@ -129,6 +186,7 @@ public class RevocationWorkflow {
                                                         "processId={} action={} step=issuanceLoaded issuanceId={} credentialStatus={}",
                                                         processId, action, issuanceId, p != null ? p.getCredentialStatus() : null
                                                 ))
+                                                .doOnNext(issuanceRef::set)
                                                 .flatMap(issuance -> {
                                                     safeAuditAttempted(actor, issuance, issuanceId, reason, processId, action);
                                                     return validator.validate(processId, token, issuance)
@@ -172,12 +230,16 @@ public class RevocationWorkflow {
                 .doOnSuccess(v -> {
                     log.info("processId={} action={} status=completed issuanceId={}",
                             processId, action, issuanceId);
-                    auditService.auditSuccess("credential.revoked", null, "credential", issuanceId,
-                            Map.of("processId", processId, "action", action));
+                    // Post-commit: the revocation is already consumed at this point, so a logging
+                    // failure inside safeAuditSuccess must never surface as an error here (ES-04).
+                    safeAuditSuccess(actorRef.get(), issuanceRef.get(), issuanceId, reason, processId, action);
                 })
-                .doOnError(e -> log.warn(
-                        "processId={} action={} status=failed issuanceId={} error={}",
-                        processId, action, issuanceId, e.toString()
-                ));
+                .doOnError(e -> {
+                    log.warn(
+                            "processId={} action={} status=failed issuanceId={} error={}",
+                            processId, action, issuanceId, e.toString()
+                    );
+                    safeAuditFailure(actorRef.get(), issuanceRef.get(), issuanceId, reason, processId, action, e);
+                });
     }
 }
