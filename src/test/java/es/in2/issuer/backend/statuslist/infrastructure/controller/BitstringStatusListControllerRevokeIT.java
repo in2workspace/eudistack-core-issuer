@@ -169,8 +169,12 @@ class BitstringStatusListControllerRevokeIT {
 
     @AfterEach
     void detachAuditAppender() {
+        if (auditAppender == null) {
+            return;
+        }
         Logger auditLogger = (Logger) LoggerFactory.getLogger("AUDIT");
         auditLogger.detachAppender(auditAppender);
+        auditAppender.stop();
     }
 
     private List<String> auditMessages() {
