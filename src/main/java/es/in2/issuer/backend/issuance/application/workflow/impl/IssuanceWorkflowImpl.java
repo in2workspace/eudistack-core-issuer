@@ -18,6 +18,9 @@ import es.in2.issuer.backend.shared.domain.service.*;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
+import es.in2.issuer.backend.issuance.domain.exception.DeliveryModeNotEligibleException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
+import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
@@ -28,6 +31,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -42,6 +46,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private static final String DEFAULT_GRANT_TYPE = "authorization_code";
     private static final String DEFAULT_DELIVERY = "email";
+    private static final String DELIVERY_MODES_CONFIG_PREFIX = "issuer.delivery.modes.";
 
     private final IssuanceService issuanceService;
     private final CredentialOfferService credentialOfferService;
@@ -53,6 +58,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private final GenericCredentialBuilder genericCredentialBuilder;
     private final CredentialSignerWorkflow credentialSignerWorkflow;
     private final StatusListWorkflow statusListWorkflow;
+    private final TenantConfigService tenantConfigService;
 
     @Override
     @Observed(name = "issuance.issue-credential", contextualName = "issuance-issue-credential")
@@ -111,9 +117,55 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private Mono<IssuanceResponse> performIssuanceFlow(String processId, IssuanceRequest request, String idToken,
                                                         String publicIssuerBaseUrl, String publicWalletBaseUrl, String delivery) {
-        Set<DeliveryMode> modes = DeliveryMode.parse(delivery);
+        String configId = request.credentialConfigurationId();
+        CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
 
-        boolean hasDirect  = modes.stream().anyMatch(m -> !m.isOid4vci);
+        return resolveAndValidateDeliveryModes(configId, profile, delivery)
+                .flatMap(modes -> executeIssuanceForModes(
+                        processId, request, idToken, publicIssuerBaseUrl, publicWalletBaseUrl, delivery, modes));
+    }
+
+    /**
+     * Early guard (ES-01 / AC-05): normalizes the declared delivery modes and validates their eligibility
+     * before anything is signed, dispatched or persisted.
+     *
+     * <p>Eligibility is read per tenant from {@code issuer.delivery.modes.{credentialConfigurationId}}.
+     * When the tenant has no configuration, a safe default derived from {@code cnfRequired()} applies:
+     * credential types requiring cryptographic holder binding are not eligible for direct delivery.
+     */
+    private Mono<Set<DeliveryMode>> resolveAndValidateDeliveryModes(
+            String configId, CredentialProfile profile, String delivery) {
+
+        final Set<DeliveryMode> modes;
+        try {
+            modes = DeliveryMode.parse(delivery);
+        } catch (IllegalArgumentException ex) {
+            return Mono.error(new InvalidDeliveryModeException(ex.getMessage()));
+        }
+
+        String defaultEligible = profile.cnfRequired() ? "email,ui" : "direct,email,ui";
+        return tenantConfigService.getStringOrDefault(DELIVERY_MODES_CONFIG_PREFIX + configId, defaultEligible)
+                .map(csv -> Arrays.stream(csv.split(","))
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.toSet()))
+                .flatMap(eligibleValues -> {
+                    for (DeliveryMode mode : modes) {
+                        if (!eligibleValues.contains(mode.value)) {
+                            return Mono.error(new DeliveryModeNotEligibleException(
+                                    "Delivery mode '" + mode.value + "' is not eligible for credential type: "
+                                            + configId));
+                        }
+                    }
+                    return Mono.just(modes);
+                });
+    }
+
+    private Mono<IssuanceResponse> executeIssuanceForModes(String processId, IssuanceRequest request, String idToken,
+                                                            String publicIssuerBaseUrl, String publicWalletBaseUrl,
+                                                            String delivery, Set<DeliveryMode> modes) {
+
+        boolean hasDirect  = modes.stream().anyMatch(DeliveryMode::isDirect);
         boolean hasOid4vci = modes.stream().anyMatch(m -> m.isOid4vci);
 
         Mono<IssuanceResponse> directMono = hasDirect
@@ -153,11 +205,6 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         String credentialFormat = profile.format() != null ? profile.format() : JWT_VC_JSON;
         StatusListFormat statusFormat = DC_SD_JWT.equals(credentialFormat)
                 ? StatusListFormat.TOKEN_JWT : StatusListFormat.BITSTRING_VC;
-
-        if (profile.cnfRequired()) {
-            return Mono.error(new CredentialTypeUnsupportedException(
-                    "Direct delivery is not supported for credential types that require cryptographic binding: " + configId));
-        }
 
         UUID issuanceId = UUID.randomUUID();
 
