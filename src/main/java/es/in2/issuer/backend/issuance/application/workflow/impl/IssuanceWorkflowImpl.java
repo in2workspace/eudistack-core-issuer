@@ -18,6 +18,8 @@ import es.in2.issuer.backend.shared.domain.service.*;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
+import es.in2.issuer.backend.issuance.infrastructure.config.properties.IssuanceProperties;
+import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
@@ -30,8 +32,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -59,6 +64,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private final CredentialSignerWorkflow credentialSignerWorkflow;
     private final StatusListWorkflow statusListWorkflow;
     private final TenantConfigService tenantConfigService;
+    private final IssuanceProperties issuanceProperties;
 
     @Override
     @Observed(name = "issuance.issue-credential", contextualName = "issuance-issue-credential")
