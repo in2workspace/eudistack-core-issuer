@@ -92,6 +92,8 @@ public class RevocationWorkflow {
                                     String processId, String action) {
         try {
             String orgId = issuance != null ? issuance.getOrganizationIdentifier() : null;
+            Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
+                    actor, orgId, issuanceId, reason, "attempted", null));
             details.put("processId", processId);
             details.put("workflowAction", action);
             auditService.auditAttempted(EVENT_ATTEMPTED, actor, "credential", issuanceId, details);
@@ -105,9 +107,12 @@ public class RevocationWorkflow {
                                   String processId, String action) {
         try {
             String orgId = issuance != null ? issuance.getOrganizationIdentifier() : null;
+            Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
+                    actor, orgId, issuanceId, reason, "success", null));
             details.put("processId", processId);
             details.put("workflowAction", action);
             auditService.auditSuccess(EVENT_SUCCESS, actor, "credential", issuanceId, details);
+        } catch (Exception e) {
             log.warn("processId={} action={} step=auditSuccessFailed issuanceId={} error={}",
                     processId, action, issuanceId, e.toString());
         }
@@ -116,9 +121,14 @@ public class RevocationWorkflow {
     private void safeAuditFailure(String actor, Issuance issuance, String issuanceId, String reason,
                                   String processId, String action, Throwable error) {
         try {
+            String orgId = issuance != null ? issuance.getOrganizationIdentifier() : null;
+            String errorType = categorizeError(error);
+            Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
+                    actor, orgId, issuanceId, reason, "failure", errorType));
             details.put("processId", processId);
             details.put("workflowAction", action);
             auditService.auditFailure(EVENT_FAILED, actor, errorType, details);
+        } catch (Exception e) {
             log.warn("processId={} action={} step=auditFailureFailed issuanceId={} error={}",
                     processId, action, issuanceId, e.toString());
         }
