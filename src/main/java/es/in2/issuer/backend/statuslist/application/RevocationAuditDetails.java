@@ -17,7 +17,7 @@ public final class RevocationAuditDetails {
     public static final String ACTION_REVOKE = "REVOKE";
     public static final String RESOURCE_TYPE_CREDENTIAL = "Credential";
 
-    private static final Pattern CONTROL_CHARS = Pattern.compile("[\\p{Cntrl}&&[^\r\n\t]]");
+    private static final Pattern CONTROL_CHARS = Pattern.compile("\\p{Cntrl}");
 
     private RevocationAuditDetails() {
     }
