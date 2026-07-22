@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.22] - 2026-07-22
+
+### Added
+
+- **API Client — M2M authentication gate for unattended issuance intake (EUD-75 / US-02)**:
+  - External systems can now authenticate as a registered API client via `POST /oauth/token` with `grant_type=client_credentials`, receiving a short-lived (≤ 5 min) JWT with `caller_type=M2M` and `can_trigger_issuance` claims.
+  - New `api_client` table (schema-per-tenant, `V7__Add_api_client_table.sql`) with `authorization_status` (`ACTIVE`/`REVOKED`/`SUSPENDED`) and BCrypt-hashed secrets.
+  - `IntakeCallerAuthorizationFilter` gates `/api/v1/intake` (endpoint itself lands with EUD-74): `403` if the token isn't `M2M` or lacks `can_trigger_issuance`, `401` if unauthenticated/expired/unknown-issuer — fail-closed on repository failure.
+  - Uniform `invalid_client` response for a non-existent `client_id` vs. an incorrect secret, to prevent client enumeration.
+  - Every gate decision (admitted or rejected) is audited with tenant, caller identity, result and cause — never the secret or full token.
+
 ### Added
 
 - **Per-tenant email language**: transactional emails are now localized per tenant instead of using a single global value. A new `issuer.default_lang` key in `tenant_config` (supported: `en`, `es`) drives the locale for every email — subject and template rendering. When the key is absent, blank, or unsupported for a tenant, it falls back to the global `APP_DEFAULT_LANG` (default `en`), so existing tenants are unaffected. `EmailServiceImpl` resolves the language reactively (alongside `issuer.mail_from`) while inside the tenant-scoped Reactor context, and threads the resolved locale into the Thymeleaf `Context` and into the new `TranslationService.translateWithLocale(...)` / `getLocaleOrDefault(...)` methods. Flyway migration `V7__Seed_default_lang.sql` seeds a placeholder `issuer.default_lang = 'en'` per tenant; real per-tenant values are set in the sibling `eudistack-platform-dev` repo (`postgres/seed-tenants[.stg].sql`).
