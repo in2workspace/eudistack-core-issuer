@@ -6,16 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.6.22] - 2026-07-21
+## [3.6.22] - 2026-07-22
 
 ### Added
 
-- **EUD-98 — Conocer el resultado de la revocación y dejar traza del motivo**
+- **EUD-98 — Know the result of the revocation and leave a trace of the reason**
   - `RevokeCredentialRequest`: added optional/nullable `reason` field (backward-compatible) so the operator's revocation reason can be traced (AC-07, EC-01).
   - `RevocationAuditDetails`: new value object building the audit details map per conv-quality-security-gates §10.2, with PII redaction by design (never accepts `Issuance`, only primitives) and reason sanitization (truncated to 280 chars, `"not-provided"` marker when absent/blank) (AC-04, AC-07, EC-01, ES-01).
   - `AuditService` / `AuditServiceImpl`: new `auditAttempted` method, reusing the existing `AUDIT` logger + MDC pattern — no new event bus (AC-03).
   - `RevocationWorkflow`: resolves the operator identity via `ReactiveSecurityContextHolder` (fallback `"unknown"` + `WARN` log when not resolvable, EC-02); emits `credential.revoke.attempted` right after loading the issuance (or before the 404 on a missing one); enriches `credential.revoked` (success) with the resolved operator, the credential's organization/tenant and the sanitized reason, replacing the previous `userId=null` minimal audit; emits `credential.revoke.failed` on any denial or execution error, with a categorized `error.type` (`invalid_status`, `unauthorized_role`, `tenant_mismatch`, `issuance_not_found`) and no stacktrace/PII, without altering the HTTP error mapping owned by EUD-97 (R-2); both audit emissions are wrapped in try/catch so a logging failure never reverts or fails an already-consumed revocation (ES-04).
-  - Tests: new `RevocationAuditDetailsTest`; extended `RevocationWorkflowTest` with audit content, attempted→success/failed ordering, unknown-actor fallback, categorized failure and ES-04 assertions (AC-01, AC-02, AC-03, AC-07, EC-02, ES-04).
+  
+ - Tests: new `RevocationAuditDetailsTest`; extended `RevocationWorkflowTest` with audit content, attempted→success/failed ordering, unknown-actor fallback, categorized failure and ES-04 assertions (AC-01, AC-02, AC-03, AC-07, EC-02, ES-04).
+
+### Added
+
+- **Per-tenant email language**: transactional emails are now localized per tenant instead of using a single global value. A new `issuer.default_lang` key in `tenant_config` (supported: `en`, `es`) drives the locale for every email — subject and template rendering. When the key is absent, blank, or unsupported for a tenant, it falls back to the global `APP_DEFAULT_LANG` (default `en`), so existing tenants are unaffected. `EmailServiceImpl` resolves the language reactively (alongside `issuer.mail_from`) while inside the tenant-scoped Reactor context, and threads the resolved locale into the Thymeleaf `Context` and into the new `TranslationService.translateWithLocale(...)` / `getLocaleOrDefault(...)` methods. Flyway migration `V7__Seed_default_lang.sql` seeds a placeholder `issuer.default_lang = 'en'` per tenant; real per-tenant values are set in the sibling `eudistack-platform-dev` repo (`postgres/seed-tenants[.stg].sql`).
+  - Note: the locale-aware API is named `translateWithLocale(code, locale, args)` (not a `translate` overload) on purpose — an overload with a `String locale` before `Object... args` is ambiguous with `translate(code, args)` under Java varargs resolution and would silently capture a string message argument as the locale.
 
 ## [3.6.21] - 2026-07-16
 

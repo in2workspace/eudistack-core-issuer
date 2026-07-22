@@ -38,6 +38,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 public class EmailServiceImpl implements EmailService {
 
     private static final String MAIL_FROM_KEY = "issuer.mail_from";
+    private static final String DEFAULT_LANG_KEY = "issuer.default_lang";
 
     private final JavaMailSender javaMailSender;
     private final TemplateEngine templateEngine;
@@ -58,26 +59,32 @@ public class EmailServiceImpl implements EmailService {
 
     @Override
     public Mono<Void> sendTxCodeNotification(String to, String subject, String txCode) {
-        return tenantConfigService.getStringOrThrow(MAIL_FROM_KEY)
-                .flatMap(mailFrom -> Mono.fromCallable(() -> {
-                    MimeMessage mimeMessage = javaMailSender.createMimeMessage();
-                    MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
-                    helper.setFrom(mailFrom);
-                    helper.setTo(to);
+        return Mono.zip(
+                tenantConfigService.getStringOrThrow(MAIL_FROM_KEY),
+                tenantConfigService.getStringOrDefault(DEFAULT_LANG_KEY, "")
+        ).flatMap(tuple -> {
+            String mailFrom = tuple.getT1();
+            String locale = translationService.getLocaleOrDefault(tuple.getT2());
+            return Mono.fromCallable(() -> {
+                MimeMessage mimeMessage = javaMailSender.createMimeMessage();
+                MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
+                helper.setFrom(mailFrom);
+                helper.setTo(to);
 
-                    String translated = translationService.translate(subject);
-                    String encodedSubject = MimeUtility.encodeText(translated, StandardCharsets.UTF_8.name(), "B");
+                String translated = translationService.translateWithLocale(subject, locale);
+                String encodedSubject = MimeUtility.encodeText(translated, StandardCharsets.UTF_8.name(), "B");
 
-                    helper.setSubject(encodedSubject);
+                helper.setSubject(encodedSubject);
 
-                    Context context = createLocalizedContext();
-                    context.setVariable("txCode", txCode);
-                    String htmlContent = templateEngine.process("tx-code-email", context);
-                    helper.setText(htmlContent, true);
+                Context context = createLocalizedContext(locale);
+                context.setVariable("txCode", txCode);
+                String htmlContent = templateEngine.process("tx-code-email", context);
+                helper.setText(htmlContent, true);
 
-                    javaMailSender.send(mimeMessage);
-                    return null;
-                }).subscribeOn(Schedulers.boundedElastic()))
+                javaMailSender.send(mimeMessage);
+                return null;
+            }).subscribeOn(Schedulers.boundedElastic());
+        })
                 .then()
                 .onErrorMap(ex -> {
                     log.error("Failed to send tx code notification", ex);
@@ -106,20 +113,22 @@ public class EmailServiceImpl implements EmailService {
                                                    String organization, String txCode) {
         return Mono.zip(
                 tenantConfigService.getStringOrThrow(MAIL_FROM_KEY),
-                tenantConfigService.getStringOrThrow("issuer.wallet_url")
+                tenantConfigService.getStringOrThrow("issuer.wallet_url"),
+                tenantConfigService.getStringOrDefault(DEFAULT_LANG_KEY, "")
         ).flatMap(tuple -> {
             String mailFrom = tuple.getT1();
             String walletUrl = tuple.getT2();
+            String locale = translationService.getLocaleOrDefault(tuple.getT3());
             return Mono.fromCallable(() -> {
                 MimeMessage mimeMessage = javaMailSender.createMimeMessage();
                 MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
                 helper.setFrom(mailFrom);
                 helper.setTo(to);
-                helper.setSubject(translationService.translate(subject));
+                helper.setSubject(translationService.translateWithLocale(subject, locale));
 
                 byte[] qrImageBytes = generateQrCodeImage(walletDeepLink, 300, 300);
 
-                Context context = createLocalizedContext();
+                Context context = createLocalizedContext(locale);
                 context.setVariable("organization", organization);
                 context.setVariable("qrImageCid", "cid:qr-credential-offer.png");
                 context.setVariable("walletDeepLink", walletDeepLink);
@@ -165,71 +174,83 @@ public class EmailServiceImpl implements EmailService {
 
     @Override
     public Mono<Void> sendCredentialFailureNotification(String to, String eventDescription) {
-        return tenantConfigService.getStringOrThrow(MAIL_FROM_KEY)
-                .flatMap(mailFrom -> Mono.fromCallable(() -> {
-                    MimeMessage mimeMessage = javaMailSender.createMimeMessage();
-                    MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
-                    helper.setFrom(mailFrom);
-                    helper.setTo(to);
-                    helper.setSubject(translationService.translate("email.credential-failure.subject"));
-                    Context context = createLocalizedContext();
-                    context.setVariable("eventDescription", eventDescription != null ? eventDescription : "");
-                    helper.setText(templateEngine.process("credential-failure-email", context), true);
-                    javaMailSender.send(mimeMessage);
-                    return null;
-                }).subscribeOn(Schedulers.boundedElastic()))
+        return Mono.zip(
+                tenantConfigService.getStringOrThrow(MAIL_FROM_KEY),
+                tenantConfigService.getStringOrDefault(DEFAULT_LANG_KEY, "")
+        ).flatMap(tuple -> {
+            String mailFrom = tuple.getT1();
+            String locale = translationService.getLocaleOrDefault(tuple.getT2());
+            return Mono.fromCallable(() -> {
+                MimeMessage mimeMessage = javaMailSender.createMimeMessage();
+                MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
+                helper.setFrom(mailFrom);
+                helper.setTo(to);
+                helper.setSubject(translationService.translateWithLocale("email.credential-failure.subject", locale));
+                Context context = createLocalizedContext(locale);
+                context.setVariable("eventDescription", eventDescription != null ? eventDescription : "");
+                helper.setText(templateEngine.process("credential-failure-email", context), true);
+                javaMailSender.send(mimeMessage);
+                return null;
+            }).subscribeOn(Schedulers.boundedElastic());
+        })
                 .then()
                 .onErrorMap(e -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE));
     }
 
     private Mono<Void> sendCredentialRevokedOrExpiredNotificationEmail(String to, String credentialId, String type, String credentialStatus){
-        return tenantConfigService.getStringOrThrow(MAIL_FROM_KEY)
-                .flatMap(mailFrom -> Mono.fromCallable(() -> {
-                    try {
-                        MimeMessage mimeMessage = javaMailSender.createMimeMessage();
-                        MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
+        return Mono.zip(
+                tenantConfigService.getStringOrThrow(MAIL_FROM_KEY),
+                tenantConfigService.getStringOrDefault(DEFAULT_LANG_KEY, "")
+        ).flatMap(tuple -> {
+            String mailFrom = tuple.getT1();
+            String locale = translationService.getLocaleOrDefault(tuple.getT2());
+            return Mono.fromCallable(() -> {
+                try {
+                    MimeMessage mimeMessage = javaMailSender.createMimeMessage();
+                    MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
 
-                        helper.setFrom(mailFrom);
-                        helper.setTo(to);
+                    helper.setFrom(mailFrom);
+                    helper.setTo(to);
 
-                        Context context = buildStatusChangeEmailContext(credentialId, type, credentialStatus);
+                    Context context = buildStatusChangeEmailContext(credentialId, type, credentialStatus, locale);
 
-                        switch (credentialStatus) {
-                            case "REVOKED" -> {
-                                helper.setSubject(translationService.translate("email.revoked.subject"));
-                                context.setVariable("title", translationService.translate("email.revoked.title"));
-                            }
-                            case "EXPIRED" -> {
-                                helper.setSubject(translationService.translate("email.expired.subject"));
-                                context.setVariable("title", translationService.translate("email.expired.title"));
-                            }
-                            default -> helper.setSubject(translationService.translate("email.default-status.subject"));
-
+                    switch (credentialStatus) {
+                        case "REVOKED" -> {
+                            helper.setSubject(translationService.translateWithLocale("email.revoked.subject", locale));
+                            context.setVariable("title", translationService.translateWithLocale("email.revoked.title", locale));
                         }
-                        String htmlContent = templateEngine.process("revoked-expired-credential-email", context);
-                        helper.setText(htmlContent, true);
+                        case "EXPIRED" -> {
+                            helper.setSubject(translationService.translateWithLocale("email.expired.subject", locale));
+                            context.setVariable("title", translationService.translateWithLocale("email.expired.title", locale));
+                        }
+                        default -> helper.setSubject(translationService.translateWithLocale("email.default-status.subject", locale));
 
-                        javaMailSender.send(mimeMessage);
-                    } catch (MessagingException e) {
-                        throw new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE);
                     }
+                    String htmlContent = templateEngine.process("revoked-expired-credential-email", context);
+                    helper.setText(htmlContent, true);
 
-                    return null;
-                }).subscribeOn(Schedulers.boundedElastic()))
+                    javaMailSender.send(mimeMessage);
+                } catch (MessagingException e) {
+                    throw new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE);
+                }
+
+                return null;
+            }).subscribeOn(Schedulers.boundedElastic());
+        })
                 .then();
     }
 
-    private Context buildStatusChangeEmailContext(String credentialId, String type, String credentialStatus) {
-        Context context = createLocalizedContext();
+    private Context buildStatusChangeEmailContext(String credentialId, String type, String credentialStatus, String locale) {
+        Context context = createLocalizedContext(locale);
         context.setVariable("credentialId", credentialId);
         context.setVariable("type", type);
         context.setVariable("credentialStatus", credentialStatus);
         return context;
     }
 
-    private Context createLocalizedContext() {
+    private Context createLocalizedContext(String locale) {
         Context context = new Context();
-        context.setLocale(Locale.forLanguageTag(translationService.getLocale()));
+        context.setLocale(Locale.forLanguageTag(locale));
         return context;
     }
 
