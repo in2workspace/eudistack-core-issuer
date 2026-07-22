@@ -100,7 +100,7 @@ public class TokenServiceImpl implements TokenService {
     private Mono<TokenResponse> handleClientCredentials(String baseUrl, String clientId, String clientSecret) {
         log.debug("Token request: grant_type=client_credentials");
         return Mono.deferContextual(ctx -> {
-            String tenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
+            String tenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, SYSTEM_TENANT);
             return apiClientAuthenticationService.authenticateForToken(tenant, clientId, clientSecret)
                     .map(client -> buildM2mTokenResponse(baseUrl, client))
                     .onErrorMap(ApiClientAuthenticationException.class, ex -> OAuthTokenException.invalidClient());
