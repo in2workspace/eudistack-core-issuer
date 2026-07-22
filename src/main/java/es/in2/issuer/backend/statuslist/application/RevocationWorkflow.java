@@ -92,10 +92,8 @@ public class RevocationWorkflow {
                                     String processId, String action) {
         try {
             String orgId = issuance != null ? issuance.getOrganizationIdentifier() : null;
-            Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
-                    actor, orgId, issuanceId, reason, "attempted", null));
             details.put("processId", processId);
-            details.put("action", action);
+            details.put("workflowAction", action);
             auditService.auditAttempted(EVENT_ATTEMPTED, actor, "credential", issuanceId, details);
         } catch (Exception e) {
             log.warn("processId={} action={} step=auditAttemptedFailed issuanceId={} error={}",
