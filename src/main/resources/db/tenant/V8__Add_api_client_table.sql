@@ -1,5 +1,5 @@
 -- =============================================================================
--- V7__Add_api_client_table.sql
+-- V8__Add_api_client_table.sql
 -- EUD-75 (US-02): API clients (M2M) authorized to trigger unattended
 -- credential issuance for this tenant via grant_type=client_credentials.
 -- =============================================================================
