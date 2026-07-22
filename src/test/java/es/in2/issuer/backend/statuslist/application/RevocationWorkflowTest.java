@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.statuslist.application;
 
+import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
@@ -98,6 +99,18 @@ class RevocationWorkflowTest {
                 NullPointerException.class,
                 () -> revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, null, "https://issuer.example.com")
         );
+    }
+
+    @Test
+    void revoke_WithNonExistentIssuance_ShouldThrowIssuanceNotFoundException() {
+        when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.empty());
+
+        StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "https://issuer.example.com"))
+                .expectError(IssuanceNotFoundException.class)
+                .verify();
+
+        verifyNoInteractions(statusListPdpService, statusListProvider);
     }
 
     @Test

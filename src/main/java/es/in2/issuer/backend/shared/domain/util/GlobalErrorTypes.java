@@ -49,7 +49,8 @@ public enum GlobalErrorTypes {
     MISSING_EMAIL_OWNER_ERROR("missing_email_owner_error"),
     PARSE_ERROR_EXCEPTION("parse_error_exception"),
     TOKEN_FETCH_ERROR("token_fetch_error"),
-    WELL_KNOWN_INFO_FETCH_ERROR("well_known_info_fetch_error");
+    WELL_KNOWN_INFO_FETCH_ERROR("well_known_info_fetch_error"),
+    INVALID_CREDENTIAL_STATUS_TRANSITION("invalid_credential_status_transition");
 
     private final String code;
 
