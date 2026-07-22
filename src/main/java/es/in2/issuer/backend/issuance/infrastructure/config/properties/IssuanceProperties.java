@@ -8,7 +8,7 @@ public record IssuanceProperties(
         @DefaultValue("30") int draftMaxAgeDays,
         @DefaultValue("0 0 2 * * *") String cleanupCron,
         @DefaultValue("60") int deliveryTimeoutMinutes,
-        @DefaultValue("0 */5 * * * ?") String deliveryTimeoutCron
+        @DefaultValue("0 */5 * * * ?") String deliveryTimeoutCron,
         @DefaultValue("30") int hybridWalletTimeoutSeconds
 ) {
 }
