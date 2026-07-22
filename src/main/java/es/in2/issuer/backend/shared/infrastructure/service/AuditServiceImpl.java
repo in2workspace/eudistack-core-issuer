@@ -62,7 +62,7 @@ public class AuditServiceImpl implements AuditService {
             if (resourceType != null) MDC.put("audit.resourceType", resourceType);
             if (resourceId != null) MDC.put("audit.resourceId", resourceId);
 
-            AUDIT.info("event={} outcome=attempted userId={} resourceType={} resourceId={} {}",
+            AUDIT.info("event={} outcome=attempted userId={} resourceType={} resourceId={} details=\"{}\"",
                     event,
                     userId != null ? userId : "system",
                     resourceType != null ? resourceType : "",
