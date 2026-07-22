@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.6.22] - 2026-07-22
+## [3.6.23] - 2026-07-22
 
 ### Added
 
@@ -16,6 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `IntakeCallerAuthorizationFilter` gates `/api/v1/intake` (endpoint itself lands with EUD-74): `403` if the token isn't `M2M` or lacks `can_trigger_issuance`, `401` if unauthenticated/expired/unknown-issuer — fail-closed on repository failure.
   - Uniform `invalid_client` response for a non-existent `client_id` vs. an incorrect secret, to prevent client enumeration.
   - Every gate decision (admitted or rejected) is audited with tenant, caller identity, result and cause — never the secret or full token.
+
+## [3.6.22] - 2026-07-22
+
+### Added
+
+- **EUD-98 — Know the result of the revocation and leave a trace of the reason**
+  - `RevokeCredentialRequest`: added optional/nullable `reason` field (backward-compatible) so the operator's revocation reason can be traced (AC-07, EC-01).
+  - `RevocationAuditDetails`: new value object building the audit details map per conv-quality-security-gates §10.2, with PII redaction by design (never accepts `Issuance`, only primitives) and reason sanitization (truncated to 280 chars, `"not-provided"` marker when absent/blank) (AC-04, AC-07, EC-01, ES-01).
+  - `AuditService` / `AuditServiceImpl`: new `auditAttempted` method, reusing the existing `AUDIT` logger + MDC pattern — no new event bus (AC-03).
+  - `RevocationWorkflow`: resolves the operator identity via `ReactiveSecurityContextHolder` (fallback `"unknown"` + `WARN` log when not resolvable, EC-02); emits `credential.revoke.attempted` right after loading the issuance (or before the 404 on a missing one); enriches `credential.revoked` (success) with the resolved operator, the credential's organization/tenant and the sanitized reason, replacing the previous `userId=null` minimal audit; emits `credential.revoke.failed` on any denial or execution error, with a categorized `error.type` (`invalid_status`, `unauthorized_role`, `tenant_mismatch`, `issuance_not_found`) and no stacktrace/PII, without altering the HTTP error mapping owned by EUD-97 (R-2); both audit emissions are wrapped in try/catch so a logging failure never reverts or fails an already-consumed revocation (ES-04).
+  
+ - Tests: new `RevocationAuditDetailsTest`; extended `RevocationWorkflowTest` with audit content, attempted→success/failed ordering, unknown-actor fallback, categorized failure and ES-04 assertions (AC-01, AC-02, AC-03, AC-07, EC-02, ES-04).
 
 ### Added
 

@@ -53,7 +53,7 @@ public class BitstringStatusListController {
         String processId = UUID.randomUUID().toString();
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
 
-        return revocationWorkflow.revoke(processId, bearerToken, request.issuanceId(), publicIssuerBaseUrl)
+        return revocationWorkflow.revoke(processId, bearerToken, request.issuanceId(), request.reason(), publicIssuerBaseUrl)
                 .doFirst(() -> log.info("Process ID: {} - Revoking Credential...", processId))
                 .doOnSuccess(v -> log.info("Process ID: {} - Credential revoked successfully.", processId))
                 .doOnError(e -> log.warn("Process ID: {} - Revoking credential failed: {}", processId, e.toString()));

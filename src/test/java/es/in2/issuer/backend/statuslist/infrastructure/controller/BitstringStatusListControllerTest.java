@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 class BitstringStatusListControllerUnitTest {
@@ -85,16 +86,16 @@ class BitstringStatusListControllerUnitTest {
         String issuanceId = UUID.randomUUID().toString();
         ServerWebExchange exchange = newExchange();
 
-        RevokeCredentialRequest request = new RevokeCredentialRequest(issuanceId);
+        RevokeCredentialRequest request = new RevokeCredentialRequest(issuanceId, null);
 
         when(urlResolver.publicIssuerBaseUrl(any(ServerWebExchange.class))).thenReturn(PUBLIC_BASE_URL);
-        when(revocationWorkflow.revoke(anyString(), eq(bearerToken), eq(issuanceId), eq(PUBLIC_BASE_URL)))
+        when(revocationWorkflow.revoke(anyString(), eq(bearerToken), eq(issuanceId), isNull(), eq(PUBLIC_BASE_URL)))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(controller.revokeCredential(bearerToken, request, exchange))
                 .verifyComplete();
 
-        verify(revocationWorkflow).revoke(anyString(), eq(bearerToken), eq(issuanceId), eq(PUBLIC_BASE_URL));
+        verify(revocationWorkflow).revoke(anyString(), eq(bearerToken), eq(issuanceId), isNull(), eq(PUBLIC_BASE_URL));
         verifyNoInteractions(statusListWorkflow);
     }
 
@@ -104,17 +105,17 @@ class BitstringStatusListControllerUnitTest {
         String issuanceId = UUID.randomUUID().toString();
         ServerWebExchange exchange = newExchange();
 
-        RevokeCredentialRequest request = new RevokeCredentialRequest(issuanceId);
+        RevokeCredentialRequest request = new RevokeCredentialRequest(issuanceId, null);
 
         when(urlResolver.publicIssuerBaseUrl(any(ServerWebExchange.class))).thenReturn(PUBLIC_BASE_URL);
-        when(revocationWorkflow.revoke(anyString(), eq(bearerToken), eq(issuanceId), eq(PUBLIC_BASE_URL)))
+        when(revocationWorkflow.revoke(anyString(), eq(bearerToken), eq(issuanceId), isNull(), eq(PUBLIC_BASE_URL)))
                 .thenReturn(Mono.error(new RuntimeException("boom")));
 
         StepVerifier.create(controller.revokeCredential(bearerToken, request, exchange))
                 .expectError(RuntimeException.class)
                 .verify();
 
-        verify(revocationWorkflow).revoke(anyString(), eq(bearerToken), eq(issuanceId), eq(PUBLIC_BASE_URL));
+        verify(revocationWorkflow).revoke(anyString(), eq(bearerToken), eq(issuanceId), isNull(), eq(PUBLIC_BASE_URL));
         verifyNoInteractions(statusListWorkflow);
     }
 }
