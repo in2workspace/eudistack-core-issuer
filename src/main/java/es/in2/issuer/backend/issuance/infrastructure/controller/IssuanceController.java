@@ -88,7 +88,7 @@ public class IssuanceController {
                     }
                     return switch (request.status()) {
                         case WITHDRAWN -> authorizeAndWithdraw(ctx, id);
-                        case REVOKED -> revocationWorkflow.revoke(processId, authorizationHeader, id, publicIssuerBaseUrl);
+                        case REVOKED -> revocationWorkflow.revoke(processId, authorizationHeader, id, null, publicIssuerBaseUrl);
                         case ARCHIVED -> authorizeAndArchive(ctx, id);
                         default -> Mono.error(new ResponseStatusException(
                                 HttpStatus.BAD_REQUEST,

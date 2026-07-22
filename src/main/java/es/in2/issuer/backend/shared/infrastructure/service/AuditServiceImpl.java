@@ -52,6 +52,27 @@ public class AuditServiceImpl implements AuditService {
         }
     }
 
+    @Override
+    public void auditAttempted(String event, String userId, String resourceType, String resourceId,
+                               Map<String, Object> details) {
+        try {
+            MDC.put("audit.event", event);
+            MDC.put("audit.outcome", "attempted");
+            if (userId != null) MDC.put("audit.userId", userId);
+            if (resourceType != null) MDC.put("audit.resourceType", resourceType);
+            if (resourceId != null) MDC.put("audit.resourceId", resourceId);
+
+            AUDIT.info("event={} outcome=attempted userId={} resourceType={} resourceId={} details=\"{}\"",
+                    event,
+                    userId != null ? userId : "system",
+                    resourceType != null ? resourceType : "",
+                    resourceId != null ? resourceId : "",
+                    formatDetails(details));
+        } finally {
+            clearAuditMdc();
+        }
+    }
+
     private void clearAuditMdc() {
         MDC.remove("audit.event");
         MDC.remove("audit.outcome");
