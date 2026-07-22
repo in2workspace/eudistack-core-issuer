@@ -116,14 +116,9 @@ public class RevocationWorkflow {
     private void safeAuditFailure(String actor, Issuance issuance, String issuanceId, String reason,
                                   String processId, String action, Throwable error) {
         try {
-            String orgId = issuance != null ? issuance.getOrganizationIdentifier() : null;
-            String errorType = categorizeError(error);
-            Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
-                    actor, orgId, issuanceId, reason, "failure", errorType));
             details.put("processId", processId);
-            details.put("action", action);
+            details.put("workflowAction", action);
             auditService.auditFailure(EVENT_FAILED, actor, errorType, details);
-        } catch (Exception e) {
             log.warn("processId={} action={} step=auditFailureFailed issuanceId={} error={}",
                     processId, action, issuanceId, e.toString());
         }
