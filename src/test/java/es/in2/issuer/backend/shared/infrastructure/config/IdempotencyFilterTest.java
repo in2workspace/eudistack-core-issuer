@@ -26,6 +26,7 @@ import static org.mockito.Mockito.verify;
 class IdempotencyFilterTest {
 
     private static final String IDEMPOTENCY_HEADER = "X-Idempotency-Key";
+    private static final String TENANT_HEADER = "X-Tenant";
     private static final String BODY = "{\"signed_credential\":\"signed-jwt\"}";
 
     @Mock
@@ -86,6 +87,28 @@ class IdempotencyFilterTest {
 
         MockServerWebExchange second = MockServerWebExchange.from(
                 MockServerHttpRequest.post(ISSUANCES_PATH).header(IDEMPOTENCY_HEADER, "key-b").build());
+        StepVerifier.create(filter.filter(second, chain)).verifyComplete();
+
+        assertEquals(2, invocations.get());
+    }
+
+    @Test
+    void sameKeyDifferentTenants_invokeChainEachTime() {
+        AtomicInteger invocations = new AtomicInteger();
+        WebFilterChain chain = writingChain(invocations);
+
+        MockServerWebExchange first = MockServerWebExchange.from(
+                MockServerHttpRequest.post(ISSUANCES_PATH)
+                        .header(IDEMPOTENCY_HEADER, "same-key")
+                        .header(TENANT_HEADER, "tenant-a")
+                        .build());
+        StepVerifier.create(filter.filter(first, chain)).verifyComplete();
+
+        MockServerWebExchange second = MockServerWebExchange.from(
+                MockServerHttpRequest.post(ISSUANCES_PATH)
+                        .header(IDEMPOTENCY_HEADER, "same-key")
+                        .header(TENANT_HEADER, "tenant-b")
+                        .build());
         StepVerifier.create(filter.filter(second, chain)).verifyComplete();
 
         assertEquals(2, invocations.get());

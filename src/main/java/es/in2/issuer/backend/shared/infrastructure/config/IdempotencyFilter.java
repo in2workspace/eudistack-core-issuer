@@ -21,6 +21,7 @@ import java.net.URI;
 import java.time.Duration;
 
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ISSUANCES_PATH;
+import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
 
 @Slf4j
 @Component
@@ -54,7 +55,13 @@ public class IdempotencyFilter implements WebFilter {
             return chain.filter(exchange);
         }
 
-        CachedResponse cached = cache.getIfPresent(idempotencyKey);
+        String tenantScope = exchange.getRequest().getHeaders().getFirst(X_TENANT_HEADER);
+        if (tenantScope == null || tenantScope.isBlank()) {
+            tenantScope = exchange.getRequest().getURI().getHost();
+        }
+        String scopedIdempotencyKey = tenantScope + ":" + idempotencyKey;
+
+        CachedResponse cached = cache.getIfPresent(scopedIdempotencyKey);
         if (cached != null) {
             log.info("Idempotency key '{}' already processed, returning cached status {}", idempotencyKey, cached.status);
             issuanceMetrics.recordIdempotencyCacheHit();
@@ -78,7 +85,7 @@ public class IdempotencyFilter implements WebFilter {
                     HttpStatus status = (HttpStatus) exchange.getResponse().getStatusCode();
                     String location = exchange.getResponse().getHeaders().getFirst("Location");
                     if (status != null && status.is2xxSuccessful()) {
-                        cache.put(idempotencyKey, new CachedResponse(
+                        cache.put(scopedIdempotencyKey, new CachedResponse(
                                 status, location, decorator.capturedBody, decorator.capturedContentType));
                     }
                 }));
