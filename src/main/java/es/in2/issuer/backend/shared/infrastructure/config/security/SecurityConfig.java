@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
+import es.in2.issuer.backend.apiclient.infrastructure.security.IntakeCallerAuthorizationFilter;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
@@ -29,6 +31,7 @@ public class SecurityConfig {
 
     private final CustomAuthenticationManager customAuthenticationManager;
     private final CorsConfig corsConfig;
+    private final AuditService auditService;
 
     private AuthenticationWebFilter customAuthenticationWebFilter(ProblemAuthenticationEntryPoint entryPoint) {
         AuthenticationWebFilter authenticationWebFilter = new AuthenticationWebFilter(customAuthenticationManager);
@@ -46,7 +49,10 @@ public class SecurityConfig {
                         OID4VCI_CREDENTIAL_PATH,
                         OID4VCI_NOTIFICATION_PATH,
                         // Other authenticated paths
-                        STATUS_LIST_PATH)
+                        STATUS_LIST_PATH,
+                        // Unattended issuance intake (EUD-75, US-02)
+                        INTAKE_BASE_PATH,
+                        INTAKE_PATH)
         );
 
         authenticationWebFilter.setServerAuthenticationConverter(new DualTokenServerAuthenticationConverter());
@@ -102,7 +108,10 @@ public class SecurityConfig {
                         TOKEN_STATUS_LIST_PATH,
                         HEALTH_PATH,
                         PROMETHEUS_PATH,
-                        SPRINGDOC_PATH
+                        SPRINGDOC_PATH,
+                        // Unattended issuance intake (EUD-75, US-02)
+                        INTAKE_BASE_PATH,
+                        INTAKE_PATH
                 ))
                 .cors(cors -> cors.configurationSource(corsConfig.corsConfigurationSource()))
                 .headers(headers -> headers
@@ -144,6 +153,10 @@ public class SecurityConfig {
                 // CSRF disabled: all routes use Bearer token authentication (no cookies/sessions)
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .addFilterAt(customAuthenticationWebFilter(entryPoint), SecurityWebFiltersOrder.AUTHENTICATION)
+                // Wired manually (not a @Component) and placed after AUTHORIZATION so
+                // it only ever runs on requests Spring's own .anyExchange().authenticated()
+                // has already let through — see IntakeCallerAuthorizationFilter javadoc.
+                .addFilterAfter(new IntakeCallerAuthorizationFilter(deniedH, auditService), SecurityWebFiltersOrder.AUTHORIZATION)
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(deniedH)

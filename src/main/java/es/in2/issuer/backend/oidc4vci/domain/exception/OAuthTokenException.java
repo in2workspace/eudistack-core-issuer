@@ -8,6 +8,8 @@ import lombok.Getter;
 @Getter
 public class OAuthTokenException extends RuntimeException {
 
+    public static final String INVALID_CLIENT = "invalid_client";
+
     private final String errorCode;
 
     public OAuthTokenException(String errorCode, String errorDescription) {
@@ -25,5 +27,14 @@ public class OAuthTokenException extends RuntimeException {
 
     public static OAuthTokenException invalidRequest(String description) {
         return new OAuthTokenException("invalid_request", description);
+    }
+
+    /**
+     * Uniform denial for client_credentials authentication failures (unknown
+     * client, wrong secret, non-ACTIVE status) — same error/description for
+     * every cause, per the anti-enumeration requirement (ES-03, NFR-S-EUD75-02).
+     */
+    public static OAuthTokenException invalidClient() {
+        return new OAuthTokenException(INVALID_CLIENT, INVALID_CLIENT);
     }
 }

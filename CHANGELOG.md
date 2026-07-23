@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.23] - 2026-07-22
+
+### Added
+
+- **API Client — M2M authentication gate for unattended issuance intake (EUD-75 / US-02)**:
+  - External systems can now authenticate as a registered API client via `POST /oauth/token` with `grant_type=client_credentials`, receiving a short-lived (≤ 5 min) JWT with `caller_type=M2M` and `can_trigger_issuance` claims.
+  - New `api_client` table (schema-per-tenant, `V8__Add_api_client_table.sql`) with `authorization_status` (`ACTIVE`/`REVOKED`/`SUSPENDED`) and BCrypt-hashed secrets.
+  - `IntakeCallerAuthorizationFilter` gates `/api/v1/intake` (endpoint itself lands with EUD-74): `403` if the token isn't `M2M` or lacks `can_trigger_issuance`, `401` if unauthenticated/expired/unknown-issuer — fail-closed on repository failure.
+  - Uniform `invalid_client` response for a non-existent `client_id` vs. an incorrect secret, to prevent client enumeration.
+  - Every gate decision (admitted or rejected) is audited with tenant, caller identity, result and cause — never the secret or full token.
+
 ## [3.6.22] - 2026-07-22
 
 ### Added

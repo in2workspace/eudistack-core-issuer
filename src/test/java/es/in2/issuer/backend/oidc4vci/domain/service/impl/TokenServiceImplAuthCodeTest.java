@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
+import es.in2.issuer.backend.apiclient.domain.service.ApiClientAuthenticationService;
 import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
@@ -62,6 +63,8 @@ class TokenServiceImplAuthCodeTest {
     private IssuanceMetrics issuanceMetrics;
     @Mock
     private TransientStore<String> issuerStateCacheStore;
+    @Mock
+    private ApiClientAuthenticationService apiClientAuthenticationService;
 
     private TokenServiceImpl tokenService;
 
@@ -79,7 +82,8 @@ class TokenServiceImplAuthCodeTest {
                 dpopValidationService,
                 profileProperties,
                 issuanceMetrics,
-                issuerStateCacheStore
+                issuerStateCacheStore,
+                apiClientAuthenticationService
         );
     }
 
