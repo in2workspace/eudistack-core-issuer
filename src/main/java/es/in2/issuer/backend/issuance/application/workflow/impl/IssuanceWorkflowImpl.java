@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
@@ -173,9 +174,12 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         boolean hasDirect  = modes.stream().anyMatch(DeliveryMode::isDirect);
         boolean hasOid4vci = modes.stream().anyMatch(m -> m.isOid4vci);
+        String oid4vciDelivery = extractOid4vciDelivery(modes);
 
-        Mono<IssuanceResponse> directMono = hasDirect
+        Mono<DirectDeliveryOutcome> directOutcome = hasDirect
                 ? performDirectIssuance(processId, request, idToken, publicIssuerBaseUrl, delivery)
+                .map(r -> new DirectDeliveryOutcome(r.signedCredential(),
+                        DeliveryResult.delivered(DeliveryMode.DIRECT.value)))
                 .doOnError(e -> log.error(
                         "ProcessId: {} - Direct issuance failed for credentialConfigurationId={} delivery={}",
                         processId,
@@ -183,25 +187,80 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                         delivery,
                         e
                 ))
-                : Mono.just(IssuanceResponse.builder().build());
+                : Mono.just(DirectDeliveryOutcome.empty());
 
-        Mono<IssuanceResponse> oid4vciMono = hasOid4vci
-                ? performOid4VciIssuance(processId, request, publicIssuerBaseUrl, publicWalletBaseUrl, extractOid4vciDelivery(modes))
-                .doOnError(e -> log.error(
-                        "ProcessId: {} - OID4VCI issuance failed for credentialConfigurationId={} delivery={}",
-                        processId,
-                        request.credentialConfigurationId(),
-                        extractOid4vciDelivery(modes),
-                        e
-                ))
-                : Mono.just(IssuanceResponse.builder().build());
+        Mono<WalletDeliveryOutcome> walletOutcome = hasOid4vci
+                ? performOid4VciIssuanceResilient(processId, request, publicIssuerBaseUrl, publicWalletBaseUrl, oid4vciDelivery)
+                : Mono.just(WalletDeliveryOutcome.empty());
 
-        return Mono.zip(directMono, oid4vciMono, (direct, oid4vci) ->
-                IssuanceResponse.builder()
-                        .signedCredential(direct.signedCredential())
-                        .credentialOfferUri(oid4vci.credentialOfferUri())
-                        .build()
-        );
+        return Mono.zip(directOutcome, walletOutcome)
+                .map(tuple -> assembleResponse(tuple.getT1(), tuple.getT2()));
+    }
+
+    private Mono<WalletDeliveryOutcome> performOid4VciIssuanceResilient(
+            String processId, IssuanceRequest request,
+            String publicIssuerBaseUrl, String publicWalletBaseUrl, String oid4vciDelivery) {
+
+        return performOid4VciIssuance(processId, request, publicIssuerBaseUrl, publicWalletBaseUrl, oid4vciDelivery)
+                .map(r -> WalletDeliveryOutcome.success(r.credentialOfferUri(), oid4vciDelivery))
+                .timeout(Duration.ofSeconds(issuanceProperties.hybridWalletTimeoutSeconds()))
+                .onErrorResume(ex -> {
+                    log.warn("ProcessId: {} - Wallet delivery failed (isolated): {}", processId, ex.toString());
+                    return Mono.just(WalletDeliveryOutcome.failed(oid4vciDelivery, resolveWalletErrorDetail(ex)));
+                });
+    }
+
+    private String resolveWalletErrorDetail(Throwable ex) {
+        if (ex instanceof TimeoutException) {
+            return "Wallet delivery timed out";
+        }
+        return ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
+    }
+
+    private IssuanceResponse assembleResponse(DirectDeliveryOutcome direct, WalletDeliveryOutcome wallet) {
+        List<DeliveryResult> results = new ArrayList<>();
+        if (direct.deliveryResult() != null) {
+            results.add(direct.deliveryResult());
+        }
+        results.addAll(wallet.deliveryResults());
+
+        return IssuanceResponse.builder()
+                .signedCredential(direct.signedCredential())
+                .credentialOfferUri(wallet.credentialOfferUri())
+                .deliveryResults(results.isEmpty() ? null : results)
+                .build();
+    }
+
+    /** Internal outcome of the direct path (not exposed in the API). */
+    private record DirectDeliveryOutcome(String signedCredential, DeliveryResult deliveryResult) {
+        static DirectDeliveryOutcome empty() {
+            return new DirectDeliveryOutcome(null, null);
+        }
+    }
+
+    /** Internal outcome of the wallet path — supports multi-mode CSV (email,ui). */
+    private record WalletDeliveryOutcome(String credentialOfferUri, List<DeliveryResult> deliveryResults) {
+        static WalletDeliveryOutcome empty() {
+            return new WalletDeliveryOutcome(null, List.of());
+        }
+
+        static WalletDeliveryOutcome success(String uri, String oid4vciDelivery) {
+            List<DeliveryResult> results = Arrays.stream(oid4vciDelivery.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(DeliveryResult::dispatched)
+                    .toList();
+            return new WalletDeliveryOutcome(uri, results);
+        }
+
+        static WalletDeliveryOutcome failed(String oid4vciDelivery, String error) {
+            List<DeliveryResult> results = Arrays.stream(oid4vciDelivery.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(mode -> DeliveryResult.failed(mode, error))
+                    .toList();
+            return new WalletDeliveryOutcome(null, results);
+        }
     }
 
     private Mono<IssuanceResponse> performDirectIssuance(String processId, IssuanceRequest request, String token,
