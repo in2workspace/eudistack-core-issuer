@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
+import es.in2.issuer.backend.apiclient.domain.service.ApiClientAuthenticationService;
 import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
@@ -23,7 +24,7 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.util.List;
-import java.util.NoSuchElementException;
+
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -62,6 +63,8 @@ class TokenServiceImplAuthCodeTest {
     private IssuanceMetrics issuanceMetrics;
     @Mock
     private TransientStore<String> issuerStateCacheStore;
+    @Mock
+    private ApiClientAuthenticationService apiClientAuthenticationService;
 
     private TokenServiceImpl tokenService;
 
@@ -79,7 +82,8 @@ class TokenServiceImplAuthCodeTest {
                 dpopValidationService,
                 profileProperties,
                 issuanceMetrics,
-                issuerStateCacheStore
+                issuerStateCacheStore,
+                apiClientAuthenticationService
         );
     }
 
@@ -169,7 +173,7 @@ class TokenServiceImplAuthCodeTest {
     @Test
     void exchangeToken_authCode_shouldFailOnInvalidCode() {
         when(authorizationCodeCacheStore.get("invalid-code"))
-                .thenReturn(Mono.error(new NoSuchElementException("Not found")));
+                .thenReturn(Mono.empty());
 
         TokenRequest request = authCodeRequest("invalid-code", "https://wallet/callback", "verifier");
 

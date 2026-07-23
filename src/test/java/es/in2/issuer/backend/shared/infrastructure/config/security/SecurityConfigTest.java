@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -28,6 +29,7 @@ import java.util.Map;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -41,6 +43,8 @@ class SecurityConfigTest {
     private ProblemAccessDeniedHandler deniedHandler;
     @Mock
     private CorsConfig corsConfig;
+    @Mock
+    private AuditService auditService;
 
     private WebFilterChainProxy securityProxy;
 
@@ -50,7 +54,8 @@ class SecurityConfigTest {
 
         SecurityConfig securityConfig = new SecurityConfig(
                 customAuthenticationManager,
-                corsConfig
+                corsConfig,
+                auditService
         );
 
         SecurityWebFilterChain chain = securityConfig.unifiedFilterChain(
@@ -220,6 +225,14 @@ class SecurityConfigTest {
             assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
         }
 
+        @Test
+        void intake_post_shouldReturn401_whenNoAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(INTAKE_BASE_PATH).build()
+            );
+            assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
+        }
+
     }
 
     // ── Authenticated endpoints — 200 with valid Bearer token ───────────
@@ -277,5 +290,68 @@ class SecurityConfigTest {
             verify(customAuthenticationManager).authenticate(any());
         }
 
+    }
+
+    // ── Intake gate (EUD-75, US-02) — M2M authorization on top of auth ──
+
+    @Nested
+    @DisplayName("Intake gate — authorizes M2M callers, denies the rest with 403")
+    class IntakeAuthorizationGate {
+
+        private void stubAuthManagerM2m(boolean canTriggerIssuance) {
+            Jwt jwt = buildJwt(Map.of(
+                    "caller_type", "M2M",
+                    "client_id", "acme-hr",
+                    "can_trigger_issuance", canTriggerIssuance
+            ), "acme-hr");
+            Authentication auth = new JwtAuthenticationToken(jwt, Collections.emptyList(), "acme-hr");
+            when(customAuthenticationManager.authenticate(any())).thenReturn(Mono.just(auth));
+        }
+
+        private void stubAccessDeniedHandlerTo403() {
+            doAnswer(inv -> {
+                var exchange = inv.getArgument(0, org.springframework.web.server.ServerWebExchange.class);
+                exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN);
+                return exchange.getResponse().setComplete();
+            }).when(deniedHandler).handle(any(), any());
+        }
+
+        private MockServerWebExchange intakeRequest() {
+            return MockServerWebExchange.from(
+                    MockServerHttpRequest.post(INTAKE_BASE_PATH)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer good-token")
+                            .build()
+            );
+        }
+
+        @Test
+        void intake_post_shouldReturn200_whenM2mAuthorized() {
+            stubAuthManagerM2m(true);
+
+            assertEquals(HttpStatus.OK, executeFilter(intakeRequest()));
+            verify(auditService).auditSuccess(eq("intake.auth.success"), eq("acme-hr"), any(), any(), any());
+        }
+
+        @Test
+        void intake_post_shouldReturn403_whenPrincipalIsNotM2m() {
+            // EC-04: token valid for this issuer but not caller_type=M2M (e.g. a human LEAR token)
+            Jwt jwt = buildJwt(Map.of("scope", "any"), "human-subject");
+            Authentication auth = new JwtAuthenticationToken(jwt, Collections.emptyList(), "human-subject");
+            when(customAuthenticationManager.authenticate(any())).thenReturn(Mono.just(auth));
+            stubAccessDeniedHandlerTo403();
+
+            assertEquals(HttpStatus.FORBIDDEN, executeFilter(intakeRequest()));
+            verify(auditService).auditFailure(eq("intake.auth.failure"), any(), eq("not_m2m"), any());
+        }
+
+        @Test
+        void intake_post_shouldReturn403_whenInsufficientScope() {
+            // EC-03: M2M caller, but can_trigger_issuance=false
+            stubAuthManagerM2m(false);
+            stubAccessDeniedHandlerTo403();
+
+            assertEquals(HttpStatus.FORBIDDEN, executeFilter(intakeRequest()));
+            verify(auditService).auditFailure(eq("intake.auth.failure"), eq("acme-hr"), eq("insufficient_scope"), any());
+        }
     }
 }

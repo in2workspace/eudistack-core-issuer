@@ -49,7 +49,8 @@ public record CredentialProfile(
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record CredentialMetadata(
             @JsonProperty("display") List<DisplayInfo> display,
-            @JsonProperty("claims") List<ClaimDefinition> claims
+            @JsonProperty("claims") List<ClaimDefinition> claims,
+            @JsonProperty("summary_claims") List<List<String>> summaryClaims
     ) {}
 
     @Builder

@@ -13,4 +13,7 @@ public interface AuditService {
 
     void auditFailure(String event, String userId, String reason,
                       Map<String, Object> details);
+
+    void auditAttempted(String event, String userId, String resourceType, String resourceId,
+                        Map<String, Object> details);
 }

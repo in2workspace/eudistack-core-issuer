@@ -395,7 +395,7 @@ class IssuanceControllerTest {
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(accessTokenService.getAuthorizationContext(anyString()))
                 .thenReturn(Mono.just(authCtx));
-        when(revocationWorkflow.revoke(anyString(), eq("Bearer testToken"), eq(issuanceId), eq(PUBLIC_ISSUER_BASE_URL)))
+        when(revocationWorkflow.revoke(anyString(), eq("Bearer testToken"), eq(issuanceId), isNull(), eq(PUBLIC_ISSUER_BASE_URL)))
                 .thenReturn(Mono.empty());
 
         webTestClient.mutateWith(csrf())

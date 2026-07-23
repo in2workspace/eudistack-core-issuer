@@ -13,6 +13,7 @@ import reactor.core.publisher.Mono;
 import java.io.Closeable;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.SCHEMA_SUFFIX;
+import static es.in2.issuer.backend.shared.domain.util.Constants.SYSTEM_TENANT;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 /**
@@ -31,8 +32,6 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 @Slf4j
 @Configuration(proxyBeanMethods = false)
 public class TenantAwareConnectionFactoryDecorator {
-
-    static final String SYSTEM_TENANT = "*";
 
     @Bean
     static BeanPostProcessor tenantAwareConnectionFactoryPostProcessor() {
