@@ -36,6 +36,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -84,12 +85,43 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 .then(Mono.defer(() -> payloadSchemaValidator.validate(configId, request.payload())))
                 .then(Mono.defer(() -> issuancePdpService.authorize(configId, request.payload(), idToken)))
                 .then(Mono.defer(() -> performIssuanceFlow(processId, request, idToken, publicIssuerBaseUrl, publicWalletBaseUrl, delivery)))
-                .doOnSuccess(r -> {
-                    issuanceMetrics.recordSuccess(sample, configId, delivery);
-                    auditService.auditSuccess("credential.issued", null, "credential", configId,
-                            Map.of("processId", processId, "delivery", delivery));
-                })
-                .doOnError(e -> issuanceMetrics.recordError(sample, configId, delivery));
+                .transformDeferredContextual((flow, ctx) -> {
+                    String tenant = ctx.hasKey(TENANT_DOMAIN_CONTEXT_KEY) ? ctx.get(TENANT_DOMAIN_CONTEXT_KEY) : null;
+                    return flow
+                            .doOnSuccess(r -> {
+                                issuanceMetrics.recordSuccess(sample, configId, delivery);
+                                auditService.auditSuccess("credential.issued", null, "credential", configId,
+                                        buildIssuanceAuditDetails(processId, delivery, tenant,
+                                                r != null ? r.deliveryResults() : null, "success", null));
+                            })
+                            .doOnError(e -> {
+                                issuanceMetrics.recordError(sample, configId, delivery);
+                                auditService.auditFailure("credential.issue.failed", null, e.getMessage(),
+                                        buildIssuanceAuditDetails(processId, delivery, tenant, null, "failure",
+                                                e.getClass().getSimpleName()));
+                            });
+                });
+    }
+
+    private Map<String, Object> buildIssuanceAuditDetails(String processId, String delivery, String tenant,
+                                                           List<DeliveryResult> results, String outcome,
+                                                           String errorType) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("processId", processId);
+        details.put("delivery", delivery);
+        details.put("outcome", outcome);
+        if (tenant != null) {
+            details.put("tenant", tenant);
+        }
+        if (results != null && !results.isEmpty()) {
+            details.put("deliveryResults", results.stream()
+                    .map(r -> r.mode() + "=" + r.status())
+                    .toList());
+        }
+        if (errorType != null) {
+            details.put("errorType", errorType);
+        }
+        return details;
     }
 
     @Override
