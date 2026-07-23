@@ -6,9 +6,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.24] - 2026-07-23
+
 ### Added (23-07-2026)
 
 - **Direct & hybrid credential delivery (EUD-167)**: form-based issuance can now return the signed credential synchronously in the `POST /api/v1/issuances` response, with no wallet involved. The request declares one or more `delivery` modes (`direct`, `email`, `ui`); **hybrid** is the presence of ≥2 modes (e.g. `direct,email`), delivering the credential directly **and** dispatching the wallet offer in a single operation. The response carries an explicit per-mode `delivery_results` array (`{mode, status, error?}` with `delivered`/`dispatched`/`failed`), added additively to `IssuanceResponse` so existing clients are unaffected. The hybrid wallet path is isolated with `.timeout(issuance.hybrid-wallet-timeout-seconds, default 30s).onErrorResume(...)`, so a wallet failure or timeout reports `wallet=failed` without invalidating the already-delivered direct credential (0 inconsistent issuances); the direct path stays fail-closed on signing/persistence errors. Delivery-mode eligibility is validated **before** signing/dispatching/persisting via a per-tenant key `issuer.delivery.modes.{credentialConfigurationId}` (read from `TenantConfigService`, safe default derived from `cnfRequired()`): an unknown/blank mode returns `400 invalid_request` (`InvalidDeliveryModeException`) and a non-eligible mode returns `409 delivery_mode_not_eligible` (`DeliveryModeNotEligibleException`). Directly delivered credentials are persisted with their revocation status pointer (revocable without re-issuance). `IdempotencyFilter` now caches and replays the full response body (not just status + `Location`), so a retry with the same `X-Idempotency-Key` returns the identical result without a duplicate issuance. Issuance audit events (`credential.issued` / `credential.issue.failed`) now record delivery mode, per-mode outcome and tenant, without the recipient's e-mail. Wallet-only issuance returns `202` with the `delivery_results` body instead of an empty response.
+
+## [3.6.23] - 2026-07-22
+
+### Added
+
+- **API Client — M2M authentication gate for unattended issuance intake (EUD-75 / US-02)**:
+  - External systems can now authenticate as a registered API client via `POST /oauth/token` with `grant_type=client_credentials`, receiving a short-lived (≤ 5 min) JWT with `caller_type=M2M` and `can_trigger_issuance` claims.
+  - New `api_client` table (schema-per-tenant, `V8__Add_api_client_table.sql`) with `authorization_status` (`ACTIVE`/`REVOKED`/`SUSPENDED`) and BCrypt-hashed secrets.
+  - `IntakeCallerAuthorizationFilter` gates `/api/v1/intake` (endpoint itself lands with EUD-74): `403` if the token isn't `M2M` or lacks `can_trigger_issuance`, `401` if unauthenticated/expired/unknown-issuer — fail-closed on repository failure.
+  - Uniform `invalid_client` response for a non-existent `client_id` vs. an incorrect secret, to prevent client enumeration.
+  - Every gate decision (admitted or rejected) is audited with tenant, caller identity, result and cause — never the secret or full token.
+
+## [3.6.22] - 2026-07-22
+
+### Added
+
+- **EUD-98 — Know the result of the revocation and leave a trace of the reason**
+  - `RevokeCredentialRequest`: added optional/nullable `reason` field (backward-compatible) so the operator's revocation reason can be traced (AC-07, EC-01).
+  - `RevocationAuditDetails`: new value object building the audit details map per conv-quality-security-gates §10.2, with PII redaction by design (never accepts `Issuance`, only primitives) and reason sanitization (truncated to 280 chars, `"not-provided"` marker when absent/blank) (AC-04, AC-07, EC-01, ES-01).
+  - `AuditService` / `AuditServiceImpl`: new `auditAttempted` method, reusing the existing `AUDIT` logger + MDC pattern — no new event bus (AC-03).
+  - `RevocationWorkflow`: resolves the operator identity via `ReactiveSecurityContextHolder` (fallback `"unknown"` + `WARN` log when not resolvable, EC-02); emits `credential.revoke.attempted` right after loading the issuance (or before the 404 on a missing one); enriches `credential.revoked` (success) with the resolved operator, the credential's organization/tenant and the sanitized reason, replacing the previous `userId=null` minimal audit; emits `credential.revoke.failed` on any denial or execution error, with a categorized `error.type` (`invalid_status`, `unauthorized_role`, `tenant_mismatch`, `issuance_not_found`) and no stacktrace/PII, without altering the HTTP error mapping owned by EUD-97 (R-2); both audit emissions are wrapped in try/catch so a logging failure never reverts or fails an already-consumed revocation (ES-04).
+  
+ - Tests: new `RevocationAuditDetailsTest`; extended `RevocationWorkflowTest` with audit content, attempted→success/failed ordering, unknown-actor fallback, categorized failure and ES-04 assertions (AC-01, AC-02, AC-03, AC-07, EC-02, ES-04).
+
+### Added
+
+- **Per-tenant email language**: transactional emails are now localized per tenant instead of using a single global value. A new `issuer.default_lang` key in `tenant_config` (supported: `en`, `es`) drives the locale for every email — subject and template rendering. When the key is absent, blank, or unsupported for a tenant, it falls back to the global `APP_DEFAULT_LANG` (default `en`), so existing tenants are unaffected. `EmailServiceImpl` resolves the language reactively (alongside `issuer.mail_from`) while inside the tenant-scoped Reactor context, and threads the resolved locale into the Thymeleaf `Context` and into the new `TranslationService.translateWithLocale(...)` / `getLocaleOrDefault(...)` methods. Flyway migration `V7__Seed_default_lang.sql` seeds a placeholder `issuer.default_lang = 'en'` per tenant; real per-tenant values are set in the sibling `eudistack-platform-dev` repo (`postgres/seed-tenants[.stg].sql`).
+  - Note: the locale-aware API is named `translateWithLocale(code, locale, args)` (not a `translate` overload) on purpose — an overload with a `String locale` before `Object... args` is ambiguous with `translate(code, args)` under Java varargs resolution and would silently capture a string message argument as the locale.
+
+## [3.6.21] - 2026-07-16
+
+### Added
+
+- **EUD-97 — Protect revocation against non-revocable states and out-of-scope credentials**
+  - `SharedExceptionHandler`: `UnauthorizedRoleException` now maps to **403 Forbidden** (was 401) — an authenticated operator denied by scope/capability is a permissions issue, not an authentication failure (AC-03, AC-05).
+  - `SharedExceptionHandler`: new handler for `InvalidCredentialStatusTransitionException` → **409 Conflict** with a readable detail, instead of falling through to the catch-all 500 (AC-06, ES-03).
+  - `GlobalErrorTypes`: added `INVALID_CREDENTIAL_STATUS_TRANSITION` error code.
+  - `RevocationWorkflow`: revoking a non-existent `issuanceId` now returns **404 Not Found** (`IssuanceNotFoundException`) instead of silently completing (ES-02).
+  - `RevokeCredentialRequest` / `BitstringStatusListController`: `issuanceId` is now validated as non-blank (`@NotBlank` + `@Valid`), returning **400 Bad Request** for empty/missing values (ES-01).
+  - Tests: `RequireValidStatusRuleTest` (parametrized over all non-VALID statuses), `BitstringStatusListControllerRevokeIT` (first Testcontainers-based integration test in this repo — covers AC-01..AC-06, EC-01, EC-03, ES-01, ES-02 end-to-end against a real Postgres and the real security filter chain).
+
+### Tests (25-06-2026)
+
+- **Archive terminated procedures**: Added unit tests for `CredentialStatusEnum` covering ARCHIVED→ARCHIVED rejection, WITHDRAWN/REVOKED/EXPIRED→ARCHIVED allowed transitions, and ARCHIVED having no outgoing transitions (EC-02, ES-01).
+
+## [3.6.20] - 2026-06-19
+
+### Changed
+
+- **OID4VCI — Credential Issuer Metadata**: Added `deferred_credential_endpoint` field to the `/.well-known/openid-credential-issuer` response. The endpoint URL is derived from the public issuer base URL at runtime, consistent with the other OID4VCI endpoint fields.
+- **CredentialOfferWorkflow**: Added structured log lines in `CredentialOfferWorkflowImpl.findCredentialOfferById` to trace TX code notification dispatch — `INFO` when a TX code is present and the notification email is sent, `DEBUG` when no TX code is found and the email step is skipped.
+
+### Added
+
+- Observability configuration
+
+### Fixed
+
+- **OID4VCI — nonce consumed before signature validation**: `ProofValidationServiceImpl.verifyProof()` deleted the nonce from the cache before verifying the JWT signature. A 502 mid-flight caused the nonce to be lost; any subsequent retry propagated as `ProofValidationException("Error during JWT validation")` (generic catch) instead of surfacing the root cause. Refactored into a two-step flow: `checkNonce()` verifies the nonce exists but does NOT delete it; deletion only happens after `validateSignatureAccordingToHeader()` succeeds. Tests updated to assert the nonce is not consumed on signature failure.
+- **OID4VCI — `CacheStore.get()` emits error on cache miss**: `CacheStore.get()` returned `Mono.error(NoSuchElementException)` when the key was absent. Callers using `.switchIfEmpty()` never saw the empty signal — `switchIfEmpty` only fires on `Mono.empty()`, not on `Mono.error()` — so a cache miss bypassed the intended error mapping and propagated as an uncaught exception. Fixed to return `Mono.empty()` on miss. All callers that previously relied on `onErrorMap(NoSuchElementException.class, ...)` migrated to `switchIfEmpty(Mono.error(...))` (`AuthorizationServiceImpl`, `TokenServiceImpl` — 5 sites).
 
 ### Fixed (23-06-2026)
 
@@ -25,7 +87,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Accept multiple verifier URLs to validate `iss` in the access token.
 
 ### Fixed (18-06-2026)
-
 - **OID4VCI — Credential Offer URL**: `UrlResolverImpl.publicIssuerBaseUrl()` now derives the public URL from `issuerContextPath` (`spring.webflux.base-path`) instead of the `X-Tenant` header. CloudFront injects `X-Tenant` on all ALB-bound requests, including canonical deployments (e.g. `sandbox.stg.eudistack.net/issuer`), so the previous check incorrectly stripped the `/issuer` prefix, generating a credential offer URI that CloudFront routed to S3 instead of the ALB → 403. Non-canonical deployments (custom domain, empty base-path) are unaffected.
 - **OID4VCI — Verifier URL resolution**: `UrlResolverImpl.expectedVerifierBaseUrl()` now uses `TenantCustomDomainsLoader.findVerifierUrl()` (new `Optional`-returning method) when `X-Tenant` is present. If the loader has an entry for the tenant (non-canonical deployment), the configured verifier URL is returned; otherwise it falls back to `origin + verifierContextPath`. This avoids incorrectly deriving the verifier URL from the issuer origin on custom-domain deployments (e.g. `issuer.dome-marketplace-lcl.org/verifier` instead of the actual verifier domain).
 
@@ -115,6 +176,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Allow tenant admins to delegate onboarding when issuing credentials on behalf of a tenant in multi-organization setups.
 - Fix organization ID extraction from the token when validating LEAR credential power delegation.
+
+## [Unreleased]
+
+### Added
+- **CredentialProfile**: add `summary_claims`.
 
 ## [3.6.8] - 2026-05-13
 

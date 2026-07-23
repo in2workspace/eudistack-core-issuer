@@ -32,20 +32,20 @@ public class ProofValidationServiceImpl implements ProofValidationService {
         return Mono.just(jwtProof)
                 .flatMap(jwt -> parseAndValidateJwt(jwt, expectedAudience, allowedAlgs))
                 .doOnNext(jws -> log.debug("JWT parsed successfully"))
-                .flatMap(signedJWT -> validateNonce(signedJWT)
-                        .flatMap(nonceValid -> {
-                            if (!nonceValid) {
-                                return Mono.just(false);
-                            }
-                            return validateSignatureAccordingToHeader(signedJWT);
-                        }))
+                .flatMap(signedJWT -> checkNonce(signedJWT)
+                        .flatMap(nonce -> validateSignatureAccordingToHeader(signedJWT)
+                                .flatMap(valid -> Boolean.TRUE.equals(valid)
+                                        ? nonceCacheStore.delete(nonce).thenReturn(true)
+                                        : Mono.just(false))))
                 .defaultIfEmpty(false)
                 .doOnSuccess(result -> log.debug("Final validation result: {}", result))
                 .onErrorMap(e -> (e instanceof ProofValidationException) ? e
                         : new ProofValidationException("Error during JWT validation"));
     }
 
-    private Mono<Boolean> validateNonce(SignedJWT signedJWT) {
+    // Verifies that the nonce exists in the cache and returns it; does NOT consume it.
+    // The nonce is only deleted after the signature is also verified successfully.
+    private Mono<String> checkNonce(SignedJWT signedJWT) {
         var payload = signedJWT.getPayload().toJSONObject();
         Object nonceObj = payload.get("nonce");
 
@@ -56,7 +56,7 @@ public class ProofValidationServiceImpl implements ProofValidationService {
         String nonce = nonceObj.toString();
         return nonceCacheStore.get(nonce)
                 .switchIfEmpty(Mono.error(new ProofValidationException("invalid_proof: nonce is invalid or expired")))
-                .flatMap(cached -> nonceCacheStore.delete(nonce).thenReturn(true));
+                .thenReturn(nonce);
     }
 
     private Mono<Boolean> validateSignatureAccordingToHeader(SignedJWT signedJWT) {

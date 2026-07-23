@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -28,8 +29,13 @@ public class Oidc4vciExceptionHandler {
     private final NonceService nonceService;
 
     @ExceptionHandler(OAuthTokenException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Mono<OAuthErrorResponse> handleOAuthTokenException(OAuthTokenException ex) {
+    public Mono<OAuthErrorResponse> handleOAuthTokenException(OAuthTokenException ex, ServerHttpResponse response) {
+        // invalid_client is the only OAuth2 §5.2 error this endpoint returns as 401
+        // (client authentication failure); every other error code stays 400.
+        HttpStatus status = OAuthTokenException.INVALID_CLIENT.equals(ex.getErrorCode())
+                ? HttpStatus.UNAUTHORIZED
+                : HttpStatus.BAD_REQUEST;
+        response.setStatusCode(status);
         log.warn("OAuth token error: error={}, description={}", ex.getErrorCode(), ex.getMessage());
         return Mono.just(new OAuthErrorResponse(ex.getErrorCode(), ex.getMessage()));
     }

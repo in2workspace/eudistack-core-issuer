@@ -40,8 +40,10 @@ class EmailServiceImplTest {
                 .thenReturn(Mono.just("noreply@example.com"));
         lenient().when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
                 .thenReturn(Mono.just("https://wallet.example.com"));
-        lenient().when(translationService.getLocale()).thenReturn("en");
-        lenient().when(translationService.translate(any(String.class)))
+        lenient().when(tenantConfigService.getStringOrDefault("issuer.default_lang", ""))
+                .thenReturn(Mono.just("en"));
+        lenient().when(translationService.getLocaleOrDefault(anyString())).thenReturn("en");
+        lenient().when(translationService.translateWithLocale(anyString(), anyString()))
                 .thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -55,6 +57,23 @@ class EmailServiceImplTest {
                 .verifyComplete();
 
         verify(javaMailSender).send(mimeMessage);
+    }
+
+    @Test
+    void sendTxCodeNotification_usesPerTenantLanguageForContextLocale() {
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(tenantConfigService.getStringOrDefault("issuer.default_lang", ""))
+                .thenReturn(Mono.just("es"));
+        when(translationService.getLocaleOrDefault("es")).thenReturn("es");
+        when(templateEngine.process(eq("tx-code-email"), any(Context.class))).thenReturn("htmlContent");
+
+        StepVerifier.create(emailService.sendTxCodeNotification("to@example.com", "subject.key", "1234"))
+                .verifyComplete();
+
+        ArgumentCaptor<Context> ctxCaptor = ArgumentCaptor.forClass(Context.class);
+        verify(templateEngine).process(eq("tx-code-email"), ctxCaptor.capture());
+        assertEquals("es", ctxCaptor.getValue().getLocale().getLanguage());
     }
 
     @Test

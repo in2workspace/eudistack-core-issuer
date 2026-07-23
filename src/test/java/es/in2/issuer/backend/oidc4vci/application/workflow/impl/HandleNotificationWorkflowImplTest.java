@@ -179,7 +179,7 @@ class HandleNotificationWorkflowImplTest {
                 .thenReturn(Mono.just(issuance));
         when(issuanceService.withdrawIssuance(issuanceId.toString()))
                 .thenReturn(Mono.empty());
-        when(revocationWorkflow.revokeSystem(processId, bearerToken, issuanceId.toString(), publicBaseUrl))
+        when(revocationWorkflow.revokeSystem(processId, bearerToken, issuanceId.toString(), null, publicBaseUrl))
                 .thenReturn(Mono.empty());
 
         NotificationRequest request = new NotificationRequest("nid-1", NotificationEvent.CREDENTIAL_DELETED, "desc");
@@ -188,7 +188,7 @@ class HandleNotificationWorkflowImplTest {
                 .verifyComplete();
 
         verify(issuanceService).withdrawIssuance(issuanceId.toString());
-        verify(revocationWorkflow).revokeSystem(processId, bearerToken, issuanceId.toString(), publicBaseUrl);
+        verify(revocationWorkflow).revokeSystem(processId, bearerToken, issuanceId.toString(), null, publicBaseUrl);
     }
 
     @Test
