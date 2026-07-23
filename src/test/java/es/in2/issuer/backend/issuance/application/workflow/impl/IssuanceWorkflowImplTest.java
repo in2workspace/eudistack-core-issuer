@@ -6,8 +6,13 @@ import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.MissingIdTokenHeaderException;
+import es.in2.issuer.backend.issuance.domain.exception.DeliveryModeNotEligibleException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
+import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
+import es.in2.issuer.backend.issuance.infrastructure.config.properties.IssuanceProperties;
+import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
@@ -25,17 +30,22 @@ import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -49,6 +59,7 @@ class IssuanceWorkflowImplTest {
     private static final String WALLET_URL = "https://test.example/wallet";
     private static final String CONFIG_ID = "learcredential.employee.w3c.4";
     private static final String EMAIL = "test@example.com";
+    private static final int HYBRID_WALLET_TIMEOUT_SECONDS = 1;
 
     @Mock private IssuanceService issuanceService;
     @Mock private CredentialOfferService credentialOfferService;
@@ -60,9 +71,20 @@ class IssuanceWorkflowImplTest {
     @Mock private GenericCredentialBuilder genericCredentialBuilder;
     @Mock private CredentialSignerWorkflow credentialSignerWorkflow;
     @Mock private StatusListWorkflow statusListWorkflow;
+    @Mock private TenantConfigService tenantConfigService;
+
+    @Spy
+    private IssuanceProperties issuanceProperties =
+            new IssuanceProperties(30, "0 0 2 * * *", 60, "0 */5 * * * ?", HYBRID_WALLET_TIMEOUT_SECONDS);
 
     @InjectMocks
     private IssuanceWorkflowImpl workflow;
+
+    @BeforeEach
+    void setUpDeliveryEligibility() {
+        lenient().when(tenantConfigService.getStringOrDefault(anyString(), anyString()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(1, String.class)));
+    }
 
     // --- Existing tests ---
 
@@ -166,6 +188,11 @@ class IssuanceWorkflowImplTest {
                 .assertNext(response -> {
                     assertEquals("signed-jwt", response.signedCredential());
                     assertNull(response.credentialOfferUri());
+                    assertNotNull(response.deliveryResults());
+                    assertEquals(1, response.deliveryResults().size());
+                    assertEquals("direct", response.deliveryResults().get(0).mode());
+                    assertEquals(DeliveryResult.DeliveryOutcome.DELIVERED, response.deliveryResults().get(0).status());
+                    assertNull(response.deliveryResults().get(0).error());
                 })
                 .verifyComplete();
 
@@ -223,10 +250,66 @@ class IssuanceWorkflowImplTest {
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
-                .expectError(CredentialTypeUnsupportedException.class)
+                .expectError(DeliveryModeNotEligibleException.class)
                 .verify();
 
-        verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow);
+        verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
+        verify(issuanceService, never()).saveIssuance(any());
+    }
+
+
+    @Test
+    void issueCredentialShouldFailWithInvalidDeliveryModeWhenModeIsUnknown() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "direct,carrier-pigeon", EMAIL, null);
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profileWithoutCnf());
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
+                .expectError(InvalidDeliveryModeException.class)
+                .verify();
+
+        verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
+        verify(issuanceService, never()).saveIssuance(any());
+    }
+
+    @Test
+    void issueCredentialShouldFailWithInvalidDeliveryModeWhenModeIsBlank() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "   ", EMAIL, null);
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profileWithoutCnf());
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
+                .expectError(InvalidDeliveryModeException.class)
+                .verify();
+
+        verify(issuanceService, never()).saveIssuance(any());
+    }
+
+    @Test
+    void issueCredentialShouldRejectModeDisabledByTenantConfiguration() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "direct", EMAIL, null);
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profileWithoutCnf());
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(tenantConfigService.getStringOrDefault(eq("issuer.delivery.modes." + CONFIG_ID), anyString()))
+                .thenReturn(Mono.just("email,ui"));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
+                .expectError(DeliveryModeNotEligibleException.class)
+                .verify();
+
+        verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
     }
 
     @Test
@@ -266,6 +349,11 @@ class IssuanceWorkflowImplTest {
                 .assertNext(response -> {
                     assertEquals("signed-jwt", response.signedCredential());
                     assertNotNull(response.credentialOfferUri());
+                    assertNotNull(response.deliveryResults());
+                    assertTrue(response.deliveryResults().stream().anyMatch(r ->
+                            "direct".equals(r.mode()) && r.status() == DeliveryResult.DeliveryOutcome.DELIVERED));
+                    assertTrue(response.deliveryResults().stream().anyMatch(r ->
+                            "email".equals(r.mode()) && r.status() == DeliveryResult.DeliveryOutcome.DISPATCHED));
                 })
                 .verifyComplete();
 
@@ -297,6 +385,10 @@ class IssuanceWorkflowImplTest {
                 .assertNext(response -> {
                     assertNotNull(response.credentialOfferUri());
                     assertNull(response.signedCredential());
+                    assertNotNull(response.deliveryResults());
+                    assertEquals(1, response.deliveryResults().size());
+                    assertEquals("ui", response.deliveryResults().get(0).mode());
+                    assertEquals(DeliveryResult.DeliveryOutcome.DISPATCHED, response.deliveryResults().get(0).status());
                 })
                 .verifyComplete();
 
@@ -614,6 +706,14 @@ class IssuanceWorkflowImplTest {
     }
 
     // --- Helpers ---
+
+    private DeliveryResult deliveryResultFor(IssuanceResponse response, String mode) {
+        assertNotNull(response.deliveryResults());
+        return response.deliveryResults().stream()
+                .filter(r -> mode.equals(r.mode()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("No delivery result for mode " + mode));
+    }
 
     private CredentialProfile profileWithoutCnf() {
         return CredentialProfile.builder()
