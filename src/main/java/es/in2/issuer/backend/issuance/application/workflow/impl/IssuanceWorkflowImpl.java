@@ -4,6 +4,7 @@ import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
+import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.shared.domain.exception.MissingIdTokenHeaderException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialBuildResult;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
@@ -53,6 +54,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private final GenericCredentialBuilder genericCredentialBuilder;
     private final CredentialSignerWorkflow credentialSignerWorkflow;
     private final StatusListWorkflow statusListWorkflow;
+    private final DeliveryEligibilityResolver deliveryEligibilityResolver;
 
     @Override
     @Observed(name = "issuance.issue-credential", contextualName = "issuance-issue-credential")
@@ -113,6 +115,19 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                         String publicIssuerBaseUrl, String publicWalletBaseUrl, String delivery) {
         Set<DeliveryMode> modes = DeliveryMode.parse(delivery);
 
+        return deliveryEligibilityResolver.isEligible(request.credentialConfigurationId(), modes)
+                .flatMap(eligible -> {
+                    if (Boolean.FALSE.equals(eligible)) {
+                        return Mono.error(new DeliveryModeNotEligibleException(
+                                request.credentialConfigurationId(), modes));
+                    }
+                    return continueIssuanceFlow(processId, request, idToken, publicIssuerBaseUrl, publicWalletBaseUrl, delivery, modes);
+                });
+    }
+
+    private Mono<IssuanceResponse> continueIssuanceFlow(String processId, IssuanceRequest request, String idToken,
+                                                         String publicIssuerBaseUrl, String publicWalletBaseUrl,
+                                                         String delivery, Set<DeliveryMode> modes) {
         boolean hasDirect  = modes.stream().anyMatch(m -> !m.isOid4vci);
         boolean hasOid4vci = modes.stream().anyMatch(m -> m.isOid4vci);
 
@@ -153,11 +168,6 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         String credentialFormat = profile.format() != null ? profile.format() : JWT_VC_JSON;
         StatusListFormat statusFormat = DC_SD_JWT.equals(credentialFormat)
                 ? StatusListFormat.TOKEN_JWT : StatusListFormat.BITSTRING_VC;
-
-        if (profile.cnfRequired()) {
-            return Mono.error(new CredentialTypeUnsupportedException(
-                    "Direct delivery is not supported for credential types that require cryptographic binding: " + configId));
-        }
 
         UUID issuanceId = UUID.randomUUID();
 

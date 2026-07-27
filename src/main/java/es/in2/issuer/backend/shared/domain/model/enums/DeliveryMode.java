@@ -40,4 +40,15 @@ public enum DeliveryMode {
 
         return modes;
     }
+
+    public static String toCanonicalCsv(Set<DeliveryMode> modes) {
+        if (modes == null || modes.isEmpty()) {
+            throw new IllegalArgumentException("At least one delivery mode is required");
+        }
+        return modes.stream()
+                .map(m -> m.value)
+                .sorted()
+                .distinct()
+                .collect(Collectors.joining(","));
+    }
 }
