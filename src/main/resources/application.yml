@@ -8,7 +8,7 @@
 
 spring:
   application:
-    name: eudistack-core-issuer
+    name: ${OTEL_SERVICE_NAME:eudistack-core-issuer}
   main:
     web-application-type: reactive
   codec:
