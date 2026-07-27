@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.24] - 2026-07-23
+
+### Added
+
+- **EUD-169 — Configure eligible delivery modes per tenant/credential type (FR-09, FR-02)**
+  - `TenantDeliveryConfigService` / `TenantDeliveryConfigServiceImpl`: tenant admins can now persist which delivery modes (`direct`, `email`, `ui`) are eligible for a given `credential_configuration_id`, stored under the existing `tenant_config` key `issuer.delivery.eligible_modes.<credential_configuration_id>` — no new DDL. Reads and writes go straight to `TenantConfigRepository` (bypassing the Caffeine cache used by the generic `TenantConfigServiceImpl`), so a policy change is reflected immediately on the next issuance instead of waiting out the 5-minute TTL.
+  - `DeliveryEligibilityResolver`: resolves eligibility as the intersection of the tenant's configured modes and the existing `cnfRequired()` base rule (which always excludes `direct` for types requiring cryptographic binding). When no explicit configuration exists, defaults to all modes (permissive, retro-compatible with pre-EUD-169 behavior). Fails closed (propagates the error) on repository I/O failure rather than defaulting to permissive.
+  - `DeliveryMode.toCanonicalCsv(Set<DeliveryMode>)`: canonical, deduplicated, alphabetically-sorted CSV serialization; round-trips with the existing `DeliveryMode.parse(String)`.
+  - `DeliveryConfigController`: new `GET`/`PUT /api/v1/backoffice/delivery-config/{credentialConfigurationId}` endpoints for a TenantAdmin to view and set the eligible modes for a credential type in their own tenant — `403` for non-admin callers, `404` for an unknown or tenant-disabled `credential_configuration_id`, `400` for an empty or unrecognized mode set.
+  - `IssuanceWorkflowImpl`: the eligibility check now runs once, early, in `performIssuanceFlow` (before any signing or persistence), replacing the hardcoded `if (profile.cnfRequired())` guard previously inlined in `performDirectIssuance`. A delivery mode outside the tenant's configured (or default) eligible set now returns **409 `delivery_mode_not_eligible`** instead of the previous **400 `unsupported_credential_type`**.
+  - `SharedExceptionHandler` / `GlobalErrorTypes`: three new RFC-7807 mappings — `InvalidDeliveryConfigException` → 400 `invalid_delivery_config`, `DeliveryConfigProfileNotFoundException` → 404 `delivery_config_profile_not_found`, `DeliveryModeNotEligibleException` → 409 `delivery_mode_not_eligible`.
+  - `SecurityConfig`: registered the new backoffice path in both `customAuthenticationWebFilter`'s matcher and `unifiedFilterChain`'s security matcher (authenticated, not public) — required for the endpoint to receive CORS/security headers and go through the standard auth filter.
+  - Tests: `DeliveryModeTest` (canonical CSV), `TenantDeliveryConfigServiceImplTest` (upsert, replace-not-merge, tenant key isolation, ES-01/ES-06), `DeliveryEligibilityResolverTest` (AC-02/03/05, EC-04, fail-closed), `DeliveryConfigControllerTest` (authz guards, ES-01..04), `IssuanceWorkflowImplTest` (updated `cnfRequired` scenario + new eligibility wiring/fail-closed tests), `SharedExceptionHandlerTest` (new error mappings).
+
 ## [3.6.23] - 2026-07-22
 
 ### Added
