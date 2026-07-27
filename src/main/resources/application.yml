@@ -8,7 +8,7 @@
 
 spring:
   application:
-    name: in2-issuer-backend
+    name: eudistack-core-issuer
   main:
     web-application-type: reactive
   codec:
