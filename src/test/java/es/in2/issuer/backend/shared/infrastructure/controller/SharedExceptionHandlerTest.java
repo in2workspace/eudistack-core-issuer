@@ -2,6 +2,7 @@ package es.in2.issuer.backend.shared.infrastructure.controller;
 
 import es.in2.issuer.backend.shared.domain.exception.*;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
@@ -18,6 +19,7 @@ import javax.naming.OperationNotSupportedException;
 import java.text.ParseException;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.mockito.Mockito.*;
@@ -980,6 +982,66 @@ class SharedExceptionHandlerTest {
 
         StepVerifier.create(handler.handleWellKnownInfoFetchException(ex, request))
                 .assertNext(gem -> assertGem(gem, type, title, st, ".well-known endpoint failing"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    // -------------------- handleInvalidDeliveryConfigException --------------------
+
+    @Test
+    void handleInvalidDeliveryConfigException() {
+        var ex = new InvalidDeliveryConfigException("Unknown delivery mode: carrier-pigeon");
+        var type = GlobalErrorTypes.INVALID_DELIVERY_CONFIG.getCode();
+        var title = "Invalid delivery configuration";
+        var st = HttpStatus.BAD_REQUEST;
+        var fallback = "The requested eligible delivery modes are invalid";
+        var expected = new GlobalErrorMessage(type, title, st.value(), "Unknown delivery mode: carrier-pigeon", UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleInvalidDeliveryConfigException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, "Unknown delivery mode: carrier-pigeon"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    // -------------------- handleDeliveryConfigProfileNotFoundException --------------------
+
+    @Test
+    void handleDeliveryConfigProfileNotFoundException() {
+        var ex = new DeliveryConfigProfileNotFoundException("Unknown credential_configuration_id: xyz");
+        var type = GlobalErrorTypes.DELIVERY_CONFIG_PROFILE_NOT_FOUND.getCode();
+        var title = "Delivery config profile not found";
+        var st = HttpStatus.NOT_FOUND;
+        var fallback = "The given credential_configuration_id is unknown or not enabled for this tenant";
+        var expected = new GlobalErrorMessage(type, title, st.value(), "Unknown credential_configuration_id: xyz", UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleDeliveryConfigProfileNotFoundException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, "Unknown credential_configuration_id: xyz"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    // -------------------- handleDeliveryModeNotEligibleException --------------------
+
+    @Test
+    void handleDeliveryModeNotEligibleException() {
+        var ex = new DeliveryModeNotEligibleException("learcredential.employee.w3c.4", Set.of(DeliveryMode.DIRECT));
+        var type = GlobalErrorTypes.DELIVERY_MODE_NOT_ELIGIBLE.getCode();
+        var title = "Delivery mode not eligible";
+        var st = HttpStatus.CONFLICT;
+        var fallback = "The requested delivery mode is not eligible for this credential type";
+        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleDeliveryModeNotEligibleException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, ex.getMessage()))
                 .verifyComplete();
 
         verify(errors).handleWith(ex, request, type, title, st, fallback);
