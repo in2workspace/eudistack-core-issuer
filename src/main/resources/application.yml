@@ -131,17 +131,14 @@ management:
       tasks.scheduled.execution.active: false
     distribution:
       percentiles-histogram:
-        http.server.requests: true
         issuance.duration: true
         oid4vci.token: true
       percentiles:
-        http.server.requests: 0.5, 0.95, 0.99
+        http.server.requests: [0.5, 0.95, 0.99]
       minimum-expected-value:
         http.server.requests: 10ms
       maximum-expected-value:
         http.server.requests: 5s
-    tags:
-      application: eudistack-core-issuer
 
 # OpenAPI / Swagger
 springdoc:
