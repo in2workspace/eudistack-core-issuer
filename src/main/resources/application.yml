@@ -8,7 +8,7 @@
 
 spring:
   application:
-    name: ${OTEL_SERVICE_NAME:eudistack-core-issuer}
+    name: in2-issuer-backend
   main:
     web-application-type: reactive
   codec:
@@ -119,7 +119,7 @@ management:
   metrics:
     enable:
       all: true
-      spring.security.filterchains: false   # elimina las ~40 métricas por filtro
+      spring.security.filterchains: false
       jvm.buffer: false
       jvm.classes: false
       jvm.compilation: false
