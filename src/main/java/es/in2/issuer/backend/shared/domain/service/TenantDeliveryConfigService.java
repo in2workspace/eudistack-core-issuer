@@ -8,11 +8,13 @@ import java.util.Set;
 /**
  * Manages the delivery modes a tenant admin has made eligible for a given
  * {@code credential_configuration_id}, backed by {@code tenant_config}
- * (key {@code issuer.delivery.eligible_modes.<configId>}).
+ * (key {@code issuer.delivery.modes.<configId>}) — the same key
+ * {@code IssuanceWorkflowImpl#resolveAndValidateDeliveryModes} reads at issuance time.
  *
- * <p>Reads and writes go straight to the repository (no caching): the value
- * is consulted on every issuance, so a cached read could serve a stale
- * eligibility decision after a tenant admin updates the policy.
+ * <p>This port's own reads and writes go straight to the repository (no caching),
+ * so the TenantAdmin-facing {@code GET} reflects a write immediately. The
+ * issuance-time read goes through the generic, cached {@code TenantConfigService}
+ * instead, so a policy change there is subject to that cache's TTL.
  */
 public interface TenantDeliveryConfigService {
 

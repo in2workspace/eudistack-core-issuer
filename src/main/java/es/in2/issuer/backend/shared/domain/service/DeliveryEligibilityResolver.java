@@ -12,9 +12,14 @@ import java.util.Set;
 
 /**
  * Resolves which delivery modes are eligible for a {@code credential_configuration_id},
- * combining the tenant's explicit configuration (or the AD-3 permissive default when
- * absent) with the base {@code cnfRequired} rule, which always excludes {@link DeliveryMode#DIRECT}
- * for types requiring cryptographic binding — configuration never overrides that rule.
+ * for display on the TenantAdmin-facing {@code GET} endpoint.
+ *
+ * <p>The actual issuance-time enforcement (including the hard rule that
+ * {@code cnfRequired} credential types always exclude {@link DeliveryMode#DIRECT},
+ * regardless of tenant configuration) lives in
+ * {@code IssuanceWorkflowImpl#resolveAndValidateDeliveryModes} (EUD-167). The default
+ * applied here when no explicit configuration exists mirrors that same rule, so the
+ * admin view never shows a mode as eligible that issuance would in fact reject.
  */
 @Service
 @RequiredArgsConstructor
@@ -23,30 +28,17 @@ public class DeliveryEligibilityResolver {
     private final TenantDeliveryConfigService tenantDeliveryConfigService;
     private final CredentialProfileRegistry credentialProfileRegistry;
 
-    /**
-     * The tenant's configured modes, or every mode when no explicit configuration
-     * exists (AD-3). Does not apply the {@code cnfRequired} rule — this reflects what
-     * the tenant admin configured (or the default), not the final emission-time semantics.
-     */
     public Mono<Set<DeliveryMode>> getEligibleModes(String credentialConfigurationId) {
         return tenantDeliveryConfigService.getEligibleModes(credentialConfigurationId)
-                .defaultIfEmpty(EnumSet.allOf(DeliveryMode.class));
+                .switchIfEmpty(Mono.fromSupplier(() -> defaultModesFor(credentialConfigurationId)));
     }
 
-    public Mono<Boolean> isEligible(String credentialConfigurationId, Set<DeliveryMode> requestedModes) {
+    private Set<DeliveryMode> defaultModesFor(String credentialConfigurationId) {
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialConfigurationId);
-        return getEligibleModes(credentialConfigurationId)
-                .map(configured -> applyCnfRule(configured, profile.cnfRequired()))
-                .map(base -> base.containsAll(requestedModes));
-    }
-
-    private Set<DeliveryMode> applyCnfRule(Set<DeliveryMode> configured, boolean cnfRequired) {
-        if (!cnfRequired) {
-            return configured;
-        }
-        Set<DeliveryMode> base = EnumSet.copyOf(configured);
-        base.remove(DeliveryMode.DIRECT);
-        return base;
+        boolean cnfRequired = profile != null && profile.cnfRequired();
+        return cnfRequired
+                ? EnumSet.of(DeliveryMode.EMAIL, DeliveryMode.UI)
+                : EnumSet.allOf(DeliveryMode.class);
     }
 
 }

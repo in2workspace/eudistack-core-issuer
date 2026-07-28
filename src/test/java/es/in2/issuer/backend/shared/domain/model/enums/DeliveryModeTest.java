@@ -9,7 +9,9 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DeliveryModeTest {
 
@@ -38,6 +40,27 @@ class DeliveryModeTest {
         }
 
         @Test
+        void parse_deduplicatesRepeatedModes() {
+            Set<DeliveryMode> modes = DeliveryMode.parse("direct,direct,email");
+
+            assertEquals(Set.of(DeliveryMode.DIRECT, DeliveryMode.EMAIL), modes);
+        }
+
+        @Test
+        void parse_singleModeRepeated_collapsesToOne() {
+            Set<DeliveryMode> modes = DeliveryMode.parse("direct,direct");
+
+            assertEquals(Set.of(DeliveryMode.DIRECT), modes);
+        }
+
+        @Test
+        void parse_trimsWhitespaceAndIgnoresEmptySegments() {
+            Set<DeliveryMode> modes = DeliveryMode.parse(" direct , , email ");
+
+            assertEquals(Set.of(DeliveryMode.DIRECT, DeliveryMode.EMAIL), modes);
+        }
+
+        @Test
         void parse_unknownMode_throwsIllegalArgumentException() {
             assertThrows(IllegalArgumentException.class, () -> DeliveryMode.parse("carrier-pigeon"));
         }
@@ -50,6 +73,22 @@ class DeliveryModeTest {
         @Test
         void parse_nullInput_throwsIllegalArgumentException() {
             assertThrows(IllegalArgumentException.class, () -> DeliveryMode.parse(null));
+        }
+
+        @Test
+        void parse_onlySeparators_throwsIllegalArgumentException() {
+            assertThrows(IllegalArgumentException.class, () -> DeliveryMode.parse(",,,"));
+        }
+    }
+
+    @Nested
+    class IsDirect {
+
+        @Test
+        void isDirect_trueOnlyForDirectMode() {
+            assertTrue(DeliveryMode.DIRECT.isDirect());
+            assertFalse(DeliveryMode.EMAIL.isDirect());
+            assertFalse(DeliveryMode.UI.isDirect());
         }
     }
 

@@ -16,7 +16,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class TenantDeliveryConfigServiceImpl implements TenantDeliveryConfigService {
 
-    private static final String KEY_PREFIX = "issuer.delivery.eligible_modes.";
+    private static final String KEY_PREFIX = "issuer.delivery.modes.";
 
     private final TenantConfigRepository tenantConfigRepository;
 

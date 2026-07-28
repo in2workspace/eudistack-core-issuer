@@ -54,8 +54,9 @@ class DeliveryEligibilityResolverTest {
         }
 
         @Test
-        void getEligibleModes_configAbsent_defaultsToAllModes() {
+        void getEligibleModes_configAbsentAndCnfNotRequired_defaultsToAllModes() {
             when(tenantDeliveryConfigService.getEligibleModes(CONFIG_ID)).thenReturn(Mono.empty());
+            when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile(false));
 
             StepVerifier.create(resolver.getEligibleModes(CONFIG_ID))
                     .assertNext(modes -> assertEquals(EnumSet.allOf(DeliveryMode.class), modes))
@@ -63,9 +64,21 @@ class DeliveryEligibilityResolverTest {
         }
 
         @Test
+        void getEligibleModes_configAbsentAndCnfRequired_defaultExcludesDirect() {
+            // Mirrors IssuanceWorkflowImpl#resolveAndValidateDeliveryModes' own default (EUD-167),
+            // so the admin view never shows a mode as eligible that issuance would reject.
+            when(tenantDeliveryConfigService.getEligibleModes(CONFIG_ID)).thenReturn(Mono.empty());
+            when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile(true));
+
+            StepVerifier.create(resolver.getEligibleModes(CONFIG_ID))
+                    .assertNext(modes -> assertEquals(Set.of(DeliveryMode.EMAIL, DeliveryMode.UI), modes))
+                    .verifyComplete();
+        }
+
+        @Test
         void getEligibleModes_configuredSetIncludesDirectEvenWhenCnfRequired_returnedAsIs() {
-            // EC-04: config persists what the admin set; the cnfRequired rule only
-            // narrows the *effective* eligibility check (isEligible), not this query.
+            // EC-04: config persists what the admin set verbatim; the cnfRequired hard rule is
+            // enforced at issuance time (IssuanceWorkflowImpl), not filtered out of this query.
             when(tenantDeliveryConfigService.getEligibleModes(CONFIG_ID))
                     .thenReturn(Mono.just(EnumSet.of(DeliveryMode.DIRECT)));
 
@@ -80,85 +93,6 @@ class DeliveryEligibilityResolverTest {
                     .thenReturn(Mono.error(new RuntimeException("db unavailable")));
 
             StepVerifier.create(resolver.getEligibleModes(CONFIG_ID))
-                    .expectError(RuntimeException.class)
-                    .verify();
-        }
-    }
-
-    @Nested
-    class IsEligible {
-
-        @Test
-        void isEligible_requestedModeWithinConfigured_returnsTrue() {
-            when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile(false));
-            when(tenantDeliveryConfigService.getEligibleModes(CONFIG_ID))
-                    .thenReturn(Mono.just(EnumSet.of(DeliveryMode.EMAIL, DeliveryMode.UI)));
-
-            StepVerifier.create(resolver.isEligible(CONFIG_ID, Set.of(DeliveryMode.EMAIL)))
-                    .expectNext(true)
-                    .verifyComplete();
-        }
-
-        @Test
-        void isEligible_requestedModeNotConfigured_returnsFalse() {
-            when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile(false));
-            when(tenantDeliveryConfigService.getEligibleModes(CONFIG_ID))
-                    .thenReturn(Mono.just(EnumSet.of(DeliveryMode.EMAIL)));
-
-            StepVerifier.create(resolver.isEligible(CONFIG_ID, Set.of(DeliveryMode.DIRECT)))
-                    .expectNext(false)
-                    .verifyComplete();
-        }
-
-        @Test
-        void isEligible_cnfRequiredExcludesDirect_evenWhenPersistedAsConfigured() {
-            when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile(true));
-            when(tenantDeliveryConfigService.getEligibleModes(CONFIG_ID))
-                    .thenReturn(Mono.just(EnumSet.of(DeliveryMode.DIRECT, DeliveryMode.EMAIL)));
-
-            StepVerifier.create(resolver.isEligible(CONFIG_ID, Set.of(DeliveryMode.DIRECT)))
-                    .expectNext(false)
-                    .verifyComplete();
-        }
-
-        @Test
-        void isEligible_cnfRequiredButNonDirectModeRequested_returnsTrue() {
-            when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile(true));
-            when(tenantDeliveryConfigService.getEligibleModes(CONFIG_ID))
-                    .thenReturn(Mono.just(EnumSet.of(DeliveryMode.DIRECT, DeliveryMode.EMAIL)));
-
-            StepVerifier.create(resolver.isEligible(CONFIG_ID, Set.of(DeliveryMode.EMAIL)))
-                    .expectNext(true)
-                    .verifyComplete();
-        }
-
-        @Test
-        void isEligible_noExplicitConfigAndCnfNotRequired_defaultsPermissive() {
-            when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile(false));
-            when(tenantDeliveryConfigService.getEligibleModes(CONFIG_ID)).thenReturn(Mono.empty());
-
-            StepVerifier.create(resolver.isEligible(CONFIG_ID, Set.of(DeliveryMode.DIRECT, DeliveryMode.EMAIL)))
-                    .expectNext(true)
-                    .verifyComplete();
-        }
-
-        @Test
-        void isEligible_noExplicitConfigAndCnfRequired_stillExcludesDirectByDefault() {
-            when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile(true));
-            when(tenantDeliveryConfigService.getEligibleModes(CONFIG_ID)).thenReturn(Mono.empty());
-
-            StepVerifier.create(resolver.isEligible(CONFIG_ID, Set.of(DeliveryMode.DIRECT)))
-                    .expectNext(false)
-                    .verifyComplete();
-        }
-
-        @Test
-        void isEligible_repositoryFails_failsClosedInsteadOfDefaultingToEligible() {
-            when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile(false));
-            when(tenantDeliveryConfigService.getEligibleModes(CONFIG_ID))
-                    .thenReturn(Mono.error(new RuntimeException("db unavailable")));
-
-            StepVerifier.create(resolver.isEligible(CONFIG_ID, Set.of(DeliveryMode.EMAIL)))
                     .expectError(RuntimeException.class)
                     .verify();
         }

@@ -4,7 +4,6 @@ import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
-import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.shared.domain.exception.MissingIdTokenHeaderException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialBuildResult;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
@@ -19,6 +18,11 @@ import es.in2.issuer.backend.shared.domain.service.*;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
+import es.in2.issuer.backend.issuance.infrastructure.config.properties.IssuanceProperties;
+import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
+import es.in2.issuer.backend.issuance.domain.exception.DeliveryModeNotEligibleException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
+import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
@@ -28,10 +32,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
@@ -43,6 +53,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private static final String DEFAULT_GRANT_TYPE = "authorization_code";
     private static final String DEFAULT_DELIVERY = "email";
+    private static final String DELIVERY_MODES_CONFIG_PREFIX = "issuer.delivery.modes.";
 
     private final IssuanceService issuanceService;
     private final CredentialOfferService credentialOfferService;
@@ -54,7 +65,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private final GenericCredentialBuilder genericCredentialBuilder;
     private final CredentialSignerWorkflow credentialSignerWorkflow;
     private final StatusListWorkflow statusListWorkflow;
-    private final DeliveryEligibilityResolver deliveryEligibilityResolver;
+    private final TenantConfigService tenantConfigService;
+    private final IssuanceProperties issuanceProperties;
 
     @Override
     @Observed(name = "issuance.issue-credential", contextualName = "issuance-issue-credential")
@@ -73,12 +85,43 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 .then(Mono.defer(() -> payloadSchemaValidator.validate(configId, request.payload())))
                 .then(Mono.defer(() -> issuancePdpService.authorize(configId, request.payload(), idToken)))
                 .then(Mono.defer(() -> performIssuanceFlow(processId, request, idToken, publicIssuerBaseUrl, publicWalletBaseUrl, delivery)))
-                .doOnSuccess(r -> {
-                    issuanceMetrics.recordSuccess(sample, configId, delivery);
-                    auditService.auditSuccess("credential.issued", null, "credential", configId,
-                            Map.of("processId", processId, "delivery", delivery));
-                })
-                .doOnError(e -> issuanceMetrics.recordError(sample, configId, delivery));
+                .transformDeferredContextual((flow, ctx) -> {
+                    String tenant = ctx.hasKey(TENANT_DOMAIN_CONTEXT_KEY) ? ctx.get(TENANT_DOMAIN_CONTEXT_KEY) : null;
+                    return flow
+                            .doOnSuccess(r -> {
+                                issuanceMetrics.recordSuccess(sample, configId, delivery);
+                                auditService.auditSuccess("credential.issued", null, "credential", configId,
+                                        buildIssuanceAuditDetails(processId, delivery, tenant,
+                                                r != null ? r.deliveryResults() : null, "success", null));
+                            })
+                            .doOnError(e -> {
+                                issuanceMetrics.recordError(sample, configId, delivery);
+                                auditService.auditFailure("credential.issue.failed", null, e.getMessage(),
+                                        buildIssuanceAuditDetails(processId, delivery, tenant, null, "failure",
+                                                e.getClass().getSimpleName()));
+                            });
+                });
+    }
+
+    private Map<String, Object> buildIssuanceAuditDetails(String processId, String delivery, String tenant,
+                                                           List<DeliveryResult> results, String outcome,
+                                                           String errorType) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("processId", processId);
+        details.put("delivery", delivery);
+        details.put("outcome", outcome);
+        if (tenant != null) {
+            details.put("tenant", tenant);
+        }
+        if (results != null && !results.isEmpty()) {
+            details.put("deliveryResults", results.stream()
+                    .map(r -> r.mode() + "=" + r.status())
+                    .toList());
+        }
+        if (errorType != null) {
+            details.put("errorType", errorType);
+        }
+        return details;
     }
 
     @Override
@@ -113,26 +156,73 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private Mono<IssuanceResponse> performIssuanceFlow(String processId, IssuanceRequest request, String idToken,
                                                         String publicIssuerBaseUrl, String publicWalletBaseUrl, String delivery) {
-        Set<DeliveryMode> modes = DeliveryMode.parse(delivery);
+        String configId = request.credentialConfigurationId();
+        CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
 
-        return deliveryEligibilityResolver.isEligible(request.credentialConfigurationId(), modes)
-                .flatMap(eligible -> {
-                    if (Boolean.FALSE.equals(eligible)) {
-                        return Mono.error(new DeliveryModeNotEligibleException(
-                                request.credentialConfigurationId(), modes));
+        return resolveAndValidateDeliveryModes(configId, profile, delivery)
+                .flatMap(modes -> executeIssuanceForModes(
+                        processId, request, idToken, publicIssuerBaseUrl, publicWalletBaseUrl, delivery, modes));
+    }
+
+    /**
+     * Early guard (ES-01 / AC-05): normalizes the declared delivery modes and validates their eligibility
+     * before anything is signed, dispatched or persisted.
+     *
+     * <p>Eligibility is read per tenant from {@code issuer.delivery.modes.{credentialConfigurationId}}
+     * (same key managed by the TenantAdmin-facing {@code DeliveryConfigController}, EUD-169).
+     * When the tenant has no configuration, a safe default derived from {@code cnfRequired()} applies:
+     * credential types requiring cryptographic holder binding are not eligible for direct delivery.
+     *
+     * <p>That exclusion is a hard rule, not just a default: it is re-applied even when a tenant
+     * admin has explicitly configured {@code direct} for a {@code cnfRequired} credential type,
+     * since direct delivery cannot carry the cryptographic holder binding those types require.
+     */
+    private Mono<Set<DeliveryMode>> resolveAndValidateDeliveryModes(
+            String configId, CredentialProfile profile, String delivery) {
+
+        final Set<DeliveryMode> modes;
+        try {
+            modes = DeliveryMode.parse(delivery);
+        } catch (IllegalArgumentException ex) {
+            return Mono.error(new InvalidDeliveryModeException(ex.getMessage()));
+        }
+
+        String defaultEligible = profile.cnfRequired() ? "email,ui" : "direct,email,ui";
+        return tenantConfigService.getStringOrDefault(DELIVERY_MODES_CONFIG_PREFIX + configId, defaultEligible)
+                .map(csv -> Arrays.stream(csv.split(","))
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.toSet()))
+                .map(eligibleValues -> {
+                    if (profile.cnfRequired()) {
+                        eligibleValues.remove(DeliveryMode.DIRECT.value);
                     }
-                    return continueIssuanceFlow(processId, request, idToken, publicIssuerBaseUrl, publicWalletBaseUrl, delivery, modes);
+                    return eligibleValues;
+                })
+                .flatMap(eligibleValues -> {
+                    for (DeliveryMode mode : modes) {
+                        if (!eligibleValues.contains(mode.value)) {
+                            return Mono.error(new DeliveryModeNotEligibleException(
+                                    "Delivery mode '" + mode.value + "' is not eligible for credential type: "
+                                            + configId));
+                        }
+                    }
+                    return Mono.just(modes);
                 });
     }
 
-    private Mono<IssuanceResponse> continueIssuanceFlow(String processId, IssuanceRequest request, String idToken,
-                                                         String publicIssuerBaseUrl, String publicWalletBaseUrl,
-                                                         String delivery, Set<DeliveryMode> modes) {
-        boolean hasDirect  = modes.stream().anyMatch(m -> !m.isOid4vci);
-        boolean hasOid4vci = modes.stream().anyMatch(m -> m.isOid4vci);
+    private Mono<IssuanceResponse> executeIssuanceForModes(String processId, IssuanceRequest request, String idToken,
+                                                            String publicIssuerBaseUrl, String publicWalletBaseUrl,
+                                                            String delivery, Set<DeliveryMode> modes) {
 
-        Mono<IssuanceResponse> directMono = hasDirect
+        boolean hasDirect  = modes.stream().anyMatch(DeliveryMode::isDirect);
+        boolean hasOid4vci = modes.stream().anyMatch(m -> m.isOid4vci);
+        String oid4vciDelivery = extractOid4vciDelivery(modes);
+
+        Mono<DirectDeliveryOutcome> directOutcome = hasDirect
                 ? performDirectIssuance(processId, request, idToken, publicIssuerBaseUrl, delivery)
+                .map(r -> new DirectDeliveryOutcome(r.signedCredential(),
+                        DeliveryResult.delivered(DeliveryMode.DIRECT.value)))
                 .doOnError(e -> log.error(
                         "ProcessId: {} - Direct issuance failed for credentialConfigurationId={} delivery={}",
                         processId,
@@ -140,25 +230,80 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                         delivery,
                         e
                 ))
-                : Mono.just(IssuanceResponse.builder().build());
+                : Mono.just(DirectDeliveryOutcome.empty());
 
-        Mono<IssuanceResponse> oid4vciMono = hasOid4vci
-                ? performOid4VciIssuance(processId, request, publicIssuerBaseUrl, publicWalletBaseUrl, extractOid4vciDelivery(modes))
-                .doOnError(e -> log.error(
-                        "ProcessId: {} - OID4VCI issuance failed for credentialConfigurationId={} delivery={}",
-                        processId,
-                        request.credentialConfigurationId(),
-                        extractOid4vciDelivery(modes),
-                        e
-                ))
-                : Mono.just(IssuanceResponse.builder().build());
+        Mono<WalletDeliveryOutcome> walletOutcome = hasOid4vci
+                ? performOid4VciIssuanceResilient(processId, request, publicIssuerBaseUrl, publicWalletBaseUrl, oid4vciDelivery)
+                : Mono.just(WalletDeliveryOutcome.empty());
 
-        return Mono.zip(directMono, oid4vciMono, (direct, oid4vci) ->
-                IssuanceResponse.builder()
-                        .signedCredential(direct.signedCredential())
-                        .credentialOfferUri(oid4vci.credentialOfferUri())
-                        .build()
-        );
+        return Mono.zip(directOutcome, walletOutcome)
+                .map(tuple -> assembleResponse(tuple.getT1(), tuple.getT2()));
+    }
+
+    private Mono<WalletDeliveryOutcome> performOid4VciIssuanceResilient(
+            String processId, IssuanceRequest request,
+            String publicIssuerBaseUrl, String publicWalletBaseUrl, String oid4vciDelivery) {
+
+        return performOid4VciIssuance(processId, request, publicIssuerBaseUrl, publicWalletBaseUrl, oid4vciDelivery)
+                .map(r -> WalletDeliveryOutcome.success(r.credentialOfferUri(), oid4vciDelivery))
+                .timeout(Duration.ofSeconds(issuanceProperties.hybridWalletTimeoutSeconds()))
+                .onErrorResume(ex -> {
+                    log.warn("ProcessId: {} - Wallet delivery failed (isolated): {}", processId, ex.toString());
+                    return Mono.just(WalletDeliveryOutcome.failed(oid4vciDelivery, resolveWalletErrorDetail(ex)));
+                });
+    }
+
+    private String resolveWalletErrorDetail(Throwable ex) {
+        if (ex instanceof TimeoutException) {
+            return "Wallet delivery timed out";
+        }
+        return ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
+    }
+
+    private IssuanceResponse assembleResponse(DirectDeliveryOutcome direct, WalletDeliveryOutcome wallet) {
+        List<DeliveryResult> results = new ArrayList<>();
+        if (direct.deliveryResult() != null) {
+            results.add(direct.deliveryResult());
+        }
+        results.addAll(wallet.deliveryResults());
+
+        return IssuanceResponse.builder()
+                .signedCredential(direct.signedCredential())
+                .credentialOfferUri(wallet.credentialOfferUri())
+                .deliveryResults(results.isEmpty() ? null : results)
+                .build();
+    }
+
+    /** Internal outcome of the direct path (not exposed in the API). */
+    private record DirectDeliveryOutcome(String signedCredential, DeliveryResult deliveryResult) {
+        static DirectDeliveryOutcome empty() {
+            return new DirectDeliveryOutcome(null, null);
+        }
+    }
+
+    /** Internal outcome of the wallet path — supports multi-mode CSV (email,ui). */
+    private record WalletDeliveryOutcome(String credentialOfferUri, List<DeliveryResult> deliveryResults) {
+        static WalletDeliveryOutcome empty() {
+            return new WalletDeliveryOutcome(null, List.of());
+        }
+
+        static WalletDeliveryOutcome success(String uri, String oid4vciDelivery) {
+            List<DeliveryResult> results = Arrays.stream(oid4vciDelivery.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(DeliveryResult::dispatched)
+                    .toList();
+            return new WalletDeliveryOutcome(uri, results);
+        }
+
+        static WalletDeliveryOutcome failed(String oid4vciDelivery, String error) {
+            List<DeliveryResult> results = Arrays.stream(oid4vciDelivery.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(mode -> DeliveryResult.failed(mode, error))
+                    .toList();
+            return new WalletDeliveryOutcome(null, results);
+        }
     }
 
     private Mono<IssuanceResponse> performDirectIssuance(String processId, IssuanceRequest request, String token,

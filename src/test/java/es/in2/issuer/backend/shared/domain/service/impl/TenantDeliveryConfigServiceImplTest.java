@@ -26,7 +26,7 @@ import static org.mockito.Mockito.*;
 class TenantDeliveryConfigServiceImplTest {
 
     private static final String CONFIG_ID = "learcredential.employee.w3c.4";
-    private static final String EXPECTED_KEY = "issuer.delivery.eligible_modes." + CONFIG_ID;
+    private static final String EXPECTED_KEY = "issuer.delivery.modes." + CONFIG_ID;
 
     @Mock
     private TenantConfigRepository tenantConfigRepository;
@@ -168,7 +168,7 @@ class TenantDeliveryConfigServiceImplTest {
             service.getEligibleModes(otherConfigId).subscribe();
 
             verify(tenantConfigRepository).findByConfigKey(EXPECTED_KEY);
-            verify(tenantConfigRepository).findByConfigKey("issuer.delivery.eligible_modes." + otherConfigId);
+            verify(tenantConfigRepository).findByConfigKey("issuer.delivery.modes." + otherConfigId);
         }
     }
 }
