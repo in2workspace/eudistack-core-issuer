@@ -8,7 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
-import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
 import org.springframework.stereotype.Component;
@@ -82,7 +82,7 @@ public class IdempotencyFilter implements WebFilter {
         CapturingResponseDecorator decorator = new CapturingResponseDecorator(exchange);
         return chain.filter(exchange.mutate().response(decorator).build())
                 .then(Mono.fromRunnable(() -> {
-                    HttpStatus status = (HttpStatus) exchange.getResponse().getStatusCode();
+                    HttpStatusCode status = exchange.getResponse().getStatusCode();
                     String location = exchange.getResponse().getHeaders().getFirst("Location");
                     if (status != null && status.is2xxSuccessful()) {
                         cache.put(scopedIdempotencyKey, new CachedResponse(
@@ -114,5 +114,5 @@ public class IdempotencyFilter implements WebFilter {
         }
     }
 
-    private record CachedResponse(HttpStatus status, String locationHeader, byte[] body, MediaType contentType) {}
+    private record CachedResponse(HttpStatusCode status, String locationHeader, byte[] body, MediaType contentType) {}
 }
