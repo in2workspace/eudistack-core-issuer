@@ -168,9 +168,14 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
      * Early guard (ES-01 / AC-05): normalizes the declared delivery modes and validates their eligibility
      * before anything is signed, dispatched or persisted.
      *
-     * <p>Eligibility is read per tenant from {@code issuer.delivery.modes.{credentialConfigurationId}}.
+     * <p>Eligibility is read per tenant from {@code issuer.delivery.modes.{credentialConfigurationId}}
+     * (same key managed by the TenantAdmin-facing {@code DeliveryConfigController}, EUD-169).
      * When the tenant has no configuration, a safe default derived from {@code cnfRequired()} applies:
      * credential types requiring cryptographic holder binding are not eligible for direct delivery.
+     *
+     * <p>That exclusion is a hard rule, not just a default: it is re-applied even when a tenant
+     * admin has explicitly configured {@code direct} for a {@code cnfRequired} credential type,
+     * since direct delivery cannot carry the cryptographic holder binding those types require.
      */
     private Mono<Set<DeliveryMode>> resolveAndValidateDeliveryModes(
             String configId, CredentialProfile profile, String delivery) {
@@ -188,6 +193,12 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                         .map(String::trim)
                         .filter(s -> !s.isEmpty())
                         .collect(Collectors.toSet()))
+                .map(eligibleValues -> {
+                    if (profile.cnfRequired()) {
+                        eligibleValues.remove(DeliveryMode.DIRECT.value);
+                    }
+                    return eligibleValues;
+                })
                 .flatMap(eligibleValues -> {
                     for (DeliveryMode mode : modes) {
                         if (!eligibleValues.contains(mode.value)) {

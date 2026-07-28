@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.25] - 2026-07-28
+
+### Added
+
+- **EUD-169 — Configure eligible delivery modes per tenant/credential type (FR-09, FR-02)**
+  - `TenantDeliveryConfigService` / `TenantDeliveryConfigServiceImpl`: tenant admins can now persist which delivery modes (`direct`, `email`, `ui`) are eligible for a given `credential_configuration_id`, stored under the `tenant_config` key `issuer.delivery.modes.<credential_configuration_id>` — the same key EUD-167's issuance-time eligibility check reads, so admin changes take effect without a redeploy. No new DDL.
+  - `DeliveryEligibilityResolver`: resolves the effective eligible set for the `GET` admin endpoint as the tenant's configured modes, or a `cnfRequired()`-aware default (`email,ui` vs `direct,email,ui`) when no explicit configuration exists — kept consistent with the default EUD-167 applies at issuance time.
+  - `DeliveryMode.toCanonicalCsv(Set<DeliveryMode>)`: canonical, deduplicated, alphabetically-sorted CSV serialization; round-trips with the existing `DeliveryMode.parse(String)`.
+  - `DeliveryConfigController`: new `GET`/`PUT /api/v1/backoffice/delivery-config/{credentialConfigurationId}` endpoints for a TenantAdmin to view and set the eligible modes for a credential type in their own tenant — `403` for non-admin callers, `404` for an unknown or tenant-disabled `credential_configuration_id`, `400` for an empty or unrecognized mode set.
+  - `SharedExceptionHandler` / `GlobalErrorTypes`: new RFC-7807 mappings — `InvalidDeliveryConfigException` → 400 `invalid_delivery_config`, `DeliveryConfigProfileNotFoundException` → 404 `delivery_config_profile_not_found`.
+  - `SecurityConfig`: registered the new backoffice path in both `customAuthenticationWebFilter`'s matcher and `unifiedFilterChain`'s security matcher (authenticated, not public) — required for the endpoint to receive CORS/security headers and go through the standard auth filter.
+  - Integration with EUD-167's `IssuanceWorkflowImpl#resolveAndValidateDeliveryModes`: the `cnfRequired` exclusion of `direct` is now a hard rule enforced even when a tenant admin has explicitly configured `direct` for such a credential type — an explicit override cannot bypass the cryptographic-binding requirement.
+  - Tests: `DeliveryModeTest` (canonical CSV, `isDirect`, parse edge cases — merged with EUD-167's coverage), `TenantDeliveryConfigServiceImplTest` (upsert, replace-not-merge, tenant key isolation, ES-01/ES-06), `DeliveryEligibilityResolverTest` (AC-02/03/05, EC-04, fail-closed), `DeliveryConfigControllerTest` (authz guards, ES-01..04), `IssuanceWorkflowImplTest` (regression test for the explicit-override hard rule), `SharedExceptionHandlerTest` (new error mappings).
+
 ## [3.6.24] - 2026-07-23
 
 ### Added (23-07-2026)
