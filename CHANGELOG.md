@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.24] - 2026-07-23
+
+### Added (23-07-2026)
+
+- **Direct & hybrid credential delivery (EUD-167)**: form-based issuance can now return the signed credential synchronously in the `POST /api/v1/issuances` response, with no wallet involved. The request declares one or more `delivery` modes (`direct`, `email`, `ui`); **hybrid** is the presence of ≥2 modes (e.g. `direct,email`), delivering the credential directly **and** dispatching the wallet offer in a single operation. The response carries an explicit per-mode `delivery_results` array (`{mode, status, error?}` with `delivered`/`dispatched`/`failed`), added additively to `IssuanceResponse` so existing clients are unaffected. The hybrid wallet path is isolated with `.timeout(issuance.hybrid-wallet-timeout-seconds, default 30s).onErrorResume(...)`, so a wallet failure or timeout reports `wallet=failed` without invalidating the already-delivered direct credential (0 inconsistent issuances); the direct path stays fail-closed on signing/persistence errors. Delivery-mode eligibility is validated **before** signing/dispatching/persisting via a per-tenant key `issuer.delivery.modes.{credentialConfigurationId}` (read from `TenantConfigService`, safe default derived from `cnfRequired()`): an unknown/blank mode returns `400 invalid_request` (`InvalidDeliveryModeException`) and a non-eligible mode returns `409 delivery_mode_not_eligible` (`DeliveryModeNotEligibleException`). Directly delivered credentials are persisted with their revocation status pointer (revocable without re-issuance). `IdempotencyFilter` now caches and replays the full response body (not just status + `Location`), so a retry with the same `X-Idempotency-Key` returns the identical result without a duplicate issuance. Issuance audit events (`credential.issued` / `credential.issue.failed`) now record delivery mode, per-mode outcome and tenant, without the recipient's e-mail. Wallet-only issuance returns `202` with the `delivery_results` body instead of an empty response.
+
 ## [3.6.23] - 2026-07-22
 
 ### Added
