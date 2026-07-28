@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **EUD-72 — Credential catalog `GET` no longer requires write access (AC-03)**
+  - `CredentialCatalogController`: `authorizeTenantAdmin()` split into `authorizeTenantAdminRead()` (checks `isTenantAdmin()` only) and `authorizeTenantAdminWrite()` (adds `canWrite()`). `GET /admin/v1/credential-catalog` now authorizes reads with the former, so a SysAdmin operating from the `platform` tenant can read the catalog for any tenant; `PUT` keeps both checks and still returns `403` for that read-only SysAdmin.
+  - Rationale: sharing one helper across both verbs made the endpoint the only one in the API requiring an administrator role to *read*, contradicting AC-03 (*"any authenticated user who is not `TENANT_ADMIN` nor `SYSADMIN` receives 403"*), the `IssuanceController` pattern the technical design cites (there `canWrite()` guards only the `PATCH`; both `GET`s are unguarded), and `AuthorizationContext#readOnly`, documented as a *cross-tenant read-only view*. No security impact: the tenant is resolved from the reactive context, so the caller reads their own tenant's catalog, and the payload only exposes global registry ids plus boolean flags.
+  - Tests: new `getCatalog_asReadOnlyAdmin_returns200` in `CredentialCatalogControllerTest`. The previous `403`-on-read behaviour was asserted by no test; `updateCatalog_asReadOnlyAdmin_returns403` still pins the write path.
+
 ## [3.6.23] - 2026-07-22
 
 ### Added

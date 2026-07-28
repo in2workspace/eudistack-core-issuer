@@ -520,6 +520,21 @@ public class SharedExceptionHandler {
         );
     }
 
+    @ExceptionHandler(UnknownCredentialConfigurationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleUnknownCredentialConfiguration(
+            UnknownCredentialConfigurationException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.UNKNOWN_CREDENTIAL_CONFIGURATION.getCode(),
+                "Unknown credential configuration",
+                HttpStatus.BAD_REQUEST,
+                "The request references a credential_configuration_id that does not exist in the catalog"
+        );
+    }
+
     @ExceptionHandler(InvalidCredentialFormatException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<GlobalErrorMessage> handleInvalidCredentialFormatException(

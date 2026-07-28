@@ -26,6 +26,10 @@ public class EndpointsConstants {
     // Authenticated user info (role + org for the current tenant)
     public static final String ME_PATH = "/api/v1/me";
 
+    // Tenant credential catalog admin (EUD-72, US-02). Tenant admin GET/PUT of the
+    // per-tenant enabled credential configuration ids.
+    public static final String CREDENTIAL_CATALOG_PATH = "/admin/v1/credential-catalog";
+
     // Unattended issuance intake (EUD-2/EUD-75, US-02). Path is a placeholder
     // pending EUD-74 (US-01, the intake endpoint itself) — coordinate before
     // changing, since it is a stable contract shared with that Story.
