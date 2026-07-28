@@ -53,12 +53,12 @@ public class DeliveryConfigController {
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
             @PathVariable("credentialConfigurationId") String credentialConfigurationId,
             @RequestBody DeliveryConfigDto request) {
-        return Mono.defer(() -> {
-            Set<DeliveryMode> modes = parseModes(request.eligibleModes());
-            return authorizeAndCheckProfile(authorizationHeader, credentialConfigurationId)
-                    .then(Mono.defer(() -> tenantDeliveryConfigService.setEligibleModes(credentialConfigurationId, modes)))
-                    .thenReturn(toDto(credentialConfigurationId, modes));
-        });
+        return authorizeAndCheckProfile(authorizationHeader, credentialConfigurationId)
+                .then(Mono.defer(() -> {
+                    Set<DeliveryMode> modes = parseModes(credentialConfigurationId, request);
+                    return tenantDeliveryConfigService.setEligibleModes(credentialConfigurationId, modes)
+                            .thenReturn(toDto(credentialConfigurationId, modes));
+                }));
     }
 
     private Mono<Void> authorizeAndCheckProfile(String authorizationHeader, String credentialConfigurationId) {
@@ -92,7 +92,14 @@ public class DeliveryConfigController {
                 });
     }
 
-    private Set<DeliveryMode> parseModes(List<String> rawModes) {
+    private Set<DeliveryMode> parseModes(String credentialConfigurationId, DeliveryConfigDto request) {
+        String bodyConfigId = request.credentialConfigurationId();
+        if (bodyConfigId != null && !bodyConfigId.equals(credentialConfigurationId)) {
+            throw new InvalidDeliveryConfigException(
+                    "credential_configuration_id in the request body ('" + bodyConfigId
+                            + "') does not match the path ('" + credentialConfigurationId + "')");
+        }
+        List<String> rawModes = request.eligibleModes();
         if (rawModes == null || rawModes.isEmpty()) {
             throw new InvalidDeliveryConfigException("eligible_modes must contain at least one delivery mode");
         }

@@ -149,6 +149,8 @@ class DeliveryConfigControllerTest {
 
         @Test
         void put_unknownModeValue_rejectsWithInvalidDeliveryConfigWithoutPersisting() {
+            when(accessTokenService.getAuthorizationContext(AUTH_HEADER)).thenReturn(Mono.just(tenantAdmin()));
+            mockKnownAllowedProfile();
             DeliveryConfigDto request = DeliveryConfigDto.builder()
                     .eligibleModes(List.of("carrier-pigeon"))
                     .build();
@@ -157,11 +159,13 @@ class DeliveryConfigControllerTest {
                     .expectError(InvalidDeliveryConfigException.class)
                     .verify();
 
-            verifyNoInteractions(tenantDeliveryConfigService, accessTokenService);
+            verifyNoInteractions(tenantDeliveryConfigService);
         }
 
         @Test
         void put_emptyModesList_rejectsWithInvalidDeliveryConfigWithoutPersisting() {
+            when(accessTokenService.getAuthorizationContext(AUTH_HEADER)).thenReturn(Mono.just(tenantAdmin()));
+            mockKnownAllowedProfile();
             DeliveryConfigDto request = DeliveryConfigDto.builder()
                     .eligibleModes(List.of())
                     .build();
@@ -170,7 +174,40 @@ class DeliveryConfigControllerTest {
                     .expectError(InvalidDeliveryConfigException.class)
                     .verify();
 
-            verifyNoInteractions(tenantDeliveryConfigService, accessTokenService);
+            verifyNoInteractions(tenantDeliveryConfigService);
+        }
+
+        @Test
+        void put_bodyCredentialConfigurationIdMismatchesPath_rejectsWithInvalidDeliveryConfigWithoutPersisting() {
+            when(accessTokenService.getAuthorizationContext(AUTH_HEADER)).thenReturn(Mono.just(tenantAdmin()));
+            mockKnownAllowedProfile();
+            DeliveryConfigDto request = DeliveryConfigDto.builder()
+                    .credentialConfigurationId("some.other.credential.type")
+                    .eligibleModes(List.of("email"))
+                    .build();
+
+            StepVerifier.create(controller.setDeliveryConfig(AUTH_HEADER, CONFIG_ID, request))
+                    .expectError(InvalidDeliveryConfigException.class)
+                    .verify();
+
+            verifyNoInteractions(tenantDeliveryConfigService);
+        }
+
+        @Test
+        void put_bodyCredentialConfigurationIdMatchesPath_persistsNormally() {
+            when(accessTokenService.getAuthorizationContext(AUTH_HEADER)).thenReturn(Mono.just(tenantAdmin()));
+            mockKnownAllowedProfile();
+            when(tenantDeliveryConfigService.setEligibleModes(eq(CONFIG_ID), anySet())).thenReturn(Mono.empty());
+            DeliveryConfigDto request = DeliveryConfigDto.builder()
+                    .credentialConfigurationId(CONFIG_ID)
+                    .eligibleModes(List.of("email"))
+                    .build();
+
+            StepVerifier.create(controller.setDeliveryConfig(AUTH_HEADER, CONFIG_ID, request))
+                    .assertNext(dto -> assertEquals(List.of("email"), dto.eligibleModes()))
+                    .verifyComplete();
+
+            verify(tenantDeliveryConfigService).setEligibleModes(CONFIG_ID, Set.of(DeliveryMode.EMAIL));
         }
 
         @Test

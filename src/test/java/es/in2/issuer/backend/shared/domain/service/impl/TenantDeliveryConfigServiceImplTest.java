@@ -164,8 +164,8 @@ class TenantDeliveryConfigServiceImplTest {
             String otherConfigId = "learcredential.machine.w3c.1";
             when(tenantConfigRepository.findByConfigKey(anyString())).thenReturn(Mono.empty());
 
-            service.getEligibleModes(CONFIG_ID).subscribe();
-            service.getEligibleModes(otherConfigId).subscribe();
+            StepVerifier.create(service.getEligibleModes(CONFIG_ID)).verifyComplete();
+            StepVerifier.create(service.getEligibleModes(otherConfigId)).verifyComplete();
 
             verify(tenantConfigRepository).findByConfigKey(EXPECTED_KEY);
             verify(tenantConfigRepository).findByConfigKey("issuer.delivery.modes." + otherConfigId);
