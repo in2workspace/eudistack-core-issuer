@@ -77,6 +77,31 @@ class IdempotencyFilterTest {
     }
 
     @Test
+    void sameKeyDifferentTenants_doesNotCollide() {
+        String sharedKey = "shared-idem-key";
+        AtomicInteger invocations = new AtomicInteger();
+        WebFilterChain chain = writingChain(invocations);
+
+        MockServerWebExchange tenantA = MockServerWebExchange.from(
+                MockServerHttpRequest.post(ISSUANCES_PATH)
+                        .header(IDEMPOTENCY_HEADER, sharedKey)
+                        .header("X-Tenant", "tenant-a")
+                        .build());
+        StepVerifier.create(filter.filter(tenantA, chain)).verifyComplete();
+
+        MockServerWebExchange tenantB = MockServerWebExchange.from(
+                MockServerHttpRequest.post(ISSUANCES_PATH)
+                        .header(IDEMPOTENCY_HEADER, sharedKey)
+                        .header("X-Tenant", "tenant-b")
+                        .build());
+        StepVerifier.create(filter.filter(tenantB, chain)).verifyComplete();
+
+        // Different tenants reusing the same idempotency key must NOT share the cache entry.
+        assertEquals(2, invocations.get());
+        assertEquals(BODY, readBody(tenantB));
+    }
+
+    @Test
     void differentKeys_invokeChainEachTime() {
         AtomicInteger invocations = new AtomicInteger();
         WebFilterChain chain = writingChain(invocations);
