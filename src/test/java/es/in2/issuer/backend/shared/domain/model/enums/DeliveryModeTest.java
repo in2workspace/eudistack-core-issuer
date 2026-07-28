@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -89,8 +91,8 @@ class DeliveryModeTest {
 
         @Test
         void toCanonicalCsv_orderOfInputDoesNotAffectOutput() {
-            String csvA = DeliveryMode.toCanonicalCsv(new java.util.LinkedHashSet<>(java.util.List.of(DeliveryMode.EMAIL, DeliveryMode.DIRECT)));
-            String csvB = DeliveryMode.toCanonicalCsv(new java.util.LinkedHashSet<>(java.util.List.of(DeliveryMode.DIRECT, DeliveryMode.EMAIL)));
+            String csvA = DeliveryMode.toCanonicalCsv(new LinkedHashSet<>(List.of(DeliveryMode.EMAIL, DeliveryMode.DIRECT)));
+            String csvB = DeliveryMode.toCanonicalCsv(new LinkedHashSet<>(List.of(DeliveryMode.DIRECT, DeliveryMode.EMAIL)));
 
             assertEquals(csvA, csvB);
         }

@@ -48,7 +48,6 @@ public enum DeliveryMode {
         return modes.stream()
                 .map(m -> m.value)
                 .sorted()
-                .distinct()
                 .collect(Collectors.joining(","));
     }
 }

@@ -19,7 +19,6 @@ import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.DELIVERY_CONFIG_PATH;
 
@@ -43,8 +42,7 @@ public class DeliveryConfigController {
     public Mono<DeliveryConfigDto> getDeliveryConfig(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
             @PathVariable("credentialConfigurationId") String credentialConfigurationId) {
-        return authorizeTenantAdmin(authorizationHeader)
-                .then(Mono.defer(() -> assertProfileAllowed(credentialConfigurationId)))
+        return authorizeAndCheckProfile(authorizationHeader, credentialConfigurationId)
                 .then(Mono.defer(() -> deliveryEligibilityResolver.getEligibleModes(credentialConfigurationId)))
                 .map(modes -> toDto(credentialConfigurationId, modes));
     }
@@ -57,11 +55,15 @@ public class DeliveryConfigController {
             @RequestBody DeliveryConfigDto request) {
         return Mono.defer(() -> {
             Set<DeliveryMode> modes = parseModes(request.eligibleModes());
-            return authorizeTenantAdmin(authorizationHeader)
-                    .then(Mono.defer(() -> assertProfileAllowed(credentialConfigurationId)))
+            return authorizeAndCheckProfile(authorizationHeader, credentialConfigurationId)
                     .then(Mono.defer(() -> tenantDeliveryConfigService.setEligibleModes(credentialConfigurationId, modes)))
                     .thenReturn(toDto(credentialConfigurationId, modes));
         });
+    }
+
+    private Mono<Void> authorizeAndCheckProfile(String authorizationHeader, String credentialConfigurationId) {
+        return authorizeTenantAdmin(authorizationHeader)
+                .then(Mono.defer(() -> assertProfileAllowed(credentialConfigurationId)));
     }
 
     private Mono<Void> authorizeTenantAdmin(String authorizationHeader) {
@@ -105,7 +107,7 @@ public class DeliveryConfigController {
         List<String> canonical = modes.stream()
                 .map(m -> m.value)
                 .sorted()
-                .collect(Collectors.toList());
+                .toList();
         return DeliveryConfigDto.builder()
                 .credentialConfigurationId(credentialConfigurationId)
                 .eligibleModes(canonical)
