@@ -116,6 +116,29 @@ management:
         step: 5s
         resource-attributes:
           service.name: ${spring.application.name}
+  metrics:
+    enable:
+      all: true
+      spring.security.filterchains: false
+      jvm.buffer: false
+      jvm.classes: false
+      jvm.compilation: false
+      jvm.gc.memory.promoted: false
+      jvm.gc.memory.allocated: false
+      jvm.gc.max.data.size: false
+      jvm.gc.live.data.size: false
+      jvm.gc.overhead: false
+      tasks.scheduled.execution.active: false
+    distribution:
+      percentiles-histogram:
+        issuance.duration: true
+        oid4vci.token: true
+      percentiles:
+        http.server.requests: [0.5, 0.95, 0.99]
+      minimum-expected-value:
+        http.server.requests: 10ms
+      maximum-expected-value:
+        http.server.requests: 5s
 
 # OpenAPI / Swagger
 springdoc:

@@ -669,4 +669,34 @@ public class SharedExceptionHandler {
                 "An error occurred while fetching well-known information."
         );
     }
+
+    @ExceptionHandler(InvalidDeliveryConfigException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleInvalidDeliveryConfigException(
+            InvalidDeliveryConfigException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.INVALID_DELIVERY_CONFIG.getCode(),
+                "Invalid delivery configuration",
+                HttpStatus.BAD_REQUEST,
+                "The requested eligible delivery modes are invalid"
+        );
+    }
+
+    @ExceptionHandler(DeliveryConfigProfileNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Mono<GlobalErrorMessage> handleDeliveryConfigProfileNotFoundException(
+            DeliveryConfigProfileNotFoundException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.DELIVERY_CONFIG_PROFILE_NOT_FOUND.getCode(),
+                "Delivery config profile not found",
+                HttpStatus.NOT_FOUND,
+                "The given credential_configuration_id is unknown or not enabled for this tenant"
+        );
+    }
 }
