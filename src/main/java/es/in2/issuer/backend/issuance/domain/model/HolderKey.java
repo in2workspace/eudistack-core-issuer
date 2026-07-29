@@ -43,7 +43,37 @@ public record HolderKey(Map<String, Object> cnf) {
                     "invalid holder_key: expected exactly one of jwk/kid/x5c");
         }
 
-        Object value = OBJECT_MAPPER.convertValue(node.get(presentForm), Object.class);
+        JsonNode valueNode = node.get(presentForm);
+        validateFormShape(presentForm, valueNode);
+
+        Object value = OBJECT_MAPPER.convertValue(valueNode, Object.class);
         return new HolderKey(Map.of(presentForm, value));
+    }
+
+    private static void validateFormShape(String form, JsonNode value) {
+        switch (form) {
+            case "jwk" -> {
+                if (!value.isObject() || value.isEmpty()) {
+                    throw new InvalidHolderKeyException("invalid holder_key: jwk must be a non-empty JSON object");
+                }
+            }
+            case "kid" -> {
+                if (!value.isTextual() || value.asText().isBlank()) {
+                    throw new InvalidHolderKeyException("invalid holder_key: kid must be a non-blank string");
+                }
+            }
+            case "x5c" -> {
+                if (!value.isArray() || value.isEmpty()) {
+                    throw new InvalidHolderKeyException(
+                            "invalid holder_key: x5c must be a non-empty array of certificate strings");
+                }
+                for (JsonNode cert : value) {
+                    if (!cert.isTextual() || cert.asText().isBlank()) {
+                        throw new InvalidHolderKeyException("invalid holder_key: x5c entries must be non-blank strings");
+                    }
+                }
+            }
+            default -> throw new InvalidHolderKeyException("invalid holder_key: unsupported confirmation form " + form);
+        }
     }
 }

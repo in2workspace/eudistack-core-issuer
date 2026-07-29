@@ -102,4 +102,41 @@ class HolderKeyTest {
     void fromJson_withUnrelatedKeysOnly_throwsInvalidHolderKey() {
         assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"foo\":\"bar\"}")));
     }
+
+    // --- Per-form shape validation (RFC 7800) ---
+
+    @Test
+    void fromJson_withKidAsObject_throwsInvalidHolderKey() {
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"kid\":{\"x\":1}}")));
+    }
+
+    @Test
+    void fromJson_withBlankKid_throwsInvalidHolderKey() {
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"kid\":\"  \"}")));
+    }
+
+    @Test
+    void fromJson_withJwkNotObject_throwsInvalidHolderKey() {
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"jwk\":\"not-an-object\"}")));
+    }
+
+    @Test
+    void fromJson_withEmptyJwkObject_throwsInvalidHolderKey() {
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"jwk\":{}}")));
+    }
+
+    @Test
+    void fromJson_withEmptyX5cArray_throwsInvalidHolderKey() {
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"x5c\":[]}")));
+    }
+
+    @Test
+    void fromJson_withX5cContainingNonStringEntry_throwsInvalidHolderKey() {
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"x5c\":[\"MIIBcert\",123]}")));
+    }
+
+    @Test
+    void fromJson_withX5cContainingBlankEntry_throwsInvalidHolderKey() {
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"x5c\":[\"MIIBcert\",\"\"]}")));
+    }
 }
