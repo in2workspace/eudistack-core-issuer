@@ -531,7 +531,7 @@ public class SharedExceptionHandler {
                 GlobalErrorTypes.UNKNOWN_CREDENTIAL_CONFIGURATION.getCode(),
                 "Unknown credential configuration",
                 HttpStatus.BAD_REQUEST,
-                "The request references a credential_configuration_id that does not exist in the catalog"
+                "The request references one or more credential_configuration_id values that do not exist in the global credential profile registry"
         );
     }
 
