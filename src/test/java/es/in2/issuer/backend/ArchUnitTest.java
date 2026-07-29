@@ -65,7 +65,10 @@ class ArchUnitTest {
                     BASE_PACKAGE + ".shared.infrastructure.config.OtlpGrpcTracingConfig",
                     BASE_PACKAGE + ".shared.infrastructure.config.OtlpGrpcMetricsConfig",
                     BASE_PACKAGE + ".shared.infrastructure.config.OtlpGrpcMetricsSender",
-                    BASE_PACKAGE + ".shared.infrastructure.config.MicrometerMetricsConfig");
+                    BASE_PACKAGE + ".shared.infrastructure.config.MicrometerMetricsConfig",
+                    // Spring-managed bean discovered via ObjectProvider<ServerRequestObservationConvention>
+                    // in Boot's WebFluxObservationAutoConfiguration (no direct class references)
+                    BASE_PACKAGE + ".shared.infrastructure.config.TenantServerRequestObservationConvention");
 
 //todo foo
 //    @ArchTest

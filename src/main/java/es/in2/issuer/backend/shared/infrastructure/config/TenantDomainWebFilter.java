@@ -87,6 +87,7 @@ public class TenantDomainWebFilter implements WebFilter {
                         return chain.filter(exchange);
                     }
 
+                    exchange.getAttributes().put(TENANT_DOMAIN_CONTEXT_KEY, resolvedTenant);
                     return chain.filter(exchange)
                             .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, resolvedTenant));
                 });
