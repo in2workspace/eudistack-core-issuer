@@ -4,6 +4,8 @@ import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
+import es.in2.issuer.backend.issuance.domain.exception.DeliveryModeNotEligibleException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
@@ -34,6 +36,35 @@ public class IssuanceExceptionHandler {
                 "Invalid status",
                 HttpStatus.CONFLICT,
                 "The entity is not in a valid status for this operation"
+        );
+    }
+
+    @ExceptionHandler(InvalidDeliveryModeException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleInvalidDeliveryMode(
+            InvalidDeliveryModeException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.INVALID_REQUEST.getCode(),
+                "Invalid request",
+                HttpStatus.BAD_REQUEST,
+                "The delivery mode is missing, blank or unknown"
+        );
+    }
+    @ExceptionHandler(DeliveryModeNotEligibleException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Mono<GlobalErrorMessage> handleDeliveryModeNotEligible(
+            DeliveryModeNotEligibleException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.DELIVERY_MODE_NOT_ELIGIBLE.getCode(),
+                "Delivery mode not eligible",
+                HttpStatus.CONFLICT,
+                "The declared delivery mode is not eligible for this credential type"
         );
     }
 }

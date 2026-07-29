@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.issuance.infrastructure.controller;
 
+import es.in2.issuer.backend.issuance.domain.exception.DeliveryModeNotEligibleException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
@@ -85,6 +87,108 @@ class IssuanceExceptionHandlerTest {
                 .verifyComplete();
 
         StepVerifier.create(handler.handleInvalidStatusException(exBlank, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
+                .verifyComplete();
+
+        verify(errors).handleWith(exNull,  request, type, title, st, fallback);
+        verify(errors).handleWith(exBlank, request, type, title, st, fallback);
+    }
+
+    // ------------------- InvalidDeliveryModeException (ES-01) -------------------
+
+    @Test
+    void handleInvalidDeliveryMode_usesExceptionMessage_whenPresent() {
+        var ex = new InvalidDeliveryModeException("Unknown delivery mode: carrier-pigeon");
+
+        String type   = GlobalErrorTypes.INVALID_REQUEST.getCode();
+        String title  = "Invalid request";
+        HttpStatus st = HttpStatus.BAD_REQUEST;
+        String fallback = "The delivery mode is missing, blank or unknown";
+
+        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
+        when(errors.handleWith(ex, request, type, title, st, fallback))
+                .thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleInvalidDeliveryMode(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, "Unknown delivery mode: carrier-pigeon"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    @Test
+    void handleInvalidDeliveryMode_usesFallback_whenMessageNullOrBlank() {
+        var exNull  = new InvalidDeliveryModeException(null);
+        var exBlank = new InvalidDeliveryModeException("");
+
+        String type   = GlobalErrorTypes.INVALID_REQUEST.getCode();
+        String title  = "Invalid request";
+        HttpStatus st = HttpStatus.BAD_REQUEST;
+        String fallback = "The delivery mode is missing, blank or unknown";
+
+        var expectedNull  = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
+        var expectedBlank = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
+
+        when(errors.handleWith(exNull,  request, type, title, st, fallback)).thenReturn(Mono.just(expectedNull));
+        when(errors.handleWith(exBlank, request, type, title, st, fallback)).thenReturn(Mono.just(expectedBlank));
+
+        StepVerifier.create(handler.handleInvalidDeliveryMode(exNull, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
+                .verifyComplete();
+
+        StepVerifier.create(handler.handleInvalidDeliveryMode(exBlank, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
+                .verifyComplete();
+
+        verify(errors).handleWith(exNull,  request, type, title, st, fallback);
+        verify(errors).handleWith(exBlank, request, type, title, st, fallback);
+    }
+
+    // ------------------- DeliveryModeNotEligibleException (AC-05) -------------------
+
+    @Test
+    void handleDeliveryModeNotEligible_usesExceptionMessage_whenPresent() {
+        var ex = new DeliveryModeNotEligibleException(
+                "Delivery mode 'direct' is not eligible for credential type: learcredential.employee.w3c.4");
+
+        String type   = GlobalErrorTypes.DELIVERY_MODE_NOT_ELIGIBLE.getCode();
+        String title  = "Delivery mode not eligible";
+        HttpStatus st = HttpStatus.CONFLICT;
+        String fallback = "The declared delivery mode is not eligible for this credential type";
+
+        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
+        when(errors.handleWith(ex, request, type, title, st, fallback))
+                .thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleDeliveryModeNotEligible(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st,
+                        "Delivery mode 'direct' is not eligible for credential type: learcredential.employee.w3c.4"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    @Test
+    void handleDeliveryModeNotEligible_usesFallback_whenMessageNullOrBlank() {
+        var exNull  = new DeliveryModeNotEligibleException(null);
+        var exBlank = new DeliveryModeNotEligibleException("");
+
+        String type   = GlobalErrorTypes.DELIVERY_MODE_NOT_ELIGIBLE.getCode();
+        String title  = "Delivery mode not eligible";
+        HttpStatus st = HttpStatus.CONFLICT;
+        String fallback = "The declared delivery mode is not eligible for this credential type";
+
+        var expectedNull  = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
+        var expectedBlank = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
+
+        when(errors.handleWith(exNull,  request, type, title, st, fallback)).thenReturn(Mono.just(expectedNull));
+        when(errors.handleWith(exBlank, request, type, title, st, fallback)).thenReturn(Mono.just(expectedBlank));
+
+        StepVerifier.create(handler.handleDeliveryModeNotEligible(exNull, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
+                .verifyComplete();
+
+        StepVerifier.create(handler.handleDeliveryModeNotEligible(exBlank, request))
                 .assertNext(gem -> assertGem(gem, type, title, st, fallback))
                 .verifyComplete();
 
