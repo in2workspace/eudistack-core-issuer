@@ -189,7 +189,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
      * <p>Since EUD-168 that exclusion is a <em>default</em>, not a hard rule: a tenant admin may
      * explicitly enable {@code direct} for a {@code cnfRequired} credential type, because the direct
      * path can now carry the cryptographic holder binding via a holder key supplied in the request
-     * (validated fail-fast in {@link #performDirectIssuance}). Eligibility here decides policy
+     * (validated fail-fast in {@link #performIssuanceFlow}, before any delivery leg runs).
+     * Eligibility here decides policy
      * (config) and returns {@link DeliveryModeNotEligibleException} when a mode is not eligible; the
      * presence and shape of the holder key is a separate, request-level check enforced later.
      */
