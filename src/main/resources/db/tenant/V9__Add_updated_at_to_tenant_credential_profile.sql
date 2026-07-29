@@ -11,3 +11,7 @@ ALTER TABLE tenant_credential_profile
 UPDATE tenant_credential_profile
    SET updated_at = created_at
  WHERE updated_at IS NULL;
+
+ALTER TABLE tenant_credential_profile
+     ALTER COLUMN updated_at SET DEFAULT now(),
+     ALTER COLUMN updated_at SET NOT NULL;
