@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
+import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ISSUANCES_PATH;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
@@ -279,5 +280,37 @@ class TenantDomainWebFilterTest {
         StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
 
         assertEquals("kpmg", captured.get());
+    }
+
+    @Test
+    void filter_issuancesPath_isNotTenantAgnostic_resolvesTenant() {
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("kpmg")));
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.post(ISSUANCES_PATH)
+                        .header(X_TENANT_HEADER, "kpmg")
+                        .build());
+        AtomicReference<String> captured = new AtomicReference<>();
+        WebFilterChain chain = ex -> Mono.deferContextual(ctx -> {
+            captured.set(ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null));
+            return Mono.empty();
+        });
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertEquals("kpmg", captured.get());
+    }
+
+    @Test
+    void filter_issuancesPathWithoutResolvableTenant_failsClosedWith404() {
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("kpmg")));
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.post(ISSUANCES_PATH)
+                        .header(X_TENANT_HEADER, "unknown-tenant")
+                        .build());
+        WebFilterChain chain = ex -> Mono.empty();
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertEquals(HttpStatus.NOT_FOUND, exchange.getResponse().getStatusCode());
     }
 }

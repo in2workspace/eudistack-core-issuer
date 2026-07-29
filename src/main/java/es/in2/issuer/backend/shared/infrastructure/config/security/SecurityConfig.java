@@ -44,6 +44,8 @@ public class SecurityConfig {
                         ISSUANCES_WILDCARD_PATH,
                         // Current caller role resolution (for frontends)
                         ME_PATH,
+                        // Tenant admin delivery-config management (EUD-169)
+                        DELIVERY_CONFIG_PATH,
                         // OID4VCI paths
                         OAUTH_TOKEN_PATH,
                         OID4VCI_CREDENTIAL_PATH,
@@ -98,6 +100,8 @@ public class SecurityConfig {
                         ISSUANCES_WILDCARD_PATH,
                         // Current caller role resolution
                         ME_PATH,
+                        // Tenant admin delivery-config management (EUD-169)
+                        DELIVERY_CONFIG_PATH,
                         // Public OID4VCI paths
                         CORS_OID4VCI_PATH,
                         VCI_PATH,

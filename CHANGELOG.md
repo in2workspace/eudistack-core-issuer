@@ -6,6 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.25] - 2026-07-29
+
+### Added
+
+- **EUD-169 — Configure eligible delivery modes per tenant/credential type (FR-09, FR-02)**
+  - `TenantDeliveryConfigService` / `TenantDeliveryConfigServiceImpl`: tenant admins can now persist which delivery modes (`direct`, `email`, `ui`) are eligible for a given `credential_configuration_id`, stored under the `tenant_config` key `issuer.delivery.modes.<credential_configuration_id>` — the same key EUD-167's issuance-time eligibility check reads, so admin changes take effect without a redeploy. No new DDL.
+  - `DeliveryEligibilityResolver`: resolves the effective eligible set for the `GET` admin endpoint as the tenant's configured modes, or a `cnfRequired()`-aware default (`email,ui` vs `direct,email,ui`) when no explicit configuration exists — kept consistent with the default EUD-167 applies at issuance time.
+  - `DeliveryMode.toCanonicalCsv(Set<DeliveryMode>)`: canonical, deduplicated, alphabetically-sorted CSV serialization; round-trips with the existing `DeliveryMode.parse(String)`.
+  - `DeliveryConfigController`: new `GET`/`PUT /api/v1/backoffice/delivery-config/{credentialConfigurationId}` endpoints for a TenantAdmin to view and set the eligible modes for a credential type in their own tenant — `403` for non-admin callers, `404` for an unknown or tenant-disabled `credential_configuration_id`, `400` for an empty or unrecognized mode set.
+  - `SharedExceptionHandler` / `GlobalErrorTypes`: new RFC-7807 mappings — `InvalidDeliveryConfigException` → 400 `invalid_delivery_config`, `DeliveryConfigProfileNotFoundException` → 404 `delivery_config_profile_not_found`.
+  - `SecurityConfig`: registered the new backoffice path in both `customAuthenticationWebFilter`'s matcher and `unifiedFilterChain`'s security matcher (authenticated, not public) — required for the endpoint to receive CORS/security headers and go through the standard auth filter.
+  - Integration with EUD-167's `IssuanceWorkflowImpl#resolveAndValidateDeliveryModes`: the `cnfRequired` exclusion of `direct` is now a hard rule enforced even when a tenant admin has explicitly configured `direct` for such a credential type — an explicit override cannot bypass the cryptographic-binding requirement.
+  - Tests: `DeliveryModeTest` (canonical CSV, `isDirect`, parse edge cases — merged with EUD-167's coverage), `TenantDeliveryConfigServiceImplTest` (upsert, replace-not-merge, tenant key isolation, ES-01/ES-06), `DeliveryEligibilityResolverTest` (AC-02/03/05, EC-04, fail-closed), `DeliveryConfigControllerTest` (authz guards, ES-01..04), `IssuanceWorkflowImplTest` (regression test for the explicit-override hard rule), `SharedExceptionHandlerTest` (new error mappings).
+  - Token tag in metrics.
+
+## [3.6.24] - 2026-07-23
+
+### Added (23-07-2026)
+
+- **Direct & hybrid credential delivery (EUD-167)**: form-based issuance can now return the signed credential synchronously in the `POST /api/v1/issuances` response, with no wallet involved. The request declares one or more `delivery` modes (`direct`, `email`, `ui`); **hybrid** is the presence of ≥2 modes (e.g. `direct,email`), delivering the credential directly **and** dispatching the wallet offer in a single operation. The response carries an explicit per-mode `delivery_results` array (`{mode, status, error?}` with `delivered`/`dispatched`/`failed`), added additively to `IssuanceResponse` so existing clients are unaffected. The hybrid wallet path is isolated with `.timeout(issuance.hybrid-wallet-timeout-seconds, default 30s).onErrorResume(...)`, so a wallet failure or timeout reports `wallet=failed` without invalidating the already-delivered direct credential (0 inconsistent issuances); the direct path stays fail-closed on signing/persistence errors. Delivery-mode eligibility is validated **before** signing/dispatching/persisting via a per-tenant key `issuer.delivery.modes.{credentialConfigurationId}` (read from `TenantConfigService`, safe default derived from `cnfRequired()`): an unknown/blank mode returns `400 invalid_request` (`InvalidDeliveryModeException`) and a non-eligible mode returns `409 delivery_mode_not_eligible` (`DeliveryModeNotEligibleException`). Directly delivered credentials are persisted with their revocation status pointer (revocable without re-issuance). `IdempotencyFilter` now caches and replays the full response body (not just status + `Location`), so a retry with the same `X-Idempotency-Key` returns the identical result without a duplicate issuance. Issuance audit events (`credential.issued` / `credential.issue.failed`) now record delivery mode, per-mode outcome and tenant, without the recipient's e-mail. Wallet-only issuance returns `202` with the `delivery_results` body instead of an empty response.
+
 ## [3.6.23] - 2026-07-29
 
 ### Added
@@ -16,7 +37,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `IntakeCallerAuthorizationFilter` gates `/api/v1/intake` (endpoint itself lands with EUD-74): `403` if the token isn't `M2M` or lacks `can_trigger_issuance`, `401` if unauthenticated/expired/unknown-issuer — fail-closed on repository failure.
   - Uniform `invalid_client` response for a non-existent `client_id` vs. an incorrect secret, to prevent client enumeration.
   - Every gate decision (admitted or rejected) is audited with tenant, caller identity, result and cause — never the secret or full token.
-  - Token tag in metrics.
 
 ## [3.6.22] - 2026-07-22
 

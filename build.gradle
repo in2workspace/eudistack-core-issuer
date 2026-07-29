@@ -10,7 +10,7 @@ plugins {
 }
 
 group = 'com.eudistack'
-version = '3.6.23'
+version = '3.6.25'
 
 ext['netty.version'] = '4.1.132.Final'
 
