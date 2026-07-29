@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.6.25] - 2026-07-28
+## [3.6.25] - 2026-07-29
 
 ### Added
 
@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `SecurityConfig`: registered the new backoffice path in both `customAuthenticationWebFilter`'s matcher and `unifiedFilterChain`'s security matcher (authenticated, not public) — required for the endpoint to receive CORS/security headers and go through the standard auth filter.
   - Integration with EUD-167's `IssuanceWorkflowImpl#resolveAndValidateDeliveryModes`: the `cnfRequired` exclusion of `direct` is now a hard rule enforced even when a tenant admin has explicitly configured `direct` for such a credential type — an explicit override cannot bypass the cryptographic-binding requirement.
   - Tests: `DeliveryModeTest` (canonical CSV, `isDirect`, parse edge cases — merged with EUD-167's coverage), `TenantDeliveryConfigServiceImplTest` (upsert, replace-not-merge, tenant key isolation, ES-01/ES-06), `DeliveryEligibilityResolverTest` (AC-02/03/05, EC-04, fail-closed), `DeliveryConfigControllerTest` (authz guards, ES-01..04), `IssuanceWorkflowImplTest` (regression test for the explicit-override hard rule), `SharedExceptionHandlerTest` (new error mappings).
+  - Token tag in metrics.
 
 ## [3.6.24] - 2026-07-23
 
