@@ -27,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Proves that reactive transactions ({@link TransactionalOperator}) work correctly on
  * top of the schema-per-tenant {@code TenantAwareConnectionFactoryDecorator} (EUD-72,
  * risk R-2). This is the first reactive transaction exercised in the Issuer, so it
- * verifies three things end-to-end against a real Postgres:
+ * verifies four things end-to-end against a real Postgres:
  *
  * <ol>
  *   <li>a committed {@code updateCatalog} lands in the current tenant's schema and is
@@ -35,7 +35,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>writes are isolated between tenants (search_path honored inside the transaction);</li>
  *   <li>an error mid-transaction rolls back the {@code deleteAll}, leaving the prior
  *       state intact — the failure mode that would otherwise silently re-open the whole
- *       catalog via the empty = all invariant.</li>
+ *       catalog via the empty = all invariant;</li>
+ *   <li>re-applying the same set is idempotent (EC-03).</li>
  * </ol>
  */
 class CredentialCatalogTransactionalIT extends PostgresIntegrationBase {
@@ -93,6 +94,30 @@ class CredentialCatalogTransactionalIT extends PostgresIntegrationBase {
         List<CredentialCatalogEntryDto> catalogB =
                 service.getCatalog().contextWrite(ctx(TENANT_B)).block();
         assertThat(catalogB).isNotNull().allMatch(CredentialCatalogEntryDto::enabled);
+    }
+
+    /**
+     * EC-03: saving the same selection twice must be a no-op seen from outside. The write
+     * is delete-then-insert, so the risk is duplicated rows rather than a changed verdict;
+     * both the stored rows and the catalog projection are asserted.
+     */
+    @Test
+    void updateCatalog_appliedTwiceWithSameSet_isIdempotent() {
+        service.updateCatalog(Set.of(configId)).contextWrite(ctx(TENANT_A)).block();
+        List<CredentialCatalogEntryDto> afterFirst =
+                service.getCatalog().contextWrite(ctx(TENANT_A)).block();
+
+        service.updateCatalog(Set.of(configId)).contextWrite(ctx(TENANT_A)).block();
+        List<CredentialCatalogEntryDto> afterSecond =
+                service.getCatalog().contextWrite(ctx(TENANT_A)).block();
+
+        // deleteAll precedes the inserts inside the transaction → exactly one row, not two.
+        List<TenantCredentialProfile> rows =
+                repository.findAllByEnabledTrue().collectList().contextWrite(ctx(TENANT_A)).block();
+        assertThat(rows).extracting(TenantCredentialProfile::credentialConfigurationId)
+                .containsExactly(configId);
+        assertThat(afterFirst).isNotNull();
+        assertThat(afterSecond).isEqualTo(afterFirst);
     }
 
     @Test
