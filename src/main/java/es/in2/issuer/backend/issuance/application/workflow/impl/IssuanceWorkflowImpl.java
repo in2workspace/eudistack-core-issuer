@@ -23,7 +23,6 @@ import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.HolderKey;
 import es.in2.issuer.backend.issuance.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
-import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
@@ -164,13 +163,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         return resolveAndValidateDeliveryModes(configId, profile, delivery)
                 .flatMap(modes -> {
                     boolean hasDirect = modes.stream().anyMatch(DeliveryMode::isDirect);
-                    final Map<String, Object> cnf;
-                    try {
-                        cnf = (hasDirect && profile.cnfRequired())
-                                ? HolderKey.fromJson(request.holderKey()).cnf() : null;
-                    } catch (InvalidHolderKeyException ex) {
-                        return Mono.error(ex);
-                    }
+                    Map<String, Object> cnf = (hasDirect && profile.cnfRequired())
+                            ? HolderKey.fromJson(request.holderKey()).cnf() : null;
                     return executeIssuanceForModes(processId, request, idToken,
                             publicIssuerBaseUrl, publicWalletBaseUrl, delivery, modes, cnf);
                 });
