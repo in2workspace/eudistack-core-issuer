@@ -6,7 +6,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-
 ### Fixed
 
 - **EUD-72 — Credential catalog `GET` no longer requires write access (AC-03)**
@@ -14,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Rationale: sharing one helper across both verbs made the endpoint the only one in the API requiring an administrator role to *read*, contradicting AC-03 (*"any authenticated user who is not `TENANT_ADMIN` nor `SYSADMIN` receives 403"*), the `IssuanceController` pattern the technical design cites (there `canWrite()` guards only the `PATCH`; both `GET`s are unguarded), and `AuthorizationContext#readOnly`, documented as a *cross-tenant read-only view*. No security impact: the tenant is resolved from the reactive context, so the caller reads their own tenant's catalog, and the payload only exposes global registry ids plus boolean flags.
   - Tests: new `getCatalog_asReadOnlyAdmin_returns200` in `CredentialCatalogControllerTest`. The previous `403`-on-read behaviour was asserted by no test; `updateCatalog_asReadOnlyAdmin_returns403` still pins the write path.
 
-## [3.6.25] - 2026-07-28
+## [3.6.25] - 2026-07-29
 
 ### Added
 
@@ -27,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `SecurityConfig`: registered the new backoffice path in both `customAuthenticationWebFilter`'s matcher and `unifiedFilterChain`'s security matcher (authenticated, not public) — required for the endpoint to receive CORS/security headers and go through the standard auth filter.
   - Integration with EUD-167's `IssuanceWorkflowImpl#resolveAndValidateDeliveryModes`: the `cnfRequired` exclusion of `direct` is now a hard rule enforced even when a tenant admin has explicitly configured `direct` for such a credential type — an explicit override cannot bypass the cryptographic-binding requirement.
   - Tests: `DeliveryModeTest` (canonical CSV, `isDirect`, parse edge cases — merged with EUD-167's coverage), `TenantDeliveryConfigServiceImplTest` (upsert, replace-not-merge, tenant key isolation, ES-01/ES-06), `DeliveryEligibilityResolverTest` (AC-02/03/05, EC-04, fail-closed), `DeliveryConfigControllerTest` (authz guards, ES-01..04), `IssuanceWorkflowImplTest` (regression test for the explicit-override hard rule), `SharedExceptionHandlerTest` (new error mappings).
+  - Token tag in metrics.
 
 ## [3.6.24] - 2026-07-23
 
