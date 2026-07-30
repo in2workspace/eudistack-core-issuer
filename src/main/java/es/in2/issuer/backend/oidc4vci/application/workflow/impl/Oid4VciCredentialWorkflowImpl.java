@@ -19,6 +19,7 @@ import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.ProofValidationService;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
+import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
@@ -35,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
@@ -51,6 +53,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
     private final StatusListWorkflow statusListWorkflow;
     private final TransientStore<String> enrichmentCacheStore;
     private final TransientStore<String> notificationCacheStore;
+    private final IssuanceMetrics issuanceMetrics;
 
     public Oid4VciCredentialWorkflowImpl(
             CredentialSignerWorkflow credentialSignerWorkflow,
@@ -61,7 +64,8 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             CredentialProfileRegistry credentialProfileRegistry,
             StatusListWorkflow statusListWorkflow,
             @Qualifier("enrichmentCacheStore") TransientStore<String> enrichmentCacheStore,
-            @Qualifier("notificationCacheStore") TransientStore<String> notificationCacheStore
+            @Qualifier("notificationCacheStore") TransientStore<String> notificationCacheStore,
+            IssuanceMetrics issuanceMetrics
     ) {
         this.credentialSignerWorkflow = credentialSignerWorkflow;
         this.proofValidationService = proofValidationService;
@@ -72,6 +76,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         this.statusListWorkflow = statusListWorkflow;
         this.enrichmentCacheStore = enrichmentCacheStore;
         this.notificationCacheStore = notificationCacheStore;
+        this.issuanceMetrics = issuanceMetrics;
     }
 
     /**
@@ -97,20 +102,46 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
 
         final String issuanceId = accessTokenContext.issuanceId();
 
+        return Mono.defer(() -> {
+            AtomicReference<String> configurationId =
+                    new AtomicReference<>(knownRequestedConfigurationId(credentialRequest));
 
-        return issuanceService.getIssuanceById(issuanceId)
-                .switchIfEmpty(Mono.error(new InvalidTokenException("Procedure not found: " + issuanceId)))
-                .flatMap(proc -> validateProcedureState(proc)
-                        .then(credentialIssuerMetadataService.getCredentialIssuerMetadata(publicIssuerBaseUrl))
-                        .flatMap(metadata -> {
-                            log.info("[{}] Processing credential request: issuanceId={}, type={}, format={}",
-                                    processId, issuanceId, proc.getCredentialType(), proc.getCredentialFormat());
+            return issuanceService.getIssuanceById(issuanceId)
+                    .switchIfEmpty(Mono.error(new InvalidTokenException("Procedure not found: " + issuanceId)))
+                    .doOnNext(proc -> setConfigurationId(proc, configurationId))
+                    .flatMap(proc -> validateProcedureState(proc)
+                            .then(credentialIssuerMetadataService.getCredentialIssuerMetadata(publicIssuerBaseUrl))
+                            .flatMap(metadata -> {
+                                log.info("[{}] Processing credential request: issuanceId={}, type={}, format={}",
+                                        processId, issuanceId, proc.getCredentialType(), proc.getCredentialFormat());
 
-                            return validateAndDetermineBindingInfo(proc, metadata, credentialRequest)
-                                    .defaultIfEmpty(new BindingInfo(null, null))
-                                    .flatMap(bindingInfo -> enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken(), publicIssuerBaseUrl));
-                        })
-                );
+                                return validateAndDetermineBindingInfo(proc, metadata, credentialRequest)
+                                        .defaultIfEmpty(new BindingInfo(null, null))
+                                        .flatMap(bindingInfo -> enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken(), publicIssuerBaseUrl));
+                            })
+                    )
+                    .doOnSuccess(response -> {
+                        if (response != null) {
+                            issuanceMetrics.recordCredentialIssuedOk(configurationId.get());
+                        }
+                    })
+                    .doOnError(_ -> issuanceMetrics.recordCredentialIssuedError(configurationId.get()));
+        });
+    }
+
+    private String knownRequestedConfigurationId(CredentialRequest credentialRequest) {
+        String requested = credentialRequest != null ? credentialRequest.credentialConfigurationId() : null;
+        if (requested == null || requested.isBlank()
+                || credentialProfileRegistry.getByConfigurationId(requested) == null) {
+            return null;
+        }
+        return requested;
+    }
+
+    private void setConfigurationId(Issuance proc, AtomicReference<String> configurationId) {
+        if (proc.getCredentialType() != null && !proc.getCredentialType().isBlank()) {
+            configurationId.set(proc.getCredentialType());
+        }
     }
 
     private Mono<Void> validateProcedureState(Issuance proc) {
