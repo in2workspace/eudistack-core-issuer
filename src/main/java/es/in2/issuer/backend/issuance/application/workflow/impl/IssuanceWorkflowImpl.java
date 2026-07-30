@@ -229,13 +229,21 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 ? performDirectIssuance(processId, request, idToken, publicIssuerBaseUrl, delivery, cnf)
                 .map(r -> new DirectDeliveryOutcome(r.signedCredential(),
                         DeliveryResult.delivered(DeliveryMode.DIRECT.value)))
-                .doOnError(e -> log.error(
-                        "ProcessId: {} - Direct issuance failed for credentialConfigurationId={} delivery={}",
-                        processId,
-                        request.credentialConfigurationId(),
-                        delivery,
-                        e
-                ))
+                .doOnSuccess(outcome -> {
+                    if (outcome != null) {
+                        issuanceMetrics.recordCredentialIssuedOk(request.credentialConfigurationId());
+                    }
+                })
+                .doOnError(e -> {
+                    issuanceMetrics.recordCredentialIssuedError(request.credentialConfigurationId());
+                    log.error(
+                            "ProcessId: {} - Direct issuance failed for credentialConfigurationId={} delivery={}",
+                            processId,
+                            request.credentialConfigurationId(),
+                            delivery,
+                            e
+                    );
+                })
                 : Mono.just(DirectDeliveryOutcome.empty());
 
         Mono<WalletDeliveryOutcome> walletOutcome = hasOid4vci

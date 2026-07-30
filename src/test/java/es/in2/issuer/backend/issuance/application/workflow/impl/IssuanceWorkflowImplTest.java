@@ -121,6 +121,10 @@ class IssuanceWorkflowImplTest {
         verify(credentialOfferService).createAndDeliverCredentialOffer(
                 eq(issuanceId.toString()), eq(CONFIG_ID), eq("authorization_code"),
                 eq(EMAIL), eq("email"), eq("refresh-token-123"), eq(BASE_URL), eq(WALLET_URL));
+        // A wallet offer is not an emitted credential — only the OID4VCI /credential endpoint
+        // (where the wallet actually collects it) counts this leg.
+        verify(issuanceMetrics, never()).recordCredentialIssuedOk(any());
+        verify(issuanceMetrics, never()).recordCredentialIssuedError(any());
     }
 
     @Test
@@ -199,6 +203,8 @@ class IssuanceWorkflowImplTest {
 
         verify(issuanceService).saveIssuance(argThat(i -> i.getCredentialStatus() == CredentialStatusEnum.VALID));
         verifyNoInteractions(credentialOfferService);
+        verify(issuanceMetrics).recordCredentialIssuedOk(CONFIG_ID);
+        verify(issuanceMetrics, never()).recordCredentialIssuedError(any());
     }
 
     @Test
@@ -657,6 +663,9 @@ class IssuanceWorkflowImplTest {
         verify(issuanceService, times(2)).saveIssuance(any(Issuance.class));
         verify(credentialSignerWorkflow).signCredential(any(), any(), any(), any(), any(), any(), any());
         verify(credentialOfferService).createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any());
+        // Exactly one credential is emitted here (the direct leg); the wallet leg only creates a
+        // DRAFT + sends an offer, so it must not add a second increment.
+        verify(issuanceMetrics, times(1)).recordCredentialIssuedOk(CONFIG_ID);
     }
 
     @Test
@@ -691,6 +700,8 @@ class IssuanceWorkflowImplTest {
 
         verify(issuanceService).saveIssuance(argThat(i -> i.getCredentialStatus() == CredentialStatusEnum.DRAFT));
         verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow);
+        verify(issuanceMetrics, never()).recordCredentialIssuedOk(any());
+        verify(issuanceMetrics, never()).recordCredentialIssuedError(any());
     }
 
     @Test
@@ -715,6 +726,8 @@ class IssuanceWorkflowImplTest {
 
         verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow);
         verify(credentialOfferService).createAndDeliverCredentialOffer(any(), any(), any(), any(), eq("email"), any(), any(), any());
+        // Bootstrap strips "direct" and never signs anything.
+        verify(issuanceMetrics, never()).recordCredentialIssuedOk(any());
     }
 
     @Test
@@ -1042,6 +1055,11 @@ class IssuanceWorkflowImplTest {
                     assertNotNull(email.error());
                 })
                 .verifyComplete();
+
+        // Mono.zip isolation: the wallet leg's failure (swallowed by
+        // performOid4VciIssuanceResilient) must not affect the direct leg's counter.
+        verify(issuanceMetrics).recordCredentialIssuedOk(CONFIG_ID);
+        verify(issuanceMetrics, never()).recordCredentialIssuedError(any());
     }
 
     @Test
@@ -1083,6 +1101,9 @@ class IssuanceWorkflowImplTest {
                     assertEquals(DeliveryResult.DeliveryOutcome.DELIVERED, deliveryResultFor(response, "direct").status());
                 })
                 .verifyComplete();
+
+        verify(issuanceMetrics).recordCredentialIssuedOk(CONFIG_ID);
+        verify(issuanceMetrics, never()).recordCredentialIssuedError(any());
     }
 
     @Test
@@ -1111,6 +1132,8 @@ class IssuanceWorkflowImplTest {
                 .verify();
 
         verify(issuanceService, never()).saveIssuance(any());
+        verify(issuanceMetrics).recordCredentialIssuedError(CONFIG_ID);
+        verify(issuanceMetrics, never()).recordCredentialIssuedOk(any());
     }
 
     @Test
@@ -1216,6 +1239,9 @@ class IssuanceWorkflowImplTest {
         StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
                 .expectError(RuntimeException.class)
                 .verify();
+
+        verify(issuanceMetrics).recordCredentialIssuedError(CONFIG_ID);
+        verify(issuanceMetrics, never()).recordCredentialIssuedOk(any());
     }
 
     @Test
