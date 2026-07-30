@@ -6,7 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.6.25] - 2026-07-29
+## [3.6.26] - 2026-07-29
+
+### Added
+
+- **EUD-168 — Direct delivery of holder-bound credentials (FR-06, FR-02, FR-08)**: credential types requiring cryptographic holder binding (`cnfRequired`) can now be delivered directly. The request carries the holder's public key in a new optional `holder_key` field, normalized by the `HolderKey` value object into the RFC 7800 `cnf` claim (exactly one of `jwk`/`kid`/`x5c`) and validated fail-fast before anything is built, signed or persisted. `IssuanceWorkflowImpl` threads that `cnf` into `signCredential(...)` where the direct path previously passed `null`; the issuer's signature is unchanged, so verifiability is preserved and identical to a wallet-delivered credential.
+  - **Supersedes EUD-169's hard rule**: the `cnfRequired`-excludes-`direct` exclusion is now a *default*, not an absolute rule. Eligibility is governed by tenant config (`issuer.delivery.modes.<credential_configuration_id>`); a tenant admin may explicitly enable `direct` for a `cnfRequired` type. Behaviour: no config → `409 delivery_mode_not_eligible`; config enabling `direct` but missing/malformed key → `400 invalid_holder_key` (`InvalidHolderKeyException`); config + valid key → `200` signed with `cnf`. Non-binding, wallet-only and hybrid paths are unchanged; signer/persistence/config-read failures stay fail-closed.
+
+## [3.6.25] - 2026-07-28
 
 ### Added
 

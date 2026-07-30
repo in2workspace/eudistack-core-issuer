@@ -6,6 +6,7 @@ import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorRespons
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.issuance.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
@@ -65,6 +66,21 @@ public class IssuanceExceptionHandler {
                 "Delivery mode not eligible",
                 HttpStatus.CONFLICT,
                 "The declared delivery mode is not eligible for this credential type"
+        );
+    }
+
+    @ExceptionHandler(InvalidHolderKeyException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleInvalidHolderKey(
+            InvalidHolderKeyException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.INVALID_HOLDER_KEY.getCode(),
+                "Invalid holder key",
+                HttpStatus.BAD_REQUEST,
+                "The holder key is missing or malformed (expected exactly one of jwk/kid/x5c)"
         );
     }
 }

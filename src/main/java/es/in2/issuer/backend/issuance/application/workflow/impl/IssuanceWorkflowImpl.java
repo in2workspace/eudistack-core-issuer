@@ -20,6 +20,7 @@ import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegis
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.issuance.infrastructure.config.properties.IssuanceProperties;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
+import es.in2.issuer.backend.issuance.domain.model.HolderKey;
 import es.in2.issuer.backend.issuance.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
@@ -160,8 +161,13 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
 
         return resolveAndValidateDeliveryModes(configId, profile, delivery)
-                .flatMap(modes -> executeIssuanceForModes(
-                        processId, request, idToken, publicIssuerBaseUrl, publicWalletBaseUrl, delivery, modes));
+                .flatMap(modes -> {
+                    boolean hasDirect = modes.stream().anyMatch(DeliveryMode::isDirect);
+                    Map<String, Object> cnf = (hasDirect && profile.cnfRequired())
+                            ? HolderKey.fromJson(request.holderKey()).cnf() : null;
+                    return executeIssuanceForModes(processId, request, idToken,
+                            publicIssuerBaseUrl, publicWalletBaseUrl, delivery, modes, cnf);
+                });
     }
 
     /**
@@ -171,11 +177,16 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
      * <p>Eligibility is read per tenant from {@code issuer.delivery.modes.{credentialConfigurationId}}
      * (same key managed by the TenantAdmin-facing {@code DeliveryConfigController}, EUD-169).
      * When the tenant has no configuration, a safe default derived from {@code cnfRequired()} applies:
-     * credential types requiring cryptographic holder binding are not eligible for direct delivery.
+     * credential types requiring cryptographic holder binding are not eligible for direct delivery
+     * by default (they resolve to {@code email,ui}).
      *
-     * <p>That exclusion is a hard rule, not just a default: it is re-applied even when a tenant
-     * admin has explicitly configured {@code direct} for a {@code cnfRequired} credential type,
-     * since direct delivery cannot carry the cryptographic holder binding those types require.
+     * <p>Since EUD-168 that exclusion is a <em>default</em>, not a hard rule: a tenant admin may
+     * explicitly enable {@code direct} for a {@code cnfRequired} credential type, because the direct
+     * path can now carry the cryptographic holder binding via a holder key supplied in the request
+     * (validated fail-fast in {@link #performIssuanceFlow}, before any delivery leg runs).
+     * Eligibility here decides policy
+     * (config) and returns {@link DeliveryModeNotEligibleException} when a mode is not eligible; the
+     * presence and shape of the holder key is a separate, request-level check enforced later.
      */
     private Mono<Set<DeliveryMode>> resolveAndValidateDeliveryModes(
             String configId, CredentialProfile profile, String delivery) {
@@ -193,12 +204,6 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                         .map(String::trim)
                         .filter(s -> !s.isEmpty())
                         .collect(Collectors.toSet()))
-                .map(eligibleValues -> {
-                    if (profile.cnfRequired()) {
-                        eligibleValues.remove(DeliveryMode.DIRECT.value);
-                    }
-                    return eligibleValues;
-                })
                 .flatMap(eligibleValues -> {
                     for (DeliveryMode mode : modes) {
                         if (!eligibleValues.contains(mode.value)) {
@@ -213,14 +218,15 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private Mono<IssuanceResponse> executeIssuanceForModes(String processId, IssuanceRequest request, String idToken,
                                                             String publicIssuerBaseUrl, String publicWalletBaseUrl,
-                                                            String delivery, Set<DeliveryMode> modes) {
+                                                            String delivery, Set<DeliveryMode> modes,
+                                                            Map<String, Object> cnf) {
 
         boolean hasDirect  = modes.stream().anyMatch(DeliveryMode::isDirect);
         boolean hasOid4vci = modes.stream().anyMatch(m -> m.isOid4vci);
         String oid4vciDelivery = extractOid4vciDelivery(modes);
 
         Mono<DirectDeliveryOutcome> directOutcome = hasDirect
-                ? performDirectIssuance(processId, request, idToken, publicIssuerBaseUrl, delivery)
+                ? performDirectIssuance(processId, request, idToken, publicIssuerBaseUrl, delivery, cnf)
                 .map(r -> new DirectDeliveryOutcome(r.signedCredential(),
                         DeliveryResult.delivered(DeliveryMode.DIRECT.value)))
                 .doOnError(e -> log.error(
@@ -307,7 +313,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     }
 
     private Mono<IssuanceResponse> performDirectIssuance(String processId, IssuanceRequest request, String token,
-                                                          String publicIssuerBaseUrl, String originalDelivery) {
+                                                          String publicIssuerBaseUrl, String originalDelivery,
+                                                          Map<String, Object> cnf) {
         String configId = request.credentialConfigurationId();
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
         String credentialFormat = profile.format() != null ? profile.format() : JWT_VC_JSON;
@@ -332,7 +339,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                 .flatMap(enrichedWithStatus ->
                                         credentialSignerWorkflow.signCredential(
                                                         token, enrichedWithStatus, configId, credentialFormat,
-                                                        null, issuanceId.toString(), request.email())
+                                                        cnf, issuanceId.toString(), request.email())
                                                 .flatMap(signedCredential -> {
                                                     CredentialStatusEnum finalStatus = determineFinalStatus(buildResult);
                                                     Issuance issuance = buildDirectIssuanceEntity(
