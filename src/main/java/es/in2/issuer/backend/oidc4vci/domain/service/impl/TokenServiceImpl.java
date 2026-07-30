@@ -1,6 +1,9 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
 import com.nimbusds.jose.Payload;
+import es.in2.issuer.backend.apiclient.domain.exception.ApiClientAuthenticationException;
+import es.in2.issuer.backend.apiclient.domain.model.AuthenticatedApiClient;
+import es.in2.issuer.backend.apiclient.domain.service.ApiClientAuthenticationService;
 import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
@@ -27,11 +30,14 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.UUID;
 
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.ACCESS_TOKEN_EXPIRATION_MINUTES;
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.AUTHORIZATION_CODE_GRANT_TYPE;
+import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.CLIENT_CREDENTIALS_GRANT_TYPE;
+import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.M2M_ACCESS_TOKEN_EXPIRATION_MINUTES;
+import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.M2M_CALLER_TYPE;
+import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.M2M_INTAKE_SCOPE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
 @Slf4j
@@ -53,6 +59,7 @@ public class TokenServiceImpl implements TokenService {
     private final Oid4vciProfilePort profileProperties;
     private final IssuanceMetrics issuanceMetrics;
     private final TransientStore<String> issuerStateCacheStore;
+    private final ApiClientAuthenticationService apiClientAuthenticationService;
 
     @Override
     @Observed(name = "oid4vci.token", contextualName = "oid4vci-handle-token")
@@ -68,6 +75,8 @@ public class TokenServiceImpl implements TokenService {
         } else if (AUTHORIZATION_CODE_GRANT_TYPE.equals(grantType)) {
             flow = handleAuthorizationCode(publicIssuerBaseUrl, request.code(), request.redirectUri(),
                     request.codeVerifier(), dpopHeader, tokenEndpointUri);
+        } else if (CLIENT_CREDENTIALS_GRANT_TYPE.equals(grantType)) {
+            flow = handleClientCredentials(publicIssuerBaseUrl, request.clientId(), request.clientSecret());
         } else {
             return Mono.error(OAuthTokenException.unsupportedGrantType(grantType));
         }
@@ -82,7 +91,50 @@ public class TokenServiceImpl implements TokenService {
         if (GRANT_TYPE.equals(grantType)) return "pre-authorized_code";
         if (REFRESH_TOKEN_GRANT_TYPE.equals(grantType)) return "refresh_token";
         if (AUTHORIZATION_CODE_GRANT_TYPE.equals(grantType)) return "authorization_code";
+        if (CLIENT_CREDENTIALS_GRANT_TYPE.equals(grantType)) return "client_credentials";
         return "unknown";
+    }
+
+    // -- Client Credentials Flow (EUD-75, US-02: M2M intake authentication) --
+
+    private Mono<TokenResponse> handleClientCredentials(String baseUrl, String clientId, String clientSecret) {
+        log.debug("Token request: grant_type=client_credentials");
+        return Mono.deferContextual(ctx -> {
+            String tenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, SYSTEM_TENANT);
+            return apiClientAuthenticationService.authenticateForToken(tenant, clientId, clientSecret)
+                    .map(client -> buildM2mTokenResponse(baseUrl, client))
+                    .onErrorMap(ApiClientAuthenticationException.class, ex -> OAuthTokenException.invalidClient());
+        });
+    }
+
+    private TokenResponse buildM2mTokenResponse(String baseUrl, AuthenticatedApiClient client) {
+        Instant issueTime = Instant.now();
+        long accessTokenExp = issueTime.plus(M2M_ACCESS_TOKEN_EXPIRATION_MINUTES, ChronoUnit.MINUTES).getEpochSecond();
+
+        // can_trigger_issuance is embedded here (not re-queried from api_client
+        // downstream) so the intake gate can authorize from JWT claims alone —
+        // re-resolving the ApiClient per intake request would both duplicate
+        // the token endpoint's DB round-trip and blow the p95 filter overhead
+        // budget (NFR-S-EUD75-01).
+        Payload payload = new Payload(Map.of(
+                "iss", baseUrl,
+                "sub", client.clientId(),
+                "client_id", client.clientId(),
+                "caller_type", M2M_CALLER_TYPE,
+                "scope", M2M_INTAKE_SCOPE,
+                "can_trigger_issuance", client.canTriggerIssuance(),
+                "iat", issueTime.getEpochSecond(),
+                "exp", accessTokenExp,
+                "jti", UUID.randomUUID().toString()
+        ));
+        String accessToken = jwtService.issueJWT(payload.toString());
+
+        return TokenResponse.builder()
+                .accessToken(accessToken)
+                .tokenType(TOKEN_TYPE_BEARER)
+                .expiresIn(accessTokenExp - Instant.now().getEpochSecond())
+                .refreshToken(null)
+                .build();
     }
 
     // -- Pre-Authorized Code Flow --
@@ -96,8 +148,7 @@ public class TokenServiceImpl implements TokenService {
     private Mono<Void> validatePreAuthorizedCodeAndTxCode(String preAuthorizedCode, String txCode) {
         return txCodeCacheStore
                 .get(preAuthorizedCode)
-                .onErrorMap(NoSuchElementException.class, ex ->
-                        OAuthTokenException.invalidGrant("Invalid pre-authorized code"))
+                .switchIfEmpty(Mono.error(OAuthTokenException.invalidGrant("Invalid pre-authorized code")))
                 .flatMap(data -> {
                     if (data.TxCode().equals(txCode)) {
                         return Mono.empty();
@@ -145,8 +196,7 @@ public class TokenServiceImpl implements TokenService {
         log.debug("Token request: grant_type=refresh_token");
         return refreshTokenCacheStore
                 .get(refreshToken)
-                .onErrorMap(NoSuchElementException.class, ex ->
-                        OAuthTokenException.invalidGrant("Invalid refresh token"))
+                .switchIfEmpty(Mono.error(OAuthTokenException.invalidGrant("Invalid refresh token")))
                 .flatMap(data -> validateRefreshTokenData(data, refreshToken)
                         .then(refreshTokenCacheStore.delete(refreshToken))
                         .then(Mono.defer(() -> buildRefreshedTokenResponse(baseUrl, data.issuanceId()))));
@@ -194,8 +244,7 @@ public class TokenServiceImpl implements TokenService {
     ) {
         log.debug("Token request: grant_type=authorization_code");
         return authorizationCodeCacheStore.get(code)
-                .onErrorMap(NoSuchElementException.class, ex ->
-                        OAuthTokenException.invalidGrant("Invalid or expired authorization code"))
+                .switchIfEmpty(Mono.error(OAuthTokenException.invalidGrant("Invalid or expired authorization code")))
                 .flatMap(codeData -> authorizationCodeCacheStore.delete(code)
                         .then(Mono.defer(() -> validateAndBuildAuthCodeToken(
                                 baseUrl, codeData, redirectUri, codeVerifier, dpopHeader, tokenEndpointUri))));
@@ -218,9 +267,8 @@ public class TokenServiceImpl implements TokenService {
                 : null;
 
         return issuerStateCacheStore.get(codeData.issuerState())
-                .map(issuanceId -> buildAuthCodeTokenResponse(baseUrl, dpopJkt, issuanceId))
-                .onErrorMap(NoSuchElementException.class, ex ->
-                        OAuthTokenException.invalidGrant("Invalid or expired issuer_state"));
+                .switchIfEmpty(Mono.error(OAuthTokenException.invalidGrant("Invalid or expired issuer_state")))
+                .map(issuanceId -> buildAuthCodeTokenResponse(baseUrl, dpopJkt, issuanceId));
     }
 
     private TokenResponse buildAuthCodeTokenResponse(String baseUrl, String dpopJkt, String issuanceId) {

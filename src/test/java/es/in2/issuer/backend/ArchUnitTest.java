@@ -59,7 +59,16 @@ class ArchUnitTest {
                     BASE_PACKAGE + ".shared.domain.service.impl.TenantConfigServiceImpl",
                     BASE_PACKAGE + ".shared.domain.service.impl.TenantSigningConfigServiceImpl",
                     BASE_PACKAGE + ".shared.domain.service.impl.TenantRegistryServiceImpl",
-                    BASE_PACKAGE + ".shared.infrastructure.config.TenantSchemaFlywayMigrator");
+                    BASE_PACKAGE + ".shared.infrastructure.config.TenantSchemaFlywayMigrator",
+                    // Observability: dual gRPC export config, Spring-managed beans discovered via
+                    // component scanning / @ConditionalOnProperty (no direct class references)
+                    BASE_PACKAGE + ".shared.infrastructure.config.OtlpGrpcTracingConfig",
+                    BASE_PACKAGE + ".shared.infrastructure.config.OtlpGrpcMetricsConfig",
+                    BASE_PACKAGE + ".shared.infrastructure.config.OtlpGrpcMetricsSender",
+                    BASE_PACKAGE + ".shared.infrastructure.config.MicrometerMetricsConfig",
+                    // Spring-managed bean discovered via ObjectProvider<ServerRequestObservationConvention>
+                    // in Boot's WebFluxObservationAutoConfiguration (no direct class references)
+                    BASE_PACKAGE + ".shared.infrastructure.config.TenantServerRequestObservationConvention");
 
 //todo foo
 //    @ArchTest

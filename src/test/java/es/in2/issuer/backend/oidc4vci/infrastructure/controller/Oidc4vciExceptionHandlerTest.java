@@ -12,7 +12,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
+import org.springframework.mock.http.server.reactive.MockServerHttpResponse;
 import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -27,6 +29,7 @@ class Oidc4vciExceptionHandlerTest {
     private NonceService nonceService;
     private Oidc4vciExceptionHandler handler;
     private ServerHttpRequest request;
+    private ServerHttpResponse response;
 
     @BeforeEach
     void setUp() {
@@ -34,6 +37,7 @@ class Oidc4vciExceptionHandlerTest {
         nonceService = mock(NonceService.class);
         handler = new Oidc4vciExceptionHandler(errors, nonceService);
         request = MockServerHttpRequest.get("/any").build();
+        response = new MockServerHttpResponse();
     }
 
     private void assertGem(GlobalErrorMessage gem,
@@ -54,12 +58,26 @@ class Oidc4vciExceptionHandlerTest {
     void handleOAuthTokenException_returnsBadRequest() {
         var ex = new OAuthTokenException("invalid_grant", "The grant is invalid");
 
-        StepVerifier.create(handler.handleOAuthTokenException(ex))
-                .assertNext(response -> {
-                    assertEquals("invalid_grant", response.error());
-                    assertEquals("The grant is invalid", response.errorDescription());
+        StepVerifier.create(handler.handleOAuthTokenException(ex, response))
+                .assertNext(body -> {
+                    assertEquals("invalid_grant", body.error());
+                    assertEquals("The grant is invalid", body.errorDescription());
                 })
                 .verifyComplete();
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+    }
+
+    @Test
+    void handleOAuthTokenException_invalidClient_returnsUnauthorized() {
+        var ex = OAuthTokenException.invalidClient();
+
+        StepVerifier.create(handler.handleOAuthTokenException(ex, response))
+                .assertNext(body -> {
+                    assertEquals("invalid_client", body.error());
+                    assertEquals("invalid_client", body.errorDescription());
+                })
+                .verifyComplete();
+        assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
     }
 
     // -------------------- handleInvalidOrMissingProof --------------------

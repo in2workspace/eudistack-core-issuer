@@ -74,7 +74,7 @@ public class TenantSchemaFlywayMigrator implements ApplicationRunner {
         log.info("Migrating tenant schema: {}", schema);
         try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password);
              Statement stmt = conn.createStatement()) {
-            stmt.execute("CREATE SCHEMA IF NOT EXISTS " + sanitizeSchemaName(schema));
+            stmt.execute("CREATE SCHEMA IF NOT EXISTS \"" + sanitizeSchemaName(schema) + "\"");
         } catch (Exception e) {
             throw new IllegalStateException("Failed to create schema: " + schema, e);
         }

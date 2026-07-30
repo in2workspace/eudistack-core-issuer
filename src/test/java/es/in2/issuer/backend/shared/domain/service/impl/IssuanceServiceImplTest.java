@@ -828,4 +828,71 @@ class IssuanceServiceImplTest {
         verify(appConfig, times(1)).getSysTenant();
     }
 
+    @Test
+    void archiveIssuance_shouldUpdateStatusToArchivedAndSave_withoutTriggeringOtherEffects() {
+        // Given
+        String issuanceId = UUID.randomUUID().toString();
+        String originalDataSet = "{\"vc\":{\"type\":[\"VerifiableCredential\"]}}";
+        
+        Issuance issuance = new Issuance();
+        issuance.setIssuanceId(UUID.fromString(issuanceId));
+        issuance.setCredentialStatus(CredentialStatusEnum.WITHDRAWN);
+        issuance.setCredentialDataSet(originalDataSet);
+
+        when(issuanceRepository.findByIssuanceId(UUID.fromString(issuanceId)))
+                .thenReturn(Mono.just(issuance));
+        when(issuanceRepository.save(any(Issuance.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        // When
+        Mono<Void> result = issuanceService.archiveIssuance(issuanceId);
+
+        // Then
+        StepVerifier.create(result).verifyComplete();
+
+        verify(issuanceRepository, times(1)).findByIssuanceId(UUID.fromString(issuanceId));
+        verify(issuanceRepository, times(1)).save(issuance);
+        
+        assertEquals(CredentialStatusEnum.ARCHIVED, issuance.getCredentialStatus());
+        assertEquals(originalDataSet, issuance.getCredentialDataSet(), "archiveIssuance should not modify credential dataset");
+    }
+
+    @Test
+    void getAllIssuancesVisibleFor_tenantAdmin_shouldReturnDataIsolatedBySearchPath() throws Exception {
+        // Given
+        String tenantAdminOrg = "any-org"; // Tenant admin doesn't filter by org identifier
+        
+        Issuance cp1 = new Issuance();
+        cp1.setIssuanceId(UUID.randomUUID());
+        cp1.setSubject("Alice");
+        cp1.setCredentialType("TYPE_A");
+        cp1.setCredentialStatus(CredentialStatusEnum.ISSUED);
+        cp1.setOrganizationIdentifier("org-1");
+        cp1.setUpdatedAt(Instant.parse("2025-01-10T10:00:00Z"));
+        cp1.setCredentialDataSet("{\"vc\":{}}");
+
+        when(issuanceRepository.findAllOrderByUpdatedDesc())
+                .thenReturn(Flux.just(cp1));
+
+        try {
+            when(objectMapper.readTree(anyString())).thenReturn(new ObjectMapper().readTree("{\"vc\":{}}"));
+        } catch (Exception ignored) {
+        }
+
+        // When
+        AuthorizationContext ctx = new AuthorizationContext(tenantAdminOrg, UserRole.TENANT_ADMIN, false, "multi_org");
+        Mono<IssuanceList> mono = issuanceService.getAllIssuancesVisibleFor(ctx);
+
+        // Then
+        StepVerifier.create(mono)
+                .assertNext(result -> {
+                    assertEquals(1, result.issuances().size());
+                    assertEquals(cp1.getIssuanceId(), result.issuances().get(0).issuance().issuanceId());
+                })
+                .verifyComplete();
+
+        verify(issuanceRepository, times(1)).findAllOrderByUpdatedDesc();
+        verify(issuanceRepository, never()).findAllByOrganizationIdentifier(anyString());
+    }
+
 }

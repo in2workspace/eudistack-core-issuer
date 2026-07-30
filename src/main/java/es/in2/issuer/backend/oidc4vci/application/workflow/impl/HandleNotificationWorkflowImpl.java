@@ -202,7 +202,7 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     private Mono<Void> revokeCredentialFromDecoded(String processId, Issuance issuance, String bearerToken,
                                                    String publicIssuerBaseUrl) {
         String issuanceId = issuance.getIssuanceId().toString();
-        return revocationWorkflow.revokeSystem(processId, bearerToken, issuanceId, publicIssuerBaseUrl)
+        return revocationWorkflow.revokeSystem(processId, bearerToken, issuanceId, null, publicIssuerBaseUrl)
                 .doFirst(() -> log.info("processId={} action=revokeCredential status=started issuanceId={}",
                         processId, issuanceId))
                 .doOnSuccess(v -> log.info("processId={} action=revokeCredential status=completed issuanceId={}",

@@ -49,7 +49,13 @@ public enum GlobalErrorTypes {
     MISSING_EMAIL_OWNER_ERROR("missing_email_owner_error"),
     PARSE_ERROR_EXCEPTION("parse_error_exception"),
     TOKEN_FETCH_ERROR("token_fetch_error"),
-    WELL_KNOWN_INFO_FETCH_ERROR("well_known_info_fetch_error");
+    WELL_KNOWN_INFO_FETCH_ERROR("well_known_info_fetch_error"),
+    INVALID_CREDENTIAL_STATUS_TRANSITION("invalid_credential_status_transition"),
+    INVALID_DELIVERY_CONFIG("invalid_delivery_config"),
+    DELIVERY_CONFIG_PROFILE_NOT_FOUND("delivery_config_profile_not_found"),
+    INVALID_REQUEST("invalid_request"),
+    DELIVERY_MODE_NOT_ELIGIBLE("delivery_mode_not_eligible"),
+    INVALID_HOLDER_KEY("invalid_holder_key");
 
     private final String code;
 

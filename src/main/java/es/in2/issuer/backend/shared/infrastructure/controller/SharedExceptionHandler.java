@@ -286,7 +286,7 @@ public class SharedExceptionHandler {
     }
 
     @ExceptionHandler(UnauthorizedRoleException.class)
-    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
     public Mono<GlobalErrorMessage> handleUnauthorizedRoleException(
             UnauthorizedRoleException ex,
             ServerHttpRequest request
@@ -295,8 +295,23 @@ public class SharedExceptionHandler {
                 ex, request,
                 GlobalErrorTypes.UNAUTHORIZED_ROLE.getCode(),
                 "Unauthorized role",
-                HttpStatus.UNAUTHORIZED,
+                HttpStatus.FORBIDDEN,
                 "The user role is not authorized to perform this action"
+        );
+    }
+
+    @ExceptionHandler(InvalidCredentialStatusTransitionException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Mono<GlobalErrorMessage> handleInvalidCredentialStatusTransitionException(
+            InvalidCredentialStatusTransitionException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.INVALID_CREDENTIAL_STATUS_TRANSITION.getCode(),
+                "Invalid credential status transition",
+                HttpStatus.CONFLICT,
+                "The credential is not in a status that allows this transition"
         );
     }
 
@@ -652,6 +667,36 @@ public class SharedExceptionHandler {
                 "Well-known info fetch error",
                 HttpStatus.BAD_GATEWAY,
                 "An error occurred while fetching well-known information."
+        );
+    }
+
+    @ExceptionHandler(InvalidDeliveryConfigException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleInvalidDeliveryConfigException(
+            InvalidDeliveryConfigException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.INVALID_DELIVERY_CONFIG.getCode(),
+                "Invalid delivery configuration",
+                HttpStatus.BAD_REQUEST,
+                "The requested eligible delivery modes are invalid"
+        );
+    }
+
+    @ExceptionHandler(DeliveryConfigProfileNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Mono<GlobalErrorMessage> handleDeliveryConfigProfileNotFoundException(
+            DeliveryConfigProfileNotFoundException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.DELIVERY_CONFIG_PROFILE_NOT_FOUND.getCode(),
+                "Delivery config profile not found",
+                HttpStatus.NOT_FOUND,
+                "The given credential_configuration_id is unknown or not enabled for this tenant"
         );
     }
 }

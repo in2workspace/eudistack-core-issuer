@@ -4,6 +4,7 @@ import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.dto.RevokeCredentialRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -46,13 +47,13 @@ public class BitstringStatusListController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public Mono<Void> revokeCredential(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String bearerToken,
-            @RequestBody RevokeCredentialRequest request,
+            @Valid @RequestBody RevokeCredentialRequest request,
             ServerWebExchange exchange
     ) {
         String processId = UUID.randomUUID().toString();
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
 
-        return revocationWorkflow.revoke(processId, bearerToken, request.issuanceId(), publicIssuerBaseUrl)
+        return revocationWorkflow.revoke(processId, bearerToken, request.issuanceId(), request.reason(), publicIssuerBaseUrl)
                 .doFirst(() -> log.info("Process ID: {} - Revoking Credential...", processId))
                 .doOnSuccess(v -> log.info("Process ID: {} - Credential revoked successfully.", processId))
                 .doOnError(e -> log.warn("Process ID: {} - Revoking credential failed: {}", processId, e.toString()));
