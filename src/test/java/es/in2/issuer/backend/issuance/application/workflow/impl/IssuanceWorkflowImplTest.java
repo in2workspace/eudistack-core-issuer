@@ -613,6 +613,97 @@ class IssuanceWorkflowImplTest {
                 .verifyComplete();
     }
 
+    // --- AC-04 conformance reinforcement (EUD-71) ---
+    //
+    // Scope note: CredentialOfferService is mocked throughout this class, so the content
+    // of the credential_offer object (grants, credential_offer_uri) is NOT verified here --
+    // that's CredentialOfferServiceImplTest. What is the workflow's responsibility, and had
+    // no explicit assertion in the 14 pre-existing tests, is that the persisted Issuance
+    // entity references the same profile/format the issuance was triggered with -- that's
+    // what these two tests close.
+    //
+    // The other 3 cases an initial draft of this task proposed (default grant type,
+    // config id propagated to the offer, delivery combined with cnf_required) turned out to
+    // be near-literal duplicates of executeShouldCompleteFullIssuanceFlowWithEmailDelivery,
+    // directDeliveryShouldUseTokenJwtStatusFormatForDcSdJwtCredential y
+    // directDeliveryShouldFailWhenCnfIsRequired -- no se repiten aqui.
+
+    @Test
+    void directIssuanceOfDcSdJwtProfileShouldPersistTheProfileCredentialFormat() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "direct", EMAIL, null);
+        CredentialProfile profile = CredentialProfile.builder()
+                .credentialConfigurationId(CONFIG_ID)
+                .format("dc+sd-jwt")
+                .cnfRequired(false)
+                .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
+                        .type(List.of("VerifiableCredential", "LEARCredentialEmployee"))
+                        .build())
+                .sdJwt(CredentialProfile.SdJwtConfig.builder()
+                        .vct("LEARCredentialEmployee")
+                        .sdAlg("sha-256")
+                        .build())
+                .build();
+        CredentialBuildResult buildResult = buildResult(Instant.now().minusSeconds(100));
+        Issuance savedIssuance = Issuance.builder().issuanceId(UUID.randomUUID()).build();
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
+                .thenReturn(Mono.just("enriched-data-set"));
+        when(statusListWorkflow.allocateEntry(eq(StatusPurpose.REVOCATION), eq(StatusListFormat.TOKEN_JWT),
+                anyString(), anyString(), eq(BASE_URL)))
+                .thenReturn(Mono.just(statusListEntry()));
+        when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), eq("dc+sd-jwt")))
+                .thenReturn("enriched-with-status");
+        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), eq(CONFIG_ID),
+                eq("dc+sd-jwt"), isNull(), anyString(), eq(EMAIL)))
+                .thenReturn(Mono.just("signed-sd-jwt"));
+        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
+                .assertNext(response -> assertEquals("signed-sd-jwt", response.signedCredential()))
+                .verifyComplete();
+
+        // AC-04: the SD-JWT VC credential is persisted with the profile's format, not a
+        // default format or another branch's.
+        verify(issuanceService).saveIssuance(argThat(i -> "dc+sd-jwt".equals(i.getCredentialFormat())));
+    }
+
+    @Test
+    void oid4vciIssuanceShouldPersistTheCatalogueConfigurationIdAsCredentialType() {
+        UUID issuanceId = UUID.randomUUID();
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null);
+        CredentialProfile profile = profileWithoutCnf();
+        CredentialBuildResult buildResult = buildResult(Instant.now().minusSeconds(100));
+        Issuance savedIssuance = Issuance.builder()
+                .issuanceId(issuanceId)
+                .credentialOfferRefreshToken("rt-conformance")
+                .build();
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(credentialOfferService.createAndDeliverCredentialOffer(
+                any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
+                .assertNext(response -> assertNotNull(response.credentialOfferUri()))
+                .verifyComplete();
+
+        // AC-04: the credential_configuration_id sent matches exactly the resolved catalog
+        // profile -- no intermediate rewrites on the persisted entity.
+        verify(issuanceService).saveIssuance(argThat(i -> CONFIG_ID.equals(i.getCredentialType())));
+    }
+
     // --- Helpers ---
 
     private CredentialProfile profileWithoutCnf() {

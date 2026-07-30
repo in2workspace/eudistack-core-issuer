@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.20] - 29-07-2026
+
+### Fixed
+
+- **EUD-71 — Select form and issue credential (conformance reinforcement)**: the issuance flow (`IssuanceWorkflowImpl`) already satisfied AC-03/AC-04 on the backend side; this Story adds 2 conformance tests to `IssuanceWorkflowImplTest` (persistence of `credential_format` on direct `dc+sd-jwt` issuance, persistence of the catalog's `credential_configuration_id` as `credentialType` on OID4VCI issuance) to close the documented coverage gap. No production code change — this Story consumes EUD-72's catalog and requires no new endpoints.
+- **Documented tech debt (non-blocking)**: the `IssuanceController_IT` integration test (`WebTestClient` + Testcontainers) planned in `tasks.md` is postponed. Investigation found no Testcontainers integration test anywhere in the repository, nor the base package/class the enriched documentation assumed as a starting point; building it is a new infrastructure effort, not an L-sized task. The HTTP contract (incl. 400/401) is already covered by `IssuanceControllerTest` (mocks); ES-02 (403 via real PDP) remains a known integration-coverage gap, with no automated test yet.
+
 ### Fixed (23-06-2026)
 
 - **OID4VCI — Wallet deep-link in activation email**: the wallet base URL embedded in the credential-offer email (`{wallet}/protocol/callback?credential_offer_uri=...`) is now resolved per the topology the request arrived through, via the new `UrlResolver.publicWalletBaseUrl()`, instead of the static `issuer.wallet_url` tenant-config value. Previously a tenant accessed through a non-canonical custom domain received an email pointing at whatever single URL was stored in `tenant_config`, mismatching the domain the user actually used. Resolution is keyed on the **request host** (not the `X-Tenant` header, which carries the same tenant id for every domain a tenant is reached through and therefore cannot tell canonical from custom): if the host matches a custom-domains registry entry's `issuer` host, the entry's `wallet` URL is returned (non-canonical, separate wallet host); otherwise it falls back to `requestOrigin + /wallet` (canonical, path-based — issuer and wallet share the origin). Same registry-backed mechanism as `expectedVerifierBaseUrls`. `TenantCustomDomainsLoader` exposes a new host→wallet index (`findWalletUrlByIssuerHost`). `publicWalletBaseUrl` is threaded through `IssuanceController` / `BootstrapController` / `CredentialOfferRefreshController` → `IssuanceWorkflow` / `CredentialOfferRefreshWorkflow` → `CredentialOfferService.createAndDeliverCredentialOffer`. The `issuer.wallet_url` tenant-config lookup is no longer used for the deep link.
