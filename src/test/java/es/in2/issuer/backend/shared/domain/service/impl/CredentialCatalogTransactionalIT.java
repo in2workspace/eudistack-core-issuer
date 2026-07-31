@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
+import es.in2.issuer.backend.shared.domain.exception.CredentialCatalogNotConfiguredException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
 import es.in2.issuer.backend.shared.domain.model.entities.TenantCredentialProfile;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
@@ -34,8 +35,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       readable back;</li>
  *   <li>writes are isolated between tenants (search_path honored inside the transaction);</li>
  *   <li>an error mid-transaction rolls back the {@code deleteAll}, leaving the prior
- *       state intact — the failure mode that would otherwise silently re-open the whole
- *       catalog via the empty = all invariant;</li>
+ *       state intact — the failure mode that would otherwise wipe the tenant catalog and
+ *       leave it unable to issue;</li>
  *   <li>re-applying the same set is idempotent (EC-03).</li>
  * </ol>
  */
@@ -57,7 +58,7 @@ class CredentialCatalogTransactionalIT extends PostgresIntegrationBase {
         List<String> ids = List.copyOf(registry.getAllProfiles().keySet());
         assertThat(ids).as("registry must expose at least one credential profile").isNotEmpty();
         configId = ids.getFirst();
-        // Clear both tenant schemas (empty set → deleteAll → empty = all).
+        // Clear both tenant schemas (empty set → deleteAll → nothing enabled).
         service.updateCatalog(Set.of()).contextWrite(ctx(TENANT_A)).block();
         service.updateCatalog(Set.of()).contextWrite(ctx(TENANT_B)).block();
     }
@@ -90,10 +91,10 @@ class CredentialCatalogTransactionalIT extends PostgresIntegrationBase {
         assertThat(rowsA).hasSize(1);
         assertThat(rowsB).isEmpty();
 
-        // B never configured → empty = all → every catalog entry enabled.
-        List<CredentialCatalogEntryDto> catalogB =
-                service.getCatalog().contextWrite(ctx(TENANT_B)).block();
-        assertThat(catalogB).isNotNull().allMatch(CredentialCatalogEntryDto::enabled);
+        // B never configured → nothing enabled → the catalog read is a 404, not an empty view.
+        StepVerifier.create(service.getCatalog().contextWrite(ctx(TENANT_B)))
+                .expectError(CredentialCatalogNotConfiguredException.class)
+                .verify();
     }
 
     /**

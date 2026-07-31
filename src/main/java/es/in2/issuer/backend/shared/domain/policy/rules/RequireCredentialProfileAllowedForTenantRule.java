@@ -11,8 +11,8 @@ import reactor.core.publisher.Mono;
 
 /**
  * PDP rule that verifies the requested credential type is enabled
- * for the current tenant. If the tenant has no configured profiles
- * (empty tenant_credential_profile table), all types are allowed.
+ * for the current tenant. A tenant with no configured profiles
+ * (empty tenant_credential_profile table) has no type allowed.
  */
 @Component
 @RequiredArgsConstructor

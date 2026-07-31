@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
+import es.in2.issuer.backend.shared.domain.exception.CredentialCatalogNotConfiguredException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
@@ -64,7 +65,7 @@ class TenantCredentialProfileServiceImplTest {
     // ---- getCatalog -----------------------------------------------------------
 
     @Test
-    void getCatalog_emptyTable_allEnabled() {
+    void getCatalog_emptyTable_notConfigured() {
         when(registry.getAllProfiles()).thenReturn(Map.of(
                 "A", profile("A", "Profile A"),
                 "B", profile("B", null)));
@@ -72,14 +73,23 @@ class TenantCredentialProfileServiceImplTest {
 
         StepVerifier.create(service.getCatalog()
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
-                .assertNext(list -> {
-                    assertThat(list).hasSize(2);
-                    assertThat(list).allMatch(CredentialCatalogEntryDto::enabled);
-                    // display name falls back to configId when metadata has no name
-                    assertThat(entry(list, "B").displayName()).isEqualTo("B");
-                    assertThat(entry(list, "A").displayName()).isEqualTo("Profile A");
-                })
-                .verifyComplete();
+                .expectError(CredentialCatalogNotConfiguredException.class)
+                .verify();
+    }
+
+    /**
+     * Stored ids that no longer exist in the registry leave every entry disabled, which is
+     * indistinguishable from "never configured" for the admin UI → same 404.
+     */
+    @Test
+    void getCatalog_storedIdsUnknownToRegistry_notConfigured() {
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
+        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("RETIRED")));
+
+        StepVerifier.create(service.getCatalog()
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .expectError(CredentialCatalogNotConfiguredException.class)
+                .verify();
     }
 
     @Test
@@ -97,6 +107,58 @@ class TenantCredentialProfileServiceImplTest {
                     assertThat(entry(list, "B").enabled()).isFalse();
                     assertThat(entry(list, "C").enabled()).isTrue();
                 })
+                .verifyComplete();
+    }
+
+    @Test
+    void getCatalog_displayName_fallsBackToConfigurationId() {
+        when(registry.getAllProfiles()).thenReturn(Map.of(
+                "A", profile("A", "Profile A"),
+                "B", profile("B", null)));
+        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("A"), row("B")));
+
+        StepVerifier.create(service.getCatalog()
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .assertNext(list -> {
+                    assertThat(entry(list, "A").displayName()).isEqualTo("Profile A");
+                    assertThat(entry(list, "B").displayName()).isEqualTo("B");
+                })
+                .verifyComplete();
+    }
+
+    // ---- read side: no rows ⇒ nothing enabled ---------------------------------
+
+    @Test
+    void isProfileAllowed_emptyTable_isFalse() {
+        when(repository.findAllByEnabledTrue()).thenReturn(Flux.empty());
+
+        StepVerifier.create(service.isProfileAllowed("A")
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .expectNext(false)
+                .verifyComplete();
+    }
+
+    @Test
+    void getAvailableProfiles_emptyTable_isEmpty() {
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
+        when(repository.findAllByEnabledTrue()).thenReturn(Flux.empty());
+
+        StepVerifier.create(service.getAvailableProfiles()
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .assertNext(profiles -> assertThat(profiles).isEmpty())
+                .verifyComplete();
+    }
+
+    @Test
+    void getAvailableProfiles_withEnabledSubset_returnsOnlyEnabled() {
+        when(registry.getAllProfiles()).thenReturn(Map.of(
+                "A", profile("A", "A"),
+                "B", profile("B", "B")));
+        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("B")));
+
+        StepVerifier.create(service.getAvailableProfiles()
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .assertNext(profiles -> assertThat(profiles).containsOnlyKeys("B"))
                 .verifyComplete();
     }
 
@@ -148,6 +210,10 @@ class TenantCredentialProfileServiceImplTest {
         verify(r2dbcEntityTemplate, times(1)).insert(any(TenantCredentialProfile.class));
     }
 
+    /**
+     * The admin API rejects an empty set (400, see {@code UpdateCredentialCatalogRequest});
+     * at service level it remains the reset primitive and leaves nothing enabled.
+     */
     @Test
     void updateCatalog_emptySet_deletesAllNoInsert() {
         when(repository.deleteAll()).thenReturn(Mono.empty());

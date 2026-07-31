@@ -2,6 +2,7 @@ package es.in2.issuer.backend.shared.domain.service.impl;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import es.in2.issuer.backend.shared.domain.exception.CredentialCatalogNotConfiguredException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
@@ -78,37 +79,35 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
     @Override
     public Mono<Map<String, CredentialProfile>> getAvailableProfiles() {
         return getEnabledConfigurationIds()
-                .map(enabledIds -> {
-                    Map<String, CredentialProfile> allProfiles = registry.getAllProfiles();
-                    if (enabledIds.isEmpty()) {
-                        return allProfiles;
-                    }
-                    return allProfiles.entrySet().stream()
-                            .filter(entry -> enabledIds.contains(entry.getKey()))
-                            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-                });
+                .map(enabledIds -> registry.getAllProfiles().entrySet().stream()
+                        .filter(entry -> enabledIds.contains(entry.getKey()))
+                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)));
     }
 
     @Override
     public Mono<Boolean> isProfileAllowed(String credentialConfigurationId) {
         return getEnabledConfigurationIds()
-                .map(enabledIds -> enabledIds.isEmpty() || enabledIds.contains(credentialConfigurationId));
+                .map(enabledIds -> enabledIds.contains(credentialConfigurationId));
     }
 
     @Override
     public Mono<List<CredentialCatalogEntryDto>> getCatalog() {
         return Mono.deferContextual(ctx -> {
-            requireTenant(ctx);
+            String tenant = requireTenant(ctx);
             return getEnabledConfigurationIds()
-                    .map(enabledIds -> {
-                        boolean allEnabled = enabledIds.isEmpty();
-                        return registry.getAllProfiles().entrySet().stream()
-                                .map(entry -> new CredentialCatalogEntryDto(
-                                        entry.getKey(),
-                                        resolveDisplayName(entry.getValue()),
-                                        allEnabled || enabledIds.contains(entry.getKey())))
-                                .sorted(Comparator.comparing(CredentialCatalogEntryDto::displayName))
-                                .toList();
+                    .map(enabledIds -> registry.getAllProfiles().entrySet().stream()
+                            .map(entry -> new CredentialCatalogEntryDto(
+                                    entry.getKey(),
+                                    resolveDisplayName(entry.getValue()),
+                                    enabledIds.contains(entry.getKey())))
+                            .sorted(Comparator.comparing(CredentialCatalogEntryDto::displayName))
+                            .toList())
+                    .flatMap(entries -> {
+                        if (entries.stream().noneMatch(CredentialCatalogEntryDto::enabled)) {
+                            return Mono.error(new CredentialCatalogNotConfiguredException(
+                                    "No credential configuration enabled for tenant '" + tenant + "'"));
+                        }
+                        return Mono.just(entries);
                     });
         });
     }

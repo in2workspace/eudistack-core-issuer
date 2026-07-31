@@ -38,6 +38,10 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.CREDEN
  *     <li><b>PUT</b> additionally requires {@code canWrite()}, which rejects that same
  *         read-only SysAdmin.</li>
  * </ul>
+ *
+ * <p>An empty catalog is not a valid state: <b>PUT</b> with an empty
+ * {@code enabledConfigurationIds} is rejected (400, bean validation) and <b>GET</b> answers
+ * 404 when the tenant has no enabled configuration at all.
  */
 @RestController
 @RequestMapping(CREDENTIAL_CATALOG_PATH)

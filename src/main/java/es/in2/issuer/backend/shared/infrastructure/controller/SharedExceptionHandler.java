@@ -535,6 +535,21 @@ public class SharedExceptionHandler {
         );
     }
 
+    @ExceptionHandler(CredentialCatalogNotConfiguredException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Mono<GlobalErrorMessage> handleCredentialCatalogNotConfigured(
+            CredentialCatalogNotConfiguredException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.CREDENTIAL_CATALOG_NOT_CONFIGURED.getCode(),
+                "Credential catalog not configured",
+                HttpStatus.NOT_FOUND,
+                "No credential configuration is enabled for this tenant"
+        );
+    }
+
     @ExceptionHandler(InvalidCredentialFormatException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<GlobalErrorMessage> handleInvalidCredentialFormatException(

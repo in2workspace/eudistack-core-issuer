@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.controller;
 
+import es.in2.issuer.backend.shared.domain.exception.CredentialCatalogNotConfiguredException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
 import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
@@ -177,6 +178,38 @@ class CredentialCatalogControllerTest {
                 .bodyValue("{\"enabledConfigurationIds\":[\"nope\"]}")
                 .exchange()
                 .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void getCatalog_tenantWithNothingEnabled_returns404() {
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(admin()));
+        when(tenantCredentialProfileService.getCatalog())
+                .thenReturn(Mono.error(new CredentialCatalogNotConfiguredException(
+                        "No credential configuration enabled for tenant 'demo'")));
+
+        webTestClient.get()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
+    @Test
+    void updateCatalog_emptySet_returns400AndDoesNotWrite() {
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(admin()));
+
+        webTestClient.mutateWith(csrf())
+                .put()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"enabledConfigurationIds\":[]}")
+                .exchange()
+                .expectStatus().isBadRequest();
+
+        verify(tenantCredentialProfileService, never()).updateCatalog(any());
     }
 
     @Test
