@@ -6,14 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
-- **EUD-72 — Credential catalog `GET` no longer requires write access (AC-03)**
-  - `CredentialCatalogController`: `authorizeTenantAdmin()` split into `authorizeTenantAdminRead()` (checks `isTenantAdmin()` only) and `authorizeTenantAdminWrite()` (adds `canWrite()`). `GET /admin/v1/credential-catalog` now authorizes reads with the former, so a SysAdmin operating from the `platform` tenant can read the catalog for any tenant; `PUT` keeps both checks and still returns `403` for that read-only SysAdmin.
-  - Rationale: sharing one helper across both verbs made the endpoint the only one in the API requiring an administrator role to *read*, contradicting AC-03 (*"any authenticated user who is not `TENANT_ADMIN` nor `SYSADMIN` receives 403"*), the `IssuanceController` pattern the technical design cites (there `canWrite()` guards only the `PATCH`; both `GET`s are unguarded), and `AuthorizationContext#readOnly`, documented as a *cross-tenant read-only view*. No security impact: the tenant is resolved from the reactive context, so the caller reads their own tenant's catalog, and the payload only exposes global registry ids plus boolean flags.
-  - Tests: new `getCatalog_asReadOnlyAdmin_returns200` in `CredentialCatalogControllerTest`. The previous `403`-on-read behaviour was asserted by no test; `updateCatalog_asReadOnlyAdmin_returns403` still pins the write path.
+- **Business metric for issued credentials**: new Micrometer counter `business.credential.issued` in `IssuanceMetrics`, tagged with `tenant`, `configuration_id` and `outcome` (`ok`/`error`). It is an in-memory counter only — the issuer does not persist the accumulated value; durability across restarts is delegated to the Prometheus scrape / OTel Collector, which reconstruct totals via `rate()`/`increase()` and handle the counter reset on restart transparently.
+  - Recorded at the two places a credential is actually signed and handed to the holder: `Oid4VciCredentialWorkflowImpl.createCredentialResponse` (OID4VCI `/credential`, where the wallet collects the credential) and the direct-delivery leg of `IssuanceWorkflowImpl.executeIssuanceForModes` (the signed credential returned synchronously in the API response). A credential offer dispatched by email/UI does **not** count — no credential exists yet at that point. In a hybrid `direct,email` request, two increments are expected (two distinct credentials are emitted), not double counting.
+  - `Oid4VciCredentialWorkflowImpl` gained a client-supplied-value cardinality guard: pre-load failures (e.g. `procedure not found`) fall back to the requested `credential_configuration_id` only if it resolves against `CredentialProfileRegistry`; otherwise the tag is `unknown`, so an unbounded value from the request body can never inflate the meter's series count.
+  - Deliberate deviation from `conv-observability.md` §3: tags reuse this class's existing `tenant`/`configuration_id` naming instead of the convention's `tenant.id`/`credential.type`, to avoid two label names for the same concept in one service; `outcome` is a 4th dimension not listed in §3. `business.error.count` is intentionally not emitted — it belongs to the separate H-04/H-05/H-07 observability finding.
+  - Tests: `IssuanceMetricsTest` (new counter contract: tags, accumulation, unknown fallbacks, try/catch regression on registry conflicts), `Oid4VciCredentialWorkflowImplTest` (real `SimpleMeterRegistry`, ok/error/cardinality-guard/tenant-from-MDC assertions), `IssuanceWorkflowImplTest` (`verify()` on direct success/failure/hybrid paths, negative assertions on email/UI/bootstrap paths).
 
-## [3.6.25] - 2026-07-29
+## [3.6.26] - 2026-07-29
+
+### Added
+
+- **EUD-168 — Direct delivery of holder-bound credentials (FR-06, FR-02, FR-08)**: credential types requiring cryptographic holder binding (`cnfRequired`) can now be delivered directly. The request carries the holder's public key in a new optional `holder_key` field, normalized by the `HolderKey` value object into the RFC 7800 `cnf` claim (exactly one of `jwk`/`kid`/`x5c`) and validated fail-fast before anything is built, signed or persisted. `IssuanceWorkflowImpl` threads that `cnf` into `signCredential(...)` where the direct path previously passed `null`; the issuer's signature is unchanged, so verifiability is preserved and identical to a wallet-delivered credential.
+  - **Supersedes EUD-169's hard rule**: the `cnfRequired`-excludes-`direct` exclusion is now a *default*, not an absolute rule. Eligibility is governed by tenant config (`issuer.delivery.modes.<credential_configuration_id>`); a tenant admin may explicitly enable `direct` for a `cnfRequired` type. Behaviour: no config → `409 delivery_mode_not_eligible`; config enabling `direct` but missing/malformed key → `400 invalid_holder_key` (`InvalidHolderKeyException`); config + valid key → `200` signed with `cnf`. Non-binding, wallet-only and hybrid paths are unchanged; signer/persistence/config-read failures stay fail-closed.
+
+## [3.6.25] - 2026-07-28
 
 ### Added
 

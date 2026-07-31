@@ -2,6 +2,7 @@ package es.in2.issuer.backend.issuance.infrastructure.controller;
 
 import es.in2.issuer.backend.issuance.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
@@ -189,6 +190,58 @@ class IssuanceExceptionHandlerTest {
                 .verifyComplete();
 
         StepVerifier.create(handler.handleDeliveryModeNotEligible(exBlank, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
+                .verifyComplete();
+
+        verify(errors).handleWith(exNull,  request, type, title, st, fallback);
+        verify(errors).handleWith(exBlank, request, type, title, st, fallback);
+    }
+
+    // ------------------- InvalidHolderKeyException -------------------
+
+    @Test
+    void handleInvalidHolderKey_mapsTo400InvalidHolderKey_usingExceptionMessage() {
+        var ex = new InvalidHolderKeyException("invalid holder_key: expected exactly one of jwk/kid/x5c");
+
+        String type   = GlobalErrorTypes.INVALID_HOLDER_KEY.getCode();
+        String title  = "Invalid holder key";
+        HttpStatus st = HttpStatus.BAD_REQUEST;
+        String fallback = "The holder key is missing or malformed (expected exactly one of jwk/kid/x5c)";
+
+        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
+        when(errors.handleWith(ex, request, type, title, st, fallback))
+                .thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleInvalidHolderKey(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st,
+                        "invalid holder_key: expected exactly one of jwk/kid/x5c"))
+                .verifyComplete();
+
+        assertEquals("invalid_holder_key", type);
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    @Test
+    void handleInvalidHolderKey_usesFallback_whenMessageNullOrBlank() {
+        var exNull  = new InvalidHolderKeyException(null);
+        var exBlank = new InvalidHolderKeyException("");
+
+        String type   = GlobalErrorTypes.INVALID_HOLDER_KEY.getCode();
+        String title  = "Invalid holder key";
+        HttpStatus st = HttpStatus.BAD_REQUEST;
+        String fallback = "The holder key is missing or malformed (expected exactly one of jwk/kid/x5c)";
+
+        var expectedNull  = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
+        var expectedBlank = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
+
+        when(errors.handleWith(exNull,  request, type, title, st, fallback)).thenReturn(Mono.just(expectedNull));
+        when(errors.handleWith(exBlank, request, type, title, st, fallback)).thenReturn(Mono.just(expectedBlank));
+
+        StepVerifier.create(handler.handleInvalidHolderKey(exNull, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
+                .verifyComplete();
+
+        StepVerifier.create(handler.handleInvalidHolderKey(exBlank, request))
                 .assertNext(gem -> assertGem(gem, type, title, st, fallback))
                 .verifyComplete();
 
