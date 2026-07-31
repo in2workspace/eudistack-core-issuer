@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - 2026-07-30
+
+- **EUD-71 — Select form and issue credential (conformance reinforcement)**: the issuance flow (`IssuanceWorkflowImpl`) already satisfied AC-03/AC-04 on the backend side; this Story adds 2 conformance tests to `IssuanceWorkflowImplTest` (persistence of `credential_format` on direct `dc+sd-jwt` issuance, persistence of the catalog's `credential_configuration_id` as `credentialType` on OID4VCI issuance) to close the documented coverage gap. No production code change — this Story consumes EUD-72's catalog and requires no new endpoints.
+- **Documented tech debt (non-blocking)**: the `IssuanceController_IT` integration test (`WebTestClient` + Testcontainers) planned in `tasks.md` is postponed. Investigation found no Testcontainers integration test anywhere in the repository, nor the base package/class the enriched documentation assumed as a starting point; building it is a new infrastructure effort, not an L-sized task. The HTTP contract (incl. 400/401) is already covered by `IssuanceControllerTest` (mocks); ES-02 (403 via real PDP) remains a known integration-coverage gap, with no automated test yet.
+
 ### Added
 
 - **Business metric for issued credentials**: new Micrometer counter `business.credential.issued` in `IssuanceMetrics`, tagged with `tenant`, `configuration_id` and `outcome` (`ok`/`error`). It is an in-memory counter only — the issuer does not persist the accumulated value; durability across restarts is delegated to the Prometheus scrape / OTel Collector, which reconstruct totals via `rate()`/`increase()` and handle the counter reset on restart transparently.
