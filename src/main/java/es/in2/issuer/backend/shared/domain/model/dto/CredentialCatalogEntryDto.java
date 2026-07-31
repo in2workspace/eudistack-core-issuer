@@ -6,8 +6,9 @@ package es.in2.issuer.backend.shared.domain.model.dto;
  *
  * @param credentialConfigurationId id from {@code CredentialProfileRegistry}
  * @param displayName               human-readable name (first display entry, no i18n yet)
- * @param enabled                   true if enabled for the current tenant (or if the
- *                                  tenant has no explicit config — empty = all)
+ * @param enabled                   true only if this id is explicitly enabled for the
+ *                                  current tenant; a tenant with no stored config has
+ *                                  every entry disabled
  */
 public record CredentialCatalogEntryDto(
         String credentialConfigurationId,

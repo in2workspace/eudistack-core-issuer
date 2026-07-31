@@ -13,9 +13,10 @@ import org.springframework.transaction.reactive.TransactionalOperator;
  *
  * <p>{@code updateCatalog()} needs an atomic {@code deleteAll + insert} replace:
  * without a transaction, a failure after {@code deleteAll} would leave the tenant
- * with zero rows, which the read side interprets as "all types enabled"
- * (empty = all) — silently re-opening the whole catalog. The transaction guarantees
- * rollback to the previous state.
+ * with zero rows, which the read side interprets as "nothing enabled" — the tenant
+ * would stop issuing altogether and advertise an empty
+ * {@code credential_configurations_supported}, from a write that was never applied.
+ * The transaction guarantees rollback to the previous state.
  *
  * <p>The transactional connection is borrowed once via {@code ConnectionFactory.create()},
  * which is where {@code TenantAwareConnectionFactoryDecorator} sets the per-tenant
