@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - 03-08-2026
+- Chance issuance metrics by logs
+
 ### Fixed - 2026-07-30
 
 - **EUD-71 — Select form and issue credential (conformance reinforcement)**: the issuance flow (`IssuanceWorkflowImpl`) already satisfied AC-03/AC-04 on the backend side; this Story adds 2 conformance tests to `IssuanceWorkflowImplTest` (persistence of `credential_format` on direct `dc+sd-jwt` issuance, persistence of the catalog's `credential_configuration_id` as `credentialType` on OID4VCI issuance) to close the documented coverage gap. No production code change — this Story consumes EUD-72's catalog and requires no new endpoints.
