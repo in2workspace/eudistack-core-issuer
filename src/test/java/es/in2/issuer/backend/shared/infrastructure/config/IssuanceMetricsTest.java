@@ -39,6 +39,9 @@ class IssuanceMetricsTest {
 
         assertThat(registry.find("issuance.requests").tag("tenant", "kpmg").counter()).isNotNull();
         assertThat(registry.find("issuance.duration").tag("tenant", "kpmg").timer()).isNotNull();
+        // AC-04 / conv-observability.md §3: canonical tag key alongside the legacy "tenant" tag.
+        assertThat(registry.find("issuance.requests").tag("tenant.id", "kpmg").counter()).isNotNull();
+        assertThat(registry.find("issuance.duration").tag("tenant.id", "kpmg").timer()).isNotNull();
     }
 
     @Test
@@ -50,6 +53,9 @@ class IssuanceMetricsTest {
 
         assertThat(registry.find("issuance.requests").tag("tenant", "kpmg").tag("outcome", "error").counter()).isNotNull();
         assertThat(registry.find("issuance.duration").tag("tenant", "kpmg").tag("outcome", "error").timer()).isNotNull();
+        // AC-04 / conv-observability.md §3: canonical tag key alongside the legacy "tenant" tag.
+        assertThat(registry.find("issuance.requests").tag("tenant.id", "kpmg").tag("outcome", "error").counter()).isNotNull();
+        assertThat(registry.find("issuance.duration").tag("tenant.id", "kpmg").tag("outcome", "error").timer()).isNotNull();
     }
 
     @Test
