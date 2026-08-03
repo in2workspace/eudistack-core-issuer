@@ -62,6 +62,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private final PayloadSchemaValidator payloadSchemaValidator;
     private final CredentialProfileRegistry credentialProfileRegistry;
     private final IssuanceMetrics issuanceMetrics;
+    private final CredentialIssuedLogger credentialIssuedLogger;
     private final AuditService auditService;
     private final GenericCredentialBuilder genericCredentialBuilder;
     private final CredentialSignerWorkflow credentialSignerWorkflow;
@@ -231,11 +232,11 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                         DeliveryResult.delivered(DeliveryMode.DIRECT.value)))
                 .doOnSuccess(outcome -> {
                     if (outcome != null) {
-                        issuanceMetrics.recordCredentialIssuedOk(request.credentialConfigurationId());
+                        credentialIssuedLogger.logIssued(request.credentialConfigurationId());
                     }
                 })
                 .doOnError(e -> {
-                    issuanceMetrics.recordCredentialIssuedError(request.credentialConfigurationId());
+                    credentialIssuedLogger.logFailed(request.credentialConfigurationId(), e);
                     log.error(
                             "ProcessId: {} - Direct issuance failed for credentialConfigurationId={} delivery={}",
                             processId,

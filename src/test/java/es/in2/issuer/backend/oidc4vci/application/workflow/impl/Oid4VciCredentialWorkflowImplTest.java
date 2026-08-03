@@ -9,22 +9,19 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuerMetadataService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.ProofValidationService;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
-import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListEntry;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.slf4j.MDC;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -48,8 +45,7 @@ class Oid4VciCredentialWorkflowImplTest {
     private StatusListWorkflow statusListWorkflow;
     private TransientStore<String> enrichmentCacheStore;
     private TransientStore<String> notificationCacheStore;
-    private SimpleMeterRegistry meterRegistry;
-    private IssuanceMetrics issuanceMetrics;
+    private CredentialIssuedLogger credentialIssuedLogger;
 
     private Oid4VciCredentialWorkflowImpl workflow;
 
@@ -73,8 +69,7 @@ class Oid4VciCredentialWorkflowImplTest {
         statusListWorkflow = mock(StatusListWorkflow.class);
         enrichmentCacheStore = mock(TransientStore.class);
         notificationCacheStore = mock(TransientStore.class);
-        meterRegistry = new SimpleMeterRegistry();
-        issuanceMetrics = new IssuanceMetrics(meterRegistry);
+        credentialIssuedLogger = mock(CredentialIssuedLogger.class);
 
         workflow = new Oid4VciCredentialWorkflowImpl(
                 credentialSignerWorkflow,
@@ -86,16 +81,8 @@ class Oid4VciCredentialWorkflowImplTest {
                 statusListWorkflow,
                 enrichmentCacheStore,
                 notificationCacheStore,
-                issuanceMetrics
+                credentialIssuedLogger
         );
-    }
-
-    @AfterEach
-    void tearDown() {
-        // IssuanceMetrics reads the tenant from MDC (bridged from the Reactor context by
-        // MdcContextConfig), so it must not leak across tests.
-        MDC.remove(TENANT_DOMAIN_CONTEXT_KEY);
-        meterRegistry.close();
     }
 
     @Test
@@ -160,10 +147,8 @@ class Oid4VciCredentialWorkflowImplTest {
         verify(enrichmentCacheStore).add(eq(ISSUANCE_ID), eq(enrichedWithStatus));
         verify(notificationCacheStore).add(anyString(), eq(ISSUANCE_ID));
 
-        assertThat(meterRegistry.find("business.credential.issued")
-                .tag("configuration_id", CREDENTIAL_TYPE)
-                .tag("outcome", "ok")
-                .counter().count()).isEqualTo(1.0);
+        verify(credentialIssuedLogger).logIssued(CREDENTIAL_TYPE);
+        verify(credentialIssuedLogger, never()).logFailed(any(), any());
     }
 
     @Test
@@ -225,10 +210,8 @@ class Oid4VciCredentialWorkflowImplTest {
         verify(statusListWorkflow).allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.TOKEN_JWT, ISSUANCE_ID, BEARER_PREFIX + RAW_TOKEN, PUBLIC_BASE_URL);
         verify(genericCredentialBuilder).injectCredentialStatus(eq(enrichedDataSet), any(CredentialStatus.class), eq(DC_SD_JWT));
 
-        assertThat(meterRegistry.find("business.credential.issued")
-                .tag("configuration_id", CREDENTIAL_TYPE)
-                .tag("outcome", "ok")
-                .counter().count()).isEqualTo(1.0);
+        verify(credentialIssuedLogger).logIssued(CREDENTIAL_TYPE);
+        verify(credentialIssuedLogger, never()).logFailed(any(), any());
     }
 
     @Test
@@ -255,12 +238,9 @@ class Oid4VciCredentialWorkflowImplTest {
                 .verify();
 
         // The issuance did load, so the authoritative type (from the Issuance, not the request)
-        // is what gets tagged on the error.
-        assertThat(meterRegistry.find("business.credential.issued")
-                .tag("configuration_id", CREDENTIAL_TYPE)
-                .tag("outcome", "error")
-                .counter().count()).isEqualTo(1.0);
-        assertThat(meterRegistry.find("business.credential.issued").tag("outcome", "ok").counter()).isNull();
+        // is what gets logged on the error.
+        verify(credentialIssuedLogger).logFailed(eq(CREDENTIAL_TYPE), any());
+        verify(credentialIssuedLogger, never()).logIssued(any());
     }
 
     @Test
@@ -283,10 +263,7 @@ class Oid4VciCredentialWorkflowImplTest {
 
         // The issuance never loaded — the only source of the type is the (registry-validated)
         // requested configuration_id.
-        assertThat(meterRegistry.find("business.credential.issued")
-                .tag("configuration_id", CREDENTIAL_TYPE)
-                .tag("outcome", "error")
-                .counter().count()).isEqualTo(1.0);
+        verify(credentialIssuedLogger).logFailed(eq(CREDENTIAL_TYPE), any());
     }
 
     @Test
@@ -308,65 +285,8 @@ class Oid4VciCredentialWorkflowImplTest {
                 .verify();
 
         // Cardinality guard: a client-controlled, non-registered configuration_id must never
-        // reach the metric tag — it falls back to "unknown".
-        assertThat(meterRegistry.find("business.credential.issued")
-                .tag("configuration_id", "unknown")
-                .tag("outcome", "error")
-                .counter().count()).isEqualTo(1.0);
-    }
-
-    @Test
-    void createCredentialResponse_recordsTenantFromMdc() {
-        MDC.put(TENANT_DOMAIN_CONTEXT_KEY, "kpmg");
-
-        Issuance issuance = buildProcedure(JWT_VC_JSON);
-        CredentialProfile profile = buildProfile(false);
-        CredentialIssuerMetadata metadata = buildMetadata(null);
-        CredentialRequest request = CredentialRequest.builder()
-                .credentialConfigurationId(CREDENTIAL_TYPE)
-                .format(JWT_VC_JSON)
-                .build();
-        AccessTokenContext context = AccessTokenContext.builder()
-                .rawToken(RAW_TOKEN)
-                .issuanceId(ISSUANCE_ID)
-                .build();
-
-        StatusListEntry statusEntry = new StatusListEntry(
-                "https://issuer.example/status/1#42",
-                "BitstringStatusListEntry",
-                StatusPurpose.REVOCATION,
-                "42",
-                "https://issuer.example/status/1"
-        );
-        String enrichedDataSet = "{\"enriched\":true}";
-        String enrichedWithStatus = "{\"enriched\":true,\"credentialStatus\":{}}";
-        String signedCredential = "signed-jwt-vc";
-
-        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
-        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
-        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
-        when(genericCredentialBuilder.bindIssuer(eq(profile), eq(CREDENTIAL_DATA_SET), eq(ISSUANCE_ID), anyString()))
-                .thenReturn(Mono.just(enrichedDataSet));
-        when(statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, ISSUANCE_ID, BEARER_PREFIX + RAW_TOKEN, PUBLIC_BASE_URL))
-                .thenReturn(Mono.just(statusEntry));
-        when(genericCredentialBuilder.injectCredentialStatus(eq(enrichedDataSet), any(CredentialStatus.class), eq(JWT_VC_JSON)))
-                .thenReturn(enrichedWithStatus);
-        when(enrichmentCacheStore.add(eq(ISSUANCE_ID), eq(enrichedWithStatus)))
-                .thenReturn(Mono.just(enrichedWithStatus));
-        when(credentialSignerWorkflow.signCredential(
-                eq(BEARER_PREFIX + RAW_TOKEN), eq(enrichedWithStatus), eq(CREDENTIAL_TYPE),
-                eq(JWT_VC_JSON), isNull(), eq(ISSUANCE_ID), anyString()))
-                .thenReturn(Mono.just(signedCredential));
-        when(notificationCacheStore.add(anyString(), eq(ISSUANCE_ID)))
-                .thenReturn(Mono.just(ISSUANCE_ID));
-        when(issuanceService.updateIssuance(any(Issuance.class)))
-                .thenReturn(Mono.just(issuance));
-
-        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
-                .expectNextCount(1)
-                .verifyComplete();
-
-        assertThat(meterRegistry.find("business.credential.issued").tag("tenant", "kpmg").counter()).isNotNull();
+        // reach the log field — it falls back to null, which CredentialIssuedLogger renders as "unknown".
+        verify(credentialIssuedLogger).logFailed(isNull(), any());
     }
 
     // ---- Helpers ----

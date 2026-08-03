@@ -20,6 +20,7 @@ import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.policy.service.IssuancePdpService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
+import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.PayloadSchemaValidator;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
@@ -68,6 +69,7 @@ class IssuanceWorkflowImplTest {
     @Mock private PayloadSchemaValidator payloadSchemaValidator;
     @Mock private CredentialProfileRegistry credentialProfileRegistry;
     @Mock private IssuanceMetrics issuanceMetrics;
+    @Mock private CredentialIssuedLogger credentialIssuedLogger;
     @Mock private AuditService auditService;
     @Mock private GenericCredentialBuilder genericCredentialBuilder;
     @Mock private CredentialSignerWorkflow credentialSignerWorkflow;
@@ -123,8 +125,8 @@ class IssuanceWorkflowImplTest {
                 eq(EMAIL), eq("email"), eq("refresh-token-123"), eq(BASE_URL), eq(WALLET_URL));
         // A wallet offer is not an emitted credential — only the OID4VCI /credential endpoint
         // (where the wallet actually collects it) counts this leg.
-        verify(issuanceMetrics, never()).recordCredentialIssuedOk(any());
-        verify(issuanceMetrics, never()).recordCredentialIssuedError(any());
+        verify(credentialIssuedLogger, never()).logIssued(any());
+        verify(credentialIssuedLogger, never()).logFailed(any(), any());
     }
 
     @Test
@@ -203,8 +205,8 @@ class IssuanceWorkflowImplTest {
 
         verify(issuanceService).saveIssuance(argThat(i -> i.getCredentialStatus() == CredentialStatusEnum.VALID));
         verifyNoInteractions(credentialOfferService);
-        verify(issuanceMetrics).recordCredentialIssuedOk(CONFIG_ID);
-        verify(issuanceMetrics, never()).recordCredentialIssuedError(any());
+        verify(credentialIssuedLogger).logIssued(CONFIG_ID);
+        verify(credentialIssuedLogger, never()).logFailed(any(), any());
     }
 
     @Test
@@ -665,7 +667,7 @@ class IssuanceWorkflowImplTest {
         verify(credentialOfferService).createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any());
         // Exactly one credential is emitted here (the direct leg); the wallet leg only creates a
         // DRAFT + sends an offer, so it must not add a second increment.
-        verify(issuanceMetrics, times(1)).recordCredentialIssuedOk(CONFIG_ID);
+        verify(credentialIssuedLogger, times(1)).logIssued(CONFIG_ID);
     }
 
     @Test
@@ -700,8 +702,8 @@ class IssuanceWorkflowImplTest {
 
         verify(issuanceService).saveIssuance(argThat(i -> i.getCredentialStatus() == CredentialStatusEnum.DRAFT));
         verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow);
-        verify(issuanceMetrics, never()).recordCredentialIssuedOk(any());
-        verify(issuanceMetrics, never()).recordCredentialIssuedError(any());
+        verify(credentialIssuedLogger, never()).logIssued(any());
+        verify(credentialIssuedLogger, never()).logFailed(any(), any());
     }
 
     @Test
@@ -727,7 +729,7 @@ class IssuanceWorkflowImplTest {
         verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow);
         verify(credentialOfferService).createAndDeliverCredentialOffer(any(), any(), any(), any(), eq("email"), any(), any(), any());
         // Bootstrap strips "direct" and never signs anything.
-        verify(issuanceMetrics, never()).recordCredentialIssuedOk(any());
+        verify(credentialIssuedLogger, never()).logIssued(any());
     }
 
     @Test
@@ -1134,8 +1136,8 @@ class IssuanceWorkflowImplTest {
 
         // Mono.zip isolation: the wallet leg's failure (swallowed by
         // performOid4VciIssuanceResilient) must not affect the direct leg's counter.
-        verify(issuanceMetrics).recordCredentialIssuedOk(CONFIG_ID);
-        verify(issuanceMetrics, never()).recordCredentialIssuedError(any());
+        verify(credentialIssuedLogger).logIssued(CONFIG_ID);
+        verify(credentialIssuedLogger, never()).logFailed(any(), any());
     }
 
     @Test
@@ -1178,8 +1180,8 @@ class IssuanceWorkflowImplTest {
                 })
                 .verifyComplete();
 
-        verify(issuanceMetrics).recordCredentialIssuedOk(CONFIG_ID);
-        verify(issuanceMetrics, never()).recordCredentialIssuedError(any());
+        verify(credentialIssuedLogger).logIssued(CONFIG_ID);
+        verify(credentialIssuedLogger, never()).logFailed(any(), any());
     }
 
     @Test
@@ -1208,8 +1210,8 @@ class IssuanceWorkflowImplTest {
                 .verify();
 
         verify(issuanceService, never()).saveIssuance(any());
-        verify(issuanceMetrics).recordCredentialIssuedError(CONFIG_ID);
-        verify(issuanceMetrics, never()).recordCredentialIssuedOk(any());
+        verify(credentialIssuedLogger).logFailed(eq(CONFIG_ID), any());
+        verify(credentialIssuedLogger, never()).logIssued(any());
     }
 
     @Test
@@ -1316,8 +1318,8 @@ class IssuanceWorkflowImplTest {
                 .expectError(RuntimeException.class)
                 .verify();
 
-        verify(issuanceMetrics).recordCredentialIssuedError(CONFIG_ID);
-        verify(issuanceMetrics, never()).recordCredentialIssuedOk(any());
+        verify(credentialIssuedLogger).logFailed(eq(CONFIG_ID), any());
+        verify(credentialIssuedLogger, never()).logIssued(any());
     }
 
     @Test
