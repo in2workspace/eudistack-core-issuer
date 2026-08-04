@@ -107,6 +107,7 @@ public class AuditServiceImpl implements AuditService {
 
     private String formatResults(Set<DeliveryResult> results) {
         return results.stream()
+                .sorted((a, b) -> a.mode().compareTo(b.mode()))
                 .map(r -> r.error() != null
                         ? r.mode() + "=" + r.status() + "(" + r.error() + ")"
                         : r.mode() + "=" + r.status())
