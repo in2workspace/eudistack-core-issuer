@@ -6,7 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added - 2026-08-03
+## [3.6.26] - 2026-08-04
+
+### Added
 
 - **EUD-170 — Trace the delivery mode applied per issuance (FR-10, NFR-O-01, NFR-S-02)**: hardens the delivery audit trail that EUD-167/168/169 already partially emitted, so every issuance leaves a complete, consistent, PII-safe trace of *how* it was delivered.
   - `DeliveryTrace` (new, `issuance/domain/model`): immutable, PII-safe-by-construction aggregate of `Set<DeliveryResult>` + `tenantId` + `processId`; stable event name `credential.delivered`; rejects a blank tenant/processId or empty results at construction time; `hasFailure()` decides audit severity.
