@@ -84,7 +84,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         String delivery = request.delivery() != null ? request.delivery() : DEFAULT_DELIVERY;
 
         return requireResolvedTenant()
-                .then(validateRequest(request, idToken))
+                .then(Mono.defer(() -> validateRequest(request, idToken)))
                 .then(Mono.defer(() -> payloadSchemaValidator.validate(configId, request.payload())))
                 .then(Mono.defer(() -> issuancePdpService.authorize(configId, request.payload(), idToken)))
                 .then(Mono.defer(() -> performIssuanceFlow(processId, request, idToken, publicIssuerBaseUrl, publicWalletBaseUrl, delivery)))
