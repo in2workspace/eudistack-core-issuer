@@ -11,9 +11,9 @@ import javax.crypto.spec.SecretKeySpec;
  * Turns a recipient identifier (email, holder id) into a tenant-scoped pseudonym for audit
  * correlation, per AD-2 (EUD-170 / US-04): the raw value is never stored, logged or returned.
  *
- * <p>The tenant id is used as the HMAC key, so the same recipient identifier pseudonymizes to a
- * different, non-correlatable value in a different tenant (NFR-S-02).
- */
+ * <p>The tenant id is used as the HMAC key to provide tenant-scoped pseudonymization (NFR-S-02).
+ * Note: tenant ids are typically not secret, so this does not prevent offline guessing of low-entropy identifiers.
+ * If that matters, use a secret key (ideally per tenant) instead of the tenant id.
 public final class RecipientPseudonymizer {
 
     private static final String HMAC_ALGORITHM = "HmacSHA256";
