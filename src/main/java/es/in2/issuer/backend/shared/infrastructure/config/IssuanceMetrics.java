@@ -12,6 +12,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 public class IssuanceMetrics {
 
     private static final String TAG_TENANT = "tenant";
+    private static final String TAG_TENANT_ID = "tenant.id";
     private static final String UNKNOWN_TENANT = "unknown";
 
     private final MeterRegistry meterRegistry;
@@ -27,6 +28,7 @@ public class IssuanceMetrics {
     public void recordSuccess(Timer.Sample sample, String configurationId, String delivery) {
         sample.stop(Timer.builder("issuance.duration")
                 .tag(TAG_TENANT, currentTenant())
+                .tag(TAG_TENANT_ID, currentTenant())
                 .tag("configuration_id", configurationId)
                 .tag("delivery", delivery)
                 .tag("outcome", "success")
@@ -37,6 +39,7 @@ public class IssuanceMetrics {
     public void recordError(Timer.Sample sample, String configurationId, String delivery) {
         sample.stop(Timer.builder("issuance.duration")
                 .tag(TAG_TENANT, currentTenant())
+                .tag(TAG_TENANT_ID, currentTenant())
                 .tag("configuration_id", configurationId)
                 .tag("delivery", delivery)
                 .tag("outcome", "error")
@@ -63,6 +66,7 @@ public class IssuanceMetrics {
     private Counter counter(String configurationId, String delivery, String outcome) {
         return Counter.builder("issuance.requests")
                 .tag(TAG_TENANT, currentTenant())
+                .tag(TAG_TENANT_ID, currentTenant())
                 .tag("configuration_id", configurationId)
                 .tag("delivery", delivery)
                 .tag("outcome", outcome)

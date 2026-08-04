@@ -435,6 +435,21 @@ public class SharedExceptionHandler {
         );
     }
 
+    @ExceptionHandler(TenantNotResolvedException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Mono<GlobalErrorMessage> handleTenantNotResolvedException(
+            TenantNotResolvedException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.TENANT_NOT_RESOLVED.getCode(),
+                "Tenant not resolved",
+                HttpStatus.FORBIDDEN,
+                "The operation requires a resolved tenant and none could be determined for this request"
+        );
+    }
+
     @ExceptionHandler(PayloadValidationException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<GlobalErrorMessage> handlePayloadValidationException(

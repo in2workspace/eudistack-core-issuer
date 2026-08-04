@@ -6,7 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added - 03-08-2026
+## [3.6.27] - 2026-08-04
+
+### Added
+
+- **EUD-170 — Trace the delivery mode applied per issuance (FR-10, NFR-O-01, NFR-S-02)**: hardens the delivery audit trail that EUD-167/168/169 already partially emitted, so every issuance leaves a complete, consistent, PII-safe trace of *how* it was delivered.
+  - `DeliveryTrace` (new, `issuance/domain/model`): immutable, PII-safe-by-construction aggregate of `Set<DeliveryResult>` + `tenantId` + `processId`; stable event name `credential.delivered`; rejects a blank tenant/processId or empty results at construction time; `hasFailure()` decides audit severity.
+  - `RecipientPseudonymizer` (new, `shared/domain/util`): HMAC-SHA256 hash of a recipient identifier salted with the tenant id, per AD-2 (data minimization by default — omit the recipient; pseudonymize only if correlation is ever required). Not wired to any caller yet — nothing currently needs recipient correlation.
+  - `AuditService.auditDelivery(DeliveryTrace)` (new port method) / `AuditServiceImpl.auditDelivery` (adapter): emits a structured `AUDIT` log line (`event=credential.delivered tenant.id=... processId=... results=...`) at `INFO` when every mode delivered, `WARN` when any mode failed; wrapped in try/catch so a broken audit channel is logged locally and never propagates (ES-03/ES-04).
+  - `IssuanceWorkflowImpl#issueCredential`: now fails closed with a new `TenantNotResolvedException` (403) *before* validating, building or delivering anything when the Reactor context carries no tenant — previously the operation completed anyway and just omitted the tenant field (AC-05/ES-02). Replaces the previous `auditSuccess("credential.issued", ...)`/`auditFailure("credential.issue.failed", ...)` calls with `auditDelivery(DeliveryTrace)` in both the success and error paths; a partial hybrid failure (e.g. wallet leg fails, direct leg delivers) still completes the `Mono` successfully but is now correctly traced as a failure (`WARN`) via `DeliveryTrace.hasFailure()`, since `performOid4VciIssuanceResilient` already absorbs the wallet error into a `FAILED` `DeliveryResult` rather than erroring the chain.
+  - `IssuanceMetrics#recordSuccess`/`recordError`: added the canonical `tenant.id` tag (`conv-observability.md` §3) alongside the pre-existing `tenant` tag on `issuance.duration`/`issuance.requests` — additive, scoped to these two methods only.
+  - **Out of scope (see `spec-deltas.md` D-6)**: `issueCredentialWithoutAuthorization` (bootstrap/LEAR pre-registration path) is not touched — it still emits no delivery trace at all. Left as an open, explicit gap pending a PM/Architect decision, not silently forgotten.
+  - **EC-04 (idempotency)** required no new production code or test: `IdempotencyFilter` short-circuits a cache-hit entirely above the controller/workflow, so `auditDelivery` structurally cannot be invoked twice for the same idempotency key — already demonstrated by the pre-existing `IdempotencyFilterTest.replayWithSameKey_returnsCachedBody_andInvokesChainOnce`.
+  
+ - Tests: `DeliveryTraceTest`, `RecipientPseudonymizerTest`, `AuditServiceImplTest` (new files), plus `IssuanceWorkflowImplTest` (tenant fail-closed, hybrid partial-failure severity, wallet-only trace, audit-channel-failure resilience) and `IssuanceMetricsTest` (`tenant.id` tag) extended.
+
+### Added - 2026-08-03
 - Chance issuance metrics by logs
 
 ### Fixed - 2026-07-30
