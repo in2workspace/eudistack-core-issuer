@@ -100,7 +100,7 @@ public class AuditServiceImpl implements AuditService {
             LOG.warn("Failed to emit delivery audit trace for processId={}",
                     trace != null ? trace.processId() : "unknown", e);
         } finally {
-            MDC.remove("audit.event");
+            clearAuditMdc();
             MDC.remove("tenant.id");
         }
     }
