@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - 03-08-2026
+- Chance issuance metrics by logs
+
 ### Fixed - 2026-07-30
 
 - **EUD-71 — Select form and issue credential (conformance reinforcement)**: the issuance flow (`IssuanceWorkflowImpl`) already satisfied AC-03/AC-04 on the backend side; this Story adds 2 conformance tests to `IssuanceWorkflowImplTest` (persistence of `credential_format` on direct `dc+sd-jwt` issuance, persistence of the catalog's `credential_configuration_id` as `credentialType` on OID4VCI issuance) to close the documented coverage gap. No production code change — this Story consumes EUD-72's catalog and requires no new endpoints.
@@ -13,11 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Business metric for issued credentials**: new Micrometer counter `business.credential.issued` in `IssuanceMetrics`, tagged with `tenant`, `configuration_id` and `outcome` (`ok`/`error`). It is an in-memory counter only — the issuer does not persist the accumulated value; durability across restarts is delegated to the Prometheus scrape / OTel Collector, which reconstruct totals via `rate()`/`increase()` and handle the counter reset on restart transparently.
-  - Recorded at the two places a credential is actually signed and handed to the holder: `Oid4VciCredentialWorkflowImpl.createCredentialResponse` (OID4VCI `/credential`, where the wallet collects the credential) and the direct-delivery leg of `IssuanceWorkflowImpl.executeIssuanceForModes` (the signed credential returned synchronously in the API response). A credential offer dispatched by email/UI does **not** count — no credential exists yet at that point. In a hybrid `direct,email` request, two increments are expected (two distinct credentials are emitted), not double counting.
-  - `Oid4VciCredentialWorkflowImpl` gained a client-supplied-value cardinality guard: pre-load failures (e.g. `procedure not found`) fall back to the requested `credential_configuration_id` only if it resolves against `CredentialProfileRegistry`; otherwise the tag is `unknown`, so an unbounded value from the request body can never inflate the meter's series count.
-  - Deliberate deviation from `conv-observability.md` §3: tags reuse this class's existing `tenant`/`configuration_id` naming instead of the convention's `tenant.id`/`credential.type`, to avoid two label names for the same concept in one service; `outcome` is a 4th dimension not listed in §3. `business.error.count` is intentionally not emitted — it belongs to the separate H-04/H-05/H-07 observability finding.
-  - Tests: `IssuanceMetricsTest` (new counter contract: tags, accumulation, unknown fallbacks, try/catch regression on registry conflicts), `Oid4VciCredentialWorkflowImplTest` (real `SimpleMeterRegistry`, ok/error/cardinality-guard/tenant-from-MDC assertions), `IssuanceWorkflowImplTest` (`verify()` on direct success/failure/hybrid paths, negative assertions on email/UI/bootstrap paths).
+- **Business event log for issued credentials**: new `CredentialIssuedLogger` (domain port `shared/domain/service` + `CredentialIssuedLoggerImpl` in `shared/infrastructure/service`, following the same interface/impl split as `AuditService`) logs one line per credential issuance outcome — `event=business.credential.issued tenant=<tenant> configurationId=<id> outcome=ok|error` (`errorType=<SimpleName>` added on failure). Tenant is resolved from MDC (`tenantDomain`, bridged from the Reactor context by `MdcContextConfig`), with `unknown` as fallback for tenant/configurationId, matching the previous counter's semantics.
+  - Logged at the two places a credential is actually signed and handed to the holder: `Oid4VciCredentialWorkflowImpl.createCredentialResponse` (OID4VCI `/credential`, where the wallet collects the credential) and the direct-delivery leg of `IssuanceWorkflowImpl.executeIssuanceForModes` (the signed credential returned synchronously in the API response). A credential offer dispatched by email/UI does **not** log — no credential exists yet at that point.
+  - **Replaces** the previous Micrometer counter `business.credential.issued` in `IssuanceMetrics` (tags `tenant`/`configuration_id`/`outcome`), removed along with its defensive `try/catch` + one-shot failure-log guard — a plain `log.info`/`log.warn` call cannot throw the way `MeterRegistry.register` could on a meter-type collision. `issuance.requests`, `issuance.duration`, `oid4vci.token.requests` and `idempotency.cache.hits` are unaffected.
+  - Tests: `CredentialIssuedLoggerImplTest` (new, Logback `ListAppender`: event/tenant/outcome/errorType content, `unknown` fallbacks), `Oid4VciCredentialWorkflowImplTest` and `IssuanceWorkflowImplTest` (`verify()` on the mocked `CredentialIssuedLogger` instead of counter assertions).
 
 ## [3.6.26] - 2026-07-29
 
