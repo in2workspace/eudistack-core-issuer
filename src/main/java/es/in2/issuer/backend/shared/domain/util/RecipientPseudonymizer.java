@@ -14,6 +14,7 @@ import javax.crypto.spec.SecretKeySpec;
  * <p>The tenant id is used as the HMAC key to provide tenant-scoped pseudonymization (NFR-S-02).
  * Note: tenant ids are typically not secret, so this does not prevent offline guessing of low-entropy identifiers.
  * If that matters, use a secret key (ideally per tenant) instead of the tenant id.
+ */
 public final class RecipientPseudonymizer {
 
     private static final String HMAC_ALGORITHM = "HmacSHA256";
