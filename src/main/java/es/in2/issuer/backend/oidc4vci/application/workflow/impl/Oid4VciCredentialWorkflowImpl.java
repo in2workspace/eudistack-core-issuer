@@ -14,12 +14,12 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.Credenti
 import es.in2.issuer.backend.shared.domain.model.entities.BindingInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuerMetadataService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.ProofValidationService;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
-import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
@@ -53,7 +53,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
     private final StatusListWorkflow statusListWorkflow;
     private final TransientStore<String> enrichmentCacheStore;
     private final TransientStore<String> notificationCacheStore;
-    private final IssuanceMetrics issuanceMetrics;
+    private final CredentialIssuedLogger credentialIssuedLogger;
 
     public Oid4VciCredentialWorkflowImpl(
             CredentialSignerWorkflow credentialSignerWorkflow,
@@ -65,7 +65,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             StatusListWorkflow statusListWorkflow,
             @Qualifier("enrichmentCacheStore") TransientStore<String> enrichmentCacheStore,
             @Qualifier("notificationCacheStore") TransientStore<String> notificationCacheStore,
-            IssuanceMetrics issuanceMetrics
+            CredentialIssuedLogger credentialIssuedLogger
     ) {
         this.credentialSignerWorkflow = credentialSignerWorkflow;
         this.proofValidationService = proofValidationService;
@@ -76,7 +76,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         this.statusListWorkflow = statusListWorkflow;
         this.enrichmentCacheStore = enrichmentCacheStore;
         this.notificationCacheStore = notificationCacheStore;
-        this.issuanceMetrics = issuanceMetrics;
+        this.credentialIssuedLogger = credentialIssuedLogger;
     }
 
     /**
@@ -122,10 +122,10 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                     )
                     .doOnSuccess(response -> {
                         if (response != null) {
-                            issuanceMetrics.recordCredentialIssuedOk(configurationId.get());
+                            credentialIssuedLogger.logIssued(configurationId.get());
                         }
                     })
-                    .doOnError(_ -> issuanceMetrics.recordCredentialIssuedError(configurationId.get()));
+                    .doOnError(e -> credentialIssuedLogger.logFailed(configurationId.get(), e));
         });
     }
 
