@@ -535,6 +535,36 @@ public class SharedExceptionHandler {
         );
     }
 
+    @ExceptionHandler(UnknownCredentialConfigurationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleUnknownCredentialConfiguration(
+            UnknownCredentialConfigurationException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.UNKNOWN_CREDENTIAL_CONFIGURATION.getCode(),
+                "Unknown credential configuration",
+                HttpStatus.BAD_REQUEST,
+                "The request references one or more credential_configuration_id values that do not exist in the global credential profile registry"
+        );
+    }
+
+    @ExceptionHandler(CredentialCatalogNotConfiguredException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Mono<GlobalErrorMessage> handleCredentialCatalogNotConfigured(
+            CredentialCatalogNotConfiguredException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.CREDENTIAL_CATALOG_NOT_CONFIGURED.getCode(),
+                "Credential catalog not configured",
+                HttpStatus.NOT_FOUND,
+                "No credential configuration is enabled for this tenant"
+        );
+    }
+
     @ExceptionHandler(InvalidCredentialFormatException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<GlobalErrorMessage> handleInvalidCredentialFormatException(

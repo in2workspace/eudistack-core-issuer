@@ -56,7 +56,9 @@ public enum GlobalErrorTypes {
     DELIVERY_CONFIG_PROFILE_NOT_FOUND("delivery_config_profile_not_found"),
     INVALID_REQUEST("invalid_request"),
     DELIVERY_MODE_NOT_ELIGIBLE("delivery_mode_not_eligible"),
-    INVALID_HOLDER_KEY("invalid_holder_key");
+    INVALID_HOLDER_KEY("invalid_holder_key"),
+    UNKNOWN_CREDENTIAL_CONFIGURATION("unknown_credential_configuration"),
+    CREDENTIAL_CATALOG_NOT_CONFIGURED("credential_catalog_not_configured");
 
     private final String code;
 
