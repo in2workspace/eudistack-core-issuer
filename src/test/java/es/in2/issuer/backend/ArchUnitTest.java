@@ -68,7 +68,13 @@ class ArchUnitTest {
                     BASE_PACKAGE + ".shared.infrastructure.config.MicrometerMetricsConfig",
                     // Spring-managed bean discovered via ObjectProvider<ServerRequestObservationConvention>
                     // in Boot's WebFluxObservationAutoConfiguration (no direct class references)
-                    BASE_PACKAGE + ".shared.infrastructure.config.TenantServerRequestObservationConvention");
+                    BASE_PACKAGE + ".shared.infrastructure.config.TenantServerRequestObservationConvention",
+                    // OTLP log export: referenced only by class name from logback-spring.xml
+                    // (Logback instantiates it via reflection, not a Java reference) ...
+                    BASE_PACKAGE + ".shared.infrastructure.config.logging.MaskingOpenTelemetryAppender",
+                    // ... and this one is a Spring-managed bean discovered via component
+                    // scanning (no direct class references)
+                    BASE_PACKAGE + ".shared.infrastructure.config.OpenTelemetryAppenderInitializer");
 
 //todo foo
 //    @ArchTest
