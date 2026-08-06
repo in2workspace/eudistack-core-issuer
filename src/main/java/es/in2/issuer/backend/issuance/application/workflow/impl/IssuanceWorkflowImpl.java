@@ -5,6 +5,7 @@ import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.MissingIdTokenHeaderException;
+import es.in2.issuer.backend.shared.domain.exception.TenantNotResolvedException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialBuildResult;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
@@ -20,6 +21,7 @@ import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegis
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.issuance.infrastructure.config.properties.IssuanceProperties;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
+import es.in2.issuer.backend.issuance.domain.model.DeliveryTrace;
 import es.in2.issuer.backend.issuance.domain.model.HolderKey;
 import es.in2.issuer.backend.issuance.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
@@ -37,7 +39,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -83,7 +84,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         String configId = request.credentialConfigurationId();
         String delivery = request.delivery() != null ? request.delivery() : DEFAULT_DELIVERY;
 
-        return validateRequest(request, idToken)
+        return requireResolvedTenant()
+                .then(Mono.defer(() -> validateRequest(request, idToken)))
                 .then(Mono.defer(() -> payloadSchemaValidator.validate(configId, request.payload())))
                 .then(Mono.defer(() -> issuancePdpService.authorize(configId, request.payload(), idToken)))
                 .then(Mono.defer(() -> performIssuanceFlow(processId, request, idToken, publicIssuerBaseUrl, publicWalletBaseUrl, delivery)))
@@ -92,38 +94,57 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                     return flow
                             .doOnSuccess(r -> {
                                 issuanceMetrics.recordSuccess(sample, configId, delivery);
-                                auditService.auditSuccess("credential.issued", null, "credential", configId,
-                                        buildIssuanceAuditDetails(processId, delivery, tenant,
-                                                r != null ? r.deliveryResults() : null, "success", null));
+                                // tenant is guaranteed resolved here (requireResolvedTenant already fail-closed
+                                // upstream); the blank check is defense-in-depth so a broken context never
+                                // fabricates a trace attributed to a default tenant (AC-05/ES-02).
+                                if (tenant != null && !tenant.isBlank()) {
+                                    auditDeliveryBestEffort(tenant, processId, r != null ? r.deliveryResults() : null);
+                                }
                             })
                             .doOnError(e -> {
                                 issuanceMetrics.recordError(sample, configId, delivery);
-                                auditService.auditFailure("credential.issue.failed", null, e.getMessage(),
-                                        buildIssuanceAuditDetails(processId, delivery, tenant, null, "failure",
-                                                e.getClass().getSimpleName()));
+                                log.error(
+                                        "ProcessId: {} - Credential issuance failed for credentialConfigurationId={} delivery={}",
+                                        processId, configId, delivery, e);
+                                if (tenant != null && !tenant.isBlank()) {
+                                    auditDeliveryFailureBestEffort(tenant, processId);
+                                }
                             });
                 });
     }
 
-    private Map<String, Object> buildIssuanceAuditDetails(String processId, String delivery, String tenant,
-                                                           List<DeliveryResult> results, String outcome,
-                                                           String errorType) {
-        Map<String, Object> details = new LinkedHashMap<>();
-        details.put("processId", processId);
-        details.put("delivery", delivery);
-        details.put("outcome", outcome);
-        if (tenant != null) {
-            details.put("tenant", tenant);
+    /** Early guard (AC-05/ES-02): fails closed before anything is validated, built or delivered. */
+    private Mono<Void> requireResolvedTenant() {
+        return Mono.deferContextual(ctx -> {
+            String tenant = ctx.hasKey(TENANT_DOMAIN_CONTEXT_KEY) ? ctx.get(TENANT_DOMAIN_CONTEXT_KEY) : null;
+            if (tenant == null || tenant.isBlank()) {
+                return Mono.error(new TenantNotResolvedException(
+                        "Cannot process credential issuance without a resolved tenant"));
+            }
+            return Mono.empty();
+        });
+    }
+
+    /** Best-effort (ES-03/ES-04): a broken audit channel never reverts an already-completed delivery. */
+    private void auditDeliveryBestEffort(String tenant, String processId, List<DeliveryResult> results) {
+        try {
+            Set<DeliveryResult> resultSet = (results == null || results.isEmpty())
+                    ? Set.of(DeliveryResult.failed("unknown", "indeterminate_result"))
+                    : Set.copyOf(results);
+            auditService.auditDelivery(DeliveryTrace.of(tenant, processId, resultSet));
+        } catch (RuntimeException e) {
+            log.warn("ProcessId: {} - Failed to build/emit delivery audit trace", processId, e);
         }
-        if (results != null && !results.isEmpty()) {
-            details.put("deliveryResults", results.stream()
-                    .map(r -> r.mode() + "=" + r.status())
-                    .toList());
+    }
+
+    /** Best-effort (ES-03/ES-04). Failure path has no per-mode result (ES-01: indeterminate). */
+    private void auditDeliveryFailureBestEffort(String tenant, String processId) {
+        try {
+            auditService.auditDelivery(DeliveryTrace.of(tenant, processId,
+                    Set.of(DeliveryResult.failed("unknown", "indeterminate_result"))));
+        } catch (RuntimeException e) {
+            log.warn("ProcessId: {} - Failed to build/emit delivery audit trace", processId, e);
         }
-        if (errorType != null) {
-            details.put("errorType", errorType);
-        }
-        return details;
     }
 
     @Override

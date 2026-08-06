@@ -60,6 +60,9 @@ class ArchUnitTest {
                     BASE_PACKAGE + ".shared.domain.service.impl.TenantSigningConfigServiceImpl",
                     BASE_PACKAGE + ".shared.domain.service.impl.TenantRegistryServiceImpl",
                     BASE_PACKAGE + ".shared.infrastructure.config.TenantSchemaFlywayMigrator",
+                    // Reactive transactions (EUD-72): @Configuration whose beans (ReactiveTransactionManager,
+                    // TransactionalOperator) are consumed by injection, never by a direct class reference
+                    BASE_PACKAGE + ".shared.infrastructure.config.R2dbcTransactionConfiguration",
                     // Observability: dual gRPC export config, Spring-managed beans discovered via
                     // component scanning / @ConditionalOnProperty (no direct class references)
                     BASE_PACKAGE + ".shared.infrastructure.config.OtlpGrpcTracingConfig",

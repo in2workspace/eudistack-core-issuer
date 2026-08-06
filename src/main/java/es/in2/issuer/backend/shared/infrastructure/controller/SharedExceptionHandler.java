@@ -435,6 +435,21 @@ public class SharedExceptionHandler {
         );
     }
 
+    @ExceptionHandler(TenantNotResolvedException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Mono<GlobalErrorMessage> handleTenantNotResolvedException(
+            TenantNotResolvedException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.TENANT_NOT_RESOLVED.getCode(),
+                "Tenant not resolved",
+                HttpStatus.FORBIDDEN,
+                "The operation requires a resolved tenant and none could be determined for this request"
+        );
+    }
+
     @ExceptionHandler(PayloadValidationException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<GlobalErrorMessage> handlePayloadValidationException(
@@ -517,6 +532,36 @@ public class SharedExceptionHandler {
                 "Internal server error",
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "An unexpected error occurred"
+        );
+    }
+
+    @ExceptionHandler(UnknownCredentialConfigurationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleUnknownCredentialConfiguration(
+            UnknownCredentialConfigurationException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.UNKNOWN_CREDENTIAL_CONFIGURATION.getCode(),
+                "Unknown credential configuration",
+                HttpStatus.BAD_REQUEST,
+                "The request references one or more credential_configuration_id values that do not exist in the global credential profile registry"
+        );
+    }
+
+    @ExceptionHandler(CredentialCatalogNotConfiguredException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Mono<GlobalErrorMessage> handleCredentialCatalogNotConfigured(
+            CredentialCatalogNotConfiguredException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.CREDENTIAL_CATALOG_NOT_CONFIGURED.getCode(),
+                "Credential catalog not configured",
+                HttpStatus.NOT_FOUND,
+                "No credential configuration is enabled for this tenant"
         );
     }
 

@@ -46,6 +46,8 @@ public class SecurityConfig {
                         ME_PATH,
                         // Tenant admin delivery-config management (EUD-169)
                         DELIVERY_CONFIG_PATH,
+                        // Tenant credential catalog admin (EUD-72)
+                        CREDENTIAL_CATALOG_PATH,
                         // OID4VCI paths
                         OAUTH_TOKEN_PATH,
                         OID4VCI_CREDENTIAL_PATH,
@@ -102,6 +104,8 @@ public class SecurityConfig {
                         ME_PATH,
                         // Tenant admin delivery-config management (EUD-169)
                         DELIVERY_CONFIG_PATH,
+                        // Tenant credential catalog admin (EUD-72)
+                        CREDENTIAL_CATALOG_PATH,
                         // Public OID4VCI paths
                         CORS_OID4VCI_PATH,
                         VCI_PATH,

@@ -50,7 +50,8 @@ class CredentialIssuerMetadataServiceImplTest {
                 .build();
 
         when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of("learcredential.employee.w3c.4", learProfile));
-        when(tenantCredentialProfileService.getEnabledConfigurationIds()).thenReturn(Mono.just(Collections.emptySet()));
+        when(tenantCredentialProfileService.getEnabledConfigurationIds())
+                .thenReturn(Mono.just(Set.of("learcredential.employee.w3c.4")));
 
         var service = new CredentialIssuerMetadataServiceImpl(credentialProfileRegistry, tenantCredentialProfileService);
 
@@ -83,8 +84,8 @@ class CredentialIssuerMetadataServiceImplTest {
                 .build();
 
         when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of("learcredential.employee.w3c.4", learProfile));
-        // Empty set means all profiles are allowed (backward compat per the interface contract)
-        when(tenantCredentialProfileService.getEnabledConfigurationIds()).thenReturn(Mono.just(Collections.emptySet()));
+        when(tenantCredentialProfileService.getEnabledConfigurationIds())
+                .thenReturn(Mono.just(Set.of("learcredential.employee.w3c.4")));
 
         var service = new CredentialIssuerMetadataServiceImpl(credentialProfileRegistry, tenantCredentialProfileService);
 
@@ -108,6 +109,23 @@ class CredentialIssuerMetadataServiceImplTest {
                     assertThat(proofTypes).containsKey("jwt");
                     assertThat(proofTypes.get("jwt").proofSigningAlgValuesSupported()).containsExactly("ES256");
                 })
+                .verifyComplete();
+    }
+
+    @Test
+    void getCredentialIssuerMetadata_tenantWithNothingEnabled_advertisesNoConfigurations() {
+        CredentialProfile learProfile = CredentialProfile.builder()
+                .credentialConfigurationId("learcredential.employee.w3c.4")
+                .format(Constants.JWT_VC_JSON)
+                .build();
+
+        when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of("learcredential.employee.w3c.4", learProfile));
+        when(tenantCredentialProfileService.getEnabledConfigurationIds()).thenReturn(Mono.just(Collections.emptySet()));
+
+        var service = new CredentialIssuerMetadataServiceImpl(credentialProfileRegistry, tenantCredentialProfileService);
+
+        StepVerifier.create(service.getCredentialIssuerMetadata(ISSUER_URL))
+                .assertNext(metadata -> assertThat(metadata.credentialConfigurationsSupported()).isEmpty())
                 .verifyComplete();
     }
 

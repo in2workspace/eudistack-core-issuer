@@ -29,6 +29,10 @@ public class EndpointsConstants {
     // Tenant admin management of eligible delivery modes per credential type (EUD-169)
     public static final String DELIVERY_CONFIG_PATH = "/api/v1/backoffice/delivery-config/{credentialConfigurationId}";
 
+    // Tenant credential catalog admin (EUD-72, US-02). Tenant admin GET/PUT of the
+    // per-tenant enabled credential configuration ids.
+    public static final String CREDENTIAL_CATALOG_PATH = "/admin/v1/credential-catalog";
+
     // Unattended issuance intake (EUD-2/EUD-75, US-02). Path is a placeholder
     // pending EUD-74 (US-01, the intake endpoint itself) — coordinate before
     // changing, since it is a stable contract shared with that Story.

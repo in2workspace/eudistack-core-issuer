@@ -42,11 +42,12 @@ public class CredentialIssuerMetadataServiceImpl implements CredentialIssuerMeta
     }
 
     private CredentialIssuerMetadata buildMetadata(String baseUrl, Set<String> enabledIds) {
+        // No enabled ids ⇒ no supported configurations: the tenant catalog must be
+        // configured explicitly before the issuer advertises anything.
         Map<String, CredentialIssuerMetadata.CredentialConfiguration> filteredConfigs =
-                enabledIds.isEmpty() ? allConfigurations :
-                        allConfigurations.entrySet().stream()
-                                .filter(e -> enabledIds.contains(e.getKey()))
-                                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                allConfigurations.entrySet().stream()
+                        .filter(e -> enabledIds.contains(e.getKey()))
+                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
         return CredentialIssuerMetadata.builder()
                 .credentialIssuer(baseUrl)
