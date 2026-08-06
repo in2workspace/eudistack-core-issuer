@@ -116,6 +116,13 @@ management:
         step: 5s
         resource-attributes:
           service.name: ${spring.application.name}
+    logging:
+      # Reuses the same OTel Collector gRPC endpoint as the metrics export above.
+      # Default off: local runs / tests must not try to export.
+      endpoint: ${OTEL_COLLECTOR_GRPC_URL:http://127.0.0.1:4317}
+      transport: ${MANAGEMENT_OTLP_LOGGING_TRANSPORT:grpc}
+      export:
+        enabled: ${MANAGEMENT_OTLP_LOGGING_EXPORT_ENABLED:false}
   metrics:
     enable:
       all: true
