@@ -145,6 +145,21 @@ public class CredentialProfileRegistry {
         return byCredentialType.get(credentialType);
     }
 
+    /**
+     * Resolves a profile from an identifier that may be either a {@code credential_configuration_id}
+     * or a bare W3C credential type name.
+     *
+     * <p>Modern profiles encode the configuration id inside {@code credential_definition.type},
+     * so both indexes coincide. Legacy DOME credentials carry a human-readable type instead
+     * (e.g. {@code LEARCredentialEmployee}), which only exists in the credential-type index.
+     *
+     * @return the matching profile, or {@code null} when neither index contains the key
+     */
+    public CredentialProfile resolveProfile(String credentialTypeOrConfigurationId) {
+        CredentialProfile profile = byConfigurationId.get(credentialTypeOrConfigurationId);
+        return profile != null ? profile : byCredentialType.get(credentialTypeOrConfigurationId);
+    }
+
     public Map<String, CredentialProfile> getAllProfiles() {
         return byConfigurationId;
     }

@@ -165,19 +165,21 @@ class IssuancePdpServiceImplIntegrationTest {
 
     @Test
     void authorize_success_for_LearCredentialEmployee_with_flatToken() throws Exception {
-        // Profile for the emitter credential type (used by PolicyContextFactory.resolveProfile)
-        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE))
-                .thenReturn(CredentialProfile.builder()
-                        .credentialConfigurationId(CREDENTIAL_TYPE)
-                        .policyExtraction(CredentialProfile.PolicyExtraction.builder()
-                                .powersPath("power")
-                                .mandatorPath("mandator")
-                                .orgIdField("organizationIdentifier")
-                                .build())
-                        .issuancePolicy(CredentialProfile.IssuancePolicy.builder()
-                                .rules(List.of("RequireLearCredentialIssuance"))
-                                .build())
-                        .build());
+        CredentialProfile profile = CredentialProfile.builder()
+                .credentialConfigurationId(CREDENTIAL_TYPE)
+                .policyExtraction(CredentialProfile.PolicyExtraction.builder()
+                        .powersPath("power")
+                        .mandatorPath("mandator")
+                        .orgIdField("organizationIdentifier")
+                        .build())
+                .issuancePolicy(CredentialProfile.IssuancePolicy.builder()
+                        .rules(List.of("RequireLearCredentialIssuance"))
+                        .build())
+                .build();
+        // Target profile lookup (IssuancePdpServiceImpl, checkIfEmitterIsAllowedToIssue)
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+        // Emitter profile lookup (PolicyContextFactory.resolveProfile)
+        when(credentialProfileRegistry.resolveProfile(CREDENTIAL_TYPE)).thenReturn(profile);
 
         List<Map<String, Object>> powers = List.of(
                 Map.of("function", "Onboarding", "action", List.of("Execute"), "domain", "DOME", "type", "Domain"),

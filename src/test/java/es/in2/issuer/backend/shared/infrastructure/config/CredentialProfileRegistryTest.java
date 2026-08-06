@@ -173,6 +173,38 @@ class CredentialProfileRegistryTest {
     }
 
     @Test
+    void shouldResolveProfileByConfigurationId() throws IOException {
+        ResourcePatternResolver resolver = mockResolver(validEmployeeProfile());
+
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
+
+        CredentialProfile profile = registry.resolveProfile("learcredential.employee.w3c.4");
+        assertThat(profile).isNotNull();
+        assertThat(profile.credentialConfigurationId()).isEqualTo("learcredential.employee.w3c.4");
+    }
+
+    @Test
+    void shouldResolveProfileByLegacyCredentialTypeName() throws IOException {
+        ResourcePatternResolver resolver = mockResolver(validEmployeeProfile(), legacyEmployeeProfile());
+
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
+
+        assertThat(registry.getByConfigurationId("LEARCredentialEmployee")).isNull();
+        CredentialProfile profile = registry.resolveProfile("LEARCredentialEmployee");
+        assertThat(profile).isNotNull();
+        assertThat(profile.credentialConfigurationId()).isEqualTo("learcredential.employee.w3c.3");
+    }
+
+    @Test
+    void shouldReturnNullWhenResolvingUnknownIdentifier() throws IOException {
+        ResourcePatternResolver resolver = mockResolver(validEmployeeProfile());
+
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
+
+        assertThat(registry.resolveProfile("NonExistent")).isNull();
+    }
+
+    @Test
     void shouldHandleEmptyResourceList() throws IOException {
         ResourcePatternResolver resolver = mock(ResourcePatternResolver.class);
         when(resolver.getResources(anyString())).thenReturn(new Resource[0]);
@@ -339,6 +371,31 @@ class CredentialProfileRegistryTest {
                   "organization_extraction": {
                     "strategy": "field",
                     "field": "mandate.mandator.organizationIdentifier"
+                  }
+                }
+                """);
+    }
+
+    private Resource legacyEmployeeProfile() {
+        return namedResource("lear-credential-employee-legacy.json", """
+                {
+                  "credential_configuration_id": "learcredential.employee.w3c.3",
+                  "credential_format": "jwt_vc_json",
+                  "scope": "lear_credential_employee",
+                  "credential_definition": {
+                    "context": [
+                      "https://www.w3.org/ns/credentials/v2",
+                      "https://credentials.eudistack.eu/.well-known/credentials/lear_credential_employee/w3c/v3"
+                    ],
+                    "type": ["VerifiableCredential", "LEARCredentialEmployee"]
+                  },
+                  "validity_days": 365,
+                  "issuer_type": "DETAILED",
+                  "cnf_required": true,
+                  "policy_extraction": {
+                    "powers_path": "credentialSubject.mandate.power",
+                    "mandator_path": "credentialSubject.mandate.mandator",
+                    "org_id_field": "organizationIdentifier"
                   }
                 }
                 """);
