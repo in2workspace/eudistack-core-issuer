@@ -6,11 +6,10 @@ import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
@@ -34,13 +33,15 @@ public class CredentialIssuerMetadataController {
     // request has nothing to negotiate against and would otherwise get a hard 406 -
     // this keeps serving the plain JSON body regardless of what was requested,
     // letting the caller itself notice it isn't signed instead of being rejected
-    // outright (EUD-215, oid4vci-1_0-issuer-metadata-test-signed).
+    // outright (EUD-215, oid4vci-1_0-issuer-metadata-test-signed). The response is
+    // wrapped in ResponseEntity with an explicit contentType so Spring writes it as
+    // JSON unconditionally instead of trying to honor the requested Accept type,
+    // which otherwise triggers a 500 when no converter can write application/jwt.
     @GetMapping(
             value = {CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_PATH, CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_WILDCARD_PATH},
             produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.ALL_VALUE}
     )
-    @ResponseStatus(HttpStatus.OK)
-    public Mono<CredentialIssuerMetadata> getCredentialIssuerMetadata(ServerWebExchange exchange) {
+    public Mono<ResponseEntity<CredentialIssuerMetadata>> getCredentialIssuerMetadata(ServerWebExchange exchange) {
         String processId = UUID.randomUUID().toString();
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
         ServerHttpResponse response = exchange.getResponse();
@@ -49,7 +50,10 @@ public class CredentialIssuerMetadataController {
                 .doFirst(() ->
                         log.info("Process ID: {} - Getting Credential Issuer Metadata...", processId))
                 .doOnSuccess(credentialOffer ->
-                        log.info("Process ID: {} - Credential Issuer Metadata generated successfully.", processId));
+                        log.info("Process ID: {} - Credential Issuer Metadata generated successfully.", processId))
+                .map(credentialIssuerMetadata -> ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(credentialIssuerMetadata));
     }
 
 }
