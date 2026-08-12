@@ -29,9 +29,15 @@ public class CredentialIssuerMetadataController {
     private final GetCredentialIssuerMetadataWorkflow getCredentialIssuerMetadataWorkflow;
     private final UrlResolver urlResolver;
 
+    // MediaType.ALL_VALUE alongside APPLICATION_JSON: we don't implement signed
+    // metadata (optional per OID4VCI 1.0 §12.2.3) yet, so an Accept: application/jwt
+    // request has nothing to negotiate against and would otherwise get a hard 406 -
+    // this keeps serving the plain JSON body regardless of what was requested,
+    // letting the caller itself notice it isn't signed instead of being rejected
+    // outright (EUD-215, oid4vci-1_0-issuer-metadata-test-signed).
     @GetMapping(
             value = {CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_PATH, CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_WILDCARD_PATH},
-            produces = MediaType.APPLICATION_JSON_VALUE
+            produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.ALL_VALUE}
     )
     @ResponseStatus(HttpStatus.OK)
     public Mono<CredentialIssuerMetadata> getCredentialIssuerMetadata(ServerWebExchange exchange) {

@@ -31,12 +31,15 @@ public class AuthorizationServerMetadataController {
     private final GetAuthorizationServerMetadataWorkflow getAuthorizationServerMetadataWorkflow;
     private final UrlResolver urlResolver;
 
+    // MediaType.ALL_VALUE: same rationale as CredentialIssuerMetadataController -
+    // signed metadata isn't implemented, so don't 406 an Accept: application/jwt
+    // request, just keep serving the plain JSON body (EUD-215).
     @GetMapping(
             value = {
                     OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_PATH, OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_WILDCARD_PATH,
                     AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH, AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_WILDCARD_PATH
             },
-            produces = MediaType.APPLICATION_JSON_VALUE
+            produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.ALL_VALUE}
     )
     @ResponseStatus(HttpStatus.OK)
     public Mono<AuthorizationServerMetadata> getAuthorizationServerMetadata(ServerWebExchange exchange) {
