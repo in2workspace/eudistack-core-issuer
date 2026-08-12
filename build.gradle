@@ -141,6 +141,12 @@ sonar {
     }
 }
 
+dependencyCheck {
+    failBuildOnCVSS = 7
+    formats = ['HTML', 'JSON']
+    suppressionFile = "${rootDir}/config/dependency-check/suppressions.xml"
+}
+
 checkstyle {
     configFile = file("${rootDir}/config/checkstyle/checkstyle.xml")
 }
