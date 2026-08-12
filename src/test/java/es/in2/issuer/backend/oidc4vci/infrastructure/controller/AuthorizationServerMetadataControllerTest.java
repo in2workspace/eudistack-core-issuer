@@ -75,4 +75,31 @@ class AuthorizationServerMetadataControllerTest {
                 .isEqualTo(expectedAuthorizationServerMetadata);
     }
 
+    // EUD-215: OID4VCI 1.0 §12.2.2 - same well-known-before-path shape as
+    // the credential issuer metadata endpoint.
+    @Test
+    void testGetAuthorizationServerMetadata_withIssuerPathSuffix_Success() {
+        // Arrange
+        AuthorizationServerMetadata expectedAuthorizationServerMetadata = AuthorizationServerMetadata.builder()
+                .issuer("https://issuer.example.com/issuer")
+                .tokenEndpoint("https://issuer.example.com/issuer/oauth/token")
+                .responseTypesSupported(Set.of("token"))
+                .preAuthorizedGrantAnonymousAccessSupported(true)
+                .build();
+        // Mock
+        when(urlResolver.publicIssuerBaseUrl(org.mockito.ArgumentMatchers.any()))
+                .thenReturn("https://issuer.example.com/issuer");
+        when(getAuthorizationServerMetadataWorkflow.execute(anyString(), anyString()))
+                .thenReturn(Mono.just(expectedAuthorizationServerMetadata));
+        // Act + Assert
+        webTestClient
+                .get()
+                .uri("/.well-known/oauth-authorization-server/issuer")
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(AuthorizationServerMetadata.class)
+                .isEqualTo(expectedAuthorizationServerMetadata);
+    }
+
 }

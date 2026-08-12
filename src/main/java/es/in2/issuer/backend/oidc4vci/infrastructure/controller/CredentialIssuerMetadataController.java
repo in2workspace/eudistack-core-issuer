@@ -10,7 +10,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
@@ -19,17 +18,21 @@ import reactor.core.publisher.Mono;
 import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.ENGLISH;
+import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_PATH;
+import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_WILDCARD_PATH;
 
 @Slf4j
 @RestController
-@RequestMapping("/.well-known/openid-credential-issuer")
 @RequiredArgsConstructor
 public class CredentialIssuerMetadataController {
 
     private final GetCredentialIssuerMetadataWorkflow getCredentialIssuerMetadataWorkflow;
     private final UrlResolver urlResolver;
 
-    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+    @GetMapping(
+            value = {CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_PATH, CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_WILDCARD_PATH},
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
     @ResponseStatus(HttpStatus.OK)
     public Mono<CredentialIssuerMetadata> getCredentialIssuerMetadata(ServerWebExchange exchange) {
         String processId = UUID.randomUUID().toString();

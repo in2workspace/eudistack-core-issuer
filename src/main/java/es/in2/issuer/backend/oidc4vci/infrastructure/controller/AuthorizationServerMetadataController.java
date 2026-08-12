@@ -19,7 +19,9 @@ import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.ENGLISH;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH;
+import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_WILDCARD_PATH;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_PATH;
+import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_WILDCARD_PATH;
 
 @Slf4j
 @RestController
@@ -30,7 +32,10 @@ public class AuthorizationServerMetadataController {
     private final UrlResolver urlResolver;
 
     @GetMapping(
-            value = {OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_PATH, AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH},
+            value = {
+                    OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_PATH, OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_WILDCARD_PATH,
+                    AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH, AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_WILDCARD_PATH
+            },
             produces = MediaType.APPLICATION_JSON_VALUE
     )
     @ResponseStatus(HttpStatus.OK)
