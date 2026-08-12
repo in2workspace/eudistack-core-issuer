@@ -75,6 +75,34 @@ class AuthorizationServerMetadataControllerTest {
                 .isEqualTo(expectedAuthorizationServerMetadata);
     }
 
+    // EUD-215: signed metadata isn't implemented - an Accept: application/jwt
+    // request must still get the plain JSON body back (200), not a 406.
+    @Test
+    void testGetAuthorizationServerMetadata_withUnsupportedAcceptHeader_stillReturns200() {
+        // Arrange
+        AuthorizationServerMetadata expectedAuthorizationServerMetadata = AuthorizationServerMetadata.builder()
+                .issuer("https://issuer.example.com")
+                .tokenEndpoint("https://issuer.example.com/oauth/token")
+                .responseTypesSupported(Set.of("token"))
+                .preAuthorizedGrantAnonymousAccessSupported(true)
+                .build();
+        // Mock
+        when(urlResolver.publicIssuerBaseUrl(org.mockito.ArgumentMatchers.any()))
+                .thenReturn("https://issuer.example.com");
+        when(getAuthorizationServerMetadataWorkflow.execute(anyString(), anyString()))
+                .thenReturn(Mono.just(expectedAuthorizationServerMetadata));
+        // Act + Assert
+        webTestClient
+                .get()
+                .uri("/.well-known/openid-configuration")
+                .accept(MediaType.valueOf("application/jwt"))
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentType(MediaType.APPLICATION_JSON)
+                .expectBody(AuthorizationServerMetadata.class)
+                .isEqualTo(expectedAuthorizationServerMetadata);
+    }
+
     // EUD-215: OID4VCI 1.0 §12.2.2 - same well-known-before-path shape as
     // the credential issuer metadata endpoint.
     @Test

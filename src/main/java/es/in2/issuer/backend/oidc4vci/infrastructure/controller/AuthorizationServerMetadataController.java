@@ -6,11 +6,10 @@ import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
@@ -31,15 +30,19 @@ public class AuthorizationServerMetadataController {
     private final GetAuthorizationServerMetadataWorkflow getAuthorizationServerMetadataWorkflow;
     private final UrlResolver urlResolver;
 
+    // MediaType.ALL_VALUE: same rationale as CredentialIssuerMetadataController -
+    // signed metadata isn't implemented, so don't 406 an Accept: application/jwt
+    // request, just keep serving the plain JSON body (EUD-215). ResponseEntity with
+    // an explicit contentType forces Spring to write JSON unconditionally instead of
+    // negotiating against the requested Accept type (which otherwise 500s).
     @GetMapping(
             value = {
                     OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_PATH, OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_WILDCARD_PATH,
                     AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH, AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_WILDCARD_PATH
             },
-            produces = MediaType.APPLICATION_JSON_VALUE
+            produces = {MediaType.APPLICATION_JSON_VALUE, MediaType.ALL_VALUE}
     )
-    @ResponseStatus(HttpStatus.OK)
-    public Mono<AuthorizationServerMetadata> getAuthorizationServerMetadata(ServerWebExchange exchange) {
+    public Mono<ResponseEntity<AuthorizationServerMetadata>> getAuthorizationServerMetadata(ServerWebExchange exchange) {
         String processId = UUID.randomUUID().toString();
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
         ServerHttpResponse response = exchange.getResponse();
@@ -48,7 +51,10 @@ public class AuthorizationServerMetadataController {
                 .doFirst(() ->
                         log.info("Process ID: {} - Getting Authorization Server Metadata...", processId))
                 .doOnSuccess(metadata ->
-                        log.info("Process ID: {} - Authorization Server Metadata generated successfully.", processId));
+                        log.info("Process ID: {} - Authorization Server Metadata generated successfully.", processId))
+                .map(authorizationServerMetadata -> ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(authorizationServerMetadata));
     }
 
 }
