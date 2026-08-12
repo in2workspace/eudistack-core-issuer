@@ -51,6 +51,13 @@ public class AuthorizationServerMetadataServiceImpl implements AuthorizationServ
             builder.authorizationEndpoint(issuerUrl + OID4VCI_AUTHORIZE_PATH);
             builder.tokenEndpointAuthMethodsSupported(List.of(authCodeConfig.clientAuthMethod()));
 
+            // OAuth 2.0 Attestation-Based Client Authentication §10.1: both signing
+            // alg lists are REQUIRED whenever attest_jwt_client_auth is advertised.
+            if ("attest_jwt_client_auth".equals(authCodeConfig.clientAuthMethod())) {
+                builder.clientAttestationSigningAlgValuesSupported(List.of("ES256"));
+                builder.clientAttestationPopSigningAlgValuesSupported(List.of("ES256"));
+            }
+
             if (authCodeConfig.requirePkce()) {
                 builder.codeChallengeMethodsSupported(authCodeConfig.pkceMethods());
             }
