@@ -128,4 +128,23 @@ class Oidc4vciExceptionHandlerTest {
         verify(errors).handleWith(ex, request, type, title, st, fallback);
     }
 
+    // -------------------- handleIllegalArgumentException --------------------
+
+    @Test
+    void handleIllegalArgumentException_returnsBadRequest() {
+        var ex = new IllegalArgumentException("Missing DPoP proof");
+        var type = GlobalErrorTypes.INVALID_REQUEST.getCode();
+        var title = "Invalid request";
+        var st = HttpStatus.BAD_REQUEST;
+        var expected = new GlobalErrorMessage(type, title, st.value(), "Missing DPoP proof", UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, "Missing DPoP proof")).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleIllegalArgumentException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, "Missing DPoP proof"))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, "Missing DPoP proof");
+    }
+
 }
