@@ -52,9 +52,12 @@ public class ParServiceImpl implements ParService {
                 }
             }
 
-            // Validate DPoP if required
+            // Validate DPoP if the client chose to bind it here. Per RFC 9449 §10.1, DPoP
+            // binding at the PAR endpoint is OPTIONAL — a client may instead defer proof-of-
+            // possession entirely to the /token request. Only validate the header when present;
+            // requireDpop() still governs enforcement at the token endpoint.
             String dpopJkt = null;
-            if (profileProperties.authorizationCode().requireDpop()) {
+            if (dpopHeader != null && !dpopHeader.isBlank()) {
                 dpopJkt = dpopValidationService.validate(dpopHeader, "POST", requestUri);
             }
 
