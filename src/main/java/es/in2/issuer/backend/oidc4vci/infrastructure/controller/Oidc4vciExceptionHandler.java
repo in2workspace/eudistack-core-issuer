@@ -20,7 +20,11 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import reactor.core.publisher.Mono;
 
 @Slf4j
-@RestControllerAdvice
+// Scoped to this package only: IllegalArgumentException is also thrown for internal/
+// unrelated reasons elsewhere in the app (signing, status list, tenant config...), where
+// it must stay a 500. Only the OID4VCI protocol endpoints (PAR, token, credential, nonce...)
+// should treat it as a client input error.
+@RestControllerAdvice(basePackages = "es.in2.issuer.backend.oidc4vci.infrastructure.controller")
 @RequiredArgsConstructor
 @Order(1)
 public class Oidc4vciExceptionHandler {
@@ -68,6 +72,27 @@ public class Oidc4vciExceptionHandler {
                 "Proof validation error",
                 HttpStatus.BAD_REQUEST,
                 "The provided proof is invalid."
+        );
+    }
+
+    // Raised by ParServiceImpl, DpopValidationService, ClientAttestationValidationService and
+    // PkceVerifier for malformed/invalid client input (missing DPoP proof, bad client attestation,
+    // PKCE mismatch, etc.). Per RFC 9126 §2.3 a bad Pushed Authorization Request — and, by the
+    // same reasoning, a bad token request — must yield a 400 OAuth error, not a 500. Scoped to
+    // this advice (see class-level Javadoc) so it doesn't reclassify unrelated IllegalArgumentException
+    // uses elsewhere in the app.
+    @ExceptionHandler(IllegalArgumentException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleIllegalArgumentException(
+            IllegalArgumentException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.INVALID_REQUEST.getCode(),
+                "Invalid request",
+                HttpStatus.BAD_REQUEST,
+                ex.getMessage()
         );
     }
 }

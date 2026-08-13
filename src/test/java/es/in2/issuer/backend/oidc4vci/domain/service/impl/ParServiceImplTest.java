@@ -129,4 +129,33 @@ class ParServiceImplTest {
         verify(dpopValidationService, never()).validate(anyString(), anyString(), anyString());
         verify(clientAttestationValidationService, never()).validateHeaders(anyString(), anyString(), any());
     }
+
+    @Test
+    void pushAuthorizationRequest_shouldSucceedWhenDpopRequiredButHeaderAbsent() {
+        // RFC 9449 §10.1: DPoP binding at the PAR endpoint is OPTIONAL - a client may defer
+        // proof-of-possession entirely to the /token request instead.
+        PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
+                .responseType("code")
+                .clientId("wallet-client")
+                .redirectUri("https://wallet.example.com/callback")
+                .codeChallenge("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
+                .codeChallengeMethod("S256")
+                .build();
+
+        var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
+                true, true, List.of("S256"),
+                true, List.of("ES256"),
+                "none", false
+        );
+
+        when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
+        when(parCacheStore.add(anyString(), any(PushedAuthorizationRequest.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0, String.class)));
+
+        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par", null))
+                .assertNext(response -> assertNotNull(response.requestUri()))
+                .verifyComplete();
+
+        verify(dpopValidationService, never()).validate(anyString(), anyString(), anyString());
+    }
 }
