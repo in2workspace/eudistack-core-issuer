@@ -275,7 +275,15 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         return (jwtProofConfig != null) ? jwtProofConfig.proofSigningAlgValuesSupported() : null;
     }
 
+    // OID4VCI 1.0 Final §8.2 sends "proofs" (plural, batch-capable); older clients -
+    // e.g. our own Wallet PWA, not yet migrated - still send "proof" (singular).
+    // Prefer proofs when present, falling back to proof for backward compatibility.
     private String extractFirstJwtProof(CredentialRequest credentialRequest) {
+        if (credentialRequest.proofs() != null
+                && credentialRequest.proofs().jwt() != null
+                && !credentialRequest.proofs().jwt().isEmpty()) {
+            return credentialRequest.proofs().jwt().get(0);
+        }
         return credentialRequest.proof() != null ? credentialRequest.proof().jwt() : null;
     }
 

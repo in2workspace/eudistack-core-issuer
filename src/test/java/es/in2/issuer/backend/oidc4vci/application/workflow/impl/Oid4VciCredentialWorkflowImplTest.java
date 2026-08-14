@@ -5,6 +5,7 @@ import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflo
 import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialResponse;
+import es.in2.issuer.backend.oidc4vci.domain.model.dto.Proofs;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
@@ -215,6 +216,87 @@ class Oid4VciCredentialWorkflowImplTest {
     }
 
     @Test
+    void createCredentialResponse_withProofsPlural_extractsJwtFromProofsArray() {
+        // OID4VCI 1.0 Final §8.2 "proofs" (plural) form - must resolve the same as the
+        // legacy singular "proof" would.
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+        CredentialProfile profile = buildProfile(true);
+        String expectedIssuer = "https://issuer.example.com";
+        CredentialIssuerMetadata.CredentialConfiguration config =
+                CredentialIssuerMetadata.CredentialConfiguration.builder()
+                        .format(JWT_VC_JSON)
+                        .cryptographicBindingMethodsSupported(Set.of("did:key"))
+                        .proofTypesSupported(Map.of("jwt", CredentialProfile.ProofTypeConfig.builder()
+                                .proofSigningAlgValuesSupported(Set.of("ES256"))
+                                .build()))
+                        .build();
+        CredentialIssuerMetadata metadata = CredentialIssuerMetadata.builder()
+                .credentialIssuer(expectedIssuer)
+                .credentialEndpoint(expectedIssuer + "/oid4vci/v1/credential")
+                .credentialConfigurationsSupported(Map.of(CREDENTIAL_TYPE, config))
+                .build();
+
+        String kid = "did:key:zDnaevN85Z7VJgcBoQeqQU7d8kZpuVhDSdm8hQtJYWjvek3VL#key-1";
+        String jwtProof = buildJwtProofWithKid(kid);
+
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialConfigurationId(CREDENTIAL_TYPE)
+                .proofs(Proofs.builder().jwt(java.util.List.of(jwtProof)).build())
+                .build();
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN)
+                .issuanceId(ISSUANCE_ID)
+                .build();
+
+        StatusListEntry statusEntry = new StatusListEntry(
+                "https://issuer.example/status/1#7",
+                "BitstringStatusListEntry",
+                StatusPurpose.REVOCATION,
+                "7",
+                "https://issuer.example/status/1"
+        );
+
+        String enrichedDataSet = "{\"enriched\":true}";
+        String boundDataSet = "{\"enriched\":true,\"holderBound\":true}";
+        String enrichedWithStatus = "{\"enriched\":true,\"credentialStatus\":{}}";
+        String signedCredential = "signed-jwt-vc";
+
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+        when(proofValidationService.verifyProof(eq(jwtProof), eq(Set.of("ES256")), eq(expectedIssuer)))
+                .thenReturn(Mono.just(true));
+        when(genericCredentialBuilder.bindIssuer(eq(profile), eq(CREDENTIAL_DATA_SET), eq(ISSUANCE_ID), anyString()))
+                .thenReturn(Mono.just(enrichedDataSet));
+        when(genericCredentialBuilder.bindHolderDid(eq(enrichedDataSet), anyString()))
+                .thenReturn(boundDataSet);
+        when(statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, ISSUANCE_ID, BEARER_PREFIX + RAW_TOKEN, PUBLIC_BASE_URL))
+                .thenReturn(Mono.just(statusEntry));
+        when(genericCredentialBuilder.injectCredentialStatus(eq(boundDataSet), any(CredentialStatus.class), eq(JWT_VC_JSON)))
+                .thenReturn(enrichedWithStatus);
+        when(enrichmentCacheStore.add(eq(ISSUANCE_ID), eq(enrichedWithStatus)))
+                .thenReturn(Mono.just(enrichedWithStatus));
+        when(credentialSignerWorkflow.signCredential(
+                eq(BEARER_PREFIX + RAW_TOKEN), eq(enrichedWithStatus), eq(CREDENTIAL_TYPE),
+                eq(JWT_VC_JSON), eq(Map.of("kid", kid)), eq(ISSUANCE_ID), anyString()))
+                .thenReturn(Mono.just(signedCredential));
+        when(notificationCacheStore.add(anyString(), eq(ISSUANCE_ID)))
+                .thenReturn(Mono.just(ISSUANCE_ID));
+        when(issuanceService.updateIssuance(any(Issuance.class)))
+                .thenReturn(Mono.just(issuance));
+
+        // Act & Assert
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .assertNext(resp -> {
+                    assertThat(resp.credentials()).hasSize(1);
+                    assertThat(resp.credentials().getFirst().credential()).isEqualTo(signedCredential);
+                })
+                .verifyComplete();
+
+        verify(proofValidationService).verifyProof(eq(jwtProof), eq(Set.of("ES256")), eq(expectedIssuer));
+    }
+
+    @Test
     void createCredentialResponse_procedureNotDraft_returnsError() {
         Issuance issuance = buildProcedure(JWT_VC_JSON);
         issuance.setCredentialStatus(CredentialStatusEnum.ISSUED);
@@ -326,5 +408,17 @@ class Oid4VciCredentialWorkflowImplTest {
                 .credentialEndpoint("https://issuer.example.com/oid4vci/v1/credential")
                 .credentialConfigurationsSupported(Map.of(CREDENTIAL_TYPE, config))
                 .build();
+    }
+
+    // Minimal syntactically-valid JWS compact serialization (header.payload.signature) with
+    // a "kid" header claim. proofValidationService (mocked) owns signature verification, so
+    // the signature segment content is irrelevant here - only extractBindingInfoFromJwtProof's
+    // header parsing is exercised.
+    private String buildJwtProofWithKid(String kid) {
+        var encoder = java.util.Base64.getUrlEncoder().withoutPadding();
+        String header = encoder.encodeToString(
+                ("{\"kid\":\"" + kid + "\",\"alg\":\"ES256\"}").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String payload = encoder.encodeToString("{}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return header + "." + payload + ".sig";
     }
 }
