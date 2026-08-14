@@ -43,7 +43,7 @@ public class CredentialController {
         String credentialEndpointUri = publicIssuerBaseUrl + exchange.getRequest().getPath().pathWithinApplication().value();
         return accessTokenService.resolveAccessTokenContext(authorizationHeader)
                 .flatMap(token -> validateDpopBinding(token, dpopHeader, credentialEndpointUri)
-                        .then(oid4VciCredentialWorkflow.createCredentialResponse(processId, credentialRequest, token, publicIssuerBaseUrl)))
+                        .then(Mono.defer(() -> oid4VciCredentialWorkflow.createCredentialResponse(processId, credentialRequest, token, publicIssuerBaseUrl))))
                 .map(verifiableCredentialResponse -> {
                     log.info("Process ID: {} - Credential response ready (deferred={})", processId, verifiableCredentialResponse.transactionId() != null);
                     if (verifiableCredentialResponse.transactionId() != null) {
