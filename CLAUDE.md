@@ -25,7 +25,7 @@ Repo group: `com.eudistack` · current version: see `build.gradle`.
 - **WebClient** for outbound HTTP (Verifier, QTSP, Trust Framework)
 - **Testcontainers** for integration tests
 - **Checkstyle** + **JaCoCo** wired into CI (`./gradlew build` runs them via `check`).
-- **OWASP dependency-check** plugin available locally (`./gradlew dependencyCheckAnalyze`); not yet bound to CI.
+- **Trivy** vulnerability scan wired into CI (`aquasecurity/trivy-action`), scanning the built jar in `build/libs`; fails on HIGH/CRITICAL findings.
 
 ## Architecture (hexagonal)
 
@@ -63,7 +63,7 @@ Strict rules in `../eudistack-platform-dev/.claude/rules/hexagonal-discipline.md
 | Full check (compile + tests + checkstyle + jacoco) | `./gradlew check` |
 | Rebuild Docker image for stack | `cd ../eudistack-platform-dev && make rebuild-issuer-service` |
 | Tail logs in stack | `cd ../eudistack-platform-dev && make logs-issuer` |
-| OWASP dependency check (local only) | `./gradlew dependencyCheckAnalyze` |
+| Trivy vulnerability scan (local, mirrors CI) | `trivy fs --severity HIGH,CRITICAL --scanners vuln build/libs` |
 | Format check | `./gradlew checkstyleMain checkstyleTest` |
 
 ## Testing conventions
