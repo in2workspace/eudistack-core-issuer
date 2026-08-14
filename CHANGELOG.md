@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **EUD-219 — Removal of GPL-3.0 dependency**: the `io.github.novacrypto:Base58` dependency (GPL-3.0 license) has been removed and replaced with a custom `Base58Codec` implementation.
+
 ### Fixed
 
 - **EUD-215 — PAR endpoint required a `DPoP` header, rejecting spec-compliant requests that defer proof-of-possession to `/token`**: per RFC 9449 §10.1, DPoP binding at the Pushed Authorization Request endpoint is optional — a client may send neither `dpop_jkt` nor a `DPoP` header there and instead bind the key on the token request only. `ParServiceImpl` unconditionally required `DPoP` whenever the tenant profile had `requireDpop` enabled, rejecting the OIDF conformance suite's (spec-compliant) request that omitted it. Now `DpopValidationService.validate(...)` is only invoked when a `DPoP` header is actually present; `requireDpop` still governs enforcement at the token endpoint.

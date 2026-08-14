@@ -2,7 +2,7 @@ package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
 import com.nimbusds.jose.JWSObject;
 import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWorkflow;
-import io.github.novacrypto.base58.Base58;
+import es.in2.issuer.backend.shared.domain.util.Base58Codec;
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.*;
@@ -371,7 +371,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             keyWithPrefix[1] = 0x24;
             System.arraycopy(compressed, 0, keyWithPrefix, 2, 33);
 
-            return "did:key:z" + Base58.base58Encode(keyWithPrefix);
+            return "did:key:z" + Base58Codec.encode(keyWithPrefix);
         } catch (Exception e) {
             log.warn("Could not derive did:key from JWK proof, falling back to random subject: {}", e.getMessage());
             return "urn:uuid:" + UUID.randomUUID();
