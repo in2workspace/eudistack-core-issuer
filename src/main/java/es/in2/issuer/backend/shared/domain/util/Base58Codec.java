@@ -44,8 +44,9 @@ public final class Base58Codec {
         byte[] temp = Arrays.copyOf(input, input.length); // copy because divmod is destructive
         char[] encoded = new char[input.length * 2]; // upper bound
         int outputStart = encoded.length;
-        for (int inputStart = zeros; inputStart < temp.length; ) {
-            encoded[--outputStart] = ALPHABET[divmod(temp, inputStart, 256, 58)];
+        int inputStart = zeros;
+        while (inputStart < temp.length) {
+            encoded[--outputStart] = ALPHABET[divMod(temp, inputStart, 256, 58)];
             if (temp[inputStart] == 0) {
                 inputStart++;
             }
@@ -75,29 +76,13 @@ public final class Base58Codec {
             throw new IllegalArgumentException("Input too long");
         }
         // Count leading zeros.
-        int zeros = 0;
-        while (zeros < input.length() && input.charAt(zeros) == ALPHABET[0]) {
-            zeros++;
-        }
+        int zeros = countLeadingZeros(input);
         // Convert base.
         byte[] decoded = new byte[input.length()];
         int outputStart = decoded.length;
         for (int i = zeros; i < input.length(); i++) {
-            char c = input.charAt(i);
-            int digit = c < 128 ? INDEXES[c] : -1;
-            if (digit < 0) {
-                throw new IllegalArgumentException("Invalid character '" + c + "' at index " + i);
-            }
-            int remainder = digit;
-            for (int j = decoded.length - 1; j >= outputStart; j--) {
-                int temp = (decoded[j] & 0xFF) * 58 + remainder;
-                decoded[j] = (byte) (temp % 256);
-                remainder = temp / 256;
-            }
-            while (remainder > 0) {
-                decoded[--outputStart] = (byte) (remainder % 256);
-                remainder /= 256;
-            }
+            int digit = getDigit(input.charAt(i), i);
+            outputStart = updateDecoded(decoded, outputStart, digit);
         }
         // Skip leading zeros in result (except those preserved by Base58 rule).
         while (outputStart < decoded.length && decoded[outputStart] == 0) {
@@ -106,10 +91,41 @@ public final class Base58Codec {
         return Arrays.copyOfRange(decoded, outputStart - zeros, decoded.length);
     }
 
-    private static int divmod(byte[] number, int firstDigit, int base, int divisor) {
+    private static int countLeadingZeros(String input) {
+        int zeros = 0;
+        while (zeros < input.length() && input.charAt(zeros) == ALPHABET[0]) {
+            zeros++;
+        }
+        return zeros;
+    }
+
+    private static int getDigit(char c, int index) {
+        int digit = c < 128 ? INDEXES[c] : -1;
+        if (digit < 0) {
+            throw new IllegalArgumentException("Invalid character '" + c + "' at index " + index);
+        }
+        return digit;
+    }
+
+    private static int updateDecoded(byte[] decoded, int outputStart, int digit) {
+        int remainder = digit;
+        for (int j = decoded.length - 1; j >= outputStart; j--) {
+            int temp = (decoded[j] & 0xFF) * 58 + remainder;
+            decoded[j] = (byte) (temp % 256);
+            remainder = temp / 256;
+        }
+        int currentOutputStart = outputStart;
+        while (remainder > 0) {
+            decoded[--currentOutputStart] = (byte) (remainder % 256);
+            remainder /= 256;
+        }
+        return currentOutputStart;
+    }
+
+    private static int divMod(byte[] number, int firstDigit, int base, int divisor) {
         int remainder = 0;
         for (int i = firstDigit; i < number.length; i++) {
-            int digit = (int) number[i] & 0xFF;
+            int digit = number[i] & 0xFF;
             int temp = remainder * base + digit;
             number[i] = (byte) (temp / divisor);
             remainder = temp % divisor;
