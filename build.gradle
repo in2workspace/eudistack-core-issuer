@@ -166,6 +166,7 @@ tasks.named('compileJava') {
 
 tasks.named('test') {
     useJUnitPlatform()
+    finalizedBy(tasks.jacocoTestReport)
 }
 
 tasks.jacocoTestReport {
