@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **EUD-219 — Removal of GPL-3.0 dependency**: the `io.github.novacrypto:Base58` dependency (GPL-3.0 license) has been removed and replaced with a custom `Base58Codec` implementation.
+
 ### Fixed
 
 - **EUD-215 — authorization codes did not meet the minimum entropy required by RFC 6749 §10.10 / RFC 6819 §5.1.4.2-2**: `AuthorizationServiceImpl` generated the `code` via `Utils.generateCustomNonce()`, which derives from `UUID.randomUUID()` — a version-4 UUID has 6 fixed version/variant bits out of its 128, so only 122 bits are actually random, and the OIDF conformance suite's Shannon-entropy check measured this short of its threshold (94.1 vs 96.0 required) on a live sample. Added a dedicated `Utils.generateSecureAuthorizationCode()` (32 bytes straight from `SecureRandom`, base64url-encoded) used only for the authorization code; `generateCustomNonce()` is untouched and still backs the credential offer id and pre-authorized code, which weren't flagged and didn't need the change.
