@@ -4,11 +4,22 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Modifier;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class Base58CodecTest {
+
+    @Test
+    void testConstructorIsPrivate() throws NoSuchMethodException {
+        Constructor<Base58Codec> constructor = Base58Codec.class.getDeclaredConstructor();
+        assertTrue(Modifier.isPrivate(constructor.getModifiers()));
+        constructor.setAccessible(true);
+        assertThrows(InvocationTargetException.class, constructor::newInstance);
+    }
 
     @Test
     void testEmpty() {
@@ -31,7 +42,7 @@ class Base58CodecTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"0", "O", "I", "l", "+", "/"})
+    @ValueSource(strings = {"0", "O", "I", "l", "+", "/", "\u0080", "ñ"})
     void testInvalidCharacters(String invalid) {
         assertThrows(IllegalArgumentException.class, () -> Base58Codec.decode(invalid));
     }

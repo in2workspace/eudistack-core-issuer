@@ -1,11 +1,20 @@
 package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+import com.nimbusds.jose.jwk.Curve;
+import com.nimbusds.jose.jwk.ECKey;
+import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
-import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
-import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialRequest;
-import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialResponse;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.Proofs;
+import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
+import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
+import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
+import es.in2.issuer.backend.shared.domain.model.dto.Proof;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
@@ -14,26 +23,20 @@ import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuerMetadataService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.ProofValidationService;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
-import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListEntry;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
-
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
-
-import static es.in2.issuer.backend.shared.domain.util.Constants.*;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
 
 class Oid4VciCredentialWorkflowImplTest {
 
@@ -84,6 +87,26 @@ class Oid4VciCredentialWorkflowImplTest {
                 notificationCacheStore,
                 credentialIssuedLogger
         );
+
+        // Common mocks to avoid NPE when a test reaches further than expected
+        lenient().when(genericCredentialBuilder.bindIssuer(any(), any(), any(), any()))
+                .thenReturn(Mono.just("{}"));
+        lenient().when(genericCredentialBuilder.bindHolderDid(any(), any()))
+                .thenReturn("{}");
+        lenient().when(genericCredentialBuilder.injectCredentialStatus(any(), any(), any()))
+                .thenReturn("{}");
+        lenient().when(enrichmentCacheStore.add(any(), any()))
+                .thenReturn(Mono.just("{}"));
+        lenient().when(notificationCacheStore.add(any(), any()))
+                .thenReturn(Mono.just("id"));
+        lenient().when(statusListWorkflow.allocateEntry(any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(new StatusListEntry("u", "t", StatusPurpose.REVOCATION, "1", "u")));
+        lenient().when(credentialSignerWorkflow.signCredential(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just("signed"));
+        lenient().when(issuanceService.updateIssuance(any()))
+                .thenReturn(Mono.just(Issuance.builder().build()));
+        lenient().when(proofValidationService.verifyProof(any(), any(), any()))
+                .thenReturn(Mono.just(false));
     }
 
     @Test
@@ -371,6 +394,76 @@ class Oid4VciCredentialWorkflowImplTest {
         verify(credentialIssuedLogger).logFailed(isNull(), any());
     }
 
+    @Test
+    void createCredentialResponse_withJwkProof_shouldResolveBinding() throws Exception {
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+        CredentialProfile profile = buildProfile(true);
+        String expectedIssuer = "https://issuer.example.com";
+        CredentialIssuerMetadata.CredentialConfiguration config =
+                CredentialIssuerMetadata.CredentialConfiguration.builder()
+                        .format(JWT_VC_JSON)
+                        .cryptographicBindingMethodsSupported(Set.of("jwk"))
+                        .proofTypesSupported(Map.of("jwt", CredentialProfile.ProofTypeConfig.builder()
+                                .proofSigningAlgValuesSupported(Set.of("ES256"))
+                                .build()))
+                        .build();
+        CredentialIssuerMetadata metadata = CredentialIssuerMetadata.builder()
+                .credentialIssuer(expectedIssuer)
+                .credentialEndpoint(expectedIssuer + "/oid4vci/v1/credential")
+                .credentialConfigurationsSupported(Map.of(CREDENTIAL_TYPE, config))
+                .build();
+
+        ECKey ecJwk = new ECKeyGenerator(Curve.P_256).keyID("test-kid").generate();
+        Map<String, Object> jwk = ecJwk.toPublicJWK().toJSONObject();
+        String jwtProof = buildJwtProofWithJwk(jwk);
+
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialConfigurationId(CREDENTIAL_TYPE)
+                .proof(Proof.builder().jwt(jwtProof).build())
+                .build();
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN)
+                .issuanceId(ISSUANCE_ID)
+                .build();
+
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+        when(proofValidationService.verifyProof(eq(jwtProof), eq(Set.of("ES256")), eq(expectedIssuer)))
+                .thenReturn(Mono.just(true));
+
+        when(statusListWorkflow.allocateEntry(any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(new StatusListEntry("u", "t", StatusPurpose.REVOCATION, "1", "u")));
+        when(credentialSignerWorkflow.signCredential(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just("signed"));
+        when(issuanceService.updateIssuance(any())).thenReturn(Mono.just(issuance));
+
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .assertNext(resp -> assertThat(resp.credentials()).isNotEmpty())
+                .verifyComplete();
+    }
+
+    @Test
+    void createCredentialResponse_profileNotFoundInEnrich_shouldError() {
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+        CredentialIssuerMetadata metadata = buildMetadata(null);
+
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
+
+        // Mock registry to return null
+        when(credentialProfileRegistry.getByConfigurationId(anyString())).thenReturn(null);
+
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialConfigurationId(CREDENTIAL_TYPE)
+                .build();
+        AccessTokenContext context = AccessTokenContext.builder().issuanceId(ISSUANCE_ID).rawToken(RAW_TOKEN).build();
+
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .expectError(FormatUnsupportedException.class)
+                .verify();
+    }
+
     // ---- Helpers ----
 
     private Issuance buildProcedure(String format) {
@@ -420,5 +513,19 @@ class Oid4VciCredentialWorkflowImplTest {
                 ("{\"kid\":\"" + kid + "\",\"alg\":\"ES256\"}").getBytes(java.nio.charset.StandardCharsets.UTF_8));
         String payload = encoder.encodeToString("{}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         return header + "." + payload + ".sig";
+    }
+
+    private String buildJwtProofWithJwk(Map<String, Object> jwk) {
+        var encoder = java.util.Base64.getUrlEncoder().withoutPadding();
+        try {
+            String header = encoder.encodeToString(
+                    new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsBytes(
+                            Map.of("jwk", jwk, "alg", "ES256")
+                    ));
+            String payload = encoder.encodeToString("{}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return header + "." + payload + ".sig";
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 }
