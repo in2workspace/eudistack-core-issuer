@@ -14,7 +14,7 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
-import static es.in2.issuer.backend.shared.domain.util.Utils.generateCustomNonce;
+import static es.in2.issuer.backend.shared.domain.util.Utils.generateSecureAuthorizationCode;
 
 @Slf4j
 @Service
@@ -102,7 +102,9 @@ public class AuthorizationServiceImpl implements AuthorizationService {
             String codeChallenge, String codeChallengeMethod,
             String issuerState, String scope, String dpopJkt
     ) {
-        return generateCustomNonce()
+        // RFC 6749 §10.10 / RFC 6819 §5.1.4.2-2 require sufficient entropy in the
+        // authorization code to resist guessing attacks.
+        return generateSecureAuthorizationCode()
                 .flatMap(code -> {
                     AuthorizationCodeData data = AuthorizationCodeData.builder()
                             .clientId(clientId)
