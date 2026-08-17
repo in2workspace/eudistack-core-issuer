@@ -36,6 +36,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.rabbit.retry.RepublishMessageRecoverer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -265,6 +266,13 @@ class RevocationInstructionListenerIT {
         properties.setContentType("application/json");
         rabbitTemplate.send(RevocationMessagingConfig.EXCHANGE_NAME, RevocationMessagingConfig.ROUTING_KEY,
                 new Message(body, properties));
+    }
+
+    /** W2 (EUD-225 /verify): consumes (not just counts) the head of the DLQ so a test can
+     *  assert on its headers -- e.g. F10's SafeDlqRecoverer classification. Call only after
+     *  {@link #awaitDlqMessageCount} has already confirmed the message is there. */
+    private Message receiveFromDlq() {
+        return rabbitTemplate.receive(RevocationMessagingConfig.DLQ_NAME);
     }
 
     private long dlqMessageCount() {
@@ -565,15 +573,36 @@ class RevocationInstructionListenerIT {
         Issuance issuance = seedIssuance(TENANT_A, CredentialStatusEnum.VALID);
         String issuanceId = issuance.getIssuanceId().toString();
         allocateStatusListEntry(TENANT_A, issuanceId);
+        // W2: isolate the retry count assertion below from allocateStatusListEntry's own
+        // (successful) sign() call during list creation -- only calls from here on are the
+        // revoke path's own retry attempts.
+        clearInvocations(delegatingSigningProvider);
 
+        String internalDetail = "QTSP permanently unavailable at https://qtsp-internal.example:8443/sign";
         when(delegatingSigningProvider.sign(any(SigningRequest.class)))
                 .thenReturn(Mono.error(new es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException(
-                        "QTSP permanently unavailable", new RuntimeException("down"))));
+                        internalDetail, new RuntimeException("down"))));
 
         publish(TENANT_A, issuanceId, UUID.randomUUID().toString(), null);
 
         awaitDlqMessageCount(1);
         assertThat(currentStatus(TENANT_A, issuance.getIssuanceId())).isEqualTo(CredentialStatusEnum.VALID);
+
+        // NFR-S-225-02: exactly RevocationMessagingConfig.RETRY_MAX_ATTEMPTS (3) attempts
+        // before giving up on a retryable failure.
+        verify(delegatingSigningProvider, times(3)).sign(any(SigningRequest.class));
+
+        // F10/NFR-S-225-03: the DLQ message carries a stable, sanitized error classification
+        // (RevocationMessagingConfig.SafeDlqRecoverer), never the raw exception text/stack
+        // trace that could otherwise cross into a broker plausibly operated by the client.
+        Message dlqMessage = receiveFromDlq();
+        assertThat(dlqMessage).isNotNull();
+        Map<String, Object> headers = dlqMessage.getMessageProperties().getHeaders();
+        assertThat(headers).containsKey(RepublishMessageRecoverer.X_EXCEPTION_MESSAGE);
+        assertThat(headers).doesNotContainKey(RepublishMessageRecoverer.X_EXCEPTION_STACKTRACE);
+        assertThat(headers.get(RepublishMessageRecoverer.X_EXCEPTION_MESSAGE).toString())
+                .doesNotContain(internalDetail)
+                .doesNotContain("qtsp-internal.example");
     }
 
     // ---------------------------------------------------------------- AC-05: redelivery of an already-processed message

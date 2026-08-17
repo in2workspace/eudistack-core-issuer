@@ -7,6 +7,7 @@ import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.FanoutExchange;
+import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
@@ -176,8 +177,45 @@ public class RevocationMessagingConfig {
 
         return RetryInterceptorBuilder.stateless()
                 .retryOperations(retryTemplate)
-                .recoverer(new RepublishMessageRecoverer(rabbitTemplate, DLX_NAME))
+                .recoverer(new SafeDlqRecoverer(rabbitTemplate, DLX_NAME))
                 .build();
+    }
+
+    /**
+     * F10 (EUD-225 {@code /verify}): the stock {@link RepublishMessageRecoverer} copies the
+     * raw exception's message and full stack trace into {@code x-exception-message}/
+     * {@code x-exception-stacktrace} DLQ headers — real internal detail (package names,
+     * occasionally fragments of a SQL/URL) crossing a trust boundary this Story explicitly
+     * targets: an on-premise deployment where the broker is plausibly operated by the
+     * client, not us. This subclass overwrites both headers, already present on the shared
+     * {@link Message} object by the time {@link #additionalHeaders} runs, with a single
+     * stable {@code errorType} classification and never the raw exception. Correlation to
+     * the processing log line is via the message's own {@code messageId} (already in the
+     * message body/AMQP properties, untouched here) — a better correlation key than a
+     * per-delivery {@code processId} anyway, since {@code messageId} stays stable across
+     * every redelivery of the same message while {@code processId} is regenerated on each one.
+     */
+    static final class SafeDlqRecoverer extends RepublishMessageRecoverer {
+
+        SafeDlqRecoverer(RabbitTemplate rabbitTemplate, String errorExchange) {
+            super(rabbitTemplate, errorExchange);
+        }
+
+        @Override
+        protected Map<String, Object> additionalHeaders(Message message, Throwable cause) {
+            Map<String, Object> headers = message.getMessageProperties().getHeaders();
+            headers.remove(RepublishMessageRecoverer.X_EXCEPTION_STACKTRACE);
+            headers.put(RepublishMessageRecoverer.X_EXCEPTION_MESSAGE, rootErrorType(cause));
+            return null;
+        }
+
+        private static String rootErrorType(Throwable cause) {
+            Throwable root = cause;
+            while (root.getCause() != null && root.getCause() != root) {
+                root = root.getCause();
+            }
+            return root.getClass().getSimpleName();
+        }
     }
 
     @Bean
