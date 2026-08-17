@@ -115,17 +115,23 @@ public class RevocationInstructionListener {
                                      TenantBindingResolution resolution, String contextTenant) {
         // A Mismatch is rejected by the workflow itself (with its own audit trail) without
         // ever needing the tenant_registry lookup: the discordance is already the failure.
-        Mono<Void> workflowCall = (resolution instanceof TenantBindingResolution.Mismatch)
-                ? workflow.handleRevocationInstruction(processId, instruction, resolution)
-                : tenantRegistryService.getActiveTenantSchemas()
-                        .flatMap(activeSchemas -> {
-                            if (!activeSchemas.contains(contextTenant)) {
-                                return Mono.<Void>error(new UnknownTenantException(contextTenant));
-                            }
-                            return workflow.handleRevocationInstruction(processId, instruction, resolution);
-                        });
+        if (resolution instanceof TenantBindingResolution.Mismatch) {
+            return workflow.handleRevocationInstruction(processId, instruction, resolution)
+                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, contextTenant));
+        }
 
-        return workflowCall.contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, contextTenant));
+        // F2 (EUD-225 /verify): validate the candidate tenant against the registry BEFORE
+        // writing it into the Reactor context -- same order as TenantDomainWebFilter (validate
+        // first, contextWrite after). The registry lookup itself must never run under the
+        // search_path of the very tenant it exists to authorize.
+        return tenantRegistryService.getActiveTenantSchemas()
+                .flatMap(activeSchemas -> {
+                    if (!activeSchemas.contains(contextTenant)) {
+                        return Mono.<Void>error(new UnknownTenantException(contextTenant));
+                    }
+                    return workflow.handleRevocationInstruction(processId, instruction, resolution)
+                            .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, contextTenant));
+                });
     }
 
     private void validateTenantFormat(String tenantId) {
