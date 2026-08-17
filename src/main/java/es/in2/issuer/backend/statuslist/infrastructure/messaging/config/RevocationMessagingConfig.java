@@ -14,6 +14,7 @@ import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFacto
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.rabbit.retry.RepublishMessageRecoverer;
+import org.springframework.amqp.support.converter.Jackson2JavaTypeMapper;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.autoconfigure.amqp.RabbitProperties;
@@ -69,6 +70,12 @@ public class RevocationMessagingConfig {
     private static final int PREFETCH_COUNT = 1;
     private static final int CONCURRENT_CONSUMERS = 1;
 
+    // F6 (EUD-225 /verify): backstop against unbounded queue growth if consumers stop
+    // entirely (deploy misconfiguration, sustained outage) -- oldest messages are dropped
+    // (dead-lettered, same DLX as x-delivery-limit) once this is exceeded, rather than the
+    // queue growing without limit.
+    private static final int MAX_QUEUE_LENGTH = 10_000;
+
     /**
      * F4 (EUD-225 {@code /verify}): this channel's entire authorization model rests on the
      * broker credential (AD-7) — silently falling back to RabbitMQ's own well-known
@@ -112,6 +119,7 @@ public class RevocationMessagingConfig {
                 .quorum()
                 .deadLetterExchange(DLX_NAME)
                 .withArgument("x-delivery-limit", DELIVERY_LIMIT)
+                .maxLength(MAX_QUEUE_LENGTH)
                 .build();
     }
 
@@ -134,7 +142,16 @@ public class RevocationMessagingConfig {
 
     @Bean
     Jackson2JsonMessageConverter revocationJsonMessageConverter(ObjectMapper objectMapper) {
-        return new Jackson2JsonMessageConverter(objectMapper);
+        Jackson2JsonMessageConverter converter = new Jackson2JsonMessageConverter(objectMapper);
+        // F8 (EUD-225 /verify): the default TypePrecedence.TYPE_ID lets a publisher-supplied
+        // __TypeId__ header pick the target class, which is safe today only because the
+        // concrete RevocationInstructionListener.onMessage(RevocationInstructionMessage, ...)
+        // signature happens to constrain it -- a future refactor of the listener could
+        // silently reopen a polymorphic-deserialization vector. INFERRED removes the header
+        // from the decision entirely: the listener's own parameter type is always what
+        // deserialization targets, regardless of what a message header claims.
+        converter.setTypePrecedence(Jackson2JavaTypeMapper.TypePrecedence.INFERRED);
+        return converter;
     }
 
     @Bean

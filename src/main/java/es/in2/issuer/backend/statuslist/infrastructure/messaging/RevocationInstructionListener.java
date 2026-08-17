@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.statuslist.infrastructure.messaging;
 
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
+import es.in2.issuer.backend.shared.domain.util.TenantIdentifiers;
 import es.in2.issuer.backend.statuslist.application.HandleRevocationInstructionWorkflow;
 import es.in2.issuer.backend.statuslist.application.RevocationAuditDetails;
 import es.in2.issuer.backend.statuslist.domain.exception.InvalidRevocationInstructionException;
@@ -13,6 +14,7 @@ import es.in2.issuer.backend.statuslist.infrastructure.messaging.config.Revocati
 import es.in2.issuer.backend.statuslist.infrastructure.messaging.dto.RevocationInstructionMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.support.AmqpHeaders;
@@ -68,8 +70,11 @@ public class RevocationInstructionListener {
             log.info("processId={} action=onMessage status=received messageId={} issuanceId={}",
                     processId, logSafe(instruction.messageId()), instruction.issuanceId());
 
+            // F5 (EUD-225 /verify): same criterion as TenantDomainWebFilter -- environment
+            // suffixes (-stg/-dev/-pre) are stripped before the tenant-binding comparison /
+            // registry lookup, so tenant schemas stay environment-agnostic.
             RevocationTenantBinding binding = messagingProperties.toRevocationTenantBinding();
-            TenantBindingResolution resolution = binding.resolve(instruction.tenantId());
+            TenantBindingResolution resolution = binding.resolve(TenantIdentifiers.stripEnvSuffix(instruction.tenantId()));
 
             // The compiler enforces exhaustiveness here (NFR-S-225-07): a fifth,
             // silently-inferred case cannot be added without every switch site like this
@@ -99,6 +104,14 @@ public class RevocationInstructionListener {
             log.info("processId={} action=onMessage status=ack messageId={}", processId, logSafe(instruction.messageId()));
         } catch (RuntimeException e) {
             handleFailure(processId, e);
+        } finally {
+            // F7 (EUD-225 /verify): the AMQP container thread is pooled and reused across
+            // deliveries for the lifetime of the container -- clearing MDC here prevents any
+            // correlation/tenant context set while processing this message (traceId/spanId/
+            // tenantDomain, via Reactor's automatic context propagation across the
+            // buildPipeline().block() boundary) from leaking into the next delivery handled
+            // by the same thread.
+            MDC.clear();
         }
     }
 
