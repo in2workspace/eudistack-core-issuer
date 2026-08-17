@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
+import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.ParService;
@@ -48,7 +49,7 @@ public class ParServiceImpl implements ParService {
 
     private Mono<Void> validateResponseType(PushedAuthorizationRequest request) {
         if (!"code".equals(request.responseType())) {
-            return Mono.error(new IllegalArgumentException("response_type must be 'code'"));
+            return Mono.error(OAuthTokenException.invalidRequest("response_type must be 'code'"));
         }
         return Mono.empty();
     }
@@ -58,10 +59,10 @@ public class ParServiceImpl implements ParService {
             return Mono.empty();
         }
         if (request.codeChallenge() == null || request.codeChallenge().isBlank()) {
-            return Mono.error(new IllegalArgumentException("code_challenge is required"));
+            return Mono.error(OAuthTokenException.invalidRequest("code_challenge is required"));
         }
         if (!"S256".equals(request.codeChallengeMethod())) {
-            return Mono.error(new IllegalArgumentException("code_challenge_method must be S256"));
+            return Mono.error(OAuthTokenException.invalidRequest("code_challenge_method must be S256"));
         }
         return Mono.empty();
     }
@@ -73,14 +74,18 @@ public class ParServiceImpl implements ParService {
         if (dpopHeader == null || dpopHeader.isBlank()) {
             return Mono.empty();
         }
-        return Mono.fromRunnable(() -> dpopValidationService.validate(dpopHeader, "POST", requestUri));
+        return Mono.fromRunnable(() -> dpopValidationService.validate(dpopHeader, "POST", requestUri))
+                .onErrorMap(IllegalArgumentException.class, e -> OAuthTokenException.invalidRequest(e.getMessage()))
+                .then();
     }
 
     private Mono<Void> validateWia(String wiaHeader, String wiaPopHeader, String publicIssuerUrl) {
         if (!"attest_jwt_client_auth".equals(profileProperties.authorizationCode().clientAuthMethod())) {
             return Mono.empty();
         }
-        return Mono.fromRunnable(() -> clientAttestationValidationService.validateHeaders(wiaHeader, wiaPopHeader, publicIssuerUrl));
+        return Mono.fromRunnable(() -> clientAttestationValidationService.validateHeaders(wiaHeader, wiaPopHeader, publicIssuerUrl))
+                .onErrorMap(IllegalArgumentException.class, e -> OAuthTokenException.invalidClient())
+                .then();
     }
 
     private Mono<PushedAuthorizationResponse> storeAndBuildResponse(PushedAuthorizationRequest request) {
