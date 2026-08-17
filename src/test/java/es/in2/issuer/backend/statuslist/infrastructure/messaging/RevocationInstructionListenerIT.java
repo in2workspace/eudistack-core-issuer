@@ -333,6 +333,34 @@ class RevocationInstructionListenerIT {
                 .exchange();
     }
 
+    // ---------------------------------------------------------------- NFR-S-225-01 (T31): latency gate
+
+    /**
+     * Two-tier latency requirement (replanteado en el pase --update): the product objective
+     * is p95 consumption-to-published-status &lt; 3s, but asserting that here would measure
+     * Testcontainers cold-start and shared-runner CPU contention, not this Story's code --
+     * see acceptance-criteria.md §5.1 for why that gate is deliberately not enforced in CI.
+     * What <i>is</i> enforced here is a deliberately generous, non-flaky anti-regression
+     * ceiling: &lt; 10s wall-clock per message, which only catches a pathological regression
+     * (an oversized block() timeout, an unintended extra retry on the happy path). The
+     * product objective itself is measured without a gate in the local-stack smoke (T18,
+     * recorded in quality-report.md).
+     */
+    @Test
+    void nfrS22501_happyPathCompletesWellWithinTheAntiRegressionCeiling() {
+        Issuance issuance = seedIssuance(TENANT_A, CredentialStatusEnum.VALID);
+        String issuanceId = issuance.getIssuanceId().toString();
+        allocateStatusListEntry(TENANT_A, issuanceId);
+
+        Instant startedAt = Instant.now();
+        publish(TENANT_A, issuanceId, UUID.randomUUID().toString(), null);
+
+        Awaitility.await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                assertThat(currentStatus(TENANT_A, issuance.getIssuanceId())).isEqualTo(CredentialStatusEnum.REVOKED));
+
+        assertThat(Duration.between(startedAt, Instant.now())).isLessThan(Duration.ofSeconds(10));
+    }
+
     // ---------------------------------------------------------------- AC-01: happy path
 
     @Test
