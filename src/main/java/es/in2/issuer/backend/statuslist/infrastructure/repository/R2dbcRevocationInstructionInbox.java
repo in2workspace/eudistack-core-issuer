@@ -121,6 +121,24 @@ public class R2dbcRevocationInstructionInbox implements RevocationInstructionInb
         return updateTerminalStatus(messageId, STATUS_SKIPPED);
     }
 
+    @Override
+    public Mono<Void> release(String messageId) {
+        requireNonNullParam(messageId, "messageId");
+        // Restricted to IN_PROGRESS: never deletes a row another attempt already closed
+        // (PROCESSED/SKIPPED) out from under a late caller.
+        return databaseClient.sql("""
+                        DELETE FROM revocation_instruction_inbox
+                        WHERE message_id = :messageId AND status = :status
+                        """)
+                .bind("messageId", messageId)
+                .bind("status", STATUS_IN_PROGRESS)
+                .fetch()
+                .rowsUpdated()
+                .doOnNext(rows -> log.debug(
+                        "method=release messageId={} rowsDeleted={}", messageId, rows))
+                .then();
+    }
+
     private Mono<Void> updateTerminalStatus(String messageId, String status) {
         requireNonNullParam(messageId, "messageId");
         return databaseClient.sql("""

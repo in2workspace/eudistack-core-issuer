@@ -84,10 +84,31 @@ public class HandleRevocationInstructionWorkflow {
                                 processId, instruction.messageId(), instruction.issuanceId()
                         ))
                 )
-                .onErrorResume(
-                        HandleRevocationInstructionWorkflow::isNotRevocable,
-                        e -> skipAsNoop(processId, instruction, e)
-                );
+                .onErrorResume(e -> isNotRevocable(e)
+                        ? skipAsNoop(processId, instruction, e)
+                        : releaseClaimThenPropagate(processId, instruction, e));
+    }
+
+    /**
+     * A failure that is neither success nor "no longer revocable" leaves the claim
+     * {@code IN_PROGRESS}. Releasing it here lets the very next attempt — an in-process
+     * retry (AD-5) or a genuine redelivery — re-claim immediately instead of finding its
+     * own abandoned attempt still "in progress" for up to the full lease window
+     * (NFR-S-225-04), which would otherwise make every retryable failure (ES-04) look
+     * identical to EC-03 and silently defeat AC-09's recovery guarantee.
+     */
+    private Mono<Void> releaseClaimThenPropagate(String processId, RevocationInstruction instruction, Throwable error) {
+        return inbox.release(instruction.messageId())
+                .doOnSuccess(v -> log.debug(
+                        "processId={} action=handleRevocationInstruction step=claimReleased messageId={}",
+                        processId, instruction.messageId()))
+                .onErrorResume(releaseError -> {
+                    log.warn(
+                            "processId={} action=handleRevocationInstruction step=claimReleaseFailed messageId={} error={}",
+                            processId, instruction.messageId(), releaseError.toString());
+                    return Mono.empty();
+                })
+                .then(Mono.error(error));
     }
 
     private static boolean isNotRevocable(Throwable e) {

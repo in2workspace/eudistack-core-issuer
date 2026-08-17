@@ -160,17 +160,51 @@ class HandleRevocationInstructionWorkflowTest {
     // ---------------------------------------------------------------- fail-closed propagation (AD-2, ES-01/02/04)
 
     @Test
-    void handleRevocationInstruction_baseUrlNotResolvable_propagatesErrorWithoutSkipping() {
+    void handleRevocationInstruction_baseUrlNotResolvable_releasesClaimAndPropagatesError() {
         RuntimeException fatal = new RuntimeException("fail-closed: base URL not resolvable");
         when(inbox.claim(MESSAGE_ID, ISSUANCE_ID)).thenReturn(Mono.just(CLAIMED));
         when(publicBaseUrlResolver.resolve(ISSUANCE_ID)).thenReturn(Mono.error(fatal));
+        when(inbox.release(MESSAGE_ID)).thenReturn(Mono.empty());
 
         StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason")))
                 .expectErrorMatches(e -> e == fatal)
                 .verify();
 
+        verify(inbox).release(MESSAGE_ID);
         verify(inbox, never()).markSkipped(any());
         verify(inbox, never()).markProcessed(any());
+    }
+
+    // ---------------------------------------------------------------- AC-09: release on retryable failure
+
+    @Test
+    void handleRevocationInstruction_transientFailure_releasesClaimSoNextAttemptCanReclaim() {
+        RuntimeException transientError = new RuntimeException("QTSP transiently unavailable");
+        when(inbox.claim(MESSAGE_ID, ISSUANCE_ID)).thenReturn(Mono.just(CLAIMED));
+        when(publicBaseUrlResolver.resolve(ISSUANCE_ID)).thenReturn(Mono.just(BASE_URL));
+        when(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, "reason", ACTOR, BASE_URL))
+                .thenReturn(Mono.error(transientError));
+        when(inbox.release(MESSAGE_ID)).thenReturn(Mono.empty());
+
+        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason")))
+                .expectErrorMatches(e -> e == transientError)
+                .verify();
+
+        verify(inbox).release(MESSAGE_ID);
+    }
+
+    @Test
+    void handleRevocationInstruction_releaseItselfFails_stillPropagatesOriginalError() {
+        RuntimeException original = new RuntimeException("QTSP transiently unavailable");
+        when(inbox.claim(MESSAGE_ID, ISSUANCE_ID)).thenReturn(Mono.just(CLAIMED));
+        when(publicBaseUrlResolver.resolve(ISSUANCE_ID)).thenReturn(Mono.just(BASE_URL));
+        when(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, "reason", ACTOR, BASE_URL))
+                .thenReturn(Mono.error(original));
+        when(inbox.release(MESSAGE_ID)).thenReturn(Mono.error(new RuntimeException("db down")));
+
+        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason")))
+                .expectErrorMatches(e -> e == original)
+                .verify();
     }
 
     // ---------------------------------------------------------------- AC-02 audit resilience

@@ -138,6 +138,39 @@ class R2dbcRevocationInstructionInboxIT extends PostgresIntegrationBase {
     }
 
     @Test
+    void release_afterFailedAttempt_allowsImmediateReclaim() {
+        // AC-09: a transient failure must not force the next attempt to wait out the full
+        // IN_PROGRESS lease (NFR-S-225-04) — release() lets it reclaim right away.
+        String messageId = UUID.randomUUID().toString();
+        String issuanceId = UUID.randomUUID().toString();
+
+        StepVerifier.create(tenantScoped(
+                inbox.claim(messageId, issuanceId)
+                        .then(inbox.release(messageId))
+                        .then(inbox.claim(messageId, issuanceId))
+        )).expectNext(CLAIMED).verifyComplete();
+    }
+
+    @Test
+    void release_onProcessedMessage_isNoopAndClaimStaysAlreadyProcessed() {
+        String messageId = UUID.randomUUID().toString();
+        String issuanceId = UUID.randomUUID().toString();
+
+        StepVerifier.create(tenantScoped(
+                inbox.claim(messageId, issuanceId)
+                        .then(inbox.markProcessed(messageId))
+                        .then(inbox.release(messageId))
+                        .then(inbox.claim(messageId, issuanceId))
+        )).expectNext(ALREADY_PROCESSED).verifyComplete();
+    }
+
+    @Test
+    void release_onUnknownMessageId_isNoop() {
+        StepVerifier.create(tenantScoped(inbox.release(UUID.randomUUID().toString())))
+                .verifyComplete();
+    }
+
+    @Test
     void markProcessed_and_markSkipped_areIdempotentByMessageId() {
         String messageId = UUID.randomUUID().toString();
         String issuanceId = UUID.randomUUID().toString();

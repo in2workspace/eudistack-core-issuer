@@ -36,6 +36,17 @@ public interface RevocationInstructionInbox {
      */
     Mono<Void> markSkipped(String messageId);
 
+    /**
+     * Releases a claim that failed with neither a successful processing nor a "no longer
+     * revocable" skip — an in-process retry (AD-5) or a genuine redelivery must be able to
+     * re-claim immediately rather than wait out the full {@code IN_PROGRESS} lease. Without
+     * this, a transient failure (ES-04) after a successful claim would make the very next
+     * retry see {@link ClaimResult#IN_PROGRESS} against its own abandoned attempt, defeating
+     * AC-09's "recovers within the configured retries" guarantee. Idempotent: releasing a
+     * {@code messageId} with no claim, or one already closed, is a no-op.
+     */
+    Mono<Void> release(String messageId);
+
     enum ClaimResult {
         CLAIMED,
         ALREADY_PROCESSED,
