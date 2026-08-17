@@ -163,7 +163,7 @@ public class AccessTokenServiceImpl implements AccessTokenService {
     // --- Private helpers ---
 
     // DPoP-bound access tokens (RFC 9449) carry cnf.jkt - the thumbprint of the key the
-    // token is sender-constrained to. Absent for plain Bearer tokens (DPoP not required
+    // token is sender-constrained to. Absent for tokens that are not DPoP-bound (DPoP not required
     // for the issuing tenant profile).
     private String extractCnfJkt(Map<String, Object> payload) {
         Object cnf = payload.get("cnf");
