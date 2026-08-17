@@ -8,6 +8,7 @@ import es.in2.issuer.backend.statuslist.domain.exception.RevocationInstructionIn
 import es.in2.issuer.backend.statuslist.domain.exception.StatusListIndexNotFoundException;
 import es.in2.issuer.backend.statuslist.domain.exception.StatusListNotFoundException;
 import es.in2.issuer.backend.statuslist.domain.exception.StatusListPublicBaseUrlNotResolvableException;
+import es.in2.issuer.backend.statuslist.domain.exception.TenantBindingMismatchException;
 import es.in2.issuer.backend.statuslist.domain.exception.UnknownTenantException;
 import io.r2dbc.spi.R2dbcTimeoutException;
 import org.junit.jupiter.api.Test;
@@ -30,6 +31,11 @@ class RevocationInstructionErrorClassifierTest {
     @Test
     void isRetryable_unknownTenant_isPermanent() {
         assertThat(classifier.isRetryable(new UnknownTenantException("ghost-tenant"))).isFalse();
+    }
+
+    @Test
+    void isRetryable_tenantBindingMismatch_isPermanent() {
+        assertThat(classifier.isRetryable(new TenantBindingMismatchException("cgcom", "prh"))).isFalse();
     }
 
     @Test

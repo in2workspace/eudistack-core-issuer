@@ -4,7 +4,9 @@ import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.statuslist.domain.exception.RevocationInstructionInProgressException;
+import es.in2.issuer.backend.statuslist.domain.exception.TenantBindingMismatchException;
 import es.in2.issuer.backend.statuslist.domain.model.RevocationInstruction;
+import es.in2.issuer.backend.statuslist.domain.model.TenantBindingResolution;
 import es.in2.issuer.backend.statuslist.domain.service.StatusListPublicBaseUrlResolver;
 import es.in2.issuer.backend.statuslist.domain.spi.RevocationInstructionInbox;
 import io.micrometer.observation.annotation.Observed;
@@ -13,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static es.in2.issuer.backend.statuslist.application.RevocationWorkflow.ACTOR_REVOCATION_INSTRUCTION;
@@ -36,18 +39,44 @@ import static es.in2.issuer.backend.statuslist.domain.util.Preconditions.require
 public class HandleRevocationInstructionWorkflow {
 
     private static final String EVENT_SKIPPED = "credential.revoke.skipped";
+    private static final String EVENT_FAILED = "credential.revoke.failed";
     private static final String OUTCOME_NOOP = "noop";
     private static final String RESOURCE_TYPE_CREDENTIAL = "credential";
+    private static final String ERROR_TYPE_TENANT_BINDING_MISMATCH = "tenant_binding_mismatch";
+    private static final String TENANT_SOURCE_DEPLOYMENT = "deployment";
+    private static final String TENANT_SOURCE_MESSAGE = "message";
 
     private final RevocationInstructionInbox inbox;
     private final StatusListPublicBaseUrlResolver publicBaseUrlResolver;
     private final RevocationWorkflow revocationWorkflow;
     private final AuditService auditService;
 
+    /**
+     * @param tenantResolution AD-8's tenant binding outcome for this instruction. A
+     *                         {@link TenantBindingResolution.Mismatch} is rejected here,
+     *                         with its own audit trail, <b>before</b> claiming the inbox
+     *                         (a message that will never be processed must not consume a
+     *                         {@code messageId}). Otherwise, {@code tenantSource} is
+     *                         forwarded to {@link RevocationWorkflow#revokeSystem} so
+     *                         AC-11's audit requirement (the trace records whether the
+     *                         effective tenant came from the deployment or the message)
+     *                         is met on the very same {@code credential.revoke.*} events,
+     *                         not a duplicate one.
+     */
     @Observed(name = "revocation.handle-instruction", contextualName = "revocation-handle-instruction")
-    public Mono<Void> handleRevocationInstruction(String processId, RevocationInstruction instruction) {
+    public Mono<Void> handleRevocationInstruction(String processId, RevocationInstruction instruction,
+                                                  TenantBindingResolution tenantResolution) {
         requireNonNullParam(processId, "processId");
         requireNonNullParam(instruction, "instruction");
+        requireNonNullParam(tenantResolution, "tenantResolution");
+
+        if (tenantResolution instanceof TenantBindingResolution.Mismatch mismatch) {
+            return rejectMismatch(processId, instruction, mismatch);
+        }
+
+        String tenantSource = (tenantResolution instanceof TenantBindingResolution.FromDeployment)
+                ? TENANT_SOURCE_DEPLOYMENT
+                : TENANT_SOURCE_MESSAGE;
 
         return inbox.claim(instruction.messageId(), instruction.issuanceId())
                 .flatMap(claimResult -> {
@@ -57,7 +86,7 @@ public class HandleRevocationInstructionWorkflow {
                         return Mono.empty();
                     }
                     if (claimResult == CLAIMED) {
-                        return processClaimed(processId, instruction);
+                        return processClaimed(processId, instruction, tenantSource);
                     }
                     // IN_PROGRESS: another delivery of the same messageId owns an unexpired
                     // claim. Retryable — the caller (listener) redelivers with backoff.
@@ -65,14 +94,41 @@ public class HandleRevocationInstructionWorkflow {
                 });
     }
 
-    private Mono<Void> processClaimed(String processId, RevocationInstruction instruction) {
+    /**
+     * A discordant tenant is rejected without ever reclaiming the inbox: the discordance
+     * itself is evidence the publisher's model of the world does not match this
+     * deployment's, so the {@code issuanceId} it carries is suspect too — the instruction
+     * is stopped and made visible, not attributed to the configured tenant regardless.
+     */
+    private Mono<Void> rejectMismatch(String processId, RevocationInstruction instruction,
+                                      TenantBindingResolution.Mismatch mismatch) {
+        log.warn(
+                "processId={} action=handleRevocationInstruction status=tenantBindingMismatch "
+                        + "messageId={} declaredInMessage={} configured={}",
+                processId, instruction.messageId(), mismatch.declaredInMessage(), mismatch.configured()
+        );
+        try {
+            Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
+                    ACTOR_REVOCATION_INSTRUCTION, null, instruction.issuanceId(), instruction.reason(),
+                    "failure", ERROR_TYPE_TENANT_BINDING_MISMATCH));
+            details.put("declaredTenant", mismatch.declaredInMessage());
+            auditService.auditFailure(EVENT_FAILED, ACTOR_REVOCATION_INSTRUCTION, ERROR_TYPE_TENANT_BINDING_MISMATCH, details);
+        } catch (Exception e) {
+            log.warn("processId={} action=handleRevocationInstruction step=auditMismatchFailed messageId={} error={}",
+                    processId, instruction.messageId(), e.toString());
+        }
+        return Mono.error(new TenantBindingMismatchException(mismatch.declaredInMessage(), mismatch.configured()));
+    }
+
+    private Mono<Void> processClaimed(String processId, RevocationInstruction instruction, String tenantSource) {
         return publicBaseUrlResolver.resolve(instruction.issuanceId())
                 .flatMap(publicIssuerBaseUrl -> revocationWorkflow.revokeSystem(
                                 processId,
                                 instruction.issuanceId(),
                                 instruction.reason(),
                                 ACTOR_REVOCATION_INSTRUCTION,
-                                publicIssuerBaseUrl
+                                publicIssuerBaseUrl,
+                                tenantSource
                         )
                         // Mono.defer: markProcessed() must not even be constructed unless
                         // revokeSystem actually completed — a plain .then(inbox.markProcessed(...))

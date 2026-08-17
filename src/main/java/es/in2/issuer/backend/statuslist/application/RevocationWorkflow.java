@@ -79,7 +79,8 @@ public class RevocationWorkflow {
                                         actor,
                                         (pid, t, issuance) -> statusListPdpService.validateRevokeCredential(pid, t, issuance),
                                         "revokeCredential",
-                                        publicIssuerBaseUrl
+                                        publicIssuerBaseUrl,
+                                        null
                                 ))
                 );
     }
@@ -92,6 +93,18 @@ public class RevocationWorkflow {
      */
     @Observed(name = "revocation.revoke-system", contextualName = "revocation-revoke-system")
     public Mono<Void> revokeSystem(String processId, String issuanceId, String reason, String actor, String publicIssuerBaseUrl) {
+        return revokeSystem(processId, issuanceId, reason, actor, publicIssuerBaseUrl, null);
+    }
+
+    /**
+     * @param tenantSource where the effective tenant of this system trigger came from
+     *                     (e.g. {@code "deployment"} for AD-8's single-tenant binding,
+     *                     EUD-225 AC-11), recorded in the audit trail when present.
+     *                     {@code null} when the trigger has no such concept (e.g. the
+     *                     OID4VCI notification path).
+     */
+    public Mono<Void> revokeSystem(String processId, String issuanceId, String reason, String actor,
+                                   String publicIssuerBaseUrl, String tenantSource) {
         requireNonNullParam(processId, "processId");
         requireNonNullParam(issuanceId, "issuanceId");
         requireNonNullParam(actor, "actor");
@@ -104,7 +117,8 @@ public class RevocationWorkflow {
                 actor,
                 (pid, t, issuance) -> statusListPdpService.validateRevokeCredentialSystem(pid, issuance),
                 "revokeSystemCredential",
-                publicIssuerBaseUrl
+                publicIssuerBaseUrl,
+                tenantSource
         );
     }
 
@@ -120,13 +134,14 @@ public class RevocationWorkflow {
     }
 
     private void safeAuditAttempted(String actor, Issuance issuance, String issuanceId, String reason,
-                                    String processId, String action) {
+                                    String processId, String action, String tenantSource) {
         try {
             String orgId = issuance != null ? issuance.getOrganizationIdentifier() : null;
             Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
                     actor, orgId, issuanceId, reason, "attempted", null));
             details.put("processId", processId);
             details.put("workflowAction", action);
+            putTenantSourceIfPresent(details, tenantSource);
             auditService.auditAttempted(EVENT_ATTEMPTED, actor, "credential", issuanceId, details);
         } catch (Exception e) {
             log.warn("processId={} action={} step=auditAttemptedFailed issuanceId={} error={}",
@@ -135,13 +150,14 @@ public class RevocationWorkflow {
     }
 
     private void safeAuditSuccess(String actor, Issuance issuance, String issuanceId, String reason,
-                                  String processId, String action) {
+                                  String processId, String action, String tenantSource) {
         try {
             String orgId = issuance != null ? issuance.getOrganizationIdentifier() : null;
             Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
                     actor, orgId, issuanceId, reason, "success", null));
             details.put("processId", processId);
             details.put("workflowAction", action);
+            putTenantSourceIfPresent(details, tenantSource);
             auditService.auditSuccess(EVENT_SUCCESS, actor, "credential", issuanceId, details);
         } catch (Exception e) {
             log.warn("processId={} action={} step=auditSuccessFailed issuanceId={} error={}",
@@ -150,7 +166,7 @@ public class RevocationWorkflow {
     }
 
     private void safeAuditFailure(String actor, Issuance issuance, String issuanceId, String reason,
-                                  String processId, String action, Throwable error) {
+                                  String processId, String action, Throwable error, String tenantSource) {
         try {
             String orgId = issuance != null ? issuance.getOrganizationIdentifier() : null;
             String errorType = categorizeError(error);
@@ -158,10 +174,17 @@ public class RevocationWorkflow {
                     actor, orgId, issuanceId, reason, "failure", errorType));
             details.put("processId", processId);
             details.put("workflowAction", action);
+            putTenantSourceIfPresent(details, tenantSource);
             auditService.auditFailure(EVENT_FAILED, actor, errorType, details);
         } catch (Exception e) {
             log.warn("processId={} action={} step=auditFailureFailed issuanceId={} error={}",
                     processId, action, issuanceId, e.toString());
+        }
+    }
+
+    private static void putTenantSourceIfPresent(Map<String, Object> details, String tenantSource) {
+        if (tenantSource != null && !tenantSource.isBlank()) {
+            details.put("tenantSource", tenantSource);
         }
     }
 
@@ -189,7 +212,8 @@ public class RevocationWorkflow {
             String actor,
             RevocationValidator validator,
             String action,
-            String publicIssuerBaseUrl
+            String publicIssuerBaseUrl,
+            String tenantSource
     ) {
         requireNonNullParam(processId, "processId");
         requireNonNullParam(issuanceId, "issuanceId");
@@ -203,7 +227,7 @@ public class RevocationWorkflow {
                     log.info("processId={} action={} status=started issuanceId={}", processId, action, issuanceId);
                     return issuanceService.getIssuanceById(issuanceId)
                             .switchIfEmpty(Mono.defer(() -> {
-                                safeAuditAttempted(actor, null, issuanceId, reason, processId, action);
+                                safeAuditAttempted(actor, null, issuanceId, reason, processId, action, tenantSource);
                                 return Mono.<Issuance>error(new IssuanceNotFoundException(
                                         "No issuance found for issuanceId: " + issuanceId));
                             }))
@@ -213,7 +237,7 @@ public class RevocationWorkflow {
                             ))
                             .doOnNext(issuanceRef::set)
                             .flatMap(issuance -> {
-                                safeAuditAttempted(actor, issuance, issuanceId, reason, processId, action);
+                                safeAuditAttempted(actor, issuance, issuanceId, reason, processId, action, tenantSource);
                                 return validator.validate(processId, tokenValue, issuance)
                                         .doOnSuccess(v -> log.info(
                                                 "processId={} action={} step=validationPassed issuanceId={}",
@@ -256,14 +280,14 @@ public class RevocationWorkflow {
                             processId, action, issuanceId);
                     // Post-commit: the revocation is already consumed at this point, so a logging
                     // failure inside safeAuditSuccess must never surface as an error here (ES-04).
-                    safeAuditSuccess(actor, issuanceRef.get(), issuanceId, reason, processId, action);
+                    safeAuditSuccess(actor, issuanceRef.get(), issuanceId, reason, processId, action, tenantSource);
                 })
                 .doOnError(e -> {
                     log.warn(
                             "processId={} action={} status=failed issuanceId={} error={}",
                             processId, action, issuanceId, e.toString()
                     );
-                    safeAuditFailure(actor, issuanceRef.get(), issuanceId, reason, processId, action, e);
+                    safeAuditFailure(actor, issuanceRef.get(), issuanceId, reason, processId, action, e, tenantSource);
                 });
     }
 }

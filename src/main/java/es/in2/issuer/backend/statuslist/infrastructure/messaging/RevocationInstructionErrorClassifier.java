@@ -5,6 +5,7 @@ import es.in2.issuer.backend.statuslist.domain.exception.InvalidRevocationInstru
 import es.in2.issuer.backend.statuslist.domain.exception.StatusListIndexNotFoundException;
 import es.in2.issuer.backend.statuslist.domain.exception.StatusListNotFoundException;
 import es.in2.issuer.backend.statuslist.domain.exception.StatusListPublicBaseUrlNotResolvableException;
+import es.in2.issuer.backend.statuslist.domain.exception.TenantBindingMismatchException;
 import es.in2.issuer.backend.statuslist.domain.exception.UnknownTenantException;
 import org.springframework.stereotype.Component;
 
@@ -30,6 +31,7 @@ public class RevocationInstructionErrorClassifier {
     private boolean isPermanent(Throwable error) {
         return error instanceof InvalidRevocationInstructionException // ES-01: malformed / missing fields
                 || error instanceof UnknownTenantException // AC-07/EC-07: tenant not in tenant_registry
+                || error instanceof TenantBindingMismatchException // AC-12: declared tenant != configured
                 || error instanceof IssuanceNotFoundException // ES-02: credential does not exist
                 || error instanceof StatusListIndexNotFoundException // no allocation for the issuance
                 || error instanceof StatusListNotFoundException // list vanished from under an allocation

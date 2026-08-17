@@ -6,6 +6,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.statuslist.domain.exception.RevocationInstructionInProgressException;
 import es.in2.issuer.backend.statuslist.domain.model.RevocationInstruction;
+import es.in2.issuer.backend.statuslist.domain.model.TenantBindingResolution;
 import es.in2.issuer.backend.statuslist.domain.service.StatusListPublicBaseUrlResolver;
 import es.in2.issuer.backend.statuslist.domain.spi.RevocationInstructionInbox;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,6 +48,8 @@ class HandleRevocationInstructionWorkflowTest {
     private static final String ISSUANCE_ID = "6f1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d";
     private static final String BASE_URL = "https://issuer.example.com";
     private static final String ACTOR = "system:revocation-instruction";
+    private static final String TENANT_SOURCE_MESSAGE = "message";
+    private static final TenantBindingResolution FROM_MESSAGE = new TenantBindingResolution.FromMessage("sandbox");
 
     @BeforeEach
     void setUp() {
@@ -63,11 +66,11 @@ class HandleRevocationInstructionWorkflowTest {
     void handleRevocationInstruction_claimedAndRevocable_revokesAndMarksProcessed() {
         when(inbox.claim(MESSAGE_ID, ISSUANCE_ID)).thenReturn(Mono.just(CLAIMED));
         when(publicBaseUrlResolver.resolve(ISSUANCE_ID)).thenReturn(Mono.just(BASE_URL));
-        when(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, "Baja voluntaria", ACTOR, BASE_URL))
+        when(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, "Baja voluntaria", ACTOR, BASE_URL, TENANT_SOURCE_MESSAGE))
                 .thenReturn(Mono.empty());
         when(inbox.markProcessed(MESSAGE_ID)).thenReturn(Mono.empty());
 
-        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("Baja voluntaria")))
+        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("Baja voluntaria"), FROM_MESSAGE))
                 .verifyComplete();
 
         verify(inbox).markProcessed(MESSAGE_ID);
@@ -80,14 +83,14 @@ class HandleRevocationInstructionWorkflowTest {
     void handleRevocationInstruction_reasonAbsent_stillRevokesWithNullReason() {
         when(inbox.claim(MESSAGE_ID, ISSUANCE_ID)).thenReturn(Mono.just(CLAIMED));
         when(publicBaseUrlResolver.resolve(ISSUANCE_ID)).thenReturn(Mono.just(BASE_URL));
-        when(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, null, ACTOR, BASE_URL))
+        when(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, null, ACTOR, BASE_URL, TENANT_SOURCE_MESSAGE))
                 .thenReturn(Mono.empty());
         when(inbox.markProcessed(MESSAGE_ID)).thenReturn(Mono.empty());
 
-        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction(null)))
+        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction(null), FROM_MESSAGE))
                 .verifyComplete();
 
-        verify(revocationWorkflow).revokeSystem(PROCESS_ID, ISSUANCE_ID, null, ACTOR, BASE_URL);
+        verify(revocationWorkflow).revokeSystem(PROCESS_ID, ISSUANCE_ID, null, ACTOR, BASE_URL, TENANT_SOURCE_MESSAGE);
     }
 
     // ---------------------------------------------------------------- AC-05 idempotency
@@ -96,7 +99,7 @@ class HandleRevocationInstructionWorkflowTest {
     void handleRevocationInstruction_alreadyProcessed_isNoopWithoutTouchingDomain() {
         when(inbox.claim(MESSAGE_ID, ISSUANCE_ID)).thenReturn(Mono.just(ALREADY_PROCESSED));
 
-        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason")))
+        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason"), FROM_MESSAGE))
                 .verifyComplete();
 
         verifyNoInteractions(publicBaseUrlResolver, revocationWorkflow, auditService);
@@ -110,7 +113,7 @@ class HandleRevocationInstructionWorkflowTest {
     void handleRevocationInstruction_inProgress_propagatesRetryableError() {
         when(inbox.claim(MESSAGE_ID, ISSUANCE_ID)).thenReturn(Mono.just(IN_PROGRESS));
 
-        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason")))
+        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason"), FROM_MESSAGE))
                 .expectError(RevocationInstructionInProgressException.class)
                 .verify();
 
@@ -123,11 +126,11 @@ class HandleRevocationInstructionWorkflowTest {
     void handleRevocationInstruction_invalidStatus_isSkippedWithAuditAndAck() {
         when(inbox.claim(MESSAGE_ID, ISSUANCE_ID)).thenReturn(Mono.just(CLAIMED));
         when(publicBaseUrlResolver.resolve(ISSUANCE_ID)).thenReturn(Mono.just(BASE_URL));
-        when(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, "reason", ACTOR, BASE_URL))
+        when(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, "reason", ACTOR, BASE_URL, TENANT_SOURCE_MESSAGE))
                 .thenReturn(Mono.error(new InvalidStatusException("Invalid status: REVOKED")));
         when(inbox.markSkipped(MESSAGE_ID)).thenReturn(Mono.empty());
 
-        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason")))
+        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason"), FROM_MESSAGE))
                 .verifyComplete();
 
         verify(inbox).markSkipped(MESSAGE_ID);
@@ -146,12 +149,12 @@ class HandleRevocationInstructionWorkflowTest {
     void handleRevocationInstruction_concurrentTransitionConflict_isSkippedWithAudit() {
         when(inbox.claim(MESSAGE_ID, ISSUANCE_ID)).thenReturn(Mono.just(CLAIMED));
         when(publicBaseUrlResolver.resolve(ISSUANCE_ID)).thenReturn(Mono.just(BASE_URL));
-        when(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, "reason", ACTOR, BASE_URL))
+        when(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, "reason", ACTOR, BASE_URL, TENANT_SOURCE_MESSAGE))
                 .thenReturn(Mono.error(new InvalidCredentialStatusTransitionException(
                         CredentialStatusEnum.REVOKED, CredentialStatusEnum.REVOKED)));
         when(inbox.markSkipped(MESSAGE_ID)).thenReturn(Mono.empty());
 
-        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason")))
+        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason"), FROM_MESSAGE))
                 .verifyComplete();
 
         verify(inbox).markSkipped(MESSAGE_ID);
@@ -166,7 +169,7 @@ class HandleRevocationInstructionWorkflowTest {
         when(publicBaseUrlResolver.resolve(ISSUANCE_ID)).thenReturn(Mono.error(fatal));
         when(inbox.release(MESSAGE_ID)).thenReturn(Mono.empty());
 
-        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason")))
+        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason"), FROM_MESSAGE))
                 .expectErrorMatches(e -> e == fatal)
                 .verify();
 
@@ -182,11 +185,11 @@ class HandleRevocationInstructionWorkflowTest {
         RuntimeException transientError = new RuntimeException("QTSP transiently unavailable");
         when(inbox.claim(MESSAGE_ID, ISSUANCE_ID)).thenReturn(Mono.just(CLAIMED));
         when(publicBaseUrlResolver.resolve(ISSUANCE_ID)).thenReturn(Mono.just(BASE_URL));
-        when(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, "reason", ACTOR, BASE_URL))
+        when(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, "reason", ACTOR, BASE_URL, TENANT_SOURCE_MESSAGE))
                 .thenReturn(Mono.error(transientError));
         when(inbox.release(MESSAGE_ID)).thenReturn(Mono.empty());
 
-        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason")))
+        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason"), FROM_MESSAGE))
                 .expectErrorMatches(e -> e == transientError)
                 .verify();
 
@@ -198,11 +201,11 @@ class HandleRevocationInstructionWorkflowTest {
         RuntimeException original = new RuntimeException("QTSP transiently unavailable");
         when(inbox.claim(MESSAGE_ID, ISSUANCE_ID)).thenReturn(Mono.just(CLAIMED));
         when(publicBaseUrlResolver.resolve(ISSUANCE_ID)).thenReturn(Mono.just(BASE_URL));
-        when(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, "reason", ACTOR, BASE_URL))
+        when(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, "reason", ACTOR, BASE_URL, TENANT_SOURCE_MESSAGE))
                 .thenReturn(Mono.error(original));
         when(inbox.release(MESSAGE_ID)).thenReturn(Mono.error(new RuntimeException("db down")));
 
-        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason")))
+        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason"), FROM_MESSAGE))
                 .expectErrorMatches(e -> e == original)
                 .verify();
     }
@@ -213,13 +216,13 @@ class HandleRevocationInstructionWorkflowTest {
     void handleRevocationInstruction_auditSkippedThrows_stillMarksSkipped() {
         when(inbox.claim(MESSAGE_ID, ISSUANCE_ID)).thenReturn(Mono.just(CLAIMED));
         when(publicBaseUrlResolver.resolve(ISSUANCE_ID)).thenReturn(Mono.just(BASE_URL));
-        when(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, "reason", ACTOR, BASE_URL))
+        when(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, "reason", ACTOR, BASE_URL, TENANT_SOURCE_MESSAGE))
                 .thenReturn(Mono.error(new InvalidStatusException("Invalid status: REVOKED")));
         doThrow(new RuntimeException("audit sink down"))
                 .when(auditService).auditSuccess(anyString(), anyString(), anyString(), anyString(), anyMap());
         when(inbox.markSkipped(MESSAGE_ID)).thenReturn(Mono.empty());
 
-        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason")))
+        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason"), FROM_MESSAGE))
                 .verifyComplete();
 
         verify(inbox).markSkipped(MESSAGE_ID);

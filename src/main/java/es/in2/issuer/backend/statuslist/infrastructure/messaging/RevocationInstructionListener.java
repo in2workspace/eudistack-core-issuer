@@ -5,7 +5,10 @@ import es.in2.issuer.backend.statuslist.application.HandleRevocationInstructionW
 import es.in2.issuer.backend.statuslist.domain.exception.InvalidRevocationInstructionException;
 import es.in2.issuer.backend.statuslist.domain.exception.UnknownTenantException;
 import es.in2.issuer.backend.statuslist.domain.model.RevocationInstruction;
+import es.in2.issuer.backend.statuslist.domain.model.RevocationTenantBinding;
+import es.in2.issuer.backend.statuslist.domain.model.TenantBindingResolution;
 import es.in2.issuer.backend.statuslist.infrastructure.messaging.config.RevocationMessagingConfig;
+import es.in2.issuer.backend.statuslist.infrastructure.messaging.config.RevocationMessagingConfig.RevocationMessagingProperties;
 import es.in2.issuer.backend.statuslist.infrastructure.messaging.dto.RevocationInstructionMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -53,6 +56,7 @@ public class RevocationInstructionListener {
     private final HandleRevocationInstructionWorkflow workflow;
     private final RevocationInstructionErrorClassifier errorClassifier;
     private final TenantRegistryService tenantRegistryService;
+    private final RevocationMessagingProperties messagingProperties;
 
     @RabbitListener(queues = RevocationMessagingConfig.QUEUE_NAME, containerFactory = "revocationListenerContainerFactory")
     public void onMessage(RevocationInstructionMessage message,
@@ -63,9 +67,31 @@ public class RevocationInstructionListener {
             log.info("processId={} action=onMessage status=received messageId={} issuanceId={}",
                     processId, instruction.messageId(), instruction.issuanceId());
 
-            validateTenantFormat(instruction.tenantId());
+            RevocationTenantBinding binding = messagingProperties.toRevocationTenantBinding();
+            TenantBindingResolution resolution = binding.resolve(instruction.tenantId());
 
-            buildPipeline(processId, instruction)
+            // The compiler enforces exhaustiveness here (NFR-S-225-07): a fifth,
+            // silently-inferred case cannot be added without every switch site like this
+            // one failing to compile.
+            String contextTenant = switch (resolution) {
+                case TenantBindingResolution.FromMessage r -> r.tenantId();
+                case TenantBindingResolution.FromDeployment r -> r.tenantId();
+                // Never the discordant value from the message: the only tenant legitimate
+                // to trace against here is the one this deployment actually declared.
+                case TenantBindingResolution.Mismatch r -> r.configured();
+                case TenantBindingResolution.Unresolved r -> null;
+            };
+
+            if (resolution instanceof TenantBindingResolution.Unresolved) {
+                // AC-13 invariant: neither the message nor the deployment declared a
+                // tenant. Never inferred — permanent error, no reintentos.
+                throw new InvalidRevocationInstructionException(
+                        "Revocation instruction has no resolvable tenant: no tenantId in the message "
+                                + "and no tenant-binding configured for this deployment");
+            }
+            validateTenantFormat(contextTenant);
+
+            buildPipeline(processId, instruction, resolution, contextTenant)
                     .timeout(PROCESSING_TIMEOUT)
                     .block();
 
@@ -75,24 +101,24 @@ public class RevocationInstructionListener {
         }
     }
 
-    private Mono<Void> buildPipeline(String processId, RevocationInstruction instruction) {
-        String tenantId = instruction.tenantId();
-        return tenantRegistryService.getActiveTenantSchemas()
-                .flatMap(activeSchemas -> {
-                    if (!activeSchemas.contains(tenantId)) {
-                        return Mono.<Void>error(new UnknownTenantException(tenantId));
-                    }
-                    return workflow.handleRevocationInstruction(processId, instruction);
-                })
-                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenantId));
+    private Mono<Void> buildPipeline(String processId, RevocationInstruction instruction,
+                                     TenantBindingResolution resolution, String contextTenant) {
+        // A Mismatch is rejected by the workflow itself (with its own audit trail) without
+        // ever needing the tenant_registry lookup: the discordance is already the failure.
+        Mono<Void> workflowCall = (resolution instanceof TenantBindingResolution.Mismatch)
+                ? workflow.handleRevocationInstruction(processId, instruction, resolution)
+                : tenantRegistryService.getActiveTenantSchemas()
+                        .flatMap(activeSchemas -> {
+                            if (!activeSchemas.contains(contextTenant)) {
+                                return Mono.<Void>error(new UnknownTenantException(contextTenant));
+                            }
+                            return workflow.handleRevocationInstruction(processId, instruction, resolution);
+                        });
+
+        return workflowCall.contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, contextTenant));
     }
 
     private void validateTenantFormat(String tenantId) {
-        if (tenantId == null || tenantId.isBlank()) {
-            // Modo multi-tenant por defecto (sin AD-8 tenant-binding aún cableado): el campo
-            // es obligatorio. AC-13 exige exactamente este comportamiento como invariante.
-            throw new InvalidRevocationInstructionException("Revocation instruction is missing tenantId");
-        }
         if (!TENANT_NAME_PATTERN.matcher(tenantId).matches()) {
             throw new InvalidRevocationInstructionException("Revocation instruction tenantId has an invalid format: " + tenantId);
         }
