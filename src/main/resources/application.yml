@@ -47,6 +47,13 @@ spring:
       ssl.trust: ${SMTP_SSL_TRUST:}
   messages:
     basename: messages/messages
+  # EUD-225: only consulted when issuer.messaging.revocation.enabled=true (AD-6).
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:guest}
+    password: ${SPRING_RABBITMQ_PASSWORD:guest}
+    virtual-host: ${SPRING_RABBITMQ_VIRTUAL_HOST:/}
 
 # Logging
 logging:
@@ -224,3 +231,12 @@ issuance:
   delivery-timeout-minutes: ${ISSUANCE_DELIVERY_TIMEOUT_MINUTES:60}
   delivery-timeout-cron: ${ISSUANCE_DELIVERY_TIMEOUT_CRON:0 */5 * * * ?}
   hybrid-wallet-timeout-seconds: ${ISSUANCE_HYBRID_WALLET_TIMEOUT_SECONDS:30}
+
+# EUD-225: revocation-instruction message queue. Disabled by default (AD-6) — no broker
+# required, no bean declared, the emitter starts exactly as before with no code path
+# exercised. spring.rabbitmq.* (see the main `spring:` block above) is only consulted
+# when enabled=true.
+issuer:
+  messaging:
+    revocation:
+      enabled: ${ISSUER_MESSAGING_REVOCATION_ENABLED:false}
