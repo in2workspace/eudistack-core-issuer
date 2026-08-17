@@ -1,5 +1,8 @@
 package es.in2.issuer.backend.statuslist.infrastructure.messaging;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -26,8 +29,10 @@ import es.in2.issuer.backend.statuslist.infrastructure.adapter.BitstringStatusLi
 import es.in2.issuer.backend.statuslist.infrastructure.messaging.config.RevocationMessagingConfig;
 import es.in2.issuer.backend.statuslist.infrastructure.messaging.dto.RevocationInstructionMessage;
 import org.awaitility.Awaitility;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -154,6 +159,12 @@ class RevocationInstructionListenerIT {
 
     private ECKey signingKey;
 
+    // AC-02 (T30): a mocked AuditService would only prove the workflow *calls* it; only the
+    // real Logback appender proves the audit event actually *lands* with the right shape
+    // (actor, event, resourceId, no PII) -- same pattern as BitstringStatusListControllerRevokeIT
+    // and AuditServiceImplTest.
+    private ListAppender<ILoggingEvent> auditAppender;
+
     // Queues/DLQ are singleton beans shared by every test method in this class (cached Spring
     // context): without purging, a DLQ message left by one test pollutes the exact-count
     // assertions of the next.
@@ -164,6 +175,25 @@ class RevocationInstructionListenerIT {
             channel.queuePurge(RevocationMessagingConfig.DLQ_NAME);
             return null;
         });
+    }
+
+    @BeforeEach
+    void attachAuditAppender() {
+        Logger auditLogger = (Logger) LoggerFactory.getLogger("AUDIT");
+        auditAppender = new ListAppender<>();
+        auditAppender.start();
+        auditLogger.addAppender(auditAppender);
+    }
+
+    @AfterEach
+    void detachAuditAppender() {
+        Logger auditLogger = (Logger) LoggerFactory.getLogger("AUDIT");
+        auditLogger.detachAppender(auditAppender);
+        auditAppender.stop();
+    }
+
+    private List<String> auditMessages() {
+        return auditAppender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
     }
 
     @BeforeEach
@@ -319,6 +349,25 @@ class RevocationInstructionListenerIT {
         awaitDlqMessageCount(0);
         verify(emailService, timeout(AWAIT_TIMEOUT.toMillis()))
                 .sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString());
+
+        // AC-02 (T30): the real AUDIT-logger events, not a mocked AuditService call -- proves
+        // the event actually lands with actor=system:revocation-instruction (never "unknown"),
+        // the right resourceId, and no titleholder PII (email/name), not just that the workflow
+        // invoked the service.
+        Awaitility.await().atMost(AWAIT_TIMEOUT).untilAsserted(() -> {
+            List<String> messages = auditMessages();
+            assertThat(messages).anyMatch(m ->
+                    m.contains("event=credential.revoke.attempted")
+                            && m.contains("userId=system:revocation-instruction")
+                            && m.contains("resourceId=" + issuanceId));
+            assertThat(messages).anyMatch(m ->
+                    m.contains("event=credential.revoked")
+                            && m.contains("outcome=success")
+                            && m.contains("userId=system:revocation-instruction")
+                            && m.contains("resourceId=" + issuanceId)
+                            && m.contains("reason=Baja voluntaria"));
+        });
+        assertThat(auditMessages()).noneMatch(m -> m.contains("userId=unknown") || m.contains("holder@example.com"));
     }
 
     // ---------------------------------------------------------------- AC-06: not revocable -> no-op, ack, no DLQ
