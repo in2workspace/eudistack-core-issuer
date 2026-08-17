@@ -122,9 +122,14 @@ public class RevocationInstructionListener {
             }
             validateTenantFormat(contextTenant);
 
+            // F17 (EUD-225 /verify): the .timeout() operator is the primary bound (fires the
+            // moment the reactive chain itself detects the deadline); .block(Duration) is a
+            // second, independent hard wall-clock deadline on the blocking wait itself --
+            // defense in depth in case the operator-level timeout signal is ever not
+            // properly propagated (a wrong Scheduler, for instance).
             buildPipeline(processId, instruction, resolution, contextTenant)
                     .timeout(PROCESSING_TIMEOUT)
-                    .block();
+                    .block(PROCESSING_TIMEOUT);
 
             log.info("processId={} action=onMessage status=ack messageId={}", processId, logSafe(instruction.messageId()));
             recordProcessed(contextTenant, "success");

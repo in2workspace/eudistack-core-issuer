@@ -98,6 +98,35 @@ class RevocationMessagingConfigTest {
         assertThatCode(validator::afterPropertiesSet).doesNotThrowAnyException();
     }
 
+    // ---------------------------------------------------------------- F11: explicit "guest" rejected too
+
+    @Test
+    void revocationRabbitCredentialsValidator_explicitGuestUsernameAndNoEscapeHatch_throwsIllegalStateException() throws Exception {
+        RabbitProperties properties = securedRabbitProperties();
+        properties.setUsername("guest");
+
+        InitializingBean validator = config.revocationRabbitCredentialsValidator(
+                properties, new RevocationMessagingProperties(true, null, false));
+
+        assertThatThrownBy(validator::afterPropertiesSet)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("guest");
+    }
+
+    @Test
+    void revocationRabbitCredentialsValidator_explicitGuestUsernameWithEscapeHatch_doesNotThrow() throws Exception {
+        // Same escape hatch as F13's TLS requirement: eudistack-platform-dev's local
+        // Docker Compose profile genuinely uses RabbitMQ's own guest account.
+        RabbitProperties properties = securedRabbitProperties();
+        properties.setUsername("guest");
+        properties.getSsl().setEnabled(false);
+
+        InitializingBean validator = config.revocationRabbitCredentialsValidator(
+                properties, new RevocationMessagingProperties(true, null, true));
+
+        assertThatCode(validator::afterPropertiesSet).doesNotThrowAnyException();
+    }
+
     @Test
     void revocationJsonMessageConverter_usesInferredTypePrecedence() {
         // F8 (EUD-225 /verify): a publisher-supplied __TypeId__ header must never influence

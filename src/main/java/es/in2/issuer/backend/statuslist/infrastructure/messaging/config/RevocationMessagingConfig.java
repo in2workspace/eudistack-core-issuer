@@ -23,7 +23,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.retry.backoff.ExponentialBackOffPolicy;
+import org.springframework.retry.backoff.ExponentialRandomBackOffPolicy;
 import org.springframework.retry.interceptor.RetryOperationsInterceptor;
 import org.springframework.retry.policy.SimpleRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
@@ -38,8 +38,10 @@ import java.util.regex.Pattern;
  * the deploy-safety mechanism behind AC-10/NFR-S-225-06.
  * <p>
  * Retry semantics (AD-5): a stateless Spring Retry interceptor wraps the
- * {@code @RabbitListener} invocation — 3 attempts, exponential backoff 1s → 2s → 4s (capped
- * at 8s) — for every exception <b>except</b> {@link AmqpRejectAndDontRequeueException}, which
+ * {@code @RabbitListener} invocation — 3 attempts, exponential backoff targeting 1s → 2s → 4s
+ * (capped at 8s), jittered (F17, {@link org.springframework.retry.backoff.ExponentialRandomBackOffPolicy})
+ * so concurrent redeliveries don't all retry against the same downstream dependency in
+ * lockstep — for every exception <b>except</b> {@link AmqpRejectAndDontRequeueException}, which
  * a permanent error is expected to throw and which skips straight to the recoverer with zero
  * retries. Either way, retries exhausted or not, the recoverer republishes to the DLX with
  * {@code x-exception-*} headers rather than nacking, so the original queue never sees the
@@ -105,6 +107,19 @@ public class RevocationMessagingConfig {
                                 + "spring.rabbitmq.password to be set explicitly -- refusing to start with "
                                 + "RabbitMQ's default guest/guest account for a channel whose entire "
                                 + "authorization model rests on the broker credential (AD-7)");
+            }
+            // F11 (EUD-225 /verify): a blank check alone can't tell an *explicitly configured*
+            // "guest" username from Spring's own default -- which the blank-username check
+            // above already neutralizes for the real-world case where nothing was set at all.
+            // Reuses the same local-dev escape hatch as the TLS requirement below: local
+            // Docker Compose is the one legitimate case where "guest" is genuinely the
+            // broker's own local account, not a forgotten override.
+            if (!messagingProperties.allowInsecureTransport() && "guest".equalsIgnoreCase(rabbitProperties.getUsername())) {
+                throw new IllegalStateException(
+                        "issuer.messaging.revocation.enabled=true must not use RabbitMQ's well-known guest "
+                                + "account -- the broker credential is this channel's entire authorization "
+                                + "model (AD-7). Set issuer.messaging.revocation.allow-insecure-transport=true "
+                                + "explicitly if this is the local Docker Compose profile");
             }
             boolean tlsEnabled = rabbitProperties.getSsl() != null && rabbitProperties.getSsl().determineEnabled();
             if (!tlsEnabled && !messagingProperties.allowInsecureTransport()) {
@@ -175,7 +190,11 @@ public class RevocationMessagingConfig {
 
     @Bean
     RetryOperationsInterceptor revocationRetryInterceptor(RabbitTemplate rabbitTemplate) {
-        ExponentialBackOffPolicy backOffPolicy = new ExponentialBackOffPolicy();
+        // F17 (EUD-225 /verify): jittered, not a plain exponential curve -- avoids every
+        // replica of a redelivered batch retrying in lockstep against the same downstream
+        // dependency (QTSP/DB) at the exact same instant. Documented intervals (1s -> 2s ->
+        // 4s, capped at 8s) are the *targets* this policy randomizes around, not exact waits.
+        ExponentialRandomBackOffPolicy backOffPolicy = new ExponentialRandomBackOffPolicy();
         backOffPolicy.setInitialInterval(RETRY_INITIAL_INTERVAL_MS);
         backOffPolicy.setMultiplier(RETRY_MULTIPLIER);
         backOffPolicy.setMaxInterval(RETRY_MAX_INTERVAL_MS);
