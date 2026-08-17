@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **EUD-219 — Removal of GPL-3.0 dependency**: the `io.github.novacrypto:Base58` dependency (GPL-3.0 license) has been removed and replaced with a custom `Base58Codec` implementation.
+
 ### Fixed
 
 - **EUD-215 — `/credential` accepted a DPoP-bound access token without checking the DPoP proof matches the key it was bound to**: `dpopValidationService.validate(...)` was only ever invoked from `/par` and `/token` — never from `/credential`, the endpoint that actually returns the credential. A stolen DPoP-typed access token could be replayed with any key (or none) to fetch a credential, defeating DPoP's sender-constraining purpose at the one endpoint where it matters most. Caught by the OIDF conformance suite's `oid4vci-1_0-issuer-happy-flow-multiple-clients` test ("Try Client1's DPoP key with Client2's access token" expected 400-499, got 200 with a signed credential in the body). `AccessTokenContext` now carries the token's `cnf.jkt` (extracted in `AccessTokenServiceImpl`); `CredentialController` reads the `DPoP` header and, when the resolved token is DPoP-bound, validates the proof and rejects (401, reusing `InvalidTokenException`) if it's missing or its key thumbprint doesn't match `cnf.jkt`. Tokens without `cnf.jkt` (DPoP not required for the tenant profile) are unaffected.
