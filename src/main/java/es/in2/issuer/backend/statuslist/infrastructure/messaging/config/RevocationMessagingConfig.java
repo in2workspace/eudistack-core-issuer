@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.statuslist.infrastructure.messaging.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.statuslist.domain.model.RevocationTenantBinding;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
@@ -24,6 +25,7 @@ import org.springframework.retry.policy.SimpleRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
 
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * RabbitMQ topology + consumer resilience for the revocation-instruction queue (EUD-225,
@@ -152,10 +154,33 @@ public class RevocationMessagingConfig {
      * Type-safe binding for {@code issuer.messaging.revocation.*}. Registered independently of
      * this {@code @Configuration} class's own {@code @ConditionalOnProperty} (via
      * {@code @ConfigurationPropertiesScan} on the application class) so that {@code enabled}
-     * itself, and the future AD-8 {@code tenant-binding} value, are always bindable — including
-     * in the disabled default, where {@link RevocationMessagingConfig} declares no bean at all.
+     * and {@code tenantBinding} are always bindable — including in the disabled default, where
+     * {@link RevocationMessagingConfig} declares no bean at all.
+     * <p>
+     * {@code tenantBinding} is AD-8's single-tenant deployment declaration: absent/blank by
+     * default (multi-tenant mode, untouched). Its <b>format</b> — not its existence in
+     * {@code tenant_registry}, which depends on the database and is checked when a message is
+     * actually processed (EC-07) — is validated fail-fast at startup, exactly like
+     * {@code TenantDomainWebFilter}'s tenant name pattern.
      */
     @ConfigurationProperties(prefix = "issuer.messaging.revocation")
-    public record RevocationMessagingProperties(boolean enabled) {
+    public record RevocationMessagingProperties(boolean enabled, String tenantBinding) {
+
+        private static final Pattern TENANT_NAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_-]+$");
+
+        public RevocationMessagingProperties {
+            if (tenantBinding != null && !tenantBinding.isBlank()
+                    && !TENANT_NAME_PATTERN.matcher(tenantBinding).matches()) {
+                throw new IllegalArgumentException(
+                        "issuer.messaging.revocation.tenant-binding has an invalid format: " + tenantBinding);
+            }
+        }
+
+        /** {@link RevocationTenantBinding#none()} when the deployment declares nothing. */
+        public RevocationTenantBinding toRevocationTenantBinding() {
+            return (tenantBinding == null || tenantBinding.isBlank())
+                    ? RevocationTenantBinding.none()
+                    : RevocationTenantBinding.of(tenantBinding);
+        }
     }
 }

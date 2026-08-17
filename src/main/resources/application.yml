@@ -240,3 +240,7 @@ issuer:
   messaging:
     revocation:
       enabled: ${ISSUER_MESSAGING_REVOCATION_ENABLED:false}
+      # AD-8: single-tenant deployment declaration. Empty/absent (default) = multi-tenant
+      # mode, tenantId is read from the message. Set only in a dedicated on-premise
+      # deployment (e.g. ISSUER_MESSAGING_REVOCATION_TENANT_BINDING=prh).
+      tenant-binding: ${ISSUER_MESSAGING_REVOCATION_TENANT_BINDING:}
