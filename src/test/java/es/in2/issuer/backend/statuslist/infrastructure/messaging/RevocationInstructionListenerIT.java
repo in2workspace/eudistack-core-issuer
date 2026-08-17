@@ -1,16 +1,26 @@
 package es.in2.issuer.backend.statuslist.infrastructure.messaging;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.crypto.ECDSASigner;
+import com.nimbusds.jose.jwk.Curve;
+import com.nimbusds.jose.jwk.ECKey;
+import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
+import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.infrastructure.repository.IssuanceRepository;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
+import es.in2.issuer.backend.statuslist.domain.model.dto.RevokeCredentialRequest;
 import es.in2.issuer.backend.statuslist.domain.util.factory.IssuerFactory;
 import es.in2.issuer.backend.statuslist.infrastructure.adapter.BitstringStatusListProvider;
 import es.in2.issuer.backend.statuslist.infrastructure.messaging.config.RevocationMessagingConfig;
@@ -23,22 +33,40 @@ import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.reactive.server.WebTestClient;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.utility.DockerImageName;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.SCHEMA_SUFFIX;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
+import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -105,6 +133,9 @@ class RevocationInstructionListenerIT {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @LocalServerPort
+    private int port;
+
     @MockitoBean
     private DelegatingSigningProvider delegatingSigningProvider;
 
@@ -113,6 +144,15 @@ class RevocationInstructionListenerIT {
 
     @MockitoBean
     private EmailService emailService;
+
+    // ES-03 (T28): the operator's revoke endpoint runs through the real security filter
+    // chain and policy rule chain; VerifierService is the only mocked collaborator there
+    // too (it is an external system, not part of the safeguards under test) — same choice
+    // BitstringStatusListControllerRevokeIT makes.
+    @MockitoBean
+    private VerifierService verifierService;
+
+    private ECKey signingKey;
 
     // Queues/DLQ are singleton beans shared by every test method in this class (cached Spring
     // context): without purging, a DLQ message left by one test pollutes the exact-count
@@ -127,7 +167,7 @@ class RevocationInstructionListenerIT {
     }
 
     @BeforeEach
-    void setUpFakes() {
+    void setUpFakes() throws Exception {
         // Fakes the QTSP: echoes back whatever payload it was asked to sign as a
         // compact-JWT-shaped string, so the id/sub claim the real factories build always
         // matches PUBLIC_BASE_URL — exactly what PersistedStatusListPublicBaseUrlResolver
@@ -140,6 +180,8 @@ class RevocationInstructionListenerIT {
                 .thenReturn(Mono.just(SimpleIssuer.builder().id("did:elsi:VATES-TEST").build()));
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.empty());
+        when(verifierService.verifyToken(anyString())).thenReturn(Mono.empty());
+        signingKey = new ECKeyGenerator(Curve.P_256).keyID("test-signer").generate();
     }
 
     private String fakeJwt(String payloadJson) {
@@ -203,6 +245,62 @@ class RevocationInstructionListenerIT {
     private void awaitDlqMessageCount(long expected) {
         Awaitility.await().atMost(AWAIT_TIMEOUT)
                 .untilAsserted(() -> assertThat(dlqMessageCount()).isEqualTo(expected));
+    }
+
+    // ---------------------------------------------------------------- ES-03 (T28) operator-endpoint helpers
+
+    private static Connection jdbcConnection() throws SQLException {
+        return DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+    }
+
+    /** See BitstringStatusListControllerRevokeIT: admin_organization_id is not seeded by
+     *  V1__Tenant_schema.sql, so PolicyContextFactory#resolveTenantAdmin would otherwise
+     *  throw TenantConfigMissingException for any operator token against this schema. */
+    private void seedAdminOrgPlaceholder(String tenant) throws SQLException {
+        try (Connection conn = jdbcConnection(); Statement stmt = conn.createStatement()) {
+            stmt.execute(("""
+                    INSERT INTO "%s%s".tenant_config (config_key, config_value)
+                    VALUES ('admin_organization_id', 'ADMIN-ORG-NONE')
+                    ON CONFLICT (config_key) DO NOTHING
+                    """).formatted(tenant, SCHEMA_SUFFIX));
+        }
+    }
+
+    private WebTestClient webTestClient() {
+        return WebTestClient.bindToServer()
+                .baseUrl("http://localhost:" + port)
+                .responseTimeout(Duration.ofSeconds(10))
+                .build();
+    }
+
+    private String operatorToken(String orgId, String tenant, List<Map<String, Object>> powers) throws Exception {
+        JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                .issuer("http://localhost:" + port + "/verifier")
+                .issueTime(new Date())
+                .expirationTime(new Date(System.currentTimeMillis() + 3_600_000L))
+                .claim("credential_type", CREDENTIAL_TYPE)
+                .claim("mandator", Map.of("organizationIdentifier", orgId))
+                .claim("power", powers)
+                .claim("tenant", tenant)
+                .build();
+        JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.ES256).keyID(signingKey.getKeyID()).build();
+        SignedJWT jwt = new SignedJWT(header, claims);
+        jwt.sign(new ECDSASigner(signingKey));
+        return jwt.serialize();
+    }
+
+    private static Map<String, Object> executePower(String domain) {
+        return Map.of("function", "Onboarding", "action", "Execute", "domain", domain, "type", "organization");
+    }
+
+    private WebTestClient.ResponseSpec operatorRevoke(String tenant, String bearerToken, String issuanceId) {
+        return webTestClient().post()
+                .uri("/issuer/w3c/v1/credentials/status/revoke")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearerToken)
+                .header(X_TENANT_HEADER, tenant)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(new RevokeCredentialRequest(issuanceId, null))
+                .exchange();
     }
 
     // ---------------------------------------------------------------- AC-01: happy path
@@ -410,5 +508,67 @@ class RevocationInstructionListenerIT {
 
         awaitDlqMessageCount(0);
         assertThat(currentStatus(TENANT_A, issuance.getIssuanceId())).isEqualTo(CredentialStatusEnum.REVOKED);
+    }
+
+    // ---------------------------------------------------------------- ES-03 (T28, promoted): real race, queue vs operator
+
+    /**
+     * The queue-triggered instruction and an operator's HTTP revoke fire concurrently on the
+     * same credential. Whoever wins the race, the outcome must be: revoked exactly once, the
+     * status list bit written once, the titleholder emailed once, exactly one
+     * {@code credential.revoked} audit event, and the instruction acked — never routed to the
+     * DLQ. This depends on the *real* optimistic lock on {@code status_list} (RC-2) and the
+     * *real* transition revalidation in {@code updateIssuanceStatusToRevoked} (RC-3) —
+     * a unit test with mocks can only prove the exception gets translated, not that the race
+     * actually resolves this way against Postgres.
+     */
+    @Test
+    void raceQueueVsOperatorRevoke_revokesExactlyOnceRegardlessOfWinner() throws Exception {
+        Issuance issuance = seedIssuance(TENANT_A, CredentialStatusEnum.VALID);
+        String issuanceId = issuance.getIssuanceId().toString();
+        allocateStatusListEntry(TENANT_A, issuanceId);
+        seedAdminOrgPlaceholder(TENANT_A);
+        String bearer = operatorToken("ORG-A", TENANT_A, List.of(executePower(TENANT_A)));
+
+        CountDownLatch startLine = new CountDownLatch(2);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> queueRunner = executor.submit(() -> {
+                startLine.countDown();
+                awaitStartLine(startLine);
+                publish(TENANT_A, issuanceId, UUID.randomUUID().toString(), null);
+            });
+            Future<?> operatorRunner = executor.submit(() -> {
+                startLine.countDown();
+                awaitStartLine(startLine);
+                operatorRevoke(TENANT_A, bearer, issuanceId).expectStatus().value(status ->
+                        assertThat(status).isIn(200, 204, 409));
+            });
+            queueRunner.get(20, TimeUnit.SECONDS);
+            operatorRunner.get(20, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdown();
+        }
+
+        Awaitility.await().atMost(AWAIT_TIMEOUT).untilAsserted(() ->
+                assertThat(currentStatus(TENANT_A, issuance.getIssuanceId())).isEqualTo(CredentialStatusEnum.REVOKED));
+
+        // Grace window past the point where a duplicate effect (second email, second audit
+        // event) would already be visible if the race were mishandled.
+        Awaitility.await().pollDelay(Duration.ofSeconds(3)).atMost(AWAIT_TIMEOUT).untilAsserted(() -> {
+            assertThat(currentStatus(TENANT_A, issuance.getIssuanceId())).isEqualTo(CredentialStatusEnum.REVOKED);
+            verify(emailService, times(1))
+                    .sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString());
+        });
+        awaitDlqMessageCount(0);
+    }
+
+    private static void awaitStartLine(CountDownLatch startLine) {
+        try {
+            startLine.await(5, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
     }
 }
