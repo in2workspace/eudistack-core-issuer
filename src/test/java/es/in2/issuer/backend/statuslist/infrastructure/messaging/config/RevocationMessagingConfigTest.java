@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.statuslist.infrastructure.messaging.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.statuslist.infrastructure.messaging.config.RevocationMessagingConfig.RevocationMessagingProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
@@ -27,13 +28,21 @@ class RevocationMessagingConfigTest {
 
     private final RevocationMessagingConfig config = new RevocationMessagingConfig();
 
+    private static RabbitProperties securedRabbitProperties() {
+        RabbitProperties properties = new RabbitProperties();
+        properties.setUsername("issuer-svc");
+        properties.setPassword("secret");
+        properties.getSsl().setEnabled(true);
+        return properties;
+    }
+
     @Test
     void revocationRabbitCredentialsValidator_blankUsername_throwsIllegalStateException() throws Exception {
-        RabbitProperties properties = new RabbitProperties();
+        RabbitProperties properties = securedRabbitProperties();
         properties.setUsername("");
-        properties.setPassword("secret");
 
-        InitializingBean validator = config.revocationRabbitCredentialsValidator(properties);
+        InitializingBean validator = config.revocationRabbitCredentialsValidator(
+                properties, new RevocationMessagingProperties(true, null, false));
 
         assertThatThrownBy(validator::afterPropertiesSet)
                 .isInstanceOf(IllegalStateException.class)
@@ -42,11 +51,11 @@ class RevocationMessagingConfigTest {
 
     @Test
     void revocationRabbitCredentialsValidator_blankPassword_throwsIllegalStateException() throws Exception {
-        RabbitProperties properties = new RabbitProperties();
-        properties.setUsername("issuer-svc");
+        RabbitProperties properties = securedRabbitProperties();
         properties.setPassword(null);
 
-        InitializingBean validator = config.revocationRabbitCredentialsValidator(properties);
+        InitializingBean validator = config.revocationRabbitCredentialsValidator(
+                properties, new RevocationMessagingProperties(true, null, false));
 
         assertThatThrownBy(validator::afterPropertiesSet)
                 .isInstanceOf(IllegalStateException.class)
@@ -54,12 +63,37 @@ class RevocationMessagingConfigTest {
     }
 
     @Test
-    void revocationRabbitCredentialsValidator_bothCredentialsSet_doesNotThrow() throws Exception {
-        RabbitProperties properties = new RabbitProperties();
-        properties.setUsername("issuer-svc");
-        properties.setPassword("secret");
+    void revocationRabbitCredentialsValidator_credentialsSetAndTlsEnabled_doesNotThrow() throws Exception {
+        InitializingBean validator = config.revocationRabbitCredentialsValidator(
+                securedRabbitProperties(), new RevocationMessagingProperties(true, null, false));
 
-        InitializingBean validator = config.revocationRabbitCredentialsValidator(properties);
+        assertThatCode(validator::afterPropertiesSet).doesNotThrowAnyException();
+    }
+
+    // ---------------------------------------------------------------- F13: TLS required
+
+    @Test
+    void revocationRabbitCredentialsValidator_tlsDisabledAndNoEscapeHatch_throwsIllegalStateException() throws Exception {
+        RabbitProperties properties = securedRabbitProperties();
+        properties.getSsl().setEnabled(false);
+
+        InitializingBean validator = config.revocationRabbitCredentialsValidator(
+                properties, new RevocationMessagingProperties(true, null, false));
+
+        assertThatThrownBy(validator::afterPropertiesSet)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("spring.rabbitmq.ssl.enabled");
+    }
+
+    @Test
+    void revocationRabbitCredentialsValidator_tlsDisabledWithExplicitEscapeHatch_doesNotThrow() throws Exception {
+        // The local Docker Compose profile's bundled RabbitMQ has no TLS listener --
+        // allow-insecure-transport=true is the explicit, documented opt-out.
+        RabbitProperties properties = securedRabbitProperties();
+        properties.getSsl().setEnabled(false);
+
+        InitializingBean validator = config.revocationRabbitCredentialsValidator(
+                properties, new RevocationMessagingProperties(true, null, true));
 
         assertThatCode(validator::afterPropertiesSet).doesNotThrowAnyException();
     }

@@ -58,7 +58,7 @@ class RevocationInstructionListenerTest {
         // tenant-binding=e2e-tenant-a (bare), message declares e2e-tenant-a-stg: must be
         // Mismatch. Stripping the message's suffix before the comparison would make this a
         // false FromMessage match -- fail-open, exactly the F12 bug.
-        RevocationMessagingProperties properties = new RevocationMessagingProperties(true, "e2e-tenant-a");
+        RevocationMessagingProperties properties = new RevocationMessagingProperties(true, "e2e-tenant-a", false);
         RevocationInstructionListener listener = new RevocationInstructionListener(
                 mapper, workflow, errorClassifier, tenantRegistryService, properties);
 
@@ -86,7 +86,7 @@ class RevocationInstructionListenerTest {
         // tenant-binding=e2e-tenant-a-stg, message also declares e2e-tenant-a-stg (identical
         // raw strings): must be FromMessage (accepted), not a spurious Mismatch -- the
         // asymmetric bug (stripping only the message side) would otherwise reject this.
-        RevocationMessagingProperties properties = new RevocationMessagingProperties(true, "e2e-tenant-a-stg");
+        RevocationMessagingProperties properties = new RevocationMessagingProperties(true, "e2e-tenant-a-stg", false);
         RevocationInstructionListener listener = new RevocationInstructionListener(
                 mapper, workflow, errorClassifier, tenantRegistryService, properties);
 

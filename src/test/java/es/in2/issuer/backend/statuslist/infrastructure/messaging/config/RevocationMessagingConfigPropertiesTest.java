@@ -17,35 +17,35 @@ class RevocationMessagingConfigPropertiesTest {
 
     @Test
     void construct_tenantBindingAbsent_succeeds() {
-        RevocationMessagingProperties properties = new RevocationMessagingProperties(false, null);
+        RevocationMessagingProperties properties = new RevocationMessagingProperties(false, null, false);
 
         assertThat(properties.toRevocationTenantBinding()).isEqualTo(RevocationTenantBinding.none());
     }
 
     @Test
     void construct_tenantBindingBlank_succeeds() {
-        RevocationMessagingProperties properties = new RevocationMessagingProperties(false, "   ");
+        RevocationMessagingProperties properties = new RevocationMessagingProperties(false, "   ", false);
 
         assertThat(properties.toRevocationTenantBinding()).isEqualTo(RevocationTenantBinding.none());
     }
 
     @Test
     void construct_tenantBindingValidFormat_succeeds() {
-        RevocationMessagingProperties properties = new RevocationMessagingProperties(true, "prh");
+        RevocationMessagingProperties properties = new RevocationMessagingProperties(true, "prh", false);
 
         assertThat(properties.toRevocationTenantBinding()).isEqualTo(RevocationTenantBinding.of("prh"));
     }
 
     @Test
     void construct_tenantBindingInvalidFormat_failsFast() {
-        assertThatThrownBy(() -> new RevocationMessagingProperties(true, "prh!invalid"))
+        assertThatThrownBy(() -> new RevocationMessagingProperties(true, "prh!invalid", false))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("tenant-binding");
     }
 
     @Test
     void construct_tenantBindingWithWhitespace_failsFast() {
-        assertThatThrownBy(() -> new RevocationMessagingProperties(true, "prh tenant"))
+        assertThatThrownBy(() -> new RevocationMessagingProperties(true, "prh tenant", false))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

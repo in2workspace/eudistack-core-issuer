@@ -249,3 +249,8 @@ issuer:
       # mode, tenantId is read from the message. Set only in a dedicated on-premise
       # deployment (e.g. ISSUER_MESSAGING_REVOCATION_TENANT_BINDING=prh).
       tenant-binding: ${ISSUER_MESSAGING_REVOCATION_TENANT_BINDING:}
+      # F13: false by default -- spring.rabbitmq.ssl.enabled=true is required whenever this
+      # feature is on, since the broker credential is this channel's entire authorization
+      # model (AD-7). Set to true ONLY for the local Docker Compose profile, whose bundled
+      # RabbitMQ container has no TLS listener configured -- never in STG/PROD.
+      allow-insecure-transport: ${ISSUER_MESSAGING_REVOCATION_ALLOW_INSECURE_TRANSPORT:false}

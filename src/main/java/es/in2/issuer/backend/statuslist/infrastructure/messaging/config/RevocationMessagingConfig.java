@@ -78,17 +78,26 @@ public class RevocationMessagingConfig {
     private static final int MAX_QUEUE_LENGTH = 10_000;
 
     /**
-     * F4 (EUD-225 {@code /verify}): this channel's entire authorization model rests on the
-     * broker credential (AD-7) — silently falling back to RabbitMQ's own well-known
-     * {@code guest}/{@code guest} account (no longer the default in {@code application.yml})
-     * is the wrong failure mode for something irreversible. Fails fast at startup, only when
-     * the feature is actually enabled — {@link InitializingBean#afterPropertiesSet()} runs
-     * during this bean's own initialization, so a blank credential aborts context startup
-     * with a clear cause instead of the consumer silently authenticating as {@code guest}
-     * (or simply failing to connect, with no diagnosis of why).
+     * F4/F13 (EUD-225 {@code /verify}): this channel's entire authorization model rests on
+     * the broker credential (AD-7/SRS §9) — silently falling back to RabbitMQ's own
+     * well-known {@code guest}/{@code guest} account (no longer the default in
+     * {@code application.yml}, F4) is the wrong failure mode for something irreversible,
+     * and that credential must not travel in cleartext SASL PLAIN over an unencrypted
+     * connection (F13) either. Fails fast at startup, only when the feature is actually
+     * enabled — {@link InitializingBean#afterPropertiesSet()} runs during this bean's own
+     * initialization, so a blank credential or a missing TLS configuration aborts context
+     * startup with a clear cause instead of the consumer silently authenticating as
+     * {@code guest}, or simply failing to connect, or connecting insecurely, with no
+     * diagnosis of why.
+     * <p>
+     * {@code issuer.messaging.revocation.allow-insecure-transport=true} is the explicit,
+     * documented escape hatch for the local Docker Compose profile, whose bundled RabbitMQ
+     * container has no TLS listener configured — never a silent default, and never inferred
+     * from an active Spring profile.
      */
     @Bean
-    InitializingBean revocationRabbitCredentialsValidator(RabbitProperties rabbitProperties) {
+    InitializingBean revocationRabbitCredentialsValidator(
+            RabbitProperties rabbitProperties, RevocationMessagingProperties messagingProperties) {
         return () -> {
             if (isBlank(rabbitProperties.getUsername()) || isBlank(rabbitProperties.getPassword())) {
                 throw new IllegalStateException(
@@ -96,6 +105,15 @@ public class RevocationMessagingConfig {
                                 + "spring.rabbitmq.password to be set explicitly -- refusing to start with "
                                 + "RabbitMQ's default guest/guest account for a channel whose entire "
                                 + "authorization model rests on the broker credential (AD-7)");
+            }
+            boolean tlsEnabled = rabbitProperties.getSsl() != null && rabbitProperties.getSsl().determineEnabled();
+            if (!tlsEnabled && !messagingProperties.allowInsecureTransport()) {
+                throw new IllegalStateException(
+                        "issuer.messaging.revocation.enabled=true requires spring.rabbitmq.ssl.enabled=true "
+                                + "-- the broker credential this channel's whole authorization model rests on "
+                                + "(AD-7) must not travel in cleartext. Set "
+                                + "issuer.messaging.revocation.allow-insecure-transport=true explicitly if this "
+                                + "is the local Docker Compose profile (no TLS listener configured there)");
             }
         };
     }
@@ -248,7 +266,7 @@ public class RevocationMessagingConfig {
      * {@code TenantDomainWebFilter}'s tenant name pattern.
      */
     @ConfigurationProperties(prefix = "issuer.messaging.revocation")
-    public record RevocationMessagingProperties(boolean enabled, String tenantBinding) {
+    public record RevocationMessagingProperties(boolean enabled, String tenantBinding, boolean allowInsecureTransport) {
 
         private static final Pattern TENANT_NAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_-]+$");
 

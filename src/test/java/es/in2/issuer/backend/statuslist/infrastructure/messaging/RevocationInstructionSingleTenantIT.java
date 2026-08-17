@@ -88,6 +88,9 @@ class RevocationInstructionSingleTenantIT {
         registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
         registry.add("issuer.messaging.revocation.enabled", () -> "true");
         registry.add("issuer.messaging.revocation.tenant-binding", () -> BOUND_TENANT);
+        // F13: the Testcontainers RabbitMQ image has no TLS listener configured -- same
+        // documented escape hatch as the local Docker Compose profile.
+        registry.add("issuer.messaging.revocation.allow-insecure-transport", () -> "true");
         registry.add("spring.rabbitmq.host", RABBITMQ::getHost);
         registry.add("spring.rabbitmq.port", RABBITMQ::getAmqpPort);
         registry.add("spring.rabbitmq.username", RABBITMQ::getAdminUsername);
@@ -283,6 +286,9 @@ class RevocationInstructionSingleTenantUnresolvableIT {
         registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
         registry.add("issuer.messaging.revocation.enabled", () -> "true");
         registry.add("issuer.messaging.revocation.tenant-binding", () -> UNRESOLVABLE_TENANT);
+        // F13: the Testcontainers RabbitMQ image has no TLS listener configured -- same
+        // documented escape hatch as the local Docker Compose profile.
+        registry.add("issuer.messaging.revocation.allow-insecure-transport", () -> "true");
         registry.add("spring.rabbitmq.host", RABBITMQ::getHost);
         registry.add("spring.rabbitmq.port", RABBITMQ::getAmqpPort);
         registry.add("spring.rabbitmq.username", RABBITMQ::getAdminUsername);
