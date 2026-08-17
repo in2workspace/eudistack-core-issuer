@@ -4,6 +4,7 @@ import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.util.TenantIdentifiers;
 import es.in2.issuer.backend.statuslist.application.HandleRevocationInstructionWorkflow;
 import es.in2.issuer.backend.statuslist.application.RevocationAuditDetails;
+import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import es.in2.issuer.backend.statuslist.domain.exception.InvalidRevocationInstructionException;
 import es.in2.issuer.backend.statuslist.domain.exception.UnknownTenantException;
 import es.in2.issuer.backend.statuslist.domain.model.RevocationInstruction;
@@ -12,6 +13,7 @@ import es.in2.issuer.backend.statuslist.domain.model.TenantBindingResolution;
 import es.in2.issuer.backend.statuslist.infrastructure.messaging.config.RevocationMessagingConfig;
 import es.in2.issuer.backend.statuslist.infrastructure.messaging.config.RevocationMessagingConfig.RevocationMessagingProperties;
 import es.in2.issuer.backend.statuslist.infrastructure.messaging.dto.RevocationInstructionMessage;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -55,16 +57,31 @@ public class RevocationInstructionListener {
     // (also prevents search_path injection).
     private static final Pattern TENANT_NAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_-]+$");
 
+    // F16 (EUD-225 /verify): AD-7 names "alert on anomalous revocation volume" as its own
+    // accepted-risk mitigation for the bulk-revocation DoS this queue trigger opens up, but
+    // nothing implemented it. A real rate limit / alert threshold is a follow-up decision
+    // (documented in tech-debt.md) -- this counter is the minimum viable step so that
+    // decision doesn't also require new instrumentation later.
+    private static final String METRIC_INSTRUCTION_PROCESSED = "revocation.instruction.processed";
+    private static final String TAG_TENANT = "tenant";
+    private static final String TAG_ACTOR = "actor";
+    private static final String TAG_OUTCOME = "outcome";
+    private static final String UNRESOLVED_TENANT_TAG = "unresolved";
+
     private final RevocationInstructionMessageMapper mapper;
     private final HandleRevocationInstructionWorkflow workflow;
     private final RevocationInstructionErrorClassifier errorClassifier;
     private final TenantRegistryService tenantRegistryService;
     private final RevocationMessagingProperties messagingProperties;
+    private final MeterRegistry meterRegistry;
 
     @RabbitListener(queues = RevocationMessagingConfig.QUEUE_NAME, containerFactory = "revocationListenerContainerFactory")
     public void onMessage(RevocationInstructionMessage message,
                           @Header(value = AmqpHeaders.MESSAGE_ID, required = false) String amqpMessageIdProperty) {
         String processId = UUID.randomUUID().toString();
+        // Visible to the catch block below (F16): a failure occurring before the tenant is
+        // even resolved (e.g. a malformed message) has no tenant to tag the metric with.
+        String contextTenant = null;
         try {
             RevocationInstruction instruction = mapper.toDomain(message, amqpMessageIdProperty, Instant.now());
             log.info("processId={} action=onMessage status=received messageId={} issuanceId={}",
@@ -85,7 +102,7 @@ public class RevocationInstructionListener {
             // The compiler enforces exhaustiveness here (NFR-S-225-07): a fifth,
             // silently-inferred case cannot be added without every switch site like this
             // one failing to compile.
-            String contextTenant = switch (resolution) {
+            contextTenant = switch (resolution) {
                 case TenantBindingResolution.FromMessage r -> TenantIdentifiers.stripEnvSuffix(r.tenantId());
                 case TenantBindingResolution.FromDeployment r -> TenantIdentifiers.stripEnvSuffix(r.tenantId());
                 // Never the discordant value from the message: the only tenant legitimate
@@ -110,8 +127,9 @@ public class RevocationInstructionListener {
                     .block();
 
             log.info("processId={} action=onMessage status=ack messageId={}", processId, logSafe(instruction.messageId()));
+            recordProcessed(contextTenant, "success");
         } catch (RuntimeException e) {
-            handleFailure(processId, e);
+            handleFailure(processId, contextTenant, e);
         } finally {
             // F7 (EUD-225 /verify): the AMQP container thread is pooled and reused across
             // deliveries for the lifetime of the container -- clearing MDC here prevents any
@@ -161,11 +179,12 @@ public class RevocationInstructionListener {
         }
     }
 
-    private void handleFailure(String processId, RuntimeException error) {
+    private void handleFailure(String processId, String contextTenant, RuntimeException error) {
         Throwable cause = Exceptions.unwrap(error);
 
         if (errorClassifier.isRetryable(cause)) {
             log.warn("processId={} action=onMessage status=retryable error={}", processId, logSafe(cause.toString()));
+            recordProcessed(contextTenant, "retryable");
             if (cause instanceof RuntimeException re) {
                 throw re;
             }
@@ -173,7 +192,24 @@ public class RevocationInstructionListener {
         }
 
         log.warn("processId={} action=onMessage status=permanent error={}", processId, logSafe(cause.toString()));
+        recordProcessed(contextTenant, "permanent");
         throw new AmqpRejectAndDontRequeueException(
                 "Permanent revocation instruction failure: " + logSafe(cause.getMessage()), cause);
+    }
+
+    /**
+     * F16 (EUD-225 {@code /verify}): raw material for a future volume-anomaly alert
+     * (AD-7 names this as its own accepted-risk mitigation, not yet implemented -- see
+     * {@code tech-debt.md}). {@code tenant} is deliberately the already-resolved,
+     * registry-validated {@code contextTenant} (or a fixed placeholder when none was ever
+     * resolved) -- never raw message content, which would let a forged {@code tenantId}
+     * blow up this metric's label cardinality.
+     */
+    private void recordProcessed(String contextTenant, String outcome) {
+        meterRegistry.counter(METRIC_INSTRUCTION_PROCESSED,
+                TAG_TENANT, contextTenant != null ? contextTenant : UNRESOLVED_TENANT_TAG,
+                TAG_ACTOR, RevocationWorkflow.ACTOR_REVOCATION_INSTRUCTION,
+                TAG_OUTCOME, outcome
+        ).increment();
     }
 }

@@ -6,6 +6,7 @@ import es.in2.issuer.backend.statuslist.domain.model.RevocationInstruction;
 import es.in2.issuer.backend.statuslist.domain.model.TenantBindingResolution;
 import es.in2.issuer.backend.statuslist.infrastructure.messaging.config.RevocationMessagingConfig.RevocationMessagingProperties;
 import es.in2.issuer.backend.statuslist.infrastructure.messaging.dto.RevocationInstructionMessage;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -48,6 +49,8 @@ class RevocationInstructionListenerTest {
     @Mock
     private TenantRegistryService tenantRegistryService;
 
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+
     private static RevocationInstructionMessage rawMessage(String tenantId) {
         return new RevocationInstructionMessage(
                 "revocation-instruction/v1", "msg-1", tenantId, ISSUANCE_ID, null, null);
@@ -60,7 +63,7 @@ class RevocationInstructionListenerTest {
         // false FromMessage match -- fail-open, exactly the F12 bug.
         RevocationMessagingProperties properties = new RevocationMessagingProperties(true, "e2e-tenant-a", false);
         RevocationInstructionListener listener = new RevocationInstructionListener(
-                mapper, workflow, errorClassifier, tenantRegistryService, properties);
+                mapper, workflow, errorClassifier, tenantRegistryService, properties, meterRegistry);
 
         RevocationInstruction instruction = new RevocationInstruction(
                 "msg-1", "e2e-tenant-a-stg", ISSUANCE_ID, null, Instant.now());
@@ -79,6 +82,11 @@ class RevocationInstructionListenerTest {
         // Mismatch never needs the registry (see buildPipeline) -- confirms this branch
         // was taken, not a FromMessage/FromDeployment path that happened to also succeed.
         verifyNoInteractions(tenantRegistryService);
+        // F16: tagged with the deployment's own configured tenant (e2e-tenant-a), never the
+        // raw/discordant message value -- bounded label cardinality.
+        assertThat(meterRegistry.get("revocation.instruction.processed")
+                .tag("tenant", "e2e-tenant-a").tag("outcome", "success").counter().count())
+                .isEqualTo(1.0);
     }
 
     @Test
@@ -88,7 +96,7 @@ class RevocationInstructionListenerTest {
         // asymmetric bug (stripping only the message side) would otherwise reject this.
         RevocationMessagingProperties properties = new RevocationMessagingProperties(true, "e2e-tenant-a-stg", false);
         RevocationInstructionListener listener = new RevocationInstructionListener(
-                mapper, workflow, errorClassifier, tenantRegistryService, properties);
+                mapper, workflow, errorClassifier, tenantRegistryService, properties, meterRegistry);
 
         RevocationInstruction instruction = new RevocationInstruction(
                 "msg-1", "e2e-tenant-a-stg", ISSUANCE_ID, null, Instant.now());
