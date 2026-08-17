@@ -63,6 +63,58 @@ class RevocationInstructionMessageMapperTest {
         assertThat(result.messageId()).isEqualTo("amqp-fallback");
     }
 
+    // ---------------------------------------------------------------- F3: messageId bound (length/charset)
+
+    @Test
+    void toDomain_messageIdWithinMaxLength_isAccepted() {
+        String messageId = "m".repeat(200);
+        RevocationInstructionMessage wire = new RevocationInstructionMessage(
+                null, messageId, "cgcom", ISSUANCE_ID, null, null);
+
+        RevocationInstruction result = mapper.toDomain(wire, null, RECEIVED_AT);
+
+        assertThat(result.messageId()).isEqualTo(messageId);
+    }
+
+    @Test
+    void toDomain_messageIdExceedsMaxLength_throwsInvalidRevocationInstructionExceptionAsPermanentError() {
+        String tooLong = "m".repeat(201);
+        RevocationInstructionMessage wire = new RevocationInstructionMessage(
+                null, tooLong, "cgcom", ISSUANCE_ID, null, null);
+
+        // InvalidRevocationInstructionException, not an unclassified exception from a Postgres
+        // btree-index-limit failure downstream -- RevocationInstructionErrorClassifier treats
+        // this type as permanent (DLQ, no retries), exactly what an oversized messageId needs.
+        assertThatThrownBy(() -> mapper.toDomain(wire, null, RECEIVED_AT))
+                .isInstanceOf(InvalidRevocationInstructionException.class)
+                .hasMessageContaining("exceeds the maximum length");
+    }
+
+    @Test
+    void toDomain_messageIdContainsControlCharacters_throwsInvalidRevocationInstructionException() {
+        // F1/F3: a raw newline here is exactly what could otherwise forge a fake log line
+        // once messageId reaches a log sink -- rejected at the border instead of relying
+        // solely on sanitization downstream.
+        String forged = "msg-1\nAUDIT event=credential.revoked outcome=success resourceId=forged";
+        RevocationInstructionMessage wire = new RevocationInstructionMessage(
+                null, forged, "cgcom", ISSUANCE_ID, null, null);
+
+        assertThatThrownBy(() -> mapper.toDomain(wire, null, RECEIVED_AT))
+                .isInstanceOf(InvalidRevocationInstructionException.class)
+                .hasMessageContaining("forbidden control characters");
+    }
+
+    @Test
+    void toDomain_amqpFallbackMessageIdExceedsMaxLength_throwsInvalidRevocationInstructionException() {
+        String tooLong = "m".repeat(201);
+        RevocationInstructionMessage wire = new RevocationInstructionMessage(
+                null, null, "cgcom", ISSUANCE_ID, null, null);
+
+        assertThatThrownBy(() -> mapper.toDomain(wire, tooLong, RECEIVED_AT))
+                .isInstanceOf(InvalidRevocationInstructionException.class)
+                .hasMessageContaining("exceeds the maximum length");
+    }
+
     // ---------------------------------------------------------------- issuanceId validation
 
     @Test
