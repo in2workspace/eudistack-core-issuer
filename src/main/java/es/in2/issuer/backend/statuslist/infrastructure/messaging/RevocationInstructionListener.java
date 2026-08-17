@@ -70,20 +70,28 @@ public class RevocationInstructionListener {
             log.info("processId={} action=onMessage status=received messageId={} issuanceId={}",
                     processId, logSafe(instruction.messageId()), instruction.issuanceId());
 
-            // F5 (EUD-225 /verify): same criterion as TenantDomainWebFilter -- environment
-            // suffixes (-stg/-dev/-pre) are stripped before the tenant-binding comparison /
-            // registry lookup, so tenant schemas stay environment-agnostic.
+            // F12 (EUD-225 /verify): the RAW message-declared tenantId feeds the mismatch
+            // comparison itself (RevocationTenantBinding.resolve) -- environment-suffix
+            // stripping must never touch either side of that comparison, or
+            // tenant-binding=prh + message tenantId=prh-stg would be silently ACCEPTED
+            // instead of rejected (AC-12, fail-open), and tenant-binding=prh-stg + message
+            // tenantId=prh-stg (identical strings) would produce a spurious Mismatch
+            // (only one side stripped). F5's stripping is applied below instead, only when
+            // deriving the tenant actually used for the tenant_registry lookup -- mirroring
+            // TenantDomainWebFilter's own originalTenant/resolvedTenant split (lines 162-174).
             RevocationTenantBinding binding = messagingProperties.toRevocationTenantBinding();
-            TenantBindingResolution resolution = binding.resolve(TenantIdentifiers.stripEnvSuffix(instruction.tenantId()));
+            TenantBindingResolution resolution = binding.resolve(instruction.tenantId());
 
             // The compiler enforces exhaustiveness here (NFR-S-225-07): a fifth,
             // silently-inferred case cannot be added without every switch site like this
             // one failing to compile.
             String contextTenant = switch (resolution) {
-                case TenantBindingResolution.FromMessage r -> r.tenantId();
-                case TenantBindingResolution.FromDeployment r -> r.tenantId();
+                case TenantBindingResolution.FromMessage r -> TenantIdentifiers.stripEnvSuffix(r.tenantId());
+                case TenantBindingResolution.FromDeployment r -> TenantIdentifiers.stripEnvSuffix(r.tenantId());
                 // Never the discordant value from the message: the only tenant legitimate
-                // to trace against here is the one this deployment actually declared.
+                // to trace against here is the one this deployment actually declared. Not
+                // stripped either -- the registry lookup never runs on this branch (see
+                // buildPipeline), this is only what gets written into the Reactor context.
                 case TenantBindingResolution.Mismatch r -> r.configured();
                 case TenantBindingResolution.Unresolved r -> null;
             };
