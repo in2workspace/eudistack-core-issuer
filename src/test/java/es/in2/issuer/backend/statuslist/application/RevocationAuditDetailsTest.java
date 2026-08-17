@@ -80,6 +80,59 @@ class RevocationAuditDetailsTest {
     }
 
     @Test
+    void sanitize_stripsUnicodeLineAndParagraphSeparators() {
+        // F9: \p{Cntrl} alone is ASCII-only in Java and misses NEL/LS/PS, which some log
+        // viewers still treat as line breaks -- the same forging vector as a raw \n.
+        String forged = "cgcom AUDIT event=credential.revoked outcome=success";
+
+        assertThat(RevocationAuditDetails.sanitize(forged, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH))
+                .doesNotContain(" ")
+                .isEqualTo("cgcomAUDIT event=credential.revoked outcome=success");
+    }
+
+    @Test
+    void declaredTenantAuditFields_conformingValue_isKeptAsIs() {
+        Map<String, Object> fields = RevocationAuditDetails.declaredTenantAuditFields("cgcom");
+
+        assertThat(fields)
+                .containsExactly(Map.entry("declaredTenant", "cgcom"));
+    }
+
+    @Test
+    void declaredTenantAuditFields_nonConformingValue_isReplacedWithMarkerAndHash() {
+        // F15: a value like this could otherwise forge extra key=value fields inside a real
+        // audit line for a downstream logfmt-style extractor.
+        String forged = "cgcom outcome=success actor=system:operator resourceId=forged-uuid";
+
+        Map<String, Object> fields = RevocationAuditDetails.declaredTenantAuditFields(forged);
+
+        assertThat(fields)
+                .containsEntry("declaredTenant", RevocationAuditDetails.DECLARED_TENANT_NON_CONFORMING_MARKER)
+                .containsKey("declaredTenantSha256");
+        assertThat((String) fields.get("declaredTenantSha256")).hasSize(64).matches("^[0-9a-f]{64}$");
+        assertThat(fields.values()).noneMatch(v -> v.toString().contains("outcome=success"));
+    }
+
+    @Test
+    void declaredTenantAuditFields_sameForgedInput_hashesDeterministically() {
+        String forged = "cgcom outcome=success";
+
+        Map<String, Object> first = RevocationAuditDetails.declaredTenantAuditFields(forged);
+        Map<String, Object> second = RevocationAuditDetails.declaredTenantAuditFields(forged);
+
+        assertThat(first.get("declaredTenantSha256")).isEqualTo(second.get("declaredTenantSha256"));
+    }
+
+    @Test
+    void declaredTenantAuditFields_exceedsMaxLength_isReplacedWithMarkerAndHash() {
+        String tooLong = "a".repeat(65);
+
+        Map<String, Object> fields = RevocationAuditDetails.declaredTenantAuditFields(tooLong);
+
+        assertThat(fields).containsEntry("declaredTenant", RevocationAuditDetails.DECLARED_TENANT_NON_CONFORMING_MARKER);
+    }
+
+    @Test
     void toDetailsMap_includesRequiredFields() {
         Map<String, Object> details = RevocationAuditDetails.toDetailsMap(
                 "alice@example.com", "VATES-A15456585", "issuance-123", "Baja laboral", "success", null);

@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -122,10 +123,42 @@ public class AuditServiceImpl implements AuditService {
         MDC.remove("audit.resourceId");
     }
 
+    // F15 (EUD-225 /verify): escaped at this sink, not only by the caller -- AuditServiceImpl
+    // is shared by every bounded context that audits, so a caller-side sanitizer (like
+    // RevocationAuditDetails' control-char stripping) closes the gap only for the callers
+    // that remember to use it. A value containing '=' or '"' could otherwise forge extra
+    // key=value fields inside a real audit line for a downstream logfmt-style extractor
+    // (CloudWatch Logs Insights and similar); plain whitespace alone is NOT a trigger --
+    // many legitimate values (a human-readable `reason`) contain spaces, and quoting those
+    // too would break plain-text log readability and existing "key=multi word value"
+    // consumers for no closed vulnerability (whitespace alone cannot forge a new field --
+    // only an embedded '=' can).
+    private static final Pattern NEEDS_QUOTING = Pattern.compile("[\"=\\p{Cntrl}\\u0085\\u2028\\u2029]");
+
     private String formatDetails(Map<String, Object> details) {
         if (details == null || details.isEmpty()) return "";
         StringBuilder sb = new StringBuilder();
-        details.forEach((k, v) -> sb.append(k).append('=').append(v).append(' '));
+        details.forEach((k, v) -> sb.append(k).append('=').append(formatValue(v)).append(' '));
         return sb.toString().trim();
+    }
+
+    /**
+     * Bare for a simple value (the overwhelming majority: UUIDs, actor identifiers,
+     * enum-like outcomes, human-readable text with spaces but no special characters) —
+     * readable and backward-compatible with existing log consumers. Quoted and escaped
+     * when the value contains anything that could be mistaken for a new field or a new
+     * line: control characters (including CR/LF and the Unicode line/paragraph separators
+     * NEL/LS/PS) are stripped outright rather than escaped to a visible sequence, since a
+     * raw one inside the quotes would still break single-line parsing; backslash and
+     * double-quote are escaped so the value round-trips unambiguously.
+     */
+    private static String formatValue(Object value) {
+        String raw = String.valueOf(value);
+        if (!NEEDS_QUOTING.matcher(raw).find()) {
+            return raw;
+        }
+        String withoutControlChars = raw.replaceAll("[\\p{Cntrl}\\u0085\\u2028\\u2029]", "");
+        String escaped = withoutControlChars.replace("\\", "\\\\").replace("\"", "\\\"");
+        return "\"" + escaped + "\"";
     }
 }

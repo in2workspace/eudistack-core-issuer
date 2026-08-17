@@ -139,4 +139,50 @@ class AuditServiceImplTest {
         assertEquals(1, auditAppender.list.size());
         assertEquals(Level.INFO, auditAppender.list.get(0).getLevel());
     }
+
+    // ---------------------------------------------------------------- F15: formatDetails escaping
+
+    @Test
+    void auditSuccess_simpleDetailValue_staysBareUnquoted() {
+        // Backward compatible with existing log consumers: a value with no special
+        // characters is not wrapped in quotes.
+        auditService.auditSuccess("some.event", "user-1", "credential", "res-1",
+                java.util.Map.of("reason", "Baja voluntaria no motivada"));
+
+        String message = auditAppender.list.get(0).getFormattedMessage();
+        assertTrue(message.contains("reason=Baja voluntaria no motivada"));
+    }
+
+    @Test
+    void auditSuccess_detailValueWithForgedKeyValuePair_isQuotedAndEscaped() {
+        // F15: a value containing a nested key=value pair must not be mistaken for
+        // additional fields by a downstream logfmt-style extractor once emitted.
+        String forged = "outcome=success actor=system:operator resourceId=forged-uuid";
+        auditService.auditSuccess("some.event", "user-1", "credential", "res-1",
+                java.util.Map.of("declaredTenant", forged));
+
+        String message = auditAppender.list.get(0).getFormattedMessage();
+        assertTrue(message.contains("declaredTenant=\"" + forged + "\""),
+                "forged value must be quoted verbatim (no unescaped '=' left bare): " + message);
+    }
+
+    @Test
+    void auditSuccess_detailValueWithEmbeddedQuote_isEscaped() {
+        auditService.auditSuccess("some.event", "user-1", "credential", "res-1",
+                java.util.Map.of("reason", "he said \"stop\""));
+
+        String message = auditAppender.list.get(0).getFormattedMessage();
+        assertTrue(message.contains("reason=\"he said \\\"stop\\\"\""), message);
+    }
+
+    @Test
+    void auditSuccess_detailValueWithNewline_neverForgesASecondLogLine() {
+        String forged = "cgcom\nAUDIT event=credential.revoked outcome=success";
+        auditService.auditSuccess("some.event", "user-1", "credential", "res-1",
+                java.util.Map.of("declaredTenant", forged));
+
+        assertEquals(1, auditAppender.list.size(), "a single audit call must produce exactly one log event");
+        String message = auditAppender.list.get(0).getFormattedMessage();
+        assertTrue(message.toString().indexOf('\n') < 0, "no raw newline must survive into the formatted message");
+    }
 }

@@ -270,10 +270,13 @@ class HandleRevocationInstructionWorkflowTest {
 
     @Test
     void handleRevocationInstruction_mismatch_sanitizesDeclaredTenantBeforeAuditDetail() {
-        // F1 (EUD-225 /verify): a raw newline in the declared tenant must never reach an
-        // audit detail unsanitized -- it could forge a second, fake AUDIT log line
-        // (e.g. "cgcom\nAUDIT event=credential.revoked outcome=success ...") that a
-        // downstream parser could mistake for a real revocation record.
+        // F1/F15 (EUD-225 /verify): a raw newline (or spaces/'=', F15) in the declared
+        // tenant must never reach an audit detail unsanitized -- it could forge a second,
+        // fake AUDIT log line (e.g. "cgcom\nAUDIT event=credential.revoked outcome=success
+        // ...") or extra fields inside a real one that a downstream parser could mistake
+        // for a genuine revocation record. A non-conforming value is replaced entirely with
+        // a fixed marker + a SHA-256 digest (RevocationAuditDetails.declaredTenantAuditFields),
+        // not merely stripped of the offending characters.
         String forgedTenant = "cgcom\nAUDIT event=credential.revoked outcome=success resourceId=forged";
         TenantBindingResolution.Mismatch mismatch = new TenantBindingResolution.Mismatch(forgedTenant, "prh");
 
@@ -285,10 +288,11 @@ class HandleRevocationInstructionWorkflowTest {
         ArgumentCaptor<Map<String, Object>> details = ArgumentCaptor.forClass(Map.class);
         verify(auditService).auditFailure(eq("credential.revoke.failed"), eq(ACTOR),
                 eq("tenant_binding_mismatch"), details.capture());
-        String sanitizedDeclaredTenant = (String) details.getValue().get("declaredTenant");
-        assertThat(sanitizedDeclaredTenant)
-                .doesNotContain("\n")
-                .isEqualTo("cgcomAUDIT event=credential.revoked outcome=success resourceId=forged");
+        assertThat(details.getValue())
+                .containsEntry("declaredTenant", RevocationAuditDetails.DECLARED_TENANT_NON_CONFORMING_MARKER)
+                .containsKey("declaredTenantSha256");
+        assertThat(details.getValue().values())
+                .noneMatch(v -> v.toString().contains("\n") || v.toString().contains("outcome=success"));
     }
 
     @Test

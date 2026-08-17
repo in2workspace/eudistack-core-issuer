@@ -122,7 +122,10 @@ public class HandleRevocationInstructionWorkflow {
             Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
                     ACTOR_REVOCATION_INSTRUCTION, null, instruction.issuanceId(), instruction.reason(),
                     "failure", ERROR_TYPE_TENANT_BINDING_MISMATCH));
-            details.put("declaredTenant", declaredTenant);
+            // F15: declaredTenant gets a stricter, charset-constrained treatment than the
+            // generic log-line sanitization above -- a non-conforming value is replaced with
+            // a fixed marker + a SHA-256 digest, never placed in the audit detail verbatim.
+            details.putAll(RevocationAuditDetails.declaredTenantAuditFields(mismatch.declaredInMessage()));
             auditService.auditFailure(EVENT_FAILED, ACTOR_REVOCATION_INSTRUCTION, ERROR_TYPE_TENANT_BINDING_MISMATCH, details);
         } catch (Exception e) {
             log.warn("processId={} action=handleRevocationInstruction step=auditMismatchFailed messageId={} error={}",

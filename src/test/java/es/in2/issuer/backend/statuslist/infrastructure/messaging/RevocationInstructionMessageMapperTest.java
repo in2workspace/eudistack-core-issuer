@@ -149,6 +149,65 @@ class RevocationInstructionMessageMapperTest {
         assertThat(result.tenantId()).isNull();
     }
 
+    // ---------------------------------------------------------------- F14: tenantId/reason bound at the border
+
+    @Test
+    void toDomain_tenantIdWithValidCharset_isAccepted() {
+        RevocationInstructionMessage wire = new RevocationInstructionMessage(
+                null, "msg-1", "e2e-tenant-a_1", ISSUANCE_ID, null, null);
+
+        RevocationInstruction result = mapper.toDomain(wire, null, RECEIVED_AT);
+
+        assertThat(result.tenantId()).isEqualTo("e2e-tenant-a_1");
+    }
+
+    @Test
+    void toDomain_tenantIdExceedsMaxLength_throwsInvalidRevocationInstructionException() {
+        String tooLong = "a".repeat(65);
+        RevocationInstructionMessage wire = new RevocationInstructionMessage(
+                null, "msg-1", tooLong, ISSUANCE_ID, null, null);
+
+        assertThatThrownBy(() -> mapper.toDomain(wire, null, RECEIVED_AT))
+                .isInstanceOf(InvalidRevocationInstructionException.class)
+                .hasMessageContaining("exceeds the maximum length");
+    }
+
+    @Test
+    void toDomain_tenantIdContainsInvalidCharacters_throwsInvalidRevocationInstructionException_evenOnTheMismatchPath() {
+        // F14/F15: the Mismatch branch never re-validates declaredInMessage() format on its
+        // own -- this must be rejected at the border regardless of what the tenant-binding
+        // resolution outcome would otherwise be.
+        String forged = "cgcom outcome=success actor=system:operator";
+        RevocationInstructionMessage wire = new RevocationInstructionMessage(
+                null, "msg-1", forged, ISSUANCE_ID, null, null);
+
+        assertThatThrownBy(() -> mapper.toDomain(wire, null, RECEIVED_AT))
+                .isInstanceOf(InvalidRevocationInstructionException.class)
+                .hasMessageContaining("invalid format");
+    }
+
+    @Test
+    void toDomain_reasonWithinMaxLength_isAccepted() {
+        String reason = "x".repeat(1_000);
+        RevocationInstructionMessage wire = new RevocationInstructionMessage(
+                null, "msg-1", "cgcom", ISSUANCE_ID, reason, null);
+
+        RevocationInstruction result = mapper.toDomain(wire, null, RECEIVED_AT);
+
+        assertThat(result.reason()).hasSize(1_000);
+    }
+
+    @Test
+    void toDomain_reasonExceedsMaxLength_throwsInvalidRevocationInstructionException() {
+        String tooLong = "x".repeat(1_001);
+        RevocationInstructionMessage wire = new RevocationInstructionMessage(
+                null, "msg-1", "cgcom", ISSUANCE_ID, tooLong, null);
+
+        assertThatThrownBy(() -> mapper.toDomain(wire, null, RECEIVED_AT))
+                .isInstanceOf(InvalidRevocationInstructionException.class)
+                .hasMessageContaining("exceeds the maximum length");
+    }
+
     // ---------------------------------------------------------------- EC-02 reason absent
 
     @Test
