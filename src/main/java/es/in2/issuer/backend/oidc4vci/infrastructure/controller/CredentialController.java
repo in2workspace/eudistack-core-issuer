@@ -70,6 +70,7 @@ public class CredentialController {
             return Mono.error(new InvalidTokenException("Missing DPoP proof for a DPoP-bound access token"));
         }
         return Mono.fromCallable(() -> dpopValidationService.validate(dpopHeader, "POST", credentialEndpointUri, token.rawToken()))
+                .onErrorMap(IllegalArgumentException.class, e -> new InvalidTokenException("Invalid DPoP proof"))
                 .flatMap(actualJkt -> {
                     if (!token.cnfJkt().equals(actualJkt)) {
                         return Mono.error(new InvalidTokenException("DPoP proof key does not match the access token binding"));
