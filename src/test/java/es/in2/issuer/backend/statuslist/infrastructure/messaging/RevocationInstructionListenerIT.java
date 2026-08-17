@@ -276,6 +276,26 @@ class RevocationInstructionListenerIT {
         assertThat(currentStatus(TENANT_A, issuance.getIssuanceId())).isEqualTo(CredentialStatusEnum.VALID);
     }
 
+    // ---------------------------------------------------------------- AC-13: default mode never infers a tenant
+
+    @Test
+    void missingTenantId_inDefaultModeWithNoBindingConfigured_routesToDlqWithoutStateChange() {
+        // Regression guard: this context declares no issuer.messaging.revocation.tenant-binding
+        // (the default, multi-tenant mode) -- exactly today's behaviour, which AD-8's
+        // single-tenant mode (tested separately, RevocationInstructionSingleTenantIT) must
+        // never degrade. A message with no tenantId field at all must still go straight to
+        // the DLQ, never attributed to any tenant (not the first in the registry, not the
+        // only one seeded).
+        Issuance issuance = seedIssuance(TENANT_A, CredentialStatusEnum.VALID);
+        String issuanceId = issuance.getIssuanceId().toString();
+        allocateStatusListEntry(TENANT_A, issuanceId);
+
+        publish(null, issuanceId, UUID.randomUUID().toString(), null);
+
+        awaitDlqMessageCount(1);
+        assertThat(currentStatus(TENANT_A, issuance.getIssuanceId())).isEqualTo(CredentialStatusEnum.VALID);
+    }
+
     // ---------------------------------------------------------------- AC-08: tenant isolation
 
     @Test
