@@ -50,6 +50,36 @@ class RevocationAuditDetailsTest {
     }
 
     @Test
+    void sanitize_null_returnsNull() {
+        assertThat(RevocationAuditDetails.sanitize(null, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH)).isNull();
+    }
+
+    @Test
+    void sanitize_stripsNewlines_preventingLogForging() {
+        // F1 (EUD-225 /verify): a newline in a third-party value (tenantId, messageId) must
+        // never survive sanitization -- it is exactly what forges a second, fake log line.
+        String forged = "cgcom\nAUDIT event=credential.revoked outcome=success resourceId=forged";
+
+        assertThat(RevocationAuditDetails.sanitize(forged, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH))
+                .doesNotContain("\n")
+                .isEqualTo("cgcomAUDIT event=credential.revoked outcome=success resourceId=forged");
+    }
+
+    @Test
+    void sanitize_exceedsMaxLength_truncated() {
+        String longValue = "x".repeat(300);
+
+        assertThat(RevocationAuditDetails.sanitize(longValue, 200)).hasSize(200);
+    }
+
+    @Test
+    void sanitize_withinMaxLength_notTruncated() {
+        String value = "x".repeat(50);
+
+        assertThat(RevocationAuditDetails.sanitize(value, 200)).isEqualTo(value);
+    }
+
+    @Test
     void toDetailsMap_includesRequiredFields() {
         Map<String, Object> details = RevocationAuditDetails.toDetailsMap(
                 "alice@example.com", "VATES-A15456585", "issuance-123", "Baja laboral", "success", null);

@@ -82,7 +82,7 @@ public class HandleRevocationInstructionWorkflow {
                 .flatMap(claimResult -> {
                     if (claimResult == ALREADY_PROCESSED) {
                         log.info("processId={} action=handleRevocationInstruction status=alreadyProcessed messageId={}",
-                                processId, instruction.messageId());
+                                processId, logSafe(instruction.messageId()));
                         return Mono.empty();
                     }
                     if (claimResult == CLAIMED) {
@@ -90,8 +90,18 @@ public class HandleRevocationInstructionWorkflow {
                     }
                     // IN_PROGRESS: another delivery of the same messageId owns an unexpired
                     // claim. Retryable — the caller (listener) redelivers with backoff.
-                    return Mono.error(new RevocationInstructionInProgressException(instruction.messageId()));
+                    return Mono.error(new RevocationInstructionInProgressException(logSafe(instruction.messageId())));
                 });
+    }
+
+    /**
+     * Sanitizes a third-party value (declared tenantId, messageId, exception text) before
+     * it reaches a log line or an audit detail (F1, EUD-225 {@code /verify}) — never used
+     * for the functional inbox operations ({@code claim}/{@code markProcessed}/
+     * {@code markSkipped}/{@code release}), which must keep the exact original value.
+     */
+    private static String logSafe(String value) {
+        return RevocationAuditDetails.sanitize(value, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH);
     }
 
     /**
@@ -102,20 +112,21 @@ public class HandleRevocationInstructionWorkflow {
      */
     private Mono<Void> rejectMismatch(String processId, RevocationInstruction instruction,
                                       TenantBindingResolution.Mismatch mismatch) {
+        String declaredTenant = logSafe(mismatch.declaredInMessage());
         log.warn(
                 "processId={} action=handleRevocationInstruction status=tenantBindingMismatch "
                         + "messageId={} declaredInMessage={} configured={}",
-                processId, instruction.messageId(), mismatch.declaredInMessage(), mismatch.configured()
+                processId, logSafe(instruction.messageId()), declaredTenant, mismatch.configured()
         );
         try {
             Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
                     ACTOR_REVOCATION_INSTRUCTION, null, instruction.issuanceId(), instruction.reason(),
                     "failure", ERROR_TYPE_TENANT_BINDING_MISMATCH));
-            details.put("declaredTenant", mismatch.declaredInMessage());
+            details.put("declaredTenant", declaredTenant);
             auditService.auditFailure(EVENT_FAILED, ACTOR_REVOCATION_INSTRUCTION, ERROR_TYPE_TENANT_BINDING_MISMATCH, details);
         } catch (Exception e) {
             log.warn("processId={} action=handleRevocationInstruction step=auditMismatchFailed messageId={} error={}",
-                    processId, instruction.messageId(), e.toString());
+                    processId, logSafe(instruction.messageId()), logSafe(e.toString()));
         }
         return Mono.error(new TenantBindingMismatchException(mismatch.declaredInMessage(), mismatch.configured()));
     }
@@ -137,7 +148,7 @@ public class HandleRevocationInstructionWorkflow {
                         .then(Mono.defer(() -> inbox.markProcessed(instruction.messageId())))
                         .doOnSuccess(v -> log.info(
                                 "processId={} action=handleRevocationInstruction status=processed messageId={} issuanceId={}",
-                                processId, instruction.messageId(), instruction.issuanceId()
+                                processId, logSafe(instruction.messageId()), instruction.issuanceId()
                         ))
                 )
                 .onErrorResume(e -> isNotRevocable(e)
@@ -157,11 +168,11 @@ public class HandleRevocationInstructionWorkflow {
         return inbox.release(instruction.messageId())
                 .doOnSuccess(v -> log.debug(
                         "processId={} action=handleRevocationInstruction step=claimReleased messageId={}",
-                        processId, instruction.messageId()))
+                        processId, logSafe(instruction.messageId())))
                 .onErrorResume(releaseError -> {
                     log.warn(
                             "processId={} action=handleRevocationInstruction step=claimReleaseFailed messageId={} error={}",
-                            processId, instruction.messageId(), releaseError.toString());
+                            processId, logSafe(instruction.messageId()), logSafe(releaseError.toString()));
                     return Mono.empty();
                 })
                 .then(Mono.error(error));
@@ -174,7 +185,7 @@ public class HandleRevocationInstructionWorkflow {
     private Mono<Void> skipAsNoop(String processId, RevocationInstruction instruction, Throwable cause) {
         log.info(
                 "processId={} action=handleRevocationInstruction status=noop messageId={} issuanceId={} cause={}",
-                processId, instruction.messageId(), instruction.issuanceId(), cause.toString()
+                processId, logSafe(instruction.messageId()), instruction.issuanceId(), logSafe(cause.toString())
         );
         safeAuditSkipped(instruction, processId);
         return inbox.markSkipped(instruction.messageId());
@@ -188,7 +199,7 @@ public class HandleRevocationInstructionWorkflow {
                     instruction.issuanceId(), details);
         } catch (Exception e) {
             log.warn("processId={} action=handleRevocationInstruction step=auditSkippedFailed messageId={} error={}",
-                    processId, instruction.messageId(), e.toString());
+                    processId, logSafe(instruction.messageId()), logSafe(e.toString()));
         }
     }
 }

@@ -2,6 +2,7 @@ package es.in2.issuer.backend.statuslist.infrastructure.messaging;
 
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.statuslist.application.HandleRevocationInstructionWorkflow;
+import es.in2.issuer.backend.statuslist.application.RevocationAuditDetails;
 import es.in2.issuer.backend.statuslist.domain.exception.InvalidRevocationInstructionException;
 import es.in2.issuer.backend.statuslist.domain.exception.UnknownTenantException;
 import es.in2.issuer.backend.statuslist.domain.model.RevocationInstruction;
@@ -65,7 +66,7 @@ public class RevocationInstructionListener {
         try {
             RevocationInstruction instruction = mapper.toDomain(message, amqpMessageIdProperty, Instant.now());
             log.info("processId={} action=onMessage status=received messageId={} issuanceId={}",
-                    processId, instruction.messageId(), instruction.issuanceId());
+                    processId, logSafe(instruction.messageId()), instruction.issuanceId());
 
             RevocationTenantBinding binding = messagingProperties.toRevocationTenantBinding();
             TenantBindingResolution resolution = binding.resolve(instruction.tenantId());
@@ -95,10 +96,19 @@ public class RevocationInstructionListener {
                     .timeout(PROCESSING_TIMEOUT)
                     .block();
 
-            log.info("processId={} action=onMessage status=ack messageId={}", processId, instruction.messageId());
+            log.info("processId={} action=onMessage status=ack messageId={}", processId, logSafe(instruction.messageId()));
         } catch (RuntimeException e) {
             handleFailure(processId, e);
         }
+    }
+
+    /**
+     * Sanitizes a third-party value (messageId, exception text) before it reaches a log
+     * line (F1, EUD-225 {@code /verify}) — the raw value is still what flows into the
+     * mapper, the workflow and the inbox; this is only for what ends up in a log sink.
+     */
+    private static String logSafe(String value) {
+        return RevocationAuditDetails.sanitize(value, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH);
     }
 
     private Mono<Void> buildPipeline(String processId, RevocationInstruction instruction,
@@ -128,14 +138,15 @@ public class RevocationInstructionListener {
         Throwable cause = Exceptions.unwrap(error);
 
         if (errorClassifier.isRetryable(cause)) {
-            log.warn("processId={} action=onMessage status=retryable error={}", processId, cause.toString());
+            log.warn("processId={} action=onMessage status=retryable error={}", processId, logSafe(cause.toString()));
             if (cause instanceof RuntimeException re) {
                 throw re;
             }
             throw new IllegalStateException(cause);
         }
 
-        log.warn("processId={} action=onMessage status=permanent error={}", processId, cause.toString());
-        throw new AmqpRejectAndDontRequeueException("Permanent revocation instruction failure: " + cause.getMessage(), cause);
+        log.warn("processId={} action=onMessage status=permanent error={}", processId, logSafe(cause.toString()));
+        throw new AmqpRejectAndDontRequeueException(
+                "Permanent revocation instruction failure: " + logSafe(cause.getMessage()), cause);
     }
 }
