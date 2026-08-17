@@ -162,7 +162,6 @@ class ParServiceImplTest {
         verify(dpopValidationService, never()).validate(anyString(), anyString(), anyString());
     }
 
-    // RFC 9126 §2.3: PAR error responses must use the RFC 6749 §5.2 {error, error_description}
     // shape - a raw IllegalArgumentException from the shared validation services must be
     // translated, not leaked as-is.
 
