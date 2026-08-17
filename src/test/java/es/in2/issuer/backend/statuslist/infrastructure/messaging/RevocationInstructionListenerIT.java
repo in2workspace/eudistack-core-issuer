@@ -595,9 +595,12 @@ class RevocationInstructionListenerIT {
      * status list bit written once, the titleholder emailed once, exactly one
      * {@code credential.revoked} audit event, and the instruction acked — never routed to the
      * DLQ. This depends on the *real* optimistic lock on {@code status_list} (RC-2) and the
-     * *real* transition revalidation in {@code updateIssuanceStatusToRevoked} (RC-3) —
-     * a unit test with mocks can only prove the exception gets translated, not that the race
-     * actually resolves this way against Postgres.
+     * *real* optimistic lock on {@code issuance.version} in
+     * {@code updateIssuanceStatusToRevoked} (SD-04 fix, see spec-deltas.md) — a unit test
+     * with mocks can only prove the exception gets translated, not that the race actually
+     * resolves this way against Postgres. This test originally exposed SD-04 (intermittent
+     * double-revoke / double-email under full-suite contention before the fix); it is kept
+     * as the regression guard for that fix, not just as a new-feature test.
      */
     @Test
     void raceQueueVsOperatorRevoke_revokesExactlyOnceRegardlessOfWinner() throws Exception {
@@ -636,6 +639,15 @@ class RevocationInstructionListenerIT {
             assertThat(currentStatus(TENANT_A, issuance.getIssuanceId())).isEqualTo(CredentialStatusEnum.REVOKED);
             verify(emailService, times(1))
                     .sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString());
+            // SD-04: exactly one credential.revoked/success audit event for this issuanceId,
+            // regardless of which path won -- the loser's InvalidCredentialStatusTransitionException
+            // (reconcileConcurrentRevoke) routes to a failure/skip event, never a second success.
+            assertThat(auditMessages().stream()
+                    .filter(m -> m.contains("event=credential.revoked")
+                            && m.contains("outcome=success")
+                            && m.contains("resourceId=" + issuanceId))
+                    .count())
+                    .isEqualTo(1);
         });
         awaitDlqMessageCount(0);
     }
