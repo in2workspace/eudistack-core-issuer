@@ -15,6 +15,8 @@ import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.rabbit.retry.RepublishMessageRecoverer;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
+import org.springframework.beans.factory.InitializingBean;
+import org.springframework.boot.autoconfigure.amqp.RabbitProperties;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -66,6 +68,33 @@ public class RevocationMessagingConfig {
     // AD-4 defense in depth: reduces (does not eliminate) the EC-03 overlapping-redelivery window.
     private static final int PREFETCH_COUNT = 1;
     private static final int CONCURRENT_CONSUMERS = 1;
+
+    /**
+     * F4 (EUD-225 {@code /verify}): this channel's entire authorization model rests on the
+     * broker credential (AD-7) — silently falling back to RabbitMQ's own well-known
+     * {@code guest}/{@code guest} account (no longer the default in {@code application.yml})
+     * is the wrong failure mode for something irreversible. Fails fast at startup, only when
+     * the feature is actually enabled — {@link InitializingBean#afterPropertiesSet()} runs
+     * during this bean's own initialization, so a blank credential aborts context startup
+     * with a clear cause instead of the consumer silently authenticating as {@code guest}
+     * (or simply failing to connect, with no diagnosis of why).
+     */
+    @Bean
+    InitializingBean revocationRabbitCredentialsValidator(RabbitProperties rabbitProperties) {
+        return () -> {
+            if (isBlank(rabbitProperties.getUsername()) || isBlank(rabbitProperties.getPassword())) {
+                throw new IllegalStateException(
+                        "issuer.messaging.revocation.enabled=true requires spring.rabbitmq.username and "
+                                + "spring.rabbitmq.password to be set explicitly -- refusing to start with "
+                                + "RabbitMQ's default guest/guest account for a channel whose entire "
+                                + "authorization model rests on the broker credential (AD-7)");
+            }
+        };
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
 
     @Bean
     DirectExchange revocationExchange() {

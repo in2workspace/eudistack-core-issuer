@@ -48,11 +48,16 @@ spring:
   messages:
     basename: messages/messages
   # EUD-225: only consulted when issuer.messaging.revocation.enabled=true (AD-6).
+  # No default for username/password (F4, EUD-225 /verify): this channel's entire
+  # authorization model rests on the broker credential (AD-7) -- silently falling back to
+  # RabbitMQ's own well-known guest/guest account is the wrong failure mode. Left unset
+  # here (empty), RevocationMessagingConfig's credential validator fails fast at startup
+  # instead, but only when the feature is actually enabled.
   rabbitmq:
     host: ${SPRING_RABBITMQ_HOST:localhost}
     port: ${SPRING_RABBITMQ_PORT:5672}
-    username: ${SPRING_RABBITMQ_USERNAME:guest}
-    password: ${SPRING_RABBITMQ_PASSWORD:guest}
+    username: ${SPRING_RABBITMQ_USERNAME:}
+    password: ${SPRING_RABBITMQ_PASSWORD:}
     virtual-host: ${SPRING_RABBITMQ_VIRTUAL_HOST:/}
 
 # Logging
