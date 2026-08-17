@@ -432,6 +432,39 @@ class RevocationInstructionListenerIT {
     }
 
     @Test
+    void unknownJsonField_isIgnoredAndProcessedNormally() {
+        // B-EC06 (EUD-225 /verify): @JsonIgnoreProperties(ignoreUnknown = true) on
+        // RevocationInstructionMessage is the right mechanism (EC-06, forward compatibility
+        // with a later contract version), but nothing previously deserialized a raw JSON
+        // payload with a genuinely unknown field through the *real* ObjectMapper end to end
+        // -- the mapper test builds the record directly in Java, and every other publish()
+        // in this class sends an already-constructed Java object (Jackson2JsonMessageConverter
+        // serializes it, never exercising an extra key on the way back in). This publishes
+        // raw bytes with a field no version of the contract has ever declared.
+        Issuance issuance = seedIssuance(TENANT_A, CredentialStatusEnum.VALID);
+        String issuanceId = issuance.getIssuanceId().toString();
+        allocateStatusListEntry(TENANT_A, issuanceId);
+        String messageId = UUID.randomUUID().toString();
+
+        String rawJsonWithUnknownField = """
+                {
+                  "type": "revocation-instruction/v1",
+                  "messageId": "%s",
+                  "tenantId": "%s",
+                  "issuanceId": "%s",
+                  "reason": null,
+                  "issuedAt": "%s",
+                  "futureFieldFromANewerContractVersion": "must be ignored, not rejected"
+                }
+                """.formatted(messageId, TENANT_A, issuanceId, Instant.now());
+        publishMalformed(rawJsonWithUnknownField.getBytes(StandardCharsets.UTF_8));
+
+        Awaitility.await().atMost(AWAIT_TIMEOUT).untilAsserted(() ->
+                assertThat(currentStatus(TENANT_A, issuance.getIssuanceId())).isEqualTo(CredentialStatusEnum.REVOKED));
+        awaitDlqMessageCount(0);
+    }
+
+    @Test
     void nonExistentIssuance_routesToDlqWithoutStateChange() {
         String unknownIssuanceId = UUID.randomUUID().toString();
         publish(TENANT_A, unknownIssuanceId, UUID.randomUUID().toString(), null);
