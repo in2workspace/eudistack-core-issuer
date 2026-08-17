@@ -5,6 +5,7 @@ import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTran
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.statuslist.domain.exception.RevocationInstructionInProgressException;
+import es.in2.issuer.backend.statuslist.domain.exception.TenantBindingMismatchException;
 import es.in2.issuer.backend.statuslist.domain.model.RevocationInstruction;
 import es.in2.issuer.backend.statuslist.domain.model.TenantBindingResolution;
 import es.in2.issuer.backend.statuslist.domain.service.StatusListPublicBaseUrlResolver;
@@ -226,5 +227,57 @@ class HandleRevocationInstructionWorkflowTest {
                 .verifyComplete();
 
         verify(inbox).markSkipped(MESSAGE_ID);
+    }
+
+    // ---------------------------------------------------------------- AC-11: FromDeployment tenantSource
+
+    @Test
+    void handleRevocationInstruction_fromDeployment_passesTenantSourceDeploymentToRevokeSystem() {
+        TenantBindingResolution.FromDeployment fromDeployment = new TenantBindingResolution.FromDeployment("prh");
+        when(inbox.claim(MESSAGE_ID, ISSUANCE_ID)).thenReturn(Mono.just(CLAIMED));
+        when(publicBaseUrlResolver.resolve(ISSUANCE_ID)).thenReturn(Mono.just(BASE_URL));
+        when(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, "reason", ACTOR, BASE_URL, "deployment"))
+                .thenReturn(Mono.empty());
+        when(inbox.markProcessed(MESSAGE_ID)).thenReturn(Mono.empty());
+
+        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason"), fromDeployment))
+                .verifyComplete();
+
+        verify(revocationWorkflow).revokeSystem(PROCESS_ID, ISSUANCE_ID, "reason", ACTOR, BASE_URL, "deployment");
+        verify(inbox).markProcessed(MESSAGE_ID);
+    }
+
+    // ---------------------------------------------------------------- AC-12: Mismatch rejection
+
+    @Test
+    void handleRevocationInstruction_mismatch_rejectsBeforeClaimingWithAuditTrail() {
+        TenantBindingResolution.Mismatch mismatch = new TenantBindingResolution.Mismatch("cgcom", "prh");
+
+        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason"), mismatch))
+                .expectError(TenantBindingMismatchException.class)
+                .verify();
+
+        verifyNoInteractions(inbox, publicBaseUrlResolver, revocationWorkflow);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> details = ArgumentCaptor.forClass(Map.class);
+        verify(auditService).auditFailure(eq("credential.revoke.failed"), eq(ACTOR),
+                eq("tenant_binding_mismatch"), details.capture());
+        assertThat(details.getValue())
+                .containsEntry("errorType", "tenant_binding_mismatch")
+                .containsEntry("declaredTenant", "cgcom");
+    }
+
+    @Test
+    void handleRevocationInstruction_mismatchAuditThrows_stillPropagatesMismatchError() {
+        TenantBindingResolution.Mismatch mismatch = new TenantBindingResolution.Mismatch("cgcom", "prh");
+        doThrow(new RuntimeException("audit sink down"))
+                .when(auditService).auditFailure(anyString(), anyString(), anyString(), anyMap());
+
+        StepVerifier.create(workflow.handleRevocationInstruction(PROCESS_ID, instruction("reason"), mismatch))
+                .expectError(TenantBindingMismatchException.class)
+                .verify();
+
+        verifyNoInteractions(inbox);
     }
 }
