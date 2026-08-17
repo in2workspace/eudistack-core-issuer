@@ -58,6 +58,7 @@ class RevocationWorkflowTest {
     private static final String BEARER_TOKEN = "Bearer token123";
     private static final String CLEAN_TOKEN = "token123";
     private static final String ISSUANCE_ID = "procedure-456";
+    private static final String SYSTEM_ACTOR = "system:oid4vci-notification";
 
     private Issuance mockProcedure;
 
@@ -136,32 +137,75 @@ class RevocationWorkflowTest {
 
     @Test
     void revokeSystem_ShouldSucceed() {
-        when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure)).thenReturn(Mono.empty());
-        when(statusListProvider.revoke(ISSUANCE_ID, CLEAN_TOKEN, "https://issuer.example.com")).thenReturn(Mono.empty());
+        when(statusListProvider.revoke(ISSUANCE_ID, null, "https://issuer.example.com")).thenReturn(Mono.empty());
         when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure)).thenReturn(Mono.empty());
         when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.empty());
 
-        StepVerifier.create(revocationWorkflow.revokeSystem(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com"))
+        StepVerifier.create(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, null, SYSTEM_ACTOR, "https://issuer.example.com"))
                 .verifyComplete();
 
         verify(statusListPdpService).validateRevokeCredentialSystem(PROCESS_ID, mockProcedure);
-        verify(statusListProvider).revoke(ISSUANCE_ID, CLEAN_TOKEN, "https://issuer.example.com");
+        verify(statusListProvider).revoke(ISSUANCE_ID, null, "https://issuer.example.com");
+        verifyNoInteractions(accessTokenService);
+    }
+
+    @Test
+    void revokeSystem_WithNullActor_ShouldThrowException() {
+        assertThrows(
+                NullPointerException.class,
+                () -> revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, null, null, "https://issuer.example.com")
+        );
+    }
+
+    @Test
+    void revokeSystem_WithNullProcessId_ShouldThrowException() {
+        assertThrows(
+                NullPointerException.class,
+                () -> revocationWorkflow.revokeSystem(null, ISSUANCE_ID, null, SYSTEM_ACTOR, "https://issuer.example.com")
+        );
+    }
+
+    @Test
+    void revokeSystem_WithNullIssuanceId_ShouldThrowException() {
+        assertThrows(
+                NullPointerException.class,
+                () -> revocationWorkflow.revokeSystem(PROCESS_ID, null, null, SYSTEM_ACTOR, "https://issuer.example.com")
+        );
     }
 
     @Test
     void revokeSystem_WithValidationFailure_ShouldPropagateError() {
-        when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
         when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure))
                 .thenReturn(Mono.error(new RuntimeException("System validation failed")));
 
-        StepVerifier.create(revocationWorkflow.revokeSystem(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com"))
+        StepVerifier.create(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, null, SYSTEM_ACTOR, "https://issuer.example.com"))
                 .expectError(RuntimeException.class)
                 .verify();
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void revokeSystem_usesExplicitActor_neverUnknown() {
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure)).thenReturn(Mono.empty());
+        when(statusListProvider.revoke(ISSUANCE_ID, null, "https://issuer.example.com")).thenReturn(Mono.empty());
+        when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure)).thenReturn(Mono.empty());
+        when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(Mono.empty());
+
+        StepVerifier.create(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, null, SYSTEM_ACTOR, "https://issuer.example.com"))
+                .verifyComplete();
+
+        verify(auditService).auditAttempted(
+                eq("credential.revoke.attempted"), eq(SYSTEM_ACTOR), eq("credential"), eq(ISSUANCE_ID), any());
+        verify(auditService).auditSuccess(
+                eq("credential.revoked"), eq(SYSTEM_ACTOR), eq("credential"), eq(ISSUANCE_ID), any());
     }
 
     // ---------------------------------------------------------------- AC-01, AC-03, AC-07 (audit content)

@@ -22,6 +22,7 @@ import reactor.core.publisher.Mono;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static es.in2.issuer.backend.statuslist.domain.util.Constants.REVOKED;
@@ -37,6 +38,12 @@ public class RevocationWorkflow {
     private static final String EVENT_FAILED = "credential.revoke.failed";
     private static final String UNKNOWN_ACTOR = "unknown";
 
+    /** Actor of the system-triggered path fed by the OID4VCI credential_deleted notification. */
+    public static final String ACTOR_OID4VCI_NOTIFICATION = "system:oid4vci-notification";
+
+    /** Actor of the system-triggered path fed by the revocation-instruction message queue (EUD-225). */
+    public static final String ACTOR_REVOCATION_INSTRUCTION = "system:revocation-instruction";
+
     private final StatusListProvider statusListProvider;
     private final AccessTokenService accessTokenService;
     private final StatusListPdpService statusListPdpService;
@@ -51,27 +58,51 @@ public class RevocationWorkflow {
         Mono<Void> validate(String processId, String token, Issuance issuance);
     }
 
+    /**
+     * Operator-triggered revocation (portal). The actor is resolved from the reactive
+     * security context and a caller token is required, cleaned, and propagated to signing.
+     */
     @Observed(name = "revocation.revoke", contextualName = "revocation-revoke")
     public Mono<Void> revoke(String processId, String bearerToken, String issuanceId, String reason, String publicIssuerBaseUrl) {
-        return revokeInternal(
-                processId,
-                bearerToken,
-                issuanceId,
-                reason,
-                statusListPdpService::validateRevokeCredential,
-                "revokeCredential",
-                publicIssuerBaseUrl
-        );
+        requireNonNullParam(processId, "processId");
+        requireNonNullParam(bearerToken, "bearerToken");
+        requireNonNullParam(issuanceId, "issuanceId");
+        requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
+        return resolveActor()
+                .flatMap(actor ->
+                        accessTokenService.getCleanBearerToken(bearerToken)
+                                .flatMap(token -> revokeInternal(
+                                        processId,
+                                        Optional.of(token),
+                                        issuanceId,
+                                        reason,
+                                        actor,
+                                        (pid, t, issuance) -> statusListPdpService.validateRevokeCredential(pid, t, issuance),
+                                        "revokeCredential",
+                                        publicIssuerBaseUrl
+                                ))
+                );
     }
 
+    /**
+     * System-triggered revocation (no HTTP caller behind it: OID4VCI notification, revocation
+     * instruction queue). There is no caller token to propagate (AD-1: the token was vestigial
+     * downstream and is never used to authorize or sign); the actor is declared explicitly by
+     * the caller instead of being resolved from a security context that does not exist (AD-3).
+     */
     @Observed(name = "revocation.revoke-system", contextualName = "revocation-revoke-system")
-    public Mono<Void> revokeSystem(String processId, String bearerToken, String issuanceId, String reason, String publicIssuerBaseUrl) {
+    public Mono<Void> revokeSystem(String processId, String issuanceId, String reason, String actor, String publicIssuerBaseUrl) {
+        requireNonNullParam(processId, "processId");
+        requireNonNullParam(issuanceId, "issuanceId");
+        requireNonNullParam(actor, "actor");
+        requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
         return revokeInternal(
                 processId,
-                bearerToken,
+                Optional.empty(),
                 issuanceId,
                 reason,
-                (pid, token, issuance) -> statusListPdpService.validateRevokeCredentialSystem(pid, issuance),
+                actor,
+                (pid, t, issuance) -> statusListPdpService.validateRevokeCredentialSystem(pid, issuance),
                 "revokeSystemCredential",
                 publicIssuerBaseUrl
         );
@@ -152,52 +183,45 @@ public class RevocationWorkflow {
 
     private Mono<Void> revokeInternal(
             String processId,
-            String bearerToken,
+            Optional<String> token,
             String issuanceId,
             String reason,
+            String actor,
             RevocationValidator validator,
             String action,
             String publicIssuerBaseUrl
     ) {
         requireNonNullParam(processId, "processId");
-        requireNonNullParam(bearerToken, "bearerToken");
         requireNonNullParam(issuanceId, "issuanceId");
+        requireNonNullParam(actor, "actor");
         requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
 
-        AtomicReference<String> actorRef = new AtomicReference<>(UNKNOWN_ACTOR);
+        String tokenValue = token.orElse(null);
         AtomicReference<Issuance> issuanceRef = new AtomicReference<>();
 
-        return resolveActor()
-                .doOnNext(actorRef::set)
-                .flatMap(actor ->
-                        accessTokenService.getCleanBearerToken(bearerToken)
-                                .doFirst(() -> log.info(
-                                        "processId={} action={} status=started issuanceId={}",
-                                        processId, action, issuanceId
-                                ))
-                                .flatMap(token ->
-                                        issuanceService.getIssuanceById(issuanceId)
-                                                .switchIfEmpty(Mono.defer(() -> {
-                                                    safeAuditAttempted(actor, null, issuanceId, reason, processId, action);
-                                                    return Mono.<Issuance>error(new IssuanceNotFoundException(
-                                                            "No issuance found for issuanceId: " + issuanceId));
-                                                }))
-                                                .doOnSuccess(p -> log.debug(
-                                                        "processId={} action={} step=issuanceLoaded issuanceId={} credentialStatus={}",
-                                                        processId, action, issuanceId, p != null ? p.getCredentialStatus() : null
-                                                ))
-                                                .doOnNext(issuanceRef::set)
-                                                .flatMap(issuance -> {
-                                                    safeAuditAttempted(actor, issuance, issuanceId, reason, processId, action);
-                                                    return validator.validate(processId, token, issuance)
-                                                            .doOnSuccess(v -> log.info(
-                                                                    "processId={} action={} step=validationPassed issuanceId={}",
-                                                                    processId, action, issuanceId
-                                                            ))
-                                                            .thenReturn(new RevocationContext(token, issuance));
-                                                })
-                                )
-                )
+        return Mono.defer(() -> {
+                    log.info("processId={} action={} status=started issuanceId={}", processId, action, issuanceId);
+                    return issuanceService.getIssuanceById(issuanceId)
+                            .switchIfEmpty(Mono.defer(() -> {
+                                safeAuditAttempted(actor, null, issuanceId, reason, processId, action);
+                                return Mono.<Issuance>error(new IssuanceNotFoundException(
+                                        "No issuance found for issuanceId: " + issuanceId));
+                            }))
+                            .doOnSuccess(p -> log.debug(
+                                    "processId={} action={} step=issuanceLoaded issuanceId={} credentialStatus={}",
+                                    processId, action, issuanceId, p != null ? p.getCredentialStatus() : null
+                            ))
+                            .doOnNext(issuanceRef::set)
+                            .flatMap(issuance -> {
+                                safeAuditAttempted(actor, issuance, issuanceId, reason, processId, action);
+                                return validator.validate(processId, tokenValue, issuance)
+                                        .doOnSuccess(v -> log.info(
+                                                "processId={} action={} step=validationPassed issuanceId={}",
+                                                processId, action, issuanceId
+                                        ))
+                                        .thenReturn(new RevocationContext(tokenValue, issuance));
+                            });
+                })
                 .flatMap(ctx ->
                         statusListProvider.revoke(issuanceId, ctx.token, publicIssuerBaseUrl)
                                 .then(issuanceService.updateIssuanceStatusToRevoked(ctx.issuance)
@@ -232,14 +256,14 @@ public class RevocationWorkflow {
                             processId, action, issuanceId);
                     // Post-commit: the revocation is already consumed at this point, so a logging
                     // failure inside safeAuditSuccess must never surface as an error here (ES-04).
-                    safeAuditSuccess(actorRef.get(), issuanceRef.get(), issuanceId, reason, processId, action);
+                    safeAuditSuccess(actor, issuanceRef.get(), issuanceId, reason, processId, action);
                 })
                 .doOnError(e -> {
                     log.warn(
                             "processId={} action={} status=failed issuanceId={} error={}",
                             processId, action, issuanceId, e.toString()
                     );
-                    safeAuditFailure(actorRef.get(), issuanceRef.get(), issuanceId, reason, processId, action, e);
+                    safeAuditFailure(actor, issuanceRef.get(), issuanceId, reason, processId, action, e);
                 });
     }
 }

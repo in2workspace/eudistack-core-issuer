@@ -78,7 +78,7 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
                             })
                             .flatMap(issuanceId ->
                                     issuanceService.getIssuanceById(issuanceId)
-                                            .flatMap(proc -> handleEvent(processId, proc, event, eventDescription, bearerToken, publicIssuerBaseUrl))
+                                            .flatMap(proc -> handleEvent(processId, proc, event, eventDescription, publicIssuerBaseUrl))
                             );
                 })
                 .onErrorResume(InvalidNotificationRequestException.class, e -> {
@@ -97,7 +97,7 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     }
 
     private Mono<Void> handleEvent(String processId, Issuance issuance,
-                                   NotificationEvent event, String eventDescription, String bearerToken,
+                                   NotificationEvent event, String eventDescription,
                                    String publicIssuerBaseUrl) {
 
         String issuanceId = issuance.getIssuanceId().toString();
@@ -116,7 +116,7 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
         return switch (event) {
             case CREDENTIAL_ACCEPTED -> handleAccepted(processId, issuance);
             case CREDENTIAL_FAILURE -> handleFailure(processId, issuance, eventDescription);
-            case CREDENTIAL_DELETED -> handleDeleted(processId, issuance, bearerToken, publicIssuerBaseUrl);
+            case CREDENTIAL_DELETED -> handleDeleted(processId, issuance, publicIssuerBaseUrl);
         };
     }
 
@@ -183,13 +183,12 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     /**
      * credential_deleted: DRAFT -> WITHDRAWN + revoke status list entry
      */
-    private Mono<Void> handleDeleted(String processId, Issuance issuance, String bearerToken,
-                                     String publicIssuerBaseUrl) {
+    private Mono<Void> handleDeleted(String processId, Issuance issuance, String publicIssuerBaseUrl) {
         String issuanceId = issuance.getIssuanceId().toString();
         log.info("[{}] credential_deleted: withdrawing issuanceId={}", processId, issuanceId);
 
         return issuanceService.withdrawIssuance(issuanceId)
-                .then(revokeCredentialFromDecoded(processId, issuance, bearerToken, publicIssuerBaseUrl))
+                .then(revokeCredentialFromDecoded(processId, issuance, publicIssuerBaseUrl))
                 .doOnSuccess(v -> log.info("[{}] credential_deleted: issuanceId={} withdrawn and status list entry revoked",
                         processId, issuanceId))
                 .onErrorResume(e -> {
@@ -199,10 +198,9 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
                 });
     }
 
-    private Mono<Void> revokeCredentialFromDecoded(String processId, Issuance issuance, String bearerToken,
-                                                   String publicIssuerBaseUrl) {
+    private Mono<Void> revokeCredentialFromDecoded(String processId, Issuance issuance, String publicIssuerBaseUrl) {
         String issuanceId = issuance.getIssuanceId().toString();
-        return revocationWorkflow.revokeSystem(processId, bearerToken, issuanceId, null, publicIssuerBaseUrl)
+        return revocationWorkflow.revokeSystem(processId, issuanceId, null, RevocationWorkflow.ACTOR_OID4VCI_NOTIFICATION, publicIssuerBaseUrl)
                 .doFirst(() -> log.info("processId={} action=revokeCredential status=started issuanceId={}",
                         processId, issuanceId))
                 .doOnSuccess(v -> log.info("processId={} action=revokeCredential status=completed issuanceId={}",
