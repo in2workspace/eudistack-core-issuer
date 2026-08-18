@@ -222,9 +222,16 @@ public class RevocationWorkflow {
 
         String tokenValue = token.orElse(null);
         AtomicReference<Issuance> issuanceRef = new AtomicReference<>();
+        // issuanceId is boundary-validated as a well-formed UUID on both callers (the operator
+        // DTO's @Pattern and the queue mapper's UUID.fromString) by the time it reaches here,
+        // but this method's log statements are a shared sink for both paths -- sanitizing once
+        // for logging only (not for the real lookups/audit calls below, which keep the raw
+        // value) follows the same defense-in-depth pattern already applied to reason/tenantId
+        // (RevocationAuditDetails, F1/F9/F15) instead of relying solely on the callers' guarantees.
+        String safeIssuanceId = RevocationAuditDetails.sanitize(issuanceId, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH);
 
         return Mono.defer(() -> {
-                    log.info("processId={} action={} status=started issuanceId={}", processId, action, issuanceId);
+                    log.info("processId={} action={} status=started issuanceId={}", processId, action, safeIssuanceId);
                     return issuanceService.getIssuanceById(issuanceId)
                             .switchIfEmpty(Mono.defer(() -> {
                                 safeAuditAttempted(actor, null, issuanceId, reason, processId, action, tenantSource);
@@ -233,7 +240,7 @@ public class RevocationWorkflow {
                             }))
                             .doOnSuccess(p -> log.debug(
                                     "processId={} action={} step=issuanceLoaded issuanceId={} credentialStatus={}",
-                                    processId, action, issuanceId, p != null ? p.getCredentialStatus() : null
+                                    processId, action, safeIssuanceId, p != null ? p.getCredentialStatus() : null
                             ))
                             .doOnNext(issuanceRef::set)
                             .flatMap(issuance -> {
@@ -241,7 +248,7 @@ public class RevocationWorkflow {
                                 return validator.validate(processId, tokenValue, issuance)
                                         .doOnSuccess(v -> log.info(
                                                 "processId={} action={} step=validationPassed issuanceId={}",
-                                                processId, action, issuanceId
+                                                processId, action, safeIssuanceId
                                         ))
                                         .thenReturn(new RevocationContext(tokenValue, issuance));
                             });
@@ -251,7 +258,7 @@ public class RevocationWorkflow {
                                 .then(issuanceService.updateIssuanceStatusToRevoked(ctx.issuance)
                                         .doOnSuccess(v -> log.info(
                                                 "processId={} action={} step=issuanceUpdated issuanceId={}",
-                                                processId, action, issuanceId
+                                                processId, action, safeIssuanceId
                                         ))
                                 )
                                 .then(issuanceService.extractCredentialId(ctx.issuance)
@@ -264,12 +271,12 @@ public class RevocationWorkflow {
                                         ))
                                         .doOnSuccess(v -> log.debug(
                                                 "processId={} action={} step=emailNotificationTriggered issuanceId={} newStatus={}",
-                                                processId, action, issuanceId, REVOKED
+                                                processId, action, safeIssuanceId, REVOKED
                                         ))
                                         .onErrorResume(e -> {
                                             log.warn(
                                                     "processId={} action={} step=emailNotificationFailed issuanceId={} error={}",
-                                                    processId, action, issuanceId, e.toString()
+                                                    processId, action, safeIssuanceId, e.toString()
                                             );
                                             return Mono.empty();
                                         })
@@ -277,7 +284,7 @@ public class RevocationWorkflow {
                 )
                 .doOnSuccess(v -> {
                     log.info("processId={} action={} status=completed issuanceId={}",
-                            processId, action, issuanceId);
+                            processId, action, safeIssuanceId);
                     // Post-commit: the revocation is already consumed at this point, so a logging
                     // failure inside safeAuditSuccess must never surface as an error here (ES-04).
                     safeAuditSuccess(actor, issuanceRef.get(), issuanceId, reason, processId, action, tenantSource);
@@ -285,7 +292,7 @@ public class RevocationWorkflow {
                 .doOnError(e -> {
                     log.warn(
                             "processId={} action={} status=failed issuanceId={} error={}",
-                            processId, action, issuanceId, e.toString()
+                            processId, action, safeIssuanceId, e.toString()
                     );
                     safeAuditFailure(actor, issuanceRef.get(), issuanceId, reason, processId, action, e, tenantSource);
                 });

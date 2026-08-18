@@ -76,7 +76,7 @@ public class R2dbcRevocationInstructionInbox implements RevocationInstructionInb
                     if (!STATUS_IN_PROGRESS.equals(existing.status())) {
                         return Mono.just(ClaimResult.ALREADY_PROCESSED);
                     }
-                    if (existing.claimedAt().isAfter(leaseThreshold)) {
+                    if (!existing.claimedAt().isBefore(leaseThreshold)) {
                         return Mono.just(ClaimResult.IN_PROGRESS);
                     }
                     return reclaimExpired(messageId, leaseThreshold);
