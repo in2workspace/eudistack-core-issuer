@@ -49,7 +49,7 @@ public class R2dbcRevocationInstructionInbox implements RevocationInstructionInb
         return insertIfAbsent(messageId, issuanceId)
                 .flatMap(claimed -> claimed
                         ? Mono.just(ClaimResult.CLAIMED)
-                        : resolveExistingClaim(messageId))
+                        : resolveExistingClaim(messageId, issuanceId))
                 .doOnNext(result -> log.debug(
                         "method=claim step=END messageId={} result={}", messageId, result));
     }
@@ -68,7 +68,7 @@ public class R2dbcRevocationInstructionInbox implements RevocationInstructionInb
                 .map(rows -> rows != null && rows > 0);
     }
 
-    private Mono<ClaimResult> resolveExistingClaim(String messageId) {
+    private Mono<ClaimResult> resolveExistingClaim(String messageId, String issuanceId) {
         Instant leaseThreshold = Instant.now().minus(CLAIM_LEASE_WINDOW);
 
         return readStatus(messageId)
@@ -79,11 +79,21 @@ public class R2dbcRevocationInstructionInbox implements RevocationInstructionInb
                     if (!existing.claimedAt().isBefore(leaseThreshold)) {
                         return Mono.just(ClaimResult.IN_PROGRESS);
                     }
-                    return reclaimExpired(messageId, leaseThreshold);
-                });
+                    return reclaimExpired(messageId, issuanceId, leaseThreshold);
+                })
+                // Copilot (EUD-225 PR review): readStatus's .one() completes empty, not an
+                // error, when zero rows match -- reachable if a concurrent release() (a
+                // sibling replica retrying the same redelivered message, AC-09) deletes the
+                // IN_PROGRESS row between this method's failed INSERT and this SELECT. Without
+                // this, claim() would itself complete empty (no ClaimResult, no error), and the
+                // caller could treat a dropped instruction as silently handled. The row being
+                // gone now is exactly the precondition a fresh claim() already knows how to
+                // handle -- retrying it is not a special case, it's the same insert-or-resolve
+                // logic re-entered from the top.
+                .switchIfEmpty(Mono.defer(() -> claim(messageId, issuanceId)));
     }
 
-    private Mono<ClaimResult> reclaimExpired(String messageId, Instant leaseThreshold) {
+    private Mono<ClaimResult> reclaimExpired(String messageId, String issuanceId, Instant leaseThreshold) {
         return databaseClient.sql("""
                         UPDATE revocation_instruction_inbox
                         SET claimed_at = now(), attempts = attempts + 1
@@ -98,7 +108,7 @@ public class R2dbcRevocationInstructionInbox implements RevocationInstructionInb
                         ? Mono.just(ClaimResult.CLAIMED)
                         // Lost the race for the expired lease to a concurrent re-claim; the
                         // winner has already moved the row on, so re-read its outcome.
-                        : resolveExistingClaim(messageId));
+                        : resolveExistingClaim(messageId, issuanceId));
     }
 
     private Mono<ExistingClaim> readStatus(String messageId) {
