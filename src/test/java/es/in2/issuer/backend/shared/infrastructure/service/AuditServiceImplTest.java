@@ -185,4 +185,30 @@ class AuditServiceImplTest {
         String message = auditAppender.list.get(0).getFormattedMessage();
         assertTrue(message.toString().indexOf('\n') < 0, "no raw newline must survive into the formatted message");
     }
+
+    // ---------------------------------------------------------------- R1: auditAttempted's own wrapper
+
+    @Test
+    void auditAttempted_detailValueWithForgedKeyValuePair_isNotSplitByAnOuterQuoteWrapper() {
+        // R1 (EUD-225 /code-review, 2026-08-18): auditAttempted used to wrap the whole
+        // formatDetails() output in its own literal "details=\"{}\"" -- a second, outer
+        // quoting layer that formatValue's internal quoting does not compose with. A forged
+        // value needing its own quotes (contains '=') closed that outer quote early, so the
+        // "details=" label plus a stray leading/trailing quote leaked into the line and the
+        // forged content sat as bare top-level fields instead of one contained value.
+        // A substring `contains()` check would not catch this: the correctly-quoted value is
+        // present as a substring of the buggy output too, just wrapped in extra stray quotes.
+        // Only an exact-message comparison distinguishes "one quoted value" from "one quoted
+        // value plus a leaked details= label and mismatched quote count".
+        String forged = "outcome=success actor=system:operator resourceId=forged-uuid";
+        auditService.auditAttempted("some.event", "user-1", "credential", "res-1",
+                java.util.Map.of("declaredTenant", forged));
+
+        String message = auditAppender.list.get(0).getFormattedMessage();
+        String expected = "event=some.event outcome=attempted userId=user-1 resourceType=credential "
+                + "resourceId=res-1 declaredTenant=\"" + forged + "\"";
+        assertEquals(expected, message,
+                "auditAttempted must format details identically to auditSuccess/auditFailure, "
+                        + "with no second outer quoting layer");
+    }
 }

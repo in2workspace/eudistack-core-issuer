@@ -68,7 +68,14 @@ public class AuditServiceImpl implements AuditService {
             if (resourceType != null) MDC.put("audit.resourceType", resourceType);
             if (resourceId != null) MDC.put("audit.resourceId", resourceId);
 
-            AUDIT.info("event={} outcome=attempted userId={} resourceType={} resourceId={} details=\"{}\"",
+            // R1 (EUD-225 /code-review, 2026-08-18): this used to wrap the placeholder in a
+            // literal "details=\"{}\"" -- an outer quoting layer that does not compose with
+            // formatValue's own internal quoting/escaping (F15). A value needing its own
+            // quotes (e.g. a reason containing '=') would close the outer quote early,
+            // letting its remainder be parsed as bare top-level fields by a downstream
+            // logfmt-style extractor. auditSuccess/auditFailure never had this second layer;
+            // this now matches them exactly, so formatDetails' escaping is the only one.
+            AUDIT.info("event={} outcome=attempted userId={} resourceType={} resourceId={} {}",
                     event,
                     userId != null ? userId : "system",
                     resourceType != null ? resourceType : "",
