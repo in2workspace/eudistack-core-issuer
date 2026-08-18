@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **EUD-220 — SBOM CycloneDX and License Gate**: Added CycloneDX 1.6 SBOM generation (`cyclonedxBom`), CI license compliance gate (`license-gate.yml`), and automated SBOM asset attachment to GitHub Releases.
 - **EUD-219 — Removal of GPL-3.0 dependency**: the `io.github.novacrypto:Base58` dependency (GPL-3.0 license) has been removed and replaced with a custom `Base58Codec` implementation.
 
 ### Fixed
