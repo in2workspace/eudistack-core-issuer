@@ -109,7 +109,6 @@ public class BitstringStatusListProvider implements StatusListProvider {
     @Observed(name = "statuslist.provider.revoke", contextualName = "statuslist-provider-revoke")
     public Mono<Void> revoke(String issuanceId, String token, String publicIssuerBaseUrl) {
         requireNonNullParam(issuanceId, "issuanceId");
-        requireNonNullParam(token, TOKEN);
         requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
 
         log.debug("method=revoke step=START issuanceId={}", issuanceId);

@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
+import es.in2.issuer.backend.shared.domain.util.TenantIdentifiers;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -52,11 +53,6 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.PROMET
 public class TenantDomainWebFilter implements WebFilter {
 
     static final Pattern TENANT_NAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_-]+$");
-
-    // Environment suffixes appended to tenant identifiers in non-prod DNS
-    // (e.g. sandbox-stg.eudistack.net, platform-dev.eudistack.net). Stripped
-    // before the registry lookup so tenant schemas stay environment-agnostic.
-    private static final String[] ENV_SUFFIXES = {"-stg", "-dev", "-pre"};
 
     // Tenant-agnostic operational endpoints are skipped entirely to avoid noisy
     // tenant resolution logs from probes and scrapes that may hit the container
@@ -174,7 +170,7 @@ public class TenantDomainWebFilter implements WebFilter {
             return TenantCandidate.malformed(trimmedTenant, source);
         }
 
-        return TenantCandidate.valid(trimmedTenant, stripEnvSuffix(trimmedTenant), source);
+        return TenantCandidate.valid(trimmedTenant, TenantIdentifiers.stripEnvSuffix(trimmedTenant), source);
     }
 
     private record TenantCandidate(
@@ -225,15 +221,6 @@ public class TenantDomainWebFilter implements WebFilter {
 
         int dot = host.indexOf('.');
         return dot < 0 ? host : host.substring(0, dot);
-    }
-
-    private static String stripEnvSuffix(String tenant) {
-        for (String suffix : ENV_SUFFIXES) {
-            if (tenant.endsWith(suffix)) {
-                return tenant.substring(0, tenant.length() - suffix.length());
-            }
-        }
-        return tenant;
     }
 
     private static Mono<Void> writeProblem(ServerWebExchange exchange, HttpStatus status,

@@ -10,7 +10,7 @@ plugins {
 }
 
 group = 'com.eudistack'
-version = '3.6.28'
+version = '3.7.8'
 
 ext['netty.version'] = '4.1.132.Final'
 
@@ -79,6 +79,9 @@ dependencies {
     // --- Caching ---
     implementation 'com.github.ben-manes.caffeine:caffeine'
 
+    // --- Messaging (EUD-225: revocation-instruction queue, AD-5/AD-6) ---
+    implementation 'org.springframework.boot:spring-boot-starter-amqp'
+
     // --- Observability ---
     implementation 'org.springframework.boot:spring-boot-starter-aop'
     implementation 'io.micrometer:micrometer-tracing-bridge-otel'
@@ -113,6 +116,8 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
+    testImplementation 'org.testcontainers:rabbitmq'
+    testImplementation 'org.awaitility:awaitility'
 }
 
 configurations.configureEach {

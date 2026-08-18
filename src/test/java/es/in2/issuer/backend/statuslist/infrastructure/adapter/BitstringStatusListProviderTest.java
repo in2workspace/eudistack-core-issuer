@@ -954,6 +954,44 @@ class BitstringStatusListProviderTest {
     }
 
     @Test
+    void revoke_shouldComplete_whenTokenIsNull() {
+        // AD-1/EUD-225: system-triggered revocation has no caller token; the guard on
+        // revoke() must not require it (unlike allocateEntry/createNewList, which still do).
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
+
+        StatusListIndex listIndex = new StatusListIndex(1L, TEST_LIST_ID, TEST_IDX, procedureUuid, Instant.now());
+        Instant updatedAt = Instant.parse("2026-01-01T00:00:00Z");
+
+        StatusList currentRow = new StatusList(
+                TEST_LIST_ID, "revocation", "bitstring_vc",
+                new BitstringEncoder().createEmptyEncodedList(131072), TEST_SIGNED_CREDENTIAL, updatedAt, updatedAt
+        );
+        StatusList updatedRow = new StatusList(
+                TEST_LIST_ID, "revocation", "bitstring_vc", "updatedEncodedList", TEST_SIGNED_CREDENTIAL, updatedAt, updatedAt
+        );
+
+        SimpleIssuer simpleIssuer = SimpleIssuer.builder().id(TEST_ISSUER_DID).build();
+        String listUrl = TEST_ISSUER_URL + "/w3c/v1/credentials/status/" + TEST_LIST_ID;
+
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid)).thenReturn(Mono.just(listIndex));
+        when(statusListRepository.findById(TEST_LIST_ID)).thenReturn(Mono.just(currentRow));
+        when(revocationService.applyRevocation(any(StatusListData.class), eq(TEST_IDX)))
+                .thenReturn(new StatusListData(updatedRow.id(), updatedRow.purpose(), updatedRow.format(), updatedRow.encodedList(), updatedRow.signedCredential(), updatedRow.createdAt(), updatedRow.updatedAt()));
+        when(issuerFactory.createSimpleIssuer()).thenReturn(Mono.just(simpleIssuer));
+        when(statusListBuilder.buildUnsigned(listUrl, TEST_ISSUER_DID, "revocation", "updatedEncodedList"))
+                .thenReturn(Map.of("type", "StatusListCredential"));
+        when(statusListSigner.sign(anyMap(), isNull(), eq(TEST_LIST_ID), eq("vc+jwt")))
+                .thenReturn(Mono.just("jwt"));
+        when(statusListRepository.updateSignedAndEncodedIfUnchanged(TEST_LIST_ID, "updatedEncodedList", "jwt", updatedAt))
+                .thenReturn(Mono.just(1));
+
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, null, TEST_ISSUER_URL))
+                .verifyComplete();
+
+        verify(statusListSigner).sign(anyMap(), isNull(), eq(TEST_LIST_ID), eq("vc+jwt"));
+    }
+
+    @Test
     void revoke_shouldThrowStatusListIndexNotFoundException_whenNoIndexExists() {
         // Arrange
         UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);

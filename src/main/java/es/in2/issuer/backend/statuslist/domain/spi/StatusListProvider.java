@@ -35,6 +35,10 @@ public interface StatusListProvider {
     /**
      * Revokes a credential by setting the corresponding bit to 1 in the Status List.
      *
+     * @param token               caller access token, propagated to signing for triggers with an
+     *                            authenticated caller context (operator revocation). {@code null}
+     *                            for system-triggered revocations (no HTTP caller behind it): the
+     *                            QTSP obtains its own credentials for those (AD-1, EUD-225).
      * @param publicIssuerBaseUrl see {@link #allocateEntry}. Re-signing the list
      *                            after revocation requires the same public URL
      *                            the original list was issued against.
