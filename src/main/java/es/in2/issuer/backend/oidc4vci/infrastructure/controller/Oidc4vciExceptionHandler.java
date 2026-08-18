@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
 import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
+import es.in2.issuer.backend.oidc4vci.domain.model.CredentialErrorResponse;
 import es.in2.issuer.backend.oidc4vci.domain.model.OAuthErrorResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.domain.exception.InvalidOrMissingProofException;
@@ -44,35 +45,28 @@ public class Oidc4vciExceptionHandler {
         return Mono.just(new OAuthErrorResponse(ex.getErrorCode(), ex.getMessage()));
     }
 
+    // OID4VCI 1.0 §8.3.2: the credential endpoint's error body is {error, error_description,
+    // c_nonce, c_nonce_expires_in} - a distinct shape from RFC 6749/9126's OAuth2 endpoints and
+    // from our internal Problem-Details GlobalErrorMessage. Both a missing and an invalid proof
+    // map to the single "invalid_proof" error code the spec defines.
+    private static final String INVALID_PROOF_ERROR = "invalid_proof";
+
     @ExceptionHandler(InvalidOrMissingProofException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Mono<GlobalErrorMessage> handleInvalidOrMissingProof(
-            InvalidOrMissingProofException ex,
-            ServerHttpRequest request
-    ) {
-        return errors.handleWith(
-                ex, request,
-                GlobalErrorTypes.INVALID_OR_MISSING_PROOF.getCode(),
-                "Invalid or missing proof",
-                HttpStatus.BAD_REQUEST,
-                "Credential Request did not contain a proof, or proof was invalid, i.e. it was not bound to a Credential Issuer provided nonce."
-        ).flatMap(gem -> nonceService.issueNonce()
-                .map(nonce -> gem.withNonce(nonce.cNonce(), nonce.cNonceExpiresIn())));
+    public Mono<CredentialErrorResponse> handleInvalidOrMissingProof(InvalidOrMissingProofException ex) {
+        log.warn("Invalid or missing proof: {}", ex.getMessage());
+        return nonceService.issueNonce()
+                .map(nonce -> new CredentialErrorResponse(
+                        INVALID_PROOF_ERROR, ex.getMessage(), nonce.cNonce(), nonce.cNonceExpiresIn()));
     }
 
     @ExceptionHandler(ProofValidationException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Mono<GlobalErrorMessage> handleProofValidationException(
-            ProofValidationException ex,
-            ServerHttpRequest request
-    ) {
-        return errors.handleWith(
-                ex, request,
-                GlobalErrorTypes.PROOF_VALIDATION_ERROR.getCode(),
-                "Proof validation error",
-                HttpStatus.BAD_REQUEST,
-                "The provided proof is invalid."
-        );
+    public Mono<CredentialErrorResponse> handleProofValidationException(ProofValidationException ex) {
+        log.warn("Proof validation error: {}", ex.getMessage());
+        return nonceService.issueNonce()
+                .map(nonce -> new CredentialErrorResponse(
+                        INVALID_PROOF_ERROR, ex.getMessage(), nonce.cNonce(), nonce.cNonceExpiresIn()));
     }
 
     // Raised by ParServiceImpl, DpopValidationService, ClientAttestationValidationService and
