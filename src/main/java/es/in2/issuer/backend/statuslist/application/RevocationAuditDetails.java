@@ -96,6 +96,30 @@ public final class RevocationAuditDetails {
         return normalized.substring(0, maxLength);
     }
 
+    // Same trigger set as AuditServiceImpl's private formatValue -- a value with none of
+    // these stays bare (readable, backward compatible); one with any is quoted and escaped.
+    private static final Pattern NEEDS_QUOTING = Pattern.compile("[\"=\\p{Cntrl}\\u0085\\u2028\\u2029]");
+
+    /**
+     * CodeQL {@code java/log-injection} (EUD-225 PR review): {@link #sanitize(String, int)}
+     * strips control characters (the newline/second-log-line vector) but leaves {@code =}
+     * untouched, so it does not stop a value from forging extra {@code key=value} fields in a
+     * plain {@code log.info}/{@code log.debug} line the way {@code AuditServiceImpl.formatValue}
+     * already does for the AUDIT sink (see the note on {@link #declaredTenantAuditFields}
+     * above -- this is the same gap, for {@link RevocationWorkflow}'s own non-audit log
+     * statements instead of the audit detail map). Quotes and escapes exactly like that sink;
+     * bare for the overwhelming majority (well-formed UUIDs, actor identifiers) that need
+     * neither.
+     */
+    public static String quoteIfNeeded(String value, int maxLength) {
+        String truncated = sanitize(value, maxLength);
+        if (truncated == null || !NEEDS_QUOTING.matcher(truncated).find()) {
+            return truncated;
+        }
+        String escaped = truncated.replace("\\", "\\\\").replace("\"", "\\\"");
+        return "\"" + escaped + "\"";
+    }
+
     /**
      * F15 (EUD-225 {@code /verify}): {@link #sanitize(String, int)} alone (control-char
      * stripping) does not stop a {@code declaredTenant} containing spaces/{@code =} from

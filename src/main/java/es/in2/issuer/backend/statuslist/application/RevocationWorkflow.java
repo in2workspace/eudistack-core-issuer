@@ -224,11 +224,12 @@ public class RevocationWorkflow {
         AtomicReference<Issuance> issuanceRef = new AtomicReference<>();
         // issuanceId is boundary-validated as a well-formed UUID on both callers (the operator
         // DTO's @Pattern and the queue mapper's UUID.fromString) by the time it reaches here,
-        // but this method's log statements are a shared sink for both paths -- sanitizing once
-        // for logging only (not for the real lookups/audit calls below, which keep the raw
-        // value) follows the same defense-in-depth pattern already applied to reason/tenantId
-        // (RevocationAuditDetails, F1/F9/F15) instead of relying solely on the callers' guarantees.
-        String safeIssuanceId = RevocationAuditDetails.sanitize(issuanceId, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH);
+        // but this method's log statements are a shared sink for both paths. quoteIfNeeded
+        // (for logging only -- the real lookups/audit calls below keep the raw value) both
+        // strips control characters and quotes/escapes an embedded '=' or '"', unlike plain
+        // sanitize() alone (CodeQL java/log-injection, EUD-225 PR review -- see the note on
+        // RevocationAuditDetails.quoteIfNeeded).
+        String safeIssuanceId = RevocationAuditDetails.quoteIfNeeded(issuanceId, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH);
 
         return Mono.defer(() -> {
                     log.info("processId={} action={} status=started issuanceId={}", processId, action, safeIssuanceId);

@@ -90,6 +90,38 @@ class RevocationAuditDetailsTest {
                 .isEqualTo("cgcomAUDIT event=credential.revoked outcome=success");
     }
 
+    // ---------------------------------------------------------------- quoteIfNeeded (CodeQL java/log-injection)
+
+    @Test
+    void quoteIfNeeded_simpleValue_staysBareUnquoted() {
+        assertThat(RevocationAuditDetails.quoteIfNeeded("a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                RevocationAuditDetails.MAX_LOG_VALUE_LENGTH))
+                .isEqualTo("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
+    }
+
+    @Test
+    void quoteIfNeeded_valueWithEmbeddedEquals_isQuoted() {
+        // sanitize() alone strips control chars but leaves '=' untouched, so it does not stop
+        // a value from forging extra key=value fields in a plain log.info/log.debug line the
+        // way AuditServiceImpl.formatValue already does for the AUDIT sink.
+        String forged = "abc outcome=success actor=system:operator";
+
+        assertThat(RevocationAuditDetails.quoteIfNeeded(forged, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH))
+                .isEqualTo("\"" + forged + "\"");
+    }
+
+    @Test
+    void quoteIfNeeded_valueWithEmbeddedQuote_isEscaped() {
+        assertThat(RevocationAuditDetails.quoteIfNeeded("he said \"stop\"",
+                RevocationAuditDetails.MAX_LOG_VALUE_LENGTH))
+                .isEqualTo("\"he said \\\"stop\\\"\"");
+    }
+
+    @Test
+    void quoteIfNeeded_null_returnsNull() {
+        assertThat(RevocationAuditDetails.quoteIfNeeded(null, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH)).isNull();
+    }
+
     @Test
     void declaredTenantAuditFields_conformingValue_isKeptAsIs() {
         Map<String, Object> fields = RevocationAuditDetails.declaredTenantAuditFields("cgcom");
