@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.statuslist.infrastructure.repository;
 
+import es.in2.issuer.backend.statuslist.domain.exception.RevocationInstructionClaimExhaustedException;
 import es.in2.issuer.backend.statuslist.domain.spi.RevocationInstructionInbox;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +38,16 @@ public class R2dbcRevocationInstructionInbox implements RevocationInstructionInb
     private static final String STATUS_PROCESSED = "PROCESSED";
     private static final String STATUS_SKIPPED = "SKIPPED";
 
+    // Code review (EUD-225 PR #147, MEDIUM-2): claim/resolveExistingClaim/reclaimExpired
+    // form two mutual-recursion cycles (lost-race-on-expired-lease, and vanished-row
+    // recovery), each re-entered only after losing a race to a concurrent claim/release on
+    // the exact same row -- not a tight synchronous loop, since every hop is a fresh async
+    // DB round-trip, but undocumented and formally unbounded. This caps it: an adversarial
+    // or pathological run of repeated collisions on one messageId fails loudly
+    // (RevocationInstructionClaimExhaustedException, retried at the AMQP level like any
+    // other unclassified failure) instead of retrying DB round-trips indefinitely in-process.
+    private static final int MAX_CLAIM_ATTEMPTS = 5;
+
     private final DatabaseClient databaseClient;
 
     private record ExistingClaim(String status, Instant claimedAt) { }
@@ -46,12 +57,16 @@ public class R2dbcRevocationInstructionInbox implements RevocationInstructionInb
         requireNonNullParam(messageId, "messageId");
         requireNonNullParam(issuanceId, "issuanceId");
 
+        return claim(messageId, issuanceId, 1);
+    }
+
+    private Mono<ClaimResult> claim(String messageId, String issuanceId, int attempt) {
         return insertIfAbsent(messageId, issuanceId)
                 .flatMap(claimed -> claimed
                         ? Mono.just(ClaimResult.CLAIMED)
-                        : resolveExistingClaim(messageId, issuanceId))
+                        : resolveExistingClaim(messageId, issuanceId, attempt))
                 .doOnNext(result -> log.debug(
-                        "method=claim step=END messageId={} result={}", messageId, result));
+                        "method=claim step=END messageId={} attempt={} result={}", messageId, attempt, result));
     }
 
     private Mono<Boolean> insertIfAbsent(String messageId, String issuanceId) {
@@ -68,7 +83,16 @@ public class R2dbcRevocationInstructionInbox implements RevocationInstructionInb
                 .map(rows -> rows != null && rows > 0);
     }
 
-    private Mono<ClaimResult> resolveExistingClaim(String messageId, String issuanceId) {
+    private Mono<ClaimResult> resolveExistingClaim(String messageId, String issuanceId, int attempt) {
+        // Single fan-in point for both recursive cycles below (reclaimExpired's lost-race
+        // re-entry, and the switchIfEmpty vanished-row re-entry via claim()) -- checked here,
+        // not only in claim(), because the lost-race cycle bounces directly between this
+        // method and reclaimExpired without ever passing back through claim()'s own entry.
+        if (attempt > MAX_CLAIM_ATTEMPTS) {
+            return Mono.error(new RevocationInstructionClaimExhaustedException(
+                    "Exhausted " + MAX_CLAIM_ATTEMPTS + " claim attempts for messageId=" + messageId
+                            + " -- repeated concurrent collisions on the same inbox row"));
+        }
         Instant leaseThreshold = Instant.now().minus(CLAIM_LEASE_WINDOW);
 
         return readStatus(messageId)
@@ -79,7 +103,7 @@ public class R2dbcRevocationInstructionInbox implements RevocationInstructionInb
                     if (!existing.claimedAt().isBefore(leaseThreshold)) {
                         return Mono.just(ClaimResult.IN_PROGRESS);
                     }
-                    return reclaimExpired(messageId, issuanceId, leaseThreshold);
+                    return reclaimExpired(messageId, issuanceId, leaseThreshold, attempt);
                 })
                 // Copilot (EUD-225 PR review): readStatus's .one() completes empty, not an
                 // error, when zero rows match -- reachable if a concurrent release() (a
@@ -89,11 +113,11 @@ public class R2dbcRevocationInstructionInbox implements RevocationInstructionInb
                 // caller could treat a dropped instruction as silently handled. The row being
                 // gone now is exactly the precondition a fresh claim() already knows how to
                 // handle -- retrying it is not a special case, it's the same insert-or-resolve
-                // logic re-entered from the top.
-                .switchIfEmpty(Mono.defer(() -> claim(messageId, issuanceId)));
+                // logic re-entered from the top (attempt+1, bounded by MAX_CLAIM_ATTEMPTS).
+                .switchIfEmpty(Mono.defer(() -> claim(messageId, issuanceId, attempt + 1)));
     }
 
-    private Mono<ClaimResult> reclaimExpired(String messageId, String issuanceId, Instant leaseThreshold) {
+    private Mono<ClaimResult> reclaimExpired(String messageId, String issuanceId, Instant leaseThreshold, int attempt) {
         return databaseClient.sql("""
                         UPDATE revocation_instruction_inbox
                         SET claimed_at = now(), attempts = attempts + 1
@@ -108,7 +132,7 @@ public class R2dbcRevocationInstructionInbox implements RevocationInstructionInb
                         ? Mono.just(ClaimResult.CLAIMED)
                         // Lost the race for the expired lease to a concurrent re-claim; the
                         // winner has already moved the row on, so re-read its outcome.
-                        : resolveExistingClaim(messageId, issuanceId));
+                        : resolveExistingClaim(messageId, issuanceId, attempt + 1));
     }
 
     private Mono<ExistingClaim> readStatus(String messageId) {
