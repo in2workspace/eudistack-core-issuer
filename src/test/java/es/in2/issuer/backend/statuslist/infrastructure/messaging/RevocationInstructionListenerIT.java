@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.ECDSASigner;
@@ -169,11 +170,17 @@ class RevocationInstructionListenerIT {
     // and AuditServiceImplTest.
     private ListAppender<ILoggingEvent> auditAppender;
 
+    @BeforeEach
+    void setUp() throws JOSEException {
+        purgeQueues();
+        attachAuditAppender();
+        setUpFakes();
+    }
+
     // Queues/DLQ are singleton beans shared by every test method in this class (cached Spring
     // context): without purging, a DLQ message left by one test pollutes the exact-count
     // assertions of the next.
-    @BeforeEach
-    void purgeQueues() {
+    private void purgeQueues() {
         rabbitTemplate.execute(channel -> {
             channel.queuePurge(RevocationMessagingConfig.QUEUE_NAME);
             channel.queuePurge(RevocationMessagingConfig.DLQ_NAME);
@@ -181,8 +188,7 @@ class RevocationInstructionListenerIT {
         });
     }
 
-    @BeforeEach
-    void attachAuditAppender() {
+    private void attachAuditAppender() {
         Logger auditLogger = (Logger) LoggerFactory.getLogger("AUDIT");
         auditAppender = new ListAppender<>();
         auditAppender.start();
@@ -200,8 +206,7 @@ class RevocationInstructionListenerIT {
         return auditAppender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
     }
 
-    @BeforeEach
-    void setUpFakes() throws Exception {
+    private void setUpFakes() throws JOSEException {
         // Fakes the QTSP: echoes back whatever payload it was asked to sign as a
         // compact-JWT-shaped string, so the id/sub claim the real factories build always
         // matches PUBLIC_BASE_URL — exactly what PersistedStatusListPublicBaseUrlResolver

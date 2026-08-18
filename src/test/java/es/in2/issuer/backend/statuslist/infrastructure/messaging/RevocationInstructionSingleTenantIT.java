@@ -125,7 +125,13 @@ class RevocationInstructionSingleTenantIT {
     private static final Duration AWAIT_TIMEOUT = Duration.ofSeconds(15);
 
     @BeforeEach
-    void setUpFakes() {
+    void setUp() {
+        setUpFakes();
+        purgeQueues();
+        attachAuditAppender();
+    }
+
+    private void setUpFakes() {
         when(delegatingSigningProvider.sign(any(SigningRequest.class))).thenAnswer(invocation -> {
             SigningRequest request = invocation.getArgument(0);
             return Mono.just(new SigningResult(request.type(), fakeJwt(request.data())));
@@ -136,8 +142,7 @@ class RevocationInstructionSingleTenantIT {
                 .thenReturn(Mono.empty());
     }
 
-    @BeforeEach
-    void purgeQueues() {
+    private void purgeQueues() {
         rabbitTemplate.execute(channel -> {
             channel.queuePurge(RevocationMessagingConfig.QUEUE_NAME);
             channel.queuePurge(RevocationMessagingConfig.DLQ_NAME);
@@ -145,8 +150,7 @@ class RevocationInstructionSingleTenantIT {
         });
     }
 
-    @BeforeEach
-    void attachAuditAppender() {
+    private void attachAuditAppender() {
         Logger auditLogger = (Logger) LoggerFactory.getLogger("AUDIT");
         auditAppender = new ListAppender<>();
         auditAppender.start();
