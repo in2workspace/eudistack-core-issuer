@@ -31,9 +31,9 @@ public class AuditServiceImpl implements AuditService {
 
             AUDIT.info("event={} outcome=success userId={} resourceType={} resourceId={} {}",
                     event,
-                    userId != null ? userId : "system",
-                    resourceType != null ? resourceType : "",
-                    resourceId != null ? resourceId : "",
+                    formatValue(userId != null ? userId : "system"),
+                    formatValue(resourceType != null ? resourceType : ""),
+                    formatValue(resourceId != null ? resourceId : ""),
                     formatDetails(details));
         } finally {
             clearAuditMdc();
@@ -50,8 +50,8 @@ public class AuditServiceImpl implements AuditService {
 
             AUDIT.warn("event={} outcome=failure userId={} reason={} {}",
                     event,
-                    userId != null ? userId : "system",
-                    reason != null ? reason : "",
+                    formatValue(userId != null ? userId : "system"),
+                    formatValue(reason != null ? reason : ""),
                     formatDetails(details));
         } finally {
             clearAuditMdc();
@@ -77,9 +77,9 @@ public class AuditServiceImpl implements AuditService {
             // this now matches them exactly, so formatDetails' escaping is the only one.
             AUDIT.info("event={} outcome=attempted userId={} resourceType={} resourceId={} {}",
                     event,
-                    userId != null ? userId : "system",
-                    resourceType != null ? resourceType : "",
-                    resourceId != null ? resourceId : "",
+                    formatValue(userId != null ? userId : "system"),
+                    formatValue(resourceType != null ? resourceType : ""),
+                    formatValue(resourceId != null ? resourceId : ""),
                     formatDetails(details));
         } finally {
             clearAuditMdc();
@@ -158,6 +158,12 @@ public class AuditServiceImpl implements AuditService {
      * NEL/LS/PS) are stripped outright rather than escaped to a visible sequence, since a
      * raw one inside the quotes would still break single-line parsing; backslash and
      * double-quote are escaped so the value round-trips unambiguously.
+     * <p>
+     * Applied to the {@code details} map values above, and (CodeQL {@code java/log-injection},
+     * EUD-225 PR review) to the named top-level fields ({@code userId}/{@code resourceType}/
+     * {@code resourceId}/{@code reason}) in {@code auditSuccess}/{@code auditFailure}/
+     * {@code auditAttempted} too — those were interpolated raw, bypassing this exact
+     * escaping that already existed one parameter over.
      */
     private static String formatValue(Object value) {
         String raw = String.valueOf(value);

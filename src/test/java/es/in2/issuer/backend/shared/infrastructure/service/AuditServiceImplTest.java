@@ -211,4 +211,31 @@ class AuditServiceImplTest {
                 "auditAttempted must format details identically to auditSuccess/auditFailure, "
                         + "with no second outer quoting layer");
     }
+
+    // ---------------------------------------------------------------- CodeQL java/log-injection: named fields
+
+    @Test
+    void auditSuccess_forgedResourceId_isQuotedAndEscaped() {
+        // CodeQL java/log-injection (EUD-225 PR review): userId/resourceType/resourceId/reason
+        // were interpolated raw in auditSuccess/auditFailure/auditAttempted, bypassing the
+        // exact escaping formatDetails already applies one parameter over. A caller that lets
+        // an unvalidated identifier reach here (as RevocationWorkflow's operator-HTTP path did
+        // before its own boundary fix) could forge extra fields via resourceId alone.
+        String forgedResourceId = "res-1 outcome=success actor=system:operator";
+        auditService.auditSuccess("some.event", "user-1", "credential", forgedResourceId, java.util.Map.of());
+
+        String message = auditAppender.list.get(0).getFormattedMessage();
+        assertTrue(message.contains("resourceId=\"" + forgedResourceId + "\""),
+                "a resourceId containing '=' must be quoted, not interpolated raw: " + message);
+    }
+
+    @Test
+    void auditFailure_forgedReason_isQuotedAndEscaped() {
+        String forgedReason = "ok outcome=success resourceId=forged-uuid";
+        auditService.auditFailure("some.event", "user-1", forgedReason, java.util.Map.of());
+
+        String message = auditAppender.list.get(0).getFormattedMessage();
+        assertTrue(message.contains("reason=\"" + forgedReason + "\""),
+                "a reason containing '=' must be quoted, not interpolated raw: " + message);
+    }
 }
