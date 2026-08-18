@@ -65,6 +65,16 @@ public class Issuance {
     @Nullable
     private Instant deliveryAttemptedAt;
 
+    // Optimistic locking (V11, SD-04/EUD-225): every write to this row follows
+    // find -> validateTransition -> mutate -> save with no version check in between.
+    // Spring Data R2DBC manages this field automatically on save() -- a stale write now
+    // fails fast with OptimisticLockingFailureException instead of silently overwriting a
+    // concurrent writer's change (see IssuanceServiceImpl.updateIssuanceStatusToRevoked for
+    // the reconciliation this enables).
+    @Version
+    @Column("version")
+    private Long version;
+
     // --- Auditing fields (R2DBC auditing will fill these) ---
     @CreatedDate
     @Column("created_at")

@@ -74,6 +74,29 @@ class CscSignDocSigningProviderTest {
     }
 
     @Test
+    void signSystemArtifact_withNullTokenAndNullIssuanceId_routesToSignSystemCredential() {
+        // AD-1/EUD-225 (T33): a system-triggered signing request (no caller context -- status
+        // list revocation via the queue or the OID4VCI notification) has issuanceId=null,
+        // which makes isIssued=false and relaxes the context-token guard
+        // (SigningRequestValidator.validate(request, false)). This must NOT throw, and must
+        // route to signSystemCredential, not signIssuedCredential. Without this case, AD-1's
+        // relaxation merges with no test covering the very path it exists for.
+        SigningContext context = new SigningContext(null, null, "email@example.com");
+        SigningRequest request = buildRequest(SigningType.JADES, "data", context);
+        SigningResult signedData = new SigningResult(SigningType.JADES, "signedData");
+        when(signDocService.signSystemCredential(any(SigningRequest.class))).thenReturn(Mono.just(signedData));
+
+        StepVerifier.create(cscSignDocSigningProvider.sign(request))
+                .assertNext(result -> {
+                    assertThat(result.type()).isEqualTo(SigningType.JADES);
+                    assertThat(result.data()).isEqualTo("signedData");
+                })
+                .verifyComplete();
+
+        verify(signDocService, never()).signIssuedCredential(any(), any());
+    }
+
+    @Test
     void signPropagatesSignDocServiceError() {
         SigningContext context = new SigningContext("token", "issuanceId", "email@example.com");
         SigningRequest request = buildRequest(SigningType.JADES, "data", context);
