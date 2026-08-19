@@ -423,6 +423,38 @@ class Oid4VciCredentialWorkflowImplTest {
     }
 
     @Test
+    void createCredentialResponse_knownButMismatchedConfigurationId_rejectsAfterIssuanceLookup() {
+        // Distinct from both tests above: "eu.europa.ec.eudi.pid.1" IS a real, registered
+        // configuration - just not the one this Issuance/token was authorized for (which is
+        // CREDENTIAL_TYPE, a LEAR Employee credential per buildProcedure()). A well-behaved
+        // wallet never triggers this - CredentialOfferServiceImpl always advertises exactly
+        // Issuance.getCredentialType() in the offer - so this only fires for a request asking
+        // for something other than what was actually offered.
+        String mismatchedConfigId = "eu.europa.ec.eudi.pid.1";
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+
+        when(credentialProfileRegistry.getByConfigurationId(mismatchedConfigId)).thenReturn(buildProfile(false));
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
+
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialConfigurationId(mismatchedConfigId)
+                .format(JWT_VC_JSON)
+                .build();
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN)
+                .issuanceId(ISSUANCE_ID)
+                .build();
+
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .expectError(UnknownCredentialConfigurationException.class)
+                .verify();
+
+        // The Issuance did load, so the authoritative type (from the Issuance, not the
+        // mismatched request) is what gets logged.
+        verify(credentialIssuedLogger).logFailed(eq(CREDENTIAL_TYPE), any());
+    }
+
+    @Test
     void createCredentialResponse_withJwkProof_shouldResolveBinding() throws Exception {
         Issuance issuance = buildProcedure(JWT_VC_JSON);
         CredentialProfile profile = buildProfile(true);
