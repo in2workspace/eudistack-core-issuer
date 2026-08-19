@@ -122,17 +122,24 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                 pipeline = issuanceService.getIssuanceById(issuanceId)
                         .switchIfEmpty(Mono.error(new InvalidTokenException("Procedure not found: " + issuanceId)))
                         .doOnNext(proc -> setConfigurationId(proc, configurationId))
-                        .flatMap(proc -> validateProcedureState(proc)
-                                .then(credentialIssuerMetadataService.getCredentialIssuerMetadata(publicIssuerBaseUrl))
-                                .flatMap(metadata -> {
-                                    log.info("[{}] Processing credential request: issuanceId={}, type={}, format={}",
-                                            processId, issuanceId, proc.getCredentialType(), proc.getCredentialFormat());
+                        .flatMap(proc -> {
+                            if (requestedConfigurationId != null && !requestedConfigurationId.isBlank()
+                                    && proc.getCredentialType() != null && !proc.getCredentialType().isBlank()
+                                    && !requestedConfigurationId.equals(proc.getCredentialType())) {
+                                return Mono.error(new UnknownCredentialConfigurationException(
+                                        "Unsupported credential_configuration_id for this issuance: " + requestedConfigurationId));
+                            }
+                            return validateProcedureState(proc)
+                                    .then(credentialIssuerMetadataService.getCredentialIssuerMetadata(publicIssuerBaseUrl))
+                                    .flatMap(metadata -> {
+                                        log.info("[{}] Processing credential request: issuanceId={}, type={}, format={}",
+                                                processId, issuanceId, proc.getCredentialType(), proc.getCredentialFormat());
 
-                                    return validateAndDetermineBindingInfo(proc, metadata, credentialRequest)
-                                            .defaultIfEmpty(new BindingInfo(null, null))
-                                            .flatMap(bindingInfo -> enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken(), publicIssuerBaseUrl));
-                                })
-                        );
+                                        return validateAndDetermineBindingInfo(proc, metadata, credentialRequest)
+                                                .defaultIfEmpty(new BindingInfo(null, null))
+                                                .flatMap(bindingInfo -> enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken(), publicIssuerBaseUrl));
+                                    });
+                        });
             }
 
             return pipeline
