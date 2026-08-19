@@ -455,6 +455,65 @@ class Oid4VciCredentialWorkflowImplTest {
     }
 
     @Test
+    void createCredentialResponse_noRequestedConfigurationId_fallsBackToIssuanceType() {
+        // credential_configuration_id is JSON "required" on the wire (CredentialRequest's
+        // @JsonProperty) but nothing stops it being null as a plain Java record component -
+        // confirms both new guards (unknown-config and mismatched-config) correctly no-op
+        // when it's absent, falling through to the pre-existing Issuance-type-driven behavior.
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+        CredentialProfile profile = buildProfile(false);
+        CredentialIssuerMetadata metadata = buildMetadata(null);
+
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+
+        CredentialRequest request = CredentialRequest.builder()
+                .format(JWT_VC_JSON)
+                .build(); // credentialConfigurationId left unset (null)
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN)
+                .issuanceId(ISSUANCE_ID)
+                .build();
+
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .assertNext(resp -> assertThat(resp.credentials()).isNotEmpty())
+                .verifyComplete();
+
+        verify(credentialIssuedLogger).logIssued(CREDENTIAL_TYPE);
+        verify(credentialIssuedLogger, never()).logFailed(any(), any());
+    }
+
+    @Test
+    void createCredentialResponse_blankRequestedConfigurationId_fallsBackToIssuanceType() {
+        // Same as above, distinct code path: "" is non-null but isBlank() - a separate
+        // bytecode branch from the null case in both new guards.
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+        CredentialProfile profile = buildProfile(false);
+        CredentialIssuerMetadata metadata = buildMetadata(null);
+
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialConfigurationId("")
+                .format(JWT_VC_JSON)
+                .build();
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN)
+                .issuanceId(ISSUANCE_ID)
+                .build();
+
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .assertNext(resp -> assertThat(resp.credentials()).isNotEmpty())
+                .verifyComplete();
+
+        verify(credentialIssuedLogger).logIssued(CREDENTIAL_TYPE);
+        verify(credentialIssuedLogger, never()).logFailed(any(), any());
+    }
+
+    @Test
     void createCredentialResponse_withJwkProof_shouldResolveBinding() throws Exception {
         Issuance issuance = buildProcedure(JWT_VC_JSON);
         CredentialProfile profile = buildProfile(true);
