@@ -103,23 +103,39 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         final String issuanceId = accessTokenContext.issuanceId();
 
         return Mono.defer(() -> {
+            String requestedConfigurationId = credentialRequest != null ? credentialRequest.credentialConfigurationId() : null;
             AtomicReference<String> configurationId =
                     new AtomicReference<>(knownRequestedConfigurationId(credentialRequest));
 
-            return issuanceService.getIssuanceById(issuanceId)
-                    .switchIfEmpty(Mono.error(new InvalidTokenException("Procedure not found: " + issuanceId)))
-                    .doOnNext(proc -> setConfigurationId(proc, configurationId))
-                    .flatMap(proc -> validateProcedureState(proc)
-                            .then(credentialIssuerMetadataService.getCredentialIssuerMetadata(publicIssuerBaseUrl))
-                            .flatMap(metadata -> {
-                                log.info("[{}] Processing credential request: issuanceId={}, type={}, format={}",
-                                        processId, issuanceId, proc.getCredentialType(), proc.getCredentialFormat());
+            // OID4VCI 1.0 SS8.2: a credential_configuration_id that isn't one of ours must be
+            // rejected outright, not silently ignored in favor of whatever the Issuance record
+            // already says. knownRequestedConfigurationId() computed the lookup above purely for
+            // logging before this check existed - reuse its result here instead of querying the
+            // registry a second time. Routed through the same doOnSuccess/doOnError tail as the
+            // rest of the flow below so credentialIssuedLogger still sees every failure.
+            Mono<CredentialResponse> pipeline;
+            if (requestedConfigurationId != null && !requestedConfigurationId.isBlank()
+                    && configurationId.get() == null) {
+                pipeline = Mono.error(new UnknownCredentialConfigurationException(
+                        "Unknown credential_configuration_id: " + requestedConfigurationId));
+            } else {
+                pipeline = issuanceService.getIssuanceById(issuanceId)
+                        .switchIfEmpty(Mono.error(new InvalidTokenException("Procedure not found: " + issuanceId)))
+                        .doOnNext(proc -> setConfigurationId(proc, configurationId))
+                        .flatMap(proc -> validateProcedureState(proc)
+                                .then(credentialIssuerMetadataService.getCredentialIssuerMetadata(publicIssuerBaseUrl))
+                                .flatMap(metadata -> {
+                                    log.info("[{}] Processing credential request: issuanceId={}, type={}, format={}",
+                                            processId, issuanceId, proc.getCredentialType(), proc.getCredentialFormat());
 
-                                return validateAndDetermineBindingInfo(proc, metadata, credentialRequest)
-                                        .defaultIfEmpty(new BindingInfo(null, null))
-                                        .flatMap(bindingInfo -> enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken(), publicIssuerBaseUrl));
-                            })
-                    )
+                                    return validateAndDetermineBindingInfo(proc, metadata, credentialRequest)
+                                            .defaultIfEmpty(new BindingInfo(null, null))
+                                            .flatMap(bindingInfo -> enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken(), publicIssuerBaseUrl));
+                                })
+                        );
+            }
+
+            return pipeline
                     .doOnSuccess(response -> {
                         if (response != null) {
                             credentialIssuedLogger.logIssued(configurationId.get());
