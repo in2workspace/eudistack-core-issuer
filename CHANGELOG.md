@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Tech Debt — Atomic reactive writes for status list creation (`BitstringStatusListProvider`, H-02 / H-07)**: refactored `BitstringStatusListProvider.createNewList` to execute `save` (TX1) and `updateSignedCredential` (TX2) in short reactive transactions via `TransactionalOperator`, keeping the external HTTP/QTSP signing call outside of any transactional boundary, with a transactionally wrapped compensation delete on failure. Conforms to the module transactional policy (`persistence-layer-rules.md`, `reactive-code-analysis.md`).
+
 ### Added
 
 - **EUD-225 — Automatic credential revocation from a message-queue instruction (FR-11)**: an external client system can now publish a revocation instruction to a RabbitMQ queue and have the Issuer apply it with the exact same domain effect as an operator-initiated revocation (status change, status list publication, audit trail) — no human in the loop. Disabled by default (`issuer.messaging.revocation.enabled=false`, AD-6): a deployment with this Story merged behaves identically to before unless explicitly opted in.
