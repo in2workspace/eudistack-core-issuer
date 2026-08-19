@@ -425,11 +425,11 @@ class Oid4VciCredentialWorkflowImplTest {
     @Test
     void createCredentialResponse_knownButMismatchedConfigurationId_rejectsAfterIssuanceLookup() {
         // Distinct from both tests above: "eu.europa.ec.eudi.pid.1" IS a real, registered
-        // configuration - just not the one this Issuance/token was authorized for (which is
-        // CREDENTIAL_TYPE, a LEAR Employee credential per buildProcedure()). A well-behaved
-        // wallet never triggers this - CredentialOfferServiceImpl always advertises exactly
-        // Issuance.getCredentialType() in the offer - so this only fires for a request asking
-        // for something other than what was actually offered.
+        // configuration - just not the one this Issuance/token was authorized for, which is
+        // CREDENTIAL_TYPE, a LEAR Employee credential set up by the buildProcedure helper.
+        // A well-behaved wallet never triggers this: the credential offer service always
+        // advertises exactly the Issuance's own credential type in the offer, so this only
+        // fires for a request asking for something other than what was actually offered.
         String mismatchedConfigId = "eu.europa.ec.eudi.pid.1";
         Issuance issuance = buildProcedure(JWT_VC_JSON);
 
@@ -456,10 +456,10 @@ class Oid4VciCredentialWorkflowImplTest {
 
     @Test
     void createCredentialResponse_noRequestedConfigurationId_fallsBackToIssuanceType() {
-        // credential_configuration_id is JSON "required" on the wire (CredentialRequest's
-        // @JsonProperty) but nothing stops it being null as a plain Java record component -
-        // confirms both new guards (unknown-config and mismatched-config) correctly no-op
-        // when it's absent, falling through to the pre-existing Issuance-type-driven behavior.
+        // credential_configuration_id is marked required in the JSON contract, but nothing
+        // stops it being null as a plain Java record field - confirms both new guards,
+        // unknown-config and mismatched-config, correctly no-op when it's absent, falling
+        // through to the pre-existing Issuance-type-driven behavior.
         Issuance issuance = buildProcedure(JWT_VC_JSON);
         CredentialProfile profile = buildProfile(false);
         CredentialIssuerMetadata metadata = buildMetadata(null);
@@ -486,8 +486,8 @@ class Oid4VciCredentialWorkflowImplTest {
 
     @Test
     void createCredentialResponse_blankRequestedConfigurationId_fallsBackToIssuanceType() {
-        // Same as above, distinct code path: "" is non-null but isBlank() - a separate
-        // bytecode branch from the null case in both new guards.
+        // Same as above but a distinct code path: an empty string is non-null yet still
+        // blank - a separate bytecode branch from the null case in both new guards.
         Issuance issuance = buildProcedure(JWT_VC_JSON);
         CredentialProfile profile = buildProfile(false);
         CredentialIssuerMetadata metadata = buildMetadata(null);

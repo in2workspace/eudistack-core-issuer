@@ -109,10 +109,10 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
 
             // OID4VCI 1.0 SS8.2: a credential_configuration_id that isn't one of ours must be
             // rejected outright, not silently ignored in favor of whatever the Issuance record
-            // already says. knownRequestedConfigurationId() computed the lookup above purely for
-            // logging before this check existed - reuse its result here instead of querying the
-            // registry a second time. Routed through the same doOnSuccess/doOnError tail as the
-            // rest of the flow below so credentialIssuedLogger still sees every failure.
+            // already says. The knownRequestedConfigurationId helper computed the lookup above
+            // purely for logging before this check existed - reuse its result here instead of
+            // querying the registry a second time. Routed through the same success/error tail
+            // as the rest of the flow below so credentialIssuedLogger still sees every failure.
             Mono<CredentialResponse> pipeline;
             if (requestedConfigurationId != null && !requestedConfigurationId.isBlank()
                     && configurationId.get() == null) {
