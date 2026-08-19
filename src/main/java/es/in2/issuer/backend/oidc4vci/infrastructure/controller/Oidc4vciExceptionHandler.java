@@ -78,7 +78,7 @@ public class Oidc4vciExceptionHandler {
     @ExceptionHandler(UnknownCredentialConfigurationException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<CredentialErrorResponse> handleUnknownCredentialConfiguration(UnknownCredentialConfigurationException ex) {
-        log.warn("Unknown credential configuration: {}", ex.getMessage());
+        log.warn("Unknown credential configuration requested");
         return Mono.just(new CredentialErrorResponse("unsupported_credential_type", ex.getMessage(), null, null));
     }
 
