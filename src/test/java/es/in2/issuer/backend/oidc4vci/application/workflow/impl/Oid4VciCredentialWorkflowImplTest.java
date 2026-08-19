@@ -13,6 +13,7 @@ import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.Proofs;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
+import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
 import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
 import es.in2.issuer.backend.shared.domain.model.dto.Proof;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
@@ -328,6 +329,7 @@ class Oid4VciCredentialWorkflowImplTest {
 
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
         when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(buildProfile(false));
 
         CredentialRequest request = CredentialRequest.builder()
                 .credentialConfigurationId(CREDENTIAL_TYPE)
@@ -395,6 +397,123 @@ class Oid4VciCredentialWorkflowImplTest {
     }
 
     @Test
+    void createCredentialResponse_unknownRequestedConfigurationId_rejectsBeforeIssuanceLookup() {
+        // Distinct from the test above: here the session/Issuance is perfectly valid and would
+        // otherwise happily issue - the only problem is credential_configuration_id in the
+        // request itself. Regression test for the OID4VCI-1FINAL-fail-unknown-credential-configuration
+        // conformance gap: the Issuer used to ignore this field entirely and issue whatever type
+        // the Issuance record already had.
+        when(credentialProfileRegistry.getByConfigurationId("does-not-exist")).thenReturn(null);
+
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialConfigurationId("does-not-exist")
+                .format(JWT_VC_JSON)
+                .build();
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN)
+                .issuanceId(ISSUANCE_ID)
+                .build();
+
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .expectError(UnknownCredentialConfigurationException.class)
+                .verify();
+
+        verifyNoInteractions(issuanceService);
+        verify(credentialIssuedLogger).logFailed(isNull(), any());
+    }
+
+    @Test
+    void createCredentialResponse_knownButMismatchedConfigurationId_rejectsAfterIssuanceLookup() {
+        // Distinct from both tests above: "eu.europa.ec.eudi.pid.1" IS a real, registered
+        // configuration - just not the one this Issuance/token was authorized for, which is
+        // CREDENTIAL_TYPE, a LEAR Employee credential set up by the buildProcedure helper.
+        // A well-behaved wallet never triggers this: the credential offer service always
+        // advertises exactly the Issuance's own credential type in the offer, so this only
+        // fires for a request asking for something other than what was actually offered.
+        String mismatchedConfigId = "eu.europa.ec.eudi.pid.1";
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+
+        when(credentialProfileRegistry.getByConfigurationId(mismatchedConfigId)).thenReturn(buildProfile(false));
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
+
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialConfigurationId(mismatchedConfigId)
+                .format(JWT_VC_JSON)
+                .build();
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN)
+                .issuanceId(ISSUANCE_ID)
+                .build();
+
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .expectError(UnknownCredentialConfigurationException.class)
+                .verify();
+
+        // The Issuance did load, so the authoritative type (from the Issuance, not the
+        // mismatched request) is what gets logged.
+        verify(credentialIssuedLogger).logFailed(eq(CREDENTIAL_TYPE), any());
+    }
+
+    @Test
+    void createCredentialResponse_noRequestedConfigurationId_fallsBackToIssuanceType() {
+        // credential_configuration_id is marked required in the JSON contract, but nothing
+        // stops it being null as a plain Java record field - confirms both new guards,
+        // unknown-config and mismatched-config, correctly no-op when it's absent, falling
+        // through to the pre-existing Issuance-type-driven behavior.
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+        CredentialProfile profile = buildProfile(false);
+        CredentialIssuerMetadata metadata = buildMetadata(null);
+
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+
+        CredentialRequest request = CredentialRequest.builder()
+                .format(JWT_VC_JSON)
+                .build(); // credentialConfigurationId left unset (null)
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN)
+                .issuanceId(ISSUANCE_ID)
+                .build();
+
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .assertNext(resp -> assertThat(resp.credentials()).isNotEmpty())
+                .verifyComplete();
+
+        verify(credentialIssuedLogger).logIssued(CREDENTIAL_TYPE);
+        verify(credentialIssuedLogger, never()).logFailed(any(), any());
+    }
+
+    @Test
+    void createCredentialResponse_blankRequestedConfigurationId_fallsBackToIssuanceType() {
+        // Same as above but a distinct code path: an empty string is non-null yet still
+        // blank - a separate bytecode branch from the null case in both new guards.
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+        CredentialProfile profile = buildProfile(false);
+        CredentialIssuerMetadata metadata = buildMetadata(null);
+
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialConfigurationId("")
+                .format(JWT_VC_JSON)
+                .build();
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN)
+                .issuanceId(ISSUANCE_ID)
+                .build();
+
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .assertNext(resp -> assertThat(resp.credentials()).isNotEmpty())
+                .verifyComplete();
+
+        verify(credentialIssuedLogger).logIssued(CREDENTIAL_TYPE);
+        verify(credentialIssuedLogger, never()).logFailed(any(), any());
+    }
+
+    @Test
     void createCredentialResponse_withJwkProof_shouldResolveBinding() throws Exception {
         Issuance issuance = buildProcedure(JWT_VC_JSON);
         CredentialProfile profile = buildProfile(true);
@@ -451,8 +570,13 @@ class Oid4VciCredentialWorkflowImplTest {
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
         when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
 
-        // Mock registry to return null
-        when(credentialProfileRegistry.getByConfigurationId(anyString())).thenReturn(null);
+        // credential_configuration_id is known when the request arrives (1st call, the
+        // createCredentialResponse-level guard) but the profile has since been removed from the
+        // registry by the time enrichAndSign looks it up again (2nd call) - simulates the gap
+        // this test targets, distinct from an unknown-at-request-time configuration_id.
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE))
+                .thenReturn(buildProfile(false))
+                .thenReturn(null);
 
         CredentialRequest request = CredentialRequest.builder()
                 .credentialConfigurationId(CREDENTIAL_TYPE)

@@ -6,6 +6,7 @@ import es.in2.issuer.backend.oidc4vci.domain.model.OAuthErrorResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.domain.exception.InvalidOrMissingProofException;
 import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
+import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
@@ -67,6 +68,18 @@ public class Oidc4vciExceptionHandler {
         return nonceService.issueNonce()
                 .map(nonce -> new CredentialErrorResponse(
                         INVALID_PROOF_ERROR, ex.getMessage(), nonce.cNonce(), nonce.cNonceExpiresIn()));
+    }
+
+    // Scoped override of SharedExceptionHandler's GlobalErrorMessage-shaped mapping (used
+    // elsewhere for the backoffice credential catalog): within oidc4vci controllers this
+    // exception means an unknown credential_configuration_id was requested at /credential,
+    // which needs the OID4VCI error shape instead. No c_nonce - unlike invalid_proof, this
+    // error carries no nonce-refresh semantics.
+    @ExceptionHandler(UnknownCredentialConfigurationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<CredentialErrorResponse> handleUnknownCredentialConfiguration(UnknownCredentialConfigurationException ex) {
+        log.warn("Unknown credential configuration requested");
+        return Mono.just(new CredentialErrorResponse("unsupported_credential_type", ex.getMessage(), null, null));
     }
 
     // Raised by ParServiceImpl, DpopValidationService, ClientAttestationValidationService and
