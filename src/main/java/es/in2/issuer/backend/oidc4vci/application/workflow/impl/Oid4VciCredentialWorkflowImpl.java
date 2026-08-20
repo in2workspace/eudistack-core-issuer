@@ -107,56 +107,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             AtomicReference<String> configurationId =
                     new AtomicReference<>(knownRequestedConfigurationId(credentialRequest));
 
-            // Both guards below are routed through the same success/error tail as the rest of
-            // the flow further down so credentialIssuedLogger still sees every failure.
-            Mono<CredentialResponse> pipeline;
-
-            // OID4VCI 1.0 SS8.2: credential_identifier is the alternative addressing mode to
-            // credential_configuration_id, used only when the Token Response returned
-            // authorization_details with credential_identifiers - this Issuer only implements
-            // the scope-based flow and never does, so any credential_identifier a client sends
-            // is unrecognized by construction. Checked first and unconditionally: it doesn't
-            // interact with the credential_configuration_id checks below at all.
-            String requestedCredentialIdentifier = credentialRequest != null ? credentialRequest.credentialIdentifier() : null;
-            String requestedConfigurationId = credentialRequest != null ? credentialRequest.credentialConfigurationId() : null;
-
-            if (requestedCredentialIdentifier != null && !requestedCredentialIdentifier.isBlank()) {
-                pipeline = Mono.error(new UnknownCredentialIdentifierException(
-                        "Unknown credential_identifier: " + requestedCredentialIdentifier));
-            } else if (requestedConfigurationId != null && !requestedConfigurationId.isBlank()
-                    && configurationId.get() == null) {
-                // OID4VCI 1.0 SS8.2: a credential_configuration_id that isn't one of ours must be
-                // rejected outright, not silently ignored in favor of whatever the Issuance record
-                // already says. The knownRequestedConfigurationId helper computed the lookup above
-                // purely for logging before this check existed - reuse its result here instead of
-                // querying the registry a second time.
-                pipeline = Mono.error(new UnknownCredentialConfigurationException(
-                        "Unknown credential_configuration_id: " + requestedConfigurationId));
-            } else {
-                pipeline = issuanceService.getIssuanceById(issuanceId)
-                        .switchIfEmpty(Mono.error(new InvalidTokenException("Procedure not found: " + issuanceId)))
-                        .doOnNext(proc -> setConfigurationId(proc, configurationId))
-                        .flatMap(proc -> {
-                            if (requestedConfigurationId != null && !requestedConfigurationId.isBlank()
-                                    && proc.getCredentialType() != null && !proc.getCredentialType().isBlank()
-                                    && !requestedConfigurationId.equals(proc.getCredentialType())) {
-                                return Mono.error(new UnknownCredentialConfigurationException(
-                                        "Unsupported credential_configuration_id for this issuance: " + requestedConfigurationId));
-                            }
-                            return validateProcedureState(proc)
-                                    .then(credentialIssuerMetadataService.getCredentialIssuerMetadata(publicIssuerBaseUrl))
-                                    .flatMap(metadata -> {
-                                        log.info("[{}] Processing credential request: issuanceId={}, type={}, format={}",
-                                                processId, issuanceId, proc.getCredentialType(), proc.getCredentialFormat());
-
-                                        return validateAndDetermineBindingInfo(proc, metadata, credentialRequest)
-                                                .defaultIfEmpty(new BindingInfo(null, null))
-                                                .flatMap(bindingInfo -> enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken(), publicIssuerBaseUrl));
-                                    });
-                        });
-            }
-
-            return pipeline
+            return buildCredentialPipeline(processId, credentialRequest, accessTokenContext, publicIssuerBaseUrl, issuanceId, configurationId)
                     .doOnSuccess(response -> {
                         if (response != null) {
                             credentialIssuedLogger.logIssued(configurationId.get());
@@ -164,6 +115,84 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                     })
                     .doOnError(e -> credentialIssuedLogger.logFailed(configurationId.get(), e));
         });
+    }
+
+    // Both request-level guards below short-circuit before the Issuance is even loaded; the
+    // mismatch check in processIssuance needs the Issuance's own type, so it runs after.
+    private Mono<CredentialResponse> buildCredentialPipeline(
+            String processId,
+            CredentialRequest credentialRequest,
+            AccessTokenContext accessTokenContext,
+            String publicIssuerBaseUrl,
+            String issuanceId,
+            AtomicReference<String> configurationId) {
+
+        // OID4VCI 1.0 SS8.2: credential_identifier is the alternative addressing mode to
+        // credential_configuration_id, used only when the Token Response returned
+        // authorization_details with credential_identifiers - this Issuer only implements the
+        // scope-based flow and never does, so any credential_identifier a client sends is
+        // unrecognized by construction.
+        String requestedCredentialIdentifier = credentialRequest != null ? credentialRequest.credentialIdentifier() : null;
+        if (hasValue(requestedCredentialIdentifier)) {
+            return Mono.error(new UnknownCredentialIdentifierException(
+                    "Unknown credential_identifier: " + requestedCredentialIdentifier));
+        }
+
+        // A credential_configuration_id that isn't one of ours must be rejected outright, not
+        // silently ignored in favor of whatever the Issuance record already says. The
+        // knownRequestedConfigurationId helper computed the lookup above purely for logging
+        // before this check existed - reuse its result here instead of querying the registry a
+        // second time.
+        String requestedConfigurationId = credentialRequest != null ? credentialRequest.credentialConfigurationId() : null;
+        if (hasValue(requestedConfigurationId) && configurationId.get() == null) {
+            return Mono.error(new UnknownCredentialConfigurationException(
+                    "Unknown credential_configuration_id: " + requestedConfigurationId));
+        }
+
+        return issuanceService.getIssuanceById(issuanceId)
+                .switchIfEmpty(Mono.error(new InvalidTokenException("Procedure not found: " + issuanceId)))
+                .doOnNext(proc -> setConfigurationId(proc, configurationId))
+                .flatMap(proc -> processIssuance(processId, credentialRequest, accessTokenContext, publicIssuerBaseUrl, issuanceId, requestedConfigurationId, proc));
+    }
+
+    private Mono<CredentialResponse> processIssuance(
+            String processId,
+            CredentialRequest credentialRequest,
+            AccessTokenContext accessTokenContext,
+            String publicIssuerBaseUrl,
+            String issuanceId,
+            String requestedConfigurationId,
+            Issuance proc) {
+
+        if (isMismatchedConfigurationId(requestedConfigurationId, proc)) {
+            return Mono.error(new UnknownCredentialConfigurationException(
+                    "Unsupported credential_configuration_id for this issuance: " + requestedConfigurationId));
+        }
+        return validateProcedureState(proc)
+                .then(credentialIssuerMetadataService.getCredentialIssuerMetadata(publicIssuerBaseUrl))
+                .flatMap(metadata -> {
+                    log.info("[{}] Processing credential request: issuanceId={}, type={}, format={}",
+                            processId, issuanceId, proc.getCredentialType(), proc.getCredentialFormat());
+
+                    return validateAndDetermineBindingInfo(proc, metadata, credentialRequest)
+                            .defaultIfEmpty(new BindingInfo(null, null))
+                            .flatMap(bindingInfo -> enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken(), publicIssuerBaseUrl));
+                });
+    }
+
+    // credential_configuration_id is a valid, registered configuration (the caller already
+    // ruled out "unknown") but doesn't match what this Issuance/token was actually authorized
+    // for - e.g. requesting PID with a LEAR Employee token. A well-behaved wallet never
+    // triggers this: the credential offer service always advertises exactly the Issuance's own
+    // credential type in the offer.
+    private boolean isMismatchedConfigurationId(String requestedConfigurationId, Issuance proc) {
+        return hasValue(requestedConfigurationId)
+                && hasValue(proc.getCredentialType())
+                && !requestedConfigurationId.equals(proc.getCredentialType());
+    }
+
+    private boolean hasValue(String value) {
+        return value != null && !value.isBlank();
     }
 
     private String knownRequestedConfigurationId(CredentialRequest credentialRequest) {
