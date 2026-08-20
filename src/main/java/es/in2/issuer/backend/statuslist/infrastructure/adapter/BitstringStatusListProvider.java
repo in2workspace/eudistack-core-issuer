@@ -21,6 +21,7 @@ import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
@@ -56,6 +57,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
     private final BitstringStatusListIndexReservation statusListIndexReservationService;
     private final StatusListSigner statusListSigner;
     private final IssuerFactory issuerFactory;
+    private final TransactionalOperator transactionalOperator;
 
     private final BitstringEncoder encoder = new BitstringEncoder();
 
@@ -258,12 +260,12 @@ public class BitstringStatusListProvider implements StatusListProvider {
                 now
         );
 
-        return statusListRepository.save(rowToInsert)
+        return transactionalOperator.transactional(statusListRepository.save(rowToInsert))
                 .flatMap(saved ->
                         getIssuerAndSignCredential(saved, token, publicIssuerBaseUrl)
                                 .flatMap(jwt -> persistSignedCredential(saved, jwt))
                                 .onErrorResume(ex ->
-                                        statusListRepository.deleteById(saved.id())
+                                        transactionalOperator.transactional(statusListRepository.deleteById(saved.id()))
                                                 .doOnSuccess(v -> log.warn(
                                                         "method=createNewList step=ROLLBACK_DELETE statusListId={} cause={}",
                                                         saved.id(), ex.toString()
@@ -286,16 +288,17 @@ public class BitstringStatusListProvider implements StatusListProvider {
     private Mono<StatusList> persistSignedCredential(StatusList saved, String signedJwt) {
         log.debug("method=persistSignedCredential step=START statusListId={}", saved.id());
 
-        return statusListRepository.updateSignedCredential(saved.id(), signedJwt)
-                .flatMap(rows -> {
-                    if (rows != null && rows == 1) {
-                        return Mono.just(saved);
-                    }
-                    return Mono.error(new StatusListSigningPersistenceException(saved.id()));
-                })
-                .doOnSuccess(v ->
-                        log.debug("method=persistSignedCredential step=END statusListId={}", saved.id())
-                );
+        return transactionalOperator.transactional(
+                statusListRepository.updateSignedCredential(saved.id(), signedJwt)
+                        .flatMap(rows -> {
+                            if (rows != null && rows == 1) {
+                                return Mono.just(saved);
+                            }
+                            return Mono.error(new StatusListSigningPersistenceException(saved.id()));
+                        })
+        ).doOnSuccess(v ->
+                log.debug("method=persistSignedCredential step=END statusListId={}", saved.id())
+        );
     }
 
     private Mono<StatusListEntry> findExistingAllocation(String baseUrl, StatusPurpose purpose, StatusListFormat format, String issuanceId) {
