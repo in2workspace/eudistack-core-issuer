@@ -1,4 +1,4 @@
-package es.in2.issuer.backend.shared.domain.exception;
+package es.in2.issuer.backend.oidc4vci.domain.exception;
 
 /**
  * Raised when a /credential request uses the credential_identifier addressing mode
