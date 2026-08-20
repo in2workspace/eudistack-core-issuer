@@ -103,19 +103,32 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         final String issuanceId = accessTokenContext.issuanceId();
 
         return Mono.defer(() -> {
-            String requestedConfigurationId = credentialRequest != null ? credentialRequest.credentialConfigurationId() : null;
             AtomicReference<String> configurationId =
                     new AtomicReference<>(knownRequestedConfigurationId(credentialRequest));
 
-            // OID4VCI 1.0 SS8.2: a credential_configuration_id that isn't one of ours must be
-            // rejected outright, not silently ignored in favor of whatever the Issuance record
-            // already says. The knownRequestedConfigurationId helper computed the lookup above
-            // purely for logging before this check existed - reuse its result here instead of
-            // querying the registry a second time. Routed through the same success/error tail
-            // as the rest of the flow below so credentialIssuedLogger still sees every failure.
+            // Both guards below are routed through the same success/error tail as the rest of
+            // the flow further down so credentialIssuedLogger still sees every failure.
             Mono<CredentialResponse> pipeline;
-            if (requestedConfigurationId != null && !requestedConfigurationId.isBlank()
+
+            // OID4VCI 1.0 SS8.2: credential_identifier is the alternative addressing mode to
+            // credential_configuration_id, used only when the Token Response returned
+            // authorization_details with credential_identifiers - this Issuer only implements
+            // the scope-based flow and never does, so any credential_identifier a client sends
+            // is unrecognized by construction. Checked first and unconditionally: it doesn't
+            // interact with the credential_configuration_id checks below at all.
+            String requestedCredentialIdentifier = credentialRequest != null ? credentialRequest.credentialIdentifier() : null;
+            String requestedConfigurationId = credentialRequest != null ? credentialRequest.credentialConfigurationId() : null;
+
+            if (requestedCredentialIdentifier != null && !requestedCredentialIdentifier.isBlank()) {
+                pipeline = Mono.error(new UnknownCredentialIdentifierException(
+                        "Unknown credential_identifier: " + requestedCredentialIdentifier));
+            } else if (requestedConfigurationId != null && !requestedConfigurationId.isBlank()
                     && configurationId.get() == null) {
+                // OID4VCI 1.0 SS8.2: a credential_configuration_id that isn't one of ours must be
+                // rejected outright, not silently ignored in favor of whatever the Issuance record
+                // already says. The knownRequestedConfigurationId helper computed the lookup above
+                // purely for logging before this check existed - reuse its result here instead of
+                // querying the registry a second time.
                 pipeline = Mono.error(new UnknownCredentialConfigurationException(
                         "Unknown credential_configuration_id: " + requestedConfigurationId));
             } else {

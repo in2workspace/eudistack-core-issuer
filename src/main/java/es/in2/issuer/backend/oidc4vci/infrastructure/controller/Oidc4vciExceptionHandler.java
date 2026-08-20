@@ -7,6 +7,7 @@ import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.domain.exception.InvalidOrMissingProofException;
 import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
+import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialIdentifierException;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
@@ -83,6 +84,16 @@ public class Oidc4vciExceptionHandler {
     public Mono<CredentialErrorResponse> handleUnknownCredentialConfiguration(UnknownCredentialConfigurationException ex) {
         log.warn("Unknown credential configuration requested");
         return Mono.just(new CredentialErrorResponse("unknown_credential_configuration", ex.getMessage(), null, null));
+    }
+
+    // credential_identifier is a recognized but permanently unsupported addressing mode - see
+    // CredentialRequest and Oid4VciCredentialWorkflowImpl for why. Same OID4VCI error shape,
+    // no c_nonce, distinct error code per SS8.3.1.2.
+    @ExceptionHandler(UnknownCredentialIdentifierException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<CredentialErrorResponse> handleUnknownCredentialIdentifier(UnknownCredentialIdentifierException ex) {
+        log.warn("Unknown credential identifier requested");
+        return Mono.just(new CredentialErrorResponse("unknown_credential_identifier", ex.getMessage(), null, null));
     }
 
     // Raised by ParServiceImpl, DpopValidationService, ClientAttestationValidationService and

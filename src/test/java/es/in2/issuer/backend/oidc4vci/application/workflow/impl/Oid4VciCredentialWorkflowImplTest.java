@@ -14,6 +14,7 @@ import es.in2.issuer.backend.oidc4vci.domain.model.dto.Proofs;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
+import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialIdentifierException;
 import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
 import es.in2.issuer.backend.shared.domain.model.dto.Proof;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
@@ -397,6 +398,31 @@ class Oid4VciCredentialWorkflowImplTest {
     }
 
     @Test
+    void createCredentialResponse_credentialIdentifierPresent_alwaysRejectsAsUnknown() {
+        // This Issuer never returns authorization_details with credential_identifiers from
+        // the Token Response - only the scope-based flow is implemented - so any
+        // credential_identifier a client sends is unrecognized by construction, regardless of
+        // its value or of anything else in the request. Checked before the
+        // credential_configuration_id guards and before touching the Issuance at all.
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialIdentifier("some-opaque-identifier")
+                .format(JWT_VC_JSON)
+                .build();
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN)
+                .issuanceId(ISSUANCE_ID)
+                .build();
+
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .expectError(UnknownCredentialIdentifierException.class)
+                .verify();
+
+        verifyNoInteractions(issuanceService);
+        verifyNoInteractions(credentialProfileRegistry);
+        verify(credentialIssuedLogger).logFailed(isNull(), any());
+    }
+
+    @Test
     void createCredentialResponse_unknownRequestedConfigurationId_rejectsBeforeIssuanceLookup() {
         // Distinct from the test above: here the session/Issuance is perfectly valid and would
         // otherwise happily issue - the only problem is credential_configuration_id in the
@@ -456,10 +482,10 @@ class Oid4VciCredentialWorkflowImplTest {
 
     @Test
     void createCredentialResponse_noRequestedConfigurationId_fallsBackToIssuanceType() {
-        // credential_configuration_id is marked required in the JSON contract, but nothing
-        // stops it being null as a plain Java record field - confirms both new guards,
-        // unknown-config and mismatched-config, correctly no-op when it's absent, falling
-        // through to the pre-existing Issuance-type-driven behavior.
+        // credential_configuration_id is nullable - the request could instead be using
+        // credential_identifier (covered separately) - confirms both new guards, unknown-config
+        // and mismatched-config, correctly no-op when it's absent, falling through to the
+        // pre-existing Issuance-type-driven behavior.
         Issuance issuance = buildProcedure(JWT_VC_JSON);
         CredentialProfile profile = buildProfile(false);
         CredentialIssuerMetadata metadata = buildMetadata(null);
