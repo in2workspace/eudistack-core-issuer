@@ -301,6 +301,12 @@ jobs:
           name: sbom-v${{ needs.ci.outputs.version }}
           path: ./sbom-artifact
 
+      - name: Validate SBOM Version
+        uses: in2workspace/eudistack-platform-dev/.github/actions/license-gate@license-gate-v1.0.0
+        with:
+          sbom-path: ./sbom-artifact/sbom.json
+          expect-version: ${{ needs.ci.outputs.version }}
+
       - name: Prepare SBOM Release Asset
         run: |
           set -euo pipefail

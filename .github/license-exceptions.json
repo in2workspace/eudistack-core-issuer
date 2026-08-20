@@ -46,18 +46,9 @@
       "ticket": "EUD-221"
     },
     {
-      "purl": "pkg:maven/com.github.peteroupc/numbers@1.8.2?type=jar",
-      "license": "CC0-1.0",
-      "reason": "CBOR dependency transitive library with CC0-1.0 license",
-      "approved_by": "DevOps Lead",
-      "approved_on": "2026-08-17",
-      "expires_on": "2026-11-17",
-      "ticket": "EUD-221"
-    },
-    {
-      "purl": "pkg:maven/com.upokecenter/cbor@4.5.4?type=jar",
-      "license": "CC0-1.0",
-      "reason": "CBOR serialization library with CC0-1.0 license",
+      "purl": "pkg:maven/com.rabbitmq/amqp-client@5.25.0?type=jar",
+      "license": "AL 2.0, GPL v2, MPL-2.0",
+      "reason": "RabbitMQ client tri-licensed (Apache 2.0 / GPL v2 / MPL 2.0)",
       "approved_by": "DevOps Lead",
       "approved_on": "2026-08-17",
       "expires_on": "2026-11-17",
@@ -82,22 +73,13 @@
       "ticket": "EUD-219"
     },
     {
-      "purl": "pkg:maven/org.aspectj/aspectjweaver@1.9.25.1?type=jar",
-      "license": "EPL-2.0",
-      "reason": "AspectJ weaver with EPL-2.0 license",
-      "approved_by": "DevOps Lead",
-      "approved_on": "2026-08-17",
-      "expires_on": "2026-11-17",
-      "ticket": "EUD-221"
-    },
-    {
       "purl": "pkg:maven/org.bouncycastle/bcprov-jdk18on@1.84?type=jar",
       "license": "Bouncy Castle Licence",
       "reason": "Bouncy Castle cryptography library with MIT-style Bouncy Castle license",
       "approved_by": "DevOps Lead",
       "approved_on": "2026-08-17",
       "expires_on": "2026-11-17",
-      "ticket": "EUD-219"
+      "ticket": "EUD-221"
     },
     {
       "purl": "pkg:maven/org.eclipse.angus/jakarta.mail@2.0.5?type=jar",
@@ -112,24 +94,6 @@
       "purl": "pkg:maven/org.hdrhistogram/HdrHistogram@2.2.2?type=jar",
       "license": "CC0-1.0, BSD-2-Clause",
       "reason": "Micrometer dependency with dual CC0/BSD license",
-      "approved_by": "DevOps Lead",
-      "approved_on": "2026-08-17",
-      "expires_on": "2026-11-17",
-      "ticket": "EUD-221"
-    },
-    {
-      "purl": "pkg:maven/org.latencyutils/LatencyUtils@2.0.3?type=jar",
-      "license": "CC0-1.0",
-      "reason": "Micrometer latency tracking dependency with CC0-1.0 license",
-      "approved_by": "DevOps Lead",
-      "approved_on": "2026-08-17",
-      "expires_on": "2026-11-17",
-      "ticket": "EUD-221"
-    },
-    {
-      "purl": "pkg:maven/org.reactivestreams/reactive-streams@1.0.4?type=jar",
-      "license": "MIT-0",
-      "reason": "Reactive streams specification library under MIT-0",
       "approved_by": "DevOps Lead",
       "approved_on": "2026-08-17",
       "expires_on": "2026-11-17",
