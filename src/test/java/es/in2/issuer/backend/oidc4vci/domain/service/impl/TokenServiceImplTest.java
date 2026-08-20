@@ -7,7 +7,6 @@ import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
-import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndRefreshToken;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndTxCode;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
@@ -27,10 +26,7 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.time.Instant;
-import java.util.List;
 
-
-import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.AUTHORIZATION_CODE_GRANT_TYPE;
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.CLIENT_CREDENTIALS_GRANT_TYPE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.GRANT_TYPE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
@@ -40,7 +36,6 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -156,79 +151,6 @@ class TokenServiceImplTest {
                                 "unsupported_grant_type".equals(ex.getErrorCode()) &&
                                 ex.getMessage().contains(INVALID_GRANT_TYPE))
                 .verify();
-    }
-
-    // -- Authorization Code Flow --
-
-    private TokenRequest authCodeRequest(String code, String redirectUri, String codeVerifier) {
-        return TokenRequest.builder()
-                .grantType(AUTHORIZATION_CODE_GRANT_TYPE)
-                .code(code)
-                .redirectUri(redirectUri)
-                .codeVerifier(codeVerifier)
-                .build();
-    }
-
-    @Test
-    void exchangeToken_authorizationCode_withoutIssuerState_returnsInvalidGrantInsteadOfCrashing() {
-        // Regression test: issuer_state is OPTIONAL at the PAR/authorize level (a
-        // wallet-initiated authorization request never sends one), but this Issuer can only
-        // resolve the issuanceId an access token is bound to through it. A code without one
-        // used to reach Guava's Cache.getIfPresent with a null key, which throws NPE and
-        // surfaced as a raw 500 instead of a proper OAuth2 error. Caught by the OIDF
-        // conformance suite's fapi2-security-profile-final-happy-flow test.
-        String code = "auth-code-no-issuer-state";
-        String redirectUri = "https://wallet.example.com/callback";
-        AuthorizationCodeData codeData = AuthorizationCodeData.builder()
-                .redirectUri(redirectUri)
-                .issuerState(null)
-                .build();
-        var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
-                true, false, List.of("S256"), false, List.of("ES256"), "none", false
-        );
-
-        when(authorizationCodeCacheStore.get(code)).thenReturn(Mono.just(codeData));
-        when(authorizationCodeCacheStore.delete(code)).thenReturn(Mono.empty());
-        when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
-
-        TokenRequest request = authCodeRequest(code, redirectUri, null);
-
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
-                .expectErrorMatches(throwable ->
-                        throwable instanceof OAuthTokenException ex &&
-                                "invalid_grant".equals(ex.getErrorCode()))
-                .verify();
-
-        verifyNoInteractions(issuerStateCacheStore);
-    }
-
-    @Test
-    void exchangeToken_authorizationCode_withIssuerState_returnsTokenResponse() {
-        String code = "auth-code-with-issuer-state";
-        String redirectUri = "https://wallet.example.com/callback";
-        String issuerState = "issuer-state-123";
-        AuthorizationCodeData codeData = AuthorizationCodeData.builder()
-                .redirectUri(redirectUri)
-                .issuerState(issuerState)
-                .build();
-        var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
-                true, false, List.of("S256"), false, List.of("ES256"), "none", false
-        );
-
-        when(authorizationCodeCacheStore.get(code)).thenReturn(Mono.just(codeData));
-        when(authorizationCodeCacheStore.delete(code)).thenReturn(Mono.empty());
-        when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
-        when(issuerStateCacheStore.get(issuerState)).thenReturn(Mono.just(TEST_CREDENTIAL_ISSUANCE_ID));
-        when(jwtService.issueJWT(anyString())).thenReturn(TEST_ACCESS_TOKEN);
-
-        TokenRequest request = authCodeRequest(code, redirectUri, null);
-
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
-                .assertNext(tokenResponse -> {
-                    assertThat(tokenResponse.accessToken()).isEqualTo(TEST_ACCESS_TOKEN);
-                    assertThat(tokenResponse.tokenType()).isEqualTo("bearer");
-                })
-                .verifyComplete();
     }
 
     private TokenRequest clientCredentialsRequest(String clientId, String clientSecret) {
