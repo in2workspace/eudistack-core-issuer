@@ -73,13 +73,16 @@ public class Oidc4vciExceptionHandler {
     // Scoped override of SharedExceptionHandler's GlobalErrorMessage-shaped mapping (used
     // elsewhere for the backoffice credential catalog): within oidc4vci controllers this
     // exception means an unknown credential_configuration_id was requested at /credential,
-    // which needs the OID4VCI error shape instead. No c_nonce - unlike invalid_proof, this
-    // error carries no nonce-refresh semantics.
+    // which needs the OID4VCI error shape instead. "unknown_credential_configuration" is the
+    // exact code OID4VCI 1.0 SS8.3.1.2 defines for this case - "unsupported_credential_type"
+    // is not a recognized code at all and was flagged by the conformance suite as
+    // non-standard. No c_nonce - unlike invalid_proof, this error carries no nonce-refresh
+    // semantics.
     @ExceptionHandler(UnknownCredentialConfigurationException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<CredentialErrorResponse> handleUnknownCredentialConfiguration(UnknownCredentialConfigurationException ex) {
         log.warn("Unknown credential configuration requested");
-        return Mono.just(new CredentialErrorResponse("unsupported_credential_type", ex.getMessage(), null, null));
+        return Mono.just(new CredentialErrorResponse("unknown_credential_configuration", ex.getMessage(), null, null));
     }
 
     // Raised by ParServiceImpl, DpopValidationService, ClientAttestationValidationService and

@@ -131,7 +131,7 @@ class Oidc4vciExceptionHandlerTest {
 
         StepVerifier.create(handler.handleUnknownCredentialConfiguration(ex))
                 .assertNext(body -> {
-                    assertEquals("unsupported_credential_type", body.error());
+                    assertEquals("unknown_credential_configuration", body.error());
                     assertEquals("Unknown credential_configuration_id: bogus", body.errorDescription());
                     assertEquals(null, body.cNonce());
                     assertEquals(null, body.cNonceExpiresIn());
