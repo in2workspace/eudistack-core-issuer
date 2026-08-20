@@ -5,6 +5,7 @@ import es.in2.issuer.backend.oidc4vci.domain.model.NonceResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.domain.exception.InvalidOrMissingProofException;
 import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
+import es.in2.issuer.backend.oidc4vci.domain.exception.UnknownCredentialIdentifierException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
@@ -133,6 +134,24 @@ class Oidc4vciExceptionHandlerTest {
                 .assertNext(body -> {
                     assertEquals("unknown_credential_configuration", body.error());
                     assertEquals("Unknown credential_configuration_id: bogus", body.errorDescription());
+                    assertEquals(null, body.cNonce());
+                    assertEquals(null, body.cNonceExpiresIn());
+                })
+                .verifyComplete();
+
+        verifyNoInteractions(nonceService);
+    }
+
+    // -------------------- handleUnknownCredentialIdentifier --------------------
+
+    @Test
+    void handleUnknownCredentialIdentifier_returnsCredentialErrorResponseWithoutNonce() {
+        var ex = new UnknownCredentialIdentifierException("Unknown credential_identifier: bogus");
+
+        StepVerifier.create(handler.handleUnknownCredentialIdentifier(ex))
+                .assertNext(body -> {
+                    assertEquals("unknown_credential_identifier", body.error());
+                    assertEquals("Unknown credential_identifier: bogus", body.errorDescription());
                     assertEquals(null, body.cNonce());
                     assertEquals(null, body.cNonceExpiresIn());
                 })
