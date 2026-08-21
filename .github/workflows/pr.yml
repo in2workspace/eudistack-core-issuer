@@ -207,10 +207,14 @@ jobs:
             -v "$(pwd)/dev-tools/credentials/profiles:/etc/eudistack/schemas:ro" \
             eudistack-core-issuer:pr
 
+      # Polls the readiness group, not the aggregate /health: the aggregate
+      # includes indicators (SMTP, signing service, verifier reachability)
+      # that report DOWN whenever those external dependencies aren't reachable
+      # from this isolated CI container, even though the app itself is fully up.
       - name: Wait for service health
         run: |
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:8080/issuer/health; then exit 0; fi
+            if curl -sf http://localhost:8080/issuer/health/readiness; then exit 0; fi
             sleep 2
           done
           echo "Service did not become healthy in time"
