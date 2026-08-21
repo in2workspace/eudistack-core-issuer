@@ -11,4 +11,6 @@
 # See dev-tools/issuer/cors-origins.yaml (local) or platform-iac (AWS).
 # ---------------------------------------------------------------------------
 
-origins: []
+origins:
+  - url: "http://localhost:4200"
+    tenant: "local"

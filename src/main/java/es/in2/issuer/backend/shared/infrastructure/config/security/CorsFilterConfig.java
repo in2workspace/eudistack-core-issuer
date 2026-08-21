@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
@@ -24,16 +25,20 @@ import java.util.List;
  * of how reverse proxies interpret the spring.webflux.base-path context path.
  */
 @Configuration
-public class CorsConfig {
+@RequiredArgsConstructor
+public class CorsFilterConfig {
+
+    private final CorsOriginsLoader corsOriginsLoader;
 
     @Bean
     public UrlBasedCorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration publicConfig = new CorsConfiguration();
-        publicConfig.setAllowedOriginPatterns(List.of("*"));
+        publicConfig.setAllowedOrigins(corsOriginsLoader.loadOrigins());
         publicConfig.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
         publicConfig.setAllowedHeaders(List.of(
                 "Content-Type", "Authorization", "DPoP",
-                "OAuth-Client-Attestation", "OAuth-Client-Attestation-PoP"));
+                "OAuth-Client-Attestation", "OAuth-Client-Attestation-PoP",
+                "Api-Version"));
         publicConfig.setAllowCredentials(false);
         publicConfig.setMaxAge(1800L);
 
