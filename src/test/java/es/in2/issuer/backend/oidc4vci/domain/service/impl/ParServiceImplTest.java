@@ -85,9 +85,30 @@ class ParServiceImplTest {
     }
 
     @Test
+    void pushAuthorizationRequest_shouldFailWhenRedirectUriMissing() {
+        // Regression test: redirect_uri has no bean-validation constraint on
+        // PushedAuthorizationRequest, so a request missing it used to sail through PAR and
+        // only surface downstream as an NPE in AuthorizationServiceImpl.buildRedirectUri
+        // once /authorize tried to build a redirect with a null value. Caught by the OIDF
+        // conformance suite's fapi2-security-profile-final-ensure-request-object-without-redirect-uri-fails test.
+        PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
+                .responseType("code")
+                .build();
+
+        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par", null))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
+                        && e.getMessage().equals("redirect_uri is required"))
+                .verify();
+
+        verifyNoInteractions(parCacheStore);
+    }
+
+    @Test
     void pushAuthorizationRequest_shouldFailWhenPkceRequiredButMissing() {
         PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
                 .responseType("code")
+                .redirectUri("https://wallet/callback")
                 .build();
 
         var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
@@ -169,6 +190,7 @@ class ParServiceImplTest {
     void pushAuthorizationRequest_wrapsDpopValidationFailureAsInvalidRequest() {
         PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
                 .responseType("code")
+                .redirectUri("https://wallet/callback")
                 .codeChallenge("challenge")
                 .codeChallengeMethod("S256")
                 .build();
@@ -194,6 +216,7 @@ class ParServiceImplTest {
     void pushAuthorizationRequest_wrapsWiaValidationFailureAsInvalidClient() {
         PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
                 .responseType("code")
+                .redirectUri("https://wallet/callback")
                 .codeChallenge("challenge")
                 .codeChallengeMethod("S256")
                 .build();
