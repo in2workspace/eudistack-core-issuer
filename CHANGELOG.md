@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **CORS Security**: populated `cors-origins.yaml` with default STG and local origins and updated tests to ensure correct classpath loading.
+- **CORS Security**: integrated `CorsOriginsLoader` into production configuration, eliminating wildcard `*` allowed origins in favor of a dynamic allow-list from `cors-origins.yaml`.
+- **CORS Security**: added `Api-Version` to the allowed headers white-list.
+- **CORS Security**: renamed `CorsConfig` to `CorsFilterConfig` for architectural consistency and strengthened tests to validate origin restrictions.
 - **`TenantSchemaFlywayMigrator`**: removed manual `CREATE SCHEMA` execution in favor of Flyway's native schema creation (`createSchemas(true)`) and enhanced SQL safety by using standard JDBC practices for dynamic queries.
 - **Legacy credential type names no longer break id_token validation on the certification policy**: issuing `gx.labelcredential.w3c.2` failed with `400 invalid_credential_format` — `No profile found for credential type: LEARCredentialEmployee` — whenever the `X-ID-Token` carried a legacy DOME LEAR Credential Employee. `RequireCertificationIssuanceRule` re-derives the credential type from the `type` array of the VC embedded in the id_token's `vc_json` claim, and `DynamicCredentialParser` looked that value up **only** through `CredentialProfileRegistry.getByConfigurationId`. Modern profiles encode the configuration id inside `credential_definition.type`, so that lookup coincided by construction; legacy credentials carry a human-readable type (`LEARCredentialEmployee`) that exists only in the credential-type index.
   - `CredentialProfileRegistry.resolveProfile(String)`: single resolution entry point that tries the configuration-id index and falls back to the credential-type index. `DynamicCredentialParser.parse` and `PolicyContextFactory.resolveProfile` now both go through it, removing the asymmetry that left the access-token path tolerant (it already had the fallback) and the id_token path brittle (it did not).
