@@ -19,6 +19,8 @@ public record AuthorizationServerMetadata(
         @JsonProperty(value = "code_challenge_methods_supported") List<String> codeChallengeMethodsSupported,
         @JsonProperty(value = "dpop_signing_alg_values_supported") List<String> dpopSigningAlgValuesSupported,
         @JsonProperty(value = "token_endpoint_auth_methods_supported") List<String> tokenEndpointAuthMethodsSupported,
+        @JsonProperty(value = "client_attestation_signing_alg_values_supported") List<String> clientAttestationSigningAlgValuesSupported,
+        @JsonProperty(value = "client_attestation_pop_signing_alg_values_supported") List<String> clientAttestationPopSigningAlgValuesSupported,
         @JsonProperty(value = "require_pushed_authorization_requests") Boolean requirePushedAuthorizationRequests,
         @JsonProperty(value = "authorization_response_iss_parameter_supported") Boolean authorizationResponseIssParameterSupported,
         @JsonProperty(value = "jwks_uri") String jwksUri

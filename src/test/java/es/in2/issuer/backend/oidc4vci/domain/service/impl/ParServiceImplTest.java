@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
+import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
 import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
@@ -77,7 +78,8 @@ class ParServiceImplTest {
                 .build();
 
         StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par", null))
-                .expectErrorMatches(e -> e instanceof IllegalArgumentException
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
                         && e.getMessage().equals("response_type must be 'code'"))
                 .verify();
     }
@@ -97,7 +99,8 @@ class ParServiceImplTest {
         when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
 
         StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par", null))
-                .expectErrorMatches(e -> e instanceof IllegalArgumentException
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
                         && e.getMessage().equals("code_challenge is required"))
                 .verify();
     }
@@ -128,5 +131,86 @@ class ParServiceImplTest {
 
         verify(dpopValidationService, never()).validate(anyString(), anyString(), anyString());
         verify(clientAttestationValidationService, never()).validateHeaders(anyString(), anyString(), any());
+    }
+
+    @Test
+    void pushAuthorizationRequest_shouldSucceedWhenDpopRequiredButHeaderAbsent() {
+        // RFC 9449 §10.1: DPoP binding at the PAR endpoint is OPTIONAL - a client may defer
+        // proof-of-possession entirely to the /token request instead.
+        PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
+                .responseType("code")
+                .clientId("wallet-client")
+                .redirectUri("https://wallet.example.com/callback")
+                .codeChallenge("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
+                .codeChallengeMethod("S256")
+                .build();
+
+        var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
+                true, true, List.of("S256"),
+                true, List.of("ES256"),
+                "none", false
+        );
+
+        when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
+        when(parCacheStore.add(anyString(), any(PushedAuthorizationRequest.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0, String.class)));
+
+        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par", null))
+                .assertNext(response -> assertNotNull(response.requestUri()))
+                .verifyComplete();
+
+        verify(dpopValidationService, never()).validate(anyString(), anyString(), anyString());
+    }
+
+    // shape - a raw IllegalArgumentException from the shared validation services must be
+    // translated, not leaked as-is.
+
+    @Test
+    void pushAuthorizationRequest_wrapsDpopValidationFailureAsInvalidRequest() {
+        PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
+                .responseType("code")
+                .codeChallenge("challenge")
+                .codeChallengeMethod("S256")
+                .build();
+
+        var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
+                true, true, List.of("S256"),
+                true, List.of("ES256"),
+                "none", false
+        );
+
+        when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
+        when(dpopValidationService.validate(anyString(), eq("POST"), anyString()))
+                .thenThrow(new IllegalArgumentException("DPoP signature invalid"));
+
+        StepVerifier.create(parService.pushAuthorizationRequest(request, "bad-dpop-proof", null, null, "https://issuer/par", null))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
+                        && e.getMessage().equals("DPoP signature invalid"))
+                .verify();
+    }
+
+    @Test
+    void pushAuthorizationRequest_wrapsWiaValidationFailureAsInvalidClient() {
+        PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
+                .responseType("code")
+                .codeChallenge("challenge")
+                .codeChallengeMethod("S256")
+                .build();
+
+        var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
+                true, true, List.of("S256"),
+                false, List.of("ES256"),
+                "attest_jwt_client_auth", false
+        );
+
+        when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
+        when(clientAttestationValidationService.validateHeaders(anyString(), anyString(), any()))
+                .thenThrow(new IllegalArgumentException("Client Attestation JWT signature verification failed"));
+
+        StepVerifier.create(parService.pushAuthorizationRequest(request, null, "bad-wia", "bad-pop", "https://issuer/par", "https://issuer"))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_client".equals(oAuthTokenException.getErrorCode()))
+                .verify();
     }
 }

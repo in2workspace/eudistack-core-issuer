@@ -55,6 +55,14 @@ public class EndpointsConstants {
     public static final String OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_PATH = WELL_KNOWN_BASE_PATH + "/oauth-authorization-server";
     public static final String JWKS_PATH = WELL_KNOWN_BASE_PATH + "/jwks.json";
 
+    // Well-Known Endpoints (RFC 8414 / OID4VCI 1.0 §12.2.2 form: well-known
+    // inserted before the issuer's own path, e.g. /.well-known/openid-credential-issuer/issuer).
+    // A compliant client derives this from our credential_issuer identifier
+    // (which has a path, "/issuer") — see EUD-215.
+    public static final String CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_WILDCARD_PATH = CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_PATH + "/**";
+    public static final String AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_WILDCARD_PATH = AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH + "/**";
+    public static final String OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_WILDCARD_PATH = OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_PATH + "/**";
+
     // Authorization Code Flow Endpoints
     public static final String OID4VCI_PAR_PATH = OID4VCI_BASE_PATH + "/par";
     public static final String OID4VCI_AUTHORIZE_PATH = OID4VCI_BASE_PATH + "/authorize";

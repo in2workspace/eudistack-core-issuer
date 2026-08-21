@@ -18,6 +18,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @AnalyzeClasses(packages = "es.in2.issuer.backend")
@@ -92,6 +93,12 @@ class ArchUnitTest {
 //            .whereLayer("Issuance").mayOnlyAccessLayers("OIDC4VCI-Workflow", "Shared")
 //            .whereLayer("OIDC4VCI").mayOnlyAccessLayers("Shared")
 //            .whereLayer("Shared").mayNotAccessAnyLayer();
+
+    @ArchTest
+    static final ArchRule noProductionClassShouldDependOnGplBase58 =
+            noClasses()
+                    .that().resideInAPackage(BASE_PACKAGE + "..")
+                    .should().dependOnClassesThat().resideInAPackage("io.github.novacrypto..");
 
     @ArchTest
     static final ArchRule implementationsShouldBeInSameLayerAsInterfaces =

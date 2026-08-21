@@ -1,0 +1,13 @@
+{
+  "source": "Generated from io.github.novacrypto:Base58",
+  "entries": [
+    { "input": "", "output": "" },
+    { "input": "61", "output": "2g" },
+    { "input": "626262", "output": "a3gV" },
+    { "input": "636363", "output": "aPEr" },
+    { "input": "373336393664373036633739323036313230373337343732363936653637", "output": "C4WrpH4NzPksiSARDZPwWrq8Q6a52KavchWmRTd98" },
+    { "input": "0073696d706c79206120737472696e67", "output": "14EGuQdcvjVoY5deyN2U4v" },
+    { "input": "00000000000000000000", "output": "1111111111" }
+
+  ]
+}

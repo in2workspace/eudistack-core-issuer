@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.util.Map;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.BEARER_PREFIX;
 import static es.in2.issuer.backend.shared.domain.util.Constants.PLATFORM_TENANT;
@@ -153,12 +154,25 @@ public class AccessTokenServiceImpl implements AccessTokenService {
                                     if (Instant.ofEpochSecond(expValue.longValue()).isBefore(Instant.now()))
                                         return Mono.error(new InvalidTokenException("Access token expired"));
 
-                                    return Mono.just(new AccessTokenContext(rawToken, jti, issuanceId));
+                                    String cnfJkt = extractCnfJkt(payload);
+                                    return Mono.just(new AccessTokenContext(rawToken, jti, issuanceId, cnfJkt));
                                 })
                 );
     }
 
     // --- Private helpers ---
+
+    // DPoP-bound access tokens (RFC 9449) carry cnf.jkt - the thumbprint of the key the
+    // token is sender-constrained to. Absent for tokens that are not DPoP-bound (DPoP not required
+    // for the issuing tenant profile).
+    private String extractCnfJkt(Map<String, Object> payload) {
+        Object cnf = payload.get("cnf");
+        if (cnf instanceof Map<?, ?> cnfMap) {
+            Object jkt = cnfMap.get("jkt");
+            return jkt instanceof String jktStr ? jktStr : null;
+        }
+        return null;
+    }
 
     private Mono<String> extractOrganizationIdFromToken(String token) {
         String orgIdPath = appConfig.getManagementTokenOrgIdJsonPath();

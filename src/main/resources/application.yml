@@ -47,6 +47,18 @@ spring:
       ssl.trust: ${SMTP_SSL_TRUST:}
   messages:
     basename: messages/messages
+  # EUD-225: only consulted when issuer.messaging.revocation.enabled=true (AD-6).
+  # No default for username/password (F4, EUD-225 /verify): this channel's entire
+  # authorization model rests on the broker credential (AD-7) -- silently falling back to
+  # RabbitMQ's own well-known guest/guest account is the wrong failure mode. Left unset
+  # here (empty), RevocationMessagingConfig's credential validator fails fast at startup
+  # instead, but only when the feature is actually enabled.
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:}
+    password: ${SPRING_RABBITMQ_PASSWORD:}
+    virtual-host: ${SPRING_RABBITMQ_VIRTUAL_HOST:/}
 
 # Logging
 logging:
@@ -226,3 +238,21 @@ issuance:
   delivery-timeout-minutes: ${ISSUANCE_DELIVERY_TIMEOUT_MINUTES:60}
   delivery-timeout-cron: ${ISSUANCE_DELIVERY_TIMEOUT_CRON:0 */5 * * * ?}
   hybrid-wallet-timeout-seconds: ${ISSUANCE_HYBRID_WALLET_TIMEOUT_SECONDS:30}
+
+# EUD-225: revocation-instruction message queue. Disabled by default (AD-6) — no broker
+# required, no bean declared, the emitter starts exactly as before with no code path
+# exercised. spring.rabbitmq.* (see the main `spring:` block above) is only consulted
+# when enabled=true.
+issuer:
+  messaging:
+    revocation:
+      enabled: ${ISSUER_MESSAGING_REVOCATION_ENABLED:false}
+      # AD-8: single-tenant deployment declaration. Empty/absent (default) = multi-tenant
+      # mode, tenantId is read from the message. Set only in a dedicated on-premise
+      # deployment (e.g. ISSUER_MESSAGING_REVOCATION_TENANT_BINDING=prh).
+      tenant-binding: ${ISSUER_MESSAGING_REVOCATION_TENANT_BINDING:}
+      # F13: false by default -- spring.rabbitmq.ssl.enabled=true is required whenever this
+      # feature is on, since the broker credential is this channel's entire authorization
+      # model (AD-7). Set to true ONLY for the local Docker Compose profile, whose bundled
+      # RabbitMQ container has no TLS listener configured -- never in STG/PROD.
+      allow-insecure-transport: ${ISSUER_MESSAGING_REVOCATION_ALLOW_INSECURE_TRANSPORT:false}

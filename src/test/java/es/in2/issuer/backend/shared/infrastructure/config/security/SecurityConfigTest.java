@@ -126,6 +126,33 @@ class SecurityConfigTest {
             assertEquals(HttpStatus.OK, executeFilter(exchange));
         }
 
+        // EUD-215: OID4VCI 1.0 §12.2.2 - well-known inserted before the
+        // issuer's own path (e.g. /.well-known/openid-credential-issuer/issuer)
+        // must be public too, not just the bare form.
+        @Test
+        void credentialIssuerMetadata_get_withIssuerPathSuffix_shouldReturn200_withoutAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.get(CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_PATH + "/issuer").build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+        }
+
+        @Test
+        void authorizationServerMetadata_get_withIssuerPathSuffix_shouldReturn200_withoutAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.get(AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH + "/issuer").build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+        }
+
+        @Test
+        void oauthAuthorizationServerMetadata_get_withIssuerPathSuffix_shouldReturn200_withoutAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.get(OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_PATH + "/issuer").build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+        }
+
         @Test
         void credentialOffer_get_shouldReturn200_withoutAuth() {
             MockServerWebExchange exchange = MockServerWebExchange.from(
