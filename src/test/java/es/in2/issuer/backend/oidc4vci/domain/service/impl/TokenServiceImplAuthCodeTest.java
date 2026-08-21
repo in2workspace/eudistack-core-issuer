@@ -231,4 +231,39 @@ class TokenServiceImplAuthCodeTest {
                         && e.getMessage().contains("PKCE verification failed"))
                 .verify();
     }
+
+    @Test
+    void exchangeToken_authCode_shouldFailOnMissingIssuerStateInsteadOfCrashing() {
+        // Regression test: issuer_state is OPTIONAL at the PAR/authorize level (a
+        // wallet-initiated authorization request never sends one), but this Issuer can only
+        // resolve the issuanceId an access token is bound to through it. A code without one
+        // used to reach Guava's Cache.getIfPresent with a null key, which throws NPE and
+        // surfaced as a raw 500 instead of a proper OAuth2 error. Caught by the OIDF
+        // conformance suite's fapi2-security-profile-final-happy-flow test.
+        AuthorizationCodeData codeData = AuthorizationCodeData.builder()
+                .clientId("client")
+                .redirectUri("https://wallet/callback")
+                .issuerState(null)
+                .build();
+
+        var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
+                true, false, List.of("S256"),
+                false, List.of("ES256"),
+                "none", false
+        );
+
+        when(authorizationCodeCacheStore.get("code-no-issuer-state")).thenReturn(Mono.just(codeData));
+        when(authorizationCodeCacheStore.delete("code-no-issuer-state")).thenReturn(Mono.empty());
+        when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
+
+        TokenRequest request = authCodeRequest("code-no-issuer-state", "https://wallet/callback", null);
+
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException ex
+                        && "invalid_grant".equals(ex.getErrorCode())
+                        && e.getMessage().contains("issuer_state"))
+                .verify();
+
+        verify(issuerStateCacheStore, never()).get(anyString());
+    }
 }
