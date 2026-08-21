@@ -188,6 +188,12 @@ jobs:
             ON CONFLICT (schema_name) DO NOTHING;
           "
 
+      # CREDENTIAL_PROFILES_PATH: CredentialProfileRegistry fails hard at startup
+      # (IllegalStateException) if this path doesn't resolve — production/STG get
+      # it via a Docker volume from eudistack-platform-dev's dev-tools/schemas/
+      # (see compose.yaml), which this ephemeral CI container doesn't have. The
+      # profiles are vendored read-only at dev-tools/credentials/profiles/ (see
+      # comment on the ZAP step below) and mounted the same way.
       - name: Run container
         run: |
           docker run -d --name issuer-service \
@@ -197,6 +203,8 @@ jobs:
             -e SPRING_R2DBC_USERNAME=issuer \
             -e SPRING_R2DBC_PASSWORD=issuer \
             -e SPRING_FLYWAY_URL=jdbc:postgresql://localhost:5432/issuer \
+            -e CREDENTIAL_PROFILES_PATH=file:/etc/eudistack/schemas \
+            -v "$(pwd)/dev-tools/credentials/profiles:/etc/eudistack/schemas:ro" \
             eudistack-core-issuer:pr
 
       - name: Wait for service health
