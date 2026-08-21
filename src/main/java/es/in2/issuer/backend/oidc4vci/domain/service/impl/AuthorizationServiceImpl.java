@@ -57,7 +57,7 @@ public class AuthorizationServiceImpl implements AuthorizationService {
 
     private Mono<URI> pushAuthorizationRequestAuthorization(String baseUrl, String requestUri, String state) {
         return parCacheStore.get(requestUri)
-                .switchIfEmpty(Mono.error(new IllegalArgumentException("Invalid or expired request_uri")))
+                .switchIfEmpty(Mono.error(OAuthTokenException.invalidRequest("Invalid or expired request_uri")))
                 .flatMap(parRequest -> {
                     // Consume the PAR (one-time use)
                     return parCacheStore.delete(requestUri)
@@ -86,15 +86,15 @@ public class AuthorizationServiceImpl implements AuthorizationService {
     ) {
         return Mono.defer(() -> {
             if (!"code".equals(responseType)) {
-                return Mono.error(new IllegalArgumentException("response_type must be 'code'"));
+                return Mono.error(OAuthTokenException.invalidRequest("response_type must be 'code'"));
             }
 
             if (profileProperties.authorizationCode().requirePkce()) {
                 if (codeChallenge == null || codeChallenge.isBlank()) {
-                    return Mono.error(new IllegalArgumentException("code_challenge is required"));
+                    return Mono.error(OAuthTokenException.invalidRequest("code_challenge is required"));
                 }
                 if (!"S256".equals(codeChallengeMethod)) {
-                    return Mono.error(new IllegalArgumentException("code_challenge_method must be S256"));
+                    return Mono.error(OAuthTokenException.invalidRequest("code_challenge_method must be S256"));
                 }
             }
 

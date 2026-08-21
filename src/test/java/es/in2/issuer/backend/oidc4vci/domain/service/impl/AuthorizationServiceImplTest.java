@@ -84,7 +84,8 @@ class AuthorizationServiceImplTest {
         StepVerifier.create(authorizationService.authorize(
                         null, "client-id", "token", null,
                         null, null, null, "https://wallet/callback", null, "https://issuer.example.com"))
-                .expectErrorMatches(e -> e instanceof IllegalArgumentException
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
                         && e.getMessage().equals("response_type must be 'code'"))
                 .verify();
     }
@@ -130,7 +131,8 @@ class AuthorizationServiceImplTest {
         StepVerifier.create(authorizationService.authorize(
                         null, "client-id", "code", null,
                         null, null, null, "https://wallet/callback", null, "https://issuer.example.com"))
-                .expectErrorMatches(e -> e instanceof IllegalArgumentException
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
                         && e.getMessage().equals("code_challenge is required"))
                 .verify();
     }
@@ -176,7 +178,8 @@ class AuthorizationServiceImplTest {
         StepVerifier.create(authorizationService.authorize(
                         "urn:ietf:params:oauth:request_uri:invalid", "client", null, null,
                         null, null, null, null, null, "https://issuer.example.com"))
-                .expectErrorMatches(e -> e instanceof IllegalArgumentException
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
                         && e.getMessage().contains("Invalid or expired request_uri"))
                 .verify();
     }
