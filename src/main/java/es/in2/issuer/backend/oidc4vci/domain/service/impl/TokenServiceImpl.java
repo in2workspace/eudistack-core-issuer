@@ -266,6 +266,16 @@ public class TokenServiceImpl implements TokenService {
                 ? dpopValidationService.validate(dpopHeader, "POST", tokenEndpointUri)
                 : null;
 
+        // issuer_state is OPTIONAL at the PAR/authorize level (RFC 9126 / OID4VCI) - a
+        // wallet-initiated authorization request never sends it - but this Issuer only
+        // resolves the issuanceId an access token is bound to via this lookup, so a code
+        // without one can never be exchanged here. Guava's Cache.getIfPresent throws NPE
+        // on a null key, which would otherwise surface as a 500 instead of invalid_grant.
+        if (codeData.issuerState() == null || codeData.issuerState().isBlank()) {
+            return Mono.error(OAuthTokenException.invalidGrant(
+                    "Authorization code is not associated with an issuer_state"));
+        }
+
         return issuerStateCacheStore.get(codeData.issuerState())
                 .switchIfEmpty(Mono.error(OAuthTokenException.invalidGrant("Invalid or expired issuer_state")))
                 .map(issuanceId -> buildAuthCodeTokenResponse(baseUrl, dpopJkt, issuanceId));
