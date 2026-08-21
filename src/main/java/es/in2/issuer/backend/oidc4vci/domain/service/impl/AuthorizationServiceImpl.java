@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
+import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.oidc4vci.domain.service.AuthorizationService;
@@ -40,6 +41,13 @@ public class AuthorizationServiceImpl implements AuthorizationService {
     ) {
         if (requestUri != null && !requestUri.isBlank()) {
             return pushAuthorizationRequestAuthorization(publicIssuerBaseUrl, requestUri, state);
+        }
+        // RFC 9126 §5: this Issuer advertises require_pushed_authorization_requests=true
+        // (AuthorizationServerMetadataServiceImpl) whenever the profile requires PAR, so an
+        // authorization request that skips it must be rejected here - otherwise the metadata
+        // claim is a lie and a client can bypass PAR entirely by hitting /authorize directly.
+        if (profileProperties.authorizationCode().requirePar()) {
+            return Mono.error(OAuthTokenException.invalidRequest("Pushed Authorization Request is required"));
         }
         return processDirectAuthorization(
                 publicIssuerBaseUrl, clientId, responseType, scope, state,
