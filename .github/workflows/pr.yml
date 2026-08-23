@@ -194,6 +194,12 @@ jobs:
       # (see compose.yaml), which this ephemeral CI container doesn't have. The
       # profiles are vendored read-only at dev-tools/credentials/profiles/ (see
       # comment on the ZAP step below) and mounted the same way.
+      #
+      # Must include BOTH the "core" *.json files (credential_configuration_id +
+      # full credential_definition) AND the *.profile.json overlay files: the
+      # registry only loads profiles from core resources and merges an overlay
+      # onto them if one exists by matching configuration_id — an overlay-only
+      # directory loads zero profiles (Copilot review, PR #160).
       - name: Run container
         run: |
           docker run -d --name issuer-service \
