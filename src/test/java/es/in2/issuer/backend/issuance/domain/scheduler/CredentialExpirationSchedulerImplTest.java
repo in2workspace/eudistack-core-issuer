@@ -53,7 +53,8 @@ class CredentialExpirationSchedulerImplTest {
 
         when(tenantRegistryService.getActiveTenantSchemas())
                 .thenReturn(Mono.just(List.of("default")));
-        when(issuanceRepository.findAll()).thenReturn(Flux.just(credential));
+        when(issuanceRepository.findAllByCredentialStatusNotExpiredAndValidUntilBefore(any(Instant.class)))
+                .thenReturn(Flux.just(credential));
         when(issuanceRepository.save(any(Issuance.class)))
                 .thenAnswer(invocation -> {
                     Issuance cp = invocation.getArgument(0);
@@ -91,7 +92,8 @@ class CredentialExpirationSchedulerImplTest {
 
         when(tenantRegistryService.getActiveTenantSchemas())
                 .thenReturn(Mono.just(List.of("default")));
-        when(issuanceRepository.findAll()).thenReturn(Flux.just(credential));
+        when(issuanceRepository.findAllByCredentialStatusNotExpiredAndValidUntilBefore(any(Instant.class)))
+                .thenReturn(Flux.just(credential));
         when(issuanceRepository.save(any(Issuance.class)))
                 .thenAnswer(invocation -> {
                     Issuance cp = invocation.getArgument(0);
@@ -121,7 +123,8 @@ class CredentialExpirationSchedulerImplTest {
 
         when(tenantRegistryService.getActiveTenantSchemas())
                 .thenReturn(Mono.just(List.of("default")));
-        when(issuanceRepository.findAll()).thenReturn(Flux.just(credential));
+        when(issuanceRepository.findAllByCredentialStatusNotExpiredAndValidUntilBefore(any(Instant.class)))
+                .thenReturn(Flux.empty());
 
         StepVerifier.create(credentialExpirationScheduler.checkAndExpireCredentials())
                 .expectSubscription()
