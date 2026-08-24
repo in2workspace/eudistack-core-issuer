@@ -236,9 +236,9 @@ class TokenServiceImplAuthCodeTest {
     @Test
     void exchangeToken_authCode_shouldFailOnMissingDpopProofWhenRequired() {
         // Regression test: DpopValidationService raises plain IllegalArgumentException, which
-        // used to leak through as our internal GlobalErrorMessage shape (type/title/detail)
-        // instead of the RFC 6749 §5.2 {error, error_description} shape /oauth/token must
-        // return. Caught by the OIDF conformance suite's
+        // used to leak through as our internal Problem-Details error body instead of the
+        // error/error_description shape RFC 6749 section 5.2 requires for /oauth/token.
+        // Caught by the OIDF conformance suite's
         // fapi2-security-profile-final-ensure-holder-of-key-required test.
         AuthorizationCodeData codeData = AuthorizationCodeData.builder()
                 .clientId("client")
