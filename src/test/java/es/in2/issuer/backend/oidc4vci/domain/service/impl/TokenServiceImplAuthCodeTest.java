@@ -255,12 +255,12 @@ class TokenServiceImplAuthCodeTest {
         when(authorizationCodeCacheStore.get("code-dpop-fail")).thenReturn(Mono.just(codeData));
         when(authorizationCodeCacheStore.delete("code-dpop-fail")).thenReturn(Mono.empty());
         when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
-        when(dpopValidationService.validate("some-dpop-proof", "POST", TOKEN_ENDPOINT_URI))
+        when(dpopValidationService.validate(null, "POST", TOKEN_ENDPOINT_URI))
                 .thenThrow(new IllegalArgumentException("Missing DPoP proof"));
 
         TokenRequest request = authCodeRequest("code-dpop-fail", "https://wallet/callback", null);
 
-        StepVerifier.create(tokenService.exchangeToken(request, "some-dpop-proof", TOKEN_ENDPOINT_URI, "https://issuer"))
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
                 .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
                         && "invalid_request".equals(oAuthTokenException.getErrorCode())
                         && e.getMessage().equals("Missing DPoP proof"))
