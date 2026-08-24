@@ -835,7 +835,7 @@ class IssuanceServiceImplTest {
         // Given
         String issuanceId = UUID.randomUUID().toString();
         String originalDataSet = "{\"vc\":{\"type\":[\"VerifiableCredential\"]}}";
-        
+
         Issuance issuance = new Issuance();
         issuance.setIssuanceId(UUID.fromString(issuanceId));
         issuance.setCredentialStatus(CredentialStatusEnum.WITHDRAWN);
@@ -843,8 +843,8 @@ class IssuanceServiceImplTest {
 
         when(issuanceRepository.findByIssuanceId(UUID.fromString(issuanceId)))
                 .thenReturn(Mono.just(issuance));
-        when(issuanceRepository.save(any(Issuance.class)))
-                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(issuanceRepository.updateStatusIfCurrent(any(UUID.class), eq(CredentialStatusEnum.WITHDRAWN), eq(CredentialStatusEnum.ARCHIVED)))
+                .thenReturn(Mono.just(1));
 
         // When
         Mono<Void> result = issuanceService.archiveIssuance(issuanceId);
@@ -853,10 +853,7 @@ class IssuanceServiceImplTest {
         StepVerifier.create(result).verifyComplete();
 
         verify(issuanceRepository, times(1)).findByIssuanceId(UUID.fromString(issuanceId));
-        verify(issuanceRepository, times(1)).save(issuance);
-        
-        assertEquals(CredentialStatusEnum.ARCHIVED, issuance.getCredentialStatus());
-        assertEquals(originalDataSet, issuance.getCredentialDataSet(), "archiveIssuance should not modify credential dataset");
+        verify(issuanceRepository, times(1)).updateStatusIfCurrent(issuance.getIssuanceId(), CredentialStatusEnum.WITHDRAWN, CredentialStatusEnum.ARCHIVED);
     }
 
     // ---------------------------------------------------------------- SD-04 (EUD-225):
@@ -869,24 +866,21 @@ class IssuanceServiceImplTest {
         issuance.setIssuanceId(UUID.randomUUID());
         issuance.setCredentialStatus(CredentialStatusEnum.VALID);
 
-        when(issuanceRepository.save(issuance)).thenReturn(Mono.just(issuance));
+        when(issuanceRepository.updateStatusIfCurrent(issuance.getIssuanceId(), CredentialStatusEnum.VALID, CredentialStatusEnum.REVOKED))
+                .thenReturn(Mono.just(1));
 
         // When
         Mono<Void> result = issuanceService.updateIssuanceStatusToRevoked(issuance);
 
         // Then
         StepVerifier.create(result).verifyComplete();
-        assertEquals(CredentialStatusEnum.REVOKED, issuance.getCredentialStatus());
-        verify(issuanceRepository, times(1)).save(issuance);
+        verify(issuanceRepository, times(1)).updateStatusIfCurrent(issuance.getIssuanceId(), CredentialStatusEnum.VALID, CredentialStatusEnum.REVOKED);
         verify(issuanceRepository, never()).findById(any(UUID.class));
     }
 
     @Test
     void updateIssuanceStatusToRevoked_shouldReconcileAsNoop_whenLosingRaceAgainstAnAlreadyRevokedWrite() {
-        // Given: two concurrent revocations (operator REST + queue consumer, ES-03) both
-        // pass validateTransition against the same in-memory VALID snapshot; the version
-        // column turns the loser's save() into an OptimisticLockingFailureException.
-        // Re-fetching finds the winner already persisted REVOKED.
+        // Given
         UUID issuanceId = UUID.randomUUID();
         Issuance staleSnapshot = new Issuance();
         staleSnapshot.setIssuanceId(issuanceId);
@@ -896,16 +890,14 @@ class IssuanceServiceImplTest {
         winnerCurrentRow.setIssuanceId(issuanceId);
         winnerCurrentRow.setCredentialStatus(CredentialStatusEnum.REVOKED);
 
-        when(issuanceRepository.save(staleSnapshot))
-                .thenReturn(Mono.error(new OptimisticLockingFailureException("stale version")));
+        when(issuanceRepository.updateStatusIfCurrent(issuanceId, CredentialStatusEnum.VALID, CredentialStatusEnum.REVOKED))
+                .thenReturn(Mono.just(0));
         when(issuanceRepository.findById(issuanceId)).thenReturn(Mono.just(winnerCurrentRow));
 
         // When
         Mono<Void> result = issuanceService.updateIssuanceStatusToRevoked(staleSnapshot);
 
-        // Then: reuses the exact same "no longer revocable" signal both RevocationWorkflow
-        // callers already handle end-to-end (HTTP 409 for the operator, silent skip-as-noop
-        // for the queue consumer) instead of a bare optimistic-locking exception.
+        // Then
         StepVerifier.create(result)
                 .expectErrorMatches(InvalidCredentialStatusTransitionException.class::isInstance)
                 .verify();
@@ -914,8 +906,7 @@ class IssuanceServiceImplTest {
 
     @Test
     void updateIssuanceStatusToRevoked_shouldPropagateConflict_whenCurrentStatusIsGenuinelyUnexpected() {
-        // Given: the conflict is not explained by the known "already revoked by the other
-        // path" race -- it must not be papered over as a no-op.
+        // Given
         UUID issuanceId = UUID.randomUUID();
         Issuance staleSnapshot = new Issuance();
         staleSnapshot.setIssuanceId(issuanceId);
@@ -925,8 +916,8 @@ class IssuanceServiceImplTest {
         unexpectedCurrentRow.setIssuanceId(issuanceId);
         unexpectedCurrentRow.setCredentialStatus(CredentialStatusEnum.EXPIRED);
 
-        OptimisticLockingFailureException conflict = new OptimisticLockingFailureException("stale version");
-        when(issuanceRepository.save(staleSnapshot)).thenReturn(Mono.error(conflict));
+        when(issuanceRepository.updateStatusIfCurrent(issuanceId, CredentialStatusEnum.VALID, CredentialStatusEnum.REVOKED))
+                .thenReturn(Mono.just(0));
         when(issuanceRepository.findById(issuanceId)).thenReturn(Mono.just(unexpectedCurrentRow));
 
         // When
@@ -934,7 +925,7 @@ class IssuanceServiceImplTest {
 
         // Then
         StepVerifier.create(result)
-                .expectErrorMatches(conflict::equals)
+                .expectErrorMatches(OptimisticLockingFailureException.class::isInstance)
                 .verify();
     }
 

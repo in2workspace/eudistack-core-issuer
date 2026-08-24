@@ -39,23 +39,21 @@ public class CredentialExpirationScheduler {
         return tenantRegistryService.getActiveTenantSchemas()
                 .flatMapMany(Flux::fromIterable)
                 .flatMap(tenant ->
-                        issuanceRepository.findAll()
-                                .flatMap(issuance -> isExpiredAndNotAlreadyMarked(issuance)
-                                        .filter(Boolean::booleanValue)
-                                        .flatMap(expired -> expireCredential(issuance)
-                                                .then(issuanceService.extractCredentialId(issuance)
-                                                        .defaultIfEmpty(issuance.getIssuanceId().toString())
-                                                        .flatMap(credentialId -> emailService.sendCredentialStatusChangeNotification(
-                                                                issuance.getEmail(),
-                                                                credentialId,
-                                                                issuance.getCredentialType(),
-                                                                EXPIRED.toString()
-                                                        ))
-                                                        .onErrorResume(e -> {
-                                                            log.warn("Failed to send expiration email for issuanceId={}: {}",
-                                                                    issuance.getIssuanceId(), e.toString());
-                                                            return Mono.empty();
-                                                        }))))
+                        issuanceRepository.findAllByCredentialStatusNotExpiredAndValidUntilBefore(Instant.now())
+                                .flatMap(issuance -> expireCredential(issuance)
+                                        .then(issuanceService.extractCredentialId(issuance)
+                                                .defaultIfEmpty(issuance.getIssuanceId().toString())
+                                                .flatMap(credentialId -> emailService.sendCredentialStatusChangeNotification(
+                                                        issuance.getEmail(),
+                                                        credentialId,
+                                                        issuance.getCredentialType(),
+                                                        EXPIRED.toString()
+                                                ))
+                                                .onErrorResume(e -> {
+                                                    log.warn("Failed to send expiration email for issuanceId={}: {}",
+                                                            issuance.getIssuanceId(), e.toString());
+                                                    return Mono.empty();
+                                                })))
                                 .then()
                                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
                                 .onErrorResume(e -> {
@@ -70,32 +68,15 @@ public class CredentialExpirationScheduler {
                 });
     }
 
-    private Mono<Boolean> isExpiredAndNotAlreadyMarked(Issuance issuance) {
-        return Mono.justOrEmpty(issuance.getValidUntil())
-                .map(validUntil ->
-                        validUntil.toInstant().isBefore(Instant.now())
-                                && issuance.getCredentialStatus() != CredentialStatusEnum.EXPIRED
-                )
-                .defaultIfEmpty(false);
-    }
-
-    private Mono<Issuance> expireCredential(Issuance issuance) {
-        if (issuance.getCredentialStatus() != CredentialStatusEnum.EXPIRED) {
-            issuance.setCredentialStatus(CredentialStatusEnum.EXPIRED);
-            log.info("Expiring credential in issuance with ID: {} - New state: {}",
-                    issuance.getIssuanceId(),
-                    issuance.getCredentialStatus());
-            // SD-04 (EUD-225): the version column can turn a lost optimistic-locking race
-            // here into an OptimisticLockingFailureException too. No reconciliation target
-            // is defined for this scheduler (out of this Story's scope) -- surfaced as a
-            // clear, logged domain exception instead of a bare R2DBC exception.
-            return issuanceRepository.save(issuance)
-                    .onErrorMap(OptimisticLockingFailureException.class, e -> {
-                        log.error("Concurrent update conflict expiring issuanceId={}: {}", issuance.getIssuanceId(), e.toString());
-                        return new ConcurrentIssuanceUpdateException(issuance.getIssuanceId(), "expireCredential", e);
-                    });
-        }
-        return Mono.empty();
+    private Mono<Void> expireCredential(Issuance issuance) {
+        log.info("Expiring credential in issuance with ID: {} - New state: {}",
+                issuance.getIssuanceId(),
+                EXPIRED);
+        return issuanceService.updateStatusIfCurrent(issuance.getIssuanceId(), issuance.getCredentialStatus(), EXPIRED)
+                .onErrorResume(ConcurrentIssuanceUpdateException.class, e -> {
+                    log.warn("Concurrent update conflict expiring issuanceId={}: {}", issuance.getIssuanceId(), e.getMessage());
+                    return Mono.empty();
+                });
     }
 
 }

@@ -43,14 +43,13 @@ class CredentialActivationSchedulerTest {
                 .thenReturn(Mono.just(List.of("default")));
         when(issuanceService.findIssuedReadyForActivation(any(Instant.class)))
                 .thenReturn(Flux.just(issuedCredential));
-        when(issuanceService.updateIssuance(any(Issuance.class)))
-                .thenReturn(Mono.just(issuedCredential));
+        when(issuanceService.updateStatusIfCurrent(any(UUID.class), any(CredentialStatusEnum.class), any(CredentialStatusEnum.class)))
+                .thenReturn(Mono.empty());
 
         StepVerifier.create(scheduler.activateIssuedCredentials())
                 .verifyComplete();
 
-        verify(issuanceService).updateIssuance(argThat(proc ->
-                proc.getCredentialStatus() == CredentialStatusEnum.VALID));
+        verify(issuanceService).updateStatusIfCurrent(eq(issuedCredential.getIssuanceId()), eq(CredentialStatusEnum.ISSUED), eq(CredentialStatusEnum.VALID));
     }
 
     @Test
@@ -63,6 +62,6 @@ class CredentialActivationSchedulerTest {
         StepVerifier.create(scheduler.activateIssuedCredentials())
                 .verifyComplete();
 
-        verify(issuanceService, never()).updateIssuance(any());
+        verify(issuanceService, never()).updateStatusIfCurrent(any(), any(), any());
     }
 }

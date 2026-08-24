@@ -2,6 +2,7 @@ package es.in2.issuer.backend.shared.infrastructure.repository;
 
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
 import org.springframework.stereotype.Repository;
@@ -30,4 +31,11 @@ public interface IssuanceRepository extends ReactiveCrudRepository<Issuance, UUI
 
     @Query("SELECT * FROM issuance WHERE credential_status = 'DRAFT' AND delivery_attempted_at IS NOT NULL AND delivery_attempted_at < :cutoff")
     Flux<Issuance> findFailedDeliveries(Instant cutoff);
+
+    @Query("SELECT * FROM issuance WHERE credential_status <> 'EXPIRED' AND valid_until < :now")
+    Flux<Issuance> findAllByCredentialStatusNotExpiredAndValidUntilBefore(Instant now);
+
+    @Modifying
+    @Query("UPDATE issuance SET credential_status = :newStatus, updated_at = NOW() WHERE issuance_id = :issuanceId AND credential_status = :expectedStatus")
+    Mono<Integer> updateStatusIfCurrent(UUID issuanceId, CredentialStatusEnum expectedStatus, CredentialStatusEnum newStatus);
 }

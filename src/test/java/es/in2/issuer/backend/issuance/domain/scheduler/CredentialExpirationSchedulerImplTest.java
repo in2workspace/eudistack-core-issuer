@@ -21,8 +21,6 @@ import java.util.List;
 import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum.EXPIRED;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -53,30 +51,20 @@ class CredentialExpirationSchedulerImplTest {
 
         when(tenantRegistryService.getActiveTenantSchemas())
                 .thenReturn(Mono.just(List.of("default")));
-        when(issuanceRepository.findAll()).thenReturn(Flux.just(credential));
-        when(issuanceRepository.save(any(Issuance.class)))
-                .thenAnswer(invocation -> {
-                    Issuance cp = invocation.getArgument(0);
-                    cp.setUpdatedAt(Instant.now());
-                    return Mono.just(cp);
-                });
+        when(issuanceRepository.findAllByCredentialStatusNotExpiredAndValidUntilBefore(any(Instant.class)))
+                .thenReturn(Flux.just(credential));
+        when(issuanceService.updateStatusIfCurrent(any(UUID.class), any(CredentialStatusEnum.class), any(CredentialStatusEnum.class)))
+                .thenReturn(Mono.empty());
         when(issuanceService.extractCredentialId(any(Issuance.class)))
                 .thenReturn(Mono.just("cred-123"));
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.empty());
 
-        Instant baseline = Instant.now();
-
         StepVerifier.create(credentialExpirationScheduler.checkAndExpireCredentials())
                 .expectSubscription()
                 .verifyComplete();
 
-        verify(issuanceRepository, atLeastOnce()).save(argThat(updated -> {
-            Instant ua = updated.getUpdatedAt();
-            return updated.getCredentialStatus() == EXPIRED
-                    && ua != null
-                    && ua.isAfter(baseline.minusSeconds(1));
-        }));
+        verify(issuanceService, atLeastOnce()).updateStatusIfCurrent(eq(credential.getIssuanceId()), eq(CredentialStatusEnum.VALID), eq(EXPIRED));
     }
 
     @Test
@@ -91,13 +79,10 @@ class CredentialExpirationSchedulerImplTest {
 
         when(tenantRegistryService.getActiveTenantSchemas())
                 .thenReturn(Mono.just(List.of("default")));
-        when(issuanceRepository.findAll()).thenReturn(Flux.just(credential));
-        when(issuanceRepository.save(any(Issuance.class)))
-                .thenAnswer(invocation -> {
-                    Issuance cp = invocation.getArgument(0);
-                    cp.setUpdatedAt(Instant.now());
-                    return Mono.just(cp);
-                });
+        when(issuanceRepository.findAllByCredentialStatusNotExpiredAndValidUntilBefore(any(Instant.class)))
+                .thenReturn(Flux.just(credential));
+        when(issuanceService.updateStatusIfCurrent(any(UUID.class), any(CredentialStatusEnum.class), any(CredentialStatusEnum.class)))
+                .thenReturn(Mono.empty());
         when(issuanceService.extractCredentialId(any(Issuance.class)))
                 .thenReturn(Mono.just("cred-123"));
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString()))
@@ -113,24 +98,16 @@ class CredentialExpirationSchedulerImplTest {
 
     @Test
     void shouldNotExpireCredentialsIfValidUntilHasNotPassed() {
-        Issuance credential = new Issuance();
-        credential.setIssuanceId(UUID.randomUUID());
-        credential.setCredentialType("learcredential.employee.w3c.4");
-        credential.setCredentialStatus(CredentialStatusEnum.VALID);
-        credential.setValidUntil(Timestamp.from(Instant.now().plusSeconds(60)));
-
         when(tenantRegistryService.getActiveTenantSchemas())
                 .thenReturn(Mono.just(List.of("default")));
-        when(issuanceRepository.findAll()).thenReturn(Flux.just(credential));
+        when(issuanceRepository.findAllByCredentialStatusNotExpiredAndValidUntilBefore(any(Instant.class)))
+                .thenReturn(Flux.empty());
 
         StepVerifier.create(credentialExpirationScheduler.checkAndExpireCredentials())
                 .expectSubscription()
                 .verifyComplete();
 
-        verify(issuanceRepository, never()).save(any(Issuance.class));
+        verify(issuanceService, never()).updateStatusIfCurrent(any(), any(), any());
         verify(emailService, never()).sendCredentialStatusChangeNotification(any(), any(), any(), any());
-
-        assertEquals(CredentialStatusEnum.VALID, credential.getCredentialStatus());
-        assertNull(credential.getUpdatedAt(), "updatedAt should remain null because save() was never called");
     }
 }

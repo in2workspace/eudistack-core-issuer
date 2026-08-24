@@ -209,27 +209,17 @@ public class IssuanceServiceImpl implements IssuanceService {
 
     @Override
     public Mono<Void> updateIssuanceStatusToValidByIssuanceId(String issuanceId) {
-        return issuanceRepository.findByIssuanceId(UUID.fromString(issuanceId))
-                .flatMap(issuance -> {
-                    validateTransition(issuance.getCredentialStatus(), CredentialStatusEnum.VALID);
-                    log.debug("Updating credential status to VALID for issuanceId: {}", issuanceId);
-                    issuance.setCredentialStatus(CredentialStatusEnum.VALID);
-                    return issuanceRepository.save(issuance)
-                            .doOnSuccess(result -> log.info(UPDATED_CREDENTIAL))
-                            .onErrorMap(OptimisticLockingFailureException.class,
-                                    e -> concurrentUpdateConflict(issuance.getIssuanceId(), "updateIssuanceStatusToValidByIssuanceId", e))
-                            .then();
-                });
+        UUID id = UUID.fromString(issuanceId);
+        return updateStatusIfCurrent(id, CredentialStatusEnum.ISSUED, CredentialStatusEnum.VALID)
+                .doOnSuccess(v -> log.info(UPDATED_CREDENTIAL));
     }
 
     @Override
     public Mono<Void> updateIssuanceStatusToRevoked(Issuance issuance) {
-        validateTransition(issuance.getCredentialStatus(), CredentialStatusEnum.REVOKED);
-        issuance.setCredentialStatus(CredentialStatusEnum.REVOKED);
-        return issuanceRepository.save(issuance)
-                .doOnSuccess(result -> log.info(UPDATED_CREDENTIAL))
-                .onErrorResume(OptimisticLockingFailureException.class,
-                        e -> reconcileConcurrentRevoke(issuance.getIssuanceId(), e))
+        return updateStatusIfCurrent(issuance.getIssuanceId(), issuance.getCredentialStatus(), CredentialStatusEnum.REVOKED)
+                .doOnSuccess(v -> log.info(UPDATED_CREDENTIAL))
+                .onErrorResume(ConcurrentIssuanceUpdateException.class,
+                        e -> reconcileConcurrentRevoke(issuance.getIssuanceId(), new OptimisticLockingFailureException("Concurrent mutation detected", e)).then())
                 .then();
     }
 
@@ -267,13 +257,8 @@ public class IssuanceServiceImpl implements IssuanceService {
         return issuanceRepository.findByIssuanceId(UUID.fromString(issuanceId))
                 .flatMap(issuance -> {
                     validateTransition(issuance.getCredentialStatus(), CredentialStatusEnum.WITHDRAWN);
-                    log.debug("Withdrawing issuance: {}", issuanceId);
-                    issuance.setCredentialStatus(CredentialStatusEnum.WITHDRAWN);
-                    return issuanceRepository.save(issuance)
-                            .doOnSuccess(result -> log.info("Issuance withdrawn: {}", issuanceId))
-                            .onErrorMap(OptimisticLockingFailureException.class,
-                                    e -> concurrentUpdateConflict(issuance.getIssuanceId(), "withdrawIssuance", e))
-                            .then();
+                    return updateStatusIfCurrent(issuance.getIssuanceId(), issuance.getCredentialStatus(), CredentialStatusEnum.WITHDRAWN)
+                            .doOnSuccess(v -> log.info("Issuance withdrawn: {}", issuanceId));
                 });
     }
 
@@ -282,13 +267,8 @@ public class IssuanceServiceImpl implements IssuanceService {
         return issuanceRepository.findByIssuanceId(UUID.fromString(issuanceId))
                 .flatMap(issuance -> {
                     validateTransition(issuance.getCredentialStatus(), CredentialStatusEnum.ARCHIVED);
-                    log.debug("Archiving issuance: {}", issuanceId);
-                    issuance.setCredentialStatus(CredentialStatusEnum.ARCHIVED);
-                    return issuanceRepository.save(issuance)
-                            .doOnSuccess(result -> log.info("Issuance archived: {}", issuanceId))
-                            .onErrorMap(OptimisticLockingFailureException.class,
-                                    e -> concurrentUpdateConflict(issuance.getIssuanceId(), "archiveIssuance", e))
-                            .then();
+                    return updateStatusIfCurrent(issuance.getIssuanceId(), issuance.getCredentialStatus(), CredentialStatusEnum.ARCHIVED)
+                            .doOnSuccess(v -> log.info("Issuance archived: {}", issuanceId));
                 });
     }
 
@@ -483,6 +463,18 @@ public class IssuanceServiceImpl implements IssuanceService {
     @Override
     public Flux<Issuance> findFailedDeliveries(Instant cutoff) {
         return issuanceRepository.findFailedDeliveries(cutoff);
+    }
+
+    @Override
+    public Mono<Void> updateStatusIfCurrent(UUID issuanceId, CredentialStatusEnum expectedStatus, CredentialStatusEnum newStatus) {
+        return issuanceRepository.updateStatusIfCurrent(issuanceId, expectedStatus, newStatus)
+                .flatMap(rowsUpdated -> {
+                    if (rowsUpdated == 0) {
+                        return Mono.error(concurrentUpdateConflict(issuanceId, "updateStatusIfCurrent",
+                                new OptimisticLockingFailureException("Status changed concurrently or issuance not found")));
+                    }
+                    return Mono.empty();
+                });
     }
 
     private void validateTransition(CredentialStatusEnum from, CredentialStatusEnum to) {

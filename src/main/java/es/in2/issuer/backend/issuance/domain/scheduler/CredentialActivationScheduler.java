@@ -35,8 +35,11 @@ public class CredentialActivationScheduler {
                         issuanceService.findIssuedReadyForActivation(now)
                                 .flatMap(issuance -> {
                                     log.info("Activating credential: {} (ISSUED -> VALID) in tenant {}", issuance.getIssuanceId(), tenant);
-                                    issuance.setCredentialStatus(CredentialStatusEnum.VALID);
-                                    return issuanceService.updateIssuance(issuance);
+                                    return issuanceService.updateStatusIfCurrent(issuance.getIssuanceId(), CredentialStatusEnum.ISSUED, CredentialStatusEnum.VALID)
+                                            .onErrorResume(e -> {
+                                                log.warn("Failed to activate issuanceId={}: {}", issuance.getIssuanceId(), e.getMessage());
+                                                return Mono.empty();
+                                            });
                                 })
                                 .then()
                                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
