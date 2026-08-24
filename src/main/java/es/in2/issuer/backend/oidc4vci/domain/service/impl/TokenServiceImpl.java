@@ -259,9 +259,9 @@ public class TokenServiceImpl implements TokenService {
         }
 
         // PkceVerifier/DpopValidationService raise plain IllegalArgumentException, which
-        // Oidc4vciExceptionHandler's generic handler maps to our internal GlobalErrorMessage
-        // shape (type/title/detail) instead of the RFC 6749 §5.2 {error, error_description}
-        // shape this endpoint must return - the same gap ParServiceImpl and
+        // Oidc4vciExceptionHandler's generic handler maps to our internal Problem-Details
+        // error body instead of the error/error_description shape RFC 6749 section 5.2
+        // requires for this endpoint - the same gap ParServiceImpl and
         // AuthorizationServiceImpl already had fixed for their own equivalents.
         String dpopJkt;
         try {
