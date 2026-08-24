@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
+import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.oidc4vci.domain.service.AuthorizationService;
@@ -41,6 +42,13 @@ public class AuthorizationServiceImpl implements AuthorizationService {
         if (requestUri != null && !requestUri.isBlank()) {
             return pushAuthorizationRequestAuthorization(publicIssuerBaseUrl, requestUri, state);
         }
+        // RFC 9126 §5: this Issuer advertises require_pushed_authorization_requests=true
+        // (AuthorizationServerMetadataServiceImpl) whenever the profile requires PAR, so an
+        // authorization request that skips it must be rejected here - otherwise the metadata
+        // claim is a lie and a client can bypass PAR entirely by hitting /authorize directly.
+        if (profileProperties.authorizationCode().requirePar()) {
+            return Mono.error(OAuthTokenException.invalidRequest("Pushed Authorization Request is required"));
+        }
         return processDirectAuthorization(
                 publicIssuerBaseUrl, clientId, responseType, scope, state,
                 codeChallenge, codeChallengeMethod, redirectUri, issuerState
@@ -49,7 +57,7 @@ public class AuthorizationServiceImpl implements AuthorizationService {
 
     private Mono<URI> pushAuthorizationRequestAuthorization(String baseUrl, String requestUri, String state) {
         return parCacheStore.get(requestUri)
-                .switchIfEmpty(Mono.error(new IllegalArgumentException("Invalid or expired request_uri")))
+                .switchIfEmpty(Mono.error(OAuthTokenException.invalidRequest("Invalid or expired request_uri")))
                 .flatMap(parRequest -> {
                     // Consume the PAR (one-time use)
                     return parCacheStore.delete(requestUri)
@@ -78,15 +86,15 @@ public class AuthorizationServiceImpl implements AuthorizationService {
     ) {
         return Mono.defer(() -> {
             if (!"code".equals(responseType)) {
-                return Mono.error(new IllegalArgumentException("response_type must be 'code'"));
+                return Mono.error(OAuthTokenException.invalidRequest("response_type must be 'code'"));
             }
 
             if (profileProperties.authorizationCode().requirePkce()) {
                 if (codeChallenge == null || codeChallenge.isBlank()) {
-                    return Mono.error(new IllegalArgumentException("code_challenge is required"));
+                    return Mono.error(OAuthTokenException.invalidRequest("code_challenge is required"));
                 }
                 if (!"S256".equals(codeChallengeMethod)) {
-                    return Mono.error(new IllegalArgumentException("code_challenge_method must be S256"));
+                    return Mono.error(OAuthTokenException.invalidRequest("code_challenge_method must be S256"));
                 }
             }
 
