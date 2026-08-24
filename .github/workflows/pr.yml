@@ -143,10 +143,19 @@ jobs:
   dast-baseline:
     name: ZAP DAST Baseline
     needs: [changes, build]
+    # Deliberately gated on `!cancelled()` and NOT on `needs.build.result`: this
+    # job is a required check, and a skipped required check reports differently
+    # from a passing one. DAST is independent of the unit-test/quality gate, so
+    # it still runs (and still reports) when `build` fails.
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     # G2 (conv-infrastructure-testing.md §6.3): passive scan, non-blocking.
-    # WARN-level findings are surfaced only via the uploaded HTML report.
+    # `fail_action: false` keeps ZAP *findings* from failing the job; this
+    # `continue-on-error` keeps *infrastructure* failures (docker build, tenant
+    # seed, healthcheck timeout) from blocking the PR too, so the gate is
+    # non-blocking end-to-end as documented. The job still renders as failed in
+    # the checks list, so a permanently broken DAST job stays visible.
+    continue-on-error: true
     services:
       postgres:
         image: postgres:17-alpine
@@ -227,22 +236,49 @@ jobs:
           docker logs issuer-service
           exit 1
 
+      # Guards the scan against silently degrading into a no-op: if the target
+      # stops returning 200 (tenant seed drifts, profiles fail to load, the
+      # well-known path moves), ZAP would still "pass" while scanning nothing.
+      - name: Verify scan target returns 200
+        run: |
+          target='http://localhost:8080/issuer/.well-known/openid-credential-issuer'
+          status=$(curl -s -o /tmp/target.json -w '%{http_code}' -H 'X-Tenant: sandbox' "$target")
+          echo "GET $target -> $status"
+          if [ "$status" != "200" ]; then
+            echo "Scan target is not reachable — the ZAP baseline would scan an empty surface."
+            cat /tmp/target.json || true
+            docker logs issuer-service
+            exit 1
+          fi
+
       # Rules file: dev-tools/testing/zap/zap-baseline.conf (this repo), vendored
       # from eudistack-platform-dev's dev-tools/testing/baseline/zap/zap-baseline.conf
       # (single source of truth per convention §5.3) — copied here to avoid a
-      # cross-repo read token. Update the source there, then re-copy here.
+      # cross-repo read token. Do not hand-edit: update the source in
+      # eudistack-platform-dev and run `make sync-dast-vendored` there, which
+      # re-copies both this file and dev-tools/credentials/profiles/.
       #
       # ZAP_AUTH_HEADER sends X-Tenant: sandbox on every scan request: without it,
       # TenantDomainWebFilter resolves the tenant from the Host header (here,
       # "localhost", which is never in tenant_registry) and every endpoint under
       # /issuer returns 404 TENANT_NOT_FOUND, making the scan a no-op.
+      #
+      # Target is the OID4VCI metadata document, not the /issuer base path: the
+      # base path has no handler (this is a REST API, it serves no HTML root), so
+      # spidering it returned 404 and the passive rules had no real response to
+      # evaluate. Pointing at a public 200 endpoint gives the passive scanners an
+      # actual API response (security headers, cache-control, content sniffing,
+      # info leakage) to check. Broad endpoint coverage is explicitly NOT this
+      # gate's job — zap-baseline.py has no OpenAPI import; enumerating /oid4vci
+      # and /api routes belongs to G3 (`make test-zap-api`, zap-api-scan.py -f
+      # openapi) against STG.
       - name: ZAP Baseline Scan
         uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25 # v0.15.0
         env:
           ZAP_AUTH_HEADER: X-Tenant
           ZAP_AUTH_HEADER_VALUE: sandbox
         with:
-          target: 'http://localhost:8080/issuer'
+          target: 'http://localhost:8080/issuer/.well-known/openid-credential-issuer'
           rules_file_name: 'dev-tools/testing/zap/zap-baseline.conf'
           artifact_name: 'zap-report'
           fail_action: false
