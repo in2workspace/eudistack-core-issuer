@@ -30,4 +30,7 @@ public interface IssuanceRepository extends ReactiveCrudRepository<Issuance, UUI
 
     @Query("SELECT * FROM issuance WHERE credential_status = 'DRAFT' AND delivery_attempted_at IS NOT NULL AND delivery_attempted_at < :cutoff")
     Flux<Issuance> findFailedDeliveries(Instant cutoff);
+
+    @Query("SELECT * FROM issuance WHERE credential_status <> 'EXPIRED' AND valid_until < :now")
+    Flux<Issuance> findAllByCredentialStatusNotExpiredAndValidUntilBefore(Instant now);
 }
