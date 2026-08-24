@@ -58,8 +58,8 @@ public class ParServiceImpl implements ParService {
 
     // RFC 9126 section 4: the PAR endpoint generates request_uri as its own response value -
     // it must never be accepted as an input parameter of the pushed request itself. Without
-    // this check, PushedAuthorizationRequest simply carried the field and nothing ever read
-    // it, so a request smuggling one in was silently accepted (201) instead of rejected.
+    // explicitly binding and validating it, a request carrying request_uri could be silently
+    // accepted (201) because Spring would otherwise drop the unknown form parameter.
     private Mono<Void> validateNoRequestUriParam(PushedAuthorizationRequest request) {
         if (request.requestUri() != null) {
             return Mono.error(OAuthTokenException.invalidRequest(
