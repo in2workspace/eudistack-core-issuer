@@ -227,9 +227,46 @@ class TokenServiceImplAuthCodeTest {
         TokenRequest request = authCodeRequest("code-pkce-fail", "https://wallet/callback", "wrong-verifier");
 
         StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
-                .expectErrorMatches(e -> e instanceof IllegalArgumentException
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
                         && e.getMessage().contains("PKCE verification failed"))
                 .verify();
+    }
+
+    @Test
+    void exchangeToken_authCode_shouldFailOnMissingDpopProofWhenRequired() {
+        // Regression test: DpopValidationService raises plain IllegalArgumentException, which
+        // used to leak through as our internal GlobalErrorMessage shape (type/title/detail)
+        // instead of the RFC 6749 §5.2 {error, error_description} shape /oauth/token must
+        // return. Caught by the OIDF conformance suite's
+        // fapi2-security-profile-final-ensure-holder-of-key-required test.
+        AuthorizationCodeData codeData = AuthorizationCodeData.builder()
+                .clientId("client")
+                .redirectUri("https://wallet/callback")
+                .issuerState("issuer-state-dpop-fail")
+                .build();
+
+        var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
+                true, false, List.of("S256"),
+                true, List.of("ES256"),
+                "none", false
+        );
+
+        when(authorizationCodeCacheStore.get("code-dpop-fail")).thenReturn(Mono.just(codeData));
+        when(authorizationCodeCacheStore.delete("code-dpop-fail")).thenReturn(Mono.empty());
+        when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
+        when(dpopValidationService.validate("some-dpop-proof", "POST", TOKEN_ENDPOINT_URI))
+                .thenThrow(new IllegalArgumentException("Missing DPoP proof"));
+
+        TokenRequest request = authCodeRequest("code-dpop-fail", "https://wallet/callback", null);
+
+        StepVerifier.create(tokenService.exchangeToken(request, "some-dpop-proof", TOKEN_ENDPOINT_URI, "https://issuer"))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
+                        && e.getMessage().equals("Missing DPoP proof"))
+                .verify();
+
+        verify(issuerStateCacheStore, never()).get(anyString());
     }
 
     @Test
