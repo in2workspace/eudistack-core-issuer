@@ -61,11 +61,10 @@ public class ParServiceImpl implements ParService {
     // this check, PushedAuthorizationRequest simply carried the field and nothing ever read
     // it, so a request smuggling one in was silently accepted (201) instead of rejected.
     private Mono<Void> validateNoRequestUriParam(PushedAuthorizationRequest request) {
-        if (request.requestUri() != null && !request.requestUri().isBlank()) {
+        if (request.requestUri() != null) {
             return Mono.error(OAuthTokenException.invalidRequest(
                     "request_uri parameter is not allowed in a pushed authorization request"));
         }
-        return Mono.empty();
     }
 
     // redirect_uri has no bean-validation constraint on PushedAuthorizationRequest (it is
