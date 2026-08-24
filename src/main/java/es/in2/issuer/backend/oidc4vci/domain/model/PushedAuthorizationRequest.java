@@ -16,7 +16,7 @@ public record PushedAuthorizationRequest(
         @BindParam("authorization_details") String authorizationDetails,
         // RFC 9126 §4: the PAR endpoint generates request_uri - it must never appear as an
         // input parameter of the pushed request itself. Bound here only so ParServiceImpl can
-        // detect and reject its presence; never otherwise read.
+        // detect and reject its presence; it is not used as a normal PAR input beyond that check.
         @BindParam("request_uri") String requestUri
 ) {
 }
