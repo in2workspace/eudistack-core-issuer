@@ -41,6 +41,7 @@ public class ParServiceImpl implements ParService {
         // completed (and not at all if an earlier one failed) - a plain chain of method
         // calls would evaluate every argument eagerly, up front, regardless of order.
         return Mono.defer(() -> validateResponseType(request))
+                .then(Mono.defer(() -> validateNoRequestUriParam(request)))
                 .then(Mono.defer(() -> validateRedirectUri(request)))
                 .then(Mono.defer(() -> validatePkce(request)))
                 .then(Mono.defer(() -> validateDpop(dpopHeader, requestUri)))
@@ -51,6 +52,18 @@ public class ParServiceImpl implements ParService {
     private Mono<Void> validateResponseType(PushedAuthorizationRequest request) {
         if (!"code".equals(request.responseType())) {
             return Mono.error(OAuthTokenException.invalidRequest("response_type must be 'code'"));
+        }
+        return Mono.empty();
+    }
+
+    // RFC 9126 section 4: the PAR endpoint generates request_uri as its own response value -
+    // it must never be accepted as an input parameter of the pushed request itself. Without
+    // this check, PushedAuthorizationRequest simply carried the field and nothing ever read
+    // it, so a request smuggling one in was silently accepted (201) instead of rejected.
+    private Mono<Void> validateNoRequestUriParam(PushedAuthorizationRequest request) {
+        if (request.requestUri() != null && !request.requestUri().isBlank()) {
+            return Mono.error(OAuthTokenException.invalidRequest(
+                    "request_uri parameter is not allowed in a pushed authorization request"));
         }
         return Mono.empty();
     }
