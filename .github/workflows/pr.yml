@@ -143,18 +143,23 @@ jobs:
   dast-baseline:
     name: ZAP DAST Baseline
     needs: [changes, build]
-    # Deliberately gated on `!cancelled()` and NOT on `needs.build.result`: this
-    # job is a required check, and a skipped required check reports differently
-    # from a passing one. DAST is independent of the unit-test/quality gate, so
-    # it still runs (and still reports) when `build` fails.
+    # Gated on `!cancelled()` and deliberately NOT on `needs.build.result`: what
+    # this job exercises (the image boots, migrates, resolves a tenant and serves
+    # its public metadata) is orthogonal to the unit-test/coverage/Sonar gate in
+    # `build`, so a red `build` should not suppress the DAST signal. The cost is
+    # ~3 min of runner time on PRs that are already failing.
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     # G2 (conv-infrastructure-testing.md §6.3): passive scan, non-blocking.
-    # `fail_action: false` keeps ZAP *findings* from failing the job; this
-    # `continue-on-error` keeps *infrastructure* failures (docker build, tenant
-    # seed, healthcheck timeout) from blocking the PR too, so the gate is
-    # non-blocking end-to-end as documented. The job still renders as failed in
-    # the checks list, so a permanently broken DAST job stays visible.
+    # Two separate things have to be non-blocking for that to hold:
+    #   - ZAP *findings*  -> `fail_action: false` on the scan step below.
+    #   - *Infrastructure* failures (docker build, tenant seed, healthcheck or
+    #     target-verification timeout) -> this job-level `continue-on-error`,
+    #     which keeps the workflow run from failing because of them.
+    # Merge protection is unaffected either way: main's required status checks
+    # are "Build & Test" and "Analyze (java)" only — this job is not one of them.
+    # A broken DAST job therefore surfaces as a failed job inside an otherwise
+    # green run, which is the intended signal: visible, not blocking.
     continue-on-error: true
     services:
       postgres:
