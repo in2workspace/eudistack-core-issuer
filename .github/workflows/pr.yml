@@ -139,3 +139,152 @@ jobs:
         with:
           name: trivy-report
           path: build/reports/trivy-report.json
+
+  dast-baseline:
+    name: ZAP DAST Baseline
+    needs: [changes, build]
+    # Gated on `!cancelled()` and deliberately NOT on `needs.build.result`: what
+    # this job exercises (the image boots, migrates, resolves a tenant and serves
+    # its public metadata) is orthogonal to the unit-test/coverage/Sonar gate in
+    # `build`, so a red `build` should not suppress the DAST signal. The cost is
+    # ~3 min of runner time on PRs that are already failing.
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-latest
+    # G2 (conv-infrastructure-testing.md §6.3): passive scan, non-blocking.
+    # Two separate things have to be non-blocking for that to hold:
+    #   - ZAP *findings*  -> `fail_action: false` on the scan step below.
+    #   - *Infrastructure* failures (docker build, tenant seed, healthcheck or
+    #     target-verification timeout) -> this job-level `continue-on-error`,
+    #     which keeps the workflow run from failing because of them.
+    # Merge protection is unaffected either way: main's required status checks
+    # are "Build & Test" and "Analyze (java)" only — this job is not one of them.
+    # A broken DAST job therefore surfaces as a failed job inside an otherwise
+    # green run, which is the intended signal: visible, not blocking.
+    continue-on-error: true
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: issuer
+          POSTGRES_USER: issuer
+          POSTGRES_PASSWORD: issuer
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U issuer -d issuer"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # SKIP_TESTS=true: the `build` job (above) already ran the full test suite
+      # for the quality gate — re-running tests inside the Docker build here would
+      # duplicate that work and risks failing this job on a test issue unrelated
+      # to DAST (e.g. a test needing infra this container's build stage lacks).
+      - name: Build Docker image
+        run: docker build --build-arg SKIP_TESTS=true -t eudistack-core-issuer:pr .
+
+      - name: Seed tenant_registry (sandbox)
+        run: |
+          PGPASSWORD=issuer psql -h localhost -U issuer -d issuer -c "
+            CREATE TABLE IF NOT EXISTS public.tenant_registry (
+                schema_name   VARCHAR(64)  PRIMARY KEY,
+                display_name  VARCHAR(255) NOT NULL,
+                tenant_type   VARCHAR(20)  NOT NULL DEFAULT 'simple',
+                status        VARCHAR(20)  NOT NULL DEFAULT 'active',
+                created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+            INSERT INTO public.tenant_registry (schema_name, display_name, tenant_type)
+            VALUES ('sandbox', 'EUDIStack Sandbox', 'multi_org')
+            ON CONFLICT (schema_name) DO NOTHING;
+          "
+
+      # CREDENTIAL_PROFILES_PATH: CredentialProfileRegistry fails hard at startup
+      # (IllegalStateException) if this path doesn't resolve — production/STG get
+      # it via a Docker volume from eudistack-platform-dev's dev-tools/schemas/
+      # (see compose.yaml), which this ephemeral CI container doesn't have. The
+      # profiles are vendored read-only at dev-tools/credentials/profiles/ (see
+      # comment on the ZAP step below) and mounted the same way.
+      #
+      # Must include BOTH the "core" *.json files (credential_configuration_id +
+      # full credential_definition) AND the *.profile.json overlay files: the
+      # registry only loads profiles from core resources and merges an overlay
+      # onto them if one exists by matching configuration_id — an overlay-only
+      # directory loads zero profiles (Copilot review, PR #160).
+      - name: Run container
+        run: |
+          docker run -d --name issuer-service \
+            --network host \
+            -e SERVER_PORT=8080 \
+            -e SPRING_R2DBC_URL=r2dbc:postgresql://localhost:5432/issuer \
+            -e SPRING_R2DBC_USERNAME=issuer \
+            -e SPRING_R2DBC_PASSWORD=issuer \
+            -e SPRING_FLYWAY_URL=jdbc:postgresql://localhost:5432/issuer \
+            -e CREDENTIAL_PROFILES_PATH=file:/etc/eudistack/schemas \
+            -v "$(pwd)/dev-tools/credentials/profiles:/etc/eudistack/schemas:ro" \
+            eudistack-core-issuer:pr
+
+      # Polls the readiness group, not the aggregate /health: the aggregate
+      # includes indicators (SMTP, signing service, verifier reachability)
+      # that report DOWN whenever those external dependencies aren't reachable
+      # from this isolated CI container, even though the app itself is fully up.
+      - name: Wait for service health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/issuer/health/readiness; then exit 0; fi
+            sleep 2
+          done
+          echo "Service did not become healthy in time"
+          docker logs issuer-service
+          exit 1
+
+      # Guards the scan against silently degrading into a no-op: if the target
+      # stops returning 200 (tenant seed drifts, profiles fail to load, the
+      # well-known path moves), ZAP would still "pass" while scanning nothing.
+      - name: Verify scan target returns 200
+        run: |
+          target='http://localhost:8080/issuer/.well-known/openid-credential-issuer'
+          status=$(curl -s -o /tmp/target.json -w '%{http_code}' -H 'X-Tenant: sandbox' "$target")
+          echo "GET $target -> $status"
+          if [ "$status" != "200" ]; then
+            echo "Scan target is not reachable — the ZAP baseline would scan an empty surface."
+            cat /tmp/target.json || true
+            docker logs issuer-service
+            exit 1
+          fi
+
+      # Rules file: dev-tools/testing/zap/zap-baseline.conf (this repo), vendored
+      # from eudistack-platform-dev's dev-tools/testing/baseline/zap/zap-baseline.conf
+      # (single source of truth per convention §5.3) — copied here to avoid a
+      # cross-repo read token. Do not hand-edit: update the source in
+      # eudistack-platform-dev and run `make sync-dast-vendored` there, which
+      # re-copies both this file and dev-tools/credentials/profiles/.
+      #
+      # ZAP_AUTH_HEADER sends X-Tenant: sandbox on every scan request: without it,
+      # TenantDomainWebFilter resolves the tenant from the Host header (here,
+      # "localhost", which is never in tenant_registry) and every endpoint under
+      # /issuer returns 404 TENANT_NOT_FOUND, making the scan a no-op.
+      #
+      # Target is the OID4VCI metadata document, not the /issuer base path: the
+      # base path has no handler (this is a REST API, it serves no HTML root), so
+      # spidering it returned 404 and the passive rules had no real response to
+      # evaluate. Pointing at a public 200 endpoint gives the passive scanners an
+      # actual API response (security headers, cache-control, content sniffing,
+      # info leakage) to check. Broad endpoint coverage is explicitly NOT this
+      # gate's job — zap-baseline.py has no OpenAPI import; enumerating /oid4vci
+      # and /api routes belongs to G3 (`make test-zap-api`, zap-api-scan.py -f
+      # openapi) against STG.
+      - name: ZAP Baseline Scan
+        uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25 # v0.15.0
+        env:
+          ZAP_AUTH_HEADER: X-Tenant
+          ZAP_AUTH_HEADER_VALUE: sandbox
+        with:
+          target: 'http://localhost:8080/issuer/.well-known/openid-credential-issuer'
+          rules_file_name: 'dev-tools/testing/zap/zap-baseline.conf'
+          artifact_name: 'zap-report'
+          fail_action: false
+          allow_issue_writing: false
