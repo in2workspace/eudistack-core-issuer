@@ -41,6 +41,7 @@ public class ParServiceImpl implements ParService {
         // completed (and not at all if an earlier one failed) - a plain chain of method
         // calls would evaluate every argument eagerly, up front, regardless of order.
         return Mono.defer(() -> validateResponseType(request))
+                .then(Mono.defer(() -> validateRedirectUri(request)))
                 .then(Mono.defer(() -> validatePkce(request)))
                 .then(Mono.defer(() -> validateDpop(dpopHeader, requestUri)))
                 .then(Mono.defer(() -> validateWia(wiaHeader, wiaPopHeader, publicIssuerUrl)))
@@ -50,6 +51,18 @@ public class ParServiceImpl implements ParService {
     private Mono<Void> validateResponseType(PushedAuthorizationRequest request) {
         if (!"code".equals(request.responseType())) {
             return Mono.error(OAuthTokenException.invalidRequest("response_type must be 'code'"));
+        }
+        return Mono.empty();
+    }
+
+    // redirect_uri has no bean-validation constraint on PushedAuthorizationRequest (it is
+    // legitimately absent from other grant shapes), so a request missing it would otherwise
+    // sail through PAR and only surface downstream as an NPE in
+    // AuthorizationServiceImpl.buildRedirectUri (new StringBuilder(null)) once /authorize
+    // tries to build a redirect with it - a 500 instead of a clean PAR-level rejection.
+    private Mono<Void> validateRedirectUri(PushedAuthorizationRequest request) {
+        if (request.redirectUri() == null || request.redirectUri().isBlank()) {
+            return Mono.error(OAuthTokenException.invalidRequest("redirect_uri is required"));
         }
         return Mono.empty();
     }

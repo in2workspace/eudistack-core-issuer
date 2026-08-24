@@ -258,13 +258,23 @@ public class TokenServiceImpl implements TokenService {
             return Mono.error(OAuthTokenException.invalidGrant("redirect_uri mismatch"));
         }
 
-        if (profileProperties.authorizationCode().requirePkce()) {
-            pkceVerifier.verifyS256(codeVerifier, codeData.codeChallenge());
-        }
+        // PkceVerifier/DpopValidationService raise plain IllegalArgumentException, which
+        // Oidc4vciExceptionHandler's generic handler maps to our internal Problem-Details
+        // error body instead of the error/error_description shape RFC 6749 section 5.2
+        // requires for this endpoint - the same gap ParServiceImpl and
+        // AuthorizationServiceImpl already had fixed for their own equivalents.
+        String dpopJkt;
+        try {
+            if (profileProperties.authorizationCode().requirePkce()) {
+                pkceVerifier.verifyS256(codeVerifier, codeData.codeChallenge());
+            }
 
-        String dpopJkt = profileProperties.authorizationCode().requireDpop()
-                ? dpopValidationService.validate(dpopHeader, "POST", tokenEndpointUri)
-                : null;
+            dpopJkt = profileProperties.authorizationCode().requireDpop()
+                    ? dpopValidationService.validate(dpopHeader, "POST", tokenEndpointUri)
+                    : null;
+        } catch (IllegalArgumentException e) {
+            return Mono.error(OAuthTokenException.invalidRequest(e.getMessage()));
+        }
 
         // issuer_state is OPTIONAL at the PAR/authorize level (RFC 9126 / OID4VCI) - a
         // wallet-initiated authorization request never sends it - but this Issuer only
