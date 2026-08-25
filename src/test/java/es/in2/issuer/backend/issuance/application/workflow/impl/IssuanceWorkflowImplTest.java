@@ -1645,9 +1645,11 @@ class IssuanceWorkflowImplTest {
     }
 
     @Test
-    void hybridDirectFailureShouldStillReportTheWalletDispatchInTheErrorResults() {
+    void hybridDirectFailureShouldStillReportTheWalletDispatchAndItsOfferInTheError() {
         // AC-06 + ES-02: direct is decisive, so this is an error — but the wallet leg dispatched, and
-        // discarding that is what left the caller unable to tell whether an email had gone out.
+        // discarding that is what left the caller unable to tell whether an email had gone out. The
+        // offer travels too: a dispatched channel is redeemable, and the caller needs the URI to
+        // show its QR instead of claiming the offer could not be generated.
         UUID issuanceId = UUID.randomUUID();
         JsonNode payload = new ObjectMapper().createObjectNode();
         IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "direct,email", EMAIL, null);
@@ -1678,6 +1680,7 @@ class IssuanceWorkflowImplTest {
                     assertEquals(2, failure.deliveryResults().size());
                     assertEquals(DeliveryResult.DeliveryOutcome.FAILED, resultFor(failure, "direct").status());
                     assertEquals(DeliveryResult.DeliveryOutcome.DISPATCHED, resultFor(failure, "email").status());
+                    assertEquals("openid-credential-offer://offer-uri", failure.credentialOfferUri());
                 })
                 .verify();
 

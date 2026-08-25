@@ -84,13 +84,14 @@ public class IssuanceExceptionHandler {
             DeliveryFailedException ex,
             ServerHttpRequest request
     ) {
-        return errors.handleWithDeliveryResults(
+        return errors.handleWithDelivery(
                 ex, request,
                 GlobalErrorTypes.DELIVERY_FAILED.getCode(),
                 "Delivery failed",
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "No declared delivery mode completed successfully",
-                ex.deliveryResults()
+                ex.deliveryResults(),
+                ex.credentialOfferUri()
         );
     }
 

@@ -37,14 +37,14 @@ public class ErrorResponseFactory {
      * Handles a delivery failure, attaching the per-mode outcome to the error body so a client reads
      * the same {@code delivery_results} contract on 5xx as on 200 (EUD-33 AC-06).
      */
-    public Mono<GlobalErrorMessage> handleWithDeliveryResults(
+    public Mono<GlobalErrorMessage> handleWithDelivery(
             Exception ex, ServerHttpRequest request,
             String type, String title, HttpStatus status, String fallbackDetail,
-            List<DeliveryResult> deliveryResults
+            List<DeliveryResult> deliveryResults, String credentialOfferUri
     ) {
         String detail = resolveDetail(ex, fallbackDetail);
         return Mono.fromSupplier(() -> buildError(type, title, status, detail, ex, request, null)
-                .withDeliveryResults(deliveryResults));
+                .withDelivery(deliveryResults, credentialOfferUri));
     }
 
     public Mono<GlobalErrorMessage> handleWithViolations(

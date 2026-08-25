@@ -335,7 +335,10 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
             String detail = directFailed
                     ? "Direct delivery failed; the credential was not returned"
                     : "No declared delivery mode completed successfully";
-            return Mono.error(new DeliveryFailedException(detail, results, direct.failure()));
+            // The offer travels even here: a wallet channel reported as dispatched is redeemable
+            // regardless of what direct did, and the caller needs the URI to show its QR.
+            return Mono.error(new DeliveryFailedException(
+                    detail, results, wallet.credentialOfferUri(), direct.failure()));
         }
 
         return Mono.just(IssuanceResponse.builder()

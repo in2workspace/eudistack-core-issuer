@@ -22,12 +22,27 @@ public class DeliveryFailedException extends RuntimeException {
      */
     private final transient List<DeliveryResult> deliveryResults;
 
-    public DeliveryFailedException(String message, List<DeliveryResult> deliveryResults, Throwable cause) {
+    /**
+     * The credential offer, when the wallet leg produced one before the issuance was ruled a failure.
+     *
+     * <p>A declared {@code direct} that fails is a failure whatever the wallet leg did, so a perfectly
+     * redeemable offer can exist inside a 5xx. Dropping it there left the caller unable to show the QR
+     * for a channel its own {@code delivery_results} reported as dispatched.
+     */
+    private final String credentialOfferUri;
+
+    public DeliveryFailedException(String message, List<DeliveryResult> deliveryResults,
+                                   String credentialOfferUri, Throwable cause) {
         super(message, cause);
         this.deliveryResults = deliveryResults == null ? List.of() : List.copyOf(deliveryResults);
+        this.credentialOfferUri = credentialOfferUri;
     }
 
     public List<DeliveryResult> deliveryResults() {
         return deliveryResults == null ? List.of() : deliveryResults;
+    }
+
+    public String credentialOfferUri() {
+        return credentialOfferUri;
     }
 }
