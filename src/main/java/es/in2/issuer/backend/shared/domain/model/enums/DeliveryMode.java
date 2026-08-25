@@ -17,6 +17,12 @@ import java.util.stream.Collectors;
  *
  * <p>The HTTP request uses CSV in {@code delivery} (e.g. {@code "direct,email"}).
  * Duplicates are normalized into a {@link Set} without repetition (EC-02).
+ *
+ * <p><b>Eligibility (EUD-33):</b> {@link #EMAIL} and {@link #UI} are always eligible. {@link #DIRECT}
+ * is eligible only for credential types that declare no {@code cryptographic_binding_methods_supported}
+ * — see {@code CredentialProfile#directDeliveryEligible()}. It is a property of the credential profile,
+ * not a per-tenant setting, and it is unrelated to {@code cnf_required}: a type may require holder
+ * binding and still be direct-eligible, sourcing its {@code cnf} from the request {@code holder_key}.
  */
 public enum DeliveryMode {
 

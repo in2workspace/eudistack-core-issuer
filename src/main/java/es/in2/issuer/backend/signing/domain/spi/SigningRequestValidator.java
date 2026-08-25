@@ -7,19 +7,17 @@ public final class SigningRequestValidator {
 
     private SigningRequestValidator() {}
 
+    /**
+     * AD-1/EUD-225: {@link es.in2.issuer.backend.signing.domain.model.dto.SigningContext#token()}
+     * is deliberately NOT validated. It is vestigial downstream -- no signing provider reads it,
+     * and the QTSP acquires its own credentials -- so requiring it only made signing fail for
+     * callers that legitimately have no access token to hand over.
+     */
     public static void validate(SigningRequest request) {
-        validate(request, true);
-    }
-
-    public static void validate(SigningRequest request, boolean requireContextToken) {
         validateNotNull(request);
         validateType(request);
         validateData(request);
         validateContext(request);
-
-        if (requireContextToken) {
-            validateToken(request);
-        }
     }
 
     private static void validateNotNull(SigningRequest request) {
@@ -43,12 +41,6 @@ public final class SigningRequestValidator {
     private static void validateContext(SigningRequest request) {
         if (request.context() == null) {
             throw new SigningException("SigningRequest.context must not be null");
-        }
-    }
-
-    private static void validateToken(SigningRequest request) {
-        if (request.context().token() == null || request.context().token().isBlank()) {
-            throw new SigningException("SigningContext.token must not be null/blank");
         }
     }
 }

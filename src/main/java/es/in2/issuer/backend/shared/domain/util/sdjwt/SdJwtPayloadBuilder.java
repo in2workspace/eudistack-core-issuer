@@ -84,14 +84,25 @@ public class SdJwtPayloadBuilder {
                 payload.put("status", objectMapper.convertValue(statusNode, Object.class));
             }
 
-            // Add cnf (key binding) only when required by the profile
-            if (profile.cnfRequired() && cnf != null && !cnf.isEmpty()) {
+            // Add cnf (key binding) only when required by the profile.
+            // Fail closed when it is required but missing: emitting an SD-JWT VC without its holder
+            // binding produces a credential that cannot be presented with a KB-JWT, and silently
+            // omitting the claim hides that until presentation time. Mirrors the W3C path in
+            // GenericCredentialBuilder.buildJwtPayload. Note the caller (CredentialSignerWorkflowImpl)
+            // normalizes a null cnf to an empty map, so both shapes reach here.
+            if (profile.cnfRequired()) {
+                if (cnf == null || cnf.isEmpty()) {
+                    throw new IllegalStateException("Missing cnf (expected kid/jwk/x5c)");
+                }
                 payload.put("cnf", cnf);
             }
 
             String payloadJson = objectMapper.writeValueAsString(payload);
             return new SdJwtComponents(payloadJson, disclosures);
 
+        } catch (IllegalStateException e) {
+            // Already a precise, caller-facing failure -- rethrow instead of burying it in a generic wrapper.
+            throw e;
         } catch (Exception e) {
             throw new RuntimeException("Failed to build SD-JWT payload", e);
         }

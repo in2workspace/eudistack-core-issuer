@@ -65,6 +65,17 @@ public class Issuance {
     @Nullable
     private Instant deliveryAttemptedAt;
 
+    // Normalized holder confirmation claim (V12, EUD-33), e.g. {"jwk":{...}}. Populated at intake
+    // only for credential types that declare no cryptographic_binding_methods_supported: their
+    // holder key comes from the issuance request instead of a wallet proof, and the OID4VCI
+    // credential endpoint is a later, separate HTTP call that needs it back.
+    // Public key, so persisting it is safe -- but @ToString.Exclude is deliberate: EUD-168 forbids
+    // ever logging a holder key in the clear, and this class is @ToString.
+    @Column("holder_cnf")
+    @Nullable
+    @ToString.Exclude
+    private String holderCnf;
+
     // Optimistic locking (V11, SD-04/EUD-225): every write to this row follows
     // find -> validateTransition -> mutate -> save with no version check in between.
     // Spring Data R2DBC manages this field automatically on save() -- a stale write now

@@ -270,16 +270,54 @@ class BitstringStatusListProviderTest {
 
 
     @Test
-    void allocateEntry_shouldThrowException_whenTokenIsNull() {
-        Mono<StatusListEntry> mono = monoFromCall(() ->
-                bitstringStatusListProvider.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, null, TEST_ISSUER_URL)
+    void allocateEntry_shouldAllocateAndCreateList_whenTokenIsNull() {
+        // AD-1/EUD-225: the caller token is vestigial -- it never authorizes and never signs.
+        // A direct issuance for a profile that does not require X-Id-Token legitimately has no
+        // token to hand over, and used to get a 500 here (NPE: "token cannot be null"). This
+        // walks the full allocation path with token=null, including createNewList + signing,
+        // which is where the two removed preconditions lived.
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
+        StatusPurpose purpose = StatusPurpose.REVOCATION;
+
+        StatusList savedList = new StatusList(
+                TEST_LIST_ID, "revocation", "bitstring_vc", "encodedList", null, Instant.now(), Instant.now()
+        );
+        StatusListIndexData reservedIndex = new StatusListIndexData(
+                1L, TEST_LIST_ID, 5, procedureUuid, Instant.now()
         );
 
-        assertThatThrownBy(mono::block)
-                .isInstanceOf(NullPointerException.class)
-                .hasMessageContaining("token");
+        SimpleIssuer simpleIssuer = SimpleIssuer.builder().id(TEST_ISSUER_DID).build();
+        String listUrl = TEST_ISSUER_URL + "/w3c/v1/credentials/status/" + TEST_LIST_ID;
 
-        verifyNoInteractions(statusListIndexRepository);
+        StatusListEntry expectedEntry = StatusListEntry.builder()
+                .id("urn:uuid:" + procedureUuid)
+                .type("BitstringStatusListEntry")
+                .statusPurpose(purpose)
+                .statusListIndex("5")
+                .statusListCredential(listUrl)
+                .build();
+
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid)).thenReturn(Mono.empty());
+        when(statusListRepository.findLatestByPurposeAndFormat("revocation", "bitstring_vc"))
+                .thenReturn(Mono.empty());
+        when(statusListRepository.save(any(StatusList.class))).thenReturn(Mono.just(savedList));
+        when(issuerFactory.createSimpleIssuer()).thenReturn(Mono.just(simpleIssuer));
+        when(statusListBuilder.buildUnsigned(eq(listUrl), eq(TEST_ISSUER_DID), eq("revocation"), anyString()))
+                .thenReturn(Map.of("type", "StatusListCredential"));
+        when(statusListSigner.sign(anyMap(), isNull(), eq(TEST_LIST_ID), eq("vc+jwt")))
+                .thenReturn(Mono.just("signedJwt"));
+        when(statusListRepository.updateSignedCredential(TEST_LIST_ID, "signedJwt")).thenReturn(Mono.just(1));
+        when(statusListIndexRepository.countByStatusListId(TEST_LIST_ID)).thenReturn(Mono.just(0L));
+        when(statusListIndexReservationService.reserve(TEST_LIST_ID, TEST_ISSUANCE_ID))
+                .thenReturn(Mono.just(reservedIndex));
+        when(statusListBuilder.buildStatusListEntry(listUrl, 5, purpose)).thenReturn(expectedEntry);
+
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(
+                        purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, null, TEST_ISSUER_URL))
+                .expectNext(expectedEntry)
+                .verifyComplete();
+
+        verify(statusListSigner).sign(anyMap(), isNull(), eq(TEST_LIST_ID), eq("vc+jwt"));
     }
 
 
@@ -965,8 +1003,8 @@ class BitstringStatusListProviderTest {
 
     @Test
     void revoke_shouldComplete_whenTokenIsNull() {
-        // AD-1/EUD-225: system-triggered revocation has no caller token; the guard on
-        // revoke() must not require it (unlike allocateEntry/createNewList, which still do).
+        // AD-1/EUD-225: system-triggered revocation has no caller token, and no guard on this
+        // path may require one -- same as allocateEntry/createNewList.
         UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
 
         StatusListIndex listIndex = new StatusListIndex(1L, TEST_LIST_ID, TEST_IDX, procedureUuid, Instant.now());
