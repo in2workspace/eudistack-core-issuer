@@ -228,8 +228,43 @@ class TokenServiceImplAuthCodeTest {
 
         StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
                 .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
-                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
+                        && "invalid_grant".equals(oAuthTokenException.getErrorCode())
                         && e.getMessage().contains("PKCE verification failed"))
+                .verify();
+    }
+
+    @Test
+    void exchangeToken_authCode_shouldFailOnMissingCodeVerifierWithInvalidGrant() {
+        // Regression test: RFC 7636 section 4.6 mandates invalid_grant specifically for a
+        // missing or mismatched code_verifier - a prior fix had collapsed this into the same
+        // invalid_request mapping used for DPoP failures, which is correct for DPoP but wrong
+        // for PKCE. Caught by the OIDF conformance suite's
+        // fapi2-security-profile-final-ensure-pkce-code-verifier-required test.
+        AuthorizationCodeData codeData = AuthorizationCodeData.builder()
+                .clientId("client")
+                .redirectUri("https://wallet/callback")
+                .codeChallenge("challenge")
+                .codeChallengeMethod("S256")
+                .build();
+
+        var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
+                false, true, List.of("S256"),
+                false, List.of("ES256"),
+                "none", false
+        );
+
+        when(authorizationCodeCacheStore.get("code-no-verifier")).thenReturn(Mono.just(codeData));
+        when(authorizationCodeCacheStore.delete("code-no-verifier")).thenReturn(Mono.empty());
+        when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
+        doThrow(new IllegalArgumentException("Missing code_verifier"))
+                .when(pkceVerifier).verifyS256(null, "challenge");
+
+        TokenRequest request = authCodeRequest("code-no-verifier", "https://wallet/callback", null);
+
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_grant".equals(oAuthTokenException.getErrorCode())
+                        && e.getMessage().equals("Missing code_verifier"))
                 .verify();
     }
 

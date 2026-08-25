@@ -263,12 +263,20 @@ public class TokenServiceImpl implements TokenService {
         // error body instead of the error/error_description shape RFC 6749 section 5.2
         // requires for this endpoint - the same gap ParServiceImpl and
         // AuthorizationServiceImpl already had fixed for their own equivalents.
+        //
+        // PKCE and DPoP failures are caught separately because they map to different error
+        // codes: RFC 7636 section 4.6 mandates invalid_grant specifically for a missing or
+        // mismatched code_verifier, while a missing/invalid DPoP proof stays invalid_request.
+        if (profileProperties.authorizationCode().requirePkce()) {
+            try {
+                pkceVerifier.verifyS256(codeVerifier, codeData.codeChallenge());
+            } catch (IllegalArgumentException e) {
+                return Mono.error(OAuthTokenException.invalidGrant(e.getMessage()));
+            }
+        }
+
         String dpopJkt;
         try {
-            if (profileProperties.authorizationCode().requirePkce()) {
-                pkceVerifier.verifyS256(codeVerifier, codeData.codeChallenge());
-            }
-
             dpopJkt = profileProperties.authorizationCode().requireDpop()
                     ? dpopValidationService.validate(dpopHeader, "POST", tokenEndpointUri)
                     : null;
