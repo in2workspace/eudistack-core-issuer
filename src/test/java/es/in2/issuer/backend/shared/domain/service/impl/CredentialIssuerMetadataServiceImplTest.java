@@ -113,6 +113,41 @@ class CredentialIssuerMetadataServiceImplTest {
     }
 
     @Test
+    void getCredentialIssuerMetadata_publishesCnfRequiredAlongsideTheBindingMethods() {
+        // Holder binding is the conjunction "cnf_required AND no cryptographic_binding_methods_supported"
+        // (CredentialProfile#holderKeyRequired). Publishing only the binding methods left clients unable
+        // to tell a bearer credential from one whose holder key they must supply, so both halves travel.
+        CredentialProfile holderBound = CredentialProfile.builder()
+                .credentialConfigurationId("learcredential.machine.w3c.3")
+                .format(Constants.JWT_VC_JSON)
+                .cnfRequired(true)
+                .build();
+
+        CredentialProfile bearer = CredentialProfile.builder()
+                .credentialConfigurationId("gx.labelcredential.w3c.2")
+                .format(Constants.JWT_VC_JSON)
+                .cnfRequired(false)
+                .build();
+
+        when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of(
+                "learcredential.machine.w3c.3", holderBound,
+                "gx.labelcredential.w3c.2", bearer));
+        when(tenantCredentialProfileService.getEnabledConfigurationIds())
+                .thenReturn(Mono.just(Set.of("learcredential.machine.w3c.3", "gx.labelcredential.w3c.2")));
+
+        var service = new CredentialIssuerMetadataServiceImpl(credentialProfileRegistry, tenantCredentialProfileService);
+
+        StepVerifier.create(service.getCredentialIssuerMetadata(ISSUER_URL))
+                .assertNext(metadata -> {
+                    Map<String, CredentialIssuerMetadata.CredentialConfiguration> configs =
+                            metadata.credentialConfigurationsSupported();
+                    assertThat(configs.get("learcredential.machine.w3c.3").cnfRequired()).isTrue();
+                    assertThat(configs.get("gx.labelcredential.w3c.2").cnfRequired()).isFalse();
+                })
+                .verifyComplete();
+    }
+
+    @Test
     void getCredentialIssuerMetadata_tenantWithNothingEnabled_advertisesNoConfigurations() {
         CredentialProfile learProfile = CredentialProfile.builder()
                 .credentialConfigurationId("learcredential.employee.w3c.4")

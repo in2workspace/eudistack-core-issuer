@@ -48,6 +48,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
@@ -291,29 +292,41 @@ class IssuanceWorkflowImplTest {
     }
 
     @Test
-    void directDeliveryShouldFailWhenCnfIsRequired() {
+    void directDeliveryOfBearerTypeWithoutHolderKeyShouldSignWithoutCnf() {
+        // Third corner of the binding matrix (EUD-33): no cryptographic binding method AND
+        // cnf_required=false. Nothing supplies a holder key and nothing needs one -- the request
+        // carries none, the flow demands none, and the credential is signed with a null cnf.
         JsonNode payload = new ObjectMapper().createObjectNode();
         IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "direct", EMAIL, null);
-        CredentialProfile profile = CredentialProfile.builder()
-                .credentialConfigurationId(CONFIG_ID)
-                .format("jwt_vc_json")
-                .cnfRequired(true)
-                .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
-                        .type(List.of("VerifiableCredential", "LEARCredentialEmployee"))
-                        .build())
-                .build();
+        CredentialProfile profile = profileWithoutCnf();
+        Issuance savedIssuance = Issuance.builder().issuanceId(UUID.randomUUID()).build();
 
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(profile, payload))
+                .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
+        when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
+                .thenReturn(Mono.just("enriched-data-set"));
+        when(statusListWorkflow.allocateEntry(eq(StatusPurpose.REVOCATION), any(StatusListFormat.class),
+                anyString(), anyString(), eq(BASE_URL)))
+                .thenReturn(Mono.just(statusListEntry()));
+        when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
+                .thenReturn("enriched-with-status");
+        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(),
+                anyString(), isNull(), anyString(), anyString()))
+                .thenReturn(Mono.just("signed-jwt"));
+        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
-                .expectError(DeliveryModeNotEligibleException.class)
-                .verify();
+                .assertNext(response -> assertEquals("signed-jwt", response.signedCredential()))
+                .verifyComplete();
 
-        verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
-        verify(issuanceService, never()).saveIssuance(any());
+        verify(credentialSignerWorkflow).signCredential(any(), any(), any(), any(), isNull(), any(), any());
+        ArgumentCaptor<Issuance> persisted = ArgumentCaptor.forClass(Issuance.class);
+        verify(issuanceService).saveIssuance(persisted.capture());
+        assertNull(persisted.getValue().getHolderCnf());
     }
 
     @Test
@@ -339,7 +352,7 @@ class IssuanceWorkflowImplTest {
     void directDeliveryOfCnfRequiredTypeNotEligibleShouldFailEvenWithValidHolderKey() {
         JsonNode payload = new ObjectMapper().createObjectNode();
         IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "direct", EMAIL, null, holderKeyJwk());
-        CredentialProfile profile = profileWithCnf();
+        CredentialProfile profile = walletBoundProfileWithCnf();
 
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
@@ -450,11 +463,14 @@ class IssuanceWorkflowImplTest {
     }
 
     @Test
-    void walletOnlyDeliveryOfCnfRequiredTypeShouldNotRequireHolderKey() {
+    void walletOnlyDeliveryOfWalletBoundTypeShouldNotRequireHolderKey() {
+        // The wallet proves possession of its own key at the credential endpoint, so the request
+        // supplies nothing. This is the ONLY shape that exempts a cnf-required type from carrying
+        // a holder_key -- see the test right below for the one that does not.
         JsonNode payload = new ObjectMapper().createObjectNode();
         UUID issuanceId = UUID.randomUUID();
         IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null);
-        CredentialProfile profile = profileWithCnf();
+        CredentialProfile profile = walletBoundProfileWithCnf();
         Issuance savedIssuance = Issuance.builder().issuanceId(issuanceId)
                 .credentialOfferRefreshToken("refresh-token-123").build();
         CredentialOfferResult offerResult = new CredentialOfferResult("openid-credential-offer://offer-uri");
@@ -476,6 +492,62 @@ class IssuanceWorkflowImplTest {
                 .verifyComplete();
 
         verifyNoInteractions(credentialSignerWorkflow);
+    }
+
+    @Test
+    void walletOnlyDeliveryOfHolderKeyRequiredTypeShouldFailWithoutHolderKey() {
+        // Reverses EUD-168 EC-04: the holder key requirement is a property of the credential type,
+        // not of the direct mode. A type with no cryptographic binding method gets no wallet proof
+        // either, so an email/ui issuance without a holder_key has no cnf source at all.
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null);
+        CredentialProfile profile = profileWithCnf();
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+                .expectError(InvalidHolderKeyException.class)
+                .verify();
+
+        verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
+        verify(issuanceService, never()).saveIssuance(any());
+    }
+
+    @Test
+    void walletOnlyDeliveryOfHolderKeyRequiredTypeShouldPersistTheCnfForTheCredentialEndpoint() {
+        // The credential endpoint is a separate HTTP call with no proof to derive a cnf from, so the
+        // key supplied at intake must survive in the Issuance for it to read back.
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        UUID issuanceId = UUID.randomUUID();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null, holderKeyJwk());
+        CredentialProfile profile = profileWithCnf();
+        Issuance savedIssuance = Issuance.builder().issuanceId(issuanceId)
+                .credentialOfferRefreshToken("refresh-token-123").build();
+        CredentialOfferResult offerResult = new CredentialOfferResult("openid-credential-offer://offer-uri");
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(profile, payload))
+                .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
+        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(credentialOfferService.createAndDeliverCredentialOffer(
+                eq(issuanceId.toString()), eq(CONFIG_ID), anyString(), eq(EMAIL), eq("email"),
+                eq("refresh-token-123"), eq(BASE_URL), eq(WALLET_URL)))
+                .thenReturn(Mono.just(offerResult));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+                .assertNext(response -> assertNotNull(response.credentialOfferUri()))
+                .verifyComplete();
+
+        ArgumentCaptor<Issuance> persisted = ArgumentCaptor.forClass(Issuance.class);
+        verify(issuanceService).saveIssuance(persisted.capture());
+        assertEquals("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"x-coord\",\"y\":\"y-coord\"}}",
+                persisted.getValue().getHolderCnf());
     }
 
     @Test
@@ -1543,11 +1615,25 @@ class IssuanceWorkflowImplTest {
                 .build();
     }
 
+    /** Holder-bound, key supplied by the caller: cnf_required with no cryptographic binding method. */
     private CredentialProfile profileWithCnf() {
         return CredentialProfile.builder()
                 .credentialConfigurationId(CONFIG_ID)
                 .format("jwt_vc_json")
                 .cnfRequired(true)
+                .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
+                        .type(List.of("VerifiableCredential", "LEARCredentialEmployee"))
+                        .build())
+                .build();
+    }
+
+    /** Holder-bound, key supplied by a wallet proof: the only shape that makes direct ineligible. */
+    private CredentialProfile walletBoundProfileWithCnf() {
+        return CredentialProfile.builder()
+                .credentialConfigurationId(CONFIG_ID)
+                .format("jwt_vc_json")
+                .cnfRequired(true)
+                .cryptographicBindingMethodsSupported(Set.of("did:key"))
                 .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
                         .type(List.of("VerifiableCredential", "LEARCredentialEmployee"))
                         .build())
