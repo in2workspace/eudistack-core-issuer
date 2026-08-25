@@ -3,93 +3,68 @@ package es.in2.issuer.backend.shared.domain.model.entities;
 import jakarta.annotation.Nullable;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import lombok.*;
-import org.springframework.data.annotation.*;
-import org.springframework.data.relational.core.mapping.Column;
-import org.springframework.data.relational.core.mapping.Table;
 
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Domain model for a credential issuance. Framework-free by design (EUDISTACK-650 / H-05):
+ * persistence mapping (columns, optimistic-locking version, auditing) lives in the R2DBC
+ * adapter's {@code IssuanceEntity} + {@code IssuanceMapper}, reached only through
+ * {@code IssuancePort}.
+ */
 @Getter
 @Setter
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
 @ToString
-@Table("issuance")
 public class Issuance {
-    @Id
-    @Column("issuance_id")
     private UUID issuanceId;
 
-    @Column("credential_format")
     private String credentialFormat;
 
-    @Column("credential_data_set")
     private String credentialDataSet;
 
-    @Column("credential_status")
     private CredentialStatusEnum credentialStatus;
 
-    @Column("organization_identifier")
     private String organizationIdentifier;
 
-    @Column("subject")
     @Nullable
     private String subject;
 
-    @Column("credential_type")
     private String credentialType;
 
-    @Column("valid_from")
     private Timestamp validFrom;
 
-    @Column("valid_until")
     private Timestamp validUntil;
 
-    @Column("email")
     private String email;
 
-    @Column("delivery")
     private String delivery;
 
-    @Column("credential_offer_refresh_token")
     private String credentialOfferRefreshToken;
 
-    @Column("signed_credential")
     @Nullable
     private String signedCredential;
 
-    @Column("delivery_attempted_at")
     @Nullable
     private Instant deliveryAttemptedAt;
 
-    // Optimistic locking (V11, SD-04/EUD-225): every write to this row follows
-    // find -> validateTransition -> mutate -> save with no version check in between.
-    // Spring Data R2DBC manages this field automatically on save() -- a stale write now
-    // fails fast with OptimisticLockingFailureException instead of silently overwriting a
-    // concurrent writer's change (see IssuanceServiceImpl.updateIssuanceStatusToRevoked for
-    // the reconciliation this enables).
-    @Version
-    @Column("version")
+    // Optimistic-concurrency version (V11, SD-04/EUD-225). Opaque to domain logic: callers
+    // never compare or set it themselves, they just carry it through find -> mutate -> save
+    // so the persistence adapter can detect a lost race (see IssuancePort / IssuanceR2dbcAdapter
+    // for the Spring Data R2DBC mechanics this enables).
     private Long version;
 
-    // --- Auditing fields (R2DBC auditing will fill these) ---
-    @CreatedDate
-    @Column("created_at")
+    // --- Auditing fields (populated by the persistence adapter) ---
     private Instant createdAt;
 
-    @LastModifiedDate
-    @Column("updated_at")
     private Instant updatedAt;
 
-    @CreatedBy
-    @Column("created_by")
     private String createdBy;
 
-    @LastModifiedBy
-    @Column("updated_by")
     private String updatedBy;
-    // --------------------------------------------------------
+    // ----------------------------------------------------------------
 }

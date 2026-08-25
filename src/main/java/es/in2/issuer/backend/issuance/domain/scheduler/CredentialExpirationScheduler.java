@@ -6,7 +6,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
-import es.in2.issuer.backend.shared.infrastructure.repository.IssuanceRepository;
+import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -27,7 +27,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 @RequiredArgsConstructor
 public class CredentialExpirationScheduler {
 
-    private final IssuanceRepository issuanceRepository;
+    private final IssuancePort issuancePort;
     private final IssuanceService issuanceService;
     private final EmailService emailService;
     private final TenantRegistryService tenantRegistryService;
@@ -39,7 +39,7 @@ public class CredentialExpirationScheduler {
         return tenantRegistryService.getActiveTenantSchemas()
                 .flatMapMany(Flux::fromIterable)
                 .flatMap(tenant ->
-                        issuanceRepository.findAll()
+                        issuancePort.findAll()
                                 .flatMap(issuance -> isExpiredAndNotAlreadyMarked(issuance)
                                         .filter(Boolean::booleanValue)
                                         .flatMap(expired -> expireCredential(issuance)
@@ -89,7 +89,7 @@ public class CredentialExpirationScheduler {
             // here into an OptimisticLockingFailureException too. No reconciliation target
             // is defined for this scheduler (out of this Story's scope) -- surfaced as a
             // clear, logged domain exception instead of a bare R2DBC exception.
-            return issuanceRepository.save(issuance)
+            return issuancePort.save(issuance)
                     .onErrorMap(OptimisticLockingFailureException.class, e -> {
                         log.error("Concurrent update conflict expiring issuanceId={}: {}", issuance.getIssuanceId(), e.toString());
                         return new ConcurrentIssuanceUpdateException(issuance.getIssuanceId(), "expireCredential", e);

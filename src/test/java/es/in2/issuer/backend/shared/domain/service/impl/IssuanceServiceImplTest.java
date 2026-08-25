@@ -13,8 +13,8 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
+import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
-import es.in2.issuer.backend.shared.infrastructure.repository.IssuanceRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -23,7 +23,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.OptimisticLockingFailureException;
-import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -43,13 +42,10 @@ class IssuanceServiceImplTest {
     private static final String ADMIN_ORG_ID = "IN2_ADMIN_ORG_ID_FOR_TEST";
 
     @Mock
-    private IssuanceRepository issuanceRepository;
+    private IssuancePort issuancePort;
 
     @Mock
     private ObjectMapper objectMapper;
-
-    @Mock
-    private R2dbcEntityTemplate r2dbcEntityTemplate;
 
     @Mock
     private IssuerProperties appConfig;
@@ -85,7 +81,7 @@ class IssuanceServiceImplTest {
                 .credentialOfferRefreshToken(UUID.randomUUID().toString())
                 .build();
 
-        when(r2dbcEntityTemplate.insert(any(Issuance.class)))
+        when(issuancePort.insert(any(Issuance.class)))
                 .thenReturn(Mono.just(issuance));
 
         // When
@@ -100,7 +96,7 @@ class IssuanceServiceImplTest {
                                 saved.getOrganizationIdentifier().equals(organizationIdentifier))
                 .verifyComplete();
 
-        verify(r2dbcEntityTemplate, times(1)).insert(any(Issuance.class));
+        verify(issuancePort, times(1)).insert(any(Issuance.class));
     }
 
     @Test
@@ -115,7 +111,7 @@ class IssuanceServiceImplTest {
 
         JsonNode credentialNode = new ObjectMapper().readTree(credentialDataSet);
 
-        when(issuanceRepository.findById(any(UUID.class)))
+        when(issuancePort.findById(any(UUID.class)))
                 .thenReturn(Mono.just(issuance));
         when(objectMapper.readTree(credentialDataSet))
                 .thenReturn(credentialNode);
@@ -141,7 +137,7 @@ class IssuanceServiceImplTest {
 
         JsonNode credentialNode = new ObjectMapper().readTree(credentialDataSet);
 
-        when(issuanceRepository.findById(any(UUID.class)))
+        when(issuancePort.findById(any(UUID.class)))
                 .thenReturn(Mono.just(issuance));
         when(objectMapper.readTree(credentialDataSet))
                 .thenReturn(credentialNode);
@@ -167,7 +163,7 @@ class IssuanceServiceImplTest {
 
         JsonNode credentialNode = new ObjectMapper().readTree(credentialDataSet);
 
-        when(issuanceRepository.findById(any(UUID.class)))
+        when(issuancePort.findById(any(UUID.class)))
                 .thenReturn(Mono.just(issuance));
         when(objectMapper.readTree(credentialDataSet))
                 .thenReturn(credentialNode);
@@ -192,7 +188,7 @@ class IssuanceServiceImplTest {
         issuance.setIssuanceId(UUID.fromString(issuanceId));
         issuance.setCredentialDataSet(invalidCredentialDataSet);
 
-        when(issuanceRepository.findById(any(UUID.class)))
+        when(issuancePort.findById(any(UUID.class)))
                 .thenReturn(Mono.just(issuance));
         when(objectMapper.readTree(invalidCredentialDataSet))
                 .thenThrow(new RuntimeException("Invalid JSON"));
@@ -219,9 +215,9 @@ class IssuanceServiceImplTest {
         existingIssuance.setCredentialStatus(CredentialStatusEnum.DRAFT);
         existingIssuance.setCredentialFormat("old_format");
 
-        when(issuanceRepository.findById(any(UUID.class)))
+        when(issuancePort.findById(any(UUID.class)))
                 .thenReturn(Mono.just(existingIssuance));
-        when(issuanceRepository.save(any(Issuance.class)))
+        when(issuancePort.save(any(Issuance.class)))
                 .thenReturn(Mono.just(existingIssuance));
 
         // When
@@ -230,8 +226,8 @@ class IssuanceServiceImplTest {
         // Then
         StepVerifier.create(result).verifyComplete();
 
-        verify(issuanceRepository, times(1)).findById(UUID.fromString(issuanceId));
-        verify(issuanceRepository, times(1)).save(existingIssuance);
+        verify(issuancePort, times(1)).findById(UUID.fromString(issuanceId));
+        verify(issuancePort, times(1)).save(existingIssuance);
 
         assertEquals(newCredential, existingIssuance.getCredentialDataSet());
         assertEquals(newFormat, existingIssuance.getCredentialFormat());
@@ -245,7 +241,7 @@ class IssuanceServiceImplTest {
         String newCredential = "{\"vc\":{\"type\":[\"NewCredentialType\"]}}";
         String newFormat = "json";
 
-        when(issuanceRepository.findById(any(UUID.class)))
+        when(issuancePort.findById(any(UUID.class)))
                 .thenReturn(Mono.empty());
 
         // When
@@ -254,8 +250,8 @@ class IssuanceServiceImplTest {
         // Then
         StepVerifier.create(result).verifyComplete();
 
-        verify(issuanceRepository, times(1)).findById(UUID.fromString(issuanceId));
-        verify(issuanceRepository, times(0)).save(any(Issuance.class));
+        verify(issuancePort, times(1)).findById(UUID.fromString(issuanceId));
+        verify(issuancePort, times(0)).save(any(Issuance.class));
     }
 
     @Test
@@ -268,7 +264,7 @@ class IssuanceServiceImplTest {
         issuance.setIssuanceId(UUID.fromString(issuanceId));
         issuance.setCredentialDataSet(expectedCredentialDataSet);
 
-        when(issuanceRepository.findById(any(UUID.class)))
+        when(issuancePort.findById(any(UUID.class)))
                 .thenReturn(Mono.just(issuance));
 
         // When
@@ -286,7 +282,7 @@ class IssuanceServiceImplTest {
         String issuanceId = UUID.randomUUID().toString();
         CredentialStatusEnum expectedStatus = CredentialStatusEnum.ISSUED;
 
-        when(issuanceRepository.findCredentialStatusByIssuanceId(any(UUID.class)))
+        when(issuancePort.findCredentialStatusByIssuanceId(any(UUID.class)))
                 .thenReturn(Mono.just(expectedStatus.name()));
 
         // When
@@ -315,7 +311,7 @@ class IssuanceServiceImplTest {
         issuance2.setCredentialStatus(CredentialStatusEnum.ISSUED);
         issuance2.setOrganizationIdentifier(organizationIdentifier);
 
-        when(issuanceRepository.findByCredentialStatusAndOrganizationIdentifier(
+        when(issuancePort.findByCredentialStatusAndOrganizationIdentifier(
                 CredentialStatusEnum.ISSUED, organizationIdentifier))
                 .thenReturn(Flux.fromIterable(List.of(issuance1, issuance2)));
 
@@ -331,7 +327,7 @@ class IssuanceServiceImplTest {
         // Given
         String organizationIdentifier = "org-456";
 
-        when(issuanceRepository.findByCredentialStatusAndOrganizationIdentifier(
+        when(issuancePort.findByCredentialStatusAndOrganizationIdentifier(
                 CredentialStatusEnum.ISSUED, organizationIdentifier))
                 .thenReturn(Flux.empty());
 
@@ -362,7 +358,7 @@ class IssuanceServiceImplTest {
 
         JsonNode credentialNode = new ObjectMapper().readTree(credentialDataSet);
 
-        when(issuanceRepository.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), any(String.class)))
+        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), any(String.class)))
                 .thenReturn(Mono.just(issuance));
         when(objectMapper.readTree(credentialDataSet)).thenReturn(credentialNode);
 
@@ -380,9 +376,9 @@ class IssuanceServiceImplTest {
                 )
                 .verifyComplete();
 
-        verify(issuanceRepository, times(1))
+        verify(issuancePort, times(1))
                 .findByIssuanceIdAndOrganizationIdentifier(UUID.fromString(issuanceId), organizationIdentifier);
-        verify(issuanceRepository, never()).findByIssuanceId(any(UUID.class));
+        verify(issuancePort, never()).findByIssuanceId(any(UUID.class));
     }
 
     @Test
@@ -403,7 +399,7 @@ class IssuanceServiceImplTest {
 
         JsonNode credentialNode = new ObjectMapper().readTree(credentialDataSet);
 
-        when(issuanceRepository.findByIssuanceId(any(UUID.class)))
+        when(issuancePort.findByIssuanceId(any(UUID.class)))
                 .thenReturn(Mono.just(issuance));
         when(objectMapper.readTree(credentialDataSet)).thenReturn(credentialNode);
 
@@ -420,8 +416,8 @@ class IssuanceServiceImplTest {
                 )
                 .verifyComplete();
 
-        verify(issuanceRepository, times(1)).findByIssuanceId(UUID.fromString(issuanceId));
-        verify(issuanceRepository, never())
+        verify(issuancePort, times(1)).findByIssuanceId(UUID.fromString(issuanceId));
+        verify(issuancePort, never())
                 .findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), anyString());
     }
 
@@ -431,7 +427,7 @@ class IssuanceServiceImplTest {
         String issuanceId = UUID.randomUUID().toString();
         String organizationIdentifier = "org-123";
 
-        when(issuanceRepository.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), anyString()))
+        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), anyString()))
                 .thenReturn(Mono.empty());
 
         // When
@@ -453,7 +449,7 @@ class IssuanceServiceImplTest {
         String issuanceId = UUID.randomUUID().toString();
         String organizationIdentifier = ADMIN_ORG_ID;
 
-        when(issuanceRepository.findByIssuanceId(any(UUID.class)))
+        when(issuancePort.findByIssuanceId(any(UUID.class)))
                 .thenReturn(Mono.empty());
 
         // When
@@ -478,7 +474,7 @@ class IssuanceServiceImplTest {
         issuance.setCredentialDataSet(invalidCredentialDataSet);
         issuance.setOrganizationIdentifier(organizationIdentifier);
 
-        when(issuanceRepository.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), any(String.class)))
+        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), any(String.class)))
                 .thenReturn(Mono.just(issuance));
         when(objectMapper.readTree(invalidCredentialDataSet))
                 .thenThrow(new JsonParseException(null, "Error parsing credential"));
@@ -589,7 +585,7 @@ class IssuanceServiceImplTest {
         cp2.setUpdatedAt(Instant.parse("2025-02-12T09:30:00Z"));
         cp2.setCredentialDataSet("{\"vc\":{}}");
 
-        when(issuanceRepository.findAllOrderByUpdatedDesc())
+        when(issuancePort.findAllOrderByUpdatedDesc())
                 .thenReturn(Flux.fromIterable(List.of(cp2, cp1)));
 
         // objectMapper.readTree is called inside toIssuanceSummary
@@ -627,7 +623,7 @@ class IssuanceServiceImplTest {
                 })
                 .verifyComplete();
 
-        verify(issuanceRepository, times(1)).findAllOrderByUpdatedDesc();
+        verify(issuancePort, times(1)).findAllOrderByUpdatedDesc();
     }
 
     @Test
@@ -678,14 +674,14 @@ class IssuanceServiceImplTest {
                 )
                 .verifyComplete();
 
-        verify(issuanceRepository, never()).findAllOrderByUpdatedDesc();
+        verify(issuancePort, never()).findAllOrderByUpdatedDesc();
         verify(spyService, times(1)).getAllIssuanceSummariesByOrganizationId(orgId);
     }
 
     @Test
     void getAllProceduresBasicInfoForAllOrganizations_shouldReturnEmptyList_whenRepositoryIsEmpty() {
         // Given
-        when(issuanceRepository.findAllOrderByUpdatedDesc())
+        when(issuancePort.findAllOrderByUpdatedDesc())
                 .thenReturn(Flux.empty());
 
         // When
@@ -700,7 +696,7 @@ class IssuanceServiceImplTest {
                 })
                 .verifyComplete();
 
-        verify(issuanceRepository, times(1)).findAllOrderByUpdatedDesc();
+        verify(issuancePort, times(1)).findAllOrderByUpdatedDesc();
     }
 
     @Test
@@ -726,7 +722,7 @@ class IssuanceServiceImplTest {
         cp2.setUpdatedAt(Instant.parse("2025-02-12T09:30:00Z"));
         cp2.setCredentialDataSet("{\"vc\":{}}");
 
-        when(issuanceRepository.findAllByOrganizationIdentifier(orgId))
+        when(issuancePort.findAllByOrganizationIdentifier(orgId))
                 .thenReturn(Flux.fromIterable(List.of(cp1, cp2)));
 
         // objectMapper.readTree is called inside toIssuanceSummary
@@ -764,14 +760,14 @@ class IssuanceServiceImplTest {
                 })
                 .verifyComplete();
 
-        verify(issuanceRepository, times(1)).findAllByOrganizationIdentifier(orgId);
+        verify(issuancePort, times(1)).findAllByOrganizationIdentifier(orgId);
     }
 
     @Test
     void getAllIssuanceSummariesByOrganizationId_shouldReturnEmptyList_whenRepositoryIsEmpty() {
         // Given
         String orgId = "org-empty";
-        when(issuanceRepository.findAllByOrganizationIdentifier(orgId))
+        when(issuancePort.findAllByOrganizationIdentifier(orgId))
                 .thenReturn(Flux.empty());
 
         // When
@@ -786,7 +782,7 @@ class IssuanceServiceImplTest {
                 })
                 .verifyComplete();
 
-        verify(issuanceRepository, times(1)).findAllByOrganizationIdentifier(orgId);
+        verify(issuancePort, times(1)).findAllByOrganizationIdentifier(orgId);
     }
 
     @Test
@@ -810,7 +806,7 @@ class IssuanceServiceImplTest {
                 .build();
         when(credentialProfileRegistry.getByConfigurationId("gx.labelcredential.w3c.1"))
                 .thenReturn(labelProfile);
-        when(issuanceRepository.findByIssuanceId(UUID.fromString(issuanceId)))
+        when(issuancePort.findByIssuanceId(UUID.fromString(issuanceId)))
                 .thenReturn(Mono.just(cp));
         when(appConfig.getSysTenant()).thenReturn(sysTenant);
 
@@ -825,7 +821,7 @@ class IssuanceServiceImplTest {
                                 sysTenant.equals(info.organization()))
                 .verifyComplete();
 
-        verify(issuanceRepository, times(1))
+        verify(issuancePort, times(1))
                 .findByIssuanceId(UUID.fromString(issuanceId));
         verify(appConfig, times(1)).getSysTenant();
     }
@@ -841,9 +837,9 @@ class IssuanceServiceImplTest {
         issuance.setCredentialStatus(CredentialStatusEnum.WITHDRAWN);
         issuance.setCredentialDataSet(originalDataSet);
 
-        when(issuanceRepository.findByIssuanceId(UUID.fromString(issuanceId)))
+        when(issuancePort.findByIssuanceId(UUID.fromString(issuanceId)))
                 .thenReturn(Mono.just(issuance));
-        when(issuanceRepository.save(any(Issuance.class)))
+        when(issuancePort.save(any(Issuance.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
         // When
@@ -852,8 +848,8 @@ class IssuanceServiceImplTest {
         // Then
         StepVerifier.create(result).verifyComplete();
 
-        verify(issuanceRepository, times(1)).findByIssuanceId(UUID.fromString(issuanceId));
-        verify(issuanceRepository, times(1)).save(issuance);
+        verify(issuancePort, times(1)).findByIssuanceId(UUID.fromString(issuanceId));
+        verify(issuancePort, times(1)).save(issuance);
         
         assertEquals(CredentialStatusEnum.ARCHIVED, issuance.getCredentialStatus());
         assertEquals(originalDataSet, issuance.getCredentialDataSet(), "archiveIssuance should not modify credential dataset");
@@ -869,7 +865,7 @@ class IssuanceServiceImplTest {
         issuance.setIssuanceId(UUID.randomUUID());
         issuance.setCredentialStatus(CredentialStatusEnum.VALID);
 
-        when(issuanceRepository.save(issuance)).thenReturn(Mono.just(issuance));
+        when(issuancePort.save(issuance)).thenReturn(Mono.just(issuance));
 
         // When
         Mono<Void> result = issuanceService.updateIssuanceStatusToRevoked(issuance);
@@ -877,8 +873,8 @@ class IssuanceServiceImplTest {
         // Then
         StepVerifier.create(result).verifyComplete();
         assertEquals(CredentialStatusEnum.REVOKED, issuance.getCredentialStatus());
-        verify(issuanceRepository, times(1)).save(issuance);
-        verify(issuanceRepository, never()).findById(any(UUID.class));
+        verify(issuancePort, times(1)).save(issuance);
+        verify(issuancePort, never()).findById(any(UUID.class));
     }
 
     @Test
@@ -896,9 +892,9 @@ class IssuanceServiceImplTest {
         winnerCurrentRow.setIssuanceId(issuanceId);
         winnerCurrentRow.setCredentialStatus(CredentialStatusEnum.REVOKED);
 
-        when(issuanceRepository.save(staleSnapshot))
+        when(issuancePort.save(staleSnapshot))
                 .thenReturn(Mono.error(new OptimisticLockingFailureException("stale version")));
-        when(issuanceRepository.findById(issuanceId)).thenReturn(Mono.just(winnerCurrentRow));
+        when(issuancePort.findById(issuanceId)).thenReturn(Mono.just(winnerCurrentRow));
 
         // When
         Mono<Void> result = issuanceService.updateIssuanceStatusToRevoked(staleSnapshot);
@@ -909,7 +905,7 @@ class IssuanceServiceImplTest {
         StepVerifier.create(result)
                 .expectErrorMatches(InvalidCredentialStatusTransitionException.class::isInstance)
                 .verify();
-        verify(issuanceRepository, times(1)).findById(issuanceId);
+        verify(issuancePort, times(1)).findById(issuanceId);
     }
 
     @Test
@@ -926,8 +922,8 @@ class IssuanceServiceImplTest {
         unexpectedCurrentRow.setCredentialStatus(CredentialStatusEnum.EXPIRED);
 
         OptimisticLockingFailureException conflict = new OptimisticLockingFailureException("stale version");
-        when(issuanceRepository.save(staleSnapshot)).thenReturn(Mono.error(conflict));
-        when(issuanceRepository.findById(issuanceId)).thenReturn(Mono.just(unexpectedCurrentRow));
+        when(issuancePort.save(staleSnapshot)).thenReturn(Mono.error(conflict));
+        when(issuancePort.findById(issuanceId)).thenReturn(Mono.just(unexpectedCurrentRow));
 
         // When
         Mono<Void> result = issuanceService.updateIssuanceStatusToRevoked(staleSnapshot);
@@ -952,7 +948,7 @@ class IssuanceServiceImplTest {
         cp1.setUpdatedAt(Instant.parse("2025-01-10T10:00:00Z"));
         cp1.setCredentialDataSet("{\"vc\":{}}");
 
-        when(issuanceRepository.findAllOrderByUpdatedDesc())
+        when(issuancePort.findAllOrderByUpdatedDesc())
                 .thenReturn(Flux.just(cp1));
 
         try {
@@ -972,8 +968,8 @@ class IssuanceServiceImplTest {
                 })
                 .verifyComplete();
 
-        verify(issuanceRepository, times(1)).findAllOrderByUpdatedDesc();
-        verify(issuanceRepository, never()).findAllByOrganizationIdentifier(anyString());
+        verify(issuancePort, times(1)).findAllOrderByUpdatedDesc();
+        verify(issuancePort, never()).findAllByOrganizationIdentifier(anyString());
     }
 
 }
