@@ -106,6 +106,43 @@ class ParServiceImplTest {
     }
 
     @Test
+    void pushAuthorizationRequest_shouldFailWhenRequestUriParamBlank() {
+        // request_uri= (empty) still means the forbidden parameter is present - Spring binds
+        // it as "" rather than null, and RFC 9126 section 4 disallows the parameter entirely,
+        // regardless of its value.
+        PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
+                .responseType("code")
+                .redirectUri("https://wallet/callback")
+                .requestUri("")
+                .build();
+
+        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par", null))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
+                        && e.getMessage().equals("request_uri parameter is not allowed in a pushed authorization request"))
+                .verify();
+
+        verifyNoInteractions(parCacheStore);
+    }
+
+    @Test
+    void pushAuthorizationRequest_shouldFailWhenRequestUriParamWhitespace() {
+        PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
+                .responseType("code")
+                .redirectUri("https://wallet/callback")
+                .requestUri("   ")
+                .build();
+
+        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par", null))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
+                        && e.getMessage().equals("request_uri parameter is not allowed in a pushed authorization request"))
+                .verify();
+
+        verifyNoInteractions(parCacheStore);
+    }
+
+    @Test
     void pushAuthorizationRequest_shouldFailWhenRedirectUriMissing() {
         // Regression test: redirect_uri has no bean-validation constraint on
         // PushedAuthorizationRequest, so a request missing it used to sail through PAR and

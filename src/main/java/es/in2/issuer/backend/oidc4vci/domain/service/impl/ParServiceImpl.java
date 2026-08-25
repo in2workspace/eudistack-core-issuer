@@ -60,8 +60,10 @@ public class ParServiceImpl implements ParService {
     // it must never be accepted as an input parameter of the pushed request itself. Without
     // explicitly binding and validating it, a request carrying request_uri could be silently
     // accepted (201) because Spring would otherwise drop the unknown form parameter.
+    // Any non-null value means the parameter was present (including blank from an explicit
+    // request_uri= with no value) - only null means it was truly absent from the form body.
     private Mono<Void> validateNoRequestUriParam(PushedAuthorizationRequest request) {
-        if (request.requestUri() != null && !request.requestUri().isBlank()) {
+        if (request.requestUri() != null) {
             return Mono.error(OAuthTokenException.invalidRequest(
                     "request_uri parameter is not allowed in a pushed authorization request"));
         }
