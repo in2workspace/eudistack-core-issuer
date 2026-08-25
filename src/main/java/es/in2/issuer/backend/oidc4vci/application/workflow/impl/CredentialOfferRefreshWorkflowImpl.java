@@ -2,6 +2,7 @@ package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
 import es.in2.issuer.backend.oidc4vci.application.workflow.CredentialOfferRefreshWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
+import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferResult;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
@@ -42,8 +43,27 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
                         credentialOfferRefreshToken,
                         publicIssuerBaseUrl,
                         publicWalletBaseUrl))
+                .flatMap(this::requireDeliveredChannel)
                 .doOnSuccess(v -> log.info("Credential offer refreshed successfully"))
                 .then();
+    }
+
+    /**
+     * A refresh declares a single channel (email), so its failure means nothing was delivered.
+     *
+     * <p>Needed because {@code createAndDeliverCredentialOffer} now isolates the mail leg and reports
+     * it per channel instead of erroring (EUD-33 AD-5). Without this check the isolation would turn
+     * an undelivered refresh into a silent 200 — the same rule as AD-4, applied to this endpoint:
+     * zero channels delivered is never a success.
+     */
+    private Mono<CredentialOfferResult> requireDeliveredChannel(CredentialOfferResult result) {
+        String failure = result.failedModes().get(DeliveryMode.EMAIL);
+        if (failure != null) {
+            log.error("Credential offer refresh failed to deliver the email: {}", failure);
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR, "The credential offer could not be delivered"));
+        }
+        return Mono.just(result);
     }
 
     private Mono<Issuance> validateDraftStatus(Issuance issuance) {

@@ -5,6 +5,7 @@ import es.in2.issuer.backend.oidc4vci.domain.service.PreAuthorizedCodeService;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotificationInfo;
 import es.in2.issuer.backend.shared.domain.model.dto.PreAuthorizedCodeResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.TxCode;
+import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
@@ -199,5 +200,89 @@ class CredentialOfferServiceImplTest {
         verify(emailService).sendCredentialOfferEmail(
                 eq("user@sandbox.com"), any(), argThat(url -> url.startsWith("https://sandbox.eudistack.net/wallet")), any(), eq("Sandbox Org"), isNull());
         verify(emailService, never()).sendBrandedCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    // --- EUD-33 EC-05 / AD-5: the mail leg is isolated from the offer identifier ---
+
+    @Test
+    void createAndDeliverCredentialOffer_whenEmailFailsWithQrChannelDeclared_reportsOnlyEmailFailedAndKeepsUri() {
+        // The offer is cached and redeemable before any transport runs, so an SMTP outage must neither
+        // discard the URI the QR needs nor condemn a channel whose transport did not fail.
+        String issuanceId = "test-issuance-id";
+        String configId = "learcredential.employee.w3c.4";
+
+        when(tenantConfigService.getStringOrThrow("issuer.frontend_url"))
+                .thenReturn(Mono.just("https://frontend.example.com/issuer"));
+        when(issuerStateCacheStore.add(anyString(), eq(issuanceId)))
+                .thenReturn(Mono.just("cached"));
+        when(credentialOfferCacheRepository.saveCredentialOffer(any()))
+                .thenReturn(Mono.just("cache-nonce"));
+        when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId))
+                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("test@example.com", "TestOrg")));
+        when(emailService.sendCredentialOfferEmail(
+                anyString(), anyString(), anyString(), anyString(), anyString(), isNull()))
+                .thenReturn(Mono.error(new RuntimeException("SMTP unavailable")));
+
+        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
+                        issuanceId, configId, "authorization_code", "test@example.com", "email,ui",
+                        "refresh-token", "https://example.com", "https://example.com/wallet"))
+                .assertNext(result -> {
+                    assertThat(result.credentialOfferUri()).isNotNull();
+                    assertThat(result.failedModes()).containsOnlyKeys(DeliveryMode.EMAIL);
+                    assertThat(result.failedModes().get(DeliveryMode.EMAIL)).isNotBlank();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void createAndDeliverCredentialOffer_whenEmailFailsOnEmailOnlyDelivery_reportsFailureWithoutErroring() {
+        // Deciding the overall outcome belongs to the caller (AD-4): this method reports per channel.
+        String issuanceId = "test-issuance-id";
+        String configId = "learcredential.employee.w3c.4";
+
+        when(tenantConfigService.getStringOrThrow("issuer.frontend_url"))
+                .thenReturn(Mono.just("https://frontend.example.com/issuer"));
+        when(issuerStateCacheStore.add(anyString(), eq(issuanceId)))
+                .thenReturn(Mono.just("cached"));
+        when(credentialOfferCacheRepository.saveCredentialOffer(any()))
+                .thenReturn(Mono.just("cache-nonce"));
+        when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId))
+                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("test@example.com", "TestOrg")));
+        when(emailService.sendCredentialOfferEmail(
+                anyString(), anyString(), anyString(), anyString(), anyString(), isNull()))
+                .thenReturn(Mono.error(new RuntimeException("SMTP unavailable")));
+
+        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
+                        issuanceId, configId, "authorization_code", "test@example.com", "email",
+                        "refresh-token", "https://example.com", "https://example.com/wallet"))
+                .assertNext(result -> {
+                    assertThat(result.credentialOfferUri()).isNull();
+                    assertThat(result.failedModes()).containsOnlyKeys(DeliveryMode.EMAIL);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void createAndDeliverCredentialOffer_whenEmailSucceeds_reportsNoFailedModes() {
+        String issuanceId = "test-issuance-id";
+        String configId = "learcredential.employee.w3c.4";
+
+        when(tenantConfigService.getStringOrThrow("issuer.frontend_url"))
+                .thenReturn(Mono.just("https://frontend.example.com/issuer"));
+        when(issuerStateCacheStore.add(anyString(), eq(issuanceId)))
+                .thenReturn(Mono.just("cached"));
+        when(credentialOfferCacheRepository.saveCredentialOffer(any()))
+                .thenReturn(Mono.just("cache-nonce"));
+        when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId))
+                .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("test@example.com", "TestOrg")));
+        when(emailService.sendCredentialOfferEmail(
+                anyString(), anyString(), anyString(), anyString(), anyString(), isNull()))
+                .thenReturn(Mono.empty());
+
+        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
+                        issuanceId, configId, "authorization_code", "test@example.com", "email",
+                        "refresh-token", "https://example.com", "https://example.com/wallet"))
+                .assertNext(result -> assertThat(result.failedModes()).isEmpty())
+                .verifyComplete();
     }
 }

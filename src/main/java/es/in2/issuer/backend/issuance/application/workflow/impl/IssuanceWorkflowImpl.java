@@ -7,6 +7,7 @@ import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedEx
 import es.in2.issuer.backend.shared.domain.exception.MissingIdTokenHeaderException;
 import es.in2.issuer.backend.shared.domain.exception.TenantNotResolvedException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialBuildResult;
+import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferResult;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
@@ -23,6 +24,7 @@ import es.in2.issuer.backend.issuance.infrastructure.config.properties.IssuanceP
 import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryTrace;
 import es.in2.issuer.backend.issuance.domain.model.HolderKey;
+import es.in2.issuer.backend.issuance.domain.exception.DeliveryFailedException;
 import es.in2.issuer.backend.issuance.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
@@ -36,8 +38,9 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -104,7 +107,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                         "ProcessId: {} - Credential issuance failed for credentialConfigurationId={} delivery={}",
                                         processId, configId, delivery, e);
                                 if (tenant != null && !tenant.isBlank()) {
-                                    auditDeliveryFailureBestEffort(tenant, processId);
+                                    auditDeliveryFailureBestEffort(tenant, processId, e);
                                 }
                             });
                 });
@@ -134,11 +137,22 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         }
     }
 
-    /** Best-effort (ES-03/ES-04). Failure path has no per-mode result (ES-01: indeterminate). */
-    private void auditDeliveryFailureBestEffort(String tenant, String processId) {
+    /**
+     * Best-effort (ES-03/ES-04), and per-mode whenever the operation actually knew the modes
+     * (EUD-170 AC-03).
+     *
+     * <p>{@link DeliveryFailedException} is the only failure that ran delivery modes, so it is the
+     * only one carrying results. Everything else -- validation, tenant resolution, authorization --
+     * failed before any mode executed, and for those the indeterminate trace of EUD-170 ES-01 is the
+     * honest answer rather than a fabricated per-mode verdict.
+     */
+    private void auditDeliveryFailureBestEffort(String tenant, String processId, Throwable error) {
         try {
-            auditService.auditDelivery(DeliveryTrace.of(tenant, processId,
-                    Set.of(DeliveryResult.failed("unknown", "indeterminate_result"))));
+            Set<DeliveryResult> results = (error instanceof DeliveryFailedException failure
+                    && !failure.deliveryResults().isEmpty())
+                    ? Set.copyOf(failure.deliveryResults())
+                    : Set.of(DeliveryResult.failed("unknown", "indeterminate_result"));
+            auditService.auditDelivery(DeliveryTrace.of(tenant, processId, results));
         } catch (RuntimeException e) {
             log.warn("ProcessId: {} - Failed to build/emit delivery audit trace", processId, e);
         }
@@ -154,11 +168,22 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
             String publicWalletBaseUrl) {
 
         String delivery = request.delivery() != null ? request.delivery() : DEFAULT_DELIVERY;
-        String safeDelivery = keepOnlyOid4vciDeliveryModes(delivery);
 
         return validateRequest(request, null)
                 .then(Mono.defer(() -> payloadSchemaValidator.validate(request.credentialConfigurationId(), request.payload())))
-                .then(Mono.defer(() -> performIssuanceFlow(processId, request, token, publicIssuerBaseUrl, publicWalletBaseUrl, safeDelivery)));
+                // Resolved inside the chain, not before it: keepOnlyOid4vciDeliveryModes throws for a
+                // bootstrap request declaring only `direct`, and thrown outside the chain that escaped
+                // every @ExceptionHandler and surfaced as a 500 instead of a 400.
+                .then(Mono.defer(() -> {
+                    final String safeDelivery;
+                    try {
+                        safeDelivery = keepOnlyOid4vciDeliveryModes(delivery);
+                    } catch (IllegalArgumentException ex) {
+                        return Mono.error(new InvalidDeliveryModeException(ex.getMessage()));
+                    }
+                    return performIssuanceFlow(processId, request, token, publicIssuerBaseUrl,
+                            publicWalletBaseUrl, safeDelivery);
+                }));
     }
 
     private Mono<Void> validateRequest(IssuanceRequest request, String idToken) {
@@ -244,8 +269,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         Mono<DirectDeliveryOutcome> directOutcome = hasDirect
                 ? performDirectIssuance(processId, request, idToken, publicIssuerBaseUrl, delivery, cnf, holderCnf)
-                .map(r -> new DirectDeliveryOutcome(r.signedCredential(),
-                        DeliveryResult.delivered(DeliveryMode.DIRECT.value)))
+                .map(r -> DirectDeliveryOutcome.delivered(r.signedCredential()))
                 .doOnSuccess(outcome -> {
                     if (outcome != null) {
                         credentialIssuedLogger.logIssued(request.credentialConfigurationId());
@@ -261,6 +285,11 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                             e
                     );
                 })
+                // Materialized rather than propagated (EUD-33 AD-4). Propagating made Mono.zip cancel
+                // the wallet leg mid-flight, so the caller got a bare 5xx while an offer may already
+                // have been cached and an email sent, with nothing in the response or the audit trace
+                // saying so. The failure still decides the HTTP status, in resolveResponse.
+                .onErrorResume(e -> Mono.just(DirectDeliveryOutcome.failed(e)))
                 : Mono.just(DirectDeliveryOutcome.empty());
 
         Mono<WalletDeliveryOutcome> walletOutcome = hasOid4vci
@@ -269,7 +298,51 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 : Mono.just(WalletDeliveryOutcome.empty());
 
         return Mono.zip(directOutcome, walletOutcome)
-                .map(tuple -> assembleResponse(tuple.getT1(), tuple.getT2()));
+                .flatMap(tuple -> resolveResponse(tuple.getT1(), tuple.getT2(), hasDirect));
+    }
+
+    /**
+     * Turns both outcomes into either a 200 response or a {@link DeliveryFailedException}
+     * (EUD-33 AC-06).
+     *
+     * <p>The rule: <b>error if {@code direct} was declared and failed, or if no declared mode was
+     * delivered; 200 otherwise</b> -- and {@code delivery_results} travels either way.
+     *
+     * <p>{@code direct} is decisive because the request asked for the credential <em>in the
+     * response</em> (FR-03), and a wallet dispatch does not compensate for not returning it: ES-02
+     * forbids a 2xx there. Among wallet modes, one delivered <em>is</em> a genuine partial success,
+     * because the holder can still obtain the credential through that channel. Before this rule a
+     * wallet-only issuance whose only mode failed answered 200, asserting a delivery that never
+     * happened.
+     */
+    private Mono<IssuanceResponse> resolveResponse(DirectDeliveryOutcome direct, WalletDeliveryOutcome wallet,
+                                                    boolean directDeclared) {
+        List<DeliveryResult> results = new ArrayList<>();
+        if (direct.deliveryResult() != null) {
+            results.add(direct.deliveryResult());
+        }
+        results.addAll(wallet.deliveryResults());
+
+        boolean directFailed = directDeclared && direct.failure() != null;
+        boolean anyDelivered = results.stream().anyMatch(r ->
+                r.status() == DeliveryResult.DeliveryOutcome.DELIVERED
+                        || r.status() == DeliveryResult.DeliveryOutcome.DISPATCHED);
+
+        if (directFailed || !anyDelivered) {
+            // Fixed message, cause attached but never interpolated: the actionable per-mode detail
+            // already travels in delivery_results, and ErrorResponseFactory would surface this text
+            // to the client verbatim as `detail`.
+            String detail = directFailed
+                    ? "Direct delivery failed; the credential was not returned"
+                    : "No declared delivery mode completed successfully";
+            return Mono.error(new DeliveryFailedException(detail, results, direct.failure()));
+        }
+
+        return Mono.just(IssuanceResponse.builder()
+                .signedCredential(direct.signedCredential())
+                .credentialOfferUri(wallet.credentialOfferUri())
+                .deliveryResults(results.isEmpty() ? null : results)
+                .build());
     }
 
     private Mono<WalletDeliveryOutcome> performOid4VciIssuanceResilient(
@@ -278,7 +351,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         return performOid4VciIssuance(processId, request, publicIssuerBaseUrl, publicWalletBaseUrl,
                         oid4vciDelivery, holderCnf)
-                .map(r -> WalletDeliveryOutcome.success(r.credentialOfferUri(), oid4vciDelivery))
+                .map(offer -> WalletDeliveryOutcome.of(offer, oid4vciDelivery))
                 .timeout(Duration.ofSeconds(issuanceProperties.hybridWalletTimeoutSeconds()))
                 .onErrorResume(ex -> {
                     log.warn("ProcessId: {} - Wallet delivery failed (isolated): {}", processId, ex.toString());
@@ -293,24 +366,25 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         return ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
     }
 
-    private IssuanceResponse assembleResponse(DirectDeliveryOutcome direct, WalletDeliveryOutcome wallet) {
-        List<DeliveryResult> results = new ArrayList<>();
-        if (direct.deliveryResult() != null) {
-            results.add(direct.deliveryResult());
-        }
-        results.addAll(wallet.deliveryResults());
-
-        return IssuanceResponse.builder()
-                .signedCredential(direct.signedCredential())
-                .credentialOfferUri(wallet.credentialOfferUri())
-                .deliveryResults(results.isEmpty() ? null : results)
-                .build();
-    }
-
-    /** Internal outcome of the direct path (not exposed in the API). */
-    private record DirectDeliveryOutcome(String signedCredential, DeliveryResult deliveryResult) {
+    /**
+     * Internal outcome of the direct path (not exposed in the API).
+     *
+     * <p>{@code failure} is non-null exactly when the direct leg errored. It is kept rather than
+     * propagated so the wallet leg result survives into the response and the audit trace.
+     */
+    private record DirectDeliveryOutcome(String signedCredential, DeliveryResult deliveryResult, Throwable failure) {
         static DirectDeliveryOutcome empty() {
-            return new DirectDeliveryOutcome(null, null);
+            return new DirectDeliveryOutcome(null, null, null);
+        }
+
+        static DirectDeliveryOutcome delivered(String signedCredential) {
+            return new DirectDeliveryOutcome(signedCredential,
+                    DeliveryResult.delivered(DeliveryMode.DIRECT.value), null);
+        }
+
+        static DirectDeliveryOutcome failed(Throwable error) {
+            String detail = error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName();
+            return new DirectDeliveryOutcome(null, DeliveryResult.failed(DeliveryMode.DIRECT.value, detail), error);
         }
     }
 
@@ -320,22 +394,33 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
             return new WalletDeliveryOutcome(null, List.of());
         }
 
-        static WalletDeliveryOutcome success(String uri, String oid4vciDelivery) {
-            List<DeliveryResult> results = Arrays.stream(oid4vciDelivery.split(","))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .map(DeliveryResult::dispatched)
+        /**
+         * Per-channel outcome of a dispatch that ran (EUD-33 EC-05): a channel is failed only when
+         * its own transport failed, so an SMTP outage no longer condemns the QR channel that shared
+         * the dispatch, nor discards the offer identifier that QR needs.
+         */
+        static WalletDeliveryOutcome of(CredentialOfferResult offer, String oid4vciDelivery) {
+            List<DeliveryResult> results = declaredModes(oid4vciDelivery).stream()
+                    .map(mode -> offer.failedModes().containsKey(mode)
+                            ? DeliveryResult.failed(mode.value, offer.failedModes().get(mode))
+                            : DeliveryResult.dispatched(mode.value))
                     .toList();
-            return new WalletDeliveryOutcome(uri, results);
+            return new WalletDeliveryOutcome(offer.credentialOfferUri(), results);
         }
 
+        /** The dispatch never ran (dependency down, timeout): every declared channel is failed. */
         static WalletDeliveryOutcome failed(String oid4vciDelivery, String error) {
-            List<DeliveryResult> results = Arrays.stream(oid4vciDelivery.split(","))
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .map(mode -> DeliveryResult.failed(mode, error))
+            List<DeliveryResult> results = declaredModes(oid4vciDelivery).stream()
+                    .map(mode -> DeliveryResult.failed(mode.value, error))
                     .toList();
             return new WalletDeliveryOutcome(null, results);
+        }
+
+        private static List<DeliveryMode> declaredModes(String oid4vciDelivery) {
+            // EnumSet, not the parsed Set: DeliveryMode.parse collects into a HashSet, whose enum
+            // iteration order is identity-hash based and therefore varies between JVM runs, which
+            // would make the order of delivery_results unstable.
+            return EnumSet.copyOf(DeliveryMode.parse(oid4vciDelivery)).stream().toList();
         }
     }
 
@@ -394,7 +479,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 );
     }
 
-    private Mono<IssuanceResponse> performOid4VciIssuance(String processId, IssuanceRequest request,
+    private Mono<CredentialOfferResult> performOid4VciIssuance(String processId, IssuanceRequest request,
                                                            String publicIssuerBaseUrl, String publicWalletBaseUrl,
                                                            String oid4vciDelivery, String holderCnf) {
         String configId = request.credentialConfigurationId();
@@ -410,13 +495,9 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                     return issuanceService.saveIssuance(issuance)
                             .doOnSuccess(saved -> log.debug("ProcessId: {} - Created OID4VCI issuance: {}", processId, saved.getIssuanceId()))
                             .flatMap(saved -> credentialOfferService.createAndDeliverCredentialOffer(
-                                            saved.getIssuanceId().toString(), configId, grantType, request.email(),
-                                            oid4vciDelivery, saved.getCredentialOfferRefreshToken(),
-                                            publicIssuerBaseUrl, publicWalletBaseUrl)
-                                    .map(offerResult -> IssuanceResponse.builder()
-                                            .credentialOfferUri(offerResult.credentialOfferUri())
-                                            .build())
-                            );
+                                    saved.getIssuanceId().toString(), configId, grantType, request.email(),
+                                    oid4vciDelivery, saved.getCredentialOfferRefreshToken(),
+                                    publicIssuerBaseUrl, publicWalletBaseUrl));
                 });
     }
 
@@ -469,8 +550,17 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         return CredentialStatusEnum.VALID;
     }
 
+    /**
+     * The OID4VCI modes of the request as a CSV, in stable enum order.
+     *
+     * <p>Ordered on purpose: {@code DeliveryMode.parse} collects into a {@code HashSet}, whose enum
+     * iteration order is identity-hash based and varies between JVM runs. This CSV reaches both
+     * {@code delivery_results} and the persisted {@code delivery} column, so an unstable order would
+     * make both non-deterministic.
+     */
     private String extractOid4vciDelivery(Set<DeliveryMode> modes) {
-        return modes.stream()
+        return Arrays.stream(DeliveryMode.values())
+                .filter(modes::contains)
                 .filter(m -> m.isOid4vci)
                 .map(m -> m.value)
                 .collect(Collectors.joining(","));

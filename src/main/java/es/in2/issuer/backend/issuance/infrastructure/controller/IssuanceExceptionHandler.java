@@ -4,6 +4,7 @@ import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
+import es.in2.issuer.backend.issuance.domain.exception.DeliveryFailedException;
 import es.in2.issuer.backend.issuance.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
@@ -66,6 +67,30 @@ public class IssuanceExceptionHandler {
                 "Delivery mode not eligible",
                 HttpStatus.CONFLICT,
                 "The declared delivery mode is not eligible for this credential type"
+        );
+    }
+
+    /**
+     * Nothing usable was delivered (EUD-33 AC-06): either {@code direct} was declared and failed
+     * -- ES-02 forbids a 2xx there, a wallet dispatch does not compensate for not returning the
+     * credential the caller asked for -- or no declared mode succeeded at all.
+     *
+     * <p>A single 500 rather than a status taxonomy by cause: no AC asks for one, and the actionable
+     * part is the per-mode outcome in {@code delivery_results}, which travels in the body either way.
+     */
+    @ExceptionHandler(DeliveryFailedException.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public Mono<GlobalErrorMessage> handleDeliveryFailed(
+            DeliveryFailedException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWithDeliveryResults(
+                ex, request,
+                GlobalErrorTypes.DELIVERY_FAILED.getCode(),
+                "Delivery failed",
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "No declared delivery mode completed successfully",
+                ex.deliveryResults()
         );
     }
 

@@ -7,6 +7,7 @@ import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflo
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.MissingIdTokenHeaderException;
 import es.in2.issuer.backend.shared.domain.exception.TenantNotResolvedException;
+import es.in2.issuer.backend.issuance.domain.exception.DeliveryFailedException;
 import es.in2.issuer.backend.issuance.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
@@ -19,6 +20,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.policy.service.IssuancePdpService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
@@ -615,8 +617,17 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.error(new IllegalStateException("signer down")));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
+        // AC-06: the direct leg is materialized now, so the failure surfaces as DeliveryFailedException
+        // with the original cause attached, not as the raw signer error.
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
-                .expectError(IllegalStateException.class)
+                .expectErrorSatisfies(error -> {
+                    assertInstanceOf(DeliveryFailedException.class, error);
+                    assertInstanceOf(IllegalStateException.class, error.getCause());
+                    DeliveryFailedException failure = (DeliveryFailedException) error;
+                    assertEquals(1, failure.deliveryResults().size());
+                    assertEquals("direct", failure.deliveryResults().getFirst().mode());
+                    assertEquals(DeliveryResult.DeliveryOutcome.FAILED, failure.deliveryResults().getFirst().status());
+                })
                 .verify();
 
         verify(issuanceService, never()).saveIssuance(any());
@@ -647,7 +658,10 @@ class IssuanceWorkflowImplTest {
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
-                .expectError(IllegalStateException.class)
+                .expectErrorSatisfies(error -> {
+                    assertInstanceOf(DeliveryFailedException.class, error);
+                    assertInstanceOf(IllegalStateException.class, error.getCause());
+                })
                 .verify();
     }
 
@@ -1455,13 +1469,16 @@ class IssuanceWorkflowImplTest {
                 .expectError(RuntimeException.class)
                 .verify();
 
+        // EUD-170 AC-03: the failure path knew which mode failed, so the trace says "direct", not
+        // "unknown". The indeterminate trace of ES-01 is reserved for failures that ran no mode at all.
         ArgumentCaptor<DeliveryTrace> captor = ArgumentCaptor.forClass(DeliveryTrace.class);
         verify(auditService).auditDelivery(captor.capture());
         DeliveryTrace trace = captor.getValue();
         assertEquals(TENANT_ID, trace.tenantId());
         assertTrue(trace.hasFailure());
         assertTrue(trace.results().stream().anyMatch(r ->
-                r.status() == DeliveryResult.DeliveryOutcome.FAILED && "indeterminate_result".equals(r.error())));
+                "direct".equals(r.mode()) && r.status() == DeliveryResult.DeliveryOutcome.FAILED));
+        assertTrue(trace.results().stream().noneMatch(r -> "unknown".equals(r.mode())));
     }
 
     @Test
@@ -1594,7 +1611,170 @@ class IssuanceWorkflowImplTest {
                 .verifyComplete();
     }
 
+    // --- AC-06 / EC-05 / ES-07: per-mode result contract and the HTTP status rule ---
+
+    @Test
+    void walletOnlyDeliveryTotalFailureShouldFailInsteadOfReportingSuccess() {
+        // ES-07: nothing was delivered, so a 200 would assert a delivery that never happened.
+        UUID issuanceId = UUID.randomUUID();
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null);
+        CredentialProfile profile = profileWithoutCnf();
+        Issuance saved = Issuance.builder().issuanceId(issuanceId).credentialOfferRefreshToken("rt").build();
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(profile, payload))
+                .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
+        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(saved));
+        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.error(new RuntimeException("SMTP unavailable")));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+                .expectErrorSatisfies(error -> {
+                    DeliveryFailedException failure = assertInstanceOf(DeliveryFailedException.class, error);
+                    assertEquals(1, failure.deliveryResults().size());
+                    DeliveryResult email = failure.deliveryResults().getFirst();
+                    assertEquals("email", email.mode());
+                    assertEquals(DeliveryResult.DeliveryOutcome.FAILED, email.status());
+                    assertNotNull(email.error());
+                })
+                .verify();
+    }
+
+    @Test
+    void hybridDirectFailureShouldStillReportTheWalletDispatchInTheErrorResults() {
+        // AC-06 + ES-02: direct is decisive, so this is an error — but the wallet leg dispatched, and
+        // discarding that is what left the caller unable to tell whether an email had gone out.
+        UUID issuanceId = UUID.randomUUID();
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "direct,email", EMAIL, null);
+        CredentialProfile profile = profileWithoutCnf();
+        Issuance saved = Issuance.builder().issuanceId(issuanceId).credentialOfferRefreshToken("rt").build();
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(profile, payload))
+                .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
+        when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
+                .thenReturn(Mono.just("enriched-data-set"));
+        when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
+                .thenReturn(Mono.just(statusListEntry()));
+        when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
+                .thenReturn("enriched-with-status");
+        when(credentialSignerWorkflow.signCredential(any(), any(), any(), any(), isNull(), any(), any()))
+                .thenReturn(Mono.error(new RuntimeException("QTSP down")));
+        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(saved));
+        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+                .expectErrorSatisfies(error -> {
+                    DeliveryFailedException failure = assertInstanceOf(DeliveryFailedException.class, error);
+                    assertEquals(2, failure.deliveryResults().size());
+                    assertEquals(DeliveryResult.DeliveryOutcome.FAILED, resultFor(failure, "direct").status());
+                    assertEquals(DeliveryResult.DeliveryOutcome.DISPATCHED, resultFor(failure, "email").status());
+                })
+                .verify();
+
+        // EUD-170 AC-03: the trace carries both modes, not a single indeterminate entry.
+        ArgumentCaptor<DeliveryTrace> captor = ArgumentCaptor.forClass(DeliveryTrace.class);
+        verify(auditService).auditDelivery(captor.capture());
+        assertTrue(captor.getValue().results().stream().anyMatch(r ->
+                "email".equals(r.mode()) && r.status() == DeliveryResult.DeliveryOutcome.DISPATCHED));
+        assertTrue(captor.getValue().results().stream().anyMatch(r ->
+                "direct".equals(r.mode()) && r.status() == DeliveryResult.DeliveryOutcome.FAILED));
+    }
+
+    @Test
+    void walletDeliveryWithFailedEmailShouldKeepTheQrChannelDispatchedAndTheOfferUri() {
+        // EC-05: the offer is cached and redeemable before any transport runs, so an SMTP outage must
+        // not condemn the QR channel nor discard the URI the QR needs.
+        UUID issuanceId = UUID.randomUUID();
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email,ui", EMAIL, null);
+        CredentialProfile profile = profileWithoutCnf();
+        Issuance saved = Issuance.builder().issuanceId(issuanceId).credentialOfferRefreshToken("rt").build();
+        CredentialOfferResult partial = CredentialOfferResult.builder()
+                .credentialOfferUri("openid-credential-offer://offer-uri")
+                .failedModes(Map.of(DeliveryMode.EMAIL, "Error during communication with the mail server"))
+                .build();
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(profile, payload))
+                .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
+        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(saved));
+        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(partial));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+                .assertNext(response -> {
+                    assertEquals("openid-credential-offer://offer-uri", response.credentialOfferUri());
+                    assertEquals(DeliveryResult.DeliveryOutcome.FAILED, deliveryResultFor(response, "email").status());
+                    assertEquals(DeliveryResult.DeliveryOutcome.DISPATCHED, deliveryResultFor(response, "ui").status());
+                    assertNull(deliveryResultFor(response, "ui").error());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void walletDeliveryResultsShouldFollowStableEnumOrderRegardlessOfRequestOrder() {
+        // DeliveryMode.parse collects into a HashSet, whose enum iteration order is identity-hash
+        // based. Without the explicit ordering the result order varied between JVM runs.
+        UUID issuanceId = UUID.randomUUID();
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "ui,email", EMAIL, null);
+        CredentialProfile profile = profileWithoutCnf();
+        Issuance saved = Issuance.builder().issuanceId(issuanceId).credentialOfferRefreshToken("rt").build();
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(profile, payload))
+                .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
+        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(saved));
+        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+                .assertNext(response -> assertEquals(List.of("email", "ui"),
+                        response.deliveryResults().stream().map(DeliveryResult::mode).toList()))
+                .verifyComplete();
+    }
+
+    @Test
+    void bootstrapWithDirectOnlyDeliveryShouldFailWithInvalidDeliveryMode() {
+        // Bootstrap strips `direct`; with nothing left, keepOnlyOid4vciDeliveryModes threw outside the
+        // reactive chain, escaping every @ExceptionHandler and surfacing as a 500 instead of a 400.
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "direct", EMAIL, null);
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profileWithoutCnf());
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+
+        StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "bootstrap-token", BASE_URL, WALLET_URL))
+                .expectError(InvalidDeliveryModeException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService, credentialSignerWorkflow);
+    }
+
     // --- Helpers ---
+
+    private DeliveryResult resultFor(DeliveryFailedException failure, String mode) {
+        return failure.deliveryResults().stream()
+                .filter(r -> mode.equals(r.mode()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("No delivery result for mode " + mode));
+    }
 
     private DeliveryResult deliveryResultFor(IssuanceResponse response, String mode) {
         assertNotNull(response.deliveryResults());

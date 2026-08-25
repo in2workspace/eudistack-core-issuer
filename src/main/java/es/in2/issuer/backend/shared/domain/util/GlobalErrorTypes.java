@@ -52,6 +52,7 @@ public enum GlobalErrorTypes {
     INVALID_CREDENTIAL_STATUS_TRANSITION("invalid_credential_status_transition"),
     INVALID_REQUEST("invalid_request"),
     DELIVERY_MODE_NOT_ELIGIBLE("delivery_mode_not_eligible"),
+    DELIVERY_FAILED("delivery_failed"),
     INVALID_HOLDER_KEY("invalid_holder_key"),
     UNKNOWN_CREDENTIAL_CONFIGURATION("unknown_credential_configuration"),
     CREDENTIAL_CATALOG_NOT_CONFIGURED("credential_catalog_not_configured");
