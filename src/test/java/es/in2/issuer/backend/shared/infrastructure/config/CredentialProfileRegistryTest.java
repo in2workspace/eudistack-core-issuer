@@ -93,6 +93,52 @@ class CredentialProfileRegistryTest {
     }
 
     @Test
+    void shouldParseValueMapOnClaim() throws IOException {
+        String labelProfileJson = """
+                {
+                  "credential_configuration_id": "gx.labelcredential.w3c.2",
+                  "credential_format": "jwt_vc_json",
+                  "credential_definition": {
+                    "type": ["VerifiableCredential", "gx.labelcredential.w3c.2"]
+                  },
+                  "credential_metadata": {
+                    "display": [{"name": "Gaia-X Label Credential", "locale": "en"}],
+                    "claims": [
+                      {
+                        "path": ["credentialSubject", "gx:labelLevel"],
+                        "display": [{"name": "Label Level", "locale": "en"}],
+                        "value_map": {"BL": "Baseline", "P": "Professional", "P+": "Professional Plus"}
+                      },
+                      {
+                        "path": ["credentialSubject", "gx:engineVersion"],
+                        "display": [{"name": "Engine Version", "locale": "en"}]
+                      }
+                    ]
+                  },
+                  "validity_days": 365,
+                  "issuer_type": "DETAILED",
+                  "cnf_required": true
+                }
+                """;
+        ResourcePatternResolver resolver = mockResolver(namedResource("gx-label-credential.json", labelProfileJson));
+
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
+
+        CredentialProfile profile = registry.getByConfigurationId("gx.labelcredential.w3c.2");
+        assertThat(profile).isNotNull();
+        assertThat(profile.credentialMetadata().claims()).hasSize(2);
+
+        CredentialProfile.ClaimDefinition labelLevelClaim = profile.credentialMetadata().claims().getFirst();
+        assertThat(labelLevelClaim.valueMap())
+                .containsEntry("BL", "Baseline")
+                .containsEntry("P", "Professional")
+                .containsEntry("P+", "Professional Plus");
+
+        CredentialProfile.ClaimDefinition engineVersionClaim = profile.credentialMetadata().claims().get(1);
+        assertThat(engineVersionClaim.valueMap()).isNull();
+    }
+
+    @Test
     void shouldParseSubjectExtraction() throws IOException {
         ResourcePatternResolver resolver = mockResolver(validEmployeeProfile());
 
