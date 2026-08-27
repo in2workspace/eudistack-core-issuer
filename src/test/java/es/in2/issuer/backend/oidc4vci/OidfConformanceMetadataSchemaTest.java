@@ -144,6 +144,7 @@ class OidfConformanceMetadataSchemaTest {
         CredentialProfileRegistry registry = new CredentialProfileRegistry(
                 OBJECT_MAPPER, new PathMatchingResourcePatternResolver(), PROFILES_PATH);
         Set<String> allConfigurationIds = registry.getAllProfiles().keySet();
+        assertThat(allConfigurationIds).isNotEmpty();
 
         when(tenantCredentialProfileService.getEnabledConfigurationIds()).thenReturn(Mono.just(allConfigurationIds));
 
