@@ -71,10 +71,6 @@ public class AuthorizationServerMetadataServiceImpl implements AuthorizationServ
                 builder.dpopSigningAlgValuesSupported(authCodeConfig.dpopSigningAlgs());
             }
 
-            if (authCodeConfig.requireNonce()) {
-                builder.nonceEndpoint(issuerUrl + OID4VCI_NONCE_PATH);
-            }
-
             builder.authorizationResponseIssParameterSupported(true);
         }
 

@@ -167,39 +167,50 @@ class CredentialIssuerMetadataServiceImplTest {
     }
 
     @Test
-    void getCredentialIssuerMetadata_withValueMapInClaims_propagatesValueMapToOutput() {
-        CredentialProfile.ClaimDefinition labelLevelClaim = CredentialProfile.ClaimDefinition.builder()
-                .path(List.of("credentialSubject", "gx:labelLevel"))
-                .valueMap(Map.of("BL", "Baseline", "P", "Professional"))
+    void getCredentialIssuerMetadata_publishesFormatSpecificParametersOnly() {
+        // OID4VCI 1.0 Final section 12.2.4: `vct` belongs to dc+sd-jwt configurations and
+        // `credential_definition` to the W3C VC formats. Publishing either outside its format
+        // is reported as an unexpected metadata field by the OIDF conformance suite.
+        CredentialProfile.CredentialDefinition definition = CredentialProfile.CredentialDefinition.builder()
+                .type(List.of("VerifiableCredential", "learcredential.employee.sd.1"))
                 .build();
 
-        CredentialProfile.CredentialMetadata credentialMetadata = CredentialProfile.CredentialMetadata.builder()
-                .claims(List.of(labelLevelClaim))
+        CredentialProfile sdJwtProfile = CredentialProfile.builder()
+                .credentialConfigurationId("learcredential.employee.sd.1")
+                .format(Constants.DC_SD_JWT)
+                .credentialDefinition(definition)
+                .sdJwt(CredentialProfile.SdJwtConfig.builder().vct("learcredential.employee.sd.1").build())
                 .build();
 
-        CredentialProfile labelProfile = CredentialProfile.builder()
-                .credentialConfigurationId("gx.labelcredential.w3c.2")
+        CredentialProfile w3cProfile = CredentialProfile.builder()
+                .credentialConfigurationId("learcredential.employee.w3c.4")
                 .format(Constants.JWT_VC_JSON)
-                .credentialMetadata(credentialMetadata)
+                .credentialDefinition(definition)
+                .sdJwt(CredentialProfile.SdJwtConfig.builder().vct("should-not-be-published").build())
                 .build();
 
-        when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of("gx.labelcredential.w3c.2", labelProfile));
+        when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of(
+                "learcredential.employee.sd.1", sdJwtProfile,
+                "learcredential.employee.w3c.4", w3cProfile));
         when(tenantCredentialProfileService.getEnabledConfigurationIds())
-                .thenReturn(Mono.just(Set.of("gx.labelcredential.w3c.2")));
+                .thenReturn(Mono.just(Set.of("learcredential.employee.sd.1", "learcredential.employee.w3c.4")));
 
         var service = new CredentialIssuerMetadataServiceImpl(credentialProfileRegistry, tenantCredentialProfileService);
 
         StepVerifier.create(service.getCredentialIssuerMetadata(ISSUER_URL))
                 .assertNext(metadata -> {
-                    CredentialIssuerMetadata.CredentialConfiguration labelConfig =
-                            metadata.credentialConfigurationsSupported().get("gx.labelcredential.w3c.2");
+                    var configs = metadata.credentialConfigurationsSupported();
 
-                    assertThat(labelConfig.credentialMetadata().claims()).hasSize(1);
-                    assertThat(labelConfig.credentialMetadata().claims().getFirst().valueMap())
-                            .containsEntry("BL", "Baseline")
-                            .containsEntry("P", "Professional");
+                    var sdJwtConfig = configs.get("learcredential.employee.sd.1");
+                    assertThat(sdJwtConfig.vct()).isEqualTo("learcredential.employee.sd.1");
+                    assertThat(sdJwtConfig.credentialDefinition()).isNull();
+
+                    var w3cConfig = configs.get("learcredential.employee.w3c.4");
+                    assertThat(w3cConfig.vct()).isNull();
+                    assertThat(w3cConfig.credentialDefinition()).isNotNull();
+                    assertThat(w3cConfig.credentialDefinition().type())
+                            .containsExactly("VerifiableCredential", "learcredential.employee.sd.1");
                 })
                 .verifyComplete();
     }
-
 }
