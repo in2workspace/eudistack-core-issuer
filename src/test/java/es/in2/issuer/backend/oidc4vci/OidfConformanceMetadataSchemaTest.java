@@ -136,6 +136,28 @@ class OidfConformanceMetadataSchemaTest {
                 .anySatisfy(message -> assertThat(message).contains("value_map"));
     }
 
+    @Test
+    void credentialIssuerMetadata_carriesTheDisplayMembersTheProfilesDeclare() {
+        // The guard above proves we publish nothing outside the spec; this proves we do not
+        // silently drop what a profile declares inside it. A member missing from DisplayInfo
+        // is dropped on parse (FAIL_ON_UNKNOWN_PROPERTIES=false) and never reaches the wallet.
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(
+                OBJECT_MAPPER, new PathMatchingResourcePatternResolver(), PROFILES_PATH);
+        Set<String> allConfigurationIds = registry.getAllProfiles().keySet();
+
+        when(tenantCredentialProfileService.getEnabledConfigurationIds()).thenReturn(Mono.just(allConfigurationIds));
+
+        var service = new CredentialIssuerMetadataServiceImpl(registry, tenantCredentialProfileService);
+        JsonNode metadata = OBJECT_MAPPER.valueToTree(
+                service.getCredentialIssuerMetadata(ISSUER_URL).block(TIMEOUT));
+
+        JsonNode display = metadata.at(
+                "/credential_configurations_supported/learcredential.employee.w3c.4/credential_metadata/display/0");
+        assertThat(display.path("name").asText()).isNotBlank();
+        assertThat(display.path("background_color").asText()).isEqualTo("#1B2A41");
+        assertThat(display.path("text_color").asText()).isEqualTo("#FFFFFF");
+    }
+
     private Set<ValidationMessage> validate(String schemaResource, JsonNode document) {
         JsonSchemaFactory factory = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012);
         try (InputStream schemaStream = getClass().getClassLoader().getResourceAsStream(schemaResource)) {
