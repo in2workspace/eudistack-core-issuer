@@ -18,6 +18,15 @@
       "approved_on": "2026-08-27",
       "expires_on": "2027-02-20",
       "ticket": "EUD-220"
+    },
+    {
+      "purl": "pkg:maven/com.rabbitmq/amqp-client@5.25.0?type=jar",
+      "license": "GPL-2.0-only",
+      "reason": "amqp-client is triple-licensed (Apache-2.0 OR GPL-2.0-only OR MPL-2.0); we consume it under Apache-2.0. The SBOM lists the three grants as separate array entries rather than a single OR expression, so the gate reads them as cumulative and blocks on the GPL-2.0-only term even though Apache-2.0 is also declared and is the one that applies here.",
+      "approved_by": "DevOps Lead",
+      "approved_on": "2026-08-27",
+      "expires_on": "2027-02-23",
+      "ticket": "EUD-220"
     }
   ]
 }
