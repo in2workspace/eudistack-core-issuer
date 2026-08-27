@@ -99,6 +99,48 @@ class CredentialProfileRegistryTest {
     }
 
     @Test
+    void shouldParseEveryDisplayMemberTheSpecDefines() throws IOException {
+        // The credential display object is name + locale + description + logo +
+        // background_color + background_image + text_color (OID4VCI 1.0 Final section
+        // 12.2.4). A member the model does not declare is dropped on parse and never
+        // reaches the published metadata — which is how the card colours went missing.
+        String displayProfileJson = """
+                {
+                  "credential_configuration_id": "learcredential.employee.w3c.4",
+                  "credential_format": "jwt_vc_json",
+                  "credential_definition": {
+                    "type": ["VerifiableCredential", "learcredential.employee.w3c.4"]
+                  },
+                  "credential_metadata": {
+                    "display": [{
+                      "name": "LEAR Credential Employee",
+                      "locale": "en",
+                      "description": "Verifiable Credential for employees",
+                      "logo": { "uri": "https://issuer.example.com/logo.svg", "alt_text": "Issuer" },
+                      "background_color": "#1B2A41",
+                      "background_image": { "uri": "https://issuer.example.com/bg.svg" },
+                      "text_color": "#FFFFFF"
+                    }]
+                  }
+                }
+                """;
+        ResourcePatternResolver resolver = mockResolver(namedResource("display.json", displayProfileJson));
+
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
+
+        CredentialProfile.DisplayInfo display =
+                registry.getByConfigurationId("learcredential.employee.w3c.4").credentialMetadata().display().getFirst();
+        assertThat(display.name()).isEqualTo("LEAR Credential Employee");
+        assertThat(display.description()).isEqualTo("Verifiable Credential for employees");
+        assertThat(display.backgroundColor()).isEqualTo("#1B2A41");
+        assertThat(display.textColor()).isEqualTo("#FFFFFF");
+        assertThat(display.logo().uri()).isEqualTo("https://issuer.example.com/logo.svg");
+        assertThat(display.logo().altText()).isEqualTo("Issuer");
+        assertThat(display.backgroundImage().uri()).isEqualTo("https://issuer.example.com/bg.svg");
+        assertThat(display.backgroundImage().altText()).isNull();
+    }
+
+    @Test
     void shouldIgnoreUnknownClaimMembers() throws IOException {
         String labelProfileJson = """
                 {
