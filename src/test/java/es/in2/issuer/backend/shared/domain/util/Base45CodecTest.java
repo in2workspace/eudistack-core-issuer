@@ -89,11 +89,12 @@ class Base45CodecTest {
         Random random = new Random(20260827);
 
         for (int iteration = 0; iteration < 200; iteration++) {
-            byte[] input = new byte[random.nextInt(128)];
+            byte[] input = new byte[1 + random.nextInt(127)];
             random.nextBytes(input);
 
             String encoded = Base45Codec.encode(input);
 
+            assertThat(encoded).as("iteration %d", iteration).isNotEmpty();
             assertThat(encoded.chars())
                     .as("iteration %d", iteration)
                     .allMatch(character -> ALPHABET.indexOf(character) >= 0);
