@@ -4,6 +4,7 @@ import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuerMetadataService;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
+import es.in2.issuer.backend.shared.domain.util.Constants;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -18,6 +19,8 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.*;
 @Slf4j
 @Service
 public class CredentialIssuerMetadataServiceImpl implements CredentialIssuerMetadataService {
+
+    private static final Set<String> W3C_VC_FORMATS = Set.of(Constants.JWT_VC_JSON, "jwt_vc_json-ld", "ldp_vc");
 
     private final Map<String, CredentialIssuerMetadata.CredentialConfiguration> allConfigurations;
     private final TenantCredentialProfileService tenantCredentialProfileService;
@@ -70,10 +73,17 @@ public class CredentialIssuerMetadataServiceImpl implements CredentialIssuerMeta
             proofTypes = null;
         }
 
-        String vct = profile.sdJwt() != null ? profile.sdJwt().vct() : null;
+        // OID4VCI 1.0 Final section 12.2.4 defines credential-configuration parameters per
+        // format: `vct` only for dc+sd-jwt, `credential_definition` only for the W3C VC
+        // formats. Publishing either outside its format is reported as an unexpected
+        // metadata field by the OIDF conformance suite.
+        String vct = Constants.DC_SD_JWT.equals(profile.format()) && profile.sdJwt() != null
+                ? profile.sdJwt().vct()
+                : null;
 
         CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition credDef = null;
-        if (profile.credentialDefinition() != null
+        if (W3C_VC_FORMATS.contains(profile.format())
+                && profile.credentialDefinition() != null
                 && profile.credentialDefinition().type() != null
                 && !profile.credentialDefinition().type().isEmpty()) {
             credDef = CredentialIssuerMetadata.CredentialConfiguration.CredentialDefinition.builder()
