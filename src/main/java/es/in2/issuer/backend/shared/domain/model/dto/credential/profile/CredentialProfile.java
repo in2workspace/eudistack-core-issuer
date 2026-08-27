@@ -64,8 +64,7 @@ public record CredentialProfile(
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ClaimDefinition(
             @JsonProperty("path") List<String> path,
-            @JsonProperty("display") List<DisplayInfo> display,
-            @JsonProperty("value_map") Map<String, String> valueMap
+            @JsonProperty("display") List<DisplayInfo> display
     ) {}
 
     public enum IssuerType {
