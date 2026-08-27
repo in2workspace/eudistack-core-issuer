@@ -150,17 +150,19 @@ jobs:
     # ~3 min of runner time on PRs that are already failing.
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
-    # G2 (conv-infrastructure-testing.md §6.3): passive scan, non-blocking.
-    # Two separate things have to be non-blocking for that to hold:
-    #   - ZAP *findings*  -> `fail_action: false` on the scan step below.
-    #   - *Infrastructure* failures (docker build, tenant seed, healthcheck or
-    #     target-verification timeout) -> this job-level `continue-on-error`,
-    #     which keeps the workflow run from failing because of them.
-    # Merge protection is unaffected either way: main's required status checks
-    # are "Build & Test" and "Analyze (java)" only — this job is not one of them.
-    # A broken DAST job therefore surfaces as a failed job inside an otherwise
-    # green run, which is the intended signal: visible, not blocking.
-    continue-on-error: true
+    # Severity-split gate, not an all-or-nothing one:
+    #   - Low / Informational findings -> `fail_action: false` on the scan step.
+    #     On a passive baseline they are noise and never fail anything.
+    #   - High / Critical findings -> the "Fail on High/Critical findings" step
+    #     exits non-zero, which reddens the run so GitHub's failure notification
+    #     actually fires. This is why the job no longer carries a job-level
+    #     `continue-on-error`: it would swallow that signal into a green run.
+    #     Infrastructure failures (docker build, tenant seed, healthcheck or
+    #     target-verification timeout) now redden the run too — a scan that could
+    #     not run is not a pass.
+    # Merge protection is unaffected: main's required status checks are
+    # "Build & Test" and "Analyze (java)" only — this job is not one of them, so
+    # a red DAST job is a loud signal, not a merge block.
     services:
       postgres:
         image: postgres:17-alpine
@@ -206,8 +208,10 @@ jobs:
       # (IllegalStateException) if this path doesn't resolve — production/STG get
       # it via a Docker volume from eudistack-platform-dev's dev-tools/schemas/
       # (see compose.yaml), which this ephemeral CI container doesn't have. The
-      # profiles are vendored read-only at dev-tools/credentials/profiles/ (see
-      # comment on the ZAP step below) and mounted the same way.
+      # profiles are vendored read-only at dev-tools/credentials/profiles/ and
+      # mounted the same way. Refresh them from eudistack-platform-dev with
+      # `make sync-credential-profiles` (`make check-credential-profiles` fails
+      # on drift); do not hand-edit the copy.
       #
       # Must include BOTH the "core" *.json files (credential_configuration_id +
       # full credential_definition) AND the *.profile.json overlay files: the
@@ -256,12 +260,11 @@ jobs:
             exit 1
           fi
 
-      # Rules file: dev-tools/testing/zap/zap-baseline.conf (this repo), vendored
-      # from eudistack-platform-dev's dev-tools/testing/baseline/zap/zap-baseline.conf
-      # (single source of truth per convention §5.3) — copied here to avoid a
-      # cross-repo read token. Do not hand-edit: update the source in
-      # eudistack-platform-dev and run `make sync-dast-vendored` there, which
-      # re-copies both this file and dev-tools/credentials/profiles/.
+      # Rules file: dev-tools/testing/zap/zap-baseline.conf, owned by this repo.
+      # It used to be vendored from eudistack-platform-dev; security testing now
+      # lives in the repo it scans, so edit it here directly. The credential
+      # profiles mounted below are still vendored from there — that is dev-stack
+      # data, not security config, and `make sync-credential-profiles` syncs it.
       #
       # ZAP_AUTH_HEADER sends X-Tenant: sandbox on every scan request: without it,
       # TenantDomainWebFilter resolves the tenant from the Host header (here,
@@ -288,3 +291,50 @@ jobs:
           artifact_name: 'zap-report'
           fail_action: false
           allow_issue_writing: false
+
+      # The `zap-report` artifact is a ZIP with 90-day retention, so reading it
+      # means downloading it first. Dumping ZAP's markdown report into the job
+      # summary makes it readable on the run page itself, which is what a PR
+      # actually needs. A published HTML report with history belongs to the
+      # nightly authenticated DAST (see the delivery-cycle quality gates), not
+      # to this gate. action-baseline writes report_md.md to GITHUB_WORKSPACE.
+      - name: Publish ZAP report in the job summary
+        if: always()
+        run: |
+          if [ -f report_md.md ]; then
+            {
+              echo '## ZAP DAST Baseline'
+              echo
+              cat report_md.md
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo '## ZAP DAST Baseline'
+              echo
+              echo 'The scan produced no markdown report — check the step above.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # High/Critical gate. `fail_action: false` above deliberately keeps Low and
+      # Informational findings from failing anything — on a passive baseline they
+      # are noise. Anything at riskcode >= 3 fails the job instead: that is what
+      # turns the run red and triggers GitHub's failure notification. ZAP's risk
+      # scale tops out at 3 (High) today, so >= 3 also covers a future Critical.
+      - name: Fail on High/Critical findings
+        if: always()
+        run: |
+          if [ ! -f report_json.json ]; then
+            echo "::warning::No ZAP JSON report to evaluate."
+            exit 0
+          fi
+          high=$(jq '[.site[]?.alerts[]? | select(((.riskcode // "0") | tonumber) >= 3)] | length' report_json.json)
+          echo "High/Critical alerts: ${high}"
+          if [ "${high}" -gt 0 ]; then
+            {
+              echo
+              echo "### Blocking: ${high} High/Critical finding(s)"
+              jq -r '.site[]?.alerts[]? | select(((.riskcode // "0") | tonumber) >= 3) | "- \(.riskdesc) — \(.name) (\(.count) instance(s))"' report_json.json
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::ZAP reported ${high} High/Critical alert(s)."
+            exit 1
+          fi
