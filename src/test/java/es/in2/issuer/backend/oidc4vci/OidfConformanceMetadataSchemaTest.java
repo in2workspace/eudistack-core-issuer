@@ -23,6 +23,8 @@ import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import reactor.core.publisher.Mono;
 
 import java.io.InputStream;
+import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 
@@ -47,7 +49,16 @@ import static org.mockito.Mockito.when;
 class OidfConformanceMetadataSchemaTest {
 
     private static final String ISSUER_URL = "https://issuer.example.com";
-    private static final String PROFILES_PATH = "file:dev-tools/credentials/profiles";
+
+    /**
+     * Absolute, so the test reads the same profiles whatever the working directory is —
+     * Gradle runs from the project dir, an IDE run may not.
+     */
+    private static final String PROFILES_PATH =
+            Paths.get("dev-tools", "credentials", "profiles").toAbsolutePath().toUri().toString();
+
+    /** A metadata build that hangs is a failure, not a reason to sit until the build times out. */
+    private static final Duration TIMEOUT = Duration.ofSeconds(10);
 
     /** Same shape as the application mapper: unknown profile members dropped, nulls omitted. */
     private static final ObjectMapper OBJECT_MAPPER = JsonMapper.builder()
@@ -71,7 +82,7 @@ class OidfConformanceMetadataSchemaTest {
         when(tenantCredentialProfileService.getEnabledConfigurationIds()).thenReturn(Mono.just(allConfigurationIds));
 
         var service = new CredentialIssuerMetadataServiceImpl(registry, tenantCredentialProfileService);
-        JsonNode metadata = OBJECT_MAPPER.valueToTree(service.getCredentialIssuerMetadata(ISSUER_URL).block());
+        JsonNode metadata = OBJECT_MAPPER.valueToTree(service.getCredentialIssuerMetadata(ISSUER_URL).block(TIMEOUT));
 
         assertThat(validate("oidf-conformance/credential_issuer_metadata-1_0.json", metadata)).isEmpty();
     }
@@ -92,7 +103,7 @@ class OidfConformanceMetadataSchemaTest {
 
         var service = new AuthorizationServerMetadataServiceImpl(profileProperties);
         JsonNode metadata = OBJECT_MAPPER.valueToTree(
-                service.buildAuthorizationServerMetadata("test-process", ISSUER_URL).block());
+                service.buildAuthorizationServerMetadata("test-process", ISSUER_URL).block(TIMEOUT));
 
         assertThat(validate("oidf-conformance/oauth_authorization_server_metadata.json", metadata)).isEmpty();
     }
