@@ -101,6 +101,12 @@ class ArchUnitTest {
                     .should().dependOnClassesThat().resideInAPackage("io.github.novacrypto..");
 
     @ArchTest
+    static final ArchRule noProductionClassShouldDependOnEuplBase45 =
+            noClasses()
+                    .that().resideInAPackage(BASE_PACKAGE + "..")
+                    .should().dependOnClassesThat().resideInAPackage("nl.minvws.encoding..");
+
+    @ArchTest
     static final ArchRule implementationsShouldBeInSameLayerAsInterfaces =
             classes()
                     .that().areNotInterfaces()
