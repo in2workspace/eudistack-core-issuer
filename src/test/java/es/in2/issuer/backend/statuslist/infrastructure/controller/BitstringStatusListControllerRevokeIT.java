@@ -203,7 +203,7 @@ class BitstringStatusListControllerRevokeIT {
                 .email("operator@example.com")
                 .delivery("email")
                 .build();
-        return issuancePort.save(issuance)
+        return issuancePort.insert(issuance)
                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
                 .block();
     }

@@ -3,6 +3,7 @@ package es.in2.issuer.backend.shared.domain.service.impl;
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
 import es.in2.issuer.backend.shared.domain.exception.NoCredentialFoundException;
@@ -22,7 +23,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.dao.OptimisticLockingFailureException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -881,7 +881,8 @@ class IssuanceServiceImplTest {
     void updateIssuanceStatusToRevoked_shouldReconcileAsNoop_whenLosingRaceAgainstAnAlreadyRevokedWrite() {
         // Given: two concurrent revocations (operator REST + queue consumer, ES-03) both
         // pass validateTransition against the same in-memory VALID snapshot; the version
-        // column turns the loser's save() into an OptimisticLockingFailureException.
+        // column turns the loser's save() into a ConcurrentIssuanceUpdateException (mapped
+        // from the infrastructure-layer optimistic-locking failure by IssuanceR2dbcAdapter).
         // Re-fetching finds the winner already persisted REVOKED.
         UUID issuanceId = UUID.randomUUID();
         Issuance staleSnapshot = new Issuance();
@@ -893,7 +894,7 @@ class IssuanceServiceImplTest {
         winnerCurrentRow.setCredentialStatus(CredentialStatusEnum.REVOKED);
 
         when(issuancePort.save(staleSnapshot))
-                .thenReturn(Mono.error(new OptimisticLockingFailureException("stale version")));
+                .thenReturn(Mono.error(new ConcurrentIssuanceUpdateException(issuanceId, "save", new RuntimeException("stale version"))));
         when(issuancePort.findById(issuanceId)).thenReturn(Mono.just(winnerCurrentRow));
 
         // When
@@ -921,7 +922,8 @@ class IssuanceServiceImplTest {
         unexpectedCurrentRow.setIssuanceId(issuanceId);
         unexpectedCurrentRow.setCredentialStatus(CredentialStatusEnum.EXPIRED);
 
-        OptimisticLockingFailureException conflict = new OptimisticLockingFailureException("stale version");
+        ConcurrentIssuanceUpdateException conflict =
+                new ConcurrentIssuanceUpdateException(issuanceId, "save", new RuntimeException("stale version"));
         when(issuancePort.save(staleSnapshot)).thenReturn(Mono.error(conflict));
         when(issuancePort.findById(issuanceId)).thenReturn(Mono.just(unexpectedCurrentRow));
 

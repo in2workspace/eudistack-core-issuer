@@ -134,9 +134,10 @@ class ArchUnitTest {
                                     && !javaClass.getSimpleName().endsWith("IT")
                                     && !javaClass.getName().contains("Test$")
                                     && !DOMAIN_SPRING_DATA_LEGACY_EXCEPTIONS.contains(javaClass.getName())))
-                    .should().dependOnClassesThat().resideInAPackage("org.springframework.data..")
+                    .should().dependOnClassesThat().resideInAnyPackage("org.springframework.data..", "org.springframework.dao..")
                     .because("hexagonal boundary (H-05): domain must not depend on the persistence framework — "
-                            + "persistence annotations and R2dbcEntityTemplate/repository access belong in infrastructure");
+                            + "persistence annotations, R2dbcEntityTemplate/repository access, and Spring's data-access "
+                            + "exception hierarchy (org.springframework.dao..) belong in infrastructure");
 
     @ArchTest
     static final ArchRule implementationsShouldBeInSameLayerAsInterfaces =

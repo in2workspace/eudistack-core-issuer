@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.repository;
 
+import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateException;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.infrastructure.persistence.IssuanceEntity;
@@ -8,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -18,6 +20,7 @@ import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -60,6 +63,19 @@ class IssuanceR2dbcAdapterTest {
         StepVerifier.create(adapter.insert(domainIssuance))
                 .expectNextMatches(result -> result.getIssuanceId().equals(issuanceId))
                 .verifyComplete();
+
+        verify(r2dbcEntityTemplate).insert(any(IssuanceEntity.class));
+        verify(issuanceR2dbcRepository, never()).save(any(IssuanceEntity.class));
+    }
+
+    @Test
+    void shouldMapOptimisticLockingFailureToConcurrentIssuanceUpdateExceptionOnInsert() {
+        when(r2dbcEntityTemplate.insert(any(IssuanceEntity.class)))
+                .thenReturn(Mono.error(new OptimisticLockingFailureException("stale version")));
+
+        StepVerifier.create(adapter.insert(domainIssuance))
+                .expectErrorMatches(ConcurrentIssuanceUpdateException.class::isInstance)
+                .verify();
     }
 
     @Test
@@ -97,6 +113,17 @@ class IssuanceR2dbcAdapterTest {
                 .verifyComplete();
 
         verify(issuanceR2dbcRepository).save(any(IssuanceEntity.class));
+        verify(r2dbcEntityTemplate, never()).insert(any(IssuanceEntity.class));
+    }
+
+    @Test
+    void shouldMapOptimisticLockingFailureToConcurrentIssuanceUpdateExceptionOnSave() {
+        when(issuanceR2dbcRepository.save(any(IssuanceEntity.class)))
+                .thenReturn(Mono.error(new OptimisticLockingFailureException("stale version")));
+
+        StepVerifier.create(adapter.save(domainIssuance))
+                .expectErrorMatches(ConcurrentIssuanceUpdateException.class::isInstance)
+                .verify();
     }
 
     @Test

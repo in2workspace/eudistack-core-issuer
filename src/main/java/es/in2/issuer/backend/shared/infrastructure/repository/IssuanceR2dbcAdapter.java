@@ -1,10 +1,12 @@
 package es.in2.issuer.backend.shared.infrastructure.repository;
 
+import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateException;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
 import es.in2.issuer.backend.shared.infrastructure.persistence.IssuanceMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
@@ -28,7 +30,9 @@ public class IssuanceR2dbcAdapter implements IssuancePort {
     @Override
     public Mono<Issuance> insert(Issuance issuance) {
         return r2dbcEntityTemplate.insert(IssuanceMapper.toEntity(issuance))
-                .map(IssuanceMapper::toDomain);
+                .map(IssuanceMapper::toDomain)
+                .onErrorMap(OptimisticLockingFailureException.class,
+                        e -> new ConcurrentIssuanceUpdateException(issuance.getIssuanceId(), "insert", e));
     }
 
     @Override
@@ -43,7 +47,10 @@ public class IssuanceR2dbcAdapter implements IssuancePort {
 
     @Override
     public Mono<Issuance> save(Issuance issuance) {
-        return issuanceR2dbcRepository.save(IssuanceMapper.toEntity(issuance)).map(IssuanceMapper::toDomain);
+        return issuanceR2dbcRepository.save(IssuanceMapper.toEntity(issuance))
+                .map(IssuanceMapper::toDomain)
+                .onErrorMap(OptimisticLockingFailureException.class,
+                        e -> new ConcurrentIssuanceUpdateException(issuance.getIssuanceId(), "save", e));
     }
 
     @Override
