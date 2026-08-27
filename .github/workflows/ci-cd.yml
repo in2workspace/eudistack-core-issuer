@@ -295,17 +295,20 @@ jobs:
 
           echo "### ✅ Deployment successful" >> $GITHUB_STEP_SUMMARY
 
+      - name: Checkout license gate
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+          sparse-checkout-cone-mode: false
+
       - name: Download SBOM Artifact
         uses: actions/download-artifact@v4
         with:
           name: sbom-v${{ needs.ci.outputs.version }}
           path: ./sbom-artifact
 
-      - name: Validate SBOM Version
-        uses: in2workspace/eudistack-platform-dev/.github/actions/license-gate@license-gate-v1.0.0
-        with:
-          sbom-path: ./sbom-artifact/sbom.json
-          expect-version: ${{ needs.ci.outputs.version }}
+      - name: Validate the published SBOM
+        run: node .github/scripts/license-gate.mjs --sbom-path ./sbom-artifact/sbom.json --expect-version ${{ needs.ci.outputs.version }}
 
       - name: Prepare SBOM Release Asset
         run: |

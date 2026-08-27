@@ -1,103 +1,23 @@
 {
+  "$comment": "Approved license exceptions. Each record requires purl (version-pinned), license, reason, approved_by, approved_on, expires_on (max 180 days) and ticket. Protected by .github/CODEOWNERS. Free-text license names that map to an allowed SPDX id are handled by LICENSE_NAME_NORMALIZATION in the evaluator, NOT here.",
   "exceptions": [
     {
-      "purl": "pkg:maven/aopalliance/aopalliance@1.0?type=jar",
-      "license": "Public Domain",
-      "reason": "Transitive dependency with Public Domain license",
+      "purl": "pkg:maven/io.github.ehn-digital-green-development/base45@0.0.3?type=jar",
+      "license": "EUPL-1.2",
+      "reason": "Copyleft reciproco en runtime. Base45 es un algoritmo de ~100 lineas: se sustituye por implementacion propia, como se hizo con Base58 en EUD-219. NO se resuelve ampliando la allowlist",
       "approved_by": "DevOps Lead",
-      "approved_on": "2026-08-17",
-      "expires_on": "2026-11-17",
-      "ticket": "EUD-219"
-    },
-    {
-      "purl": "pkg:maven/ch.qos.logback/logback-classic@1.5.32?type=jar",
-      "license": "EPL-2.0, GNU Lesser General Public License",
-      "reason": "Spring Boot logging framework dual licensed",
-      "approved_by": "DevOps Lead",
-      "approved_on": "2026-08-17",
-      "expires_on": "2026-11-17",
-      "ticket": "EUD-219"
-    },
-    {
-      "purl": "pkg:maven/ch.qos.logback/logback-core@1.5.32?type=jar",
-      "license": "EPL-2.0, GNU Lesser General Public License",
-      "reason": "Spring Boot logging framework dual licensed",
-      "approved_by": "DevOps Lead",
-      "approved_on": "2026-08-17",
-      "expires_on": "2026-11-17",
-      "ticket": "EUD-219"
+      "approved_on": "2026-08-27",
+      "expires_on": "2026-11-25",
+      "ticket": "EUD-220"
     },
     {
       "purl": "pkg:maven/com.github.jai-imageio/jai-imageio-core@1.4.0?type=jar",
       "license": "BSD 3-clause License w/nuclear disclaimer",
-      "reason": "ImageIO dependency with BSD variant license",
+      "reason": "Variante de BSD-3-Clause con clausula de exclusion de uso nuclear. Sin obligaciones de copyleft, pero la identidad de la licencia no es equivalente a BSD-3-Clause, asi que no se normaliza: se admite de forma explicita y revisable",
       "approved_by": "DevOps Lead",
-      "approved_on": "2026-08-17",
-      "expires_on": "2026-11-17",
-      "ticket": "EUD-219"
-    },
-    {
-      "purl": "pkg:maven/com.github.peteroupc/datautilities@1.1.0?type=jar",
-      "license": "CC0 Universal",
-      "reason": "CBOR dependency transitive library with CC0 license",
-      "approved_by": "DevOps Lead",
-      "approved_on": "2026-08-17",
-      "expires_on": "2026-11-17",
-      "ticket": "EUD-219"
-    },
-    {
-      "purl": "pkg:maven/com.rabbitmq/amqp-client@5.25.0?type=jar",
-      "license": "AL 2.0, GPL v2, MPL-2.0",
-      "reason": "RabbitMQ client tri-licensed (Apache 2.0 / GPL v2 / MPL 2.0)",
-      "approved_by": "DevOps Lead",
-      "approved_on": "2026-08-17",
-      "expires_on": "2026-11-17",
-      "ticket": "EUD-219"
-    },
-    {
-      "purl": "pkg:maven/io.github.ehn-digital-green-development/base45@0.0.3?type=jar",
-      "license": "EUPL-1.2",
-      "reason": "Base45 encoding library under EUPL-1.2",
-      "approved_by": "DevOps Lead",
-      "approved_on": "2026-08-17",
-      "expires_on": "2026-11-17",
-      "ticket": "EUD-219"
-    },
-    {
-      "purl": "pkg:maven/jakarta.annotation/jakarta.annotation-api@2.1.1?type=jar",
-      "license": "EPL-2.0, GPL-2.0-with-classpath-exception",
-      "reason": "Jakarta API with dual license (EPL / GPL+CPE)",
-      "approved_by": "DevOps Lead",
-      "approved_on": "2026-08-17",
-      "expires_on": "2026-11-17",
-      "ticket": "EUD-219"
-    },
-    {
-      "purl": "pkg:maven/org.bouncycastle/bcprov-jdk18on@1.84?type=jar",
-      "license": "Bouncy Castle Licence",
-      "reason": "Bouncy Castle cryptography library with MIT-style Bouncy Castle license",
-      "approved_by": "DevOps Lead",
-      "approved_on": "2026-08-17",
-      "expires_on": "2026-11-17",
-      "ticket": "EUD-219"
-    },
-    {
-      "purl": "pkg:maven/org.eclipse.angus/jakarta.mail@2.0.5?type=jar",
-      "license": "EPL-2.0, GPL-2.0-with-classpath-exception, BSD-3-Clause",
-      "reason": "Jakarta Mail implementation with multi-license",
-      "approved_by": "DevOps Lead",
-      "approved_on": "2026-08-17",
-      "expires_on": "2026-11-17",
-      "ticket": "EUD-219"
-    },
-    {
-      "purl": "pkg:maven/org.hdrhistogram/HdrHistogram@2.2.2?type=jar",
-      "license": "CC0-1.0, BSD-2-Clause",
-      "reason": "Micrometer dependency with dual CC0/BSD license",
-      "approved_by": "DevOps Lead",
-      "approved_on": "2026-08-17",
-      "expires_on": "2026-11-17",
-      "ticket": "EUD-219"
+      "approved_on": "2026-08-27",
+      "expires_on": "2027-02-20",
+      "ticket": "EUD-220"
     }
   ]
 }
