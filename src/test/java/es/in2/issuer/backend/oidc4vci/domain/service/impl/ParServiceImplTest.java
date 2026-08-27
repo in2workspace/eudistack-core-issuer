@@ -85,9 +85,88 @@ class ParServiceImplTest {
     }
 
     @Test
+    void pushAuthorizationRequest_shouldFailWhenRequestUriParamPresent() {
+        // Regression test: RFC 9126 section 4 - the PAR endpoint generates request_uri as its
+        // own response value, so it must never be accepted as an input parameter of the
+        // pushed request itself. Caught by the OIDF conformance suite's
+        // fapi2-security-profile-final-par-authorization-request-containing-request_uri-form-param test.
+        PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
+                .responseType("code")
+                .redirectUri("https://wallet/callback")
+                .requestUri("urn:ietf:params:oauth:request_uri:smuggled")
+                .build();
+
+        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par", null))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
+                        && e.getMessage().equals("request_uri parameter is not allowed in a pushed authorization request"))
+                .verify();
+
+        verifyNoInteractions(parCacheStore);
+    }
+
+    @Test
+    void pushAuthorizationRequest_shouldFailWhenRequestUriParamBlank() {
+        // request_uri= (empty) still means the forbidden parameter is present - Spring binds
+        // it as "" rather than null, and RFC 9126 section 4 disallows the parameter entirely,
+        // regardless of its value.
+        PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
+                .responseType("code")
+                .redirectUri("https://wallet/callback")
+                .requestUri("")
+                .build();
+
+        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par", null))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
+                        && e.getMessage().equals("request_uri parameter is not allowed in a pushed authorization request"))
+                .verify();
+
+        verifyNoInteractions(parCacheStore);
+    }
+
+    @Test
+    void pushAuthorizationRequest_shouldFailWhenRequestUriParamWhitespace() {
+        PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
+                .responseType("code")
+                .redirectUri("https://wallet/callback")
+                .requestUri("   ")
+                .build();
+
+        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par", null))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
+                        && e.getMessage().equals("request_uri parameter is not allowed in a pushed authorization request"))
+                .verify();
+
+        verifyNoInteractions(parCacheStore);
+    }
+
+    @Test
+    void pushAuthorizationRequest_shouldFailWhenRedirectUriMissing() {
+        // Regression test: redirect_uri has no bean-validation constraint on
+        // PushedAuthorizationRequest, so a request missing it used to sail through PAR and
+        // only surface downstream as an NPE in AuthorizationServiceImpl.buildRedirectUri
+        // once /authorize tried to build a redirect with a null value. Caught by the OIDF
+        // conformance suite's fapi2-security-profile-final-ensure-request-object-without-redirect-uri-fails test.
+        PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
+                .responseType("code")
+                .build();
+
+        StepVerifier.create(parService.pushAuthorizationRequest(request, null, null, null, "https://issuer/par", null))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
+                        && e.getMessage().equals("redirect_uri is required"))
+                .verify();
+
+        verifyNoInteractions(parCacheStore);
+    }
+
+    @Test
     void pushAuthorizationRequest_shouldFailWhenPkceRequiredButMissing() {
         PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
                 .responseType("code")
+                .redirectUri("https://wallet/callback")
                 .build();
 
         var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
@@ -169,6 +248,7 @@ class ParServiceImplTest {
     void pushAuthorizationRequest_wrapsDpopValidationFailureAsInvalidRequest() {
         PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
                 .responseType("code")
+                .redirectUri("https://wallet/callback")
                 .codeChallenge("challenge")
                 .codeChallengeMethod("S256")
                 .build();
@@ -194,6 +274,7 @@ class ParServiceImplTest {
     void pushAuthorizationRequest_wrapsWiaValidationFailureAsInvalidClient() {
         PushedAuthorizationRequest request = PushedAuthorizationRequest.builder()
                 .responseType("code")
+                .redirectUri("https://wallet/callback")
                 .codeChallenge("challenge")
                 .codeChallengeMethod("S256")
                 .build();
