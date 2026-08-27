@@ -38,7 +38,6 @@ class AuthorizationServerMetadataServiceImplTest {
                     assertTrue(metadata.preAuthorizedGrantAnonymousAccessSupported());
                     assertNull(metadata.authorizationEndpoint());
                     assertNull(metadata.pushedAuthorizationRequestEndpoint());
-                    assertNull(metadata.nonceEndpoint());
                     assertNull(metadata.codeChallengeMethodsSupported());
                     assertNull(metadata.dpopSigningAlgValuesSupported());
                 })
@@ -68,7 +67,6 @@ class AuthorizationServerMetadataServiceImplTest {
                     assertEquals(List.of("attest_jwt_client_auth"), metadata.tokenEndpointAuthMethodsSupported());
                     assertEquals(List.of("ES256"), metadata.clientAttestationSigningAlgValuesSupported());
                     assertEquals(List.of("ES256"), metadata.clientAttestationPopSigningAlgValuesSupported());
-                    assertNotNull(metadata.nonceEndpoint());
                     assertTrue(metadata.authorizationResponseIssParameterSupported());
                     assertTrue(metadata.grantTypesSupported().contains("authorization_code"));
                 })
@@ -96,7 +94,6 @@ class AuthorizationServerMetadataServiceImplTest {
                     assertNull(metadata.requirePushedAuthorizationRequests());
                     assertEquals(List.of("S256"), metadata.codeChallengeMethodsSupported());
                     assertNull(metadata.dpopSigningAlgValuesSupported());
-                    assertNull(metadata.nonceEndpoint());
                     assertEquals(List.of("none"), metadata.tokenEndpointAuthMethodsSupported());
                     assertNull(metadata.clientAttestationSigningAlgValuesSupported());
                     assertNull(metadata.clientAttestationPopSigningAlgValuesSupported());
