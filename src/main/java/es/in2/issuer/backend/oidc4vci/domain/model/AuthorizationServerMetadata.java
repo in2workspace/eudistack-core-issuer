@@ -14,7 +14,6 @@ public record AuthorizationServerMetadata(
         @JsonProperty(value = "pre-authorized_grant_anonymous_access_supported", required = true) boolean preAuthorizedGrantAnonymousAccessSupported,
         @JsonProperty(value = "authorization_endpoint") String authorizationEndpoint,
         @JsonProperty(value = "pushed_authorization_request_endpoint") String pushedAuthorizationRequestEndpoint,
-        @JsonProperty(value = "nonce_endpoint") String nonceEndpoint,
         @JsonProperty(value = "grant_types_supported") Set<String> grantTypesSupported,
         @JsonProperty(value = "code_challenge_methods_supported") List<String> codeChallengeMethodsSupported,
         @JsonProperty(value = "dpop_signing_alg_values_supported") List<String> dpopSigningAlgValuesSupported,
