@@ -40,7 +40,7 @@ public class AuthorizationServiceImpl implements AuthorizationService {
             String publicIssuerBaseUrl
     ) {
         if (requestUri != null && !requestUri.isBlank()) {
-            return pushAuthorizationRequestAuthorization(publicIssuerBaseUrl, requestUri, state);
+            return pushAuthorizationRequestAuthorization(publicIssuerBaseUrl, requestUri);
         }
         // RFC 9126 §5: this Issuer advertises require_pushed_authorization_requests=true
         // (AuthorizationServerMetadataServiceImpl) whenever the profile requires PAR, so an
@@ -55,7 +55,7 @@ public class AuthorizationServiceImpl implements AuthorizationService {
         );
     }
 
-    private Mono<URI> pushAuthorizationRequestAuthorization(String baseUrl, String requestUri, String state) {
+    private Mono<URI> pushAuthorizationRequestAuthorization(String baseUrl, String requestUri) {
         return parCacheStore.get(requestUri)
                 .switchIfEmpty(Mono.error(OAuthTokenException.invalidRequest("Invalid or expired request_uri")))
                 .flatMap(parRequest -> {
@@ -70,11 +70,16 @@ public class AuthorizationServiceImpl implements AuthorizationService {
                                     parRequest.scope(),
                                     null // dpopJkt stored separately if needed
                             ))
+                            // RFC 9126 section 4: once request_uri references a pushed request,
+                            // any other parameter on this /authorize call must be ignored - only
+                            // what was bound to the PAR is authoritative. Using a loose outer
+                            // state query parameter here instead would let a client override the
+                            // state a pushed request already committed to.
                             .map(code -> buildRedirectUri(
                                     baseUrl,
                                     parRequest.redirectUri(),
                                     code,
-                                    state != null ? state : parRequest.state()
+                                    parRequest.state()
                             ));
                 });
     }

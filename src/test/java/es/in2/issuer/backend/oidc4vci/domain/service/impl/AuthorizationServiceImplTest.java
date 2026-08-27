@@ -171,6 +171,74 @@ class AuthorizationServiceImplTest {
     }
 
     @Test
+    void authorize_shouldIgnoreOuterStateParamWhenParPresent() {
+        // Regression test: RFC 9126 §4 - once request_uri references a pushed authorization
+        // request, the authorization server SHOULD ignore any other parameter accompanying
+        // that request_uri on the /authorize call - only what was bound to the PAR is
+        // authoritative. authorize() used to let a loose outer `state` query param override
+        // the state already committed to the PAR (state != null ? state : parRequest.state()),
+        // letting a client swap the state after the fact. Caught by the OIDF conformance
+        // suite's fapi2-security-profile-final-ensure-different-state-inside-and-outside-request-object test.
+        PushedAuthorizationRequest parRequest = PushedAuthorizationRequest.builder()
+                .clientId("wallet-client")
+                .redirectUri("https://wallet/callback")
+                .codeChallenge("challenge")
+                .codeChallengeMethod("S256")
+                .scope("openid")
+                .state("par-state")
+                .build();
+
+        when(parCacheStore.get(anyString())).thenReturn(Mono.just(parRequest));
+        when(parCacheStore.delete(anyString())).thenReturn(Mono.empty());
+        when(authorizationCodeCacheStore.add(anyString(), any(AuthorizationCodeData.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0, String.class)));
+
+        String requestUri = "urn:ietf:params:oauth:request_uri:test-uuid";
+
+        StepVerifier.create(authorizationService.authorize(
+                        requestUri, "wallet-client", null, null,
+                        "outer-state", null, null, null, null, "https://issuer.example.com"))
+                .assertNext(uri -> {
+                    String uriStr = uri.toString();
+                    assertTrue(uriStr.contains("state=par-state"));
+                    assertFalse(uriStr.contains("outer-state"));
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void authorize_shouldOmitStateWhenParHasNoneEvenIfOuterStatePresent() {
+        // Regression test: same RFC 9126 §4 gap, mirror case - if the PAR itself never
+        // carried a state, the response must not gain one just because the /authorize call
+        // added a loose outer `state` param. Caught by the OIDF conformance suite's
+        // fapi2-security-profile-final-state-only-outside-request-object-not-used test.
+        PushedAuthorizationRequest parRequest = PushedAuthorizationRequest.builder()
+                .clientId("wallet-client")
+                .redirectUri("https://wallet/callback")
+                .codeChallenge("challenge")
+                .codeChallengeMethod("S256")
+                .scope("openid")
+                .state(null)
+                .build();
+
+        when(parCacheStore.get(anyString())).thenReturn(Mono.just(parRequest));
+        when(parCacheStore.delete(anyString())).thenReturn(Mono.empty());
+        when(authorizationCodeCacheStore.add(anyString(), any(AuthorizationCodeData.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0, String.class)));
+
+        String requestUri = "urn:ietf:params:oauth:request_uri:test-uuid";
+
+        StepVerifier.create(authorizationService.authorize(
+                        requestUri, "wallet-client", null, null,
+                        "outer-state", null, null, null, null, "https://issuer.example.com"))
+                .assertNext(uri -> {
+                    String uriStr = uri.toString();
+                    assertFalse(uriStr.contains("state="));
+                })
+                .verifyComplete();
+    }
+
+    @Test
     void authorize_shouldFailWithInvalidPar() {
         when(parCacheStore.get(anyString()))
                 .thenReturn(Mono.empty());
