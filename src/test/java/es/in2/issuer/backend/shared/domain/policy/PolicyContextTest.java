@@ -66,6 +66,16 @@ class PolicyContextTest {
     }
 
     @Test
+    void hasPowerWithDomain_returnsTrueWhenDomainDiffersInCase() {
+        // Power JWT carries "DOME" (uppercase) but tenantDomain header arrives as "dome" (lowercase)
+        Power power = Power.builder().function("Onboarding").action("Execute").domain("DOME").build();
+        PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, false, null, null, null);
+
+        assertThat(ctx.hasPowerWithDomain("Onboarding", "Execute", "dome")).isTrue();
+        assertThat(ctx.hasPowerWithDomain("Onboarding", "Execute", "Dome")).isTrue();
+    }
+
+    @Test
     void hasPowerWithDomain_returnsFalseWhenFunctionDoesNotMatch() {
         Power power = Power.builder().function("Certification").action("Execute").domain("DOME").build();
         PolicyContext ctx = new PolicyContext("ORG1", List.of(power), null, null, null, false, false, null, null, null);

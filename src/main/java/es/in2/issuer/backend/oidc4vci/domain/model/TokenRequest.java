@@ -11,5 +11,7 @@ public record TokenRequest(
         @BindParam("refresh_token") String refreshToken,
         @BindParam("code") String code,
         @BindParam("redirect_uri") String redirectUri,
-        @BindParam("code_verifier") String codeVerifier){
+        @BindParam("code_verifier") String codeVerifier,
+        @BindParam("client_id") String clientId,
+        @BindParam("client_secret") String clientSecret){
 }

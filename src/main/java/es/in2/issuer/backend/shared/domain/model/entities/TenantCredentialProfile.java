@@ -19,6 +19,9 @@ public record TenantCredentialProfile(
         boolean enabled,
 
         @Column("created_at")
-        Instant createdAt
+        Instant createdAt,
+
+        @Column("updated_at")
+        Instant updatedAt
 ) {
 }

@@ -13,6 +13,7 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -50,7 +51,8 @@ class CredentialIssuerMetadataServiceImplTest {
                 .build();
 
         when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of("learcredential.employee.w3c.4", learProfile));
-        when(tenantCredentialProfileService.getEnabledConfigurationIds()).thenReturn(Mono.just(Collections.emptySet()));
+        when(tenantCredentialProfileService.getEnabledConfigurationIds())
+                .thenReturn(Mono.just(Set.of("learcredential.employee.w3c.4")));
 
         var service = new CredentialIssuerMetadataServiceImpl(credentialProfileRegistry, tenantCredentialProfileService);
 
@@ -83,8 +85,8 @@ class CredentialIssuerMetadataServiceImplTest {
                 .build();
 
         when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of("learcredential.employee.w3c.4", learProfile));
-        // Empty set means all profiles are allowed (backward compat per the interface contract)
-        when(tenantCredentialProfileService.getEnabledConfigurationIds()).thenReturn(Mono.just(Collections.emptySet()));
+        when(tenantCredentialProfileService.getEnabledConfigurationIds())
+                .thenReturn(Mono.just(Set.of("learcredential.employee.w3c.4")));
 
         var service = new CredentialIssuerMetadataServiceImpl(credentialProfileRegistry, tenantCredentialProfileService);
 
@@ -107,6 +109,107 @@ class CredentialIssuerMetadataServiceImplTest {
                     Map<String, CredentialProfile.ProofTypeConfig> proofTypes = learConfig.proofTypesSupported();
                     assertThat(proofTypes).containsKey("jwt");
                     assertThat(proofTypes.get("jwt").proofSigningAlgValuesSupported()).containsExactly("ES256");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void getCredentialIssuerMetadata_tenantWithNothingEnabled_advertisesNoConfigurations() {
+        CredentialProfile learProfile = CredentialProfile.builder()
+                .credentialConfigurationId("learcredential.employee.w3c.4")
+                .format(Constants.JWT_VC_JSON)
+                .build();
+
+        when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of("learcredential.employee.w3c.4", learProfile));
+        when(tenantCredentialProfileService.getEnabledConfigurationIds()).thenReturn(Mono.just(Collections.emptySet()));
+
+        var service = new CredentialIssuerMetadataServiceImpl(credentialProfileRegistry, tenantCredentialProfileService);
+
+        StepVerifier.create(service.getCredentialIssuerMetadata(ISSUER_URL))
+                .assertNext(metadata -> assertThat(metadata.credentialConfigurationsSupported()).isEmpty())
+                .verifyComplete();
+    }
+
+    @Test
+    void getCredentialIssuerMetadata_withEnabledSubset_returnsOnlyEnabledConfigurations() {
+        CredentialProfile learProfile = CredentialProfile.builder()
+                .credentialConfigurationId("learcredential.employee.w3c.4")
+                .format(Constants.JWT_VC_JSON)
+                .scope("lear_credential_employee")
+                .build();
+
+        CredentialProfile eudiProfile = CredentialProfile.builder()
+                .credentialConfigurationId("eudiPid.1")
+                .format(Constants.JWT_VC_JSON)
+                .scope("eudi_pid")
+                .build();
+
+        when(credentialProfileRegistry.getAllProfiles()).thenReturn(
+                Map.of(
+                        "learcredential.employee.w3c.4", learProfile,
+                        "eudiPid.1", eudiProfile
+                )
+        );
+
+        when(tenantCredentialProfileService.getEnabledConfigurationIds())
+                .thenReturn(Mono.just(Set.of("eudiPid.1")));
+
+        var service = new CredentialIssuerMetadataServiceImpl(
+                credentialProfileRegistry, tenantCredentialProfileService);
+
+        StepVerifier.create(service.getCredentialIssuerMetadata(ISSUER_URL))
+                .assertNext(metadata -> {
+                    assertThat(metadata.credentialConfigurationsSupported())
+                            .containsOnlyKeys("eudiPid.1")
+                            .doesNotContainKey("learcredential.employee.w3c.4");
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void getCredentialIssuerMetadata_publishesFormatSpecificParametersOnly() {
+        // OID4VCI 1.0 Final section 12.2.4: `vct` belongs to dc+sd-jwt configurations and
+        // `credential_definition` to the W3C VC formats. Publishing either outside its format
+        // is reported as an unexpected metadata field by the OIDF conformance suite.
+        CredentialProfile.CredentialDefinition definition = CredentialProfile.CredentialDefinition.builder()
+                .type(List.of("VerifiableCredential", "learcredential.employee.sd.1"))
+                .build();
+
+        CredentialProfile sdJwtProfile = CredentialProfile.builder()
+                .credentialConfigurationId("learcredential.employee.sd.1")
+                .format(Constants.DC_SD_JWT)
+                .credentialDefinition(definition)
+                .sdJwt(CredentialProfile.SdJwtConfig.builder().vct("learcredential.employee.sd.1").build())
+                .build();
+
+        CredentialProfile w3cProfile = CredentialProfile.builder()
+                .credentialConfigurationId("learcredential.employee.w3c.4")
+                .format(Constants.JWT_VC_JSON)
+                .credentialDefinition(definition)
+                .sdJwt(CredentialProfile.SdJwtConfig.builder().vct("should-not-be-published").build())
+                .build();
+
+        when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of(
+                "learcredential.employee.sd.1", sdJwtProfile,
+                "learcredential.employee.w3c.4", w3cProfile));
+        when(tenantCredentialProfileService.getEnabledConfigurationIds())
+                .thenReturn(Mono.just(Set.of("learcredential.employee.sd.1", "learcredential.employee.w3c.4")));
+
+        var service = new CredentialIssuerMetadataServiceImpl(credentialProfileRegistry, tenantCredentialProfileService);
+
+        StepVerifier.create(service.getCredentialIssuerMetadata(ISSUER_URL))
+                .assertNext(metadata -> {
+                    var configs = metadata.credentialConfigurationsSupported();
+
+                    var sdJwtConfig = configs.get("learcredential.employee.sd.1");
+                    assertThat(sdJwtConfig.vct()).isEqualTo("learcredential.employee.sd.1");
+                    assertThat(sdJwtConfig.credentialDefinition()).isNull();
+
+                    var w3cConfig = configs.get("learcredential.employee.w3c.4");
+                    assertThat(w3cConfig.vct()).isNull();
+                    assertThat(w3cConfig.credentialDefinition()).isNotNull();
+                    assertThat(w3cConfig.credentialDefinition().type())
+                            .containsExactly("VerifiableCredential", "learcredential.employee.sd.1");
                 })
                 .verifyComplete();
     }

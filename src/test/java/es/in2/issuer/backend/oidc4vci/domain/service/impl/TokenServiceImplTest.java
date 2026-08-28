@@ -1,5 +1,8 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
+import es.in2.issuer.backend.apiclient.domain.exception.ApiClientAuthenticationException;
+import es.in2.issuer.backend.apiclient.domain.model.AuthenticatedApiClient;
+import es.in2.issuer.backend.apiclient.domain.service.ApiClientAuthenticationService;
 import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
@@ -16,15 +19,17 @@ import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.time.Instant;
-import java.util.NoSuchElementException;
 
+import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.CLIENT_CREDENTIALS_GRANT_TYPE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.GRANT_TYPE;
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -69,6 +74,8 @@ class TokenServiceImplTest {
     private IssuanceMetrics issuanceMetrics;
     @Mock
     private TransientStore<String> issuerStateCacheStore;
+    @Mock
+    private ApiClientAuthenticationService apiClientAuthenticationService;
 
     private TokenServiceImpl tokenService;
     private IssuanceIdAndTxCode testIssuanceIdAndTxCode;
@@ -87,7 +94,8 @@ class TokenServiceImplTest {
                 dpopValidationService,
                 profileProperties,
                 issuanceMetrics,
-                issuerStateCacheStore
+                issuerStateCacheStore,
+                apiClientAuthenticationService
         );
 
         testIssuanceIdAndTxCode = new IssuanceIdAndTxCode(
@@ -145,10 +153,64 @@ class TokenServiceImplTest {
                 .verify();
     }
 
+    private TokenRequest clientCredentialsRequest(String clientId, String clientSecret) {
+        return TokenRequest.builder()
+                .grantType(CLIENT_CREDENTIALS_GRANT_TYPE)
+                .clientId(clientId)
+                .clientSecret(clientSecret)
+                .build();
+    }
+
+    @Test
+    void exchangeToken_WhenClientCredentialsValid_ShouldReturnM2mTokenResponseWithoutRefreshToken() throws Exception {
+        AuthenticatedApiClient authenticatedClient = new AuthenticatedApiClient("acme-hr", true);
+        when(apiClientAuthenticationService.authenticateForToken("acme", "acme-hr", "s3cr3t"))
+                .thenReturn(Mono.just(authenticatedClient));
+        when(jwtService.issueJWT(anyString())).thenReturn(TEST_ACCESS_TOKEN);
+
+        TokenRequest request = clientCredentialsRequest("acme-hr", "s3cr3t");
+
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL)
+                        .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "acme")))
+                .assertNext(tokenResponse -> {
+                    assertThat(tokenResponse.accessToken()).isEqualTo(TEST_ACCESS_TOKEN);
+                    assertThat(tokenResponse.tokenType()).isEqualTo("bearer");
+                    assertThat(tokenResponse.expiresIn()).isGreaterThan(0).isLessThanOrEqualTo(5 * 60);
+                    assertThat(tokenResponse.refreshToken()).isNull();
+                })
+                .verifyComplete();
+
+        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
+        verify(jwtService).issueJWT(payloadCaptor.capture());
+        com.fasterxml.jackson.databind.JsonNode claims =
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(payloadCaptor.getValue());
+        assertThat(claims.get("caller_type").asText()).isEqualTo("M2M");
+        assertThat(claims.get("scope").asText()).isEqualTo("intake.trigger");
+        assertThat(claims.get("can_trigger_issuance").asBoolean()).isTrue();
+        assertThat(claims.get("client_id").asText()).isEqualTo("acme-hr");
+        assertThat(claims.get("sub").asText()).isEqualTo("acme-hr");
+        assertThat(claims.get("iss").asText()).isEqualTo(TEST_ISSUER_URL);
+    }
+
+    @Test
+    void exchangeToken_WhenClientCredentialsDenied_ShouldReturnInvalidClient() {
+        when(apiClientAuthenticationService.authenticateForToken("acme", "acme-hr", "wrong-secret"))
+                .thenReturn(Mono.error(ApiClientAuthenticationException.invalidClient()));
+
+        TokenRequest request = clientCredentialsRequest("acme-hr", "wrong-secret");
+
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL)
+                        .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "acme")))
+                .expectErrorMatches(throwable ->
+                        throwable instanceof OAuthTokenException ex &&
+                                OAuthTokenException.INVALID_CLIENT.equals(ex.getErrorCode()))
+                .verify();
+    }
+
     @Test
     void exchangeToken_WhenInvalidPreAuthorizedCode_ShouldReturnInvalidGrant() {
         when(txCodeCacheStore.get(TEST_PRE_AUTHORIZED_CODE))
-                .thenReturn(Mono.error(new NoSuchElementException("Not found")));
+                .thenReturn(Mono.empty());
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
 
@@ -180,16 +242,16 @@ class TokenServiceImplTest {
     }
 
     @Test
-    void exchangeToken_WhenCacheStoreThrowsException_ShouldReturnInvalidGrant() {
+    void exchangeToken_WhenCacheStoreThrowsInfrastructureError_ShouldPropagateException() {
+        RuntimeException cacheFailure = new RuntimeException("Cache connection failed");
         when(txCodeCacheStore.get(TEST_PRE_AUTHORIZED_CODE))
-                .thenReturn(Mono.error(new NoSuchElementException()));
+                .thenReturn(Mono.error(cacheFailure));
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
 
         StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
-                .expectErrorMatches(throwable ->
-                        throwable instanceof OAuthTokenException ex &&
-                                "invalid_grant".equals(ex.getErrorCode()))
+                .expectErrorMatches(throwable -> throwable instanceof RuntimeException
+                        && "Cache connection failed".equals(throwable.getMessage()))
                 .verify();
 
         verify(txCodeCacheStore).get(TEST_PRE_AUTHORIZED_CODE);

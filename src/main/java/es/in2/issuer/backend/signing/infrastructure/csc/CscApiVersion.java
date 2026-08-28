@@ -7,7 +7,8 @@ import java.util.Arrays;
 @Getter
 public enum CscApiVersion {
 
-    V1("v2");
+    V1("v1"),
+    V2("v2");
 
     private final String value;
 
@@ -17,7 +18,7 @@ public enum CscApiVersion {
 
     public static CscApiVersion fromValue(String value) {
         if (value == null || value.isBlank()) {
-            return V1;
+            return V2;
         }
         return Arrays.stream(values())
                 .filter(v -> v.value.equalsIgnoreCase(value.trim()))

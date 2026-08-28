@@ -7,9 +7,9 @@ import reactor.core.publisher.Mono;
 
 /**
  * Validates that the tenant claim from the access token matches the tenant
- * resolved by {@code TenantDomainWebFilter} (either from the
- * {@code X-Tenant-Id} header or from the request subdomain when deployed
- * behind CloudFront/ALB).
+ * resolved by {@code TenantDomainWebFilter} (from the request subdomain or,
+ * as fallback, the {@code X-Tenant} header when deployed without a
+ * multi-segment host).
  *
  * <p>The verifier injects the {@code tenant} claim into the access token
  * based on the OIDC client's tenant configuration. Both must match for the
@@ -25,7 +25,7 @@ public class RequireTenantMatchRule implements PolicyRule<Object> {
         String tenantDomain = context.tenantDomain();
         if (tenantDomain == null || tenantDomain.isBlank()) {
             return Mono.error(new TenantMismatchException(
-                    "Tenant context is required (missing X-Tenant-Id header and request host)"));
+                    "Tenant context is required (no host subdomain and missing X-Tenant header)"));
         }
         String tokenTenant = context.tokenTenant();
         if (tokenTenant == null || tokenTenant.isBlank()) {

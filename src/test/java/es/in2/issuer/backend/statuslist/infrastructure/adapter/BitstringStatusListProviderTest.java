@@ -26,6 +26,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -66,8 +67,17 @@ class BitstringStatusListProviderTest {
     @Mock
     private IssuerFactory issuerFactory;
 
+    @Mock
+    private TransactionalOperator transactionalOperator;
+
     @InjectMocks
     private BitstringStatusListProvider bitstringStatusListProvider;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(transactionalOperator.transactional(any(Mono.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+    }
 
     private static final Long TEST_LIST_ID = 1L;
     private static final String TEST_SIGNED_CREDENTIAL = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...";
@@ -954,6 +964,44 @@ class BitstringStatusListProviderTest {
     }
 
     @Test
+    void revoke_shouldComplete_whenTokenIsNull() {
+        // AD-1/EUD-225: system-triggered revocation has no caller token; the guard on
+        // revoke() must not require it (unlike allocateEntry/createNewList, which still do).
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
+
+        StatusListIndex listIndex = new StatusListIndex(1L, TEST_LIST_ID, TEST_IDX, procedureUuid, Instant.now());
+        Instant updatedAt = Instant.parse("2026-01-01T00:00:00Z");
+
+        StatusList currentRow = new StatusList(
+                TEST_LIST_ID, "revocation", "bitstring_vc",
+                new BitstringEncoder().createEmptyEncodedList(131072), TEST_SIGNED_CREDENTIAL, updatedAt, updatedAt
+        );
+        StatusList updatedRow = new StatusList(
+                TEST_LIST_ID, "revocation", "bitstring_vc", "updatedEncodedList", TEST_SIGNED_CREDENTIAL, updatedAt, updatedAt
+        );
+
+        SimpleIssuer simpleIssuer = SimpleIssuer.builder().id(TEST_ISSUER_DID).build();
+        String listUrl = TEST_ISSUER_URL + "/w3c/v1/credentials/status/" + TEST_LIST_ID;
+
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid)).thenReturn(Mono.just(listIndex));
+        when(statusListRepository.findById(TEST_LIST_ID)).thenReturn(Mono.just(currentRow));
+        when(revocationService.applyRevocation(any(StatusListData.class), eq(TEST_IDX)))
+                .thenReturn(new StatusListData(updatedRow.id(), updatedRow.purpose(), updatedRow.format(), updatedRow.encodedList(), updatedRow.signedCredential(), updatedRow.createdAt(), updatedRow.updatedAt()));
+        when(issuerFactory.createSimpleIssuer()).thenReturn(Mono.just(simpleIssuer));
+        when(statusListBuilder.buildUnsigned(listUrl, TEST_ISSUER_DID, "revocation", "updatedEncodedList"))
+                .thenReturn(Map.of("type", "StatusListCredential"));
+        when(statusListSigner.sign(anyMap(), isNull(), eq(TEST_LIST_ID), eq("vc+jwt")))
+                .thenReturn(Mono.just("jwt"));
+        when(statusListRepository.updateSignedAndEncodedIfUnchanged(TEST_LIST_ID, "updatedEncodedList", "jwt", updatedAt))
+                .thenReturn(Mono.just(1));
+
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, null, TEST_ISSUER_URL))
+                .verifyComplete();
+
+        verify(statusListSigner).sign(anyMap(), isNull(), eq(TEST_LIST_ID), eq("vc+jwt"));
+    }
+
+    @Test
     void revoke_shouldThrowStatusListIndexNotFoundException_whenNoIndexExists() {
         // Arrange
         UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
@@ -1224,6 +1272,137 @@ class BitstringStatusListProviderTest {
                 "jwt",
                 updatedAt
         );
+    }
+
+    // ========== Tests for Transactional createNewList ==========
+
+    @Test
+    void createNewList_shouldWrapSaveAndUpdateInTransactionalOperator_keepingSigningOutside() {
+        // Arrange
+        StatusPurpose purpose = StatusPurpose.REVOCATION;
+        StatusListFormat format = StatusListFormat.BITSTRING_VC;
+
+        StatusList savedList = new StatusList(
+                TEST_LIST_ID,
+                "revocation",
+                "bitstring_vc",
+                "encodedList",
+                null,
+                Instant.now(),
+                Instant.now()
+        );
+
+        SimpleIssuer simpleIssuer = SimpleIssuer.builder().id(TEST_ISSUER_DID).build();
+        String listUrl = TEST_ISSUER_URL + "/w3c/v1/credentials/status/" + TEST_LIST_ID;
+
+        when(statusListRepository.save(any(StatusList.class)))
+                .thenReturn(Mono.just(savedList));
+        when(issuerFactory.createSimpleIssuer())
+                .thenReturn(Mono.just(simpleIssuer));
+        when(statusListBuilder.buildUnsigned(eq(listUrl), eq(TEST_ISSUER_DID), eq("revocation"), anyString()))
+                .thenReturn(Map.of("type", "StatusListCredential"));
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt")))
+                .thenReturn(Mono.just("signedJwt"));
+        when(statusListRepository.updateSignedCredential(TEST_LIST_ID, "signedJwt"))
+                .thenReturn(Mono.just(1));
+
+        // Act & Assert
+        StepVerifier.create(bitstringStatusListProvider.createNewList(purpose, format, TEST_TOKEN, TEST_ISSUER_URL))
+                .expectNextMatches(list -> list.id().equals(TEST_LIST_ID))
+                .verifyComplete();
+
+        // Verify that transactionalOperator.transactional was invoked at least twice (TX1: save, TX2: updateSignedCredential)
+        verify(transactionalOperator, atLeast(2)).transactional(any(Mono.class));
+        verify(statusListRepository).save(any(StatusList.class));
+        verify(statusListRepository).updateSignedCredential(TEST_LIST_ID, "signedJwt");
+        verify(statusListRepository, never()).deleteById(anyLong());
+    }
+
+    @Test
+    void createNewList_shouldWrapRollbackDeleteInTransactionalOperator_whenSigningFails() {
+        // Arrange
+        StatusPurpose purpose = StatusPurpose.REVOCATION;
+        StatusListFormat format = StatusListFormat.BITSTRING_VC;
+
+        StatusList savedList = new StatusList(
+                TEST_LIST_ID,
+                "revocation",
+                "bitstring_vc",
+                "encodedList",
+                null,
+                Instant.now(),
+                Instant.now()
+        );
+
+        SimpleIssuer simpleIssuer = SimpleIssuer.builder().id(TEST_ISSUER_DID).build();
+        String listUrl = TEST_ISSUER_URL + "/w3c/v1/credentials/status/" + TEST_LIST_ID;
+        RuntimeException signError = new RuntimeException("HTTP QTSP signing failed");
+
+        when(statusListRepository.save(any(StatusList.class)))
+                .thenReturn(Mono.just(savedList));
+        when(issuerFactory.createSimpleIssuer())
+                .thenReturn(Mono.just(simpleIssuer));
+        when(statusListBuilder.buildUnsigned(eq(listUrl), eq(TEST_ISSUER_DID), eq("revocation"), anyString()))
+                .thenReturn(Map.of("type", "StatusListCredential"));
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt")))
+                .thenReturn(Mono.error(signError));
+        when(statusListRepository.deleteById(TEST_LIST_ID))
+                .thenReturn(Mono.empty());
+
+        // Act & Assert
+        StepVerifier.create(bitstringStatusListProvider.createNewList(purpose, format, TEST_TOKEN, TEST_ISSUER_URL))
+                .expectErrorMatches(e -> e == signError)
+                .verify();
+
+        // Verify transactionalOperator.transactional was invoked for save and for rollback delete
+        verify(transactionalOperator, atLeast(2)).transactional(any(Mono.class));
+        verify(statusListRepository).save(any(StatusList.class));
+        verify(statusListRepository).deleteById(TEST_LIST_ID);
+        verify(statusListRepository, never()).updateSignedCredential(anyLong(), anyString());
+    }
+
+    @Test
+    void createNewList_shouldWrapRollbackDeleteInTransactionalOperator_whenUpdateSignedCredentialFails() {
+        // Arrange
+        StatusPurpose purpose = StatusPurpose.REVOCATION;
+        StatusListFormat format = StatusListFormat.BITSTRING_VC;
+
+        StatusList savedList = new StatusList(
+                TEST_LIST_ID,
+                "revocation",
+                "bitstring_vc",
+                "encodedList",
+                null,
+                Instant.now(),
+                Instant.now()
+        );
+
+        SimpleIssuer simpleIssuer = SimpleIssuer.builder().id(TEST_ISSUER_DID).build();
+        String listUrl = TEST_ISSUER_URL + "/w3c/v1/credentials/status/" + TEST_LIST_ID;
+
+        when(statusListRepository.save(any(StatusList.class)))
+                .thenReturn(Mono.just(savedList));
+        when(issuerFactory.createSimpleIssuer())
+                .thenReturn(Mono.just(simpleIssuer));
+        when(statusListBuilder.buildUnsigned(eq(listUrl), eq(TEST_ISSUER_DID), eq("revocation"), anyString()))
+                .thenReturn(Map.of("type", "StatusListCredential"));
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt")))
+                .thenReturn(Mono.just("jwt"));
+        when(statusListRepository.updateSignedCredential(TEST_LIST_ID, "jwt"))
+                .thenReturn(Mono.just(0));
+        when(statusListRepository.deleteById(TEST_LIST_ID))
+                .thenReturn(Mono.empty());
+
+        // Act & Assert
+        StepVerifier.create(bitstringStatusListProvider.createNewList(purpose, format, TEST_TOKEN, TEST_ISSUER_URL))
+                .expectError(StatusListSigningPersistenceException.class)
+                .verify();
+
+        // Verify transactionalOperator.transactional was invoked for save, updateSignedCredential and rollback delete
+        verify(transactionalOperator, atLeast(3)).transactional(any(Mono.class));
+        verify(statusListRepository).save(any(StatusList.class));
+        verify(statusListRepository).updateSignedCredential(TEST_LIST_ID, "jwt");
+        verify(statusListRepository).deleteById(TEST_LIST_ID);
     }
 
     private static <T> Mono<T> monoFromCall(Supplier<Mono<T>> call) {

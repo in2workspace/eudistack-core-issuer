@@ -47,7 +47,7 @@ public class OAuth2AuthStrategy implements CscAuthStrategy {
     @Override
     public Mono<String> requestAccessToken(SigningRequest signingRequest, String scope, boolean includeAuthorizationDetails) {
         RemoteSignatureDto cfg = signingRequest.remoteSignature();
-        String signatureGetAccessTokenEndpoint = cfg.url() + "/oauth2/token";
+        String signatureGetAccessTokenEndpoint = cfg.authUrl() + "/oauth2/token";
         String hashAlgorithmOID = "2.16.840.1.101.3.4.2.1";
 
         Map<String, Object> requestBody = new HashMap<>();

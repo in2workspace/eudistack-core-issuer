@@ -26,6 +26,7 @@ import java.text.ParseException;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -151,13 +152,13 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
             log.debug("Token from Credential Issuer (exact match) - {}", issuer);
             return handleIssuerBackendToken(token);
         }
-        String expectedVerifier = urlResolver.expectedVerifierBaseUrl(exchange);
-        if (expectedVerifier.equals(issuer)) {
+        List<String> expectedVerifiers = urlResolver.expectedVerifierBaseUrls(exchange);
+        if (expectedVerifiers.stream().anyMatch(issuer::equals)) {
             log.debug("Token from Verifier (exact match) - {}", issuer);
             return handleVerifierToken(token);
         }
-        log.debug("Token from unknown issuer: iss={}, expectedIssuer={}, expectedVerifier={}",
-                issuer, expectedIssuer, expectedVerifier);
+        log.debug("Token from unknown issuer: iss={}, expectedIssuer={}, expectedVerifiers={}",
+                issuer, expectedIssuer, expectedVerifiers);
         return Mono.error(new BadCredentialsException("Unknown token issuer: " + issuer));
     }
 

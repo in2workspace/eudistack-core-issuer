@@ -28,12 +28,18 @@ public class CscSignDocSigningProvider implements SigningProvider {
     @Override
     public Mono<SigningResult> sign(SigningRequest request) {
         return Mono.defer(() -> {
-            SigningRequestValidator.validate(request);
-
-            SigningContext ctx = request.context();
-            String issuanceId = ctx.issuanceId();
-
+            // Computed defensively (null-safe) so that a null request/context still fails
+            // through SigningRequestValidator.validate() as a SigningException, not an NPE:
+            // isIssued must be known before validate() (it decides requireContextToken), but
+            // validate() is also what asserts request/context are non-null in the first place.
+            SigningContext ctx = request != null ? request.context() : null;
+            String issuanceId = ctx != null ? ctx.issuanceId() : null;
             boolean isIssued = issuanceId != null && !issuanceId.isBlank();
+
+            // Context token is only required when signing an issued credential (a caller
+            // context exists). System artifacts (e.g. status lists, AD-1/EUD-225) are signed
+            // without a caller token: signDocService acquires its own QTSP credentials.
+            SigningRequestValidator.validate(request, isIssued);
 
             log.debug("Signing request received. type={}, issued={}, issuanceId={}", request.type(), isIssued, issuanceId);
 

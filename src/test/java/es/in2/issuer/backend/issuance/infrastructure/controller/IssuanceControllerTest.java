@@ -3,6 +3,9 @@ package es.in2.issuer.backend.issuance.infrastructure.controller;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
+import es.in2.issuer.backend.issuance.domain.exception.DeliveryModeNotEligibleException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
+import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.issuance.domain.model.dtos.UpdateIssuanceStatusRequest;
@@ -19,11 +22,14 @@ import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
+import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -44,10 +50,12 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
 @WithMockUser
 @MockitoBean(types = ReactiveAuthenticationManager.class)
 @WebFluxTest(IssuanceController.class)
+@Import(IssuanceExceptionHandler.class)
 class IssuanceControllerTest {
 
     private static final String ISSUANCES_PATH = "/api/v1/issuances";
     private static final String PUBLIC_ISSUER_BASE_URL = "https://issuer.example.com";
+    private static final String PUBLIC_WALLET_BASE_URL = "https://issuer.example.com/wallet";
 
     @Autowired
     private WebTestClient webTestClient;
@@ -88,7 +96,8 @@ class IssuanceControllerTest {
         IssuanceRequest request = buildIssuanceRequest();
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(PUBLIC_ISSUER_BASE_URL)))
+        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .credentialOfferUri(credentialOfferUri)
                         .build()));
@@ -110,7 +119,8 @@ class IssuanceControllerTest {
         String signedCredential = "signed-credential-value";
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(PUBLIC_ISSUER_BASE_URL)))
+        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .signedCredential(signedCredential)
                         .build()));
@@ -127,11 +137,118 @@ class IssuanceControllerTest {
     }
 
     @Test
+    void createIssuance_Hybrid_Returns200WithDeliveryResults() throws JsonProcessingException {
+        IssuanceRequest request = buildIssuanceRequest();
+
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
+                .thenReturn(Mono.just(IssuanceResponse.builder()
+                        .signedCredential("signed-jwt")
+                        .credentialOfferUri("openid-credential-offer://x")
+                        .deliveryResults(List.of(
+                                DeliveryResult.delivered("direct"),
+                                DeliveryResult.dispatched("email")))
+                        .build()));
+
+        webTestClient.mutateWith(csrf())
+                .post()
+                .uri(ISSUANCES_PATH)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(objectMapper.writeValueAsString(request))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.signed_credential").isEqualTo("signed-jwt")
+                .jsonPath("$.delivery_results[0].mode").isEqualTo("direct")
+                .jsonPath("$.delivery_results[0].status").isEqualTo("delivered")
+                .jsonPath("$.delivery_results[1].mode").isEqualTo("email")
+                .jsonPath("$.delivery_results[1].status").isEqualTo("dispatched");
+    }
+
+    @Test
+    void createIssuance_WalletOnly_Returns202WithDeliveryResultsBody() throws JsonProcessingException {
+        IssuanceRequest request = buildIssuanceRequest();
+
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
+                .thenReturn(Mono.just(IssuanceResponse.builder()
+                        .deliveryResults(List.of(DeliveryResult.dispatched("email")))
+                        .build()));
+
+        webTestClient.mutateWith(csrf())
+                .post()
+                .uri(ISSUANCES_PATH)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(objectMapper.writeValueAsString(request))
+                .exchange()
+                .expectStatus().isAccepted()
+                .expectBody()
+                .jsonPath("$.signed_credential").doesNotExist()
+                .jsonPath("$.delivery_results[0].mode").isEqualTo("email")
+                .jsonPath("$.delivery_results[0].status").isEqualTo("dispatched");
+    }
+
+    @Test
+    void createIssuance_InvalidDeliveryMode_Returns400() throws JsonProcessingException {
+        IssuanceRequest request = buildIssuanceRequest();
+        String detail = "Unknown delivery mode: foo";
+
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), any(), any()))
+                .thenReturn(Mono.error(new InvalidDeliveryModeException(detail)));
+        when(errorResponseFactory.handleWith(any(), any(), eq("invalid_request"), eq("Invalid request"),
+                eq(HttpStatus.BAD_REQUEST), anyString()))
+                .thenReturn(Mono.just(new GlobalErrorMessage(
+                        "invalid_request", "Invalid request", HttpStatus.BAD_REQUEST.value(), detail,
+                        UUID.randomUUID().toString())));
+
+        webTestClient.mutateWith(csrf())
+                .post()
+                .uri(ISSUANCES_PATH)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(objectMapper.writeValueAsString(request))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("invalid_request");
+    }
+
+    @Test
+    void createIssuance_ModeNotEligible_Returns409() throws JsonProcessingException {
+        IssuanceRequest request = buildIssuanceRequest();
+        String detail = "Delivery mode 'direct' is not eligible for credential type: test-schema";
+
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), any(), any()))
+                .thenReturn(Mono.error(new DeliveryModeNotEligibleException(detail)));
+        when(errorResponseFactory.handleWith(any(), any(), eq("delivery_mode_not_eligible"),
+                eq("Delivery mode not eligible"), eq(HttpStatus.CONFLICT), anyString()))
+                .thenReturn(Mono.just(new GlobalErrorMessage(
+                        "delivery_mode_not_eligible", "Delivery mode not eligible", HttpStatus.CONFLICT.value(),
+                        detail, UUID.randomUUID().toString())));
+
+        webTestClient.mutateWith(csrf())
+                .post()
+                .uri(ISSUANCES_PATH)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(objectMapper.writeValueAsString(request))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.CONFLICT)
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("delivery_mode_not_eligible");
+    }
+
+    @Test
     void createIssuance_WhenSignedCredentialAndCredentialOfferUriAreAbsent_Returns202AcceptedWithoutBody() throws JsonProcessingException {
         IssuanceRequest request = buildIssuanceRequest();
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(PUBLIC_ISSUER_BASE_URL)))
+        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder().build()));
 
         webTestClient.mutateWith(csrf())
@@ -150,7 +267,8 @@ class IssuanceControllerTest {
         IssuanceRequest request = buildIssuanceRequest();
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(idToken), eq(PUBLIC_ISSUER_BASE_URL)))
+        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(idToken), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder().build()));
 
         webTestClient.mutateWith(csrf())
@@ -277,7 +395,7 @@ class IssuanceControllerTest {
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(accessTokenService.getAuthorizationContext(anyString()))
                 .thenReturn(Mono.just(authCtx));
-        when(revocationWorkflow.revoke(anyString(), eq("Bearer testToken"), eq(issuanceId), eq(PUBLIC_ISSUER_BASE_URL)))
+        when(revocationWorkflow.revoke(anyString(), eq("Bearer testToken"), eq(issuanceId), isNull(), eq(PUBLIC_ISSUER_BASE_URL)))
                 .thenReturn(Mono.empty());
 
         webTestClient.mutateWith(csrf())

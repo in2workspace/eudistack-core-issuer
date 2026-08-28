@@ -9,10 +9,24 @@
         </encoder>
     </appender>
 
+    <!-- OTLP export to the OTel Collector → OpenObserve. Uses MaskingOpenTelemetryAppender
+         to redact PII & secrets, since the OTel appender reads the raw event and bypasses
+         MaskingPatternLayout entirely. Kept at INFO regardless of the console level (STG
+         runs es.in2.issuer at DEBUG; shipping that volume to OpenObserve is pure S3 cost). -->
+    <appender name="OTLP" class="es.in2.issuer.backend.shared.infrastructure.config.logging.MaskingOpenTelemetryAppender">
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>INFO</level>
+        </filter>
+        <captureMdcAttributes>*</captureMdcAttributes>
+        <captureKeyValuePairAttributes>true</captureKeyValuePairAttributes>
+        <captureLoggerContext>true</captureLoggerContext>
+    </appender>
+
     <!-- Default profile: plain-text logging -->
     <springProfile name="!json-logging">
         <root level="info">
             <appender-ref ref="CONSOLE_TEXT"/>
+            <appender-ref ref="OTLP"/>
         </root>
     </springProfile>
 
@@ -34,6 +48,7 @@
         </appender>
         <root level="info">
             <appender-ref ref="CONSOLE_JSON"/>
+            <appender-ref ref="OTLP"/>
         </root>
     </springProfile>
 </configuration>

@@ -48,7 +48,8 @@ public class IssuanceController {
             ServerWebExchange exchange) {
         String processId = UUID.randomUUID().toString();
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
-        return issuanceWorkflow.issueCredential(processId, request, idToken, publicIssuerBaseUrl)
+        String publicWalletBaseUrl = urlResolver.publicWalletBaseUrl(exchange);
+        return issuanceWorkflow.issueCredential(processId, request, idToken, publicIssuerBaseUrl, publicWalletBaseUrl)
                 .map(this::toResponseEntity);
     }
 
@@ -87,7 +88,7 @@ public class IssuanceController {
                     }
                     return switch (request.status()) {
                         case WITHDRAWN -> authorizeAndWithdraw(ctx, id);
-                        case REVOKED -> revocationWorkflow.revoke(processId, authorizationHeader, id, publicIssuerBaseUrl);
+                        case REVOKED -> revocationWorkflow.revoke(processId, authorizationHeader, id, null, publicIssuerBaseUrl);
                         case ARCHIVED -> authorizeAndArchive(ctx, id);
                         default -> Mono.error(new ResponseStatusException(
                                 HttpStatus.BAD_REQUEST,
@@ -130,13 +131,19 @@ public class IssuanceController {
     private ResponseEntity<IssuanceResponse> toResponseEntity(IssuanceResponse response) {
         boolean hasSignedCredential = response.signedCredential() != null;
         boolean hasCredentialOfferUri = response.credentialOfferUri() != null;
-        log.debug("Issuance process completed. Signed Credential present: {}, Credential Offer URI present: {}", hasSignedCredential, hasCredentialOfferUri);
+        boolean hasDeliveryResults = response.deliveryResults() != null && !response.deliveryResults().isEmpty();
+
+        log.debug("Issuance process completed. Signed Credential present: {}, Credential Offer URI present: {}, delivery results: {}",
+                hasSignedCredential, hasCredentialOfferUri, hasDeliveryResults ? response.deliveryResults().size() : 0);
 
         if (hasSignedCredential || hasCredentialOfferUri) {
             return ResponseEntity.ok(response);
         }
 
+        if (hasDeliveryResults) {
+            return ResponseEntity.accepted().body(response);
+        }
+
         return ResponseEntity.accepted().build();
     }
-
 }

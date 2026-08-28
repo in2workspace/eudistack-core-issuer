@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateException;
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
@@ -21,6 +22,7 @@ import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegis
 import es.in2.issuer.backend.shared.infrastructure.repository.IssuanceRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.stereotype.Service;
 import reactor.core.Exceptions;
@@ -138,6 +140,8 @@ public class IssuanceServiceImpl implements IssuanceService {
 
                     return issuanceRepository.save(issuance)
                             .doOnSuccess(result -> log.info(UPDATED_CREDENTIAL))
+                            .onErrorMap(OptimisticLockingFailureException.class,
+                                    e -> concurrentUpdateConflict(issuance.getIssuanceId(), "updateCredentialDataSetByIssuanceId", e))
                             .then();
                 });
     }
@@ -212,6 +216,8 @@ public class IssuanceServiceImpl implements IssuanceService {
                     issuance.setCredentialStatus(CredentialStatusEnum.VALID);
                     return issuanceRepository.save(issuance)
                             .doOnSuccess(result -> log.info(UPDATED_CREDENTIAL))
+                            .onErrorMap(OptimisticLockingFailureException.class,
+                                    e -> concurrentUpdateConflict(issuance.getIssuanceId(), "updateIssuanceStatusToValidByIssuanceId", e))
                             .then();
                 });
     }
@@ -222,7 +228,38 @@ public class IssuanceServiceImpl implements IssuanceService {
         issuance.setCredentialStatus(CredentialStatusEnum.REVOKED);
         return issuanceRepository.save(issuance)
                 .doOnSuccess(result -> log.info(UPDATED_CREDENTIAL))
+                .onErrorResume(OptimisticLockingFailureException.class,
+                        e -> reconcileConcurrentRevoke(issuance.getIssuanceId(), e))
                 .then();
+    }
+
+    /**
+     * SD-04 (EUD-225): two concurrent revocations of the same credential (operator REST +
+     * queue consumer, ES-03) can both pass {@link #validateTransition} against the same
+     * in-memory VALID snapshot before either writes. The {@code version} column (V11) turns
+     * the losing write into an {@link OptimisticLockingFailureException} instead of a silent
+     * double-revoke. Re-fetch and check what actually landed: if the other path already won
+     * and persisted REVOKED, this is not a genuine conflict — it is exactly the "no longer
+     * revocable" outcome both {@code RevocationWorkflow} callers already handle end-to-end
+     * (HTTP 409 for the operator, silent skip-as-noop for the queue consumer, AC-06/ES-03),
+     * so it is reported the same way instead of inventing a second no-op path. Any other
+     * current status is a genuinely unexpected concurrent mutation and is not papered over:
+     * the original conflict is propagated as a real error.
+     */
+    private Mono<Issuance> reconcileConcurrentRevoke(UUID issuanceId, OptimisticLockingFailureException conflict) {
+        return issuanceRepository.findById(issuanceId)
+                .switchIfEmpty(Mono.error(conflict))
+                .flatMap(current -> {
+                    if (current.getCredentialStatus() == CredentialStatusEnum.REVOKED) {
+                        log.info("Concurrent revocation for issuanceId={}: already REVOKED by another path, treating as no-op",
+                                issuanceId);
+                        return Mono.error(new InvalidCredentialStatusTransitionException(
+                                CredentialStatusEnum.REVOKED, CredentialStatusEnum.REVOKED));
+                    }
+                    log.error("Unresolved optimistic-lock conflict for issuanceId={}: current status={}",
+                            issuanceId, current.getCredentialStatus(), conflict);
+                    return Mono.error(conflict);
+                });
     }
 
     @Override
@@ -234,6 +271,8 @@ public class IssuanceServiceImpl implements IssuanceService {
                     issuance.setCredentialStatus(CredentialStatusEnum.WITHDRAWN);
                     return issuanceRepository.save(issuance)
                             .doOnSuccess(result -> log.info("Issuance withdrawn: {}", issuanceId))
+                            .onErrorMap(OptimisticLockingFailureException.class,
+                                    e -> concurrentUpdateConflict(issuance.getIssuanceId(), "withdrawIssuance", e))
                             .then();
                 });
     }
@@ -247,6 +286,8 @@ public class IssuanceServiceImpl implements IssuanceService {
                     issuance.setCredentialStatus(CredentialStatusEnum.ARCHIVED);
                     return issuanceRepository.save(issuance)
                             .doOnSuccess(result -> log.info("Issuance archived: {}", issuanceId))
+                            .onErrorMap(OptimisticLockingFailureException.class,
+                                    e -> concurrentUpdateConflict(issuance.getIssuanceId(), "archiveIssuance", e))
                             .then();
                 });
     }
@@ -434,7 +475,9 @@ public class IssuanceServiceImpl implements IssuanceService {
 
     @Override
     public Mono<Issuance> updateIssuance(Issuance issuance) {
-        return issuanceRepository.save(issuance);
+        return issuanceRepository.save(issuance)
+                .onErrorMap(OptimisticLockingFailureException.class,
+                        e -> concurrentUpdateConflict(issuance.getIssuanceId(), "updateIssuance", e));
     }
 
     @Override
@@ -446,6 +489,20 @@ public class IssuanceServiceImpl implements IssuanceService {
         if (!from.canTransitionTo(to)) {
             throw new InvalidCredentialStatusTransitionException(from, to);
         }
+    }
+
+    /**
+     * SD-04 (EUD-225): the {@code version} column (V11) can turn a lost optimistic-locking
+     * race on this issuance into an {@link OptimisticLockingFailureException} at any write
+     * site, not only {@code updateIssuanceStatusToRevoked}. This call site has no defined
+     * reconciliation target for a concurrent conflict — designing one for every write path
+     * is out of this Story's scope (spec-deltas.md SD-04) — so the conflict is logged with
+     * enough context to be diagnosable and surfaced as a clear domain exception instead of a
+     * bare R2DBC exception with no context.
+     */
+    private ConcurrentIssuanceUpdateException concurrentUpdateConflict(UUID issuanceId, String operation, Throwable cause) {
+        log.error("Concurrent update conflict on issuanceId={} during operation={}: {}", issuanceId, operation, cause.toString());
+        return new ConcurrentIssuanceUpdateException(issuanceId, operation, cause);
     }
 
 }

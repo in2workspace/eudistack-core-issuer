@@ -25,9 +25,12 @@ public class StatusListSigner implements CredentialPayloadSigner {
     private final DelegatingSigningProvider delegatingSigningProvider;
     private final ObjectMapper objectMapper;
 
+    /**
+     * @param token caller access token; {@code null} for system-triggered revocations
+     *              (AD-1, EUD-225) — the QTSP obtains its own credentials in that case.
+     */
     public Mono<String> sign(Map<String, Object> payload, String token, Long listId, String typ) {
         requireNonNullParam(payload, "payload");
-        requireNonNullParam(token, "token");
 
         return toSignatureRequest(payload, token, typ)
                 .flatMap(delegatingSigningProvider::sign)

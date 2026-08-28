@@ -20,7 +20,6 @@ import java.lang.reflect.Method;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -157,12 +156,27 @@ class StatusListSignerTest {
     }
 
     @Test
-    void sign_shouldThrowImmediately_whenTokenIsNull() {
+    void sign_shouldSucceed_whenTokenIsNull() throws Exception {
+        // AD-1/EUD-225: system-triggered revocation has no caller token to propagate;
+        // the guard on sign() must not require it.
         StatusListSigner signer = new StatusListSigner(delegatingSigningProvider, objectMapper);
 
-        assertThatThrownBy(() -> signer.sign(Map.of("a", 1), null, 1L, null))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("token");
+        Map<String, Object> payload = Map.of("a", 1);
+        Long listId = 1L;
+
+        when(objectMapper.writeValueAsString(payload)).thenReturn("{\"a\":1}");
+
+        SigningResult signingResult = mock(SigningResult.class);
+        when(signingResult.data()).thenReturn("jwt-value");
+        when(delegatingSigningProvider.sign(any())).thenReturn(Mono.just(signingResult));
+
+        StepVerifier.create(signer.sign(payload, null, listId, null))
+                .expectNext("jwt-value")
+                .verifyComplete();
+
+        verify(delegatingSigningProvider).sign(signingRequestCaptor.capture());
+        Object contextValue = readProperty(signingRequestCaptor.getValue(), "context");
+        assertThat(readProperty(contextValue, "token")).isNull();
     }
 
     /**

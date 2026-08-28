@@ -45,6 +45,7 @@ class CscSignHashSigningProviderTest {
                 "provider",
                 "1",
                 "https://qtsp.test",
+                "https://qtsp.test",
                 "sign-hash",
                 "cred-123", "pwd",
                 "PT10M",
@@ -76,7 +77,8 @@ class CscSignHashSigningProviderTest {
                 "2024-01-01T00:00:00Z",
                 "2026-01-01T00:00:00Z",
                 List.of("1.2.840.10045.4.3.2"),
-                256
+                256,
+                false
         );
     }
 

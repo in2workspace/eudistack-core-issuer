@@ -114,9 +114,14 @@ public final class Constants {
     public static final String ERROR_LOG_FORMAT = "[Error Instance ID: {}] Path: {}, Status: {}, Title: {}, Message: {}";
 
     // MULTI-TENANCY
-    public static final String TENANT_ID_HEADER = "X-Tenant-Id";
+    public static final String X_TENANT_HEADER = "X-Tenant";
     public static final String TENANT_DOMAIN_CONTEXT_KEY = "tenantDomain";
     public static final String PLATFORM_TENANT = "platform";
+    // Sentinel used when no tenant is present in the Reactor Context (system operations,
+    // schedulers, misrouted requests). Mirrors TenantAwareConnectionFactoryDecorator's
+    // fallback, which resolves this to search_path=public — keep any other tenant-context
+    // default aligned with this value so audit/log output matches the schema actually used.
+    public static final String SYSTEM_TENANT = "*";
     // Service-specific suffix appended to the tenant id to resolve the PostgreSQL schema
     // (e.g. tenant "sandbox" -> schema "sandbox_issuer"). Prevents flyway_schema_history
     // collisions when multiple services share the same database.

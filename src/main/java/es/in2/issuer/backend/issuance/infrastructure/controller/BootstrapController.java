@@ -49,15 +49,16 @@ public class BootstrapController {
         }
 
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
+        String publicWalletBaseUrl = urlResolver.publicWalletBaseUrl(exchange);
 
         // Tenant resolution and registry validation are performed by
-        // TenantDomainWebFilter from the X-Tenant-Id header (or hostname).
+        // TenantDomainWebFilter from the request host subdomain (or X-Tenant header).
         return Mono.deferContextual(ctx -> {
             String tenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
             if (tenant == null || tenant.isBlank()) {
                 return Mono.error(new ResponseStatusException(
                         HttpStatus.BAD_REQUEST,
-                        "INVALID_TENANT: X-Tenant-Id header is required"));
+                        "INVALID_TENANT: X-Tenant header or host subdomain is required"));
             }
 
             String processId = UUID.randomUUID().toString();
@@ -66,7 +67,7 @@ public class BootstrapController {
             log.info("[{}] Bootstrap issuance initiated for tenant '{}'", processId, tenant);
 
             return issuanceWorkflow
-                    .issueCredentialWithoutAuthorization(processId, request.toIssuanceRequest(), bootstrapToken, publicIssuerBaseUrl)
+                    .issueCredentialWithoutAuthorization(processId, request.toIssuanceRequest(), bootstrapToken, publicIssuerBaseUrl, publicWalletBaseUrl)
                     .<ResponseEntity<Void>>map(response -> {
                         if (response.credentialOfferUri() != null) {
                             return ResponseEntity.created(URI.create(response.credentialOfferUri())).build();

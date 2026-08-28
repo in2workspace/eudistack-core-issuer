@@ -73,19 +73,18 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
     private Mono<String> signCredentialOnRequestedFormat(String unsignedCredential, String format, String token, String issuanceId, String email) {
         return Mono.defer(() -> {
             if (format.equals(JWT_VC_JSON)) {
-                return setSubIfCredentialSubjectIdPresent(unsignedCredential)
-                        .flatMap(payloadToSign -> {
-                            log.info("Signing credential in JADES remotely ...");
-                            SigningRequest signingRequest = SigningRequest.builder()
-                                    .type(SigningType.JADES)
-                                    .data(payloadToSign)
-                                    .context(new SigningContext(token, issuanceId, email))
-                                    .typ(VC_JWT_TYP)
-                                    .build();
 
-                            return delegatingSigningProvider.sign(signingRequest)
-                                    .map(SigningResult::data);
-                        });
+                log.info("Signing credential in JADES remotely ...");
+                SigningRequest signingRequest = SigningRequest.builder()
+                        .type(SigningType.JADES)
+                        .data(unsignedCredential)
+                        .context(new SigningContext(token, issuanceId, email))
+                        .typ(VC_JWT_TYP)
+                        .build();
+
+                return delegatingSigningProvider.sign(signingRequest)
+                        .map(SigningResult::data);
+
 
             } else if (format.equals(CWT_VC)) {
                 return generateCborFromJson(unsignedCredential)
@@ -95,63 +94,6 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                 return Mono.error(new IllegalArgumentException("Unsupported credential format: " + format));
             }
         });
-    }
-
-    private Mono<String> setSubIfCredentialSubjectIdPresent(String unsignedCredential) {
-        return Mono.fromCallable(() -> {
-            JsonNode root = objectMapper.readTree(unsignedCredential);
-            if (!(root instanceof ObjectNode rootObj)) {
-                return unsignedCredential;
-            }
-
-            String subjectDid = extractSubjectDid(rootObj);
-
-            if (subjectDid != null && !subjectDid.isBlank()) {
-                rootObj.put("sub", subjectDid);
-                return objectMapper.writeValueAsString(rootObj);
-            }
-
-            return unsignedCredential;
-        })
-        .subscribeOn(Schedulers.boundedElastic())
-        .onErrorResume(e -> {
-            log.warn(
-                    "Could not set 'sub' from credentialSubject.id. Keeping original payload. Reason: {}",
-                    e.getMessage()
-            );
-            return Mono.just(unsignedCredential);
-        });
-    }
-
-    private String extractSubjectDid(ObjectNode rootObj) {
-        JsonNode csNode = rootObj.path("credentialSubject");
-
-        if (csNode.isObject()) {
-            return extractIdFromObject(csNode);
-        }
-
-        if (csNode.isArray()) {
-            return extractIdFromArray((ArrayNode) csNode);
-        }
-
-        return null;
-    }
-
-    private String extractIdFromObject(JsonNode csNode) {
-        JsonNode idNode = csNode.path("id");
-        return idNode.isTextual() ? idNode.asText() : null;
-    }
-
-    private String extractIdFromArray(ArrayNode arrayNode) {
-        for (JsonNode item : arrayNode) {
-            if (item != null && item.isObject()) {
-                JsonNode idNode = item.path("id");
-                if (idNode.isTextual() && !idNode.asText().isBlank()) {
-                    return idNode.asText();
-                }
-            }
-        }
-        return null;
     }
 
     private Mono<byte[]> generateCborFromJson(String edgcJson) {

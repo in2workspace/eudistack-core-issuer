@@ -13,6 +13,7 @@ import reactor.core.publisher.Mono;
 import java.io.Closeable;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.SCHEMA_SUFFIX;
+import static es.in2.issuer.backend.shared.domain.util.Constants.SYSTEM_TENANT;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 /**
@@ -31,8 +32,6 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 @Slf4j
 @Configuration(proxyBeanMethods = false)
 public class TenantAwareConnectionFactoryDecorator {
-
-    static final String SYSTEM_TENANT = "*";
 
     @Bean
     static BeanPostProcessor tenantAwareConnectionFactoryPostProcessor() {
@@ -84,7 +83,7 @@ public class TenantAwareConnectionFactoryDecorator {
         private Mono<Connection> setSearchPath(Connection connection, String tenant) {
             String searchPath = SYSTEM_TENANT.equals(tenant)
                     ? "public"
-                    : sanitize(tenant) + SCHEMA_SUFFIX + ", public";
+                : "\"" + sanitize(tenant) + SCHEMA_SUFFIX + "\", public";
             return Mono.from(connection.createStatement("SET search_path TO " + searchPath).execute())
                     .then(Mono.just(connection))
                     .doOnSuccess(c -> log.trace("R2DBC search_path set to '{}'", searchPath))

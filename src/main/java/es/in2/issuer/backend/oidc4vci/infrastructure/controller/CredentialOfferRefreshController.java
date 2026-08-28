@@ -38,6 +38,7 @@ public class CredentialOfferRefreshController {
     public Mono<Void> refreshCredentialOffer(@PathVariable String credentialOfferRefreshToken,
                                              ServerWebExchange exchange) {
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
-        return credentialOfferRefreshWorkflow.refreshCredentialOffer(credentialOfferRefreshToken, publicIssuerBaseUrl);
+        String publicWalletBaseUrl = urlResolver.publicWalletBaseUrl(exchange);
+        return credentialOfferRefreshWorkflow.refreshCredentialOffer(credentialOfferRefreshToken, publicIssuerBaseUrl, publicWalletBaseUrl);
     }
 }

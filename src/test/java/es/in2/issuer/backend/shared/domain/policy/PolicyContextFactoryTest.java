@@ -109,7 +109,7 @@ class PolicyContextFactoryTest {
         setupFlatTokenClaims(payload, CREDENTIAL_TYPE, "ORG-123");
 
         CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
-        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+        when(credentialProfileRegistry.resolveProfile(CREDENTIAL_TYPE)).thenReturn(profile);
 
         StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
                 .assertNext(ctx -> {
@@ -137,7 +137,7 @@ class PolicyContextFactoryTest {
         setupFlatTokenClaims(payload, CREDENTIAL_TYPE, "ORG-123", null);
 
         CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
-        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+        when(credentialProfileRegistry.resolveProfile(CREDENTIAL_TYPE)).thenReturn(profile);
 
         StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
                 .assertNext(ctx -> {
@@ -165,7 +165,7 @@ class PolicyContextFactoryTest {
         when(jwtService.getClaimFromPayload(payload, "tenant")).thenReturn("\"DOME\"");
 
         CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
-        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+        when(credentialProfileRegistry.resolveProfile(CREDENTIAL_TYPE)).thenReturn(profile);
 
         StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
                 .assertNext(ctx -> {
@@ -192,7 +192,7 @@ class PolicyContextFactoryTest {
         when(jwtService.getClaimFromPayload(payload, "mandator")).thenReturn(mandatorJson);
 
         CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
-        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+        when(credentialProfileRegistry.resolveProfile(CREDENTIAL_TYPE)).thenReturn(profile);
 
         StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
                 .assertNext(ctx -> {
@@ -221,7 +221,7 @@ class PolicyContextFactoryTest {
         when(jwtService.getClaimFromPayload(payload, "tenant")).thenReturn("\"DOME\"");
 
         CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
-        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+        when(credentialProfileRegistry.resolveProfile(CREDENTIAL_TYPE)).thenReturn(profile);
 
         StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
                 .assertNext(ctx -> {
@@ -251,7 +251,7 @@ class PolicyContextFactoryTest {
         when(jwtService.getClaimFromPayload(payload, "tenant")).thenReturn("\"DOME\"");
 
         CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
-        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+        when(credentialProfileRegistry.resolveProfile(CREDENTIAL_TYPE)).thenReturn(profile);
 
         StepVerifier.create(factory.fromTokenSimple(TOKEN, "DOME"))
                 .assertNext(ctx -> assertThat(ctx.tenantAdmin()).isTrue())
@@ -271,7 +271,7 @@ class PolicyContextFactoryTest {
         setupFlatTokenClaims(payload, CREDENTIAL_TYPE, "ORG-123");
 
         CredentialProfile profile = buildProfile(CREDENTIAL_TYPE);
-        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+        when(credentialProfileRegistry.resolveProfile(CREDENTIAL_TYPE)).thenReturn(profile);
 
         StepVerifier.create(factory.fromTokenForIssuance(TOKEN, CREDENTIAL_TYPE, "DOME"))
                 .assertNext(ctx -> {
@@ -331,7 +331,7 @@ class PolicyContextFactoryTest {
         when(credentialProfileRegistry.getByConfigurationId("gx.labelcredential.w3c.1")).thenReturn(labelProfile);
 
         CredentialProfile machineProfile = buildProfile(machineType);
-        when(credentialProfileRegistry.getByConfigurationId(machineType)).thenReturn(machineProfile);
+        when(credentialProfileRegistry.resolveProfile(machineType)).thenReturn(machineProfile);
 
         StepVerifier.create(factory.fromTokenForIssuance(TOKEN, "gx.labelcredential.w3c.1", "DOME"))
                 .assertNext(ctx -> {
@@ -358,9 +358,9 @@ class PolicyContextFactoryTest {
         when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(targetProfile);
 
         CredentialProfile emitterProfile = buildProfile(CREDENTIAL_TYPE);
-        // getByConfigurationId is called twice: once for checkIfEmitterIsAllowedToIssue, once for resolveProfile
-        // Since both use the same key, one stub covers both
-        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(emitterProfile);
+        // Two distinct lookups on the same key: checkIfEmitterIsAllowedToIssue resolves the target
+        // profile by configuration id, resolveProfile resolves the emitter profile leniently
+        when(credentialProfileRegistry.resolveProfile(CREDENTIAL_TYPE)).thenReturn(emitterProfile);
 
         StepVerifier.create(factory.fromTokenForIssuance(TOKEN, CREDENTIAL_TYPE, "DOME"))
                 .assertNext(ctx -> {
