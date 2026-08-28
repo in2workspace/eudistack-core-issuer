@@ -116,20 +116,20 @@ class StatusListWorkflowTest {
         Long listId = 10L;
         String signed = "signed-credential";
 
-        when(statusListProvider.getSignedStatusListCredential(listId))
+        when(statusListProvider.getSignedStatusListCredential(listId, StatusListFormat.BITSTRING_VC))
                 .thenReturn(Mono.just(signed));
 
-        StepVerifier.create(workflow.getSignedStatusListCredential(listId))
+        StepVerifier.create(workflow.getSignedStatusListCredential(listId, StatusListFormat.BITSTRING_VC))
                 .expectNext(signed)
                 .verifyComplete();
 
-        verify(statusListProvider).getSignedStatusListCredential(listId);
+        verify(statusListProvider).getSignedStatusListCredential(listId, StatusListFormat.BITSTRING_VC);
         verifyNoMoreInteractions(statusListProvider);
     }
 
     @Test
     void getSignedStatusListCredential_whenListIdIsNull_throwsAndDoesNotCallProvider() {
-        assertThrows(RuntimeException.class, () -> workflow.getSignedStatusListCredential(null));
+        assertThrows(RuntimeException.class, () -> workflow.getSignedStatusListCredential(null, StatusListFormat.BITSTRING_VC));
 
         verifyNoInteractions(statusListProvider);
     }

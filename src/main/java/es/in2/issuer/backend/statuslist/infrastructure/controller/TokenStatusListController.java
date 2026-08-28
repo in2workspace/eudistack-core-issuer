@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.statuslist.infrastructure.controller;
 
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
+import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -34,7 +35,7 @@ public class TokenStatusListController {
     public Mono<ResponseEntity<String>> getTokenStatusList(@PathVariable Long listId) {
         String processId = UUID.randomUUID().toString();
 
-        return statusListWorkflow.getSignedStatusListCredential(listId)
+        return statusListWorkflow.getSignedStatusListCredential(listId, StatusListFormat.TOKEN_JWT)
                 .doFirst(() -> log.info("processId={} action=getTokenStatusList step=START listId={}", processId, listId))
                 .doOnSuccess(v -> log.info("processId={} action=getTokenStatusList status=completed listId={}", processId, listId))
                 .doOnError(e -> log.warn("processId={} action=getTokenStatusList status=failed listId={} error={}", processId, listId, e.toString()))
