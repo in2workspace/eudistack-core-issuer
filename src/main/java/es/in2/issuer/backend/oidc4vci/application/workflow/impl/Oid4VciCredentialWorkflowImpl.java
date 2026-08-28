@@ -320,8 +320,13 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             CredentialIssuerMetadata metadata,
             CredentialRequest credentialRequest) {
 
-        var cryptoMethods = cfg.cryptographicBindingMethodsSupported();
-        boolean needsProof = cryptoMethods != null && !cryptoMethods.isEmpty();
+        // proof_types_supported, not cryptographic_binding_methods_supported (ADR-110): the former is
+        // what obliges the wallet to send a proof -- OID4VCI 1.0 §8.2.6 makes `proofs` REQUIRED in the
+        // Credential Request exactly when it is present. The latter describes how key material is
+        // represented and is OPTIONAL, so reading it as a requirement confused format with obligation.
+        // Deciding here on the same field the issuance path uses means the two cannot drift apart.
+        var proofTypes = cfg.proofTypesSupported();
+        boolean needsProof = proofTypes != null && !proofTypes.isEmpty();
         log.info("Binding requirement for {}: needsProof={}", credentialType, needsProof);
 
         if (!needsProof) {

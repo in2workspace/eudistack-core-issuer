@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.issuance.infrastructure.controller;
 
-import es.in2.issuer.backend.issuance.domain.exception.DeliveryModeNotEligibleException;
+import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;

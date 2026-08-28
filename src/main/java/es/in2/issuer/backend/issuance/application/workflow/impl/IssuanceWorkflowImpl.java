@@ -23,7 +23,9 @@ import es.in2.issuer.backend.issuance.infrastructure.config.properties.IssuanceP
 import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryTrace;
 import es.in2.issuer.backend.issuance.domain.model.HolderKey;
-import es.in2.issuer.backend.issuance.domain.exception.DeliveryModeNotEligibleException;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.HolderBindingExemption;
+import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
+import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
@@ -70,6 +72,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private final StatusListWorkflow statusListWorkflow;
     private final TenantConfigService tenantConfigService;
     private final IssuanceProperties issuanceProperties;
+    private final SchemaDeliveryCeiling schemaDeliveryCeiling;
 
     @Override
     @Observed(name = "issuance.issue-credential", contextualName = "issuance-issue-credential")
@@ -180,12 +183,14 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private Mono<IssuanceResponse> performIssuanceFlow(String processId, IssuanceRequest request, String idToken,
                                                         String publicIssuerBaseUrl, String publicWalletBaseUrl, String delivery) {
         String configId = request.credentialConfigurationId();
-        CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
 
-        return resolveAndValidateDeliveryModes(configId, profile, delivery)
+        return resolveAndValidateDeliveryModes(configId, delivery)
                 .flatMap(modes -> {
-                    boolean hasDirect = modes.stream().anyMatch(DeliveryMode::isDirect);
-                    Map<String, Object> cnf = (hasDirect && profile.cnfRequired())
+                    // Scoped exception (AD-8): the machine LEARCredential types keep a cnf even though
+                    // their schema declares no binding, sourced from the request holder_key. Not gated on
+                    // the direct mode -- with proof_types_supported gone no key proof arrives through the
+                    // wallet flow either, so the request is the only source of a holder key there is.
+                    Map<String, Object> cnf = HolderBindingExemption.isExempt(configId)
                             ? HolderKey.fromJson(request.holderKey()).cnf() : null;
                     return executeIssuanceForModes(processId, request, idToken,
                             publicIssuerBaseUrl, publicWalletBaseUrl, delivery, modes, cnf);
@@ -193,25 +198,24 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     }
 
     /**
-     * Early guard (ES-01 / AC-05): normalizes the declared delivery modes and validates their eligibility
-     * before anything is signed, dispatched or persisted.
+     * Early guard: normalizes the declared delivery modes and validates their eligibility before
+     * anything is signed, dispatched or persisted.
      *
-     * <p>Eligibility is read per tenant from {@code issuer.delivery.modes.{credentialConfigurationId}}
-     * (same key managed by the TenantAdmin-facing {@code DeliveryConfigController}, EUD-169).
-     * When the tenant has no configuration, a safe default derived from {@code cnfRequired()} applies:
-     * credential types requiring cryptographic holder binding are not eligible for direct delivery
-     * by default (they resolve to {@code email,ui}).
+     * <p>Eligibility resolves as {@code tenant configuration ∩ schema ceiling}, with the ceiling as the
+     * default when no configuration exists. The ceiling ({@link SchemaDeliveryCeiling}) derives from
+     * {@code proof_types_supported}, the single signal of holder binding (ADR-110): direct delivery has
+     * no wallet and therefore no proof-of-possession, so a bound type cannot be delivered that way.
      *
-     * <p>Since EUD-168 that exclusion is a <em>default</em>, not a hard rule: a tenant admin may
-     * explicitly enable {@code direct} for a {@code cnfRequired} credential type, because the direct
-     * path can now carry the cryptographic holder binding via a holder key supplied in the request
-     * (validated fail-fast in {@link #performIssuanceFlow}, before any delivery leg runs).
-     * Eligibility here decides policy
-     * (config) and returns {@link DeliveryModeNotEligibleException} when a mode is not eligible; the
-     * presence and shape of the holder key is a separate, request-level check enforced later.
+     * <p>The intersection is what makes this a ceiling rather than a default. Tenant configuration can
+     * only narrow it -- a stored configuration listing {@code direct} for a bound type, written before
+     * this rule existed, is intersected away instead of honoured.
+     *
+     * <p>This decides mode eligibility only. Whether a holder key is present and well-formed is a
+     * separate, request-level check made right after in {@link #performIssuanceFlow}; keeping that order
+     * means an ineligible mode is reported as such even when a valid holder key was supplied.
      */
     private Mono<Set<DeliveryMode>> resolveAndValidateDeliveryModes(
-            String configId, CredentialProfile profile, String delivery) {
+            String configId, String delivery) {
 
         final Set<DeliveryMode> modes;
         try {
@@ -220,7 +224,16 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
             return Mono.error(new InvalidDeliveryModeException(ex.getMessage()));
         }
 
-        String defaultEligible = profile.cnfRequired() ? "email,ui" : "direct,email,ui";
+        // The schema ceiling is checked first and unconditionally: no stored configuration can widen it,
+        // so a configuration predating this rule cannot resurrect direct delivery for a bound type.
+        try {
+            schemaDeliveryCeiling.validateWithinCeiling(configId, modes);
+        } catch (DeliveryModeNotEligibleException ex) {
+            return Mono.error(ex);
+        }
+
+        Set<DeliveryMode> ceiling = schemaDeliveryCeiling.resolveEligibleModes(configId);
+        String defaultEligible = DeliveryMode.toCanonicalCsv(ceiling);
         return tenantConfigService.getStringOrDefault(DELIVERY_MODES_CONFIG_PREFIX + configId, defaultEligible)
                 .map(csv -> Arrays.stream(csv.split(","))
                         .map(String::trim)
@@ -228,10 +241,14 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                         .collect(Collectors.toSet()))
                 .flatMap(eligibleValues -> {
                     for (DeliveryMode mode : modes) {
-                        if (!eligibleValues.contains(mode.value)) {
+                        // Tenant configuration narrows the ceiling, never widens it: a mode must clear
+                        // both. The ceiling was already checked above, so this can only reject a mode the
+                        // tenant itself has disabled.
+                        if (!eligibleValues.contains(mode.value) || !ceiling.contains(mode)) {
                             return Mono.error(new DeliveryModeNotEligibleException(
-                                    "Delivery mode '" + mode.value + "' is not eligible for credential type: "
-                                            + configId));
+                                    "Delivery mode '" + mode.value + "' is not eligible for credential type '"
+                                            + configId + "'. Eligible modes: "
+                                            + DeliveryMode.toCanonicalCsv(ceiling)));
                         }
                     }
                     return Mono.just(modes);
