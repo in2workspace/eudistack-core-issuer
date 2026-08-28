@@ -4,8 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
-import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -24,7 +24,7 @@ class Base45CodecGoldenVectorsTest {
 
     @Test
     void encode_goldenCorpus_matchesTheCapturedOutput() throws IOException {
-        JsonNode entries = readEntries("src/test/resources/fixtures/base45-golden-corpus.json");
+        JsonNode entries = readEntries("/fixtures/base45-golden-corpus.json");
 
         assertThat(entries).hasSizeGreaterThanOrEqualTo(MINIMUM_CORPUS_SIZE);
         for (JsonNode entry : entries) {
@@ -38,7 +38,7 @@ class Base45CodecGoldenVectorsTest {
 
     @Test
     void encode_rfc9285KnownVectors_matchTheSpecification() throws IOException {
-        JsonNode entries = readEntries("src/test/resources/fixtures/base45-known-vectors.json");
+        JsonNode entries = readEntries("/fixtures/base45-known-vectors.json");
 
         for (JsonNode entry : entries) {
             String hexInput = entry.get("input").asText();
@@ -49,8 +49,11 @@ class Base45CodecGoldenVectorsTest {
         }
     }
 
-    private JsonNode readEntries(String fixturePath) throws IOException {
-        return objectMapper.readTree(new File(fixturePath)).get("entries");
+    private JsonNode readEntries(String classpathResource) throws IOException {
+        try (InputStream fixture = getClass().getResourceAsStream(classpathResource)) {
+            assertThat(fixture).as("fixture %s on the test classpath", classpathResource).isNotNull();
+            return objectMapper.readTree(fixture).get("entries");
+        }
     }
 
     private byte[] hexToBytes(String hex) {

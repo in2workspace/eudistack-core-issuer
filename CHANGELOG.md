@@ -12,13 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **EUD-38 — allowlist de licencias unificada**: `.github/license-policy.json` es ahora la transcripción íntegra de `conv-quality-security-gates.md` §16.1, idéntica en los trece repositorios con gate. Añade `LGPL-2.1-only`, la grafía SPDX vigente del mismo permiso que `LGPL-2.1`, que ya estaba admitido: `logback` 1.5.34 la declara así y el gate la bloqueaba por la grafía, no por la licencia.
 
+- **Tech Debt — Atomic reactive writes for status list creation (`BitstringStatusListProvider`, H-02 / H-07)**: refactored `BitstringStatusListProvider.createNewList` to execute `save` (TX1) and `updateSignedCredential` (TX2) in short reactive transactions via `TransactionalOperator`, keeping the external HTTP/QTSP signing call outside of any transactional boundary, with a transactionally wrapped compensation delete on failure. Conforms to the module transactional policy (`persistence-layer-rules.md`, `reactive-code-analysis.md`).
+
 ### Removed
 
 - `io.github.ehn-digital-green-development:base45:0.0.3` (EUPL-1.2) sale del runtime, y con ella su excepción de licencia en `.github/license-exceptions.json`. Era el último componente copyleft recíproco del repositorio y hacía falsa la licencia Apache-2.0 declarada, igual que hizo `io.github.novacrypto:Base58` (GPL-3.0) antes de EUD-219.
-
-### Changed
-
-- **Tech Debt — Atomic reactive writes for status list creation (`BitstringStatusListProvider`, H-02 / H-07)**: refactored `BitstringStatusListProvider.createNewList` to execute `save` (TX1) and `updateSignedCredential` (TX2) in short reactive transactions via `TransactionalOperator`, keeping the external HTTP/QTSP signing call outside of any transactional boundary, with a transactionally wrapped compensation delete on failure. Conforms to the module transactional policy (`persistence-layer-rules.md`, `reactive-code-analysis.md`).
 
 ### Added
 
