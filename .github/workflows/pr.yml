@@ -76,7 +76,7 @@ jobs:
 
       - name: Upload Coverage Report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: jacoco-report
           path: build/jacocoHtml/
@@ -135,7 +135,7 @@ jobs:
 
       - name: Upload Trivy Report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: trivy-report
           path: build/reports/trivy-report.json
