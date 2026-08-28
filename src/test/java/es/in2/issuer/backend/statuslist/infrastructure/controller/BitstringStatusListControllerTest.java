@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.statuslist.infrastructure.controller;
 
+import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
@@ -49,7 +50,7 @@ class BitstringStatusListControllerUnitTest {
         long listId = 123L;
         String jwt = "header.payload.signature";
 
-        when(statusListWorkflow.getSignedStatusListCredential(listId)).thenReturn(Mono.just(jwt));
+        when(statusListWorkflow.getSignedStatusListCredential(listId, StatusListFormat.BITSTRING_VC)).thenReturn(Mono.just(jwt));
 
         Mono<ResponseEntity<String>> result = controller.getStatusList(listId);
 
@@ -61,7 +62,7 @@ class BitstringStatusListControllerUnitTest {
                 })
                 .verifyComplete();
 
-        verify(statusListWorkflow).getSignedStatusListCredential(listId);
+        verify(statusListWorkflow).getSignedStatusListCredential(listId, StatusListFormat.BITSTRING_VC);
         verifyNoInteractions(revocationWorkflow);
     }
 
@@ -69,14 +70,14 @@ class BitstringStatusListControllerUnitTest {
     void getStatusList_whenWorkflowFails_propagatesError() {
         long listId = 123L;
 
-        when(statusListWorkflow.getSignedStatusListCredential(listId))
+        when(statusListWorkflow.getSignedStatusListCredential(listId, StatusListFormat.BITSTRING_VC))
                 .thenReturn(Mono.error(new RuntimeException("boom")));
 
         StepVerifier.create(controller.getStatusList(listId))
                 .expectError(RuntimeException.class)
                 .verify();
 
-        verify(statusListWorkflow).getSignedStatusListCredential(listId);
+        verify(statusListWorkflow).getSignedStatusListCredential(listId, StatusListFormat.BITSTRING_VC);
         verifyNoInteractions(revocationWorkflow);
     }
 
