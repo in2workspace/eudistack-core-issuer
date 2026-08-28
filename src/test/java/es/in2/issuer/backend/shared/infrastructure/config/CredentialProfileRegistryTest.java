@@ -1,6 +1,8 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ByteArrayResource;
@@ -18,7 +20,11 @@ import static org.mockito.Mockito.when;
 
 class CredentialProfileRegistryTest {
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    // Mirrors the application mapper (IssuerApiApplication): a profile may carry members the
+    // model does not declare, and those must be dropped rather than fail startup.
+    private static final ObjectMapper OBJECT_MAPPER = JsonMapper.builder()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+            .build();
 
     @Test
     void shouldLoadProfileAndLookupByConfigurationId() throws IOException {
@@ -90,6 +96,92 @@ class CredentialProfileRegistryTest {
         assertThat(profile.credentialMetadata().display()).hasSize(1);
         assertThat(profile.credentialMetadata().display().getFirst().name()).isEqualTo("LEAR Credential Employee");
         assertThat(profile.credentialMetadata().claims()).hasSize(5);
+    }
+
+    @Test
+    void shouldParseEveryDisplayMemberTheSpecDefines() throws IOException {
+        // The credential display object is name + locale + description + logo +
+        // background_color + background_image + text_color (OID4VCI 1.0 Final section
+        // 12.2.4). A member the model does not declare is dropped on parse and never
+        // reaches the published metadata — which is how the card colours went missing.
+        String displayProfileJson = """
+                {
+                  "credential_configuration_id": "learcredential.employee.w3c.4",
+                  "credential_format": "jwt_vc_json",
+                  "credential_definition": {
+                    "type": ["VerifiableCredential", "learcredential.employee.w3c.4"]
+                  },
+                  "credential_metadata": {
+                    "display": [{
+                      "name": "LEAR Credential Employee",
+                      "locale": "en",
+                      "description": "Verifiable Credential for employees",
+                      "logo": { "uri": "https://issuer.example.com/logo.svg", "alt_text": "Issuer" },
+                      "background_color": "#1B2A41",
+                      "background_image": { "uri": "https://issuer.example.com/bg.svg" },
+                      "text_color": "#FFFFFF"
+                    }]
+                  }
+                }
+                """;
+        ResourcePatternResolver resolver = mockResolver(namedResource("display.json", displayProfileJson));
+
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
+
+        CredentialProfile.DisplayInfo display =
+                registry.getByConfigurationId("learcredential.employee.w3c.4").credentialMetadata().display().getFirst();
+        assertThat(display.name()).isEqualTo("LEAR Credential Employee");
+        assertThat(display.description()).isEqualTo("Verifiable Credential for employees");
+        assertThat(display.backgroundColor()).isEqualTo("#1B2A41");
+        assertThat(display.textColor()).isEqualTo("#FFFFFF");
+        assertThat(display.logo().uri()).isEqualTo("https://issuer.example.com/logo.svg");
+        assertThat(display.logo().altText()).isEqualTo("Issuer");
+        assertThat(display.backgroundImage().uri()).isEqualTo("https://issuer.example.com/bg.svg");
+        assertThat(display.backgroundImage().altText()).isNull();
+    }
+
+    @Test
+    void shouldIgnoreUnknownClaimMembers() throws IOException {
+        String labelProfileJson = """
+                {
+                  "credential_configuration_id": "gx.labelcredential.w3c.2",
+                  "credential_format": "jwt_vc_json",
+                  "credential_definition": {
+                    "type": ["VerifiableCredential", "gx.labelcredential.w3c.2"]
+                  },
+                  "credential_metadata": {
+                    "display": [{"name": "Gaia-X Label Credential", "locale": "en"}],
+                    "claims": [
+                      {
+                        "path": ["credentialSubject", "gx:labelLevel"],
+                        "display": [{"name": "Label Level", "locale": "en"}],
+                        "value_map": {"BL": "Baseline", "P": "Professional", "P+": "Professional Plus"}
+                      },
+                      {
+                        "path": ["credentialSubject", "gx:engineVersion"],
+                        "display": [{"name": "Engine Version", "locale": "en"}]
+                      }
+                    ]
+                  },
+                  "validity_days": 365,
+                  "issuer_type": "DETAILED",
+                  "cnf_required": true
+                }
+                """;
+        ResourcePatternResolver resolver = mockResolver(namedResource("gx-label-credential.json", labelProfileJson));
+
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
+
+        // A claims description object is path + display + mandatory (OID4VCI 1.0 Final
+        // Appendix B.1). Anything else a profile carries — here the legacy `value_map` —
+        // must stay out of the model, and therefore out of the published metadata.
+        CredentialProfile profile = registry.getByConfigurationId("gx.labelcredential.w3c.2");
+        assertThat(profile).isNotNull();
+        assertThat(profile.credentialMetadata().claims()).hasSize(2);
+
+        CredentialProfile.ClaimDefinition labelLevelClaim = profile.credentialMetadata().claims().getFirst();
+        assertThat(labelLevelClaim.path()).containsExactly("credentialSubject", "gx:labelLevel");
+        assertThat(labelLevelClaim.display()).hasSize(1);
     }
 
     @Test
@@ -170,6 +262,38 @@ class CredentialProfileRegistryTest {
         CredentialProfile typeResult = registry.getByCredentialType("learcredential.employee.w3c.4");
         assertThat(typeResult).isNotNull();
         assertThat(typeResult.credentialConfigurationId()).isEqualTo("learcredential.employee.w3c.4");
+    }
+
+    @Test
+    void shouldResolveProfileByConfigurationId() throws IOException {
+        ResourcePatternResolver resolver = mockResolver(validEmployeeProfile());
+
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
+
+        CredentialProfile profile = registry.resolveProfile("learcredential.employee.w3c.4");
+        assertThat(profile).isNotNull();
+        assertThat(profile.credentialConfigurationId()).isEqualTo("learcredential.employee.w3c.4");
+    }
+
+    @Test
+    void shouldResolveProfileByLegacyCredentialTypeName() throws IOException {
+        ResourcePatternResolver resolver = mockResolver(validEmployeeProfile(), legacyEmployeeProfile());
+
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
+
+        assertThat(registry.getByConfigurationId("LEARCredentialEmployee")).isNull();
+        CredentialProfile profile = registry.resolveProfile("LEARCredentialEmployee");
+        assertThat(profile).isNotNull();
+        assertThat(profile.credentialConfigurationId()).isEqualTo("learcredential.employee.w3c.3");
+    }
+
+    @Test
+    void shouldReturnNullWhenResolvingUnknownIdentifier() throws IOException {
+        ResourcePatternResolver resolver = mockResolver(validEmployeeProfile());
+
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
+
+        assertThat(registry.resolveProfile("NonExistent")).isNull();
     }
 
     @Test
@@ -339,6 +463,31 @@ class CredentialProfileRegistryTest {
                   "organization_extraction": {
                     "strategy": "field",
                     "field": "mandate.mandator.organizationIdentifier"
+                  }
+                }
+                """);
+    }
+
+    private Resource legacyEmployeeProfile() {
+        return namedResource("lear-credential-employee-legacy.json", """
+                {
+                  "credential_configuration_id": "learcredential.employee.w3c.3",
+                  "credential_format": "jwt_vc_json",
+                  "scope": "lear_credential_employee",
+                  "credential_definition": {
+                    "context": [
+                      "https://www.w3.org/ns/credentials/v2",
+                      "https://credentials.eudistack.eu/.well-known/credentials/lear_credential_employee/w3c/v3"
+                    ],
+                    "type": ["VerifiableCredential", "LEARCredentialEmployee"]
+                  },
+                  "validity_days": 365,
+                  "issuer_type": "DETAILED",
+                  "cnf_required": true,
+                  "policy_extraction": {
+                    "powers_path": "credentialSubject.mandate.power",
+                    "mandator_path": "credentialSubject.mandate.mandator",
+                    "org_id_field": "organizationIdentifier"
                   }
                 }
                 """);

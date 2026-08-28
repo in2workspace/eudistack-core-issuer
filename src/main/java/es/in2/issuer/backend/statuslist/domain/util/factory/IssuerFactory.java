@@ -2,7 +2,9 @@ package es.in2.issuer.backend.statuslist.domain.util.factory;
 
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
-import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
+import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
+import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.service.IssuerCertificateService;
 import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,11 +19,16 @@ import java.time.Duration;
 @Slf4j
 public class IssuerFactory {
 
-    private final QtspIssuerService qtspIssuerService;
+    private final IssuerCertificateService issuerCertificateService;
+    private final TenantSigningConfigService tenantSigningConfigService;
 
     public Mono<DetailedIssuer> createDetailedIssuer() {
         log.debug("IssuerFactory: createDetailedIssuer");
-        return qtspIssuerService.resolveRemoteDetailedIssuer()
+        return tenantSigningConfigService.getRemoteSignature()
+                .switchIfEmpty(Mono.error(new SigningException(
+                        "No remote signature configuration available for this tenant. " +
+                        "Seed tenant_signing_config for the active tenant.")))
+                .flatMap(issuerCertificateService::resolveRemoteDetailedIssuer)
                 .retryWhen(buildRetrySpec())
                 .doOnError(err ->
                         log.error("Error during remote issuer creation: {}", err.getMessage(), err)

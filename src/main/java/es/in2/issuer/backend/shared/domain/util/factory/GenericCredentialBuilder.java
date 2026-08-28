@@ -22,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Component
@@ -104,8 +105,10 @@ public class GenericCredentialBuilder {
             credentialSubjectNode = objectMapper.createObjectNode();
             credentialSubjectNode.set("mandate", payload);
         }
-        // W3C VCDM 2.0: credentialSubject.id is required for jwt_vc_json
-        credentialSubjectNode.put("id", "urn:uuid:" + UUID.randomUUID());
+        // W3C VCDM 2.0: credentialSubject.id is required for jwt_vc_json; preserve caller-supplied id
+        if (!credentialSubjectNode.has("id")) {
+            credentialSubjectNode.put("id", "urn:uuid:" + UUID.randomUUID());
+        }
         credential.set("credentialSubject", credentialSubjectNode);
 
         credential.put("validFrom", validFrom);
@@ -171,6 +174,49 @@ public class GenericCredentialBuilder {
             case SIMPLE -> issuerFactory.createSimpleIssuer()
                     .flatMap(issuer -> setIssuerField(profile, decodedCredentialJson, issuer));
         };
+    }
+
+    /**
+     * Injects the holder's DID (derived from the OID4VCI proof JWK) into the credential's mandatee.id.
+     * Ensures cnf.jwk and mandatee.id reference the same key pair.
+     * Format-aware: updates credentialSubject.mandate.mandatee.id (W3C) or mandate.mandatee.id (SD-JWT).
+     */
+    public String bindHolderDid(String credentialJson, String holderDid) {
+        try {
+            ObjectNode credential = (ObjectNode) objectMapper.readTree(credentialJson);
+
+            // W3C format: credentialSubject.mandate.mandatee.id
+            if (credential.has("credentialSubject")) {
+                JsonNode cs = credential.get("credentialSubject");
+                if (cs instanceof ObjectNode csNode && csNode.has("mandate")) {
+                    JsonNode mandate = csNode.get("mandate");
+                    if (mandate instanceof ObjectNode mandateNode && mandateNode.has("mandatee")) {
+                        JsonNode mandatee = mandateNode.get("mandatee");
+                        if (mandatee instanceof ObjectNode mandateeNode) {
+                            mandateeNode.put("id", holderDid);
+                            return objectMapper.writeValueAsString(credential);
+                        }
+                    }
+                }
+            }
+
+            // SD-JWT flat format: mandate.mandatee.id (top-level)
+            if (credential.has("mandate")) {
+                JsonNode mandate = credential.get("mandate");
+                if (mandate instanceof ObjectNode mandateNode && mandateNode.has("mandatee")) {
+                    JsonNode mandatee = mandateNode.get("mandatee");
+                    if (mandatee instanceof ObjectNode mandateeNode) {
+                        mandateeNode.put("id", holderDid);
+                        return objectMapper.writeValueAsString(credential);
+                    }
+                }
+            }
+
+            return credentialJson;
+        } catch (Exception e) {
+            log.warn("Could not bind holder DID to credential, mandatee.id unchanged: {}", e.getMessage());
+            return credentialJson;
+        }
     }
 
     private Mono<String> setIssuerField(CredentialProfile profile, String decodedCredentialJson, Object issuer) {
@@ -261,13 +307,20 @@ public class GenericCredentialBuilder {
                 .filter(v -> v != null && !v.isBlank())
                 .toList();
 
+        String result;
         if ("concat".equals(extraction.strategy())) {
             String separator = extraction.separator() != null ? extraction.separator() : " ";
-            return String.join(separator, values);
+            result = String.join(separator, values);
+        } else {
+            result = values.isEmpty() ? "" : values.getFirst();
         }
 
-        // "field" strategy — return first value
-        return values.isEmpty() ? "" : values.getFirst();
+        if (!result.isEmpty() && extraction.lastSegmentDelimiter() != null) {
+            String[] parts = result.split(Pattern.quote(extraction.lastSegmentDelimiter()), -1);
+            result = parts[parts.length - 1];
+        }
+
+        return result;
     }
 
     private Mono<String> extractOrganizationIdentifier(CredentialProfile profile, JsonNode payload) {

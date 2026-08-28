@@ -2,8 +2,9 @@ package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
 import es.in2.issuer.backend.oidc4vci.application.workflow.CredentialOfferRefreshWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
-import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
+import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
@@ -19,15 +20,14 @@ import reactor.core.publisher.Mono;
 public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefreshWorkflow {
 
     private static final String DEFAULT_GRANT_TYPE = "authorization_code";
-    private static final String DELIVERY_EMAIL = "email";
 
     private final IssuanceService issuanceService;
     private final CredentialOfferService credentialOfferService;
 
     @Override
     @Observed(name = "issuance.refresh-offer", contextualName = "refresh-credential-offer")
-    public Mono<Void> refreshCredentialOffer(String credentialOfferRefreshToken) {
-        log.info("Refreshing credential offer for credentialOfferRefreshToken: {}", credentialOfferRefreshToken);
+    public Mono<Void> refreshCredentialOffer(String credentialOfferRefreshToken, String publicIssuerBaseUrl, String publicWalletBaseUrl) {
+        log.info("Refreshing credential offer");
 
         return issuanceService.getIssuanceByCredentialOfferRefreshToken(credentialOfferRefreshToken)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(
@@ -38,9 +38,11 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
                         issuance.getCredentialType(),
                         DEFAULT_GRANT_TYPE,
                         issuance.getEmail(),
-                        DELIVERY_EMAIL,
-                        credentialOfferRefreshToken))
-                .doOnSuccess(v -> log.info("Credential offer refreshed successfully for credentialOfferRefreshToken: {}", credentialOfferRefreshToken))
+                        DeliveryMode.EMAIL.value,
+                        credentialOfferRefreshToken,
+                        publicIssuerBaseUrl,
+                        publicWalletBaseUrl))
+                .doOnSuccess(v -> log.info("Credential offer refreshed successfully"))
                 .then();
     }
 

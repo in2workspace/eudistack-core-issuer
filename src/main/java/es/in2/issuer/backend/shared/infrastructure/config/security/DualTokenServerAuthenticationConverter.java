@@ -6,6 +6,15 @@ import org.springframework.security.web.server.authentication.ServerAuthenticati
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
+/**
+ * Extracts {@code Authorization} (Bearer/DPoP) and optional {@code X-ID-Token}
+ * headers, and hands the {@link ServerWebExchange} through to the
+ * authentication manager for URL-aware validation.
+ *
+ * <p>The exchange is the only reliable channel to propagate request data
+ * into Spring Security's {@code AuthenticationWebFilter} pipeline (see the
+ * Javadoc on {@link DualTokenAuthentication}).
+ */
 @Slf4j
 public final class DualTokenServerAuthenticationConverter implements ServerAuthenticationConverter {
 
@@ -16,9 +25,7 @@ public final class DualTokenServerAuthenticationConverter implements ServerAuthe
         var request = exchange.getRequest();
         var path = request.getPath();
         var method = request.getMethod();
-        log.debug("DualTokenServerAuthenticationConverter - convert -> [{} {}]",
-                method,
-                path);
+        log.debug("DualTokenServerAuthenticationConverter - convert -> [{} {}]", method, path);
 
         String auth = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
         if (auth == null) {
@@ -33,7 +40,9 @@ public final class DualTokenServerAuthenticationConverter implements ServerAuthe
             return Mono.empty();
         }
         String idToken = request.getHeaders().getFirst(ID_TOKEN_HEADER);
-        return Mono.just(new es.in2.issuer.backend.shared.infrastructure.config.security.DualTokenAuthentication(accessToken, (idToken == null || idToken.isBlank()) ? null : idToken));
+        return Mono.just(new DualTokenAuthentication(
+                accessToken,
+                (idToken == null || idToken.isBlank()) ? null : idToken,
+                exchange));
     }
 }
-

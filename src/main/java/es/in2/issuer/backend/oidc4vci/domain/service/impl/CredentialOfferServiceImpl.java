@@ -5,20 +5,21 @@ import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.oidc4vci.domain.service.PreAuthorizedCodeService;
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
-import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
+import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Set;
 
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.TX_CODE_SIZE;
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.TX_INPUT_MODE;
@@ -34,78 +35,113 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
 
     private static final String GRANT_TYPE_PRE_AUTHORIZED_CODE = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
 
-    private final IssuerProperties appConfig;
     private final PreAuthorizedCodeService preAuthorizedCodeService;
     private final TransientStore<String> issuerStateCacheStore;
     private final CredentialOfferCacheRepository credentialOfferCacheRepository;
     private final EmailService emailService;
     private final IssuanceService issuanceService;
+    private final TenantConfigService tenantConfigService;
 
     @Override
     @Observed(name = "oidc4vci.create-and-deliver-credential-offer", contextualName = "create-and-deliver-credential-offer")
     public Mono<CredentialOfferResult> createAndDeliverCredentialOffer(
             String issuanceId, String credentialConfigurationId, String grantType,
-            String email, String delivery, String credentialOfferRefreshToken) {
+            String email, String delivery, String credentialOfferRefreshToken,
+            String publicIssuerBaseUrl, String publicWalletBaseUrl) {
 
-        return Mono.deferContextual(ctx -> {
-            String baseUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, appConfig.getIssuerBackendUrl());
+        log.info("Delivering credential offer for issuance={} delivery={}", issuanceId, delivery);
 
-            return generateGrant(issuanceId, grantType)
-                    .flatMap(grantResult -> {
-                        CredentialOffer offer = CredentialOffer.builder()
-                                .credentialIssuer(baseUrl)
-                                .credentialConfigurationIds(List.of(credentialConfigurationId))
-                                .grants(grantResult.grants)
-                                .build();
+        return generateGrant(issuanceId, grantType)
+                .flatMap(grantResult -> {
+                    CredentialOffer offer = CredentialOffer.builder()
+                            .credentialIssuer(publicIssuerBaseUrl)
+                            .credentialConfigurationIds(List.of(credentialConfigurationId))
+                            .grants(grantResult.grants)
+                            .build();
 
-                        CredentialOfferData data = CredentialOfferData.builder()
-                                .credentialOffer(offer)
-                                .credentialEmail(email)
-                                .txCode(grantResult.txCode)
-                                .build();
+                    CredentialOfferData data = CredentialOfferData.builder()
+                            .credentialOffer(offer)
+                            .credentialEmail(email)
+                            .txCode(grantResult.txCode)
+                            .build();
 
-                        return credentialOfferCacheRepository.saveCredentialOffer(data);
-                    })
-                    .flatMap(nonce -> buildCredentialOfferUri(baseUrl, nonce)
-                            .flatMap(uri -> deliverOffer(baseUrl, uri, issuanceId, credentialOfferRefreshToken, delivery)));
-        });
+                    return credentialOfferCacheRepository.saveCredentialOffer(data);
+                })
+                .flatMap(nonce -> buildCredentialOfferUri(publicIssuerBaseUrl, nonce)
+                        .flatMap(uri -> deliverOffer(uri, issuanceId, credentialOfferRefreshToken, delivery, publicWalletBaseUrl)));
     }
 
-    private Mono<CredentialOfferResult> deliverOffer(String baseUrl, String credentialOfferUri, String issuanceId,
-                                                      String credentialOfferRefreshToken, String delivery) {
-        if (DELIVERY_UI.equals(delivery)) {
-            log.info("Delivering credential offer via URI for issuance: {}", issuanceId);
-            return Mono.just(CredentialOfferResult.builder()
-                    .credentialOfferUri(credentialOfferUri)
-                    .build());
-        }
+    private Mono<CredentialOfferResult> deliverOffer(String credentialOfferUri, String issuanceId,
+                                                     String credentialOfferRefreshToken, String delivery,
+                                                     String publicWalletBaseUrl) {
+        Set<DeliveryMode> modes = DeliveryMode.parse(delivery);
 
-        log.info("Delivering credential offer via email for issuance: {}", issuanceId);
-        return issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId)
-                .flatMap(emailInfo -> {
-                    String refreshUrl = buildRefreshUrl(baseUrl, credentialOfferRefreshToken);
-                    return emailService.sendCredentialOfferEmail(
-                                    emailInfo.email(),
-                                    CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
-                                    credentialOfferUri,
-                                    refreshUrl,
-                                    appConfig.getWalletFrontendUrl(),
-                                    emailInfo.organization(),
-                                    null
-                            )
-                            .doOnSuccess(v -> log.info("Credential offer email sent for issuanceId={}", issuanceId))
-                            .doOnError(ex -> log.error("Email sending failed for issuanceId={}: {}", issuanceId, ex.getMessage(), ex))
-                            .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE))
-                            .thenReturn(CredentialOfferResult.builder().build());
-                });
+        boolean includeUri = modes.stream().anyMatch(mode -> mode.returnsUri);
+        boolean sendEmail = modes.contains(DeliveryMode.EMAIL);
+
+        log.info("Delivering credential offer for issuance={} — sendEmail={}, includeUri={}",
+                issuanceId, sendEmail, includeUri);
+
+        Mono<Void> emailTask = sendEmail
+                ? issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId)
+                .flatMap(emailInfo -> buildRefreshUrl(credentialOfferRefreshToken)
+                        .flatMap(refreshUrl -> Mono.deferContextual(ctx -> {
+                            String tenantDomain = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
+                            return tenantDomain.contains("kpmg")
+                                    ? sendBrandedCredentialOfferEmail(credentialOfferUri, refreshUrl, emailInfo, publicWalletBaseUrl)
+                                    : sendLegacyCredentialOfferEmail(credentialOfferUri, refreshUrl, emailInfo, publicWalletBaseUrl);
+                        }))
+                        .doOnSuccess(v -> log.info("Credential offer email sent for issuanceId={}", issuanceId))
+                        .doOnError(ex -> log.error("Email sending failed for issuanceId={}: {}",
+                                issuanceId, ex.getMessage(), ex))
+                        .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE)))
+                : Mono.empty();
+
+        Mono<CredentialOfferResult> resultTask = includeUri
+                ? Mono.just(CredentialOfferResult.builder()
+                        .credentialOfferUri(buildWalletDeepLink(credentialOfferUri, publicWalletBaseUrl))
+                        .build())
+                : Mono.just(CredentialOfferResult.builder().build());
+
+        return emailTask.then(resultTask);
     }
 
-    private String buildRefreshUrl(String baseUrl, String credentialOfferRefreshToken) {
-        return UriComponentsBuilder
-                .fromUriString(baseUrl)
-                .path("/credential-offer/refresh/" + credentialOfferRefreshToken)
-                .build()
-                .toUriString();
+    private Mono<Void> sendLegacyCredentialOfferEmail(String credentialOfferUri, String refreshUrl,
+                                                      CredentialOfferEmailNotificationInfo emailInfo,
+                                                      String publicWalletBaseUrl) {
+        return emailService.sendCredentialOfferEmail(
+                emailInfo.email(),
+                CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
+                buildWalletDeepLink(credentialOfferUri, publicWalletBaseUrl),
+                refreshUrl,
+                emailInfo.organization(),
+                null
+        );
+    }
+
+    private Mono<Void> sendBrandedCredentialOfferEmail(String credentialOfferUri, String refreshUrl,
+                                                       CredentialOfferEmailNotificationInfo emailInfo,
+                                                       String publicWalletBaseUrl) {
+        return emailService.sendBrandedCredentialOfferEmail(
+                emailInfo.email(),
+                CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
+                buildWalletDeepLink(credentialOfferUri, publicWalletBaseUrl),
+                refreshUrl,
+                emailInfo.organization()
+        );
+    }
+
+    private String buildWalletDeepLink(String credentialOfferUri, String walletUrl) {
+        String httpsUrl = credentialOfferUri.startsWith(CREDENTIAL_OFFER_PREFIX)
+                ? credentialOfferUri.substring(CREDENTIAL_OFFER_PREFIX.length())
+                : URLEncoder.encode(credentialOfferUri, StandardCharsets.UTF_8);
+
+        return walletUrl + WALLET_PROTOCOL_CALLBACK + "?credential_offer_uri=" + httpsUrl;
+    }
+
+    private Mono<String> buildRefreshUrl(String credentialOfferRefreshToken) {
+        return tenantConfigService.getStringOrThrow("issuer.frontend_url")
+                .map(frontendUrl -> frontendUrl + "/credential-offer-refresh/" + credentialOfferRefreshToken);
     }
 
     private record GrantResult(CredentialOfferGrants grants, String txCode) {}
@@ -155,8 +191,12 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
     }
 
     private Mono<String> buildCredentialOfferUri(String baseUrl, String nonce) {
-        String url = ensureUrlHasProtocol(baseUrl + OID4VCI_CREDENTIAL_OFFER_PATH + "/" + nonce);
-        String encodedUrl = URLEncoder.encode(url, StandardCharsets.UTF_8);
-        return Mono.just("openid-credential-offer://?credential_offer_uri=" + encodedUrl);
+        String rawIssuerOfferUrl = ensureUrlHasProtocol(baseUrl + OID4VCI_CREDENTIAL_OFFER_PATH + "/" + nonce);
+        String encodedRawUrl = URLEncoder.encode(rawIssuerOfferUrl, StandardCharsets.UTF_8);
+
+        String finalUri = CREDENTIAL_OFFER_PREFIX + encodedRawUrl;
+        log.info("BUILDING URI - Result: {}", finalUri);
+
+        return Mono.just(finalUri);
     }
 }
