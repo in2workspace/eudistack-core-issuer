@@ -5,6 +5,8 @@ import es.in2.issuer.backend.oidc4vci.domain.model.NonceResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.domain.exception.InvalidOrMissingProofException;
 import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
+import es.in2.issuer.backend.oidc4vci.domain.exception.UnknownCredentialIdentifierException;
+import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
@@ -83,49 +85,79 @@ class Oidc4vciExceptionHandlerTest {
     // -------------------- handleInvalidOrMissingProof --------------------
 
     @Test
-    void handleInvalidOrMissingProof_includesNonceInResponse() {
+    void handleInvalidOrMissingProof_returnsCredentialErrorResponseWithNonce() {
         var ex = new InvalidOrMissingProofException("bad proof");
-        var type = GlobalErrorTypes.INVALID_OR_MISSING_PROOF.getCode();
-        var title = "Invalid or missing proof";
-        var st = HttpStatus.BAD_REQUEST;
-        var fallback = "Credential Request did not contain a proof, or proof was invalid, i.e. it was not bound to a Credential Issuer provided nonce.";
-        var baseGem = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
         var nonce = NonceResponse.builder().cNonce("test-nonce-123").cNonceExpiresIn(600).build();
 
-        when(errors.handleWith(ex, request, type, title, st, fallback))
-                .thenReturn(Mono.just(baseGem));
         when(nonceService.issueNonce()).thenReturn(Mono.just(nonce));
 
-        StepVerifier.create(handler.handleInvalidOrMissingProof(ex, request))
-                .assertNext(gem -> {
-                    assertGem(gem, type, title, st, "bad proof");
-                    assertEquals("test-nonce-123", gem.cNonce());
-                    assertEquals(600L, gem.cNonceExpiresIn());
+        StepVerifier.create(handler.handleInvalidOrMissingProof(ex))
+                .assertNext(body -> {
+                    assertEquals("invalid_proof", body.error());
+                    assertEquals("bad proof", body.errorDescription());
+                    assertEquals("test-nonce-123", body.cNonce());
+                    assertEquals(600L, body.cNonceExpiresIn());
                 })
                 .verifyComplete();
 
-        verify(errors).handleWith(ex, request, type, title, st, fallback);
         verify(nonceService).issueNonce();
     }
 
     // -------------------- handleProofValidationException --------------------
 
     @Test
-    void handleProofValidationException() {
+    void handleProofValidationException_returnsCredentialErrorResponseWithNonce() {
         var ex = new ProofValidationException("proof invalid");
-        var type = GlobalErrorTypes.PROOF_VALIDATION_ERROR.getCode();
-        var title = "Proof validation error";
-        var st = HttpStatus.BAD_REQUEST;
-        var fallback = "The provided proof is invalid.";
-        var expected = new GlobalErrorMessage(type, title, st.value(), "proof invalid", UUID.randomUUID().toString());
+        var nonce = NonceResponse.builder().cNonce("test-nonce-456").cNonceExpiresIn(600).build();
 
-        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+        when(nonceService.issueNonce()).thenReturn(Mono.just(nonce));
 
-        StepVerifier.create(handler.handleProofValidationException(ex, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, "proof invalid"))
+        StepVerifier.create(handler.handleProofValidationException(ex))
+                .assertNext(body -> {
+                    assertEquals("invalid_proof", body.error());
+                    assertEquals("proof invalid", body.errorDescription());
+                    assertEquals("test-nonce-456", body.cNonce());
+                    assertEquals(600L, body.cNonceExpiresIn());
+                })
                 .verifyComplete();
 
-        verify(errors).handleWith(ex, request, type, title, st, fallback);
+        verify(nonceService).issueNonce();
+    }
+
+    // -------------------- handleUnknownCredentialConfiguration --------------------
+
+    @Test
+    void handleUnknownCredentialConfiguration_returnsCredentialErrorResponseWithoutNonce() {
+        var ex = new UnknownCredentialConfigurationException("Unknown credential_configuration_id: bogus");
+
+        StepVerifier.create(handler.handleUnknownCredentialConfiguration(ex))
+                .assertNext(body -> {
+                    assertEquals("unknown_credential_configuration", body.error());
+                    assertEquals("Unknown credential_configuration_id: bogus", body.errorDescription());
+                    assertEquals(null, body.cNonce());
+                    assertEquals(null, body.cNonceExpiresIn());
+                })
+                .verifyComplete();
+
+        verifyNoInteractions(nonceService);
+    }
+
+    // -------------------- handleUnknownCredentialIdentifier --------------------
+
+    @Test
+    void handleUnknownCredentialIdentifier_returnsCredentialErrorResponseWithoutNonce() {
+        var ex = new UnknownCredentialIdentifierException("Unknown credential_identifier: bogus");
+
+        StepVerifier.create(handler.handleUnknownCredentialIdentifier(ex))
+                .assertNext(body -> {
+                    assertEquals("unknown_credential_identifier", body.error());
+                    assertEquals("Unknown credential_identifier: bogus", body.errorDescription());
+                    assertEquals(null, body.cNonce());
+                    assertEquals(null, body.cNonceExpiresIn());
+                })
+                .verifyComplete();
+
+        verifyNoInteractions(nonceService);
     }
 
     // -------------------- handleIllegalArgumentException --------------------

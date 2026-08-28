@@ -139,4 +139,103 @@ class AuditServiceImplTest {
         assertEquals(1, auditAppender.list.size());
         assertEquals(Level.INFO, auditAppender.list.get(0).getLevel());
     }
+
+    // ---------------------------------------------------------------- F15: formatDetails escaping
+
+    @Test
+    void auditSuccess_simpleDetailValue_staysBareUnquoted() {
+        // Backward compatible with existing log consumers: a value with no special
+        // characters is not wrapped in quotes.
+        auditService.auditSuccess("some.event", "user-1", "credential", "res-1",
+                java.util.Map.of("reason", "Baja voluntaria no motivada"));
+
+        String message = auditAppender.list.get(0).getFormattedMessage();
+        assertTrue(message.contains("reason=Baja voluntaria no motivada"));
+    }
+
+    @Test
+    void auditSuccess_detailValueWithForgedKeyValuePair_isQuotedAndEscaped() {
+        // F15: a value containing a nested key=value pair must not be mistaken for
+        // additional fields by a downstream logfmt-style extractor once emitted.
+        String forged = "outcome=success actor=system:operator resourceId=forged-uuid";
+        auditService.auditSuccess("some.event", "user-1", "credential", "res-1",
+                java.util.Map.of("declaredTenant", forged));
+
+        String message = auditAppender.list.get(0).getFormattedMessage();
+        assertTrue(message.contains("declaredTenant=\"" + forged + "\""),
+                "forged value must be quoted verbatim (no unescaped '=' left bare): " + message);
+    }
+
+    @Test
+    void auditSuccess_detailValueWithEmbeddedQuote_isEscaped() {
+        auditService.auditSuccess("some.event", "user-1", "credential", "res-1",
+                java.util.Map.of("reason", "he said \"stop\""));
+
+        String message = auditAppender.list.get(0).getFormattedMessage();
+        assertTrue(message.contains("reason=\"he said \\\"stop\\\"\""), message);
+    }
+
+    @Test
+    void auditSuccess_detailValueWithNewline_neverForgesASecondLogLine() {
+        String forged = "cgcom\nAUDIT event=credential.revoked outcome=success";
+        auditService.auditSuccess("some.event", "user-1", "credential", "res-1",
+                java.util.Map.of("declaredTenant", forged));
+
+        assertEquals(1, auditAppender.list.size(), "a single audit call must produce exactly one log event");
+        String message = auditAppender.list.get(0).getFormattedMessage();
+        assertTrue(message.toString().indexOf('\n') < 0, "no raw newline must survive into the formatted message");
+    }
+
+    // ---------------------------------------------------------------- R1: auditAttempted's own wrapper
+
+    @Test
+    void auditAttempted_detailValueWithForgedKeyValuePair_isNotSplitByAnOuterQuoteWrapper() {
+        // R1 (EUD-225 /code-review, 2026-08-18): auditAttempted used to wrap the whole
+        // formatDetails() output in its own literal "details=\"{}\"" -- a second, outer
+        // quoting layer that formatValue's internal quoting does not compose with. A forged
+        // value needing its own quotes (contains '=') closed that outer quote early, so the
+        // "details=" label plus a stray leading/trailing quote leaked into the line and the
+        // forged content sat as bare top-level fields instead of one contained value.
+        // A substring `contains()` check would not catch this: the correctly-quoted value is
+        // present as a substring of the buggy output too, just wrapped in extra stray quotes.
+        // Only an exact-message comparison distinguishes "one quoted value" from "one quoted
+        // value plus a leaked details= label and mismatched quote count".
+        String forged = "outcome=success actor=system:operator resourceId=forged-uuid";
+        auditService.auditAttempted("some.event", "user-1", "credential", "res-1",
+                java.util.Map.of("declaredTenant", forged));
+
+        String message = auditAppender.list.get(0).getFormattedMessage();
+        String expected = "event=some.event outcome=attempted userId=user-1 resourceType=credential "
+                + "resourceId=res-1 declaredTenant=\"" + forged + "\"";
+        assertEquals(expected, message,
+                "auditAttempted must format details identically to auditSuccess/auditFailure, "
+                        + "with no second outer quoting layer");
+    }
+
+    // ---------------------------------------------------------------- CodeQL java/log-injection: named fields
+
+    @Test
+    void auditSuccess_forgedResourceId_isQuotedAndEscaped() {
+        // CodeQL java/log-injection (EUD-225 PR review): userId/resourceType/resourceId/reason
+        // were interpolated raw in auditSuccess/auditFailure/auditAttempted, bypassing the
+        // exact escaping formatDetails already applies one parameter over. A caller that lets
+        // an unvalidated identifier reach here (as RevocationWorkflow's operator-HTTP path did
+        // before its own boundary fix) could forge extra fields via resourceId alone.
+        String forgedResourceId = "res-1 outcome=success actor=system:operator";
+        auditService.auditSuccess("some.event", "user-1", "credential", forgedResourceId, java.util.Map.of());
+
+        String message = auditAppender.list.get(0).getFormattedMessage();
+        assertTrue(message.contains("resourceId=\"" + forgedResourceId + "\""),
+                "a resourceId containing '=' must be quoted, not interpolated raw: " + message);
+    }
+
+    @Test
+    void auditFailure_forgedReason_isQuotedAndEscaped() {
+        String forgedReason = "ok outcome=success resourceId=forged-uuid";
+        auditService.auditFailure("some.event", "user-1", forgedReason, java.util.Map.of());
+
+        String message = auditAppender.list.get(0).getFormattedMessage();
+        assertTrue(message.contains("reason=\"" + forgedReason + "\""),
+                "a reason containing '=' must be quoted, not interpolated raw: " + message);
+    }
 }

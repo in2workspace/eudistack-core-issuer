@@ -348,6 +348,18 @@ class BitstringStatusListControllerRevokeIT {
     }
 
     @Test
+    void revoke_issuanceIdNotAValidUuid_returns400() throws Exception {
+        // GitHub Advanced Security / CodeQL log-injection finding: issuanceId used to reach
+        // RevocationWorkflow's log statements unsanitized and unvalidated beyond @NotBlank,
+        // unlike the queue-triggered path (RevocationInstructionMessageMapper already
+        // enforces UUID format there). A value with a newline could forge a fake log line.
+        String bearer = token("ORG-A", TENANT_A, List.of(executePower(TENANT_A)));
+
+        revoke(TENANT_A, bearer, "not-a-uuid\nAUDIT event=credential.revoked outcome=success")
+                .expectStatus().isEqualTo(400);
+    }
+
+    @Test
     void revoke_nonExistentIssuanceId_returns404() throws Exception {
         String bearer = token("ORG-A", TENANT_A, List.of(executePower(TENANT_A)));
 

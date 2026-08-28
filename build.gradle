@@ -7,10 +7,11 @@ plugins {
     id 'org.sonarqube' version '7.2.2.6593'
     id 'com.github.ben-manes.versions' version '0.53.0'
     id 'se.patrikerdes.use-latest-versions' version '0.2.19'
+    id 'org.cyclonedx.bom' version '2.2.0'
 }
 
 group = 'com.eudistack'
-version = '3.6.28'
+version = '3.7.9'
 
 ext['netty.version'] = '4.1.132.Final'
 
@@ -79,6 +80,9 @@ dependencies {
     // --- Caching ---
     implementation 'com.github.ben-manes.caffeine:caffeine'
 
+    // --- Messaging (EUD-225: revocation-instruction queue, AD-5/AD-6) ---
+    implementation 'org.springframework.boot:spring-boot-starter-amqp'
+
     // --- Observability ---
     implementation 'org.springframework.boot:spring-boot-starter-aop'
     implementation 'io.micrometer:micrometer-tracing-bridge-otel'
@@ -113,6 +117,8 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
+    testImplementation 'org.testcontainers:rabbitmq'
+    testImplementation 'org.awaitility:awaitility'
 }
 
 configurations.configureEach {
@@ -120,6 +126,16 @@ configurations.configureEach {
 }
 
 // --- Quality & CI ---
+
+cyclonedxBom {
+    includeConfigs = ['runtimeClasspath']
+    schemaVersion = '1.6'
+    destination = project.file('build/reports/sbom')
+    outputName = 'sbom'
+    outputFormat = 'json'
+    includeBomSerialNumber = false
+    includeLicenseText = false
+}
 
 sonar {
     properties {

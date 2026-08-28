@@ -227,8 +227,115 @@ class TokenServiceImplAuthCodeTest {
         TokenRequest request = authCodeRequest("code-pkce-fail", "https://wallet/callback", "wrong-verifier");
 
         StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
-                .expectErrorMatches(e -> e instanceof IllegalArgumentException
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_grant".equals(oAuthTokenException.getErrorCode())
                         && e.getMessage().contains("PKCE verification failed"))
                 .verify();
+    }
+
+    @Test
+    void exchangeToken_authCode_shouldFailOnMissingCodeVerifierWithInvalidGrant() {
+        // Regression test: RFC 7636 section 4.6 mandates invalid_grant specifically for a
+        // missing or mismatched code_verifier - a prior fix had collapsed this into the same
+        // invalid_request mapping used for DPoP failures, which is correct for DPoP but wrong
+        // for PKCE. Caught by the OIDF conformance suite's
+        // fapi2-security-profile-final-ensure-pkce-code-verifier-required test.
+        AuthorizationCodeData codeData = AuthorizationCodeData.builder()
+                .clientId("client")
+                .redirectUri("https://wallet/callback")
+                .codeChallenge("challenge")
+                .codeChallengeMethod("S256")
+                .build();
+
+        var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
+                false, true, List.of("S256"),
+                false, List.of("ES256"),
+                "none", false
+        );
+
+        when(authorizationCodeCacheStore.get("code-no-verifier")).thenReturn(Mono.just(codeData));
+        when(authorizationCodeCacheStore.delete("code-no-verifier")).thenReturn(Mono.empty());
+        when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
+        doThrow(new IllegalArgumentException("Missing code_verifier"))
+                .when(pkceVerifier).verifyS256(null, "challenge");
+
+        TokenRequest request = authCodeRequest("code-no-verifier", "https://wallet/callback", null);
+
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_grant".equals(oAuthTokenException.getErrorCode())
+                        && e.getMessage().equals("Missing code_verifier"))
+                .verify();
+    }
+
+    @Test
+    void exchangeToken_authCode_shouldFailOnMissingDpopProofWhenRequired() {
+        // Regression test: DpopValidationService raises plain IllegalArgumentException, which
+        // used to leak through as our internal Problem-Details error body instead of the
+        // error/error_description shape RFC 6749 section 5.2 requires for /oauth/token.
+        // Caught by the OIDF conformance suite's
+        // fapi2-security-profile-final-ensure-holder-of-key-required test.
+        AuthorizationCodeData codeData = AuthorizationCodeData.builder()
+                .clientId("client")
+                .redirectUri("https://wallet/callback")
+                .issuerState("issuer-state-dpop-fail")
+                .build();
+
+        var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
+                true, false, List.of("S256"),
+                true, List.of("ES256"),
+                "none", false
+        );
+
+        when(authorizationCodeCacheStore.get("code-dpop-fail")).thenReturn(Mono.just(codeData));
+        when(authorizationCodeCacheStore.delete("code-dpop-fail")).thenReturn(Mono.empty());
+        when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
+        when(dpopValidationService.validate(null, "POST", TOKEN_ENDPOINT_URI))
+                .thenThrow(new IllegalArgumentException("Missing DPoP proof"));
+
+        TokenRequest request = authCodeRequest("code-dpop-fail", "https://wallet/callback", null);
+
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
+                        && e.getMessage().equals("Missing DPoP proof"))
+                .verify();
+
+        verify(issuerStateCacheStore, never()).get(anyString());
+    }
+
+    @Test
+    void exchangeToken_authCode_shouldFailOnMissingIssuerStateInsteadOfCrashing() {
+        // Regression test: issuer_state is OPTIONAL at the PAR/authorize level (a
+        // wallet-initiated authorization request never sends one), but this Issuer can only
+        // resolve the issuanceId an access token is bound to through it. A code without one
+        // used to reach Guava's Cache.getIfPresent with a null key, which throws NPE and
+        // surfaced as a raw 500 instead of a proper OAuth2 error. Caught by the OIDF
+        // conformance suite's fapi2-security-profile-final-happy-flow test.
+        AuthorizationCodeData codeData = AuthorizationCodeData.builder()
+                .clientId("client")
+                .redirectUri("https://wallet/callback")
+                .issuerState(null)
+                .build();
+
+        var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
+                true, false, List.of("S256"),
+                false, List.of("ES256"),
+                "none", false
+        );
+
+        when(authorizationCodeCacheStore.get("code-no-issuer-state")).thenReturn(Mono.just(codeData));
+        when(authorizationCodeCacheStore.delete("code-no-issuer-state")).thenReturn(Mono.empty());
+        when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
+
+        TokenRequest request = authCodeRequest("code-no-issuer-state", "https://wallet/callback", null);
+
+        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException ex
+                        && "invalid_grant".equals(ex.getErrorCode())
+                        && e.getMessage().contains("issuer_state"))
+                .verify();
+
+        verify(issuerStateCacheStore, never()).get(anyString());
     }
 }

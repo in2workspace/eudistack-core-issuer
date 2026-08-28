@@ -258,13 +258,41 @@ public class TokenServiceImpl implements TokenService {
             return Mono.error(OAuthTokenException.invalidGrant("redirect_uri mismatch"));
         }
 
+        // PkceVerifier/DpopValidationService raise plain IllegalArgumentException, which
+        // Oidc4vciExceptionHandler's generic handler maps to our internal Problem-Details
+        // error body instead of the error/error_description shape RFC 6749 section 5.2
+        // requires for this endpoint - the same gap ParServiceImpl and
+        // AuthorizationServiceImpl already had fixed for their own equivalents.
+        //
+        // PKCE and DPoP failures are caught separately because they map to different error
+        // codes: RFC 7636 section 4.6 mandates invalid_grant specifically for a missing or
+        // mismatched code_verifier, while a missing/invalid DPoP proof stays invalid_request.
         if (profileProperties.authorizationCode().requirePkce()) {
-            pkceVerifier.verifyS256(codeVerifier, codeData.codeChallenge());
+            try {
+                pkceVerifier.verifyS256(codeVerifier, codeData.codeChallenge());
+            } catch (IllegalArgumentException e) {
+                return Mono.error(OAuthTokenException.invalidGrant(e.getMessage()));
+            }
         }
 
-        String dpopJkt = profileProperties.authorizationCode().requireDpop()
-                ? dpopValidationService.validate(dpopHeader, "POST", tokenEndpointUri)
-                : null;
+        String dpopJkt;
+        try {
+            dpopJkt = profileProperties.authorizationCode().requireDpop()
+                    ? dpopValidationService.validate(dpopHeader, "POST", tokenEndpointUri)
+                    : null;
+        } catch (IllegalArgumentException e) {
+            return Mono.error(OAuthTokenException.invalidRequest(e.getMessage()));
+        }
+
+        // issuer_state is OPTIONAL at the PAR/authorize level (RFC 9126 / OID4VCI) - a
+        // wallet-initiated authorization request never sends it - but this Issuer only
+        // resolves the issuanceId an access token is bound to via this lookup, so a code
+        // without one can never be exchanged here. Guava's Cache.getIfPresent throws NPE
+        // on a null key, which would otherwise surface as a 500 instead of invalid_grant.
+        if (codeData.issuerState() == null || codeData.issuerState().isBlank()) {
+            return Mono.error(OAuthTokenException.invalidGrant(
+                    "Authorization code is not associated with an issuer_state"));
+        }
 
         return issuerStateCacheStore.get(codeData.issuerState())
                 .switchIfEmpty(Mono.error(OAuthTokenException.invalidGrant("Invalid or expired issuer_state")))

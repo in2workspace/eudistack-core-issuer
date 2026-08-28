@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.issuance.domain.scheduler;
 
+import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateException;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
@@ -8,6 +9,7 @@ import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.infrastructure.repository.IssuanceRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -83,7 +85,15 @@ public class CredentialExpirationScheduler {
             log.info("Expiring credential in issuance with ID: {} - New state: {}",
                     issuance.getIssuanceId(),
                     issuance.getCredentialStatus());
-            return issuanceRepository.save(issuance);
+            // SD-04 (EUD-225): the version column can turn a lost optimistic-locking race
+            // here into an OptimisticLockingFailureException too. No reconciliation target
+            // is defined for this scheduler (out of this Story's scope) -- surfaced as a
+            // clear, logged domain exception instead of a bare R2DBC exception.
+            return issuanceRepository.save(issuance)
+                    .onErrorMap(OptimisticLockingFailureException.class, e -> {
+                        log.error("Concurrent update conflict expiring issuanceId={}: {}", issuance.getIssuanceId(), e.toString());
+                        return new ConcurrentIssuanceUpdateException(issuance.getIssuanceId(), "expireCredential", e);
+                    });
         }
         return Mono.empty();
     }

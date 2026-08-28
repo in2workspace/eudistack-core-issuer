@@ -49,8 +49,7 @@ public record CredentialProfile(
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record CredentialMetadata(
             @JsonProperty("display") List<DisplayInfo> display,
-            @JsonProperty("claims") List<ClaimDefinition> claims,
-            @JsonProperty("summary_claims") List<List<String>> summaryClaims
+            @JsonProperty("claims") List<ClaimDefinition> claims
     ) {}
 
     @Builder
@@ -58,10 +57,22 @@ public record CredentialProfile(
     public record DisplayInfo(
             @JsonProperty("name") String name,
             @JsonProperty("locale") String locale,
-            @JsonProperty("description") String description
+            @JsonProperty("description") String description,
+            @JsonProperty("logo") DisplayImage logo,
+            @JsonProperty("background_color") String backgroundColor,
+            @JsonProperty("background_image") DisplayImage backgroundImage,
+            @JsonProperty("text_color") String textColor
     ) {}
 
     @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record DisplayImage(
+            @JsonProperty("uri") String uri,
+            @JsonProperty("alt_text") String altText
+    ) {}
+
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ClaimDefinition(
             @JsonProperty("path") List<String> path,
             @JsonProperty("display") List<DisplayInfo> display
