@@ -10,7 +10,6 @@ public enum GlobalErrorTypes {
     INVALID_TOKEN("invalid_token"),
     INVALID_JWT("invalid_jwt"),
     UNSUPPORTED_CREDENTIAL_TYPE("unsupported_credential_type"),
-    INVALID_OR_MISSING_PROOF("invalid_or_missing_proof"),
     OPERATION_NOT_SUPPORTED("operation_not_supported"),
     UNSUPPORTED_CREDENTIAL_FORMAT("unsupported_credential_format"),
     INVALID_CREDENTIAL_REQUEST("invalid_credential_request"),
@@ -19,7 +18,6 @@ public enum GlobalErrorTypes {
     SAD_ERROR("sad_error"),
     NO_SUCH_ELEMENT("no_such_element"),
     PARSE_ERROR("parse_error"),
-    PROOF_VALIDATION_ERROR("proof_validation_error"),
     CREDENTIAL_NOT_FOUND("credential_not_found"),
     PRE_AUTHORIZATION_CODE_GET("pre_authorization_code_get_error"),
     CREDENTIAL_OFFER_NOT_FOUND("credential_offer_not_found"),
@@ -32,6 +30,7 @@ public enum GlobalErrorTypes {
     ISSUANCE_NOT_FOUND("issuance_not_found"),
     PAYLOAD_VALIDATION("payload_validation_error"),
     TENANT_MISMATCH("tenant_mismatch"),
+    TENANT_NOT_RESOLVED("tenant_not_resolved"),
     REMOTE_SIGNATURE("remote_signature_error"),
     NO_SUCH_ENTITY("no_such_entity"),
     TEMPLATE_READ_ERROR("template_read_error"),
@@ -49,7 +48,15 @@ public enum GlobalErrorTypes {
     MISSING_EMAIL_OWNER_ERROR("missing_email_owner_error"),
     PARSE_ERROR_EXCEPTION("parse_error_exception"),
     TOKEN_FETCH_ERROR("token_fetch_error"),
-    WELL_KNOWN_INFO_FETCH_ERROR("well_known_info_fetch_error");
+    WELL_KNOWN_INFO_FETCH_ERROR("well_known_info_fetch_error"),
+    INVALID_CREDENTIAL_STATUS_TRANSITION("invalid_credential_status_transition"),
+    INVALID_DELIVERY_CONFIG("invalid_delivery_config"),
+    DELIVERY_CONFIG_PROFILE_NOT_FOUND("delivery_config_profile_not_found"),
+    INVALID_REQUEST("invalid_request"),
+    DELIVERY_MODE_NOT_ELIGIBLE("delivery_mode_not_eligible"),
+    INVALID_HOLDER_KEY("invalid_holder_key"),
+    UNKNOWN_CREDENTIAL_CONFIGURATION("unknown_credential_configuration"),
+    CREDENTIAL_CATALOG_NOT_CONFIGURED("credential_catalog_not_configured");
 
     private final String code;
 

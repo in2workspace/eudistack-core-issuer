@@ -4,5 +4,5 @@ import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationServerMetadata;
 import reactor.core.publisher.Mono;
 
 public interface GetAuthorizationServerMetadataWorkflow {
-    Mono<AuthorizationServerMetadata> execute(String processId);
+    Mono<AuthorizationServerMetadata> execute(String processId, String publicIssuerBaseUrl);
 }

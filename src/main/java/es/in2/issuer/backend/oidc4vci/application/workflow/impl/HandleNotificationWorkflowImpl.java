@@ -3,11 +3,13 @@ package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 import es.in2.issuer.backend.oidc4vci.application.workflow.HandleNotificationWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.exception.InvalidNotificationIdException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.InvalidNotificationRequestException;
+import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationEvent;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationRequest;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
+import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
@@ -32,24 +34,28 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     private final TransientStore<String> notificationCacheStore;
     private final TransientStore<String> enrichmentCacheStore;
     private final AuditService auditService;
+    private final EmailService emailService;
 
     public HandleNotificationWorkflowImpl(
             IssuanceService issuanceService,
             RevocationWorkflow revocationWorkflow,
             @Qualifier("notificationCacheStore") TransientStore<String> notificationCacheStore,
             @Qualifier("enrichmentCacheStore") TransientStore<String> enrichmentCacheStore,
-            AuditService auditService
+            AuditService auditService,
+            EmailService emailService
     ) {
         this.issuanceService = issuanceService;
         this.revocationWorkflow = revocationWorkflow;
         this.notificationCacheStore = notificationCacheStore;
         this.enrichmentCacheStore = enrichmentCacheStore;
         this.auditService = auditService;
+        this.emailService = emailService;
     }
 
     @Override
     @Observed(name = "notification.handle", contextualName = "notification-handle")
-    public Mono<Void> handleNotification(String processId, NotificationRequest request, String bearerToken) {
+    public Mono<Void> handleNotification(String processId, NotificationRequest request, String bearerToken,
+                                         String publicIssuerBaseUrl) {
         return Mono.justOrEmpty(request)
                 .switchIfEmpty(Mono.error(new InvalidNotificationRequestException("Request body is required")))
                 .doOnNext(this::validateRequest)
@@ -72,7 +78,7 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
                             })
                             .flatMap(issuanceId ->
                                     issuanceService.getIssuanceById(issuanceId)
-                                            .flatMap(proc -> handleEvent(processId, proc, event, bearerToken))
+                                            .flatMap(proc -> handleEvent(processId, proc, event, eventDescription, publicIssuerBaseUrl))
                             );
                 })
                 .onErrorResume(InvalidNotificationRequestException.class, e -> {
@@ -91,7 +97,8 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     }
 
     private Mono<Void> handleEvent(String processId, Issuance issuance,
-                                   NotificationEvent event, String bearerToken) {
+                                   NotificationEvent event, String eventDescription,
+                                   String publicIssuerBaseUrl) {
 
         String issuanceId = issuance.getIssuanceId().toString();
         CredentialStatusEnum currentStatus = issuance.getCredentialStatus();
@@ -108,8 +115,8 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
 
         return switch (event) {
             case CREDENTIAL_ACCEPTED -> handleAccepted(processId, issuance);
-            case CREDENTIAL_FAILURE -> handleFailure(processId, issuance);
-            case CREDENTIAL_DELETED -> handleDeleted(processId, issuance, bearerToken);
+            case CREDENTIAL_FAILURE -> handleFailure(processId, issuance, eventDescription);
+            case CREDENTIAL_DELETED -> handleDeleted(processId, issuance, publicIssuerBaseUrl);
         };
     }
 
@@ -153,23 +160,35 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     }
 
     /**
-     * credential_failure: log only, stay in DRAFT. Wallet may retry.
+     * credential_failure: notify user by email and stay in DRAFT. Wallet may retry.
+     * Email errors are swallowed so the 204 response to the Wallet is never affected.
      */
-    private Mono<Void> handleFailure(String processId, Issuance issuance) {
-        log.info("[{}] credential_failure: issuanceId={} stays in DRAFT. Wallet may retry or request new offer.",
-                processId, issuance.getIssuanceId());
-        return Mono.empty();
+    private Mono<Void> handleFailure(String processId, Issuance issuance, String eventDescription) {
+        String issuanceId = issuance.getIssuanceId().toString();
+        log.info("[{}] credential_failure: issuanceId={} stays in DRAFT. Sending failure notification email.",
+                processId, issuanceId);
+        return emailService.sendCredentialFailureNotification(issuance.getEmail(), eventDescription)
+                .onErrorResume(Exception.class, e -> {
+                    if (e instanceof EmailCommunicationException) {
+                        log.warn("[{}] credential_failure: could not send failure email for issuanceId={}",
+                                processId, issuanceId, e);
+                    } else {
+                        log.error("[{}] credential_failure: UNEXPECTED BUG processing issuanceId={}",
+                                processId, issuanceId, e);
+                    }
+                    return Mono.empty();
+                });
     }
 
     /**
      * credential_deleted: DRAFT -> WITHDRAWN + revoke status list entry
      */
-    private Mono<Void> handleDeleted(String processId, Issuance issuance, String bearerToken) {
+    private Mono<Void> handleDeleted(String processId, Issuance issuance, String publicIssuerBaseUrl) {
         String issuanceId = issuance.getIssuanceId().toString();
         log.info("[{}] credential_deleted: withdrawing issuanceId={}", processId, issuanceId);
 
         return issuanceService.withdrawIssuance(issuanceId)
-                .then(revokeCredentialFromDecoded(processId, issuance, bearerToken))
+                .then(revokeCredentialFromDecoded(processId, issuance, publicIssuerBaseUrl))
                 .doOnSuccess(v -> log.info("[{}] credential_deleted: issuanceId={} withdrawn and status list entry revoked",
                         processId, issuanceId))
                 .onErrorResume(e -> {
@@ -179,9 +198,9 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
                 });
     }
 
-    private Mono<Void> revokeCredentialFromDecoded(String processId, Issuance issuance, String bearerToken) {
+    private Mono<Void> revokeCredentialFromDecoded(String processId, Issuance issuance, String publicIssuerBaseUrl) {
         String issuanceId = issuance.getIssuanceId().toString();
-        return revocationWorkflow.revokeSystem(processId, bearerToken, issuanceId)
+        return revocationWorkflow.revokeSystem(processId, issuanceId, null, RevocationWorkflow.ACTOR_OID4VCI_NOTIFICATION, publicIssuerBaseUrl)
                 .doFirst(() -> log.info("processId={} action=revokeCredential status=started issuanceId={}",
                         processId, issuanceId))
                 .doOnSuccess(v -> log.info("processId={} action=revokeCredential status=completed issuanceId={}",

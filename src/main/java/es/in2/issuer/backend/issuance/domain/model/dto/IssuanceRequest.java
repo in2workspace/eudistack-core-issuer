@@ -17,6 +17,11 @@ public record IssuanceRequest(
         @JsonProperty("delivery") String delivery,
         @NotBlank(message = "email is required")
         @JsonProperty("email") String email,
-        @JsonProperty("grant_type") String grantType
+        @JsonProperty("grant_type") String grantType,
+        @JsonProperty("holder_key") JsonNode holderKey
 ) {
+    public IssuanceRequest(String credentialConfigurationId, JsonNode payload, String delivery,
+                           String email, String grantType) {
+        this(credentialConfigurationId, payload, delivery, email, grantType, null);
+    }
 }
