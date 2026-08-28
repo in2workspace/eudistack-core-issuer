@@ -126,6 +126,16 @@ jobs:
           docker push "${ECR_LATEST}"
           docker push "${ECR_VERSION}"
           docker push "${ECR_SHA}"
+
+      - name: Generate CycloneDX SBOM
+        run: ./gradlew cyclonedxBom
+
+      - name: Upload SBOM Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-v${{ env.VERSION }}
+          path: build/reports/sbom/sbom.json
+          retention-days: 90
   cd-stg:
     name: Deploy to Staging
     needs: ci
@@ -285,6 +295,27 @@ jobs:
 
           echo "### ✅ Deployment successful" >> $GITHUB_STEP_SUMMARY
 
+      - name: Checkout license gate
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+          sparse-checkout-cone-mode: false
+
+      - name: Download SBOM Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom-v${{ needs.ci.outputs.version }}
+          path: ./sbom-artifact
+
+      - name: Validate the published SBOM
+        run: node .github/scripts/license-gate.mjs --sbom-path ./sbom-artifact/sbom.json --expect-version ${{ needs.ci.outputs.version }}
+
+      - name: Prepare SBOM Release Asset
+        run: |
+          set -euo pipefail
+          TAG="v${{ needs.ci.outputs.version }}"
+          cp ./sbom-artifact/sbom.json "./sbom-${TAG}.cdx.json"
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -292,9 +323,10 @@ jobs:
           set -euo pipefail
           TAG="v${{ needs.ci.outputs.version }}"
           gh release create "${TAG}" \
+            "./sbom-${TAG}.cdx.json#CycloneDX SBOM (${TAG})" \
             --repo "${{ github.repository }}" \
             --title "${TAG}" \
             --generate-notes
-          echo "### 🏷️ GitHub Release published: ${TAG}" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏷️ GitHub Release published: ${TAG} with attached SBOM" >> $GITHUB_STEP_SUMMARY
 
 
