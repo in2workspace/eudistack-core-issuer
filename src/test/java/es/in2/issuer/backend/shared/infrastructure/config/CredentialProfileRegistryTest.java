@@ -1,6 +1,8 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ByteArrayResource;
@@ -18,7 +20,11 @@ import static org.mockito.Mockito.when;
 
 class CredentialProfileRegistryTest {
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    // Mirrors the application mapper (IssuerApiApplication): a profile may carry members the
+    // model does not declare, and those must be dropped rather than fail startup.
+    private static final ObjectMapper OBJECT_MAPPER = JsonMapper.builder()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+            .build();
 
     @Test
     void shouldLoadProfileAndLookupByConfigurationId() throws IOException {
@@ -93,7 +99,49 @@ class CredentialProfileRegistryTest {
     }
 
     @Test
-    void shouldParseValueMapOnClaim() throws IOException {
+    void shouldParseEveryDisplayMemberTheSpecDefines() throws IOException {
+        // The credential display object is name + locale + description + logo +
+        // background_color + background_image + text_color (OID4VCI 1.0 Final section
+        // 12.2.4). A member the model does not declare is dropped on parse and never
+        // reaches the published metadata — which is how the card colours went missing.
+        String displayProfileJson = """
+                {
+                  "credential_configuration_id": "learcredential.employee.w3c.4",
+                  "credential_format": "jwt_vc_json",
+                  "credential_definition": {
+                    "type": ["VerifiableCredential", "learcredential.employee.w3c.4"]
+                  },
+                  "credential_metadata": {
+                    "display": [{
+                      "name": "LEAR Credential Employee",
+                      "locale": "en",
+                      "description": "Verifiable Credential for employees",
+                      "logo": { "uri": "https://issuer.example.com/logo.svg", "alt_text": "Issuer" },
+                      "background_color": "#1B2A41",
+                      "background_image": { "uri": "https://issuer.example.com/bg.svg" },
+                      "text_color": "#FFFFFF"
+                    }]
+                  }
+                }
+                """;
+        ResourcePatternResolver resolver = mockResolver(namedResource("display.json", displayProfileJson));
+
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
+
+        CredentialProfile.DisplayInfo display =
+                registry.getByConfigurationId("learcredential.employee.w3c.4").credentialMetadata().display().getFirst();
+        assertThat(display.name()).isEqualTo("LEAR Credential Employee");
+        assertThat(display.description()).isEqualTo("Verifiable Credential for employees");
+        assertThat(display.backgroundColor()).isEqualTo("#1B2A41");
+        assertThat(display.textColor()).isEqualTo("#FFFFFF");
+        assertThat(display.logo().uri()).isEqualTo("https://issuer.example.com/logo.svg");
+        assertThat(display.logo().altText()).isEqualTo("Issuer");
+        assertThat(display.backgroundImage().uri()).isEqualTo("https://issuer.example.com/bg.svg");
+        assertThat(display.backgroundImage().altText()).isNull();
+    }
+
+    @Test
+    void shouldIgnoreUnknownClaimMembers() throws IOException {
         String labelProfileJson = """
                 {
                   "credential_configuration_id": "gx.labelcredential.w3c.2",
@@ -124,18 +172,16 @@ class CredentialProfileRegistryTest {
 
         CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
 
+        // A claims description object is path + display + mandatory (OID4VCI 1.0 Final
+        // Appendix B.1). Anything else a profile carries — here the legacy `value_map` —
+        // must stay out of the model, and therefore out of the published metadata.
         CredentialProfile profile = registry.getByConfigurationId("gx.labelcredential.w3c.2");
         assertThat(profile).isNotNull();
         assertThat(profile.credentialMetadata().claims()).hasSize(2);
 
         CredentialProfile.ClaimDefinition labelLevelClaim = profile.credentialMetadata().claims().getFirst();
-        assertThat(labelLevelClaim.valueMap())
-                .containsEntry("BL", "Baseline")
-                .containsEntry("P", "Professional")
-                .containsEntry("P+", "Professional Plus");
-
-        CredentialProfile.ClaimDefinition engineVersionClaim = profile.credentialMetadata().claims().get(1);
-        assertThat(engineVersionClaim.valueMap()).isNull();
+        assertThat(labelLevelClaim.path()).containsExactly("credentialSubject", "gx:labelLevel");
+        assertThat(labelLevelClaim.display()).hasSize(1);
     }
 
     @Test
