@@ -4,6 +4,8 @@ import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.oidc4vci.domain.service.TokenService;
+import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
+import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import org.junit.jupiter.api.Test;
@@ -44,6 +46,15 @@ class TokenControllerTest {
     @MockBean
     IssuanceMetrics issuanceMetrics;
 
+    @MockBean
+    IssuerProperties issuerProperties;
+
+    @MockBean
+    TenantRegistryService tenantRegistryService;
+
+    @MockBean
+    es.in2.issuer.backend.shared.domain.spi.UrlResolver urlResolver;
+
     @Test
     void testHandleTokenRequest_RefreshTokenGrant_ShouldReturnOk() {
         String grantType = REFRESH_TOKEN_GRANT_TYPE;
@@ -54,7 +65,8 @@ class TokenControllerTest {
                 3600L,
                 "1234");
 
-        when(tokenService.exchangeToken(any(TokenRequest.class), isNull(), any(String.class)))
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn("https://issuer.example.com");
+        when(tokenService.exchangeToken(any(TokenRequest.class), isNull(), any(String.class), any(String.class)))
                 .thenReturn(Mono.just(tokenResponse));
 
         webTestClient

@@ -17,9 +17,15 @@ public record PolicyContext(
         CredentialProfile profile,
         String credentialType,
         boolean sysAdmin,
+        boolean tenantAdmin,
         String tenantDomain,
-        String tokenTenant
+        String tokenTenant,
+        String tenantType
 ) {
+
+    public static final String TENANT_TYPE_SIMPLE = "simple";
+    public static final String TENANT_TYPE_MULTI_ORG = "multi_org";
+    public static final String TENANT_TYPE_PLATFORM = "platform";
 
     /**
      * Checks if the user has a specific power function with a specific action.
@@ -37,7 +43,7 @@ public record PolicyContext(
         return powers.stream().anyMatch(p ->
                 function.equals(p.function())
                         && hasAction(p, action)
-                        && domain.equals(p.domain())
+                        && domain.equalsIgnoreCase(p.domain())
         );
     }
 

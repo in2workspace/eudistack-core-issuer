@@ -20,4 +20,25 @@ class UtilsTest {
                 .verifyComplete();
     }
 
+    @Test
+    void testGenerateSecureAuthorizationCode() {
+        StepVerifier.create(Utils.generateSecureAuthorizationCode())
+                .assertNext(code -> {
+                    assertNotNull(code);
+                    byte[] decoded = Base64.getUrlDecoder().decode(code);
+                    assertEquals(32, decoded.length);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void testGenerateSecureAuthorizationCode_producesDistinctValues() {
+        StepVerifier.create(Utils.generateSecureAuthorizationCode())
+                .assertNext(first ->
+                        StepVerifier.create(Utils.generateSecureAuthorizationCode())
+                                .assertNext(second -> assertNotEquals(first, second))
+                                .verifyComplete())
+                .verifyComplete();
+    }
+
 }

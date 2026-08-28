@@ -29,6 +29,7 @@ public interface AuthorizationService {
             String codeChallenge,
             String codeChallengeMethod,
             String redirectUri,
-            String issuerState
+            String issuerState,
+            String publicIssuerBaseUrl
     );
 }
