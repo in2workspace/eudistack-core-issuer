@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
+import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.ParService;
@@ -36,44 +37,92 @@ public class ParServiceImpl implements ParService {
             String requestUri,
             String publicIssuerUrl
     ) {
-        return Mono.defer(() -> {
-            // Validate response_type
-            if (!"code".equals(request.responseType())) {
-                return Mono.error(new IllegalArgumentException("response_type must be 'code'"));
-            }
+        // Each step is wrapped in Mono.defer so it only runs once the previous one has
+        // completed (and not at all if an earlier one failed) - a plain chain of method
+        // calls would evaluate every argument eagerly, up front, regardless of order.
+        return Mono.defer(() -> validateResponseType(request))
+                .then(Mono.defer(() -> validateNoRequestUriParam(request)))
+                .then(Mono.defer(() -> validateRedirectUri(request)))
+                .then(Mono.defer(() -> validatePkce(request)))
+                .then(Mono.defer(() -> validateDpop(dpopHeader, requestUri)))
+                .then(Mono.defer(() -> validateWia(wiaHeader, wiaPopHeader, publicIssuerUrl)))
+                .then(Mono.defer(() -> storeAndBuildResponse(request)));
+    }
 
-            // Validate code_challenge_method if PKCE required
-            if (profileProperties.authorizationCode().requirePkce()) {
-                if (request.codeChallenge() == null || request.codeChallenge().isBlank()) {
-                    return Mono.error(new IllegalArgumentException("code_challenge is required"));
-                }
-                if (!"S256".equals(request.codeChallengeMethod())) {
-                    return Mono.error(new IllegalArgumentException("code_challenge_method must be S256"));
-                }
-            }
+    private Mono<Void> validateResponseType(PushedAuthorizationRequest request) {
+        if (!"code".equals(request.responseType())) {
+            return Mono.error(OAuthTokenException.invalidRequest("response_type must be 'code'"));
+        }
+        return Mono.empty();
+    }
 
-            // Validate DPoP if required
-            String dpopJkt = null;
-            if (profileProperties.authorizationCode().requireDpop()) {
-                dpopJkt = dpopValidationService.validate(dpopHeader, "POST", requestUri);
-            }
+    // RFC 9126 section 4: the PAR endpoint generates request_uri as its own response value -
+    // it must never be accepted as an input parameter of the pushed request itself. Without
+    // explicitly binding and validating it, a request carrying request_uri could be silently
+    // accepted (201) because Spring would otherwise drop the unknown form parameter.
+    // Any non-null value means the parameter was present (including blank from an explicit
+    // request_uri= with no value) - only null means it was truly absent from the form body.
+    private Mono<Void> validateNoRequestUriParam(PushedAuthorizationRequest request) {
+        if (request.requestUri() != null) {
+            return Mono.error(OAuthTokenException.invalidRequest(
+                    "request_uri parameter is not allowed in a pushed authorization request"));
+        }
+        return Mono.empty();
+    }
 
-            // Validate WIA if required
-            if ("attest_jwt_client_auth".equals(profileProperties.authorizationCode().clientAuthMethod())) {
-                clientAttestationValidationService.validateHeaders(wiaHeader, wiaPopHeader, publicIssuerUrl);
-            }
+    // redirect_uri has no bean-validation constraint on PushedAuthorizationRequest (it is
+    // legitimately absent from other grant shapes), so a request missing it would otherwise
+    // sail through PAR and only surface downstream as an NPE in
+    // AuthorizationServiceImpl.buildRedirectUri (new StringBuilder(null)) once /authorize
+    // tries to build a redirect with it - a 500 instead of a clean PAR-level rejection.
+    private Mono<Void> validateRedirectUri(PushedAuthorizationRequest request) {
+        if (request.redirectUri() == null || request.redirectUri().isBlank()) {
+            return Mono.error(OAuthTokenException.invalidRequest("redirect_uri is required"));
+        }
+        return Mono.empty();
+    }
 
-            // Generate request_uri and store in cache
-            String generatedRequestUri = PAR_REQUEST_URI_PREFIX + UUID.randomUUID();
-            log.debug("PAR processed, request_uri={}", generatedRequestUri);
+    private Mono<Void> validatePkce(PushedAuthorizationRequest request) {
+        if (!profileProperties.authorizationCode().requirePkce()) {
+            return Mono.empty();
+        }
+        if (request.codeChallenge() == null || request.codeChallenge().isBlank()) {
+            return Mono.error(OAuthTokenException.invalidRequest("code_challenge is required"));
+        }
+        if (!"S256".equals(request.codeChallengeMethod())) {
+            return Mono.error(OAuthTokenException.invalidRequest("code_challenge_method must be S256"));
+        }
+        return Mono.empty();
+    }
 
-            // Store request with dpopJkt for later validation at token endpoint
-            // We store the original request; dpopJkt is passed through via AuthorizationCodeData later
-            return parCacheStore.add(generatedRequestUri, request)
-                    .map(saved -> PushedAuthorizationResponse.builder()
-                            .requestUri(generatedRequestUri)
-                            .expiresIn(PAR_CACHE_EXPIRY_SECONDS)
-                            .build());
-        });
+    // Per RFC 9449 §10.1, DPoP binding at the PAR endpoint is OPTIONAL — a client may instead
+    // defer proof-of-possession entirely to the /token request. Only validate the header when
+    // present; requireDpop() still governs enforcement at the token endpoint.
+    private Mono<Void> validateDpop(String dpopHeader, String requestUri) {
+        if (dpopHeader == null || dpopHeader.isBlank()) {
+            return Mono.empty();
+        }
+        return Mono.fromRunnable(() -> dpopValidationService.validate(dpopHeader, "POST", requestUri))
+                .onErrorMap(IllegalArgumentException.class, e -> OAuthTokenException.invalidRequest(e.getMessage()))
+                .then();
+    }
+
+    private Mono<Void> validateWia(String wiaHeader, String wiaPopHeader, String publicIssuerUrl) {
+        if (!"attest_jwt_client_auth".equals(profileProperties.authorizationCode().clientAuthMethod())) {
+            return Mono.empty();
+        }
+        return Mono.fromRunnable(() -> clientAttestationValidationService.validateHeaders(wiaHeader, wiaPopHeader, publicIssuerUrl))
+                .onErrorMap(IllegalArgumentException.class, e -> OAuthTokenException.invalidClient())
+                .then();
+    }
+
+    private Mono<PushedAuthorizationResponse> storeAndBuildResponse(PushedAuthorizationRequest request) {
+        String generatedRequestUri = PAR_REQUEST_URI_PREFIX + UUID.randomUUID();
+        log.debug("PAR processed, request_uri={}", generatedRequestUri);
+        return parCacheStore.add(generatedRequestUri, request)
+                .map(saved -> PushedAuthorizationResponse.builder()
+                        .requestUri(generatedRequestUri)
+                        .expiresIn(PAR_CACHE_EXPIRY_SECONDS)
+                        .build());
     }
 }

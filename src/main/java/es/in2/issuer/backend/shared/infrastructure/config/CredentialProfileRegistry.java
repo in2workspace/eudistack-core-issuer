@@ -30,7 +30,7 @@ public class CredentialProfileRegistry {
             ObjectMapper objectMapper,
             ResourcePatternResolver resourcePatternResolver,
             @Value("${credential.profiles.path:classpath:credentials/profiles}") String profilesBasePath) {
-        String profilesPattern = profilesBasePath + "/*.json";
+        String profilesPattern = profilesBasePath + "/**/*.json";
         Map<String, CredentialProfile> configIdMap = new LinkedHashMap<>();
         Map<String, CredentialProfile> typeMap = new LinkedHashMap<>();
         Map<String, JsonNode> rawMap = new LinkedHashMap<>();
@@ -43,6 +43,10 @@ public class CredentialProfileRegistry {
 
             for (Resource resource : resources) {
                 String filename = resource.getFilename();
+                if (filename != null && filename.matches(".*\\.sample.*\\.json")) {
+                    log.debug("Skipping sample credential profile file {}", filename);
+                    continue;
+                }
                 if (filename != null && filename.endsWith(".profile.json")) {
                     JsonNode profileJson = readJsonResource(objectMapper, resource);
                     String configId = extractConfigurationId(profileJson, filename);
@@ -139,6 +143,21 @@ public class CredentialProfileRegistry {
 
     public CredentialProfile getByCredentialType(String credentialType) {
         return byCredentialType.get(credentialType);
+    }
+
+    /**
+     * Resolves a profile from an identifier that may be either a {@code credential_configuration_id}
+     * or a bare W3C credential type name.
+     *
+     * <p>Modern profiles encode the configuration id inside {@code credential_definition.type},
+     * so both indexes coincide. Legacy DOME credentials carry a human-readable type instead
+     * (e.g. {@code LEARCredentialEmployee}), which only exists in the credential-type index.
+     *
+     * @return the matching profile, or {@code null} when neither index contains the key
+     */
+    public CredentialProfile resolveProfile(String credentialTypeOrConfigurationId) {
+        CredentialProfile profile = byConfigurationId.get(credentialTypeOrConfigurationId);
+        return profile != null ? profile : byCredentialType.get(credentialTypeOrConfigurationId);
     }
 
     public Map<String, CredentialProfile> getAllProfiles() {

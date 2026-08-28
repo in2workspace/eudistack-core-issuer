@@ -15,14 +15,26 @@ spring:
     max-in-memory-size: ${SPRING_CODEC_MAX_IN_MEMORY_SIZE:256KB}
   reactor:
     context-propagation: auto
+  # Mounts all WebFlux handlers under this prefix AND is read by
+  # IssuerBaseUrlWebFilter to build public URLs (single source of truth).
+  # AWS ALB + CloudFront do not inject X-Forwarded-Prefix, so we rely on
+  # this property instead. Override via APP_CONTEXT_PATH.
+  webflux:
+    base-path: ${APP_CONTEXT_PATH:/issuer}
   r2dbc:
     url: ${SPRING_R2DBC_URL:r2dbc:postgresql://localhost:5432/issuer}
     username: ${SPRING_R2DBC_USERNAME}
     password: ${SPRING_R2DBC_PASSWORD}
   flyway:
+    # Disabled: TenantSchemaFlywayMigrator runs migrations for `public` + all
+    # tenant schemas using R2DBC credentials. Spring Boot's auto-configured
+    # flywayInitializer would need its own JDBC user/password and would also
+    # double-migrate `public`.
+    enabled: false
     url: ${SPRING_FLYWAY_URL:jdbc:postgresql://localhost:5432/issuer}
     locations: classpath:db/migration
-    default-schema: ${SPRING_FLYWAY_DEFAULT_SCHEMA:issuer}
+    default-schema: ${SPRING_FLYWAY_DEFAULT_SCHEMA:public}
+    baseline-on-migrate: true
   mail:
     host: ${SMTP_HOST:localhost}
     port: ${SMTP_PORT:587}
@@ -35,14 +47,28 @@ spring:
       ssl.trust: ${SMTP_SSL_TRUST:}
   messages:
     basename: messages/messages
+  # EUD-225: only consulted when issuer.messaging.revocation.enabled=true (AD-6).
+  # No default for username/password (F4, EUD-225 /verify): this channel's entire
+  # authorization model rests on the broker credential (AD-7) -- silently falling back to
+  # RabbitMQ's own well-known guest/guest account is the wrong failure mode. Left unset
+  # here (empty), RevocationMessagingConfig's credential validator fails fast at startup
+  # instead, but only when the feature is actually enabled.
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:}
+    password: ${SPRING_RABBITMQ_PASSWORD:}
+    virtual-host: ${SPRING_RABBITMQ_VIRTUAL_HOST:/}
 
 # Logging
 logging:
   pattern:
-    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
+    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-},%X{tenantDomain:-}]"
   level:
     org.springframework.security: ${LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY:INFO}
     es.in2.issuer: ${LOGGING_LEVEL_ES_IN2_ISSUER:INFO}
+    io.micrometer.registry.otlp: DEBUG
+    io.opentelemetry.exporter: DEBUG
 
 # Actuator & Observability
 management:
@@ -60,8 +86,16 @@ management:
     health:
       access: unrestricted
       show-details: ${MANAGEMENT_HEALTH_SHOW_DETAILS:when-authorized}
+      show-components: ${MANAGEMENT_HEALTH_SHOW_COMPONENTS:when-authorized}
       probes:
         enabled: true
+      # SMTP/verifier are informational dependencies: their failure should not
+      # take the issuer out of the ALB pool, but they remain visible in /health.
+      group:
+        readiness:
+          include: readinessState
+        liveness:
+          include: livenessState
     prometheus:
       access: unrestricted
   health:
@@ -70,6 +104,8 @@ management:
     readinessstate:
       enabled: true
   tracing:
+    # Local dev → true (Spring exports to Jaeger); AWS → false (ADOT agent handles X-Ray)
+    enabled: ${MANAGEMENT_TRACING_ENABLED:true}
     sampling:
       probability: ${OTEL_SAMPLING_PROBABILITY:1.0}
     propagation:
@@ -79,7 +115,49 @@ management:
       service: ${spring.application.name}
   otlp:
     tracing:
+      # Primary export: HTTP → Jaeger (unchanged). A second, gRPC → OTel Collector → Zipkin
+      # export is added independently via OtlpGrpcTracingConfig (dual export, opt-in).
       endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+      grpc:
+        enabled: ${MANAGEMENT_OTLP_GRPC_TRACING_ENABLED:false}
+        endpoint: ${OTEL_COLLECTOR_GRPC_URL:http://127.0.0.1:4317}
+    metrics:
+      export:
+        enabled: ${MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED:false}
+        url: ${OTEL_COLLECTOR_GRPC_URL:http://127.0.0.1:4317}
+        step: 5s
+        resource-attributes:
+          service.name: ${spring.application.name}
+    logging:
+      # Reuses the same OTel Collector gRPC endpoint as the metrics export above.
+      # Default off: local runs / tests must not try to export.
+      endpoint: ${OTEL_COLLECTOR_GRPC_URL:http://127.0.0.1:4317}
+      transport: ${MANAGEMENT_OTLP_LOGGING_TRANSPORT:grpc}
+      export:
+        enabled: ${MANAGEMENT_OTLP_LOGGING_EXPORT_ENABLED:false}
+  metrics:
+    enable:
+      all: true
+      spring.security.filterchains: false
+      jvm.buffer: false
+      jvm.classes: false
+      jvm.compilation: false
+      jvm.gc.memory.promoted: false
+      jvm.gc.memory.allocated: false
+      jvm.gc.max.data.size: false
+      jvm.gc.live.data.size: false
+      jvm.gc.overhead: false
+      tasks.scheduled.execution.active: false
+    distribution:
+      percentiles-histogram:
+        issuance.duration: true
+        oid4vci.token: true
+      percentiles:
+        http.server.requests: [0.5, 0.95, 0.99]
+      minimum-expected-value:
+        http.server.requests: 10ms
+      maximum-expected-value:
+        http.server.requests: 5s
 
 # OpenAPI / Swagger
 springdoc:
@@ -93,8 +171,9 @@ springdoc:
 server:
   port: ${SERVER_PORT:8080}
   # Use 'framework' behind a trusted proxy that strips client-supplied Forwarded/X-Forwarded-* headers.
-  # Default 'none' when running without proxy (direct access).
-  forward-headers-strategy: ${SERVER_FORWARD_HEADERS_STRATEGY:none}
+  # Default to 'framework' because every deployed environment (local nginx, AWS ALB+CloudFront)
+  # runs the issuer behind a proxy. Override to 'none' only for jar-standalone scenarios.
+  forward-headers-strategy: ${SERVER_FORWARD_HEADERS_STRATEGY:framework}
 
 # Credential profiles
 credential:
@@ -103,20 +182,18 @@ credential:
 
 # Application
 app:
-  url: ${APP_URL:http://localhost:8080}
-  internal-url: ${APP_INTERNAL_URL:}
-  issuer-frontend-url: ${APP_ISSUER_FRONTEND_URL:http://localhost:4200}
-  knowledge-base:
-    upload-certification-guide-url: ${APP_KNOWLEDGE_BASE_UPLOAD_CERTIFICATION_GUIDE_URL:https://example.com/guide}
-    wallet-guide-url: ${APP_KNOWLEDGE_BASE_WALLET_GUIDE_URL:https://example.com/wallet}
-  verifier-url: ${APP_VERIFIER_URL:https://verifier.example.com}
-  verifier-internal-url: ${APP_VERIFIER_INTERNAL_URL:}
-  wallet-url: ${APP_WALLET_URL:https://wallet.example.com}
+  # Public URLs are NOT configured here: they are derived at runtime from the
+  # request exchange (UrlResolver, EUDI-017). The internal URLs below reach
+  # the intra-VPC peers and MUST include the service base-path (e.g. /issuer,
+  # /verifier) so that calls that append well-known paths resolve correctly.
+  internal-url: ${APP_INTERNAL_URL:http://localhost:8080/issuer}
+  verifier-internal-url: ${APP_VERIFIER_INTERNAL_URL:http://localhost:8081/verifier}
+  tenant-custom-domains:
+    path: ${APP_TENANTS_CUSTOM_DOMAINS_PATH:classpath:tenants-custom-domains.yaml}
   cors:
     origins-path: ${APP_CORS_ORIGINS_PATH:}
-  mail-from: ${APP_MAIL_FROM:noreply@mail-stg.altia.eudistack.net}
+  # mail-from removed — now per-tenant via tenant_config.issuer.mail_from
   default-lang: ${APP_DEFAULT_LANG:en}
-  admin-organization-id: ${APP_ADMIN_ORGANIZATION_ID:VATES-B60645900}
   sys-tenant: ${APP_SYS_TENANT:SYSTEM}
   management-token:
     org-id-json-path: ${APP_MGMT_TOKEN_ORG_ID_PATH:mandator.organizationIdentifier}
@@ -125,24 +202,11 @@ app:
 
 # Issuer Identity
 issuer-identity:
-  credential-subject-did-key: ${ISSUER_IDENTITY_CREDENTIAL_SUBJECT_DID_KEY:did:key:z6MkqmaCT2JqdUtLeKah7tEVfNXtDXtQyj4yxEgV11Y5CqUa}
   crypto:
     private-key: ${ISSUER_IDENTITY_CRYPTO_PRIVATE_KEY:}
 
-# Signing
-signing:
-  runtime:
-    enabled: ${SIGNING_RUNTIME_ENABLED:true}
-    controller-enabled: ${SIGNING_RUNTIME_CONTROLLER_ENABLED:true}
-    default-provider: ${SIGNING_DEFAULT_PROVIDER:altia-mock-qtsp}
-  remote-signature:
-    url: ${SIGNING_REMOTE_URL:https://mock-qtsp.altia.fikua.com}
-    client-id: ${SIGNING_REMOTE_CLIENT_ID:mock-client}
-    client-secret: ${SIGNING_REMOTE_CLIENT_SECRET:mock-secret}
-    credential-id: ${SIGNING_REMOTE_CREDENTIAL_ID:mock-credential-001}
-    credential-password: ${SIGNING_REMOTE_CREDENTIAL_PASSWORD:mock-password}
-    certificate-info-cache-ttl: ${SIGNING_REMOTE_CERT_CACHE_TTL:PT10M}
-    signing-operation: ${SIGNING_REMOTE_OPERATION:sign-hash}
+# Signing configuration is now 100% per-tenant via tenant_signing_config in the DB
+# (see seed-tenants[.stg].sql). No global fallback.
 
 # OID4VCI Profile (authorization_code flow configuration)
 oid4vci:
@@ -169,3 +233,24 @@ wallet-provider-trust:
 issuance:
   draft-max-age-days: ${ISSUANCE_DRAFT_MAX_AGE_DAYS:30}
   cleanup-cron: ${ISSUANCE_CLEANUP_CRON:0 0 2 * * *}
+  delivery-timeout-minutes: ${ISSUANCE_DELIVERY_TIMEOUT_MINUTES:60}
+  delivery-timeout-cron: ${ISSUANCE_DELIVERY_TIMEOUT_CRON:0 */5 * * * ?}
+  hybrid-wallet-timeout-seconds: ${ISSUANCE_HYBRID_WALLET_TIMEOUT_SECONDS:30}
+
+# EUD-225: revocation-instruction message queue. Disabled by default (AD-6) — no broker
+# required, no bean declared, the emitter starts exactly as before with no code path
+# exercised. spring.rabbitmq.* (see the main `spring:` block above) is only consulted
+# when enabled=true.
+issuer:
+  messaging:
+    revocation:
+      enabled: ${ISSUER_MESSAGING_REVOCATION_ENABLED:false}
+      # AD-8: single-tenant deployment declaration. Empty/absent (default) = multi-tenant
+      # mode, tenantId is read from the message. Set only in a dedicated on-premise
+      # deployment (e.g. ISSUER_MESSAGING_REVOCATION_TENANT_BINDING=prh).
+      tenant-binding: ${ISSUER_MESSAGING_REVOCATION_TENANT_BINDING:}
+      # F13: false by default -- spring.rabbitmq.ssl.enabled=true is required whenever this
+      # feature is on, since the broker credential is this channel's entire authorization
+      # model (AD-7). Set to true ONLY for the local Docker Compose profile, whose bundled
+      # RabbitMQ container has no TLS listener configured -- never in STG/PROD.
+      allow-insecure-transport: ${ISSUER_MESSAGING_REVOCATION_ALLOW_INSECURE_TRANSPORT:false}

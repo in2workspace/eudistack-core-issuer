@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.shared.infrastructure.adapter.email;
 
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
+import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.service.TranslationService;
 import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,6 +13,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
+import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -24,6 +26,7 @@ class EmailServiceImplTest {
 
     @Mock private JavaMailSender javaMailSender;
     @Mock private TemplateEngine templateEngine;
+    @Mock private TenantConfigService tenantConfigService;
     @Mock private TranslationService translationService;
 
     private EmailServiceImpl emailService;
@@ -31,10 +34,16 @@ class EmailServiceImplTest {
     @BeforeEach
     void setUpLenient() {
         emailService = new EmailServiceImpl(
-                javaMailSender, templateEngine, "noreply@example.com", translationService
+                javaMailSender, templateEngine, tenantConfigService, translationService
         );
-        lenient().when(translationService.getLocale()).thenReturn("en");
-        lenient().when(translationService.translate(any(String.class)))
+        lenient().when(tenantConfigService.getStringOrThrow("issuer.mail_from"))
+                .thenReturn(Mono.just("noreply@example.com"));
+        lenient().when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
+                .thenReturn(Mono.just("https://wallet.example.com"));
+        lenient().when(tenantConfigService.getStringOrDefault("issuer.default_lang", ""))
+                .thenReturn(Mono.just("en"));
+        lenient().when(translationService.getLocaleOrDefault(anyString())).thenReturn("en");
+        lenient().when(translationService.translateWithLocale(anyString(), anyString()))
                 .thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -48,6 +57,23 @@ class EmailServiceImplTest {
                 .verifyComplete();
 
         verify(javaMailSender).send(mimeMessage);
+    }
+
+    @Test
+    void sendTxCodeNotification_usesPerTenantLanguageForContextLocale() {
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(tenantConfigService.getStringOrDefault("issuer.default_lang", ""))
+                .thenReturn(Mono.just("es"));
+        when(translationService.getLocaleOrDefault("es")).thenReturn("es");
+        when(templateEngine.process(eq("tx-code-email"), any(Context.class))).thenReturn("htmlContent");
+
+        StepVerifier.create(emailService.sendTxCodeNotification("to@example.com", "subject.key", "1234"))
+                .verifyComplete();
+
+        ArgumentCaptor<Context> ctxCaptor = ArgumentCaptor.forClass(Context.class);
+        verify(templateEngine).process(eq("tx-code-email"), ctxCaptor.capture());
+        assertEquals("es", ctxCaptor.getValue().getLocale().getLanguage());
     }
 
     @Test
@@ -71,8 +97,8 @@ class EmailServiceImplTest {
         // Act
         StepVerifier.create(emailService.sendCredentialOfferEmail(
                 "to@example.com", "subject.key",
-                "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fexample.com",
-                "https://example.com/reissue", "https://wallet.example.com",
+                "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fexample.com",
+                "https://example.com/reissue",
                 "ACME Corp", "TX123"
         )).verifyComplete();
 
@@ -96,8 +122,8 @@ class EmailServiceImplTest {
         // Act & Assert
         StepVerifier.create(emailService.sendCredentialOfferEmail(
                 "to@example.com", "subject.key",
-                "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fexample.com",
-                "https://example.com/reissue", "https://wallet.example.com",
+                "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fexample.com",
+                "https://example.com/reissue",
                 "ACME Corp", null
         )).verifyComplete();
 
@@ -113,8 +139,8 @@ class EmailServiceImplTest {
         // Act & Assert
         StepVerifier.create(emailService.sendCredentialOfferEmail(
                 "to@example.com", "subject.key",
-                "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fexample.com",
-                "https://example.com/reissue", "https://wallet.example.com",
+                "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fexample.com",
+                "https://example.com/reissue",
                 "ACME Corp", "TX123"
         )).expectError(RuntimeException.class)
                 .verify();
@@ -218,6 +244,52 @@ class EmailServiceImplTest {
         // Act & Assert
         StepVerifier.create(emailService.sendCredentialFailureNotification("to@example.com", "some error"))
                 .expectError(EmailCommunicationException.class)
+                .verify();
+    }
+
+    @Test
+    void sendBrandedCredentialOfferEmail_sendsEmailWithCorrectTemplateAndVariables() {
+        // Arrange
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("credential-offer-email-v2"), any(Context.class))).thenReturn("<html>v2</html>");
+
+        String walletDeepLink = "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fcredential-offer%2Fnonce";
+        String reissueUrl = "https://issuer.example.com/credential-offer/refresh/abc";
+
+        // Act
+        StepVerifier.create(emailService.sendBrandedCredentialOfferEmail(
+                "user@kpmg.com",
+                "email.activation.subject",
+                walletDeepLink,
+                reissueUrl,
+                "KPMG Spain"
+        )).verifyComplete();
+
+        // Assert
+        verify(javaMailSender).send(mimeMessage);
+        ArgumentCaptor<Context> ctxCaptor = ArgumentCaptor.forClass(Context.class);
+        verify(templateEngine).process(eq("credential-offer-email-v2"), ctxCaptor.capture());
+        Context ctx = ctxCaptor.getValue();
+        assertEquals("KPMG Spain", ctx.getVariable("organization"));
+        assertEquals("cid:qr-credential-offer.png", ctx.getVariable("qrImageCid"));
+        assertEquals(reissueUrl, ctx.getVariable("reissueUrl"));
+        assertEquals(walletDeepLink, ctx.getVariable("walletDeepLink"));
+    }
+
+    @Test
+    void sendBrandedCredentialOfferEmail_onMailError_propagatesException() {
+        // Arrange
+        when(javaMailSender.createMimeMessage()).thenThrow(new RuntimeException("SMTP down"));
+
+        // Act & Assert
+        StepVerifier.create(emailService.sendBrandedCredentialOfferEmail(
+                "user@kpmg.com",
+                "email.activation.subject",
+                "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fcredential-offer%2Fnonce",
+                "https://issuer.example.com/credential-offer/refresh/abc",
+                "KPMG Spain"
+        )).expectError(RuntimeException.class)
                 .verify();
     }
 }

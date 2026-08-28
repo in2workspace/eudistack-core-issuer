@@ -30,7 +30,8 @@ public record CredentialProfile(
         @JsonProperty("json_schema") String jsonSchema,
         @JsonProperty("policy_extraction") PolicyExtraction policyExtraction,
         @JsonProperty("issuance_policy") IssuancePolicy issuancePolicy,
-        @JsonProperty("token_claims_mapping") TokenClaimsMapping tokenClaimsMapping
+        @JsonProperty("token_claims_mapping") TokenClaimsMapping tokenClaimsMapping,
+        @JsonProperty("validation") Validation validation
 ) {
 
     @Builder
@@ -56,10 +57,22 @@ public record CredentialProfile(
     public record DisplayInfo(
             @JsonProperty("name") String name,
             @JsonProperty("locale") String locale,
-            @JsonProperty("description") String description
+            @JsonProperty("description") String description,
+            @JsonProperty("logo") DisplayImage logo,
+            @JsonProperty("background_color") String backgroundColor,
+            @JsonProperty("background_image") DisplayImage backgroundImage,
+            @JsonProperty("text_color") String textColor
     ) {}
 
     @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record DisplayImage(
+            @JsonProperty("uri") String uri,
+            @JsonProperty("alt_text") String altText
+    ) {}
+
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ClaimDefinition(
             @JsonProperty("path") List<String> path,
             @JsonProperty("display") List<DisplayInfo> display
@@ -74,7 +87,8 @@ public record CredentialProfile(
     public record SubjectExtraction(
             @JsonProperty("strategy") String strategy,
             @JsonProperty("fields") List<String> fields,
-            @JsonProperty("separator") String separator
+            @JsonProperty("separator") String separator,
+            @JsonProperty("last_segment_delimiter") String lastSegmentDelimiter
     ) {}
 
     @Builder
@@ -97,6 +111,12 @@ public record CredentialProfile(
             @JsonProperty("powers_path") String powersPath,
             @JsonProperty("mandator_path") String mandatorPath,
             @JsonProperty("org_id_field") String orgIdField
+    ) {}
+
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Validation(
+            @JsonProperty("mandator_org_id_path") String mandatorOrgIdPath
     ) {}
 
     @Builder

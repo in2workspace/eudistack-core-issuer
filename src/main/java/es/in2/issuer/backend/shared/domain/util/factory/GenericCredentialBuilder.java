@@ -22,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Component
@@ -104,8 +105,10 @@ public class GenericCredentialBuilder {
             credentialSubjectNode = objectMapper.createObjectNode();
             credentialSubjectNode.set("mandate", payload);
         }
-        // W3C VCDM 2.0: credentialSubject.id is required for jwt_vc_json
-        credentialSubjectNode.put("id", "urn:uuid:" + UUID.randomUUID());
+        // W3C VCDM 2.0: credentialSubject.id is required for jwt_vc_json; preserve caller-supplied id
+        if (!credentialSubjectNode.has("id")) {
+            credentialSubjectNode.put("id", "urn:uuid:" + UUID.randomUUID());
+        }
         credential.set("credentialSubject", credentialSubjectNode);
 
         credential.put("validFrom", validFrom);
@@ -173,6 +176,49 @@ public class GenericCredentialBuilder {
         };
     }
 
+    /**
+     * Injects the holder's DID (derived from the OID4VCI proof JWK) into the credential's mandatee.id.
+     * Ensures cnf.jwk and mandatee.id reference the same key pair.
+     * Format-aware: updates credentialSubject.mandate.mandatee.id (W3C) or mandate.mandatee.id (SD-JWT).
+     */
+    public String bindHolderDid(String credentialJson, String holderDid) {
+        try {
+            ObjectNode credential = (ObjectNode) objectMapper.readTree(credentialJson);
+
+            // W3C format: credentialSubject.mandate.mandatee.id
+            if (credential.has("credentialSubject")) {
+                JsonNode cs = credential.get("credentialSubject");
+                if (cs instanceof ObjectNode csNode && csNode.has("mandate")) {
+                    JsonNode mandate = csNode.get("mandate");
+                    if (mandate instanceof ObjectNode mandateNode && mandateNode.has("mandatee")) {
+                        JsonNode mandatee = mandateNode.get("mandatee");
+                        if (mandatee instanceof ObjectNode mandateeNode) {
+                            mandateeNode.put("id", holderDid);
+                            return objectMapper.writeValueAsString(credential);
+                        }
+                    }
+                }
+            }
+
+            // SD-JWT flat format: mandate.mandatee.id (top-level)
+            if (credential.has("mandate")) {
+                JsonNode mandate = credential.get("mandate");
+                if (mandate instanceof ObjectNode mandateNode && mandateNode.has("mandatee")) {
+                    JsonNode mandatee = mandateNode.get("mandatee");
+                    if (mandatee instanceof ObjectNode mandateeNode) {
+                        mandateeNode.put("id", holderDid);
+                        return objectMapper.writeValueAsString(credential);
+                    }
+                }
+            }
+
+            return credentialJson;
+        } catch (Exception e) {
+            log.warn("Could not bind holder DID to credential, mandatee.id unchanged: {}", e.getMessage());
+            return credentialJson;
+        }
+    }
+
     private Mono<String> setIssuerField(CredentialProfile profile, String decodedCredentialJson, Object issuer) {
         try {
             ObjectNode credential = (ObjectNode) objectMapper.readTree(decodedCredentialJson);
@@ -225,14 +271,13 @@ public class GenericCredentialBuilder {
     }
 
     /**
-     * Builds a generic JWT payload for signing.
-     * Structure: {jti, iss, sub, iat, exp, nbf, vc, cnf?}
+     * Builds a VCDM v2.0 JWT payload for signing.
+     * Per VC-JOSE-COSE Section 1.1.2.1: VC properties go directly as root JWT claims,
+     * NO "vc" wrapper. cnf is placed at root level per RFC 7800.
      */
     public Mono<String> buildJwtPayload(CredentialProfile profile, String decodedCredentialJson,
                                         Map<String, Object> cnf) {
         return Mono.fromCallable(() -> {
-            JsonNode credential = objectMapper.readTree(decodedCredentialJson);
-
             if (profile.cnfRequired()) {
                 if (cnf == null || cnf.isEmpty()) {
                     throw new IllegalStateException("Missing cnf (expected kid/jwk/x5c)");
@@ -240,19 +285,8 @@ public class GenericCredentialBuilder {
                 validateCnfShape(cnf);
             }
 
-            String issuerId = extractIssuerId(credential);
-            String subjectId = extractSubjectId(credential);
-            String validFrom = credential.get("validFrom").asText();
-            String validUntil = credential.get("validUntil").asText();
-
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("jti", UUID.randomUUID().toString());
-            payload.put("sub", subjectId);
-            payload.put("nbf", parseDateToUnixTime(validFrom));
-            payload.put("iss", issuerId);
-            payload.put("exp", parseDateToUnixTime(validUntil));
-            payload.put("iat", parseDateToUnixTime(validFrom));
-            payload.put("vc", objectMapper.readValue(decodedCredentialJson, Object.class));
+            Map<String, Object> payload = objectMapper.readValue(decodedCredentialJson,
+                    new com.fasterxml.jackson.core.type.TypeReference<LinkedHashMap<String, Object>>() {});
 
             if (profile.cnfRequired() && cnf != null && !cnf.isEmpty()) {
                 payload.put("cnf", cnf);
@@ -273,13 +307,20 @@ public class GenericCredentialBuilder {
                 .filter(v -> v != null && !v.isBlank())
                 .toList();
 
+        String result;
         if ("concat".equals(extraction.strategy())) {
             String separator = extraction.separator() != null ? extraction.separator() : " ";
-            return String.join(separator, values);
+            result = String.join(separator, values);
+        } else {
+            result = values.isEmpty() ? "" : values.getFirst();
         }
 
-        // "field" strategy — return first value
-        return values.isEmpty() ? "" : values.getFirst();
+        if (!result.isEmpty() && extraction.lastSegmentDelimiter() != null) {
+            String[] parts = result.split(Pattern.quote(extraction.lastSegmentDelimiter()), -1);
+            result = parts[parts.length - 1];
+        }
+
+        return result;
     }
 
     private Mono<String> extractOrganizationIdentifier(CredentialProfile profile, JsonNode payload) {
@@ -311,33 +352,6 @@ public class GenericCredentialBuilder {
             current = current.get(part);
         }
         return current != null && current.isTextual() ? current.asText() : null;
-    }
-
-    private String extractIssuerId(JsonNode credential) {
-        JsonNode issuer = credential.get("issuer");
-        if (issuer == null) {
-            // SD-JWT: iss is set directly at top level
-            JsonNode iss = credential.get("iss");
-            return iss != null && iss.isTextual() ? iss.asText() : "";
-        }
-        if (issuer.isTextual()) {
-            return issuer.asText();
-        }
-        if (issuer.has("organizationIdentifier")) {
-            return issuer.get("organizationIdentifier").asText();
-        }
-        if (issuer.has("id")) {
-            return issuer.get("id").asText();
-        }
-        return "";
-    }
-
-    private String extractSubjectId(JsonNode credential) {
-        JsonNode subject = credential.path("credentialSubject").path("id");
-        if (!subject.isMissingNode() && subject.isTextual()) {
-            return subject.asText();
-        }
-        return "";
     }
 
     private void validateCnfShape(Map<String, Object> cnf) {

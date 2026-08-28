@@ -28,6 +28,9 @@ public class JadesHeaderBuilderServiceImpl implements JadesHeaderBuilderService 
 
             Map<String, Object> header = new HashMap<>();
 
+            String sealLevel = certInfo.qualifiedSeal() ? "QSeal cualificado (QCP-l-qscd, FR-17)" : "AdESeal (FR-11/FR-12)";
+            log.info("Seal level: {}", sealLevel);
+
             String jwtAlg = mapOidToJwtAlg(certInfo.keyAlgorithms());
             header.put("alg", jwtAlg);
 
@@ -56,7 +59,7 @@ public class JadesHeaderBuilderServiceImpl implements JadesHeaderBuilderService 
             throw new IllegalArgumentException("No signing algorithm found in certificate info");
         }
 
-        return switch (oids.get(0)) {
+        return switch (oids.getFirst()) {
             case "1.2.840.10045.4.3.2" -> "ES256";
             case "1.2.840.10045.4.3.3" -> "ES384";
             case "1.2.840.10045.4.3.4" -> "ES512";
@@ -64,7 +67,13 @@ public class JadesHeaderBuilderServiceImpl implements JadesHeaderBuilderService 
             case "1.2.840.113549.1.1.12" -> "RS384";
             case "1.2.840.113549.1.1.13" -> "RS512";
             case "1.2.840.113549.1.1.10" -> "PS256";
-            default -> throw new IllegalArgumentException("Unsupported OID: " + oids.get(0));
+            // Generic key-algorithm OIDs (e.g. Vintegris reports rsaEncryption /
+            // id-ecPublicKey in credentials/info key.algo instead of a concrete
+            // signature OID). Since signing always uses a SHA-256 digest, map
+            // these to the SHA-256 JWS algorithm for the matching key type.
+            case "1.2.840.113549.1.1.1" -> "RS256"; // rsaEncryption
+            case "1.2.840.10045.2.1" -> "ES256";    // id-ecPublicKey
+            default -> throw new IllegalArgumentException("Unsupported OID: " + oids.getFirst());
         };
     }
 }

@@ -1,0 +1,84 @@
+package es.in2.issuer.backend.shared.domain.service.impl;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.fasterxml.jackson.databind.JsonNode;
+import es.in2.issuer.backend.shared.domain.model.entities.TenantSigningConfig;
+import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
+import es.in2.issuer.backend.shared.infrastructure.repository.TenantSigningConfigRepository;
+import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Mono;
+
+import java.time.Duration;
+
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
+
+@Slf4j
+@Service
+public class TenantSigningConfigServiceImpl implements TenantSigningConfigService {
+
+    private static final Duration CACHE_TTL = Duration.ofMinutes(5);
+
+    private final TenantSigningConfigRepository repository;
+    private final Cache<String, RemoteSignatureDto> signatureCache;
+    private final ObjectMapper objectMapper;
+
+    public TenantSigningConfigServiceImpl(TenantSigningConfigRepository repository, ObjectMapper objectMapper) {
+        this.repository = repository;
+        this.signatureCache = Caffeine.newBuilder()
+                .expireAfterWrite(CACHE_TTL)
+                .maximumSize(50)
+                .build();
+        this.objectMapper = objectMapper;
+    }
+
+    @Override
+    public Mono<RemoteSignatureDto> getRemoteSignature() {
+        return Mono.deferContextual(ctx -> {
+            String tenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "unknown");
+
+            RemoteSignatureDto cached = signatureCache.getIfPresent(tenant);
+            if (cached != null) {
+                return Mono.just(cached);
+            }
+
+            return repository.findFirstByOrderByCreatedAtDesc()
+                    .map(this::toRemoteSignatureDto)
+                    .doOnNext(dto -> {
+                        signatureCache.put(tenant, dto);
+                        log.debug("Loaded tenant signing config for '{}': provider at {}", tenant, dto.url());
+                    });
+        });
+    }
+
+    private RemoteSignatureDto toRemoteSignatureDto(TenantSigningConfig config) {
+        try {
+            JsonNode psc = objectMapper.readTree(config.providerSpecificConfig());
+            String cscUrl = psc.path("url").asText();
+            String authUrl = psc.hasNonNull("authUrl") ? psc.get("authUrl").asText() : cscUrl;
+            return new RemoteSignatureDto(
+                    config.provider(),
+                    config.cscApiVersion(),
+                    cscUrl,
+                    authUrl,
+                    psc.hasNonNull("signPath") ? psc.get("signPath").asText() : "sign-hash",
+                    psc.path("credentialId").asText(),
+                    psc.path("credentialPwd").asText(),
+                    psc.path("certCacheTtl").asText(null),
+                    psc.path("clientId").asText(),
+                    psc.path("clientSecret").asText(),
+                    psc.path("applicationName").asText(),
+                    psc.path("qtspTenantId").asText(),
+                    psc.path("appId").asText(),
+                    psc.path("accessKey").asText(),
+                    psc.path("managerId").asText()
+            );
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+}

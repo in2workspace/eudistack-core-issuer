@@ -82,13 +82,14 @@ class ProofValidationServiceImplTest {
         String jwt = buildValidProofJwtWithNonce(aud, now - 10, now + 600, TEST_NONCE);
 
         when(nonceCacheStore.get(TEST_NONCE)).thenReturn(Mono.just(TEST_NONCE));
-        when(nonceCacheStore.delete(TEST_NONCE)).thenReturn(Mono.empty());
         when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class)))
                 .thenReturn(Mono.just(false));
 
         StepVerifier.create(service.verifyProof(jwt, Set.of(SUPPORTED_PROOF_ALG), aud))
                 .expectNext(false)
                 .verifyComplete();
+
+        verify(nonceCacheStore, never()).delete(TEST_NONCE);
     }
 
 
@@ -275,13 +276,14 @@ class ProofValidationServiceImplTest {
         String jwt = buildValidProofJwtWithNonce(expectedAudience, now, now + 300, TEST_NONCE);
 
         when(nonceCacheStore.get(TEST_NONCE)).thenReturn(Mono.just(TEST_NONCE));
-        when(nonceCacheStore.delete(TEST_NONCE)).thenReturn(Mono.empty());
         when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class)))
                 .thenReturn(Mono.error(new RuntimeException("boom")));
 
         StepVerifier.create(service.verifyProof(jwt, Set.of(SUPPORTED_PROOF_ALG), expectedAudience))
                 .expectError(ProofValidationException.class)
                 .verify();
+
+        verify(nonceCacheStore, never()).delete(TEST_NONCE);
     }
     @Test
     void verifyProof_withJwk_whenJwtServiceThrows_callsJwkVerifier_andMapsToProofValidationException() throws Exception {
@@ -291,7 +293,6 @@ class ProofValidationServiceImplTest {
         String jwt = buildNimbusSignedJwtWithPublicEcJwk(expectedAudience, now);
 
         when(nonceCacheStore.get(TEST_NONCE)).thenReturn(Mono.just(TEST_NONCE));
-        when(nonceCacheStore.delete(TEST_NONCE)).thenReturn(Mono.empty());
         when(jwtService.validateJwtSignatureWithJwkReactive(anyString(), anyMap()))
                 .thenReturn(Mono.error(new RuntimeException("boom")));
 
@@ -301,6 +302,7 @@ class ProofValidationServiceImplTest {
 
         verify(jwtService).validateJwtSignatureWithJwkReactive(anyString(), anyMap());
         verify(jwtService, never()).validateJwtSignatureReactive(any(SignedJWT.class));
+        verify(nonceCacheStore, never()).delete(TEST_NONCE);
     }
 
     @Test
@@ -330,7 +332,6 @@ class ProofValidationServiceImplTest {
         String jwt = buildNimbusSignedJwtWithPublicEcJwk(expectedAudience, now);
 
         when(nonceCacheStore.get(TEST_NONCE)).thenReturn(Mono.just(TEST_NONCE));
-        when(nonceCacheStore.delete(TEST_NONCE)).thenReturn(Mono.empty());
         when(jwtService.validateJwtSignatureWithJwkReactive(anyString(), anyMap()))
                 .thenReturn(Mono.just(false));
 
@@ -340,6 +341,7 @@ class ProofValidationServiceImplTest {
 
         verify(jwtService).validateJwtSignatureWithJwkReactive(anyString(), anyMap());
         verify(jwtService, never()).validateJwtSignatureReactive(any(SignedJWT.class));
+        verify(nonceCacheStore, never()).delete(TEST_NONCE);
     }
 
 
@@ -397,14 +399,13 @@ class ProofValidationServiceImplTest {
     }
 
     @Test
-    void verifyProof_signatureInvalid_nonceStillConsumed() {
+    void verifyProof_signatureInvalid_nonceNotConsumed() {
         String aud = "aud";
         long now = Instant.now().getEpochSecond();
 
         String jwt = buildValidProofJwtWithNonce(aud, now, now + 300, TEST_NONCE);
 
         when(nonceCacheStore.get(TEST_NONCE)).thenReturn(Mono.just(TEST_NONCE));
-        when(nonceCacheStore.delete(TEST_NONCE)).thenReturn(Mono.empty());
         when(jwtService.validateJwtSignatureReactive(any(SignedJWT.class)))
                 .thenReturn(Mono.just(false));
 
@@ -413,7 +414,7 @@ class ProofValidationServiceImplTest {
                 .verifyComplete();
 
         verify(nonceCacheStore).get(TEST_NONCE);
-        verify(nonceCacheStore).delete(TEST_NONCE);
+        verify(nonceCacheStore, never()).delete(TEST_NONCE);
     }
 
     // ---------------- helpers ----------------
