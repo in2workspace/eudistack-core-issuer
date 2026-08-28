@@ -4,21 +4,25 @@ import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateException;
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
 import es.in2.issuer.backend.shared.domain.exception.NoCredentialFoundException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
+import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.repository.IssuanceRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.stereotype.Service;
 import reactor.core.Exceptions;
@@ -42,6 +46,7 @@ public class IssuanceServiceImpl implements IssuanceService {
     private final ObjectMapper objectMapper;
     private final R2dbcEntityTemplate r2dbcEntityTemplate;
     private final CredentialProfileRegistry credentialProfileRegistry;
+    private final TenantRegistryService tenantRegistryService;
 
     @Override
     public Mono<Issuance> saveIssuance(Issuance issuance) {
@@ -135,6 +140,8 @@ public class IssuanceServiceImpl implements IssuanceService {
 
                     return issuanceRepository.save(issuance)
                             .doOnSuccess(result -> log.info(UPDATED_CREDENTIAL))
+                            .onErrorMap(OptimisticLockingFailureException.class,
+                                    e -> concurrentUpdateConflict(issuance.getIssuanceId(), "updateCredentialDataSetByIssuanceId", e))
                             .then();
                 });
     }
@@ -159,14 +166,27 @@ public class IssuanceServiceImpl implements IssuanceService {
     }
 
     @Override
-    public Mono<CredentialDetails> getIssuanceDetailByIssuanceIdAndOrganizationId(String organizationIdentifier, String issuanceId, boolean sysAdmin) {
+    public Mono<CredentialDetails> getIssuanceDetailByIssuanceIdAndOrganizationId(AuthorizationContext ctx, String issuanceId) {
+        // Tenant isolation enforced by search_path.
+        // sysAdmin from platform → cross-tenant search.
+        // sysAdmin/tenantAdmin → any issuance within current tenant.
+        // LEAR → filtered by organization.
+        UUID id = UUID.fromString(issuanceId);
         Mono<Issuance> issuanceMono;
-        if (sysAdmin) {
-            log.debug("Admin access for issuanceId: {}", issuanceId);
-            issuanceMono = issuanceRepository.findByIssuanceId(UUID.fromString(issuanceId))
-                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "*"));
+        if (ctx.isSysAdmin() && ctx.readOnly()) {
+            log.debug("Platform admin cross-tenant access for issuanceId: {}", issuanceId);
+            issuanceMono = tenantRegistryService.getActiveTenantSchemas()
+                    .flatMapMany(Flux::fromIterable)
+                    .flatMap(tenant ->
+                            issuanceRepository.findByIssuanceId(id)
+                                    .contextWrite(c -> c.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
+                    )
+                    .next();
+        } else if (ctx.isTenantAdmin()) {
+            log.debug("TenantAdmin access for issuanceId: {}", issuanceId);
+            issuanceMono = issuanceRepository.findByIssuanceId(id);
         } else {
-            issuanceMono = issuanceRepository.findByIssuanceIdAndOrganizationIdentifier(UUID.fromString(issuanceId), organizationIdentifier);
+            issuanceMono = issuanceRepository.findByIssuanceIdAndOrganizationIdentifier(id, ctx.organizationIdentifier());
         }
         return issuanceMono
                 .switchIfEmpty(Mono.error(new NoCredentialFoundException("No credential found for issuanceId: " + issuanceId)))
@@ -196,6 +216,8 @@ public class IssuanceServiceImpl implements IssuanceService {
                     issuance.setCredentialStatus(CredentialStatusEnum.VALID);
                     return issuanceRepository.save(issuance)
                             .doOnSuccess(result -> log.info(UPDATED_CREDENTIAL))
+                            .onErrorMap(OptimisticLockingFailureException.class,
+                                    e -> concurrentUpdateConflict(issuance.getIssuanceId(), "updateIssuanceStatusToValidByIssuanceId", e))
                             .then();
                 });
     }
@@ -206,7 +228,38 @@ public class IssuanceServiceImpl implements IssuanceService {
         issuance.setCredentialStatus(CredentialStatusEnum.REVOKED);
         return issuanceRepository.save(issuance)
                 .doOnSuccess(result -> log.info(UPDATED_CREDENTIAL))
+                .onErrorResume(OptimisticLockingFailureException.class,
+                        e -> reconcileConcurrentRevoke(issuance.getIssuanceId(), e))
                 .then();
+    }
+
+    /**
+     * SD-04 (EUD-225): two concurrent revocations of the same credential (operator REST +
+     * queue consumer, ES-03) can both pass {@link #validateTransition} against the same
+     * in-memory VALID snapshot before either writes. The {@code version} column (V11) turns
+     * the losing write into an {@link OptimisticLockingFailureException} instead of a silent
+     * double-revoke. Re-fetch and check what actually landed: if the other path already won
+     * and persisted REVOKED, this is not a genuine conflict — it is exactly the "no longer
+     * revocable" outcome both {@code RevocationWorkflow} callers already handle end-to-end
+     * (HTTP 409 for the operator, silent skip-as-noop for the queue consumer, AC-06/ES-03),
+     * so it is reported the same way instead of inventing a second no-op path. Any other
+     * current status is a genuinely unexpected concurrent mutation and is not papered over:
+     * the original conflict is propagated as a real error.
+     */
+    private Mono<Issuance> reconcileConcurrentRevoke(UUID issuanceId, OptimisticLockingFailureException conflict) {
+        return issuanceRepository.findById(issuanceId)
+                .switchIfEmpty(Mono.error(conflict))
+                .flatMap(current -> {
+                    if (current.getCredentialStatus() == CredentialStatusEnum.REVOKED) {
+                        log.info("Concurrent revocation for issuanceId={}: already REVOKED by another path, treating as no-op",
+                                issuanceId);
+                        return Mono.error(new InvalidCredentialStatusTransitionException(
+                                CredentialStatusEnum.REVOKED, CredentialStatusEnum.REVOKED));
+                    }
+                    log.error("Unresolved optimistic-lock conflict for issuanceId={}: current status={}",
+                            issuanceId, current.getCredentialStatus(), conflict);
+                    return Mono.error(conflict);
+                });
     }
 
     @Override
@@ -218,6 +271,23 @@ public class IssuanceServiceImpl implements IssuanceService {
                     issuance.setCredentialStatus(CredentialStatusEnum.WITHDRAWN);
                     return issuanceRepository.save(issuance)
                             .doOnSuccess(result -> log.info("Issuance withdrawn: {}", issuanceId))
+                            .onErrorMap(OptimisticLockingFailureException.class,
+                                    e -> concurrentUpdateConflict(issuance.getIssuanceId(), "withdrawIssuance", e))
+                            .then();
+                });
+    }
+
+    @Override
+    public Mono<Void> archiveIssuance(String issuanceId) {
+        return issuanceRepository.findByIssuanceId(UUID.fromString(issuanceId))
+                .flatMap(issuance -> {
+                    validateTransition(issuance.getCredentialStatus(), CredentialStatusEnum.ARCHIVED);
+                    log.debug("Archiving issuance: {}", issuanceId);
+                    issuance.setCredentialStatus(CredentialStatusEnum.ARCHIVED);
+                    return issuanceRepository.save(issuance)
+                            .doOnSuccess(result -> log.info("Issuance archived: {}", issuanceId))
+                            .onErrorMap(OptimisticLockingFailureException.class,
+                                    e -> concurrentUpdateConflict(issuance.getIssuanceId(), "archiveIssuance", e))
                             .then();
                 });
     }
@@ -228,12 +298,45 @@ public class IssuanceServiceImpl implements IssuanceService {
     }
 
     @Override
-    public Mono<IssuanceList> getAllIssuancesVisibleFor(String organizationIdentifier, boolean sysAdmin) {
-        if (sysAdmin) {
-            return toIssuanceList(issuanceRepository.findAllOrderByUpdatedDesc())
-                    .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "*"));
+    public Mono<IssuanceList> getAllIssuancesVisibleFor(AuthorizationContext ctx) {
+        // Tenant isolation is enforced by the search_path (TenantAwareConnectionFactory).
+        // - sysAdmin + platform tenant → cross-tenant read-only view (all tenants, with tenant column)
+        // - sysAdmin/tenantAdmin       → all issuances within the current tenant (no org filter)
+        // - LEAR                       → only issuances from their organization
+        if (ctx.isSysAdmin() && ctx.readOnly()) {
+            return buildCrossTenantIssuanceList();
         }
-        return getAllIssuanceSummariesByOrganizationId(organizationIdentifier);
+        if (ctx.isTenantAdmin()) {
+            return toIssuanceList(issuanceRepository.findAllOrderByUpdatedDesc());
+        }
+        return getAllIssuanceSummariesByOrganizationId(ctx.organizationIdentifier());
+    }
+
+    private Mono<IssuanceList> buildCrossTenantIssuanceList() {
+        return tenantRegistryService.getActiveTenantSchemas()
+                .flatMapMany(Flux::fromIterable)
+                .filter(tenant -> !PLATFORM_TENANT.equals(tenant))
+                .flatMap(tenant ->
+                        issuanceRepository.findAllOrderByUpdatedDesc()
+                                .map(issuance -> {
+                                    try {
+                                        return IssuanceList.IssuanceEntry.builder()
+                                                .issuance(toIssuanceSummary(issuance, tenant))
+                                                .build();
+                                    } catch (ParseCredentialJsonException e) {
+                                        throw Exceptions.propagate(e);
+                                    }
+                                })
+                                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
+                )
+                .sort((a, b) -> {
+                    Instant ua = a.issuance().updated();
+                    Instant ub = b.issuance().updated();
+                    if (ua == null || ub == null) return 0;
+                    return ub.compareTo(ua);
+                })
+                .collectList()
+                .map(IssuanceList::new);
     }
 
     private Mono<IssuanceList> toIssuanceList(Flux<Issuance> source) {
@@ -253,6 +356,10 @@ public class IssuanceServiceImpl implements IssuanceService {
     }
 
     private IssuanceSummary toIssuanceSummary(Issuance issuance) throws ParseCredentialJsonException {
+        return toIssuanceSummary(issuance, null);
+    }
+
+    private IssuanceSummary toIssuanceSummary(Issuance issuance, String tenant) throws ParseCredentialJsonException {
         try {
             objectMapper.readTree(issuance.getCredentialDataSet());
         } catch (JsonProcessingException e) {
@@ -266,6 +373,7 @@ public class IssuanceServiceImpl implements IssuanceService {
                 .status(String.valueOf(issuance.getCredentialStatus()))
                 .organizationIdentifier(issuance.getOrganizationIdentifier())
                 .updated(issuance.getUpdatedAt())
+                .tenant(tenant)
                 .build();
     }
 
@@ -307,16 +415,18 @@ public class IssuanceServiceImpl implements IssuanceService {
 
     private Mono<CredentialOfferEmailNotificationInfo> extractOrganizationFromCredential(
             Issuance issuance, String issuanceId) {
+        String configId = issuance.getCredentialType();
+        CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
+
         return Mono.fromCallable(() ->
                         objectMapper.readTree(issuance.getCredentialDataSet())
                 )
                 .map(credential -> {
-                    // W3C: credentialSubject.mandate.mandator.organization
-                    // SD-JWT: mandator.organization (top-level claim)
-                    JsonNode mandator = credential.has(CREDENTIAL_SUBJECT)
-                            ? credential.get(CREDENTIAL_SUBJECT).get(MANDATE).get(MANDATOR)
-                            : credential.get(MANDATOR);
-                    String org = mandator.get(ORGANIZATION).asText();
+                    String mandatorPath = mandatorPathFromValidation(profile);
+                    JsonNode mandator = resolveJsonPath(credential, mandatorPath);
+                    String org = (mandator != null && mandator.has(ORGANIZATION))
+                            ? mandator.get(ORGANIZATION).asText()
+                            : appConfig.getSysTenant();
                     return new CredentialOfferEmailNotificationInfo(
                             issuance.getEmail(),
                             org
@@ -327,6 +437,30 @@ public class IssuanceServiceImpl implements IssuanceService {
                                 "Error parsing credential for issuanceId: " + issuanceId
                         )
                 );
+    }
+
+    private String mandatorPathFromValidation(CredentialProfile profile) {
+        if (profile == null || profile.validation() == null
+                || profile.validation().mandatorOrgIdPath() == null) {
+            return null;
+        }
+        String orgIdPath = profile.validation().mandatorOrgIdPath();
+        int lastDot = orgIdPath.lastIndexOf('.');
+        return lastDot > 0 ? orgIdPath.substring(0, lastDot) : null;
+    }
+
+    private JsonNode resolveJsonPath(JsonNode root, String path) {
+        if (root == null || path == null || path.isBlank()) {
+            return null;
+        }
+        JsonNode current = root;
+        for (String segment : path.split("\\.")) {
+            if (current == null || !current.has(segment)) {
+                return null;
+            }
+            current = current.get(segment);
+        }
+        return current;
     }
 
     @Override
@@ -341,13 +475,34 @@ public class IssuanceServiceImpl implements IssuanceService {
 
     @Override
     public Mono<Issuance> updateIssuance(Issuance issuance) {
-        return issuanceRepository.save(issuance);
+        return issuanceRepository.save(issuance)
+                .onErrorMap(OptimisticLockingFailureException.class,
+                        e -> concurrentUpdateConflict(issuance.getIssuanceId(), "updateIssuance", e));
+    }
+
+    @Override
+    public Flux<Issuance> findFailedDeliveries(Instant cutoff) {
+        return issuanceRepository.findFailedDeliveries(cutoff);
     }
 
     private void validateTransition(CredentialStatusEnum from, CredentialStatusEnum to) {
         if (!from.canTransitionTo(to)) {
             throw new InvalidCredentialStatusTransitionException(from, to);
         }
+    }
+
+    /**
+     * SD-04 (EUD-225): the {@code version} column (V11) can turn a lost optimistic-locking
+     * race on this issuance into an {@link OptimisticLockingFailureException} at any write
+     * site, not only {@code updateIssuanceStatusToRevoked}. This call site has no defined
+     * reconciliation target for a concurrent conflict — designing one for every write path
+     * is out of this Story's scope (spec-deltas.md SD-04) — so the conflict is logged with
+     * enough context to be diagnosable and surfaced as a clear domain exception instead of a
+     * bare R2DBC exception with no context.
+     */
+    private ConcurrentIssuanceUpdateException concurrentUpdateConflict(UUID issuanceId, String operation, Throwable cause) {
+        log.error("Concurrent update conflict on issuanceId={} during operation={}: {}", issuanceId, operation, cause.toString());
+        return new ConcurrentIssuanceUpdateException(issuanceId, operation, cause);
     }
 
 }

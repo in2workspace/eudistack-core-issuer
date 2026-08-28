@@ -1,12 +1,12 @@
 package es.in2.issuer.backend.signing.domain.util;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
-import java.util.Map;
 
 @Component
 @Slf4j
@@ -26,10 +26,10 @@ public class JwtUtils {
 
     public boolean areJsonsEqual(String json1, String json2) {
         try {
-            Map<String, Object> map1 = objectMapper.readValue(json1, Map.class);
-            Map<String, Object> map2 = objectMapper.readValue(json2, Map.class);
+            JsonNode node1 = objectMapper.readTree(json1);
+            JsonNode node2 = objectMapper.readTree(json2);
 
-            return map1.equals(map2);
+            return node1.equals(node2);
         } catch (Exception e) {
             log.error("Error comparing JSONs", e);
             return false;

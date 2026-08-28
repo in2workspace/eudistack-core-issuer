@@ -16,16 +16,28 @@ public class EndpointsConstants {
     public static final String WELL_KNOWN_BASE_PATH ="/.well-known";
     public static final String VCI_BASE_PATH = "/vci/v1";
 
-    // Signing Endpoints
-    public static final String SIGNING_PROVIDERS_PATH = "/internal/signing/provider";
-    public static final String SIGNING_CONFIG_PATH = "/internal/signing/config";
-
     // VCI API Endpoints
     public static final String VCI_PATH = VCI_BASE_PATH+"/**";
 
     // Issuance Endpoint (unified)
     public static final String ISSUANCES_PATH = "/api/v1/issuances";
     public static final String ISSUANCES_WILDCARD_PATH = "/api/v1/issuances/**";
+
+    // Authenticated user info (role + org for the current tenant)
+    public static final String ME_PATH = "/api/v1/me";
+
+    // Tenant admin management of eligible delivery modes per credential type (EUD-169)
+    public static final String DELIVERY_CONFIG_PATH = "/api/v1/backoffice/delivery-config/{credentialConfigurationId}";
+
+    // Tenant credential catalog admin (EUD-72, US-02). Tenant admin GET/PUT of the
+    // per-tenant enabled credential configuration ids.
+    public static final String CREDENTIAL_CATALOG_PATH = "/admin/v1/credential-catalog";
+
+    // Unattended issuance intake (EUD-2/EUD-75, US-02). Path is a placeholder
+    // pending EUD-74 (US-01, the intake endpoint itself) — coordinate before
+    // changing, since it is a stable contract shared with that Story.
+    public static final String INTAKE_BASE_PATH = "/api/v1/intake";
+    public static final String INTAKE_PATH = INTAKE_BASE_PATH + "/**";
 
     // OIDC4VCI Endpoints
     public static final String CORS_OID4VCI_PATH = "/oid4vci/**";
@@ -42,6 +54,14 @@ public class EndpointsConstants {
     public static final String AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH = WELL_KNOWN_BASE_PATH + "/openid-configuration";
     public static final String OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_PATH = WELL_KNOWN_BASE_PATH + "/oauth-authorization-server";
     public static final String JWKS_PATH = WELL_KNOWN_BASE_PATH + "/jwks.json";
+
+    // Well-Known Endpoints (RFC 8414 / OID4VCI 1.0 §12.2.2 form: well-known
+    // inserted before the issuer's own path, e.g. /.well-known/openid-credential-issuer/issuer).
+    // A compliant client derives this from our credential_issuer identifier
+    // (which has a path, "/issuer") — see EUD-215.
+    public static final String CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_WILDCARD_PATH = CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_PATH + "/**";
+    public static final String AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_WILDCARD_PATH = AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH + "/**";
+    public static final String OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_WILDCARD_PATH = OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_PATH + "/**";
 
     // Authorization Code Flow Endpoints
     public static final String OID4VCI_PAR_PATH = OID4VCI_BASE_PATH + "/par";

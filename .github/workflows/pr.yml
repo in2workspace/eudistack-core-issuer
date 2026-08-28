@@ -1,0 +1,340 @@
+name: pr-to-main
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+env:
+  JACOCO_MIN_COVERAGE_OVERALL: 40
+  JACOCO_MIN_COVERAGE_CHANGED_FILES: 60
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  packages: write
+
+concurrency:
+  group: ci-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect code changes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Filter changed paths
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          predicate-quantifier: 'every'
+          filters: |
+            code:
+              - '!**/*.md'
+              - '!docs/**'
+              - '!.github/**'
+              - '!LICENSE'
+              - '!.gitignore'
+
+  build:
+    name: Build & Test
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+          cache: 'gradle'
+
+      - name: Make Gradlew Executable
+        run: chmod +x ./gradlew
+
+      - name: Build & Test
+        run: ./gradlew build --info
+
+      - name: Publish JaCoCo Coverage
+        if: always()
+        uses: madrapps/jacoco-report@v1.7.1
+        with:
+          paths: build/reports/jacoco/test/jacocoTestReport.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          min-coverage-overall: ${{ env.JACOCO_MIN_COVERAGE_OVERALL }}
+          min-coverage-changed-files: ${{ env.JACOCO_MIN_COVERAGE_CHANGED_FILES }}
+
+      - name: Upload Coverage Report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: jacoco-report
+          path: build/jacocoHtml/
+
+      - name: SonarCloud Scan
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: ./gradlew sonar --info
+
+      - name: SonarCloud Quality Gate
+        uses: sonarsource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # v1.2.1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          scanMetadataReportFile: build/sonar/report-task.txt
+
+      - name: Get current date
+        id: date
+        run: echo "date=$(date -u +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Trivy vulnerability DB
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: ${{ runner.os }}-trivy-db-${{ steps.date.outputs.date }}
+          restore-keys: |
+            ${{ runner.os }}-trivy-db-
+
+      - name: Trivy Vulnerability Scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: 'build/libs'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+          ignore-unfixed: true
+          format: 'table'
+          cache-dir: '~/.cache/trivy'
+          trivyignores: 'config/trivy/.trivyignore'
+
+      - name: Trivy Report (JSON)
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: 'build/libs'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+          ignore-unfixed: true
+          format: 'json'
+          output: 'build/reports/trivy-report.json'
+          cache-dir: '~/.cache/trivy'
+          trivyignores: 'config/trivy/.trivyignore'
+
+      - name: Upload Trivy Report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: trivy-report
+          path: build/reports/trivy-report.json
+
+  dast-baseline:
+    name: ZAP DAST Baseline
+    needs: [changes, build]
+    # Gated on `!cancelled()` and deliberately NOT on `needs.build.result`: what
+    # this job exercises (the image boots, migrates, resolves a tenant and serves
+    # its public metadata) is orthogonal to the unit-test/coverage/Sonar gate in
+    # `build`, so a red `build` should not suppress the DAST signal. The cost is
+    # ~3 min of runner time on PRs that are already failing.
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-latest
+    # Severity-split gate, not an all-or-nothing one:
+    #   - Low / Informational findings -> `fail_action: false` on the scan step.
+    #     On a passive baseline they are noise and never fail anything.
+    #   - High / Critical findings -> the "Fail on High/Critical findings" step
+    #     exits non-zero, which reddens the run so GitHub's failure notification
+    #     actually fires. This is why the job no longer carries a job-level
+    #     `continue-on-error`: it would swallow that signal into a green run.
+    #     Infrastructure failures (docker build, tenant seed, healthcheck or
+    #     target-verification timeout) now redden the run too — a scan that could
+    #     not run is not a pass.
+    # Merge protection is unaffected: main's required status checks are
+    # "Build & Test" and "Analyze (java)" only — this job is not one of them, so
+    # a red DAST job is a loud signal, not a merge block.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: issuer
+          POSTGRES_USER: issuer
+          POSTGRES_PASSWORD: issuer
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U issuer -d issuer"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      # SKIP_TESTS=true: the `build` job (above) already ran the full test suite
+      # for the quality gate — re-running tests inside the Docker build here would
+      # duplicate that work and risks failing this job on a test issue unrelated
+      # to DAST (e.g. a test needing infra this container's build stage lacks).
+      - name: Build Docker image
+        run: docker build --build-arg SKIP_TESTS=true -t eudistack-core-issuer:pr .
+
+      - name: Seed tenant_registry (sandbox)
+        run: |
+          PGPASSWORD=issuer psql -h localhost -U issuer -d issuer -c "
+            CREATE TABLE IF NOT EXISTS public.tenant_registry (
+                schema_name   VARCHAR(64)  PRIMARY KEY,
+                display_name  VARCHAR(255) NOT NULL,
+                tenant_type   VARCHAR(20)  NOT NULL DEFAULT 'simple',
+                status        VARCHAR(20)  NOT NULL DEFAULT 'active',
+                created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+            INSERT INTO public.tenant_registry (schema_name, display_name, tenant_type)
+            VALUES ('sandbox', 'EUDIStack Sandbox', 'multi_org')
+            ON CONFLICT (schema_name) DO NOTHING;
+          "
+
+      # CREDENTIAL_PROFILES_PATH: CredentialProfileRegistry fails hard at startup
+      # (IllegalStateException) if this path doesn't resolve — production/STG get
+      # it via a Docker volume from eudistack-platform-dev's dev-tools/schemas/
+      # (see compose.yaml), which this ephemeral CI container doesn't have. The
+      # profiles are vendored read-only at dev-tools/credentials/profiles/ and
+      # mounted the same way. Refresh them from eudistack-platform-dev with
+      # `make sync-credential-profiles` (`make check-credential-profiles` fails
+      # on drift); do not hand-edit the copy.
+      #
+      # Must include BOTH the "core" *.json files (credential_configuration_id +
+      # full credential_definition) AND the *.profile.json overlay files: the
+      # registry only loads profiles from core resources and merges an overlay
+      # onto them if one exists by matching configuration_id — an overlay-only
+      # directory loads zero profiles (Copilot review, PR #160).
+      - name: Run container
+        run: |
+          docker run -d --name issuer-service \
+            --network host \
+            -e SERVER_PORT=8080 \
+            -e SPRING_R2DBC_URL=r2dbc:postgresql://localhost:5432/issuer \
+            -e SPRING_R2DBC_USERNAME=issuer \
+            -e SPRING_R2DBC_PASSWORD=issuer \
+            -e SPRING_FLYWAY_URL=jdbc:postgresql://localhost:5432/issuer \
+            -e CREDENTIAL_PROFILES_PATH=file:/etc/eudistack/schemas \
+            -v "$(pwd)/dev-tools/credentials/profiles:/etc/eudistack/schemas:ro" \
+            eudistack-core-issuer:pr
+
+      # Polls the readiness group, not the aggregate /health: the aggregate
+      # includes indicators (SMTP, signing service, verifier reachability)
+      # that report DOWN whenever those external dependencies aren't reachable
+      # from this isolated CI container, even though the app itself is fully up.
+      - name: Wait for service health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/issuer/health/readiness; then exit 0; fi
+            sleep 2
+          done
+          echo "Service did not become healthy in time"
+          docker logs issuer-service
+          exit 1
+
+      # Guards the scan against silently degrading into a no-op: if the target
+      # stops returning 200 (tenant seed drifts, profiles fail to load, the
+      # well-known path moves), ZAP would still "pass" while scanning nothing.
+      - name: Verify scan target returns 200
+        run: |
+          target='http://localhost:8080/issuer/.well-known/openid-credential-issuer'
+          status=$(curl -s -o /tmp/target.json -w '%{http_code}' -H 'X-Tenant: sandbox' "$target")
+          echo "GET $target -> $status"
+          if [ "$status" != "200" ]; then
+            echo "Scan target is not reachable — the ZAP baseline would scan an empty surface."
+            cat /tmp/target.json || true
+            docker logs issuer-service
+            exit 1
+          fi
+
+      # Rules file: dev-tools/testing/zap/zap-baseline.conf, owned by this repo.
+      # It used to be vendored from eudistack-platform-dev; security testing now
+      # lives in the repo it scans, so edit it here directly. The credential
+      # profiles mounted below are still vendored from there — that is dev-stack
+      # data, not security config, and `make sync-credential-profiles` syncs it.
+      #
+      # ZAP_AUTH_HEADER sends X-Tenant: sandbox on every scan request: without it,
+      # TenantDomainWebFilter resolves the tenant from the Host header (here,
+      # "localhost", which is never in tenant_registry) and every endpoint under
+      # /issuer returns 404 TENANT_NOT_FOUND, making the scan a no-op.
+      #
+      # Target is the OID4VCI metadata document, not the /issuer base path: the
+      # base path has no handler (this is a REST API, it serves no HTML root), so
+      # spidering it returned 404 and the passive rules had no real response to
+      # evaluate. Pointing at a public 200 endpoint gives the passive scanners an
+      # actual API response (security headers, cache-control, content sniffing,
+      # info leakage) to check. Broad endpoint coverage is explicitly NOT this
+      # gate's job — zap-baseline.py has no OpenAPI import; enumerating /oid4vci
+      # and /api routes belongs to G3 (`make test-zap-api`, zap-api-scan.py -f
+      # openapi) against STG.
+      - name: ZAP Baseline Scan
+        uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25 # v0.15.0
+        env:
+          ZAP_AUTH_HEADER: X-Tenant
+          ZAP_AUTH_HEADER_VALUE: sandbox
+        with:
+          target: 'http://localhost:8080/issuer/.well-known/openid-credential-issuer'
+          rules_file_name: 'dev-tools/testing/zap/zap-baseline.conf'
+          artifact_name: 'zap-report'
+          fail_action: false
+          allow_issue_writing: false
+
+      # The `zap-report` artifact is a ZIP with 90-day retention, so reading it
+      # means downloading it first. Dumping ZAP's markdown report into the job
+      # summary makes it readable on the run page itself, which is what a PR
+      # actually needs. A published HTML report with history belongs to the
+      # nightly authenticated DAST (see the delivery-cycle quality gates), not
+      # to this gate. action-baseline writes report_md.md to GITHUB_WORKSPACE.
+      - name: Publish ZAP report in the job summary
+        if: always()
+        run: |
+          if [ -f report_md.md ]; then
+            {
+              echo '## ZAP DAST Baseline'
+              echo
+              cat report_md.md
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo '## ZAP DAST Baseline'
+              echo
+              echo 'The scan produced no markdown report — check the step above.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # High/Critical gate. `fail_action: false` above deliberately keeps Low and
+      # Informational findings from failing anything — on a passive baseline they
+      # are noise. Anything at riskcode >= 3 fails the job instead: that is what
+      # turns the run red and triggers GitHub's failure notification. ZAP's risk
+      # scale tops out at 3 (High) today, so >= 3 also covers a future Critical.
+      - name: Fail on High/Critical findings
+        if: always()
+        run: |
+          if [ ! -f report_json.json ]; then
+            echo "::warning::No ZAP JSON report to evaluate."
+            exit 0
+          fi
+          high=$(jq '[.site[]?.alerts[]? | select(((.riskcode // "0") | tonumber) >= 3)] | length' report_json.json)
+          echo "High/Critical alerts: ${high}"
+          if [ "${high}" -gt 0 ]; then
+            {
+              echo
+              echo "### Blocking: ${high} High/Critical finding(s)"
+              jq -r '.site[]?.alerts[]? | select(((.riskcode // "0") | tonumber) >= 3) | "- \(.riskdesc) — \(.name) (\(.count) instance(s))"' report_json.json
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::ZAP reported ${high} High/Critical alert(s)."
+            exit 1
+          fi

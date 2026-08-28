@@ -34,10 +34,11 @@ class GetAuthorizationServerMetadataWorkflowImplTest {
                 .preAuthorizedGrantAnonymousAccessSupported(true)
                 .build();
         // Mock
-        when(getAuthorizationServerMetadataWorkflowImpl.execute(processId))
+        String publicBaseUrl = "https://test.example/issuer";
+        when(getAuthorizationServerMetadataWorkflowImpl.execute(processId, publicBaseUrl))
                 .thenReturn(Mono.just(expectedAuthorizationServerMetadata));
         // Act
-        Mono<AuthorizationServerMetadata> result = getAuthorizationServerMetadataWorkflowImpl.execute(processId);
+        Mono<AuthorizationServerMetadata> result = getAuthorizationServerMetadataWorkflowImpl.execute(processId, publicBaseUrl);
         // Assert
         assertEquals(expectedAuthorizationServerMetadata, result.block());
     }

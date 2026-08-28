@@ -3,6 +3,8 @@ package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 import es.in2.issuer.backend.oidc4vci.application.workflow.GetAuthorizationServerMetadataWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationServerMetadata;
 import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
+import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
+import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import org.junit.jupiter.api.Test;
@@ -41,6 +43,12 @@ class AuthorizationServerMetadataControllerTest {
     @MockBean
     private IssuanceMetrics issuanceMetrics;
 
+    @MockBean
+    private TenantRegistryService tenantRegistryService;
+
+    @MockBean
+    private UrlResolver urlResolver;
+
     @Test
     void testGetAuthorizationServerMetadataSuccess() {
         // Arrange
@@ -51,7 +59,9 @@ class AuthorizationServerMetadataControllerTest {
                 .preAuthorizedGrantAnonymousAccessSupported(true)
                 .build();
         // Mock
-        when(getAuthorizationServerMetadataWorkflow.execute(anyString()))
+        when(urlResolver.publicIssuerBaseUrl(org.mockito.ArgumentMatchers.any()))
+                .thenReturn("https://issuer.example.com");
+        when(getAuthorizationServerMetadataWorkflow.execute(anyString(), anyString()))
                 .thenReturn(Mono.just(expectedAuthorizationServerMetadata));
         // Act + Assert
         webTestClient
@@ -61,6 +71,61 @@ class AuthorizationServerMetadataControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectHeader().valueEquals(HttpHeaders.CONTENT_LANGUAGE, "en")
+                .expectBody(AuthorizationServerMetadata.class)
+                .isEqualTo(expectedAuthorizationServerMetadata);
+    }
+
+    // EUD-215: signed metadata isn't implemented - an Accept: application/jwt
+    // request must still get the plain JSON body back (200), not a 406.
+    @Test
+    void testGetAuthorizationServerMetadata_withUnsupportedAcceptHeader_stillReturns200() {
+        // Arrange
+        AuthorizationServerMetadata expectedAuthorizationServerMetadata = AuthorizationServerMetadata.builder()
+                .issuer("https://issuer.example.com")
+                .tokenEndpoint("https://issuer.example.com/oauth/token")
+                .responseTypesSupported(Set.of("token"))
+                .preAuthorizedGrantAnonymousAccessSupported(true)
+                .build();
+        // Mock
+        when(urlResolver.publicIssuerBaseUrl(org.mockito.ArgumentMatchers.any()))
+                .thenReturn("https://issuer.example.com");
+        when(getAuthorizationServerMetadataWorkflow.execute(anyString(), anyString()))
+                .thenReturn(Mono.just(expectedAuthorizationServerMetadata));
+        // Act + Assert
+        webTestClient
+                .get()
+                .uri("/.well-known/openid-configuration")
+                .accept(MediaType.valueOf("application/jwt"))
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentType(MediaType.APPLICATION_JSON)
+                .expectBody(AuthorizationServerMetadata.class)
+                .isEqualTo(expectedAuthorizationServerMetadata);
+    }
+
+    // EUD-215: OID4VCI 1.0 §12.2.2 - same well-known-before-path shape as
+    // the credential issuer metadata endpoint.
+    @Test
+    void testGetAuthorizationServerMetadata_withIssuerPathSuffix_Success() {
+        // Arrange
+        AuthorizationServerMetadata expectedAuthorizationServerMetadata = AuthorizationServerMetadata.builder()
+                .issuer("https://issuer.example.com/issuer")
+                .tokenEndpoint("https://issuer.example.com/issuer/oauth/token")
+                .responseTypesSupported(Set.of("token"))
+                .preAuthorizedGrantAnonymousAccessSupported(true)
+                .build();
+        // Mock
+        when(urlResolver.publicIssuerBaseUrl(org.mockito.ArgumentMatchers.any()))
+                .thenReturn("https://issuer.example.com/issuer");
+        when(getAuthorizationServerMetadataWorkflow.execute(anyString(), anyString()))
+                .thenReturn(Mono.just(expectedAuthorizationServerMetadata));
+        // Act + Assert
+        webTestClient
+                .get()
+                .uri("/.well-known/oauth-authorization-server/issuer")
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .exchange()
+                .expectStatus().isOk()
                 .expectBody(AuthorizationServerMetadata.class)
                 .isEqualTo(expectedAuthorizationServerMetadata);
     }

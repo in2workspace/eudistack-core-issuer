@@ -101,8 +101,13 @@ public class ClientAttestationValidationService {
                 }
             }
 
-            // Extract client_id from sub
+            // Extract client_id from sub. REQUIRED per draft-ietf-oauth-attestation-based-client-auth
+            // §3.1 - it identifies the OAuth client and becomes its client_id; a WIA without it must
+            // be rejected, not silently accepted with a null client_id.
             String clientId = wiaClaims.getSubject();
+            if (clientId == null || clientId.isBlank()) {
+                throw new IllegalArgumentException("Client Attestation JWT missing sub claim");
+            }
 
             // Parse PoP
             SignedJWT pop = SignedJWT.parse(popJwtString);
