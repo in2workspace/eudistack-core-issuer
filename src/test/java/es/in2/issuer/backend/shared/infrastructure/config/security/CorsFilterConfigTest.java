@@ -34,7 +34,7 @@ class CorsFilterConfigTest {
     }
 
     @Test
-    void CorsConfigurationSource_WellKnownPath_AllowsConfiguredOriginsForExternalWallets() {
+    void CorsConfigurationSource_WellKnownPath_AllowsAllOrigins() {
         UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
         var exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/.well-known/openid-credential-issuer").build()
@@ -43,27 +43,11 @@ class CorsFilterConfigTest {
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
         assertThat(config).isNotNull();
-        assertThat(config.getAllowedOrigins()).containsExactlyElementsOf(ALLOWED_ORIGINS);
-        assertThat(config.getAllowedOriginPatterns()).isNull();
+        assertThat(config.getAllowedOrigins()).containsExactly("*");
     }
 
     @Test
-    void CorsConfigurationSource_Oid4vciPath_AllowsConfiguredOriginsForExternalWallets() {
-        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
-        var exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("/oid4vci/credential").build()
-        );
-
-        CorsConfiguration config = source.getCorsConfiguration(exchange);
-
-        assertThat(config).isNotNull();
-        assertThat(config.getAllowedOrigins()).containsExactlyElementsOf(ALLOWED_ORIGINS);
-    }
-
-    // The authorize endpoint returns a 302 redirect. Chrome requires Access-Control-Allow-Origin
-    // on that response for cross-origin XHR to follow the redirect and read response.url.
-    @Test
-    void CorsConfigurationSource_AuthorizePath_AllowsConfiguredOriginsOnRedirectResponse() {
+    void CorsConfigurationSource_Oid4vciPath_AllowsAllOrigins() {
         UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
         var exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("/oid4vci/v1/authorize").build()
@@ -72,7 +56,22 @@ class CorsFilterConfigTest {
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
         assertThat(config).isNotNull();
-        assertThat(config.getAllowedOrigins()).containsExactlyElementsOf(ALLOWED_ORIGINS);
+        assertThat(config.getAllowedOrigins()).containsExactly("*");
+    }
+
+    // The authorize endpoint returns a 302 redirect. Chrome requires Access-Control-Allow-Origin
+    // on that response for cross-origin XHR to follow the redirect and read response.url.
+    @Test
+    void CorsConfigurationSource_AuthorizePath_AllowsAllOrigins() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/oid4vci/v1/authorize").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedOrigins()).containsExactly("*");
         assertThat(config.getAllowCredentials()).isNotEqualTo(Boolean.TRUE);
     }
 
@@ -117,5 +116,135 @@ class CorsFilterConfigTest {
                 .contains("Content-Type", "Authorization", "DPoP",
                         "OAuth-Client-Attestation", "OAuth-Client-Attestation-PoP",
                         "Api-Version");
+    }
+
+    @Test
+    void CorsConfigurationSource_RestrictedApiPath_StillAllowsOnlyConfiguredOrigins() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/v1/issuances").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedOrigins()).containsExactlyElementsOf(ALLOWED_ORIGINS);
+    }
+
+    @Test
+    void CorsConfigurationSource_BootstrapPath_AllowsAllOriginsAsItIsPublic() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/v1/bootstrap").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedOrigins()).containsExactly("*");
+    }
+
+    @Test
+    void CorsConfigurationSource_StatusListPath_AllowsAllOrigins() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/w3c/v1/credentials/status/123").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedOrigins()).containsExactly("*");
+    }
+
+    @Test
+    void CorsConfigurationSource_TokenStatusListPath_AllowsAllOrigins() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/token/v1/credentials/status/456").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedOrigins()).containsExactly("*");
+    }
+
+    @Test
+    void CorsConfigurationSource_IssuanceStatusPath_AllowsAllOrigins() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/issuance/v1/credentials/status/789").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedOrigins()).containsExactly("*");
+    }
+
+    @Test
+    void CorsConfigurationSource_OauthTokenPath_AllowsAllOrigins() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/oauth/token").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedOrigins()).containsExactly("*");
+    }
+
+    @Test
+    void CorsConfigurationSource_HealthPath_AllowsAllOrigins() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/health").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedOrigins()).containsExactly("*");
+    }
+
+    @Test
+    void CorsConfigurationSource_PrometheusPath_AllowsAllOrigins() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/prometheus").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedOrigins()).containsExactly("*");
+    }
+
+    @Test
+    void CorsConfigurationSource_SpringdocPath_AllowsAllOrigins() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/springdoc/swagger-ui.html").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedOrigins()).containsExactly("*");
+    }
+
+    @Test
+    void CorsConfigurationSource_CredentialOfferRefreshPath_AllowsAllOrigins() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/credential-offer/refresh/123").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedOrigins()).containsExactly("*");
     }
 }
