@@ -25,9 +25,8 @@ class TokenStatusListCredentialFactoryTest {
     /** Undoes deflateRaw: raw-DEFLATE-inflate (nowrap=true) + base64url-decode, mirroring a spec-conformant reader. */
     private byte[] inflateRawBase64url(String lst) throws DataFormatException {
         byte[] compressed = Base64.getUrlDecoder().decode(lst);
-        Inflater inflater = new Inflater(true);
-        byte[] raw;
-        try {
+        try (ClosingInflater closing = new ClosingInflater()) {
+            Inflater inflater = closing.inflater;
             inflater.setInput(compressed);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             byte[] buffer = new byte[1024];
@@ -36,11 +35,18 @@ class TokenStatusListCredentialFactoryTest {
                 if (n == 0 && inflater.needsInput()) break;
                 out.write(buffer, 0, n);
             }
-            raw = out.toByteArray();
-        } finally {
+            return out.toByteArray();
+        }
+    }
+
+    /** Adapts {@link Inflater} (not Closeable/AutoCloseable in the JDK) to try-with-resources. */
+    private static final class ClosingInflater implements AutoCloseable {
+        private final Inflater inflater = new Inflater(true);
+
+        @Override
+        public void close() {
             inflater.end();
         }
-        return raw;
     }
 
     // -------------------- buildUnsigned --------------------

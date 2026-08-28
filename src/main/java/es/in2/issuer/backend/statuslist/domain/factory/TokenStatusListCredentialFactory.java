@@ -95,14 +95,13 @@ public class TokenStatusListCredentialFactory {
 
     /** Raw DEFLATE (RFC 1951) — nowrap=true skips the zlib header/trailer draft-ietf-oauth-status-list forbids. */
     private byte[] deflateRaw(byte[] input) {
-        // SonarCloud java:S2095: Deflater holds a native zlib resource - end() must run even if
-        // deflate() throws mid-loop, or repeated failures leak it (Deflater implements neither
-        // Closeable nor AutoCloseable, so try-with-resources isn't an option here). The `return`
-        // is kept outside the try/finally on purpose - assign to a local inside, return after -
-        // the shape SonarJava's dataflow check reliably recognizes as fully closed.
-        Deflater deflater = new Deflater(Deflater.DEFAULT_COMPRESSION, true);
-        byte[] compressed;
-        try {
+        // SonarCloud java:S2095 kept firing on a manual try/finally around Deflater.end()
+        // (two different shapes tried, both textbook-correct - likely a SonarJava dataflow
+        // limitation specific to this non-Closeable JDK type). Genuine try-with-resources,
+        // via this tiny AutoCloseable wrapper, needs no dataflow inference at all - the
+        // compiler guarantees close() runs, so there is nothing left for the check to miss.
+        try (ClosingDeflater closing = new ClosingDeflater()) {
+            Deflater deflater = closing.deflater;
             deflater.setInput(input);
             deflater.finish();
 
@@ -112,10 +111,17 @@ public class TokenStatusListCredentialFactory {
                 int written = deflater.deflate(buffer);
                 baos.write(buffer, 0, written);
             }
-            compressed = baos.toByteArray();
-        } finally {
+            return baos.toByteArray();
+        }
+    }
+
+    /** Adapts {@link Deflater} (not Closeable/AutoCloseable in the JDK) to try-with-resources. */
+    private static final class ClosingDeflater implements AutoCloseable {
+        private final Deflater deflater = new Deflater(Deflater.DEFAULT_COMPRESSION, true);
+
+        @Override
+        public void close() {
             deflater.end();
         }
-        return compressed;
     }
 }
