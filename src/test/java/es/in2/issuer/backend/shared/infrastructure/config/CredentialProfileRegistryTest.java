@@ -117,6 +117,10 @@ class CredentialProfileRegistryTest {
                   },
                   "validity_days": 365,
                   "issuer_type": "DETAILED",
+                  "cryptographic_binding_methods_supported": ["did:key"],
+                  "proof_types_supported": {
+                    "jwt": {"proof_signing_alg_values_supported": ["ES256"]}
+                  },
                   "cnf_required": true
                 }
                 """;
@@ -203,6 +207,10 @@ class CredentialProfileRegistryTest {
                   },
                   "validity_days": 365,
                   "issuer_type": "DETAILED",
+                  "cryptographic_binding_methods_supported": ["did:key"],
+                  "proof_types_supported": {
+                    "jwt": {"proof_signing_alg_values_supported": ["ES256"]}
+                  },
                   "cnf_required": true
                 }
                 """;
@@ -288,6 +296,10 @@ class CredentialProfileRegistryTest {
                 {
                   "credential_configuration_id": "learcredential.employee.w3c.4",
                   "validity_days": 365,
+                  "cryptographic_binding_methods_supported": ["did:key"],
+                  "proof_types_supported": {
+                    "jwt": {"proof_signing_alg_values_supported": ["ES256"]}
+                  },
                   "cnf_required": true,
                   "scope": "lear_credential_employee"
                 }
@@ -342,6 +354,10 @@ class CredentialProfileRegistryTest {
                   },
                   "validity_days": 365,
                   "issuer_type": "DETAILED",
+                  "cryptographic_binding_methods_supported": ["did:key"],
+                  "proof_types_supported": {
+                    "jwt": {"proof_signing_alg_values_supported": ["ES256"]}
+                  },
                   "cnf_required": true
                 }
                 """;
@@ -364,6 +380,10 @@ class CredentialProfileRegistryTest {
                   },
                   "validity_days": 365,
                   "issuer_type": "DETAILED",
+                  "cryptographic_binding_methods_supported": ["did:key"],
+                  "proof_types_supported": {
+                    "jwt": {"proof_signing_alg_values_supported": ["ES256"]}
+                  },
                   "cnf_required": true
                 }
                 """;
@@ -409,6 +429,10 @@ class CredentialProfileRegistryTest {
                   },
                   "validity_days": 365,
                   "issuer_type": "DETAILED",
+                  "cryptographic_binding_methods_supported": ["did:key"],
+                  "proof_types_supported": {
+                    "jwt": {"proof_signing_alg_values_supported": ["ES256"]}
+                  },
                   "cnf_required": true,
                   "subject_extraction": {
                     "strategy": "field",
@@ -437,6 +461,10 @@ class CredentialProfileRegistryTest {
                   },
                   "validity_days": 365,
                   "issuer_type": "DETAILED",
+                  "cryptographic_binding_methods_supported": ["did:key"],
+                  "proof_types_supported": {
+                    "jwt": {"proof_signing_alg_values_supported": ["ES256"]}
+                  },
                   "cnf_required": true,
                   "policy_extraction": {
                     "powers_path": "credentialSubject.mandate.power",
@@ -503,5 +531,72 @@ class CredentialProfileRegistryTest {
                 return filename;
             }
         };
+    }
+
+    // --- EUD-168: fail-fast on incoherent profiles (AC-08) and the AD-8 exemption (AC-14) ---
+
+    private static String profileJson(String configId, String bindingFields, boolean cnfRequired) {
+        return """
+                {
+                  "credential_configuration_id": "%s",
+                  "credential_format": "jwt_vc_json",
+                  "credential_definition": {"type": ["VerifiableCredential", "%s"]},
+                  %s
+                  "validity_days": 365,
+                  "issuer_type": "DETAILED",
+                  "cnf_required": %s
+                }
+                """.formatted(configId, configId, bindingFields, cnfRequired);
+    }
+
+    private static final String BOTH_BINDING_FIELDS = """
+              "cryptographic_binding_methods_supported": ["did:key"],
+                  "proof_types_supported": {"jwt": {"proof_signing_alg_values_supported": ["ES256"]}},
+            """;
+
+    private CredentialProfileRegistry load(String filename, String json) throws java.io.IOException {
+        return new CredentialProfileRegistry(
+                OBJECT_MAPPER, mockResolver(namedResource(filename, json)), "classpath:credentials/profiles");
+    }
+
+    @Test
+    void startupShouldFailWhenProfileDeclaresBindingMethodsWithoutProofTypes() throws java.io.IOException {
+        String json = profileJson("some.profile.1",
+                "\"cryptographic_binding_methods_supported\": [\"did:key\"],", false);
+
+        assertThatThrownBy(() -> load("incoherent.json", json))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("some.profile.1")
+                .hasMessageContaining("cryptographic_binding_methods_supported");
+    }
+
+    @Test
+    void startupShouldFailWhenNonExemptProfileDeclaresCnfRequiredWithoutProofTypes() throws java.io.IOException {
+        assertThatThrownBy(() -> load("incoherent-cnf.json", profileJson("some.profile.2", "", true)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("some.profile.2")
+                .hasMessageContaining("cnf_required");
+    }
+
+    @Test
+    void startupShouldSucceedForTheAd8ExemptMachineProfiles() throws java.io.IOException {
+        for (String configId : new String[]{"learcredential.machine.sd.1", "learcredential.machine.w3c.3"}) {
+            CredentialProfileRegistry registry = load(configId + ".json", profileJson(configId, "", true));
+            CredentialProfile profile = registry.getByConfigurationId(configId);
+            assertThat(profile).isNotNull();
+            assertThat(profile.cnfRequired()).isTrue();
+            // Unbound by ADR-110 despite carrying cnf_required: that is what keeps direct delivery open.
+            assertThat(profile.requiresHolderBinding()).isFalse();
+        }
+    }
+
+    @Test
+    void startupShouldSucceedForACoherentBoundProfile() throws java.io.IOException {
+        CredentialProfileRegistry registry = load("bound.json",
+                profileJson("learcredential.employee.w3c.4", BOTH_BINDING_FIELDS, true));
+
+        CredentialProfile profile = registry.getByConfigurationId("learcredential.employee.w3c.4");
+        assertThat(profile).isNotNull();
+        assertThat(profile.requiresHolderBinding()).isTrue();
     }
 }

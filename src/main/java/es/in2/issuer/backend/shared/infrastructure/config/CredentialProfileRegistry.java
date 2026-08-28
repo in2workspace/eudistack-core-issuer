@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfileBindingInvariant;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
@@ -119,6 +120,11 @@ public class CredentialProfileRegistry {
                 throw new IllegalStateException(
                         "Duplicate credential_configuration_id '" + configId + "' in " + filename);
             }
+
+            // Fail-fast at the loading boundary (ADR-110): a profile whose three binding fields
+            // contradict one another used to surface as a 500 on its first issuance. Now it stops
+            // the service from starting, naming the profile and the offending field.
+            CredentialProfileBindingInvariant.validate(profile);
 
             String credentialType = profile.credentialType();
             if (typeMap.containsKey(credentialType)) {
