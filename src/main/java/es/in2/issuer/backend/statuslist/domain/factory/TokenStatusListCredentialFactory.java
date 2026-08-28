@@ -2,14 +2,18 @@ package es.in2.issuer.backend.statuslist.domain.factory;
 
 import es.in2.issuer.backend.statuslist.domain.model.StatusListEntry;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
+import es.in2.issuer.backend.statuslist.domain.util.BitstringEncoder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.io.ByteArrayOutputStream;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.zip.Deflater;
 
 import static es.in2.issuer.backend.statuslist.domain.util.Constants.TOKEN_STATUS_LIST_ENTRY_TYPE;
 import static es.in2.issuer.backend.statuslist.domain.util.Preconditions.requireNonNullParam;
@@ -25,7 +29,7 @@ import static es.in2.issuer.backend.statuslist.domain.util.Preconditions.require
  *   "exp": 1234654290,
  *   "status_list": {
  *     "bits": 1,
- *     "lst": "<base64url-gzip-compressed-bitstring>"
+ *     "lst": "<base64url-raw-deflate-compressed-bitstring>"
  *   }
  * }
  */
@@ -37,17 +41,23 @@ public class TokenStatusListCredentialFactory {
     private static final int BITS_PER_STATUS = 1;
     private static final long DEFAULT_LIFETIME_DAYS = 365;
 
+    private final BitstringEncoder bitstringEncoder = new BitstringEncoder();
+
     public Map<String, Object> buildUnsigned(String listUrl, String issuerId, String purpose, String encodedList) {
         requireNonNullParam(listUrl, "listUrl");
         requireNonNullParam(issuerId, "issuerId");
         requireNonNullParam(purpose, "purpose");
         requireNonNullParam(encodedList, "encodedList");
 
-        // Strip multibase 'u' prefix — TokenStatusList uses raw base64url
-        String rawBase64url = encodedList;
-        if (rawBase64url.charAt(0) == 'u') {
-            rawBase64url = rawBase64url.substring(1);
-        }
+        // encodedList is the shared bitstring storage format (multibase 'u' + base64url + GZIP,
+        // BitstringEncoder), reused as-is for the W3C Bitstring Status List JWT. But
+        // draft-ietf-oauth-status-list mandates plain DEFLATE (RFC 1951, no zlib/gzip wrapper)
+        // for the `lst` claim - a different compression than GZIP (RFC 1952, distinct magic
+        // bytes/header/trailer). Passing the GZIP bytes straight through here used to produce
+        // an `lst` no conformant reader could inflate (java.util.zip.Inflater: "incorrect
+        // header check"). Decode back to the raw bitstring and re-compress with raw DEFLATE.
+        byte[] rawBits = bitstringEncoder.decodeToRawBytes(encodedList);
+        String rawBase64url = Base64.getUrlEncoder().withoutPadding().encodeToString(deflateRaw(rawBits));
 
         Instant now = Instant.now();
         Instant exp = now.plus(DEFAULT_LIFETIME_DAYS, ChronoUnit.DAYS);
@@ -81,5 +91,25 @@ public class TokenStatusListCredentialFactory {
                 .statusListIndex(String.valueOf(idx))
                 .statusListCredential(listUrl)
                 .build();
+    }
+
+    /** Raw DEFLATE (RFC 1951) — nowrap=true skips the zlib header/trailer draft-ietf-oauth-status-list forbids. */
+    private byte[] deflateRaw(byte[] input) {
+        // java:S2095 kept firing on a manual try/finally around Deflater.end(): SonarJava's
+        // dataflow only accepts try-with-resources here. Java 25 made Deflater AutoCloseable
+        // with close() calling end() (@since 25), so the JDK type goes straight into the
+        // resource list - no wrapper needed, and the compiler guarantees close() runs.
+        try (Deflater deflater = new Deflater(Deflater.DEFAULT_COMPRESSION, true)) {
+            deflater.setInput(input);
+            deflater.finish();
+
+            ByteArrayOutputStream baos = new ByteArrayOutputStream(input.length);
+            byte[] buffer = new byte[8 * 1024];
+            while (!deflater.finished()) {
+                int written = deflater.deflate(buffer);
+                baos.write(buffer, 0, written);
+            }
+            return baos.toByteArray();
+        }
     }
 }
