@@ -26,16 +26,19 @@ class TokenStatusListCredentialFactoryTest {
     private byte[] inflateRawBase64url(String lst) throws DataFormatException {
         byte[] compressed = Base64.getUrlDecoder().decode(lst);
         Inflater inflater = new Inflater(true);
-        inflater.setInput(compressed);
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] buffer = new byte[1024];
-        while (!inflater.finished()) {
-            int n = inflater.inflate(buffer);
-            if (n == 0 && inflater.needsInput()) break;
-            out.write(buffer, 0, n);
+        try {
+            inflater.setInput(compressed);
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024];
+            while (!inflater.finished()) {
+                int n = inflater.inflate(buffer);
+                if (n == 0 && inflater.needsInput()) break;
+                out.write(buffer, 0, n);
+            }
+            return out.toByteArray();
+        } finally {
+            inflater.end();
         }
-        inflater.end();
-        return out.toByteArray();
     }
 
     // -------------------- buildUnsigned --------------------

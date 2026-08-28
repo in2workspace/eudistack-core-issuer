@@ -95,17 +95,23 @@ public class TokenStatusListCredentialFactory {
 
     /** Raw DEFLATE (RFC 1951) — nowrap=true skips the zlib header/trailer draft-ietf-oauth-status-list forbids. */
     private byte[] deflateRaw(byte[] input) {
+        // SonarCloud java:S2095: Deflater holds a native zlib resource - end() must run even if
+        // deflate() throws mid-loop, or repeated failures leak it (Deflater implements neither
+        // Closeable nor AutoCloseable, so try-with-resources isn't an option here).
         Deflater deflater = new Deflater(Deflater.DEFAULT_COMPRESSION, true);
-        deflater.setInput(input);
-        deflater.finish();
+        try {
+            deflater.setInput(input);
+            deflater.finish();
 
-        ByteArrayOutputStream baos = new ByteArrayOutputStream(input.length);
-        byte[] buffer = new byte[8 * 1024];
-        while (!deflater.finished()) {
-            int written = deflater.deflate(buffer);
-            baos.write(buffer, 0, written);
+            ByteArrayOutputStream baos = new ByteArrayOutputStream(input.length);
+            byte[] buffer = new byte[8 * 1024];
+            while (!deflater.finished()) {
+                int written = deflater.deflate(buffer);
+                baos.write(buffer, 0, written);
+            }
+            return baos.toByteArray();
+        } finally {
+            deflater.end();
         }
-        deflater.end();
-        return baos.toByteArray();
     }
 }
