@@ -8,15 +8,15 @@ import reactor.core.publisher.Mono;
 
 /**
  * Validates that the user's organization matches the target organization,
- * or that the user is a sys-admin (bypass).
+ * or that the user is a sys-admin or tenant-admin (bypass).
  */
 @Slf4j
 public class RequireOrganizationRule implements PolicyRule<String> {
 
     @Override
     public Mono<Void> evaluate(PolicyContext context, String resourceOrgId) {
-        if (context.sysAdmin()) {
-            log.info("User belongs to admin organization. Skipping organization match.");
+        if (context.sysAdmin() || context.tenantAdmin()) {
+            log.info("SysAdmin or TenantAdmin — skipping organization match.");
             return Mono.empty();
         }
         if (context.organizationIdentifier().equals(resourceOrgId)) {

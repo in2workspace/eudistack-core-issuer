@@ -1,10 +1,10 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
+import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
 import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
-import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,8 +32,6 @@ class AuthorizationServiceImplTest {
     @Mock
     private Oid4vciProfilePort profileProperties;
 
-    @Mock
-    private IssuerProperties appConfig;
 
     private AuthorizationServiceImpl authorizationService;
 
@@ -42,8 +40,7 @@ class AuthorizationServiceImplTest {
         authorizationService = new AuthorizationServiceImpl(
                 parCacheStore,
                 authorizationCodeCacheStore,
-                profileProperties,
-                appConfig
+                profileProperties
         );
     }
 
@@ -56,14 +53,13 @@ class AuthorizationServiceImplTest {
         );
 
         when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
-        when(appConfig.getIssuerBackendUrl()).thenReturn("https://issuer.example.com");
         when(authorizationCodeCacheStore.add(anyString(), any(AuthorizationCodeData.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0, String.class)));
 
         StepVerifier.create(authorizationService.authorize(
                         null, "client-id", "code", "openid",
                         "my-state", "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
-                        "S256", "https://wallet/callback", null))
+                        "S256", "https://wallet/callback", null, "https://issuer.example.com"))
                 .assertNext(uri -> {
                     assertNotNull(uri);
                     String uriStr = uri.toString();
@@ -77,12 +73,49 @@ class AuthorizationServiceImplTest {
 
     @Test
     void authorize_shouldRejectInvalidResponseType() {
+        var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
+                false, true, List.of("S256"),
+                false, List.of("ES256"),
+                "none", false
+        );
+
+        when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
+
         StepVerifier.create(authorizationService.authorize(
                         null, "client-id", "token", null,
-                        null, null, null, "https://wallet/callback", null))
-                .expectErrorMatches(e -> e instanceof IllegalArgumentException
+                        null, null, null, "https://wallet/callback", null, "https://issuer.example.com"))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
                         && e.getMessage().equals("response_type must be 'code'"))
                 .verify();
+    }
+
+    @Test
+    void authorize_shouldRejectDirectRequestWhenParRequired() {
+        // Regression test: RFC 9126 §5 - this Issuer advertises
+        // require_pushed_authorization_requests=true whenever the profile requires PAR
+        // (AuthorizationServerMetadataServiceImpl), but authorize() used to let a request
+        // through processDirectAuthorization regardless, silently accepting an authorization
+        // request that skipped PAR entirely. Caught by the OIDF conformance suite's
+        // fapi2-security-profile-final-ensure-unsigned-authorization-request-without-using-par-fails test.
+        var authCodeProps = new Oid4vciProfileProperties.AuthorizationCodeProperties(
+                true, true, List.of("S256"),
+                false, List.of("ES256"),
+                "none", false
+        );
+
+        when(profileProperties.authorizationCode()).thenReturn(authCodeProps);
+
+        StepVerifier.create(authorizationService.authorize(
+                        null, "client-id", "code", "openid",
+                        "my-state", "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+                        "S256", "https://wallet/callback", null, "https://issuer.example.com"))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
+                        && e.getMessage().equals("Pushed Authorization Request is required"))
+                .verify();
+
+        verifyNoInteractions(authorizationCodeCacheStore);
     }
 
     @Test
@@ -97,8 +130,9 @@ class AuthorizationServiceImplTest {
 
         StepVerifier.create(authorizationService.authorize(
                         null, "client-id", "code", null,
-                        null, null, null, "https://wallet/callback", null))
-                .expectErrorMatches(e -> e instanceof IllegalArgumentException
+                        null, null, null, "https://wallet/callback", null, "https://issuer.example.com"))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
                         && e.getMessage().equals("code_challenge is required"))
                 .verify();
     }
@@ -116,7 +150,6 @@ class AuthorizationServiceImplTest {
 
         when(parCacheStore.get(anyString())).thenReturn(Mono.just(parRequest));
         when(parCacheStore.delete(anyString())).thenReturn(Mono.empty());
-        when(appConfig.getIssuerBackendUrl()).thenReturn("https://issuer.example.com");
         when(authorizationCodeCacheStore.add(anyString(), any(AuthorizationCodeData.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0, String.class)));
 
@@ -124,7 +157,7 @@ class AuthorizationServiceImplTest {
 
         StepVerifier.create(authorizationService.authorize(
                         requestUri, "wallet-client", null, null,
-                        null, null, null, null, null))
+                        null, null, null, null, null, "https://issuer.example.com"))
                 .assertNext(uri -> {
                     assertNotNull(uri);
                     String uriStr = uri.toString();
@@ -140,12 +173,13 @@ class AuthorizationServiceImplTest {
     @Test
     void authorize_shouldFailWithInvalidPar() {
         when(parCacheStore.get(anyString()))
-                .thenReturn(Mono.error(new java.util.NoSuchElementException("Not found")));
+                .thenReturn(Mono.empty());
 
         StepVerifier.create(authorizationService.authorize(
                         "urn:ietf:params:oauth:request_uri:invalid", "client", null, null,
-                        null, null, null, null, null))
-                .expectErrorMatches(e -> e instanceof IllegalArgumentException
+                        null, null, null, null, null, "https://issuer.example.com"))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
                         && e.getMessage().contains("Invalid or expired request_uri"))
                 .verify();
     }
