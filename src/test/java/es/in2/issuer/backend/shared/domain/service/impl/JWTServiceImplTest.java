@@ -513,7 +513,6 @@ class JWTServiceImplTest {
 
     @Test
     void validateJwtSignatureWithJwkReactive_unsupportedKty_shouldError() throws Exception {
-
         ECKey ecSigner = new ECKeyGenerator(Curve.P_256).keyID("ec").generate();
         SignedJWT jwt = new SignedJWT(
                 new JWSHeader.Builder(JWSAlgorithm.ES256).keyID("ec").build(),
@@ -535,6 +534,76 @@ class JWTServiceImplTest {
                         err instanceof ProofValidationException &&
                                 err.getMessage().contains("invalid_proof: jwk kty not supported")
                 )
+                .verify();
+    }
+
+    @Test
+    void validateJwtSignatureReactive_unsupportedAlgorithm_shouldReturnFalse() {
+        JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.HS256)
+                .keyID("did:key:zDnaef6ThjkPMi5tb6AhLJ4Tu8Zy3mhGQJbfT8axhHsH7SDdz")
+                .build();
+        SignedJWT mockJws = new SignedJWT(header, new JWTClaimsSet.Builder().build());
+
+        ECKey mockECKey = mock(ECKey.class);
+        when(mockECKey.getKeyID()).thenReturn("other");
+        when(cryptoComponent.getECKey()).thenReturn(mockECKey);
+
+        StepVerifier.create(jwtService.validateJwtSignatureReactive(mockJws))
+                .expectNext(false)
+                .verifyComplete();
+    }
+
+    @Test
+    void extractMandateeEmail_missingCredentialSubject() {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("vc", Map.of("something", "else"));
+        Jwt jwt = new Jwt("token", Instant.now(), Instant.now().plusSeconds(3600), Map.of("alg", "none"), claims);
+
+        Optional<String> email = jwtService.extractMandateeEmail(jwt);
+        assertTrue(email.isEmpty());
+    }
+
+    @Test
+    void extractMandateeEmail_credentialSubjectNotAMap() {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("vc", Map.of("credentialSubject", "not-a-map"));
+        Jwt jwt = new Jwt("token", Instant.now(), Instant.now().plusSeconds(3600), Map.of("alg", "none"), claims);
+
+        Optional<String> email = jwtService.extractMandateeEmail(jwt);
+        assertTrue(email.isEmpty());
+    }
+
+    @Test
+    void validateJwtSignatureReactive_invalidDidKeyPrefix_shouldError() {
+        JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.ES256)
+                .keyID("did:other:123")
+                .build();
+        SignedJWT mockJws = new SignedJWT(header, new JWTClaimsSet.Builder().build());
+
+        ECKey mockECKey = mock(ECKey.class);
+        when(mockECKey.getKeyID()).thenReturn("other");
+        when(cryptoComponent.getECKey()).thenReturn(mockECKey);
+
+        StepVerifier.create(jwtService.validateJwtSignatureReactive(mockJws))
+                .expectErrorMatches(err -> err instanceof IllegalArgumentException && err.getMessage().contains("Cannot resolve public key from kid"))
+                .verify();
+    }
+
+    @Test
+    void decodePublicKeyIntoBytes_unsupportedFormat_shouldError() {
+        // This is tricky to reach directly because it's private, but it's called via validateJwtSignatureReactive
+        // with did:key:PREFIX
+        JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.ES256)
+                .keyID("did:key:notzStarting")
+                .build();
+        SignedJWT mockJws = new SignedJWT(header, new JWTClaimsSet.Builder().build());
+
+        ECKey mockECKey = mock(ECKey.class);
+        when(mockECKey.getKeyID()).thenReturn("other");
+        when(cryptoComponent.getECKey()).thenReturn(mockECKey);
+
+        StepVerifier.create(jwtService.validateJwtSignatureReactive(mockJws))
+                .expectErrorMatches(err -> err instanceof IllegalArgumentException && err.getMessage().contains("Invalid Public Key"))
                 .verify();
     }
 

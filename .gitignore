@@ -40,3 +40,11 @@ out/
 ### Docker ###
 docker/.env
 !docker/.env.example
+
+### Credential profiles (EUD-215) ###
+# CREDENTIAL_PROFILES_PATH is always overridden to an external mounted path
+# (Docker volume locally, EFS in STG) - this classpath location is never
+# actually read in any environment we run. Keep it out of git so nobody
+# mistakes it for the real deployment artifact (that's platform-dev's
+# dev-tools/schemas/, synced via eudistack-platform-iac's efs-files-sync).
+src/main/resources/credentials/profiles/*.json

@@ -3,9 +3,14 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import lombok.extern.slf4j.Slf4j;
+import org.reactivestreams.Publisher;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpStatus;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
+import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
@@ -16,6 +21,7 @@ import java.net.URI;
 import java.time.Duration;
 
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ISSUANCES_PATH;
+import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
 
 @Slf4j
 @Component
@@ -49,7 +55,13 @@ public class IdempotencyFilter implements WebFilter {
             return chain.filter(exchange);
         }
 
-        CachedResponse cached = cache.getIfPresent(idempotencyKey);
+        String tenantScope = exchange.getRequest().getHeaders().getFirst(X_TENANT_HEADER);
+        if (tenantScope == null || tenantScope.isBlank()) {
+            tenantScope = exchange.getRequest().getURI().getHost();
+        }
+        String scopedIdempotencyKey = tenantScope + ":" + idempotencyKey;
+
+        CachedResponse cached = cache.getIfPresent(scopedIdempotencyKey);
         if (cached != null) {
             log.info("Idempotency key '{}' already processed, returning cached status {}", idempotencyKey, cached.status);
             issuanceMetrics.recordIdempotencyCacheHit();
@@ -57,18 +69,50 @@ public class IdempotencyFilter implements WebFilter {
             if (cached.locationHeader != null) {
                 exchange.getResponse().getHeaders().setLocation(URI.create(cached.locationHeader));
             }
+            if (cached.body != null && cached.body.length > 0) {
+                if (cached.contentType != null) {
+                    exchange.getResponse().getHeaders().setContentType(cached.contentType);
+                }
+                DataBuffer buffer = exchange.getResponse().bufferFactory().wrap(cached.body);
+                return exchange.getResponse().writeWith(Mono.just(buffer));
+            }
             return exchange.getResponse().setComplete();
         }
 
-        return chain.filter(exchange)
+        CapturingResponseDecorator decorator = new CapturingResponseDecorator(exchange);
+        return chain.filter(exchange.mutate().response(decorator).build())
                 .then(Mono.fromRunnable(() -> {
-                    HttpStatus status = (HttpStatus) exchange.getResponse().getStatusCode();
+                    HttpStatusCode status = exchange.getResponse().getStatusCode();
                     String location = exchange.getResponse().getHeaders().getFirst("Location");
                     if (status != null && status.is2xxSuccessful()) {
-                        cache.put(idempotencyKey, new CachedResponse(status, location));
+                        cache.put(scopedIdempotencyKey, new CachedResponse(
+                                status, location, decorator.capturedBody, decorator.capturedContentType));
                     }
                 }));
     }
 
-    private record CachedResponse(HttpStatus status, String locationHeader) {}
+    private static final class CapturingResponseDecorator extends ServerHttpResponseDecorator {
+
+        private byte[] capturedBody;
+        private MediaType capturedContentType;
+
+        private CapturingResponseDecorator(ServerWebExchange exchange) {
+            super(exchange.getResponse());
+        }
+
+        @Override
+        public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
+            return DataBufferUtils.join(body)
+                    .flatMap(dataBuffer -> {
+                        byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                        dataBuffer.read(bytes);
+                        DataBufferUtils.release(dataBuffer);
+                        this.capturedBody = bytes;
+                        this.capturedContentType = getHeaders().getContentType();
+                        return super.writeWith(Mono.just(bufferFactory().wrap(bytes)));
+                    });
+        }
+    }
+
+    private record CachedResponse(HttpStatusCode status, String locationHeader, byte[] body, MediaType contentType) {}
 }

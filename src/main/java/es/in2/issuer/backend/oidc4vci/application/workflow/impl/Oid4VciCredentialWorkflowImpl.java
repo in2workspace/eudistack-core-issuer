@@ -2,6 +2,8 @@ package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
 import com.nimbusds.jose.JWSObject;
 import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWorkflow;
+import es.in2.issuer.backend.oidc4vci.domain.exception.UnknownCredentialIdentifierException;
+import es.in2.issuer.backend.shared.domain.util.Base58Codec;
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.*;
@@ -13,6 +15,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.Credenti
 import es.in2.issuer.backend.shared.domain.model.entities.BindingInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuerMetadataService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.ProofValidationService;
@@ -29,10 +32,12 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import javax.naming.ConfigurationException;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
@@ -49,6 +54,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
     private final StatusListWorkflow statusListWorkflow;
     private final TransientStore<String> enrichmentCacheStore;
     private final TransientStore<String> notificationCacheStore;
+    private final CredentialIssuedLogger credentialIssuedLogger;
 
     public Oid4VciCredentialWorkflowImpl(
             CredentialSignerWorkflow credentialSignerWorkflow,
@@ -59,7 +65,8 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             CredentialProfileRegistry credentialProfileRegistry,
             StatusListWorkflow statusListWorkflow,
             @Qualifier("enrichmentCacheStore") TransientStore<String> enrichmentCacheStore,
-            @Qualifier("notificationCacheStore") TransientStore<String> notificationCacheStore
+            @Qualifier("notificationCacheStore") TransientStore<String> notificationCacheStore,
+            CredentialIssuedLogger credentialIssuedLogger
     ) {
         this.credentialSignerWorkflow = credentialSignerWorkflow;
         this.proofValidationService = proofValidationService;
@@ -70,6 +77,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         this.statusListWorkflow = statusListWorkflow;
         this.enrichmentCacheStore = enrichmentCacheStore;
         this.notificationCacheStore = notificationCacheStore;
+        this.credentialIssuedLogger = credentialIssuedLogger;
     }
 
     /**
@@ -90,24 +98,116 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
     public Mono<CredentialResponse> createCredentialResponse(
             String processId,
             CredentialRequest credentialRequest,
-            AccessTokenContext accessTokenContext) {
+            AccessTokenContext accessTokenContext,
+            String publicIssuerBaseUrl) {
 
         final String issuanceId = accessTokenContext.issuanceId();
 
+        return Mono.defer(() -> {
+            AtomicReference<String> configurationId =
+                    new AtomicReference<>(knownRequestedConfigurationId(credentialRequest));
+
+            return buildCredentialPipeline(processId, credentialRequest, accessTokenContext, publicIssuerBaseUrl, issuanceId, configurationId)
+                    .doOnSuccess(response -> {
+                        if (response != null) {
+                            credentialIssuedLogger.logIssued(configurationId.get());
+                        }
+                    })
+                    .doOnError(e -> credentialIssuedLogger.logFailed(configurationId.get(), e));
+        });
+    }
+
+    // Both request-level guards below short-circuit before the Issuance is even loaded; the
+    // mismatch check in processIssuance needs the Issuance's own type, so it runs after.
+    private Mono<CredentialResponse> buildCredentialPipeline(
+            String processId,
+            CredentialRequest credentialRequest,
+            AccessTokenContext accessTokenContext,
+            String publicIssuerBaseUrl,
+            String issuanceId,
+            AtomicReference<String> configurationId) {
+
+        // OID4VCI 1.0 SS8.2: credential_identifier is the alternative addressing mode to
+        // credential_configuration_id, used only when the Token Response returned
+        // authorization_details with credential_identifiers - this Issuer only implements the
+        // scope-based flow and never does, so any credential_identifier a client sends is
+        // unrecognized by construction.
+        String requestedCredentialIdentifier = credentialRequest != null ? credentialRequest.credentialIdentifier() : null;
+        if (hasValue(requestedCredentialIdentifier)) {
+            return Mono.error(new UnknownCredentialIdentifierException(
+                    "Unknown credential_identifier: " + requestedCredentialIdentifier));
+        }
+
+        // A credential_configuration_id that isn't one of ours must be rejected outright, not
+        // silently ignored in favor of whatever the Issuance record already says. The
+        // knownRequestedConfigurationId helper computed the lookup above purely for logging
+        // before this check existed - reuse its result here instead of querying the registry a
+        // second time.
+        String requestedConfigurationId = credentialRequest != null ? credentialRequest.credentialConfigurationId() : null;
+        if (hasValue(requestedConfigurationId) && configurationId.get() == null) {
+            return Mono.error(new UnknownCredentialConfigurationException(
+                    "Unknown credential_configuration_id: " + requestedConfigurationId));
+        }
+
         return issuanceService.getIssuanceById(issuanceId)
                 .switchIfEmpty(Mono.error(new InvalidTokenException("Procedure not found: " + issuanceId)))
-                .flatMap(proc -> validateProcedureState(proc)
-                        .then(credentialIssuerMetadataService.getCredentialIssuerMetadata())
-                        .flatMap(metadata -> {
-                            log.info("[{}] Processing credential request: issuanceId={}, type={}, format={}",
-                                    processId, issuanceId, proc.getCredentialType(), proc.getCredentialFormat());
+                .doOnNext(proc -> setConfigurationId(proc, configurationId))
+                .flatMap(proc -> processIssuance(processId, credentialRequest, accessTokenContext, publicIssuerBaseUrl, issuanceId, requestedConfigurationId, proc));
+    }
 
-                            return validateAndDetermineBindingInfo(proc, metadata, credentialRequest)
-                                    .defaultIfEmpty(new BindingInfo(null, null))
-                                    .flatMap(bindingInfo ->
-                                            enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken()));
-                        })
-                );
+    private Mono<CredentialResponse> processIssuance(
+            String processId,
+            CredentialRequest credentialRequest,
+            AccessTokenContext accessTokenContext,
+            String publicIssuerBaseUrl,
+            String issuanceId,
+            String requestedConfigurationId,
+            Issuance proc) {
+
+        if (isMismatchedConfigurationId(requestedConfigurationId, proc)) {
+            return Mono.error(new UnknownCredentialConfigurationException(
+                    "Unsupported credential_configuration_id for this issuance: " + requestedConfigurationId));
+        }
+        return validateProcedureState(proc)
+                .then(credentialIssuerMetadataService.getCredentialIssuerMetadata(publicIssuerBaseUrl))
+                .flatMap(metadata -> {
+                    log.info("[{}] Processing credential request: issuanceId={}, type={}, format={}",
+                            processId, issuanceId, proc.getCredentialType(), proc.getCredentialFormat());
+
+                    return validateAndDetermineBindingInfo(proc, metadata, credentialRequest)
+                            .defaultIfEmpty(new BindingInfo(null, null))
+                            .flatMap(bindingInfo -> enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken(), publicIssuerBaseUrl));
+                });
+    }
+
+    // credential_configuration_id is a valid, registered configuration (the caller already
+    // ruled out "unknown") but doesn't match what this Issuance/token was actually authorized
+    // for - e.g. requesting PID with a LEAR Employee token. A well-behaved wallet never
+    // triggers this: the credential offer service always advertises exactly the Issuance's own
+    // credential type in the offer.
+    private boolean isMismatchedConfigurationId(String requestedConfigurationId, Issuance proc) {
+        return hasValue(requestedConfigurationId)
+                && hasValue(proc.getCredentialType())
+                && !requestedConfigurationId.equals(proc.getCredentialType());
+    }
+
+    private boolean hasValue(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private String knownRequestedConfigurationId(CredentialRequest credentialRequest) {
+        String requested = credentialRequest != null ? credentialRequest.credentialConfigurationId() : null;
+        if (requested == null || requested.isBlank()
+                || credentialProfileRegistry.getByConfigurationId(requested) == null) {
+            return null;
+        }
+        return requested;
+    }
+
+    private void setConfigurationId(Issuance proc, AtomicReference<String> configurationId) {
+        if (proc.getCredentialType() != null && !proc.getCredentialType().isBlank()) {
+            configurationId.set(proc.getCredentialType());
+        }
     }
 
     private Mono<Void> validateProcedureState(Issuance proc) {
@@ -122,7 +222,8 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             String processId,
             Issuance proc,
             BindingInfo bindingInfo,
-            String rawToken) {
+            String rawToken,
+            String publicIssuerBaseUrl) {
 
         String issuanceId = proc.getIssuanceId().toString();
         String credentialType = proc.getCredentialType();
@@ -141,14 +242,21 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
 
         // Step 1: Bind issuer to the credential dataSet (in memory, NOT persisted)
         return genericCredentialBuilder.bindIssuer(profile, proc.getCredentialDataSet(), issuanceId, email)
+                .map(enrichedDataSet -> {
+                    // Inject derived holder DID into mandatee.id when proof supplied a did:key-bound subject
+                    String holderDid = bindingInfo.subjectId();
+                    if (holderDid != null && holderDid.startsWith("did:")) {
+                        return genericCredentialBuilder.bindHolderDid(enrichedDataSet, holderDid);
+                    }
+                    return enrichedDataSet;
+                })
                 // Step 2: Allocate status list entry and inject credentialStatus
-                .flatMap(enrichedDataSet ->
-                        statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, statusFormat, issuanceId, token)
-                                .map(entry -> {
-                                    CredentialStatus status = CredentialStatus.fromStatusListEntry(entry);
-                                    return genericCredentialBuilder.injectCredentialStatus(
-                                            enrichedDataSet, status, credentialFormat);
-                                })
+                .flatMap(enrichedDataSet -> statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, statusFormat, issuanceId, token, publicIssuerBaseUrl)
+                        .map(entry -> {
+                            CredentialStatus status = CredentialStatus.fromStatusListEntry(entry);
+                            return genericCredentialBuilder.injectCredentialStatus(
+                                    enrichedDataSet, status, credentialFormat);
+                        })
                 )
                 .flatMap(enrichedWithStatus ->
                         // Step 3: Cache enriched dataSet for later persistence on credential_accepted
@@ -162,6 +270,12 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                     // Step 5: Generate notification_id and cache mapping
                     String notificationId = UUID.randomUUID().toString();
                     return notificationCacheStore.add(notificationId, issuanceId)
+                            // Step 5b: Mark delivery attempt timestamp for timeout detection
+                            .then(issuanceService.getIssuanceById(issuanceId))
+                            .flatMap(issuance -> {
+                                issuance.setDeliveryAttemptedAt(Instant.now());
+                                return issuanceService.updateIssuance(issuance);
+                            })
                             .thenReturn(CredentialResponse.builder()
                                     .credentials(List.of(CredentialResponse.Credential.builder()
                                             .credential(signedCredential)
@@ -227,7 +341,15 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         return (jwtProofConfig != null) ? jwtProofConfig.proofSigningAlgValuesSupported() : null;
     }
 
+    // OID4VCI 1.0 Final §8.2 sends "proofs" (plural, batch-capable); older clients -
+    // e.g. our own Wallet PWA, not yet migrated - still send "proof" (singular).
+    // Prefer proofs when present, falling back to proof for backward compatibility.
     private String extractFirstJwtProof(CredentialRequest credentialRequest) {
+        if (credentialRequest.proofs() != null
+                && credentialRequest.proofs().jwt() != null
+                && !credentialRequest.proofs().jwt().isEmpty()) {
+            return credentialRequest.proofs().jwt().get(0);
+        }
         return credentialRequest.proof() != null ? credentialRequest.proof().jwt() : null;
     }
 
@@ -295,9 +417,39 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             throw new ProofValidationException("jwk must be a JSON object");
         }
         var jwkObj = (Map<String, Object>) jwkMap;
-        String subjectIdFromJwk = UUID.randomUUID().toString();
-        log.info("Binding from proof: cnfType=jwk, subjectId={}", subjectIdFromJwk);
-        return new BindingInfo(subjectIdFromJwk, Map.of("jwk", jwkObj));
+        String subjectId = deriveDidKeyFromJwk(jwkObj);
+        log.info("Binding from proof: cnfType=jwk, subjectId={}", subjectId);
+        return new BindingInfo(subjectId, Map.of("jwk", jwkObj));
+    }
+
+    private String deriveDidKeyFromJwk(Map<String, Object> jwk) {
+        try {
+            byte[] xRaw = java.util.Base64.getUrlDecoder().decode((String) jwk.get("x"));
+            byte[] yRaw = java.util.Base64.getUrlDecoder().decode((String) jwk.get("y"));
+
+            // Pad to 32 bytes
+            byte[] xBytes = new byte[32];
+            byte[] yBytes = new byte[32];
+            System.arraycopy(xRaw, 0, xBytes, 32 - xRaw.length, xRaw.length);
+            System.arraycopy(yRaw, 0, yBytes, 32 - yRaw.length, yRaw.length);
+
+            // Compressed point: 0x02 if y even, 0x03 if y odd
+            byte prefix = (yBytes[31] & 0x01) == 0 ? (byte) 0x02 : (byte) 0x03;
+            byte[] compressed = new byte[33];
+            compressed[0] = prefix;
+            System.arraycopy(xBytes, 0, compressed, 1, 32);
+
+            // P-256 multicodec varint prefix: 0x1200 → [0x80, 0x24]
+            byte[] keyWithPrefix = new byte[35];
+            keyWithPrefix[0] = (byte) 0x80;
+            keyWithPrefix[1] = 0x24;
+            System.arraycopy(compressed, 0, keyWithPrefix, 2, 33);
+
+            return "did:key:z" + Base58Codec.encode(keyWithPrefix);
+        } catch (Exception e) {
+            log.warn("Could not derive did:key from JWK proof, falling back to random subject: {}", e.getMessage());
+            return "urn:uuid:" + UUID.randomUUID();
+        }
     }
 
 }

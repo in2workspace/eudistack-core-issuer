@@ -1,0 +1,2 @@
+ALTER TABLE issuance
+    ALTER COLUMN delivery TYPE VARCHAR(50);
