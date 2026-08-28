@@ -4,19 +4,19 @@
 <span>by </span><a href="https://in2.es">in2.es</a>
 <p><p>
 
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_in2-issuer-api&metric=alert_status)](https://sonarcloud.io/dashboard?id=in2workspace_in2-issuer-api)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_eudistack-core-issuer&metric=alert_status)](https://sonarcloud.io/dashboard?id=in2workspace_eudistack-core-issuer)
 
-[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_in2-issuer-api&metric=bugs)](https://sonarcloud.io/summary/new_code?in2workspace_in2-issuer-api)
-[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_in2-issuer-api&metric=vulnerabilities)](https://sonarcloud.io/dashboard?id=in2workspace_in2-issuer-api)
-[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_in2-issuer-api&metric=security_rating)](https://sonarcloud.io/dashboard?id=in2workspace_in2-issuer-api)
-[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_in2-issuer-api&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=in2workspace_in2-issuer-api)
-[![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_in2-issuer-api&metric=ncloc)](https://sonarcloud.io/dashboard?id=in2workspace_in2-issuer-api)
+[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_eudistack-core-issuer&metric=bugs)](https://sonarcloud.io/summary/new_code?id=in2workspace_eudistack-core-issuer)
+[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_eudistack-core-issuer&metric=vulnerabilities)](https://sonarcloud.io/dashboard?id=in2workspace_eudistack-core-issuer)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_eudistack-core-issuer&metric=security_rating)](https://sonarcloud.io/dashboard?id=in2workspace_eudistack-core-issuer)
+[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_eudistack-core-issuer&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=in2workspace_eudistack-core-issuer)
+[![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_eudistack-core-issuer&metric=ncloc)](https://sonarcloud.io/dashboard?id=in2workspace_eudistack-core-issuer)
 
-[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_in2-issuer-api&metric=coverage)](https://sonarcloud.io/summary/new_code?id=in2workspace_in2-issuer-api)
-[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_in2-issuer-api&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=in2workspace_in2-issuer-api)
-[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_in2-issuer-api&metric=reliability_rating)](https://sonarcloud.io/dashboard?id=in2workspace_in2-issuer-api)
-[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_in2-issuer-api&metric=sqale_rating)](https://sonarcloud.io/dashboard?id=in2workspace_in2-issuer-api)
-[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_in2-issuer-api&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=in2workspace_in2-issuer-api)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_eudistack-core-issuer&metric=coverage)](https://sonarcloud.io/summary/new_code?id=in2workspace_eudistack-core-issuer)
+[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_eudistack-core-issuer&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=in2workspace_eudistack-core-issuer)
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_eudistack-core-issuer&metric=reliability_rating)](https://sonarcloud.io/dashboard?id=in2workspace_eudistack-core-issuer)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_eudistack-core-issuer&metric=sqale_rating)](https://sonarcloud.io/dashboard?id=in2workspace_eudistack-core-issuer)
+[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=in2workspace_eudistack-core-issuer&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=in2workspace_eudistack-core-issuer)
 
 </div>
 

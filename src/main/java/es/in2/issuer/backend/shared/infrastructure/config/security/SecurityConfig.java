@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
+import es.in2.issuer.backend.apiclient.infrastructure.security.IntakeCallerAuthorizationFilter;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
@@ -29,6 +31,7 @@ public class SecurityConfig {
 
     private final CustomAuthenticationManager customAuthenticationManager;
     private final CorsConfig corsConfig;
+    private final AuditService auditService;
 
     private AuthenticationWebFilter customAuthenticationWebFilter(ProblemAuthenticationEntryPoint entryPoint) {
         AuthenticationWebFilter authenticationWebFilter = new AuthenticationWebFilter(customAuthenticationManager);
@@ -39,14 +42,21 @@ public class SecurityConfig {
                         // Issuance endpoints (unified)
                         ISSUANCES_PATH,
                         ISSUANCES_WILDCARD_PATH,
+                        // Current caller role resolution (for frontends)
+                        ME_PATH,
+                        // Tenant admin delivery-config management (EUD-169)
+                        DELIVERY_CONFIG_PATH,
+                        // Tenant credential catalog admin (EUD-72)
+                        CREDENTIAL_CATALOG_PATH,
                         // OID4VCI paths
                         OAUTH_TOKEN_PATH,
                         OID4VCI_CREDENTIAL_PATH,
                         OID4VCI_NOTIFICATION_PATH,
                         // Other authenticated paths
                         STATUS_LIST_PATH,
-                        SIGNING_PROVIDERS_PATH,
-                        SIGNING_CONFIG_PATH)
+                        // Unattended issuance intake (EUD-75, US-02)
+                        INTAKE_BASE_PATH,
+                        INTAKE_PATH)
         );
 
         authenticationWebFilter.setServerAuthenticationConverter(new DualTokenServerAuthenticationConverter());
@@ -60,6 +70,7 @@ public class SecurityConfig {
         return http
                 .securityMatcher(ServerWebExchangeMatchers.pathMatchers(BOOTSTRAP_PATH))
                 .authorizeExchange(exchange -> exchange.anyExchange().permitAll())
+                .cors(cors -> cors.configurationSource(corsConfig.corsConfigurationSource()))
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .build();
     }
@@ -70,6 +81,7 @@ public class SecurityConfig {
         return http
                 .securityMatcher(ServerWebExchangeMatchers.pathMatchers(CREDENTIAL_OFFER_REFRESH_PATH))
                 .authorizeExchange(exchange -> exchange.anyExchange().permitAll())
+                .cors(cors -> cors.configurationSource(corsConfig.corsConfigurationSource()))
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .build();
     }
@@ -88,6 +100,12 @@ public class SecurityConfig {
                         // Issuance endpoints (unified)
                         ISSUANCES_PATH,
                         ISSUANCES_WILDCARD_PATH,
+                        // Current caller role resolution
+                        ME_PATH,
+                        // Tenant admin delivery-config management (EUD-169)
+                        DELIVERY_CONFIG_PATH,
+                        // Tenant credential catalog admin (EUD-72)
+                        CREDENTIAL_CATALOG_PATH,
                         // Public OID4VCI paths
                         CORS_OID4VCI_PATH,
                         VCI_PATH,
@@ -96,11 +114,12 @@ public class SecurityConfig {
                         // Other paths
                         STATUS_LIST_PATH,
                         TOKEN_STATUS_LIST_PATH,
-                        SIGNING_PROVIDERS_PATH,
-                        SIGNING_CONFIG_PATH,
                         HEALTH_PATH,
                         PROMETHEUS_PATH,
-                        SPRINGDOC_PATH
+                        SPRINGDOC_PATH,
+                        // Unattended issuance intake (EUD-75, US-02)
+                        INTAKE_BASE_PATH,
+                        INTAKE_PATH
                 ))
                 .cors(cors -> cors.configurationSource(corsConfig.corsConfigurationSource()))
                 .headers(headers -> headers
@@ -122,8 +141,11 @@ public class SecurityConfig {
                         .pathMatchers(HttpMethod.GET,
                                 CORS_CREDENTIAL_OFFER_PATH,
                                 CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_PATH,
+                                CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_WILDCARD_PATH,
                                 AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_PATH,
+                                AUTHORIZATION_SERVER_METADATA_WELL_KNOWN_WILDCARD_PATH,
                                 OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_PATH,
+                                OAUTH_AUTHORIZATION_SERVER_WELL_KNOWN_WILDCARD_PATH,
                                 JWKS_PATH,
                                 HEALTH_PATH,
                                 PROMETHEUS_PATH,
@@ -136,13 +158,16 @@ public class SecurityConfig {
                         .pathMatchers(HttpMethod.POST, OID4VCI_PAR_PATH).permitAll()
                         .pathMatchers(HttpMethod.GET, OID4VCI_AUTHORIZE_PATH).permitAll()
                         .pathMatchers(HttpMethod.POST, OID4VCI_NONCE_PATH).permitAll()
-                        // SEC-01: /internal/signing/** requires authentication (removed permitAll)
                         // Authenticated endpoints (all go through CustomAuthenticationManager)
                         .anyExchange().authenticated()
                 )
                 // CSRF disabled: all routes use Bearer token authentication (no cookies/sessions)
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .addFilterAt(customAuthenticationWebFilter(entryPoint), SecurityWebFiltersOrder.AUTHENTICATION)
+                // Wired manually (not a @Component) and placed after AUTHORIZATION so
+                // it only ever runs on requests Spring's own .anyExchange().authenticated()
+                // has already let through — see IntakeCallerAuthorizationFilter javadoc.
+                .addFilterAfter(new IntakeCallerAuthorizationFilter(deniedH, auditService), SecurityWebFiltersOrder.AUTHORIZATION)
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(deniedH)

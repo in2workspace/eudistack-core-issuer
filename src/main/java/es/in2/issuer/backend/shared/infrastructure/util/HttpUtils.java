@@ -26,7 +26,11 @@ public class HttpUtils {
                 .headers(httpHeaders -> headers.forEach(entry -> httpHeaders.add(entry.getKey(), entry.getValue())))
                 .retrieve()
                 .onStatus(status -> status != HttpStatus.OK, clientResponse ->
-                        Mono.error(new RuntimeException("Error during get request:" + clientResponse.statusCode())))
+                        clientResponse.bodyToMono(String.class)
+                                .defaultIfEmpty("")
+                                .map(errorBody -> new RuntimeException(
+                                        "Error during get request:" + clientResponse.statusCode()
+                                                + (errorBody.isBlank() ? "" : " body=" + errorBody))))
                 .bodyToMono(String.class);
     }
 
@@ -37,7 +41,11 @@ public class HttpUtils {
                 .bodyValue(body)
                 .retrieve()
                 .onStatus(status -> status != HttpStatus.OK, clientResponse ->
-                        Mono.error(new RuntimeException("Error during post request:" + clientResponse.statusCode())))
+                        clientResponse.bodyToMono(String.class)
+                                .defaultIfEmpty("")
+                                .map(errorBody -> new RuntimeException(
+                                        "Error during post request:" + clientResponse.statusCode()
+                                                + (errorBody.isBlank() ? "" : " body=" + errorBody))))
                 .bodyToMono(String.class);
     }
 

@@ -1,9 +1,12 @@
 package es.in2.issuer.backend.statuslist.domain.util.factory;
+
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
-import es.in2.issuer.backend.signing.domain.model.port.SignerConfig;
-import es.in2.issuer.backend.signing.domain.model.port.SigningRuntimeProperties;
-import es.in2.issuer.backend.signing.domain.service.QtspIssuerService;
+import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
+import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
+import es.in2.issuer.backend.signing.domain.service.IssuerCertificateService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -14,61 +17,40 @@ import reactor.test.StepVerifier;
 
 import java.util.concurrent.TimeoutException;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
-import static es.in2.issuer.backend.shared.domain.util.Constants.DID_ELSI;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
+import static org.junit.jupiter.api.Assertions.*;
 
 @ExtendWith(MockitoExtension.class)
 class IssuerFactoryTest {
 
-    @Mock private SignerConfig signerConfig;
-    @Mock private QtspIssuerService qtspIssuerService;
-    @Mock private SigningRuntimeProperties signingRuntimeProperties;
-
+    @Mock private IssuerCertificateService issuerCertificateService;
+    @Mock private TenantSigningConfigService tenantSigningConfigService;
     @InjectMocks private IssuerFactory issuerFactory;
 
-    @Test
-    void createDetailedIssuer_LocalServerSide_ReturnsFromDefaultConfig() {
-        when(signingRuntimeProperties.getProvider()).thenReturn("in-memory");
+    private RemoteSignatureDto cfg;
 
-        when(signerConfig.getOrganizationIdentifier()).thenReturn("ORG-ID");
-        when(signerConfig.getOrganization()).thenReturn("MyOrg");
-        when(signerConfig.getCountry()).thenReturn("ES");
-        when(signerConfig.getCommonName()).thenReturn("CN");
-        when(signerConfig.getSerialNumber()).thenReturn("SN123");
-
-        StepVerifier.create(issuerFactory.createDetailedIssuer())
-                .assertNext(issuer -> {
-                    assertEquals(DID_ELSI + "ORG-ID", issuer.getId());
-                    assertEquals("ORG-ID", issuer.organizationIdentifier());
-                    assertEquals("MyOrg", issuer.organization());
-                    assertEquals("ES", issuer.country());
-                    assertEquals("CN", issuer.commonName());
-                    assertEquals("SN123", issuer.serialNumber());
-                })
-                .verifyComplete();
-
-        verifyNoInteractions(qtspIssuerService);
-    }
-
-    @Test
-    void createSimpleIssuer_LocalServerSide_ReturnsFromDefaultConfig() {
-        when(signingRuntimeProperties.getProvider()).thenReturn("in-memory");
-        when(signerConfig.getOrganizationIdentifier()).thenReturn("ORG-ID");
-
-        StepVerifier.create(issuerFactory.createSimpleIssuer())
-                .assertNext(simple -> assertEquals(DID_ELSI + "ORG-ID", simple.getId()))
-                .verifyComplete();
-
-        verifyNoInteractions(qtspIssuerService);
+    @BeforeEach
+    void setUp() {
+        cfg = new RemoteSignatureDto(
+                "provider",
+                "1",
+                "",
+                "",
+                "sign-hash",
+                "cred", "pwd",
+                "PT10M",
+                "client", "secret",
+                "",
+                "",
+                "",
+                "",
+                ""
+        );
     }
 
     @Test
     void createDetailedIssuer_Remote_SuccessPath() {
-        when(signingRuntimeProperties.getProvider()).thenReturn("csc-sign-doc");
-        when(qtspIssuerService.isServerMode()).thenReturn(false);
-
         DetailedIssuer expected = DetailedIssuer.builder()
                 .id("id1")
                 .organizationIdentifier("org1")
@@ -78,63 +60,52 @@ class IssuerFactoryTest {
                 .serialNumber("SN")
                 .build();
 
-        when(qtspIssuerService.resolveRemoteDetailedIssuer())
+        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.just(cfg));
+        when(issuerCertificateService.resolveRemoteDetailedIssuer(cfg))
                 .thenReturn(Mono.just(expected));
 
         StepVerifier.create(issuerFactory.createDetailedIssuer())
                 .expectNext(expected)
                 .verifyComplete();
 
-        verify(qtspIssuerService).isServerMode();
-        verify(qtspIssuerService).resolveRemoteDetailedIssuer();
-        verifyNoMoreInteractions(qtspIssuerService);
+        verify(issuerCertificateService).resolveRemoteDetailedIssuer(cfg);
     }
 
     @Test
     void createSimpleIssuer_Remote_SuccessPath() {
-        when(signingRuntimeProperties.getProvider()).thenReturn("csc-sign-doc");
-        when(qtspIssuerService.isServerMode()).thenReturn(false);
-
         DetailedIssuer detailed = DetailedIssuer.builder()
                 .id("issuer-id")
                 .build();
 
-        when(qtspIssuerService.resolveRemoteDetailedIssuer())
+        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.just(cfg));
+        when(issuerCertificateService.resolveRemoteDetailedIssuer(cfg))
                 .thenReturn(Mono.just(detailed));
 
         StepVerifier.create(issuerFactory.createSimpleIssuer())
                 .assertNext(simple -> assertEquals("issuer-id", simple.getId()))
                 .verifyComplete();
 
-        verify(qtspIssuerService).isServerMode();
-        verify(qtspIssuerService).resolveRemoteDetailedIssuer();
-        verifyNoMoreInteractions(qtspIssuerService);
+        verify(issuerCertificateService).resolveRemoteDetailedIssuer(cfg);
     }
 
     @Test
     void createDetailedIssuer_Remote_Error_PropagatesError() {
-        when(signingRuntimeProperties.getProvider()).thenReturn("csc-sign-doc");
-        when(qtspIssuerService.isServerMode()).thenReturn(false);
-
         RemoteSignatureException ex = new RemoteSignatureException("boom");
-        when(qtspIssuerService.resolveRemoteDetailedIssuer())
+        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.just(cfg));
+        when(issuerCertificateService.resolveRemoteDetailedIssuer(cfg))
                 .thenReturn(Mono.error(ex));
 
         StepVerifier.create(issuerFactory.createDetailedIssuer())
                 .expectErrorSatisfies(err -> assertEquals(ex, err))
                 .verify();
 
-        verify(qtspIssuerService).isServerMode();
-        verify(qtspIssuerService).resolveRemoteDetailedIssuer();
-        verifyNoMoreInteractions(qtspIssuerService);
+        verify(issuerCertificateService).resolveRemoteDetailedIssuer(cfg);
     }
 
     @Test
     void createDetailedIssuer_Remote_RecoverableErrors_ThenRetryExhausted() {
-        when(signingRuntimeProperties.getProvider()).thenReturn("csc-sign-doc");
-        when(qtspIssuerService.isServerMode()).thenReturn(false);
-
-        when(qtspIssuerService.resolveRemoteDetailedIssuer())
+        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.just(cfg));
+        when(issuerCertificateService.resolveRemoteDetailedIssuer(cfg))
                 .thenReturn(Mono.error(new TimeoutException("t1")))
                 .thenReturn(Mono.error(new TimeoutException("t2")))
                 .thenReturn(Mono.error(new TimeoutException("t3")))
@@ -147,31 +118,20 @@ class IssuerFactoryTest {
                 })
                 .verify();
 
-        verify(qtspIssuerService).isServerMode();
-        verify(qtspIssuerService, times(1)).resolveRemoteDetailedIssuer();
-        verifyNoMoreInteractions(qtspIssuerService);
+        verify(issuerCertificateService, atLeast(1)).resolveRemoteDetailedIssuer(cfg);
     }
 
     @Test
-    void createSimpleIssuer_Remote_Success_MapsToSimpleIssuer() {
-        when(signingRuntimeProperties.getProvider()).thenReturn("csc-sign-doc");
-        when(qtspIssuerService.isServerMode()).thenReturn(false);
+    void createDetailedIssuer_failsIfTenantHasNoSigningConfig() {
+        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
 
-        DetailedIssuer detailed = DetailedIssuer.builder()
-                .id("did:elsi:ABC")
-                .build();
-
-        when(qtspIssuerService.resolveRemoteDetailedIssuer())
-                .thenReturn(Mono.just(detailed));
-
-        StepVerifier.create(issuerFactory.createSimpleIssuer())
-                .assertNext(simple -> {
-                    assertEquals("did:elsi:ABC", simple.getId());
+        StepVerifier.create(issuerFactory.createDetailedIssuer())
+                .expectErrorSatisfies(err -> {
+                    assertInstanceOf(SigningException.class, err);
+                    assertTrue(err.getMessage().contains("No remote signature configuration"));
                 })
-                .verifyComplete();
+                .verify();
 
-        verify(qtspIssuerService).isServerMode();
-        verify(qtspIssuerService).resolveRemoteDetailedIssuer();
-        verifyNoMoreInteractions(qtspIssuerService);
+        verify(issuerCertificateService, never()).resolveRemoteDetailedIssuer(any());
     }
 }

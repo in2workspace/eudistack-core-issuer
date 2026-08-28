@@ -18,8 +18,16 @@ public final class Constants {
     public static final String CWT_VC = "cwt_vc";
     public static final String VC = "vc";
 
+    // JWT TYPE HEADERS
+    public static final String VC_JWT_TYP = "vc+jwt";
+
     // CREDENTIAL CONTEXTS
     public static final String CREDENTIALS_CONTEXT_V2 = "https://www.w3.org/ns/credentials/v2";
+
+    // OIDC4VCI
+    public static final String CREDENTIAL_OFFER_PREFIX = "openid-credential-offer://?credential_offer_uri=";
+    public static final String CREDENTIAL_OFFER_URI_PARAMETER = "credential_offer_uri";
+    public static final String WALLET_PROTOCOL_CALLBACK = "/protocol/callback";
 
     // CREDENTIAL JSON FIELDS
     public static final String CREDENTIAL_SUBJECT = "credentialSubject";
@@ -55,10 +63,6 @@ public final class Constants {
     public static final String PRE_AUTHORIZATION_CODE = "pre-authorization_code";
     public static final String AUTHORIZATION_CODE = "authorization_code";
 
-    // DELIVERY MODES
-    public static final String DELIVERY_UI = "ui";
-    public static final String DELIVERY_EMAIL = "email";
-
     // HTTP
     public static final String BEARER_PREFIX = "Bearer ";
     public static final String UTF_8 = "UTF-8";
@@ -81,7 +85,6 @@ public final class Constants {
     public static final Long DEFERRED_CREDENTIAL_POLLING_INTERVAL = 3600L;
 
     // REMOTE SIGNATURE
-    public static final String SIGNATURE_REMOTE_TYPE_SERVER = "server";
     public static final String SIGNATURE_REMOTE_TYPE_CLOUD = "cloud";
     public static final String SIGNATURE_REMOTE_SCOPE_SERVICE = "service";
     public static final String SIGNATURE_REMOTE_SCOPE_CREDENTIAL = "credential";
@@ -111,7 +114,16 @@ public final class Constants {
     public static final String ERROR_LOG_FORMAT = "[Error Instance ID: {}] Path: {}, Status: {}, Title: {}, Message: {}";
 
     // MULTI-TENANCY
-    public static final String TENANT_DOMAIN_HEADER = "X-Tenant-Domain";
+    public static final String X_TENANT_HEADER = "X-Tenant";
     public static final String TENANT_DOMAIN_CONTEXT_KEY = "tenantDomain";
-    public static final String ISSUER_BASE_URL_CONTEXT_KEY = "issuerBaseUrl";
+    public static final String PLATFORM_TENANT = "platform";
+    // Sentinel used when no tenant is present in the Reactor Context (system operations,
+    // schedulers, misrouted requests). Mirrors TenantAwareConnectionFactoryDecorator's
+    // fallback, which resolves this to search_path=public — keep any other tenant-context
+    // default aligned with this value so audit/log output matches the schema actually used.
+    public static final String SYSTEM_TENANT = "*";
+    // Service-specific suffix appended to the tenant id to resolve the PostgreSQL schema
+    // (e.g. tenant "sandbox" -> schema "sandbox_issuer"). Prevents flyway_schema_history
+    // collisions when multiple services share the same database.
+    public static final String SCHEMA_SUFFIX = "_issuer";
 }
