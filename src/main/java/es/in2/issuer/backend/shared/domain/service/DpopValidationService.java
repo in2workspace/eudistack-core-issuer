@@ -102,7 +102,9 @@ public class DpopValidationService {
             }
 
             // Validate htu
-            if (!httpUri.equals(claims.getStringClaim("htu"))) {
+            String htuClaim = claims.getStringClaim("htu");
+            if (!httpUri.equals(htuClaim)) {
+                log.error("DPoP htu mismatch: expected='{}' actual='{}'", httpUri, htuClaim);
                 throw new IllegalArgumentException("DPoP htu mismatch");
             }
 

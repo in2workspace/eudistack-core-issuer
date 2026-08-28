@@ -6,5 +6,6 @@ import lombok.Builder;
 public record AccessTokenContext(
         String rawToken,
         String jti,
-        String issuanceId
+        String issuanceId,
+        String cnfJkt
 ) {}

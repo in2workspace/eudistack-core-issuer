@@ -6,10 +6,13 @@ import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder
 import es.in2.issuer.backend.shared.domain.util.sdjwt.SdJwtPayloadBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
+import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -21,6 +24,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.mockito.Mockito.*;
 import static es.in2.issuer.backend.shared.domain.util.Constants.JWT_VC_JSON;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -34,7 +38,7 @@ class CredentialSignerWorkflowImplTest {
     private ObjectMapper objectMapper = new ObjectMapper();
 
     @Mock
-    private SigningProvider signingProvider;
+    private DelegatingSigningProvider delegatingSigningProvider;
 
     @Mock
     private GenericCredentialBuilder genericCredentialBuilder;
@@ -63,7 +67,7 @@ class CredentialSignerWorkflowImplTest {
     @Test
     void signCredential_jwtVcJson_success() {
         String enrichedDataSet = "enrichedData";
-        String unsignedPayload = "{\"vc\":{\"credentialSubject\":{\"name\":\"Test\"}}}";
+        String unsignedPayload = "{\"credentialSubject\":{\"name\":\"Test\"},\"issuer\":{\"id\":\"did:key:issuer1\"}}";
         String signedCredential = "signed-jwt";
 
         CredentialProfile profile = buildProfile("learcredential.employee.w3c.4");
@@ -71,7 +75,7 @@ class CredentialSignerWorkflowImplTest {
 
         when(genericCredentialBuilder.buildJwtPayload(eq(profile), eq(enrichedDataSet), any()))
                 .thenReturn(Mono.just(unsignedPayload));
-        when(signingProvider.sign(any()))
+        when(delegatingSigningProvider.sign(any()))
                 .thenReturn(Mono.just(new SigningResult(SigningType.JADES, signedCredential)));
 
         StepVerifier.create(
@@ -83,7 +87,7 @@ class CredentialSignerWorkflowImplTest {
                 .verifyComplete();
 
         verify(genericCredentialBuilder).buildJwtPayload(eq(profile), eq(enrichedDataSet), any());
-        verify(signingProvider).sign(any());
+        verify(delegatingSigningProvider).sign(argThat(req -> "vc+jwt".equals(req.typ())));
     }
 
     @Test
@@ -110,7 +114,7 @@ class CredentialSignerWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4")).thenReturn(profile);
 
         when(genericCredentialBuilder.buildJwtPayload(eq(profile), eq(enrichedDataSet), any()))
-                .thenReturn(Mono.just("{\"vc\":{}}"));
+                .thenReturn(Mono.just("{\"credentialSubject\":{}}"));
 
         StepVerifier.create(
                         credentialSignerWorkflow.signCredential(
@@ -127,7 +131,7 @@ class CredentialSignerWorkflowImplTest {
     @Test
     void signCredential_withNullCnf_defaultsToEmptyMap() {
         String enrichedDataSet = "enrichedData";
-        String unsignedPayload = "{\"vc\":{\"credentialSubject\":{\"name\":\"Test\"}}}";
+        String unsignedPayload = "{\"credentialSubject\":{\"name\":\"Test\"},\"issuer\":{\"id\":\"did:key:issuer1\"}}";
         String signedCredential = "signed-jwt";
 
         CredentialProfile profile = buildProfile("learcredential.machine.w3c.3");
@@ -135,7 +139,7 @@ class CredentialSignerWorkflowImplTest {
 
         when(genericCredentialBuilder.buildJwtPayload(eq(profile), eq(enrichedDataSet), any()))
                 .thenReturn(Mono.just(unsignedPayload));
-        when(signingProvider.sign(any()))
+        when(delegatingSigningProvider.sign(any()))
                 .thenReturn(Mono.just(new SigningResult(SigningType.JADES, signedCredential)));
 
         StepVerifier.create(
@@ -148,17 +152,18 @@ class CredentialSignerWorkflowImplTest {
     }
 
     @Test
-    void signCredential_setsSubFromCredentialSubjectId() {
+    void signCredential_doesNotAddSubClaim() {
         String enrichedDataSet = "enrichedData";
-        String unsignedPayload = "{\"vc\":{\"credentialSubject\":{\"id\":\"did:example:123\",\"name\":\"Test\"}}}";
-        String signedCredential = "signed-jwt-with-sub";
+        // VCDM v2.0: credentialSubject at root, no vc wrapper
+        String unsignedPayload = "{\"credentialSubject\":{\"id\":\"did:example:123\",\"name\":\"Test\"},\"issuer\":{\"id\":\"did:key:issuer1\"}}";
+        String signedCredential = "signed-jwt";
 
         CredentialProfile profile = buildProfile("learcredential.employee.w3c.4");
         when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4")).thenReturn(profile);
 
         when(genericCredentialBuilder.buildJwtPayload(eq(profile), eq(enrichedDataSet), any()))
                 .thenReturn(Mono.just(unsignedPayload));
-        when(signingProvider.sign(any()))
+        when(delegatingSigningProvider.sign(any()))
                 .thenReturn(Mono.just(new SigningResult(SigningType.JADES, signedCredential)));
 
         StepVerifier.create(
@@ -169,6 +174,13 @@ class CredentialSignerWorkflowImplTest {
                 .assertNext(result -> assertEquals(signedCredential, result))
                 .verifyComplete();
 
-        verify(signingProvider).sign(any());
+        ArgumentCaptor<SigningRequest> requestCaptor =
+                ArgumentCaptor.forClass(SigningRequest.class);
+
+        verify(delegatingSigningProvider).sign(requestCaptor.capture());
+        String payload = requestCaptor.getValue().data();
+        assertThat(payload).doesNotContain("\"sub\"");
+
+        verify(delegatingSigningProvider).sign(argThat(req -> "vc+jwt".equals(req.typ())));
     }
 }

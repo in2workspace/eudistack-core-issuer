@@ -18,6 +18,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @AnalyzeClasses(packages = "es.in2.issuer.backend")
@@ -52,9 +53,34 @@ class ArchUnitTest {
                     // Spring-managed bean discovered via component scanning (no direct class references)
                     BASE_PACKAGE + ".shared.infrastructure.config.SecureRandomConfig",
                     // Utility class whose static final String constants are inlined by javac (invisible to ArchUnit)
-                    BASE_PACKAGE + ".shared.domain.util.EndpointsConstants");
+                    BASE_PACKAGE + ".shared.domain.util.EndpointsConstants",
+                    // Tenant-related services (EUDI-063/EUDI-065): Spring-managed beans that legitimately
+                    // live only in shared, wired via dependency injection into multiple bounded contexts
+                    BASE_PACKAGE + ".shared.domain.service.impl.TenantCredentialProfileServiceImpl",
+                    BASE_PACKAGE + ".shared.domain.service.impl.TenantConfigServiceImpl",
+                    BASE_PACKAGE + ".shared.domain.service.impl.TenantSigningConfigServiceImpl",
+                    BASE_PACKAGE + ".shared.domain.service.impl.TenantRegistryServiceImpl",
+                    BASE_PACKAGE + ".shared.infrastructure.config.TenantSchemaFlywayMigrator",
+                    // Reactive transactions (EUD-72): @Configuration whose beans (ReactiveTransactionManager,
+                    // TransactionalOperator) are consumed by injection, never by a direct class reference
+                    BASE_PACKAGE + ".shared.infrastructure.config.R2dbcTransactionConfiguration",
+                    // Observability: dual gRPC export config, Spring-managed beans discovered via
+                    // component scanning / @ConditionalOnProperty (no direct class references)
+                    BASE_PACKAGE + ".shared.infrastructure.config.OtlpGrpcTracingConfig",
+                    BASE_PACKAGE + ".shared.infrastructure.config.OtlpGrpcMetricsConfig",
+                    BASE_PACKAGE + ".shared.infrastructure.config.OtlpGrpcMetricsSender",
+                    BASE_PACKAGE + ".shared.infrastructure.config.MicrometerMetricsConfig",
+                    // Spring-managed bean discovered via ObjectProvider<ServerRequestObservationConvention>
+                    // in Boot's WebFluxObservationAutoConfiguration (no direct class references)
+                    BASE_PACKAGE + ".shared.infrastructure.config.TenantServerRequestObservationConvention",
+                    // OTLP log export: referenced only by class name from logback-spring.xml
+                    // (Logback instantiates it via reflection, not a Java reference) ...
+                    BASE_PACKAGE + ".shared.infrastructure.config.logging.MaskingOpenTelemetryAppender",
+                    // ... and this one is a Spring-managed bean discovered via component
+                    // scanning (no direct class references)
+                    BASE_PACKAGE + ".shared.infrastructure.config.OpenTelemetryAppenderInitializer");
 
-//todo
+//todo foo
 //    @ArchTest
 //    static final ArchRule packageDependenciesAreRespected = layeredArchitecture()
 //            .consideringOnlyDependenciesInLayers()
@@ -67,6 +93,12 @@ class ArchUnitTest {
 //            .whereLayer("Issuance").mayOnlyAccessLayers("OIDC4VCI-Workflow", "Shared")
 //            .whereLayer("OIDC4VCI").mayOnlyAccessLayers("Shared")
 //            .whereLayer("Shared").mayNotAccessAnyLayer();
+
+    @ArchTest
+    static final ArchRule noProductionClassShouldDependOnGplBase58 =
+            noClasses()
+                    .that().resideInAPackage(BASE_PACKAGE + "..")
+                    .should().dependOnClassesThat().resideInAPackage("io.github.novacrypto..");
 
     @ArchTest
     static final ArchRule implementationsShouldBeInSameLayerAsInterfaces =

@@ -27,9 +27,14 @@ public class VerifierHealthIndicator implements ReactiveHealthIndicator {
             return Mono.just(Health.unknown().withDetail("reason", "verifier-url not configured").build());
         }
 
+        // Verifier mounts all endpoints under its own base-path (/verifier).
+        // Using its /health keeps the probe semantically correct and avoids
+        // leaking assumptions about which well-known documents are exposed.
+        String base = stripTrailingSlash(verifierUrl);
+        String probeUrl = base.endsWith("/verifier") ? base + "/health" : base + "/verifier/health";
         return webClientBuilder.build()
                 .get()
-                .uri(verifierUrl + "/.well-known/openid-configuration")
+                .uri(probeUrl)
                 .retrieve()
                 .toBodilessEntity()
                 .map(response -> Health.up()
@@ -40,5 +45,9 @@ public class VerifierHealthIndicator implements ReactiveHealthIndicator {
                         .withDetail("verifierUrl", verifierUrl)
                         .withDetail("error", e.getMessage())
                         .build()));
+    }
+
+    private static String stripTrailingSlash(String url) {
+        return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
     }
 }
