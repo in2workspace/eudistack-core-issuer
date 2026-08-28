@@ -1,7 +1,6 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter;
 
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
-import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.service.SignDocService;
@@ -28,18 +27,15 @@ public class CscSignDocSigningProvider implements SigningProvider {
     @Override
     public Mono<SigningResult> sign(SigningRequest request) {
         return Mono.defer(() -> {
-            // Computed defensively (null-safe) so that a null request/context still fails
-            // through SigningRequestValidator.validate() as a SigningException, not an NPE:
-            // isIssued must be known before validate() (it decides requireContextToken), but
-            // validate() is also what asserts request/context are non-null in the first place.
-            SigningContext ctx = request != null ? request.context() : null;
-            String issuanceId = ctx != null ? ctx.issuanceId() : null;
-            boolean isIssued = issuanceId != null && !issuanceId.isBlank();
+            // Validate first: it guarantees request and context are non-null, so everything
+            // below can read them directly.
+            SigningRequestValidator.validate(request);
 
-            // Context token is only required when signing an issued credential (a caller
-            // context exists). System artifacts (e.g. status lists, AD-1/EUD-225) are signed
-            // without a caller token: signDocService acquires its own QTSP credentials.
-            SigningRequestValidator.validate(request, isIssued);
+            // issuanceId is the only discriminator between a caller-triggered issuance and a
+            // system artifact (status list). The caller token plays no part: AD-1/EUD-225 --
+            // signDocService acquires its own QTSP credentials in both cases.
+            String issuanceId = request.context().issuanceId();
+            boolean isIssued = issuanceId != null && !issuanceId.isBlank();
 
             log.debug("Signing request received. type={}, issued={}, issuanceId={}", request.type(), isIssued, issuanceId);
 

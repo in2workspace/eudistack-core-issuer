@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.JWSObject;
 import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.exception.UnknownCredentialIdentifierException;
@@ -55,6 +57,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
     private final TransientStore<String> enrichmentCacheStore;
     private final TransientStore<String> notificationCacheStore;
     private final CredentialIssuedLogger credentialIssuedLogger;
+    private final ObjectMapper objectMapper;
 
     public Oid4VciCredentialWorkflowImpl(
             CredentialSignerWorkflow credentialSignerWorkflow,
@@ -66,7 +69,8 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             StatusListWorkflow statusListWorkflow,
             @Qualifier("enrichmentCacheStore") TransientStore<String> enrichmentCacheStore,
             @Qualifier("notificationCacheStore") TransientStore<String> notificationCacheStore,
-            CredentialIssuedLogger credentialIssuedLogger
+            CredentialIssuedLogger credentialIssuedLogger,
+            ObjectMapper objectMapper
     ) {
         this.credentialSignerWorkflow = credentialSignerWorkflow;
         this.proofValidationService = proofValidationService;
@@ -78,6 +82,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         this.enrichmentCacheStore = enrichmentCacheStore;
         this.notificationCacheStore = notificationCacheStore;
         this.credentialIssuedLogger = credentialIssuedLogger;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -235,7 +240,13 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             return Mono.error(new FormatUnsupportedException("No profile for credential type: " + credentialType));
         }
 
-        Map<String, Object> cnf = bindingInfo.cnf();
+        // A proof-derived cnf always wins. It is absent exactly when the profile declares no
+        // cryptographic binding method (evaluateCryptographicBinding short-circuits), and then the
+        // holder key was supplied in the issuance request and persisted at intake (EUD-33). One code
+        // path serves both worlds -- no second branch keyed on the profile.
+        Map<String, Object> cnf = bindingInfo.cnf() != null
+                ? bindingInfo.cnf()
+                : parsePersistedCnf(proc.getHolderCnf(), issuanceId);
         String token = BEARER_PREFIX + rawToken;
         StatusListFormat statusFormat = DC_SD_JWT.equals(credentialFormat)
                 ? StatusListFormat.TOKEN_JWT : StatusListFormat.BITSTRING_VC;
@@ -284,6 +295,26 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                                     .build());
                 })
                 .doOnSuccess(resp -> log.info("[{}] Credential signed successfully for issuanceId={}", processId, issuanceId));
+    }
+
+    /**
+     * Reads back the cnf persisted at intake for credential types whose holder key does not arrive in
+     * a wallet proof (EUD-33). Absent is a legitimate answer -- a profile with {@code cnf_required:false}
+     * has no cnf at all -- and the payload builders decide whether that is acceptable for the profile.
+     *
+     * <p>Unparseable, on the other hand, is never acceptable: the value was normalized and serialized by
+     * this system, so a corrupt one means the binding cannot be reconstructed. Fail closed rather than
+     * sign a credential whose holder binding silently went missing. The message carries no key material.
+     */
+    private Map<String, Object> parsePersistedCnf(String holderCnf, String issuanceId) {
+        if (holderCnf == null || holderCnf.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(holderCnf, new TypeReference<Map<String, Object>>() {});
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException("Failed to read persisted holder cnf for issuanceId=" + issuanceId, e);
+        }
     }
 
     // --- Proof validation logic (kept from existing implementation) ---

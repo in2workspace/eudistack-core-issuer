@@ -19,6 +19,7 @@ import reactor.core.publisher.Mono;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.TX_CODE_SIZE;
@@ -34,6 +35,9 @@ import static es.in2.issuer.backend.shared.infrastructure.util.HttpUtils.ensureU
 public class CredentialOfferServiceImpl implements CredentialOfferService {
 
     private static final String GRANT_TYPE_PRE_AUTHORIZED_CODE = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
+
+    /** Sentinel for "the mail leg did not fail". Never a real error detail. */
+    private static final String NO_EMAIL_FAILURE = "";
 
     private final PreAuthorizedCodeService preAuthorizedCodeService;
     private final TransientStore<String> issuerStateCacheStore;
@@ -71,6 +75,17 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                         .flatMap(uri -> deliverOffer(uri, issuanceId, credentialOfferRefreshToken, delivery, publicWalletBaseUrl)));
     }
 
+    /**
+     * Dispatches the (already cached and redeemable) offer across the declared channels and reports
+     * the outcome per channel.
+     *
+     * <p>The mail leg is isolated on purpose (EUD-33 EC-05/AD-5). It used to be chained as
+     * {@code emailTask.then(resultTask)}, so an SMTP outage discarded a perfectly usable
+     * {@code credential_offer_uri} and got every declared channel reported as failed -- including
+     * {@code ui}, whose whole transport is building a deep link and cannot fail on its own. Deciding
+     * the operation's overall outcome is the caller's job: this method only reports what happened to
+     * each channel.
+     */
     private Mono<CredentialOfferResult> deliverOffer(String credentialOfferUri, String issuanceId,
                                                      String credentialOfferRefreshToken, String delivery,
                                                      String publicWalletBaseUrl) {
@@ -97,13 +112,23 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                         .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE)))
                 : Mono.empty();
 
-        Mono<CredentialOfferResult> resultTask = includeUri
-                ? Mono.just(CredentialOfferResult.builder()
-                        .credentialOfferUri(buildWalletDeepLink(credentialOfferUri, publicWalletBaseUrl))
-                        .build())
-                : Mono.just(CredentialOfferResult.builder().build());
+        String offerUri = includeUri ? buildWalletDeepLink(credentialOfferUri, publicWalletBaseUrl) : null;
 
-        return emailTask.then(resultTask);
+        // NO_EMAIL_FAILURE stands in for "the mail leg did not fail", so the whole outcome can be
+        // carried by a single String through the reactive chain without an Optional wrapper.
+        return emailTask.thenReturn(NO_EMAIL_FAILURE)
+                .onErrorResume(ex -> Mono.just(resolveEmailFailureDetail(ex)))
+                .map(emailFailure -> CredentialOfferResult.builder()
+                        .credentialOfferUri(offerUri)
+                        .failedModes(NO_EMAIL_FAILURE.equals(emailFailure)
+                                ? Map.of()
+                                : Map.of(DeliveryMode.EMAIL, emailFailure))
+                        .build());
+    }
+
+    private String resolveEmailFailureDetail(Throwable ex) {
+        String message = ex.getMessage();
+        return (message == null || message.isBlank()) ? MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE : message;
     }
 
     private Mono<Void> sendLegacyCredentialOfferEmail(String credentialOfferUri, String refreshUrl,

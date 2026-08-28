@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.controller.error;
 
+import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.RequestPath;
@@ -30,6 +31,20 @@ public class ErrorResponseFactory {
             String type, String title, HttpStatus status, String detail
     ) {
         return Mono.fromSupplier(() -> buildError(type, title, status, detail, ex, request, null));
+    }
+
+    /**
+     * Handles a delivery failure, attaching the per-mode outcome to the error body so a client reads
+     * the same {@code delivery_results} contract on 5xx as on 200 (EUD-33 AC-06).
+     */
+    public Mono<GlobalErrorMessage> handleWithDelivery(
+            Exception ex, ServerHttpRequest request,
+            String type, String title, HttpStatus status, String fallbackDetail,
+            List<DeliveryResult> deliveryResults, String credentialOfferUri
+    ) {
+        String detail = resolveDetail(ex, fallbackDetail);
+        return Mono.fromSupplier(() -> buildError(type, title, status, detail, ex, request, null)
+                .withDelivery(deliveryResults, credentialOfferUri));
     }
 
     public Mono<GlobalErrorMessage> handleWithViolations(

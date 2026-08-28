@@ -76,11 +76,10 @@ class CscSignDocSigningProviderTest {
     @Test
     void signSystemArtifact_withNullTokenAndNullIssuanceId_routesToSignSystemCredential() {
         // AD-1/EUD-225 (T33): a system-triggered signing request (no caller context -- status
-        // list revocation via the queue or the OID4VCI notification) has issuanceId=null,
-        // which makes isIssued=false and relaxes the context-token guard
-        // (SigningRequestValidator.validate(request, false)). This must NOT throw, and must
-        // route to signSystemCredential, not signIssuedCredential. Without this case, AD-1's
-        // relaxation merges with no test covering the very path it exists for.
+        // list revocation via the queue or the OID4VCI notification) has issuanceId=null, which
+        // makes isIssued=false. This must NOT throw, and must route to signSystemCredential,
+        // not signIssuedCredential. Without this case, AD-1's relaxation merges with no test
+        // covering the very path it exists for.
         SigningContext context = new SigningContext(null, null, "email@example.com");
         SigningRequest request = buildRequest(SigningType.JADES, "data", context);
         SigningResult signedData = new SigningResult(SigningType.JADES, "signedData");
@@ -94,6 +93,25 @@ class CscSignDocSigningProviderTest {
                 .verifyComplete();
 
         verify(signDocService, never()).signIssuedCredential(any(), any());
+    }
+
+    @Test
+    void signIssuedCredential_withNullToken_routesToSignIssuedCredential() {
+        // AD-1/EUD-225: the caller token is vestigial -- no provider reads it and the QTSP
+        // acquires its own credentials -- so an issued credential (issuanceId present) must
+        // sign fine without one. Requiring it made direct issuance without X-Id-Token fail
+        // with an opaque SigningException, downstream of the status list NPE.
+        SigningContext context = new SigningContext(null, "issuanceId", "email@example.com");
+        SigningRequest request = buildRequest(SigningType.JADES, "data", context);
+        SigningResult signedData = new SigningResult(SigningType.JADES, "signedData");
+        when(signDocService.signIssuedCredential(any(SigningRequest.class), eq("issuanceId")))
+                .thenReturn(Mono.just(signedData));
+
+        StepVerifier.create(cscSignDocSigningProvider.sign(request))
+                .assertNext(result -> assertThat(result.data()).isEqualTo("signedData"))
+                .verifyComplete();
+
+        verify(signDocService, never()).signSystemCredential(any());
     }
 
     @Test
@@ -114,9 +132,7 @@ class CscSignDocSigningProviderTest {
                 {buildRequest(null, "data", validContext), "Null type"},
                 {buildRequest(SigningType.JADES, null, validContext), "Null data"},
                 {buildRequest(SigningType.JADES, "   ", validContext), "Blank data"},
-                {buildRequest(SigningType.JADES, "data", null), "Null context"},
-                {buildRequest(SigningType.JADES, "data", new SigningContext(null, "issuanceId", "email@example.com")), "Null token"},
-                {buildRequest(SigningType.JADES, "data", new SigningContext("   ", "issuanceId", "email@example.com")), "Blank token"}
+                {buildRequest(SigningType.JADES, "data", null), "Null context"}
         };
     }
 

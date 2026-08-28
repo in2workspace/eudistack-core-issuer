@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.issuance.domain.model;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
@@ -17,11 +18,18 @@ public record HolderKey(Map<String, Object> cnf) {
         Objects.requireNonNull(cnf, "cnf");
     }
 
-    /** Parses a {@code holder_key} JSON node into a {@link HolderKey}.*/
+    /**
+     * Parses a {@code holder_key} JSON node into a {@link HolderKey}.
+     *
+     * <p>Required for every delivery mode of a credential type that requires holder binding but
+     * declares no {@code cryptographic_binding_methods_supported} (EUD-33): no wallet proof will
+     * arrive for such a type, so the request is the only source of the holder key.
+     */
     public static HolderKey fromJson(JsonNode node) {
         if (node == null || node.isNull() || node.isMissingNode()) {
             throw new InvalidHolderKeyException(
-                    "holder_key is required for direct delivery of a credential type requiring holder binding");
+                    "holder_key is required for a credential type requiring holder binding "
+                            + "with no cryptographic binding method");
         }
         if (!node.isObject()) {
             throw new InvalidHolderKeyException("invalid holder_key: expected a JSON object");
@@ -48,6 +56,23 @@ public record HolderKey(Map<String, Object> cnf) {
 
         Object value = OBJECT_MAPPER.convertValue(valueNode, Object.class);
         return new HolderKey(Map.of(presentForm, value));
+    }
+
+    /**
+     * Serializes the normalized cnf for persistence, so the OID4VCI credential endpoint -- a separate
+     * HTTP call, later in time -- reads it back without re-validating its shape (EUD-33).
+     *
+     * <p>Paired with {@link #fromJson(JsonNode)} on purpose: validation and serialization of a holder
+     * key belong to the holder key, not to the workflow that happens to handle it.
+     */
+    public String toJson() {
+        try {
+            return OBJECT_MAPPER.writeValueAsString(cnf);
+        } catch (JsonProcessingException e) {
+            // Unreachable in practice: cnf was built from a parsed JsonNode. Fail closed anyway rather
+            // than persist an issuance whose holder binding cannot be recovered. Carries no key material.
+            throw new IllegalStateException("Failed to serialize holder cnf", e);
+        }
     }
 
     private static void validateFormShape(String form, JsonNode value) {

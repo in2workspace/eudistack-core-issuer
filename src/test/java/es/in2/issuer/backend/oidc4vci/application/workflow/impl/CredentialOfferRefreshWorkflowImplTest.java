@@ -16,6 +16,7 @@ import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.util.Map;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.eq;
@@ -74,6 +75,37 @@ class CredentialOfferRefreshWorkflowImplTest {
                 eq(CREDENTIAL_OFFER_REFRESH_TOKEN),
                 eq(PUBLIC_ISSUER_BASE_URL),
                 eq(PUBLIC_WALLET_BASE_URL));
+    }
+
+    @Test
+    void refreshCredentialOffer_WhenEmailChannelFails_ShouldFailInsteadOfReportingSuccess() {
+        // AD-4/AD-5: createAndDeliverCredentialOffer now isolates the mail leg and reports it per
+        // channel instead of erroring. A refresh declares only email, so a failed email means nothing
+        // was delivered -- without this check the isolation would turn that into a silent success.
+        UUID issuanceId = UUID.randomUUID();
+        Issuance issuance = buildIssuance(issuanceId, CredentialStatusEnum.DRAFT);
+
+        when(issuanceService.getIssuanceByCredentialOfferRefreshToken(CREDENTIAL_OFFER_REFRESH_TOKEN))
+                .thenReturn(Mono.just(issuance));
+        when(credentialOfferService.createAndDeliverCredentialOffer(
+                eq(issuanceId.toString()),
+                eq(CREDENTIAL_TYPE),
+                eq(DEFAULT_GRANT_TYPE),
+                eq(EMAIL),
+                eq(DeliveryMode.EMAIL.value),
+                eq(CREDENTIAL_OFFER_REFRESH_TOKEN),
+                eq(PUBLIC_ISSUER_BASE_URL),
+                eq(PUBLIC_WALLET_BASE_URL)))
+                .thenReturn(Mono.just(CredentialOfferResult.builder()
+                        .failedModes(Map.of(DeliveryMode.EMAIL, "Error during communication with the mail server"))
+                        .build()));
+
+        StepVerifier.create(workflow.refreshCredentialOffer(CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL, PUBLIC_WALLET_BASE_URL))
+                .expectErrorSatisfies(error -> {
+                    ResponseStatusException ex = (ResponseStatusException) error;
+                    org.junit.jupiter.api.Assertions.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, ex.getStatusCode());
+                })
+                .verify();
     }
 
     @Test

@@ -95,6 +95,10 @@ public class CredentialIssuerMetadataServiceImpl implements CredentialIssuerMeta
                 .format(profile.format())
                 .scope(profile.scope())
                 .cryptographicBindingMethodsSupported(bindingMethods)
+                // Published alongside the binding methods on purpose: the two together are the whole
+                // holder-binding rule (CredentialProfile#holderKeyRequired), and a client that reads
+                // only one of them cannot tell a bearer credential from one it must supply a key for.
+                .cnfRequired(profile.cnfRequired())
                 .credentialSigningAlgValuesSupported(profile.credentialSigningAlgValuesSupported())
                 .proofTypesSupported(proofTypes)
                 .credentialMetadata(profile.credentialMetadata())

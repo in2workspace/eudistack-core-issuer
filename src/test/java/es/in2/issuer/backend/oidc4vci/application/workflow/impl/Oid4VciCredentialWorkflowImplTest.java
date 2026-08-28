@@ -87,7 +87,8 @@ class Oid4VciCredentialWorkflowImplTest {
                 statusListWorkflow,
                 enrichmentCacheStore,
                 notificationCacheStore,
-                credentialIssuedLogger
+                credentialIssuedLogger,
+                new com.fasterxml.jackson.databind.ObjectMapper()
         );
 
         // Common mocks to avoid NPE when a test reaches further than expected

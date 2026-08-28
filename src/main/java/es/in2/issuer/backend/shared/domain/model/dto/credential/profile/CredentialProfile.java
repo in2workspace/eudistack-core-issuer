@@ -137,6 +137,41 @@ public record CredentialProfile(
     ) {}
 
     /**
+     * {@code true} when the holder key arrives via an OID4VCI proof-of-possession from a wallet.
+     *
+     * <p>Declaring {@code cryptographic_binding_methods_supported} in the profile is exactly the
+     * statement "a wallet proves possession of the holder key at the credential endpoint". It is the
+     * single determinant behind {@link #directDeliveryEligible()} and {@link #holderKeyRequired()},
+     * so the null/empty check lives here once instead of being re-derived at every call site.
+     */
+    public boolean walletBoundHolderKey() {
+        return cryptographicBindingMethodsSupported != null && !cryptographicBindingMethodsSupported.isEmpty();
+    }
+
+    /**
+     * {@code true} when this credential type can be delivered directly (synchronously, in the
+     * issuance response) instead of through a credential offer.
+     *
+     * <p>Direct delivery has no wallet and therefore no proof-of-possession, so it is impossible
+     * for a type whose holder key is wallet-bound.
+     */
+    public boolean directDeliveryEligible() {
+        return !walletBoundHolderKey();
+    }
+
+    /**
+     * {@code true} when the {@code holder_key} of the issuance request is the source of the
+     * {@code cnf} claim — i.e. holder binding is required but no wallet proof will ever arrive.
+     *
+     * <p>Applies to <em>every</em> delivery mode, not only {@code direct}: the wallet of a type with
+     * no cryptographic binding method sends no proof, so the key supplied at intake is the only one
+     * there is.
+     */
+    public boolean holderKeyRequired() {
+        return cnfRequired && !walletBoundHolderKey();
+    }
+
+    /**
      * Returns the credential type name (e.g., "learcredential.employee.w3c.4").
      * Derived from the second element in credential_definition.type,
      * or the first element if only one type is defined.

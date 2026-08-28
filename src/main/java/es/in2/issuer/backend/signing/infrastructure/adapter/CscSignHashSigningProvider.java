@@ -40,7 +40,7 @@ public class CscSignHashSigningProvider implements SigningProvider {
     @Override
     public Mono<SigningResult> sign(SigningRequest request) {
         return Mono.defer(() -> {
-            SigningRequestValidator.validate(request, false);
+            SigningRequestValidator.validate(request);
 
             if (request.type() != SigningType.JADES) {
                 return Mono.error(new SigningException("csc-sign-hash supports only JADES/JWT"));

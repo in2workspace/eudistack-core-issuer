@@ -81,13 +81,18 @@ public class BitstringStatusListProvider implements StatusListProvider {
     }
 
     @Override
+    /**
+     * @param token caller access token; may be {@code null}. AD-1/EUD-225: the token is vestigial
+     *              downstream -- it is never used to authorize or to sign (the QTSP obtains its own
+     *              credentials), so allocation must not depend on a caller having supplied one.
+     *              Requiring it here turned a direct issuance without {@code X-Id-Token} into a 500.
+     */
     @Observed(name = "statuslist.provider.allocate-entry", contextualName = "statuslist-provider-allocate-entry")
     public Mono<StatusListEntry> allocateEntry(StatusPurpose purpose, StatusListFormat format,
                                                String issuanceId, String token, String publicIssuerBaseUrl) {
         requireNonNullParam(purpose, "purpose");
         requireNonNullParam(format, "format");
         requireNonNullParam(issuanceId, "issuanceId");
-        requireNonNullParam(token, TOKEN);
         requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
 
         log.debug("method=allocateEntry step=START purpose={} format={} issuanceId={}", purpose, format, issuanceId);
@@ -239,10 +244,10 @@ public class BitstringStatusListProvider implements StatusListProvider {
                 );
     }
 
+    /** @param token caller access token; may be {@code null} -- see {@link #allocateEntry}. */
     public Mono<StatusList> createNewList(StatusPurpose purpose, StatusListFormat format, String token, String publicIssuerBaseUrl) {
         requireNonNullParam(purpose, "purpose");
         requireNonNullParam(format, "format");
-        requireNonNullParam(token, TOKEN);
         requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
 
         log.debug("method=createNewList step=START purpose={} format={}", purpose, format);
