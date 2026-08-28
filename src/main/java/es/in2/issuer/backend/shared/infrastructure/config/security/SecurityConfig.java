@@ -100,6 +100,7 @@ public class SecurityConfig {
                         // Issuance endpoints (unified)
                         ISSUANCES_PATH,
                         ISSUANCES_WILDCARD_PATH,
+                        ISSUANCE_STATUS_CREDENTIALS,
                         // Current caller role resolution
                         ME_PATH,
                         // Tenant admin delivery-config management (EUD-169)
