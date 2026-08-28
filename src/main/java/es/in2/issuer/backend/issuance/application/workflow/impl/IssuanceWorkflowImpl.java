@@ -10,6 +10,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.CredentialBuildResult;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.HolderCnfJson;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
@@ -286,7 +287,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 : Mono.just(DirectDeliveryOutcome.empty());
 
         Mono<WalletDeliveryOutcome> walletOutcome = hasOid4vci
-                ? performOid4VciIssuanceResilient(processId, request, publicIssuerBaseUrl, publicWalletBaseUrl, oid4vciDelivery)
+                ? performOid4VciIssuanceResilient(processId, request, publicIssuerBaseUrl, publicWalletBaseUrl,
+                        oid4vciDelivery, cnf)
                 : Mono.just(WalletDeliveryOutcome.empty());
 
         return Mono.zip(directOutcome, walletOutcome)
@@ -295,9 +297,10 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private Mono<WalletDeliveryOutcome> performOid4VciIssuanceResilient(
             String processId, IssuanceRequest request,
-            String publicIssuerBaseUrl, String publicWalletBaseUrl, String oid4vciDelivery) {
+            String publicIssuerBaseUrl, String publicWalletBaseUrl, String oid4vciDelivery,
+            Map<String, Object> cnf) {
 
-        return performOid4VciIssuance(processId, request, publicIssuerBaseUrl, publicWalletBaseUrl, oid4vciDelivery)
+        return performOid4VciIssuance(processId, request, publicIssuerBaseUrl, publicWalletBaseUrl, oid4vciDelivery, cnf)
                 .map(r -> WalletDeliveryOutcome.success(r.credentialOfferUri(), oid4vciDelivery))
                 .timeout(Duration.ofSeconds(issuanceProperties.hybridWalletTimeoutSeconds()))
                 .onErrorResume(ex -> {
@@ -392,7 +395,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                     Issuance issuance = buildDirectIssuanceEntity(
                                                             issuanceId, configId, credentialFormat,
                                                             buildResult, enrichedWithStatus,
-                                                            request.email(), originalDelivery, finalStatus);
+                                                            request.email(), originalDelivery, finalStatus, cnf);
                                                     return issuanceService.saveIssuance(issuance)
                                                             .doOnSuccess(saved -> log.debug(
                                                                     "ProcessId: {} - Direct issuance saved: {} status={}",
@@ -407,7 +410,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private Mono<IssuanceResponse> performOid4VciIssuance(String processId, IssuanceRequest request,
                                                            String publicIssuerBaseUrl, String publicWalletBaseUrl,
-                                                           String oid4vciDelivery) {
+                                                           String oid4vciDelivery, Map<String, Object> cnf) {
         String configId = request.credentialConfigurationId();
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
         String grantType = request.grantType() != null ? request.grantType() : DEFAULT_GRANT_TYPE;
@@ -415,8 +418,11 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         return genericCredentialBuilder.buildCredential(profile, request.payload())
                 .flatMap(buildResult -> {
                     UUID issuanceId = UUID.randomUUID();
+                    // The cnf travels on the row, not in this request: the wallet legs sign in a
+                    // later request to the Credential Endpoint, where the holder key of an exempt
+                    // type has no other source (AD-8).
                     Issuance issuance = buildIssuanceEntity(issuanceId, configId, profile.format(),
-                            buildResult, request.email(), oid4vciDelivery);
+                            buildResult, request.email(), oid4vciDelivery, cnf);
 
                     return issuanceService.saveIssuance(issuance)
                             .doOnSuccess(saved -> log.debug("ProcessId: {} - Created OID4VCI issuance: {}", processId, saved.getIssuanceId()))
@@ -432,7 +438,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     }
 
     private Issuance buildIssuanceEntity(UUID issuanceId, String credentialType, String credentialFormat,
-                                          CredentialBuildResult buildResult, String email, String delivery) {
+                                          CredentialBuildResult buildResult, String email, String delivery,
+                                          Map<String, Object> cnf) {
         return Issuance.builder()
                 .issuanceId(issuanceId)
                 .credentialStatus(CredentialStatusEnum.DRAFT)
@@ -446,12 +453,14 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 .email(email)
                 .delivery(delivery)
                 .credentialOfferRefreshToken(UUID.randomUUID().toString())
+                .holderCnf(HolderCnfJson.write(cnf))
                 .build();
     }
 
     private Issuance buildDirectIssuanceEntity(UUID issuanceId, String credentialType, String credentialFormat,
                                                 CredentialBuildResult buildResult, String enrichedDataSet,
-                                                String email, String delivery, CredentialStatusEnum status) {
+                                                String email, String delivery, CredentialStatusEnum status,
+                                                Map<String, Object> cnf) {
         return Issuance.builder()
                 .issuanceId(issuanceId)
                 .credentialStatus(status)
@@ -465,6 +474,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 .email(email)
                 .delivery(delivery)
                 .credentialOfferRefreshToken(UUID.randomUUID().toString())
+                .holderCnf(HolderCnfJson.write(cnf))
                 .build();
     }
 

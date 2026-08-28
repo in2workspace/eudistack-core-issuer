@@ -11,6 +11,7 @@ import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialResponse;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.HolderCnfJson;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.BindingInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
@@ -218,6 +219,21 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         return Mono.empty();
     }
 
+    /**
+     * The key proof is the binding whenever one arrives. When none does -- a credential type exempt
+     * from ADR-110 declares no {@code proof_types_supported}, so {@code resolveBinding} returns empty
+     * and no proof is ever requested (EUD-168 AD-8) -- the holder key persisted with the issuance
+     * request is the only source of a cnf left, and the profile still requires one. Reading it here
+     * keeps the two sources ordered by strength: cryptographic evidence first, issuer assertion second.
+     */
+    private Map<String, Object> resolveCnf(BindingInfo bindingInfo, Issuance proc) {
+        Map<String, Object> fromProof = bindingInfo.cnf();
+        if (fromProof != null && !fromProof.isEmpty()) {
+            return fromProof;
+        }
+        return HolderCnfJson.read(proc.getHolderCnf());
+    }
+
     private Mono<CredentialResponse> enrichAndSign(
             String processId,
             Issuance proc,
@@ -235,7 +251,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             return Mono.error(new FormatUnsupportedException("No profile for credential type: " + credentialType));
         }
 
-        Map<String, Object> cnf = bindingInfo.cnf();
+        Map<String, Object> cnf = resolveCnf(bindingInfo, proc);
         String token = BEARER_PREFIX + rawToken;
         StatusListFormat statusFormat = DC_SD_JWT.equals(credentialFormat)
                 ? StatusListFormat.TOKEN_JWT : StatusListFormat.BITSTRING_VC;

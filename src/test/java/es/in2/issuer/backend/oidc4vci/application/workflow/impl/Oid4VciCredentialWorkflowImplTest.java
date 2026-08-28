@@ -36,6 +36,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -612,6 +613,97 @@ class Oid4VciCredentialWorkflowImplTest {
         StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
                 .expectError(FormatUnsupportedException.class)
                 .verify();
+    }
+
+    /**
+     * EUD-168 AD-8. A credential type exempt from ADR-110 publishes no proof_types_supported, so the
+     * wallet sends no key proof and the Credential Endpoint has no binding to extract -- yet its
+     * profile still requires a cnf. The holder key persisted with the issuance request is what makes
+     * the wallet delivery modes work at all for those types; without it, signing fails with
+     * "Missing cnf (expected kid/jwk/x5c)".
+     */
+    @SuppressWarnings("unchecked")
+    @Test
+    void createCredentialResponse_noKeyProof_shouldSignWithTheCnfPersistedOnTheIssuance() {
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+        issuance.setHolderCnf("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"x-coord\",\"y\":\"y-coord\"}}");
+        CredentialProfile profile = buildProfile(true);
+        CredentialIssuerMetadata metadata = buildMetadata(null);
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialConfigurationId(CREDENTIAL_TYPE)
+                .format(JWT_VC_JSON)
+                .build();
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN)
+                .issuanceId(ISSUANCE_ID)
+                .build();
+
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .assertNext(resp -> assertThat(resp.credentials()).isNotEmpty())
+                .verifyComplete();
+
+        ArgumentCaptor<Map<String, Object>> cnfCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(credentialSignerWorkflow).signCredential(any(), any(), any(), any(),
+                cnfCaptor.capture(), any(), any());
+        assertThat(cnfCaptor.getValue()).containsOnlyKeys("jwk");
+        assertThat((Map<String, Object>) cnfCaptor.getValue().get("jwk")).containsEntry("crv", "P-256");
+
+        verify(proofValidationService, never()).verifyProof(any(), any(), any());
+    }
+
+    /**
+     * The two sources of cnf are ordered by strength: a key proof is cryptographic evidence of
+     * possession, the persisted holder key only an issuer assertion (EUD-168 R-7). When a proof
+     * arrives it wins, even on a row that happens to carry a holder key.
+     */
+    @SuppressWarnings("unchecked")
+    @Test
+    void createCredentialResponse_withKeyProof_shouldPreferTheProofOverThePersistedCnf() throws Exception {
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+        issuance.setHolderCnf("{\"kid\":\"persisted-key\"}");
+        CredentialProfile profile = buildProfile(true);
+        String expectedIssuer = "https://issuer.example.com";
+        CredentialIssuerMetadata.CredentialConfiguration config =
+                CredentialIssuerMetadata.CredentialConfiguration.builder()
+                        .format(JWT_VC_JSON)
+                        .proofTypesSupported(Map.of("jwt", CredentialProfile.ProofTypeConfig.builder()
+                                .proofSigningAlgValuesSupported(Set.of("ES256"))
+                                .build()))
+                        .build();
+        CredentialIssuerMetadata metadata = CredentialIssuerMetadata.builder()
+                .credentialIssuer(expectedIssuer)
+                .credentialEndpoint(expectedIssuer + "/oid4vci/v1/credential")
+                .credentialConfigurationsSupported(Map.of(CREDENTIAL_TYPE, config))
+                .build();
+
+        String jwtProof = buildJwtProofWithKid("did:key:zProof#zProof");
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialConfigurationId(CREDENTIAL_TYPE)
+                .proof(Proof.builder().jwt(jwtProof).build())
+                .build();
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN)
+                .issuanceId(ISSUANCE_ID)
+                .build();
+
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+        when(proofValidationService.verifyProof(eq(jwtProof), eq(Set.of("ES256")), eq(expectedIssuer)))
+                .thenReturn(Mono.just(true));
+
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .assertNext(resp -> assertThat(resp.credentials()).isNotEmpty())
+                .verifyComplete();
+
+        ArgumentCaptor<Map<String, Object>> cnfCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(credentialSignerWorkflow).signCredential(any(), any(), any(), any(),
+                cnfCaptor.capture(), any(), any());
+        assertThat(cnfCaptor.getValue()).containsEntry("kid", "did:key:zProof#zProof");
     }
 
     // ---- Helpers ----

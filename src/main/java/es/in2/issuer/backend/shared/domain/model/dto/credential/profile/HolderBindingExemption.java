@@ -1,6 +1,6 @@
 package es.in2.issuer.backend.shared.domain.model.dto.credential.profile;
 
-import java.util.Set;
+import java.util.List;
 
 /**
  * The closed list of credential types allowed to carry a {@code cnf} claim without declaring
@@ -19,25 +19,35 @@ import java.util.Set;
  * mode rather than the direct one alone: with {@code proof_types_supported} gone no key proof
  * arrives through the wallet flow either, so the request is the only source of a holder key there is.
  *
- * <p>Deliberately a hardcoded list rather than a profile field. A field would be the alternative
- * ADR-110 rejects -- a fourth signal free to contradict the published metadata -- and it would
- * outlive its reason. Two string literals read as what they are: an exception with an expiry date.
+ * <p>Deliberately hardcoded rather than a profile field. A field would be the alternative ADR-110
+ * rejects -- a fourth signal free to contradict the published metadata -- and it would outlive its
+ * reason. Two literals read as what they are: an exception with an expiry date.
+ *
+ * <p>Matched by <em>family prefix</em>, not by exact configuration id, so a version bump of either
+ * machine credential does not need a code change to keep issuing. The looser match costs little:
+ * the exemption only has an effect on a profile that declares {@code cnf_required} with no
+ * {@code proof_types_supported}, and a future machine profile that recovers its key proof is not in
+ * that state at all -- it simply stops needing the exemption. What the prefix does cost is a fuzzier
+ * retirement: with exact ids, retiring meant deleting two known profiles, whereas a prefix silently
+ * covers versions nobody has written yet.
  *
  * <h2>Retirement</h2>
  * When machines get a wallet of their own, these types recover {@code proof_types_supported}, stop
  * being eligible for direct delivery, and derive {@code cnf} from the key proof again. Retiring the
- * exception then means restoring both fields in the two profiles and emptying this set -- after
- * which this class, its use in {@link CredentialProfileBindingInvariant} and the holder-key branch
- * in {@code IssuanceWorkflowImpl} can all be deleted.
+ * exception then means restoring both fields in every machine profile then in use and emptying this
+ * list -- after which this class, its use in {@link CredentialProfileBindingInvariant}, the
+ * holder-key branch in {@code IssuanceWorkflowImpl} and the whole persistence hop the wallet modes
+ * need (the {@code holder_cnf} column, {@code HolderCnfJson}, and {@code resolveCnf}'s fallback in
+ * {@code Oid4VciCredentialWorkflowImpl}) can all be deleted.
  *
  * <p><strong>Caveat.</strong> The {@code holder_key} arrives with no proof of possession, so the
  * resulting {@code cnf} is an issuer assertion, not cryptographic evidence (EUD-168 R-7).
  */
 public final class HolderBindingExemption {
 
-    private static final Set<String> EXEMPT_CONFIGURATION_IDS = Set.of(
-            "learcredential.machine.sd.1",
-            "learcredential.machine.w3c.3"
+    private static final List<String> EXEMPT_CONFIGURATION_ID_PREFIXES = List.of(
+            "learcredential.machine.sd.",
+            "learcredential.machine.w3c."
     );
 
     private HolderBindingExemption() {
@@ -48,7 +58,10 @@ public final class HolderBindingExemption {
      * instead of from an OID4VCI key proof.
      */
     public static boolean isExempt(String credentialConfigurationId) {
-        return EXEMPT_CONFIGURATION_IDS.contains(credentialConfigurationId);
+        if (credentialConfigurationId == null) {
+            return false;
+        }
+        return EXEMPT_CONFIGURATION_ID_PREFIXES.stream().anyMatch(credentialConfigurationId::startsWith);
     }
 
 }

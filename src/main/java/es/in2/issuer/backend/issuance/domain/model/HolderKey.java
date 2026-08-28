@@ -21,7 +21,9 @@ public record HolderKey(Map<String, Object> cnf) {
     public static HolderKey fromJson(JsonNode node) {
         if (node == null || node.isNull() || node.isMissingNode()) {
             throw new InvalidHolderKeyException(
-                    "holder_key is required for direct delivery of a credential type requiring holder binding");
+                    "holder_key is required for this credential type, in every delivery mode: its schema "
+                            + "declares no proof_types_supported, so no wallet key proof will ever "
+                            + "arrive and the request is the only source of a holder key");
         }
         if (!node.isObject()) {
             throw new InvalidHolderKeyException("invalid holder_key: expected a JSON object");

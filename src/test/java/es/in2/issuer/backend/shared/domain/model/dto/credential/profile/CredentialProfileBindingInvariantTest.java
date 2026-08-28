@@ -132,14 +132,29 @@ class CredentialProfileBindingInvariantTest {
             }
         }
 
+        /** The prefix match exists so a version bump does not need a code change to keep issuing. */
         @Test
-        void validate_aThirdTypeWithTheSameShape_stillFails() {
-            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(
-                    profile("learcredential.machine.w3c.4")
-                            .cnfRequired(true)
-                            .build()))
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("learcredential.machine.w3c.4");
+        void validate_futureVersionsOfTheSameMachineFamilies_areCoveredWithoutACodeChange() {
+            for (String configId : new String[]{"learcredential.machine.w3c.4", "learcredential.machine.sd.2"}) {
+                assertThatCode(() -> CredentialProfileBindingInvariant.validate(
+                        profile(configId).cnfRequired(true).build()))
+                        .as("future machine version %s must load", configId)
+                        .doesNotThrowAnyException();
+            }
+        }
+
+        @Test
+        void validate_aTypeOutsideTheMachineFamilies_stillFails() {
+            // The exemption is scoped to the machine credential families and nothing else: any other
+            // type in that same shape is the incoherence the invariant exists to catch.
+            for (String configId : new String[]{
+                    "learcredential.employee.w3c.4", "gx.labelcredential.w3c.2", "learcredential.machinery.w3c.1"}) {
+                assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(
+                        profile(configId).cnfRequired(true).build()))
+                        .as("non-exempt type %s must fail", configId)
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessageContaining(configId);
+            }
         }
 
         @Test

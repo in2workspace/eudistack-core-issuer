@@ -1590,6 +1590,10 @@ class IssuanceWorkflowImplTest {
      * AC-12 / AD-8. The exception is not gated on the direct mode: with {@code proof_types_supported}
      * gone, no key proof arrives through the wallet flow either, so the request holder_key is the only
      * source of cnf there is -- for every delivery mode alike.
+     *
+     * <p>The wallet legs sign in a later request, at the Credential Endpoint, so the assertion is that
+     * the cnf is persisted on the issuance row: consuming the holder key here and dropping it would
+     * leave that request with no cnf to write and fail the signing step instead.
      */
     @Test
     void walletOnlyDeliveryOfExemptTypeShouldStillBuildCnfFromTheRequestHolderKey() {
@@ -1617,9 +1621,48 @@ class IssuanceWorkflowImplTest {
                 .expectNextCount(1)
                 .verifyComplete();
 
-        // The point of the assertion: the flow completed without an InvalidHolderKeyException, i.e. the
-        // holder key was consumed on a wallet-only path, not skipped as it would be for a bound type.
-        verify(issuanceService).saveIssuance(any(Issuance.class));
+        ArgumentCaptor<Issuance> issuanceCaptor = ArgumentCaptor.forClass(Issuance.class);
+        verify(issuanceService).saveIssuance(issuanceCaptor.capture());
+        String persistedCnf = issuanceCaptor.getValue().getHolderCnf();
+        assertNotNull(persistedCnf, "holder cnf must survive to the Credential Endpoint");
+        assertTrue(persistedCnf.contains("jwk"));
+        assertTrue(persistedCnf.contains("P-256"));
+    }
+
+    /**
+     * AC-10. A bound type derives its cnf from the key proof at the Credential Endpoint, so nothing
+     * about the request holder key may be persisted for it -- a stored cnf would be read back as a
+     * binding the holder never proved.
+     */
+    @Test
+    void walletDeliveryOfNonExemptTypeShouldNotPersistAnyHolderCnf() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null, holderKeyJwk());
+        CredentialProfile profile = profileWithCnf();
+        UUID issuanceId = UUID.randomUUID();
+        CredentialBuildResult buildResult = buildResult(Instant.now().minusSeconds(100));
+        Issuance savedIssuance = Issuance.builder()
+                .issuanceId(issuanceId).credentialOfferRefreshToken("refresh-token-123").build();
+        CredentialOfferResult offerResult = new CredentialOfferResult("openid-credential-offer://offer-uri");
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(credentialOfferService.createAndDeliverCredentialOffer(
+                eq(issuanceId.toString()), eq(CONFIG_ID), anyString(),
+                eq(EMAIL), eq("email"), anyString(), eq(BASE_URL), eq(WALLET_URL)))
+                .thenReturn(Mono.just(offerResult));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        ArgumentCaptor<Issuance> issuanceCaptor = ArgumentCaptor.forClass(Issuance.class);
+        verify(issuanceService).saveIssuance(issuanceCaptor.capture());
+        assertNull(issuanceCaptor.getValue().getHolderCnf());
     }
 
     /**

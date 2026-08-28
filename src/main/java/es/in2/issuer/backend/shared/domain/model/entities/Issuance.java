@@ -65,6 +65,14 @@ public class Issuance {
     @Nullable
     private Instant deliveryAttemptedAt;
 
+    // Holder confirmation claim supplied in the issuance request (EUD-168 AD-8), as JSON.
+    // Only the credential types exempt from ADR-110 populate it: they declare no
+    // proof_types_supported, so the Credential Endpoint receives no key proof and this row is
+    // the only surviving source of the holder key by the time the credential is signed.
+    @Column("holder_cnf")
+    @Nullable
+    private String holderCnf;
+
     // Optimistic locking (V11, SD-04/EUD-225): every write to this row follows
     // find -> validateTransition -> mutate -> save with no version check in between.
     // Spring Data R2DBC manages this field automatically on save() -- a stale write now
