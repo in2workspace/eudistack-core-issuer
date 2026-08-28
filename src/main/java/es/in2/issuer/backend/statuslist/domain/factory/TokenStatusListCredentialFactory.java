@@ -97,8 +97,11 @@ public class TokenStatusListCredentialFactory {
     private byte[] deflateRaw(byte[] input) {
         // SonarCloud java:S2095: Deflater holds a native zlib resource - end() must run even if
         // deflate() throws mid-loop, or repeated failures leak it (Deflater implements neither
-        // Closeable nor AutoCloseable, so try-with-resources isn't an option here).
+        // Closeable nor AutoCloseable, so try-with-resources isn't an option here). The `return`
+        // is kept outside the try/finally on purpose - assign to a local inside, return after -
+        // the shape SonarJava's dataflow check reliably recognizes as fully closed.
         Deflater deflater = new Deflater(Deflater.DEFAULT_COMPRESSION, true);
+        byte[] compressed;
         try {
             deflater.setInput(input);
             deflater.finish();
@@ -109,9 +112,10 @@ public class TokenStatusListCredentialFactory {
                 int written = deflater.deflate(buffer);
                 baos.write(buffer, 0, written);
             }
-            return baos.toByteArray();
+            compressed = baos.toByteArray();
         } finally {
             deflater.end();
         }
+        return compressed;
     }
 }
