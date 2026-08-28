@@ -14,3 +14,5 @@
 origins:
   - url: "http://localhost:4200"
     tenant: "local"
+  - url: "https://*.stg.eudistack.net"
+    tenant: "stg"

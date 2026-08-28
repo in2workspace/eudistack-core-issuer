@@ -34,13 +34,16 @@ public class CorsFilterConfig {
     public UrlBasedCorsConfigurationSource corsConfigurationSource() {
         // 1. Restricted configuration for authenticated or administrative endpoints.
         // These rely on a predefined list of allowed origins (e.g. the Issuer's own UI).
+        // Backoffice clients use patterns to support wildcard subdomains (e.g. *.stg.eudistack.net).
         CorsConfiguration restrictedConfig = new CorsConfiguration();
-        restrictedConfig.setAllowedOrigins(corsOriginsLoader.loadOrigins());
-        restrictedConfig.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        restrictedConfig.setAllowedOriginPatterns(corsOriginsLoader.loadOrigins());
+        restrictedConfig.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         restrictedConfig.setAllowedHeaders(List.of(
                 "Content-Type", "Authorization", "DPoP",
                 "OAuth-Client-Attestation", "OAuth-Client-Attestation-PoP",
-                "Api-Version"));
+                "Api-Version", "X-ID-Token", "X-Idempotency-Key", "X-Tenant",
+                "X-Bootstrap-Token"));
+        restrictedConfig.setExposedHeaders(List.of("Location"));
         restrictedConfig.setAllowCredentials(false);
         restrictedConfig.setMaxAge(1800L);
 
@@ -53,7 +56,9 @@ public class CorsFilterConfig {
         openConfig.setAllowedHeaders(List.of(
                 "Content-Type", "Authorization", "DPoP",
                 "OAuth-Client-Attestation", "OAuth-Client-Attestation-PoP",
-                "Api-Version"));
+                "Api-Version", "X-ID-Token", "X-Idempotency-Key", "X-Tenant",
+                "X-Bootstrap-Token"));
+        openConfig.setExposedHeaders(List.of("Location"));
         openConfig.setAllowCredentials(false);
         openConfig.setMaxAge(1800L);
 

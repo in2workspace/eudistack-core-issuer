@@ -18,7 +18,10 @@ class CorsFilterConfigTest {
 
     private CorsOriginsLoader corsOriginsLoader;
     private CorsFilterConfig corsConfig;
-    private static final List<String> ALLOWED_ORIGINS = List.of("https://wallet.example.com", "https://another.com");
+    private static final List<String> ALLOWED_ORIGINS = List.of(
+            "https://wallet.example.com",
+            "https://another.com",
+            "https://*.stg.eudistack.net");
 
     @BeforeEach
     void setUp() {
@@ -86,7 +89,7 @@ class CorsFilterConfigTest {
 
         assertThat(config).isNotNull();
         assertThat(config.getAllowedMethods())
-                .containsAll(List.of("GET", "POST", "OPTIONS"));
+                .containsAll(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     }
 
     @Test
@@ -106,7 +109,7 @@ class CorsFilterConfigTest {
     void CorsConfigurationSource_ApiPath_AllowsRequiredHeaders() {
         UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
         var exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("/oauth/token").build()
+                MockServerHttpRequest.get("/api/v1/issuances").build()
         );
 
         CorsConfiguration config = source.getCorsConfiguration(exchange);
@@ -115,7 +118,8 @@ class CorsFilterConfigTest {
         assertThat(config.getAllowedHeaders())
                 .contains("Content-Type", "Authorization", "DPoP",
                         "OAuth-Client-Attestation", "OAuth-Client-Attestation-PoP",
-                        "Api-Version");
+                        "Api-Version", "X-ID-Token", "X-Idempotency-Key", "X-Tenant",
+                        "X-Bootstrap-Token");
     }
 
     @Test
@@ -128,7 +132,33 @@ class CorsFilterConfigTest {
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
         assertThat(config).isNotNull();
-        assertThat(config.getAllowedOrigins()).containsExactlyElementsOf(ALLOWED_ORIGINS);
+        assertThat(config.getAllowedOriginPatterns()).containsExactlyElementsOf(ALLOWED_ORIGINS);
+    }
+
+    @Test
+    void CorsConfigurationSource_RestrictedApiPath_ExposesLocationHeader() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/v1/issuances").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getExposedHeaders()).contains("Location");
+    }
+
+    @Test
+    void CorsConfigurationSource_AdminPath_AllowsRestrictedOrigins() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/admin/v1/credential-catalog").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedOriginPatterns()).containsExactlyElementsOf(ALLOWED_ORIGINS);
     }
 
     @Test
@@ -142,6 +172,20 @@ class CorsFilterConfigTest {
 
         assertThat(config).isNotNull();
         assertThat(config.getAllowedOrigins()).containsExactly("*");
+    }
+
+    @Test
+    void CorsConfigurationSource_BootstrapPath_AllowsRequiredHeaders() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/v1/bootstrap").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedHeaders()).contains("X-Bootstrap-Token", "Api-Version");
+        assertThat(config.getExposedHeaders()).contains("Location");
     }
 
     @Test
