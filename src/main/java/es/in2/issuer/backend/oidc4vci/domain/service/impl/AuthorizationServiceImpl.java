@@ -1,10 +1,10 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
+import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.oidc4vci.domain.service.AuthorizationService;
 import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
-import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,8 +15,7 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.ISSUER_BASE_URL_CONTEXT_KEY;
-import static es.in2.issuer.backend.shared.domain.util.Utils.generateCustomNonce;
+import static es.in2.issuer.backend.shared.domain.util.Utils.generateSecureAuthorizationCode;
 
 @Slf4j
 @Service
@@ -26,7 +25,6 @@ public class AuthorizationServiceImpl implements AuthorizationService {
     private final TransientStore<PushedAuthorizationRequest> parCacheStore;
     private final TransientStore<AuthorizationCodeData> authorizationCodeCacheStore;
     private final Oid4vciProfilePort profileProperties;
-    private final IssuerProperties appConfig;
 
     @Override
     public Mono<URI> authorize(
@@ -38,24 +36,28 @@ public class AuthorizationServiceImpl implements AuthorizationService {
             String codeChallenge,
             String codeChallengeMethod,
             String redirectUri,
-            String issuerState
+            String issuerState,
+            String publicIssuerBaseUrl
     ) {
-        return Mono.deferContextual(ctx -> {
-            String baseUrl = ctx.getOrDefault(ISSUER_BASE_URL_CONTEXT_KEY, appConfig.getIssuerBackendUrl());
-
-            if (requestUri != null && !requestUri.isBlank()) {
-                return pushAuthorizationRequestAuthorization(baseUrl, requestUri, state);
-            } else {
-                return processDirectAuthorization(
-                        baseUrl, clientId, responseType, scope, state,
-                        codeChallenge, codeChallengeMethod, redirectUri, issuerState
-                );
-            }
-        });
+        if (requestUri != null && !requestUri.isBlank()) {
+            return pushAuthorizationRequestAuthorization(publicIssuerBaseUrl, requestUri, state);
+        }
+        // RFC 9126 §5: this Issuer advertises require_pushed_authorization_requests=true
+        // (AuthorizationServerMetadataServiceImpl) whenever the profile requires PAR, so an
+        // authorization request that skips it must be rejected here - otherwise the metadata
+        // claim is a lie and a client can bypass PAR entirely by hitting /authorize directly.
+        if (profileProperties.authorizationCode().requirePar()) {
+            return Mono.error(OAuthTokenException.invalidRequest("Pushed Authorization Request is required"));
+        }
+        return processDirectAuthorization(
+                publicIssuerBaseUrl, clientId, responseType, scope, state,
+                codeChallenge, codeChallengeMethod, redirectUri, issuerState
+        );
     }
 
     private Mono<URI> pushAuthorizationRequestAuthorization(String baseUrl, String requestUri, String state) {
         return parCacheStore.get(requestUri)
+                .switchIfEmpty(Mono.error(OAuthTokenException.invalidRequest("Invalid or expired request_uri")))
                 .flatMap(parRequest -> {
                     // Consume the PAR (one-time use)
                     return parCacheStore.delete(requestUri)
@@ -74,9 +76,7 @@ public class AuthorizationServiceImpl implements AuthorizationService {
                                     code,
                                     state != null ? state : parRequest.state()
                             ));
-                })
-                .onErrorMap(java.util.NoSuchElementException.class,
-                        ex -> new IllegalArgumentException("Invalid or expired request_uri"));
+                });
     }
 
     private Mono<URI> processDirectAuthorization(
@@ -86,15 +86,15 @@ public class AuthorizationServiceImpl implements AuthorizationService {
     ) {
         return Mono.defer(() -> {
             if (!"code".equals(responseType)) {
-                return Mono.error(new IllegalArgumentException("response_type must be 'code'"));
+                return Mono.error(OAuthTokenException.invalidRequest("response_type must be 'code'"));
             }
 
             if (profileProperties.authorizationCode().requirePkce()) {
                 if (codeChallenge == null || codeChallenge.isBlank()) {
-                    return Mono.error(new IllegalArgumentException("code_challenge is required"));
+                    return Mono.error(OAuthTokenException.invalidRequest("code_challenge is required"));
                 }
                 if (!"S256".equals(codeChallengeMethod)) {
-                    return Mono.error(new IllegalArgumentException("code_challenge_method must be S256"));
+                    return Mono.error(OAuthTokenException.invalidRequest("code_challenge_method must be S256"));
                 }
             }
 
@@ -110,7 +110,9 @@ public class AuthorizationServiceImpl implements AuthorizationService {
             String codeChallenge, String codeChallengeMethod,
             String issuerState, String scope, String dpopJkt
     ) {
-        return generateCustomNonce()
+        // RFC 6749 §10.10 / RFC 6819 §5.1.4.2-2 require sufficient entropy in the
+        // authorization code to resist guessing attacks.
+        return generateSecureAuthorizationCode()
                 .flatMap(code -> {
                     AuthorizationCodeData data = AuthorizationCodeData.builder()
                             .clientId(clientId)

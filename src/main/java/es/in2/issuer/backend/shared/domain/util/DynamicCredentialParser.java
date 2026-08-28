@@ -26,7 +26,7 @@ public class DynamicCredentialParser {
         try {
             JsonNode vcNode = objectMapper.readTree(vcJson);
             String credentialType = resolveCredentialType(vcNode);
-            CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialType);
+            CredentialProfile profile = credentialProfileRegistry.resolveProfile(credentialType);
             if (profile == null) {
                 throw new InvalidCredentialFormatException(
                         "No profile found for credential type: " + credentialType);

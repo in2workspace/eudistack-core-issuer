@@ -10,5 +10,6 @@ public record CertificateInfo(
         String validFrom,
         String validTo,
         List<String> keyAlgorithms,
-        Integer keyLength
+        Integer keyLength,
+        boolean qualifiedSeal
 ) {}

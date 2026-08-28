@@ -6,7 +6,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 
-import es.in2.issuer.backend.signing.domain.service.RemoteSignatureService;
+import es.in2.issuer.backend.signing.domain.service.SignDocService;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -25,17 +25,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ExtendWith(MockitoExtension.class)
 class CscSignDocSigningProviderTest {
     @Mock
-    private RemoteSignatureService remoteSignatureService;
+    private SignDocService signDocService;
 
     @InjectMocks
     private CscSignDocSigningProvider cscSignDocSigningProvider;
 
+    private static SigningRequest buildRequest(SigningType type, String data, SigningContext ctx) {
+        return SigningRequest.builder().type(type).data(data).context(ctx).build();
+    }
+
     @Test
     void signReturnsSigningResultOnSuccess() {
         SigningContext context = new SigningContext("token", "issuanceId", "email@example.com");
-        SigningRequest request = new SigningRequest(SigningType.JADES, "data", context, null);
+        SigningRequest request = buildRequest(SigningType.JADES, "data", context);
         SigningResult signedData = new SigningResult(SigningType.JADES, "signedData");
-        when(remoteSignatureService.signIssuedCredential(any(SigningRequest.class), eq("token"), eq("issuanceId"), eq("email@example.com")))
+        when(signDocService.signIssuedCredential(any(SigningRequest.class), eq("issuanceId")))
                 .thenReturn(Mono.just(signedData));
         StepVerifier.create(cscSignDocSigningProvider.sign(request))
                 .assertNext(result -> {
@@ -55,7 +59,7 @@ class CscSignDocSigningProviderTest {
     @Test
     void signThrowsSigningExceptionOnNullType() {
         SigningContext context = new SigningContext("token", "issuanceId", "email@example.com");
-        SigningRequest request = new SigningRequest(null, "data", context, null);
+        SigningRequest request = buildRequest(null, "data", context);
         StepVerifier.create(cscSignDocSigningProvider.sign(request))
                 .expectError(SigningException.class)
                 .verify();
@@ -63,19 +67,42 @@ class CscSignDocSigningProviderTest {
 
     @Test
     void signThrowsSigningExceptionOnNullContext() {
-        SigningRequest request = new SigningRequest(SigningType.JADES, "data", null, null);
+        SigningRequest request = buildRequest(SigningType.JADES, "data", null);
         StepVerifier.create(cscSignDocSigningProvider.sign(request))
                 .expectError(SigningException.class)
                 .verify();
     }
 
     @Test
-    void signPropagatesRemoteSignatureServiceError() {
-        SigningContext context = new SigningContext("token", "issuanceId", "email@example.com");
-        SigningRequest request = new SigningRequest(SigningType.JADES, "data", context, null);
+    void signSystemArtifact_withNullTokenAndNullIssuanceId_routesToSignSystemCredential() {
+        // AD-1/EUD-225 (T33): a system-triggered signing request (no caller context -- status
+        // list revocation via the queue or the OID4VCI notification) has issuanceId=null,
+        // which makes isIssued=false and relaxes the context-token guard
+        // (SigningRequestValidator.validate(request, false)). This must NOT throw, and must
+        // route to signSystemCredential, not signIssuedCredential. Without this case, AD-1's
+        // relaxation merges with no test covering the very path it exists for.
+        SigningContext context = new SigningContext(null, null, "email@example.com");
+        SigningRequest request = buildRequest(SigningType.JADES, "data", context);
+        SigningResult signedData = new SigningResult(SigningType.JADES, "signedData");
+        when(signDocService.signSystemCredential(any(SigningRequest.class))).thenReturn(Mono.just(signedData));
 
-        when(remoteSignatureService.signIssuedCredential(any(SigningRequest.class), eq("token"), eq("issuanceId"),
-                eq("email@example.com"))).thenReturn(Mono.error(new RuntimeException("remote error")));
+        StepVerifier.create(cscSignDocSigningProvider.sign(request))
+                .assertNext(result -> {
+                    assertThat(result.type()).isEqualTo(SigningType.JADES);
+                    assertThat(result.data()).isEqualTo("signedData");
+                })
+                .verifyComplete();
+
+        verify(signDocService, never()).signIssuedCredential(any(), any());
+    }
+
+    @Test
+    void signPropagatesSignDocServiceError() {
+        SigningContext context = new SigningContext("token", "issuanceId", "email@example.com");
+        SigningRequest request = buildRequest(SigningType.JADES, "data", context);
+
+        when(signDocService.signIssuedCredential(any(SigningRequest.class), eq("issuanceId")))
+                .thenReturn(Mono.error(new RuntimeException("remote error")));
 
         StepVerifier.create(cscSignDocSigningProvider.sign(request)).expectError(SigningException.class).verify();
     }
@@ -84,12 +111,12 @@ class CscSignDocSigningProviderTest {
         SigningContext validContext = new SigningContext("token", "issuanceId", "email@example.com");
         return new Object[][]{
                 {null, "Null request"},
-                {new SigningRequest(null, "data", validContext, null), "Null type"},
-                {new SigningRequest(SigningType.JADES, null, validContext, null), "Null data"},
-                {new SigningRequest(SigningType.JADES, "   ", validContext, null), "Blank data"},
-                {new SigningRequest(SigningType.JADES, "data", null, null), "Null context"},
-                {new SigningRequest(SigningType.JADES, "data", new SigningContext(null, "issuanceId", "email@example.com"), null), "Null token"},
-                {new SigningRequest(SigningType.JADES, "data", new SigningContext("   ", "issuanceId", "email@example.com"), null), "Blank token"}
+                {buildRequest(null, "data", validContext), "Null type"},
+                {buildRequest(SigningType.JADES, null, validContext), "Null data"},
+                {buildRequest(SigningType.JADES, "   ", validContext), "Blank data"},
+                {buildRequest(SigningType.JADES, "data", null), "Null context"},
+                {buildRequest(SigningType.JADES, "data", new SigningContext(null, "issuanceId", "email@example.com")), "Null token"},
+                {buildRequest(SigningType.JADES, "data", new SigningContext("   ", "issuanceId", "email@example.com")), "Blank token"}
         };
     }
 

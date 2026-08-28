@@ -64,38 +64,20 @@ services:
       # --- App ---------------------------------------------------------------
       APP_MAIL_FROM: noreply@mail-stg.altia.eudistack.net
       APP_URL: http://localhost:8080
-      APP_ISSUER_FRONTEND_URL: http://localhost:4200
       APP_TRUST_FRAMEWORK_URL: https://trust-framework.example.com
-      APP_KNOWLEDGE_BASE_UPLOAD_CERTIFICATION_GUIDE_URL: https://example.com/guide
-      APP_KNOWLEDGE_BASE_WALLET_GUIDE_URL: https://example.com/wallet
       APP_VERIFIER_URL: https://verifier.example.com
-      APP_WALLET_URL: https://wallet.example.com
-      APP_CONFIG_SOURCE: yaml
       APP_DEFAULT_LANG: en
-      APP_ADMIN_ORGANIZATION_ID: VATES-B60645900
       APP_SYS_TENANT: SYSTEM
 
       # --- Issuer Identity ---------------------------------------------------
       ISSUER_IDENTITY_CREDENTIAL_SUBJECT_DID_KEY: "did:key:z6MkqmaCT2JqdUtLeKah7tEVfNXtDXtQyj4yxEgV11Y5CqUa"
-      ISSUER_IDENTITY_JWT_CREDENTIAL: ""
       ISSUER_IDENTITY_CRYPTO_PRIVATE_KEY: ""
 
-      # --- Default Signer ----------------------------------------------------
-      DEFAULT_SIGNER_COMMON_NAME: "Local Dev Issuer"
-      DEFAULT_SIGNER_COUNTRY: "ES"
-      DEFAULT_SIGNER_EMAIL: "dev@example.com"
-      DEFAULT_SIGNER_ORGANIZATION_IDENTIFIER: "VATES-B60645900"
-      DEFAULT_SIGNER_ORGANIZATION: "Dev Organization"
-      DEFAULT_SIGNER_SERIAL_NUMBER: "B60645900"
-
-      # --- Signing -----------------------------------------------------------
-      SIGNING_RUNTIME_ENABLED: "true"
-      SIGNING_RUNTIME_CONTROLLER_ENABLED: "true"
+      # --- Signing is per-tenant (tenant_signing_config in DB) — no env vars.
 
       # --- CORS --------------------------------------------------------------
       CORS_DEFAULT_ALLOWED_ORIGINS: http://localhost:4200
       CORS_EXTERNAL_ALLOWED_ORIGINS: http://localhost:4200
-
 
       # --- Logging -----------------------------------------------------------
       LOGGING_LEVEL_ES_IN2_ISSUER: DEBUG

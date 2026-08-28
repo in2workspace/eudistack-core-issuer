@@ -1,83 +1,107 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
-import es.in2.issuer.backend.shared.infrastructure.config.AppConfig;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.reactive.CorsWebFilter;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.when;
 
-@ExtendWith(MockitoExtension.class)
 class CorsConfigTest {
 
-    @Mock
-    private AppConfig appConfig;
-
-    @InjectMocks
-    private CorsConfig corsConfig;
+    private final CorsConfig corsConfig = new CorsConfig();
 
     @Test
-    void CorsConfigurationSource_FrontendUrlsConfigured_AllowsConfiguredOrigins() {
-        // Arrange
-        when(appConfig.getIssuerFrontendUrl()).thenReturn("https://mock-issuer");
-        when(appConfig.getWalletFrontendUrl()).thenReturn("https://mock-wallet");
-
-        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
-        var exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("/any/path").build()
-        );
-
-        // Act
-        CorsConfiguration config = source.getCorsConfiguration(exchange);
-
-        // Assert
-        assertThat(config.getAllowedOrigins()).contains("https://mock-issuer", "https://mock-wallet");
+    void corsWebFilter_IsRegisteredAsStandaloneBean() {
+        CorsWebFilter filter = corsConfig.corsWebFilter();
+        assertThat(filter).isNotNull();
     }
 
     @Test
-    void CorsConfigurationSource_FrontendUrlsConfigured_AllowsStandardHttpMethods() {
-        // Arrange
-        when(appConfig.getIssuerFrontendUrl()).thenReturn("https://mock-issuer");
-        when(appConfig.getWalletFrontendUrl()).thenReturn("https://mock-wallet");
-
+    void CorsConfigurationSource_WellKnownPath_AllowsAnyOriginForExternalWallets() {
         UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
         var exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("/any/path").build()
+                MockServerHttpRequest.get("/.well-known/openid-credential-issuer").build()
         );
 
-        // Act
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
-        // Assert
-        assertThat(config.getAllowedMethods())
-                .isNotNull()
-                .containsAll(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedOriginPatterns()).contains("*");
     }
 
     @Test
-    void CorsConfigurationSource_FrontendUrlsConfigured_DoesNotAllowCredentials() {
-        // Arrange
-        when(appConfig.getIssuerFrontendUrl()).thenReturn("https://mock-issuer");
-        when(appConfig.getWalletFrontendUrl()).thenReturn("https://mock-wallet");
-
+    void CorsConfigurationSource_Oid4vciPath_AllowsAnyOriginForExternalWallets() {
         UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
         var exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("/any/path").build()
+                MockServerHttpRequest.get("/oid4vci/credential").build()
         );
 
-        // Act
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
-        // Assert
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedOriginPatterns()).contains("*");
+    }
+
+    // The authorize endpoint returns a 302 redirect. Chrome requires Access-Control-Allow-Origin
+    // on that response for cross-origin XHR to follow the redirect and read response.url.
+    @Test
+    void CorsConfigurationSource_AuthorizePath_AllowsAnyOriginOnRedirectResponse() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/oid4vci/v1/authorize").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedOriginPatterns()).contains("*");
         assertThat(config.getAllowCredentials()).isNotEqualTo(Boolean.TRUE);
+    }
+
+    @Test
+    void CorsConfigurationSource_ApiPath_AllowsStandardHttpMethods() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/v1/issuances").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedMethods())
+                .containsAll(List.of("GET", "POST", "OPTIONS"));
+    }
+
+    @Test
+    void CorsConfigurationSource_ApiPath_DoesNotAllowCredentials() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/v1/issuances").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowCredentials()).isNotEqualTo(Boolean.TRUE);
+    }
+
+    @Test
+    void CorsConfigurationSource_ApiPath_AllowsDpopAndAttestationHeaders() {
+        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/oauth/token").build()
+        );
+
+        CorsConfiguration config = source.getCorsConfiguration(exchange);
+
+        assertThat(config).isNotNull();
+        assertThat(config.getAllowedHeaders())
+                .contains("Content-Type", "Authorization", "DPoP",
+                        "OAuth-Client-Attestation", "OAuth-Client-Attestation-PoP");
     }
 }
