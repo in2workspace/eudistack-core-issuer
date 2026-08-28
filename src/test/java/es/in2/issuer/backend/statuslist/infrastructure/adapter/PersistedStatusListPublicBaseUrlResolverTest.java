@@ -7,6 +7,7 @@ import es.in2.issuer.backend.statuslist.domain.exception.StatusListNotFoundExcep
 import es.in2.issuer.backend.statuslist.domain.exception.StatusListPublicBaseUrlNotResolvableException;
 import es.in2.issuer.backend.statuslist.domain.factory.BitstringStatusListCredentialFactory;
 import es.in2.issuer.backend.statuslist.domain.factory.TokenStatusListCredentialFactory;
+import es.in2.issuer.backend.statuslist.domain.util.BitstringEncoder;
 import es.in2.issuer.backend.statuslist.infrastructure.repository.StatusList;
 import es.in2.issuer.backend.statuslist.infrastructure.repository.StatusListIndex;
 import es.in2.issuer.backend.statuslist.infrastructure.repository.StatusListIndexRepository;
@@ -40,6 +41,7 @@ class PersistedStatusListPublicBaseUrlResolverTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final BitstringStatusListCredentialFactory bitstringFactory = new BitstringStatusListCredentialFactory();
     private final TokenStatusListCredentialFactory tokenFactory = new TokenStatusListCredentialFactory();
+    private final BitstringEncoder bitstringEncoder = new BitstringEncoder();
 
     private PersistedStatusListPublicBaseUrlResolver resolver;
 
@@ -83,11 +85,16 @@ class PersistedStatusListPublicBaseUrlResolverTest {
 
     @Test
     void resolve_tokenJwtFormat_derivesBaseUrlFromRealFactoryPayload() throws Exception {
+        // TokenStatusListCredentialFactory now actually decodes encodedList (BitstringEncoder,
+        // multibase + base64url + GZIP) to re-compress it as raw DEFLATE for the `lst` claim -
+        // it can no longer take a placeholder string like the old "u1234", which isn't valid
+        // GZIP content.
+        String encodedList = bitstringEncoder.createEmptyEncodedList(8);
         String listUrl = BASE_URL + "/token/v1/credentials/status/" + LIST_ID;
-        Map<String, Object> payload = tokenFactory.buildUnsigned(listUrl, "did:elsi:issuer", "revocation", "u1234");
+        Map<String, Object> payload = tokenFactory.buildUnsigned(listUrl, "did:elsi:issuer", "revocation", encodedList);
         String signedCredential = fakeSignedJwt(payload);
 
-        StatusList list = new StatusList(LIST_ID, "revocation", "token_jwt", "u1234", signedCredential, Instant.now(), Instant.now());
+        StatusList list = new StatusList(LIST_ID, "revocation", "token_jwt", encodedList, signedCredential, Instant.now(), Instant.now());
 
         when(statusListIndexRepository.findByIssuanceId(UUID.fromString(ISSUANCE_ID))).thenReturn(Mono.just(indexFor(LIST_ID)));
         when(statusListRepository.findById(LIST_ID)).thenReturn(Mono.just(list));
