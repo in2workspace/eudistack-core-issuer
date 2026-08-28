@@ -3,10 +3,17 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
+
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 @Component
 public class IssuanceMetrics {
+
+    private static final String TAG_TENANT = "tenant";
+    private static final String TAG_TENANT_ID = "tenant.id";
+    private static final String UNKNOWN_TENANT = "unknown";
 
     private final MeterRegistry meterRegistry;
 
@@ -20,6 +27,8 @@ public class IssuanceMetrics {
 
     public void recordSuccess(Timer.Sample sample, String configurationId, String delivery) {
         sample.stop(Timer.builder("issuance.duration")
+                .tag(TAG_TENANT, currentTenant())
+                .tag(TAG_TENANT_ID, currentTenant())
                 .tag("configuration_id", configurationId)
                 .tag("delivery", delivery)
                 .tag("outcome", "success")
@@ -29,6 +38,8 @@ public class IssuanceMetrics {
 
     public void recordError(Timer.Sample sample, String configurationId, String delivery) {
         sample.stop(Timer.builder("issuance.duration")
+                .tag(TAG_TENANT, currentTenant())
+                .tag(TAG_TENANT_ID, currentTenant())
                 .tag("configuration_id", configurationId)
                 .tag("delivery", delivery)
                 .tag("outcome", "error")
@@ -38,43 +49,15 @@ public class IssuanceMetrics {
 
     public void recordIdempotencyCacheHit() {
         Counter.builder("idempotency.cache.hits")
+                .tag(TAG_TENANT, currentTenant())
                 .register(meterRegistry)
                 .increment();
     }
 
     public void recordTokenRequest(String grantType, String outcome) {
         Counter.builder("oid4vci.token.requests")
+                .tag(TAG_TENANT, currentTenant())
                 .tag("grant_type", grantType)
-                .tag("outcome", outcome)
-                .register(meterRegistry)
-                .increment();
-    }
-
-    public void recordStatusListAllocation(String format, String outcome) {
-        Counter.builder("statuslist.allocations")
-                .tag("format", format)
-                .tag("outcome", outcome)
-                .register(meterRegistry)
-                .increment();
-    }
-
-    public void recordStatusListRevocation(String outcome) {
-        Counter.builder("statuslist.revocations")
-                .tag("outcome", outcome)
-                .register(meterRegistry)
-                .increment();
-    }
-
-    public void recordNotificationHandled(String event, String outcome) {
-        Counter.builder("notification.handled")
-                .tag("event", event)
-                .tag("outcome", outcome)
-                .register(meterRegistry)
-                .increment();
-    }
-
-    public void recordRevocationRequest(String outcome) {
-        Counter.builder("revocation.requests")
                 .tag("outcome", outcome)
                 .register(meterRegistry)
                 .increment();
@@ -82,9 +65,16 @@ public class IssuanceMetrics {
 
     private Counter counter(String configurationId, String delivery, String outcome) {
         return Counter.builder("issuance.requests")
+                .tag(TAG_TENANT, currentTenant())
+                .tag(TAG_TENANT_ID, currentTenant())
                 .tag("configuration_id", configurationId)
                 .tag("delivery", delivery)
                 .tag("outcome", outcome)
                 .register(meterRegistry);
+    }
+
+    private static String currentTenant() {
+        String tenant = MDC.get(TENANT_DOMAIN_CONTEXT_KEY);
+        return tenant == null || tenant.isBlank() ? UNKNOWN_TENANT : tenant;
     }
 }

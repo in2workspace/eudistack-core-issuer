@@ -2,12 +2,14 @@ package es.in2.issuer.backend.issuance.infrastructure.controller;
 
 import es.in2.issuer.backend.issuance.domain.model.dtos.UpdateIssuanceStatusRequest;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
+import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialDetails;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +20,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.util.UUID;
@@ -34,15 +37,19 @@ public class IssuanceController {
     private final IssuanceService issuanceService;
     private final AccessTokenService accessTokenService;
     private final RevocationWorkflow revocationWorkflow;
+    private final UrlResolver urlResolver;
 
     @PostMapping(
             consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
     public Mono<ResponseEntity<IssuanceResponse>> createIssuance(
             @RequestHeader(name = "X-Id-Token", required = false) String idToken,
-            @Valid @RequestBody IssuanceRequest request) {
+            @Valid @RequestBody IssuanceRequest request,
+            ServerWebExchange exchange) {
         String processId = UUID.randomUUID().toString();
-        return issuanceWorkflow.issueCredential(processId, request, idToken)
+        String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
+        String publicWalletBaseUrl = urlResolver.publicWalletBaseUrl(exchange);
+        return issuanceWorkflow.issueCredential(processId, request, idToken, publicIssuerBaseUrl, publicWalletBaseUrl)
                 .map(this::toResponseEntity);
     }
 
@@ -50,9 +57,8 @@ public class IssuanceController {
     @ResponseStatus(HttpStatus.OK)
     public Mono<IssuanceList> getAllIssuances(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader) {
-        return accessTokenService.getOrganizationContext(authorizationHeader)
-                .flatMap(ctx -> issuanceService.getAllIssuancesVisibleFor(
-                        ctx.organizationIdentifier(), ctx.sysAdmin()));
+        return accessTokenService.getAuthorizationContext(authorizationHeader)
+                .flatMap(issuanceService::getAllIssuancesVisibleFor);
     }
 
     @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -60,9 +66,8 @@ public class IssuanceController {
     public Mono<CredentialDetails> getIssuance(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
             @PathVariable("id") String id) {
-        return accessTokenService.getOrganizationContext(authorizationHeader)
-                .flatMap(ctx -> issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
-                        ctx.organizationIdentifier(), id, ctx.sysAdmin()));
+        return accessTokenService.getAuthorizationContext(authorizationHeader)
+                .flatMap(ctx -> issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(ctx, id));
     }
 
     @PatchMapping(value = "/{id}",
@@ -71,22 +76,74 @@ public class IssuanceController {
     public Mono<Void> updateIssuanceStatus(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
             @PathVariable("id") String id,
-            @Valid @RequestBody UpdateIssuanceStatusRequest request) {
+            @Valid @RequestBody UpdateIssuanceStatusRequest request,
+            ServerWebExchange exchange) {
         String processId = UUID.randomUUID().toString();
-        return switch (request.status()) {
-            case WITHDRAWN -> issuanceService.withdrawIssuance(id);
-            case REVOKED -> revocationWorkflow.revoke(processId, authorizationHeader, id);
-            default -> Mono.error(new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Unsupported target status: " + request.status()));
-        };
+        String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
+        return accessTokenService.getAuthorizationContext(authorizationHeader)
+                .flatMap(ctx -> {
+                    if (!ctx.canWrite()) {
+                        return Mono.error(new ResponseStatusException(
+                                HttpStatus.FORBIDDEN, "Read-only access from platform tenant"));
+                    }
+                    return switch (request.status()) {
+                        case WITHDRAWN -> authorizeAndWithdraw(ctx, id);
+                        case REVOKED -> revocationWorkflow.revoke(processId, authorizationHeader, id, null, publicIssuerBaseUrl);
+                        case ARCHIVED -> authorizeAndArchive(ctx, id);
+                        default -> Mono.error(new ResponseStatusException(
+                                HttpStatus.BAD_REQUEST,
+                                "Unsupported target status: " + request.status()));
+                    };
+                });
+    }
+
+    private Mono<Void> authorizeAndArchive(AuthorizationContext ctx, String id) {
+        if (ctx.isTenantAdmin()) {
+            return issuanceService.archiveIssuance(id);
+        }
+        return issuanceService.getIssuanceById(id)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .flatMap(issuance -> {
+                    if (!ctx.organizationIdentifier().equals(issuance.getOrganizationIdentifier())) {
+                        return Mono.error(new ResponseStatusException(
+                                HttpStatus.FORBIDDEN, "Cannot archive issuance from another organization"));
+                    }
+                    return issuanceService.archiveIssuance(id);
+                });
+    }
+
+    private Mono<Void> authorizeAndWithdraw(AuthorizationContext ctx, String id) {
+        if (ctx.isTenantAdmin()) {
+            return issuanceService.withdrawIssuance(id);
+        }
+        // LEAR: verify ownership before withdrawing
+        return issuanceService.getIssuanceById(id)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .flatMap(issuance -> {
+                    if (!ctx.organizationIdentifier().equals(issuance.getOrganizationIdentifier())) {
+                        return Mono.error(new ResponseStatusException(
+                                HttpStatus.FORBIDDEN, "Cannot withdraw issuance from another organization"));
+                    }
+                    return issuanceService.withdrawIssuance(id);
+                });
     }
 
     private ResponseEntity<IssuanceResponse> toResponseEntity(IssuanceResponse response) {
-        if (response.credentialOfferUri() != null) {
+        boolean hasSignedCredential = response.signedCredential() != null;
+        boolean hasCredentialOfferUri = response.credentialOfferUri() != null;
+        boolean hasDeliveryResults = response.deliveryResults() != null && !response.deliveryResults().isEmpty();
+
+        log.debug("Issuance process completed. Signed Credential present: {}, Credential Offer URI present: {}, delivery results: {}",
+                hasSignedCredential, hasCredentialOfferUri, hasDeliveryResults ? response.deliveryResults().size() : 0);
+
+        if (hasSignedCredential || hasCredentialOfferUri) {
             return ResponseEntity.ok(response);
         }
-        return ResponseEntity.status(HttpStatus.ACCEPTED).build();
-    }
 
+        if (hasDeliveryResults) {
+            return ResponseEntity.accepted().body(response);
+        }
+
+        return ResponseEntity.accepted().build();
+    }
 }

@@ -4,11 +4,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
+import es.in2.issuer.backend.shared.domain.policy.PolicyContext;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
-import es.in2.issuer.backend.shared.domain.policy.PolicyEnforcer;
 import es.in2.issuer.backend.shared.domain.policy.rules.RequireCertificationIssuanceRule;
+import es.in2.issuer.backend.shared.domain.policy.rules.RequireCredentialProfileAllowedForTenantRule;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
+import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
+import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.domain.service.impl.JWTServiceImpl;
 import es.in2.issuer.backend.shared.domain.util.DynamicCredentialParser;
@@ -62,6 +65,12 @@ class IssuancePdpServiceImplIntegrationTest {
     private CredentialProfileRegistry credentialProfileRegistry;
     @Mock
     private AuditService auditService;
+    @Mock
+    private TenantConfigService tenantConfigService;
+    @Mock
+    private TenantRegistryService tenantRegistryService;
+    @Mock
+    private RequireCredentialProfileAllowedForTenantRule requireCredentialProfileAllowedForTenantRule;
 
     private IssuancePdpServiceImpl issuancePdpService;
 
@@ -70,29 +79,39 @@ class IssuancePdpServiceImplIntegrationTest {
         objectMapper = new ObjectMapper();
         jwtService = new JWTServiceImpl(objectMapper, cryptoComponent);
 
+        // Default: tenantConfigService returns the admin_organization_id seeded in tenant_config
         org.mockito.Mockito.lenient()
-                .when(appConfig.getAdminOrganizationId())
-                .thenReturn(ADMIN_ORG_ID);
+                .when(tenantConfigService.getStringOrThrow(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(reactor.core.publisher.Mono.just(ADMIN_ORG_ID));
+
+        // Default: allow all credential profiles for tenant
+        org.mockito.Mockito.lenient()
+                .when(requireCredentialProfileAllowedForTenantRule.evaluate(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(reactor.core.publisher.Mono.empty());
+
+        // Default: tenant type resolves to multi_org (DOME-like)
+        org.mockito.Mockito.lenient()
+                .when(tenantRegistryService.getTenantType(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(reactor.core.publisher.Mono.just(PolicyContext.TENANT_TYPE_MULTI_ORG));
 
         PolicyContextFactory policyContextFactory = new PolicyContextFactory(
                 jwtService,
                 objectMapper,
                 appConfig,
-                credentialProfileRegistry
+                credentialProfileRegistry,
+                tenantConfigService,
+                tenantRegistryService
         );
-
-        PolicyEnforcer policyEnforcer = new PolicyEnforcer();
 
         RequireCertificationIssuanceRule certificationRule = new RequireCertificationIssuanceRule(
                 verifierService, jwtService, objectMapper, credentialParser);
 
         issuancePdpService = new IssuancePdpServiceImpl(
                 policyContextFactory,
-                policyEnforcer,
                 objectMapper,
                 certificationRule,
+                requireCredentialProfileAllowedForTenantRule,
                 credentialProfileRegistry,
-                credentialParser,
                 auditService
         );
     }
@@ -146,20 +165,21 @@ class IssuancePdpServiceImplIntegrationTest {
 
     @Test
     void authorize_success_for_LearCredentialEmployee_with_flatToken() throws Exception {
-        // Profile for the emitter credential type (used by PolicyContextFactory.resolveProfile)
-        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE))
-                .thenReturn(CredentialProfile.builder()
-                        .credentialConfigurationId(CREDENTIAL_TYPE)
-                        .policyExtraction(CredentialProfile.PolicyExtraction.builder()
-                                .powersPath("power")
-                                .mandatorPath("mandator")
-                                .orgIdField("organizationIdentifier")
-                                .build())
-                        .issuancePolicy(CredentialProfile.IssuancePolicy.builder()
-                                .rules(List.of("RequireSignerIssuance", "RequireMandatorDelegation"))
-                                .delegationFunction("ProductOffering")
-                                .build())
-                        .build());
+        CredentialProfile profile = CredentialProfile.builder()
+                .credentialConfigurationId(CREDENTIAL_TYPE)
+                .policyExtraction(CredentialProfile.PolicyExtraction.builder()
+                        .powersPath("power")
+                        .mandatorPath("mandator")
+                        .orgIdField("organizationIdentifier")
+                        .build())
+                .issuancePolicy(CredentialProfile.IssuancePolicy.builder()
+                        .rules(List.of("RequireLearCredentialIssuance"))
+                        .build())
+                .build();
+        // Target profile lookup (IssuancePdpServiceImpl, checkIfEmitterIsAllowedToIssue)
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+        // Emitter profile lookup (PolicyContextFactory.resolveProfile)
+        when(credentialProfileRegistry.resolveProfile(CREDENTIAL_TYPE)).thenReturn(profile);
 
         List<Map<String, Object>> powers = List.of(
                 Map.of("function", "Onboarding", "action", List.of("Execute"), "domain", "DOME", "type", "Domain"),
@@ -203,9 +223,6 @@ class IssuancePdpServiceImplIntegrationTest {
                 }
                 """;
         JsonNode jsonNode = objectMapper.readTree(json);
-
-        // RequireMandatorDelegationRule uses credentialParser.extractOrganizationId on the PolicyContext credential
-        when(credentialParser.extractOrganizationId(any(), any())).thenReturn("VATES-B60645900");
 
         StepVerifier.create(
                         issuancePdpService.authorize(CREDENTIAL_TYPE, jsonNode, "dummy-id-token")

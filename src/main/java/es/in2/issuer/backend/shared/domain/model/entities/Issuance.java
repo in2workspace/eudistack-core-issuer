@@ -17,7 +17,7 @@ import java.util.UUID;
 @AllArgsConstructor
 @NoArgsConstructor
 @ToString
-@Table("issuer.issuance")
+@Table("issuance")
 public class Issuance {
     @Id
     @Column("issuance_id")
@@ -60,6 +60,20 @@ public class Issuance {
     @Column("signed_credential")
     @Nullable
     private String signedCredential;
+
+    @Column("delivery_attempted_at")
+    @Nullable
+    private Instant deliveryAttemptedAt;
+
+    // Optimistic locking (V11, SD-04/EUD-225): every write to this row follows
+    // find -> validateTransition -> mutate -> save with no version check in between.
+    // Spring Data R2DBC manages this field automatically on save() -- a stale write now
+    // fails fast with OptimisticLockingFailureException instead of silently overwriting a
+    // concurrent writer's change (see IssuanceServiceImpl.updateIssuanceStatusToRevoked for
+    // the reconciliation this enables).
+    @Version
+    @Column("version")
+    private Long version;
 
     // --- Auditing fields (R2DBC auditing will fill these) ---
     @CreatedDate

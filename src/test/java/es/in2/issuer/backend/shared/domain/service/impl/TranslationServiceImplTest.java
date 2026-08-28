@@ -67,6 +67,36 @@ class TranslationServiceImplTest {
         assertEquals(expected, actual);
     }
 
+    @ParameterizedTest(name = "getLocaleOrDefault(''{0}'') with global=''{1}'' -> ''{2}''")
+    @CsvSource(nullValues = "NULL", value = {
+            "es,en,es",       // supported tenant lang wins over global
+            "EN,es,en",       // case-insensitive
+            "' es ',en,es",   // trimmed
+            "fr,es,es",       // unsupported tenant -> global fallback
+            "'',es,es",       // blank -> global fallback
+            "NULL,en,en"      // null -> global fallback
+    })
+    @DisplayName("getLocaleOrDefault() prefers the supported requested lang, else falls back to global")
+    void getLocaleOrDefault_prefersRequestedElseGlobal(String requested, String global, String expected) {
+        lenient().when(appConfig.getDefaultLang()).thenReturn(global);
+
+        assertEquals(expected, service.getLocaleOrDefault(requested));
+    }
+
+    @Test
+    @DisplayName("translateWithLocale(code, locale, args) uses the given locale instead of the global default")
+    void translateWithLocale_usesGivenLocale() {
+        when(messageSource.getMessage(eq("greeting"), any(), any())).thenReturn("Hola, Roger");
+
+        String result = service.translateWithLocale("greeting", "es", "Roger");
+
+        assertThat(result).isEqualTo("Hola, Roger");
+        verify(messageSource).getMessage(eq("greeting"), argsCaptor.capture(), localeCaptor.capture());
+        assertThat(localeCaptor.getValue().getLanguage()).isEqualTo("es");
+        assertThat(argsCaptor.getValue()).containsExactly("Roger");
+        verifyNoInteractions(appConfig);
+    }
+
     @Test
     @DisplayName("translate() returns localized message from MessageSource with correct args and locale")
     void translate_returnsMessage_andUsesLocaleAndArgs() {
