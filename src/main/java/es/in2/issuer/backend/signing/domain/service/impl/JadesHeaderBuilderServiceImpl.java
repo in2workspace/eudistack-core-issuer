@@ -8,7 +8,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayInputStream;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,13 +40,52 @@ public class JadesHeaderBuilderServiceImpl implements JadesHeaderBuilderService 
 
             header.put("typ", typ != null ? typ : "JWT");
 
-            header.put("x5c", certInfo.certificates());
+            header.put("x5c", trimSelfSignedRoot(certInfo.certificates()));
 
             applyProfileSpecificFields(header, profile);
 
             return objectMapper.writeValueAsString(header);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to build JAdES header", e);
+        }
+    }
+
+    /**
+     * HAIP §6.1 forbids a conformant issuer from including the self-signed root certificate in
+     * x5c - the relying party is expected to already trust it out-of-band. The QTSP's
+     * {@code credentials/info} response (requested with the full chain) includes it regardless
+     * - {@link CertificateInfo#certificates()} is the list exactly as the QTSP returned it, with
+     * no local filtering. Trimmed here, once, so both credentials and status list tokens (they
+     * share this one header-building code path) stop publishing it.
+     */
+    private List<String> trimSelfSignedRoot(List<String> certificates) {
+        if (certificates == null || certificates.size() < 2) {
+            // Nothing to trim: no chain, or a lone leaf with no separate root to strip.
+            return certificates;
+        }
+        String last = certificates.getLast();
+        if (isSelfSigned(last)) {
+            return certificates.subList(0, certificates.size() - 1);
+        }
+        return certificates;
+    }
+
+    private boolean isSelfSigned(String base64DerCertificate) {
+        try {
+            byte[] der = Base64.getDecoder().decode(base64DerCertificate);
+            CertificateFactory factory = CertificateFactory.getInstance("X.509");
+            X509Certificate cert = (X509Certificate) factory.generateCertificate(new ByteArrayInputStream(der));
+            if (!cert.getSubjectX500Principal().equals(cert.getIssuerX500Principal())) {
+                return false;
+            }
+            cert.verify(cert.getPublicKey());
+            return true;
+        } catch (Exception e) {
+            // Fail closed on "don't trim" - an unparseable trailing cert is left in the chain
+            // rather than risking a mangled x5c from misclassifying it.
+            log.warn("Could not determine whether the trailing x5c certificate is self-signed - " +
+                    "leaving it in the chain as-is: {}", e.getMessage());
+            return false;
         }
     }
 

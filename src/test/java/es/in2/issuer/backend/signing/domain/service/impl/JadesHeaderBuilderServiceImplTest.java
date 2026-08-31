@@ -4,10 +4,27 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.signing.domain.model.JadesProfile;
 import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
+import org.bouncycastle.asn1.x509.BasicConstraints;
+import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.cert.X509CertificateHolder;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
+import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.bouncycastle.operator.ContentSigner;
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import javax.security.auth.x500.X500Principal;
+import java.math.BigInteger;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.Security;
+import java.security.cert.X509Certificate;
 import java.time.Instant;
+import java.util.Base64;
+import java.util.Date;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -16,6 +33,11 @@ class JadesHeaderBuilderServiceImplTest {
 
     private ObjectMapper objectMapper;
     private JadesHeaderBuilderServiceImpl sut;
+
+    @BeforeAll
+    static void addBcProvider() {
+        Security.addProvider(new BouncyCastleProvider());
+    }
 
     @BeforeEach
     void setUp() {
@@ -213,6 +235,129 @@ class JadesHeaderBuilderServiceImplTest {
         );
 
         assertTrue(ex.getCause().getMessage().contains("not yet supported"));
+    }
+
+    // --------------------------------------------------
+    // x5c ROOT TRIMMING (HAIP §6.1: issuer must not publish the self-signed root)
+    // --------------------------------------------------
+
+    @Test
+    void buildHeader_trailingCertIsSelfSignedRoot_trimsItFromX5c() throws Exception {
+        KeyPair rootKp = generateEc();
+        KeyPair leafKp = generateEc();
+
+        String rootB64 = certBase64(buildCert(rootKp, "CN=Root CA", rootKp, "CN=Root CA", true));
+        String leafB64 = certBase64(buildCert(leafKp, "CN=Leaf", rootKp, "CN=Root CA", false));
+
+        CertificateInfo certInfo = certificateInfo(
+                List.of(leafB64, rootB64),
+                List.of("1.2.840.10045.4.3.2")
+        );
+
+        JsonNode node = objectMapper.readTree(sut.buildHeader(certInfo, JadesProfile.JADES_B_B, null));
+
+        assertEquals(1, node.get("x5c").size());
+        assertEquals(leafB64, node.get("x5c").get(0).asText());
+    }
+
+    @Test
+    void buildHeader_trailingCertIsNotSelfSigned_keepsFullChain() throws Exception {
+        KeyPair caKp = generateEc();
+        KeyPair someOtherKp = generateEc();
+        KeyPair leafKp = generateEc();
+
+        // Trailing cert signed by a different key than its own subject — not self-signed,
+        // so nothing gets trimmed (this is the "root already absent" case: everything in the
+        // array is a real leaf/intermediate, none of it should be touched).
+        String intermediateB64 = certBase64(buildCert(caKp, "CN=Intermediate CA", someOtherKp, "CN=Other", true));
+        String leafB64 = certBase64(buildCert(leafKp, "CN=Leaf", caKp, "CN=Intermediate CA", false));
+
+        CertificateInfo certInfo = certificateInfo(
+                List.of(leafB64, intermediateB64),
+                List.of("1.2.840.10045.4.3.2")
+        );
+
+        JsonNode node = objectMapper.readTree(sut.buildHeader(certInfo, JadesProfile.JADES_B_B, null));
+
+        assertEquals(2, node.get("x5c").size());
+        assertEquals(leafB64, node.get("x5c").get(0).asText());
+        assertEquals(intermediateB64, node.get("x5c").get(1).asText());
+    }
+
+    @Test
+    void buildHeader_threeCertChainWithSelfSignedRoot_trimsOnlyTheRoot() throws Exception {
+        KeyPair rootKp = generateEc();
+        KeyPair intKp = generateEc();
+        KeyPair leafKp = generateEc();
+
+        String rootB64 = certBase64(buildCert(rootKp, "CN=Root CA", rootKp, "CN=Root CA", true));
+        String intermediateB64 = certBase64(buildCert(intKp, "CN=Intermediate CA", rootKp, "CN=Root CA", true));
+        String leafB64 = certBase64(buildCert(leafKp, "CN=Leaf", intKp, "CN=Intermediate CA", false));
+
+        CertificateInfo certInfo = certificateInfo(
+                List.of(leafB64, intermediateB64, rootB64),
+                List.of("1.2.840.10045.4.3.2")
+        );
+
+        JsonNode node = objectMapper.readTree(sut.buildHeader(certInfo, JadesProfile.JADES_B_B, null));
+
+        assertEquals(2, node.get("x5c").size());
+        assertEquals(leafB64, node.get("x5c").get(0).asText());
+        assertEquals(intermediateB64, node.get("x5c").get(1).asText());
+    }
+
+    @Test
+    void buildHeader_unparseableTrailingCert_leavesChainUntouched() throws Exception {
+        // Not valid base64/DER - isSelfSigned() must fail closed (don't trim) rather than
+        // propagate the parse failure and break header building altogether.
+        CertificateInfo certInfo = certificateInfo(
+                List.of("not-a-real-cert", "also-not-a-real-cert"),
+                List.of("1.2.840.10045.4.3.2")
+        );
+
+        JsonNode node = objectMapper.readTree(sut.buildHeader(certInfo, JadesProfile.JADES_B_B, null));
+
+        assertEquals(2, node.get("x5c").size());
+    }
+
+    // --------------------------------------------------
+    // Cert-building helpers (x5c trimming tests)
+    // --------------------------------------------------
+
+    private static KeyPair generateEc() throws Exception {
+        KeyPairGenerator gen = KeyPairGenerator.getInstance("EC", "BC");
+        gen.initialize(256);
+        return gen.generateKeyPair();
+    }
+
+    /** Builds an X.509 cert signed by {@code issuerKeyPair}; self-signed when subject == issuer key/DN. */
+    private static X509Certificate buildCert(
+            KeyPair subjectKeyPair, String subjectDn,
+            KeyPair issuerKeyPair, String issuerDn,
+            boolean isCA) throws Exception {
+
+        Date notBefore = new Date(System.currentTimeMillis() - 86_400_000L);
+        Date notAfter = new Date(System.currentTimeMillis() + 365L * 86_400_000L);
+
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256WithECDSA")
+                .setProvider("BC")
+                .build(issuerKeyPair.getPrivate());
+
+        JcaX509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
+                new X500Principal(issuerDn),
+                BigInteger.valueOf(System.nanoTime()),
+                notBefore, notAfter,
+                new X500Principal(subjectDn),
+                subjectKeyPair.getPublic());
+
+        builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(isCA));
+
+        X509CertificateHolder holder = builder.build(signer);
+        return new JcaX509CertificateConverter().setProvider("BC").getCertificate(holder);
+    }
+
+    private static String certBase64(X509Certificate cert) throws Exception {
+        return Base64.getEncoder().encodeToString(cert.getEncoded());
     }
 
     // --------------------------------------------------

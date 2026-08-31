@@ -112,6 +112,9 @@ dependencies {
     testImplementation 'org.springframework.security:spring-security-test'
     testImplementation 'io.projectreactor:reactor-test'
     testImplementation 'com.tngtech.archunit:archunit-junit5:1.4.1'
+    // Real X.509 cert generation for JadesHeaderBuilderServiceImplTest's self-signed-root
+    // trimming tests - bcprov alone has no certificate-builder convenience API.
+    testImplementation 'org.bouncycastle:bcpkix-jdk18on:1.84'
 
     // --- Integration Testing ---
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
