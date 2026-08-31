@@ -2,15 +2,6 @@
   "$comment": "Approved license exceptions. Each record requires purl (version-pinned), license, reason, approved_by, approved_on, expires_on (max 180 days) and ticket. Protected by .github/CODEOWNERS. Free-text license names that map to an allowed SPDX id are handled by LICENSE_NAME_NORMALIZATION in the evaluator, NOT here.",
   "exceptions": [
     {
-      "purl": "pkg:maven/io.github.ehn-digital-green-development/base45@0.0.3?type=jar",
-      "license": "EUPL-1.2",
-      "reason": "Copyleft reciproco en runtime. Base45 es un algoritmo de ~100 lineas: se sustituye por implementacion propia, como se hizo con Base58 en EUD-219. NO se resuelve ampliando la allowlist",
-      "approved_by": "DevOps Lead",
-      "approved_on": "2026-08-27",
-      "expires_on": "2026-11-25",
-      "ticket": "EUD-220"
-    },
-    {
       "purl": "pkg:maven/com.github.jai-imageio/jai-imageio-core@1.4.0?type=jar",
       "license": "BSD 3-clause License w/nuclear disclaimer",
       "reason": "Variante de BSD-3-Clause con clausula de exclusion de uso nuclear. Sin obligaciones de copyleft, pero la identidad de la licencia no es equivalente a BSD-3-Clause, asi que no se normaliza: se admite de forma explicita y revisable",

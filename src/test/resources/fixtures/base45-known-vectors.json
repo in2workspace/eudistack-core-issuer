@@ -1,0 +1,12 @@
+{
+  "metadata": {
+    "source": "RFC 9285 section 4.4 (normative test vectors)",
+    "note": "input is the hex encoding of the ASCII bytes of the RFC's plain-text example"
+  },
+  "entries": [
+    { "text": "AB", "input": "4142", "output": "BB8" },
+    { "text": "Hello!!", "input": "48656c6c6f2121", "output": "%69 VD92EX0" },
+    { "text": "base-45", "input": "626173652d3435", "output": "UJCLQE7W581" },
+    { "text": "ietf!", "input": "6965746621", "output": "QED8WEX0" }
+  ]
+}

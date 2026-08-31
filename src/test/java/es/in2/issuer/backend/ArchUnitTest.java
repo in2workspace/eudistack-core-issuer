@@ -95,10 +95,16 @@ class ArchUnitTest {
 //            .whereLayer("Shared").mayNotAccessAnyLayer();
 
     @ArchTest
-    static final ArchRule noProductionClassShouldDependOnGplBase58 =
+    static final ArchRule noClassShouldDependOnGplBase58 =
             noClasses()
                     .that().resideInAPackage(BASE_PACKAGE + "..")
                     .should().dependOnClassesThat().resideInAPackage("io.github.novacrypto..");
+
+    @ArchTest
+    static final ArchRule noClassShouldDependOnEuplBase45 =
+            noClasses()
+                    .that().resideInAPackage(BASE_PACKAGE + "..")
+                    .should().dependOnClassesThat().resideInAPackage("nl.minvws.encoding..");
 
     @ArchTest
     static final ArchRule implementationsShouldBeInSameLayerAsInterfaces =
