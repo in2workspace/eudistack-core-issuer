@@ -43,9 +43,10 @@ public class StatusListWorkflow {
     }
 
     @Observed(name = "statuslist.get-signed-credential", contextualName = "statuslist-get-signed-credential")
-    public Mono<String> getSignedStatusListCredential(Long listId) {
+    public Mono<String> getSignedStatusListCredential(Long listId, StatusListFormat expectedFormat) {
         requireNonNullParam(listId, "listId");
-        return statusListProvider.getSignedStatusListCredential(listId);
+        requireNonNullParam(expectedFormat, "expectedFormat");
+        return statusListProvider.getSignedStatusListCredential(listId, expectedFormat);
     }
 
 

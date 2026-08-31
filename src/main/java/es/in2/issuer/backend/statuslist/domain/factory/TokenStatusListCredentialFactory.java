@@ -29,7 +29,7 @@ import static es.in2.issuer.backend.statuslist.domain.util.Preconditions.require
  *   "exp": 1234654290,
  *   "status_list": {
  *     "bits": 1,
- *     "lst": "<base64url-raw-deflate-compressed-bitstring>"
+ *     "lst": "<base64url(zlib-deflate(bitstring))>"
  *   }
  * }
  */
@@ -51,13 +51,15 @@ public class TokenStatusListCredentialFactory {
 
         // encodedList is the shared bitstring storage format (multibase 'u' + base64url + GZIP,
         // BitstringEncoder), reused as-is for the W3C Bitstring Status List JWT. But
-        // draft-ietf-oauth-status-list mandates plain DEFLATE (RFC 1951, no zlib/gzip wrapper)
-        // for the `lst` claim - a different compression than GZIP (RFC 1952, distinct magic
-        // bytes/header/trailer). Passing the GZIP bytes straight through here used to produce
-        // an `lst` no conformant reader could inflate (java.util.zip.Inflater: "incorrect
-        // header check"). Decode back to the raw bitstring and re-compress with raw DEFLATE.
+        // draft-ietf-oauth-status-list §4.1 mandates "DEFLATE [RFC1951] with the ZLIB
+        // [RFC1950] data format" for the `lst` claim - i.e. raw DEFLATE wrapped in the 2-byte
+        // zlib header + Adler-32 trailer, which is neither GZIP (RFC 1952) nor bare RFC 1951.
+        // Passing the GZIP bytes through produced an `lst` no conformant reader could inflate;
+        // so did emitting header-less DEFLATE (java.util.zip.Inflater with the default
+        // constructor, as every conformant reader uses: "incorrect header check").
+        // Decode back to the raw bitstring and re-compress with zlib-framed DEFLATE.
         byte[] rawBits = bitstringEncoder.decodeToRawBytes(encodedList);
-        String rawBase64url = Base64.getUrlEncoder().withoutPadding().encodeToString(deflateRaw(rawBits));
+        String rawBase64url = Base64.getUrlEncoder().withoutPadding().encodeToString(deflateZlib(rawBits));
 
         Instant now = Instant.now();
         Instant exp = now.plus(DEFAULT_LIFETIME_DAYS, ChronoUnit.DAYS);
@@ -93,13 +95,14 @@ public class TokenStatusListCredentialFactory {
                 .build();
     }
 
-    /** Raw DEFLATE (RFC 1951) — nowrap=true skips the zlib header/trailer draft-ietf-oauth-status-list forbids. */
-    private byte[] deflateRaw(byte[] input) {
+    /** DEFLATE (RFC 1951) in the ZLIB (RFC 1950) data format, as draft-ietf-oauth-status-list §4.1 requires. */
+    private byte[] deflateZlib(byte[] input) {
         // java:S2095 kept firing on a manual try/finally around Deflater.end(): SonarJava's
         // dataflow only accepts try-with-resources here. Java 25 made Deflater AutoCloseable
         // with close() calling end() (@since 25), so the JDK type goes straight into the
         // resource list - no wrapper needed, and the compiler guarantees close() runs.
-        try (Deflater deflater = new Deflater(Deflater.DEFAULT_COMPRESSION, true)) {
+        // nowrap=false (the single-arg constructor): keep the zlib header/trailer the spec mandates.
+        try (Deflater deflater = new Deflater(Deflater.BEST_COMPRESSION)) {
             deflater.setInput(input);
             deflater.finish();
 

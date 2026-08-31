@@ -22,10 +22,15 @@ class TokenStatusListCredentialFactoryTest {
     private final TokenStatusListCredentialFactory factory = new TokenStatusListCredentialFactory();
     private final BitstringEncoder bitstringEncoder = new BitstringEncoder();
 
-    /** Undoes deflateRaw: raw-DEFLATE-inflate (nowrap=true) + base64url-decode, mirroring a spec-conformant reader. */
-    private byte[] inflateRawBase64url(String lst) throws DataFormatException {
+    /**
+     * Undoes deflateZlib the way a spec-conformant reader does: base64url-decode, then inflate with
+     * the DEFAULT Inflater constructor, i.e. expecting the zlib (RFC 1950) framing
+     * draft-ietf-oauth-status-list §4.1 mandates. A nowrap=true Inflater here would also accept
+     * header-less DEFLATE and hide exactly the bug this asserts against.
+     */
+    private byte[] inflateZlibBase64url(String lst) throws DataFormatException {
         byte[] compressed = Base64.getUrlDecoder().decode(lst);
-        try (Inflater inflater = new Inflater(true)) {
+        try (Inflater inflater = new Inflater()) {
             inflater.setInput(compressed);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             byte[] buffer = new byte[1024];
@@ -67,13 +72,13 @@ class TokenStatusListCredentialFactoryTest {
         assertNotNull(statusList);
         assertEquals(1, statusList.get("bits"));
         // Regression test: draft-ietf-oauth-status-list requires raw DEFLATE (RFC 1951) for
-        // `lst`, not the GZIP (RFC 1952) that encodedList's own storage format uses - passing
-        // the GZIP bytes straight through used to produce an `lst` conformant readers couldn't
-        // inflate ("incorrect header check"). `lst` must be raw-DEFLATE-decodable back to the
+        // `lst`, not the GZIP (RFC 1952) that encodedList's own storage format uses, and not
+        // header-less DEFLATE either - both produced an `lst` conformant readers couldn't inflate
+        // ("incorrect header check"). `lst` must be zlib-DEFLATE-decodable back to the
         // original bitstring bytes.
         String lst = (String) statusList.get("lst");
         assertFalse(lst.startsWith("u"), "lst must not carry the multibase prefix");
-        assertArrayEquals(rawBits, inflateRawBase64url(lst));
+        assertArrayEquals(rawBits, inflateZlibBase64url(lst));
     }
 
     @Test
@@ -86,7 +91,7 @@ class TokenStatusListCredentialFactoryTest {
 
         @SuppressWarnings("unchecked")
         Map<String, Object> statusList = (Map<String, Object>) payload.get("status_list");
-        assertArrayEquals(rawBits, inflateRawBase64url((String) statusList.get("lst")));
+        assertArrayEquals(rawBits, inflateZlibBase64url((String) statusList.get("lst")));
     }
 
     @Test
