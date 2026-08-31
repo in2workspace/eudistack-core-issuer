@@ -32,6 +32,11 @@ public class CorsFilterConfig {
 
     @Bean
     public UrlBasedCorsConfigurationSource corsConfigurationSource() {
+        // Security Note: All CORS configurations have allowCredentials(false).
+        // This is safe because the application uses stateless Bearer token authentication (OAuth2/DPoP)
+        // and does not rely on cookies or JSESSIONID for authenticated requests.
+        // Public endpoints (Open CORS) facilitate interoperability with any OID4VCI-compliant wallet.
+
         // 1. Restricted configuration for authenticated or administrative endpoints.
         // These rely on a predefined list of allowed origins (e.g. the Issuer's own UI).
         // Backoffice clients use patterns to support wildcard subdomains (e.g. *.stg.eudistack.net).
