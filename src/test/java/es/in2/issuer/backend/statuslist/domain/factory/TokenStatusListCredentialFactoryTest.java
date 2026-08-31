@@ -2,12 +2,17 @@ package es.in2.issuer.backend.statuslist.domain.factory;
 
 import es.in2.issuer.backend.statuslist.domain.model.StatusListEntry;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
+import es.in2.issuer.backend.statuslist.domain.util.BitstringEncoder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullSource;
 
+import java.io.ByteArrayOutputStream;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Map;
+import java.util.zip.DataFormatException;
+import java.util.zip.Inflater;
 
 import static es.in2.issuer.backend.statuslist.domain.util.Constants.TOKEN_STATUS_LIST_ENTRY_TYPE;
 import static org.junit.jupiter.api.Assertions.*;
@@ -15,15 +20,38 @@ import static org.junit.jupiter.api.Assertions.*;
 class TokenStatusListCredentialFactoryTest {
 
     private final TokenStatusListCredentialFactory factory = new TokenStatusListCredentialFactory();
+    private final BitstringEncoder bitstringEncoder = new BitstringEncoder();
+
+    /**
+     * Undoes deflateZlib the way a spec-conformant reader does: base64url-decode, then inflate with
+     * the DEFAULT Inflater constructor, i.e. expecting the zlib (RFC 1950) framing
+     * draft-ietf-oauth-status-list §4.1 mandates. A nowrap=true Inflater here would also accept
+     * header-less DEFLATE and hide exactly the bug this asserts against.
+     */
+    private byte[] inflateZlibBase64url(String lst) throws DataFormatException {
+        byte[] compressed = Base64.getUrlDecoder().decode(lst);
+        try (Inflater inflater = new Inflater()) {
+            inflater.setInput(compressed);
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024];
+            while (!inflater.finished()) {
+                int n = inflater.inflate(buffer);
+                if (n == 0 && inflater.needsInput()) break;
+                out.write(buffer, 0, n);
+            }
+            return out.toByteArray();
+        }
+    }
 
     // -------------------- buildUnsigned --------------------
 
     @Test
-    void buildUnsigned_returnsCorrectPayloadStructure() {
+    void buildUnsigned_returnsCorrectPayloadStructure() throws DataFormatException {
         String listUrl = "https://issuer.example/token/v1/credentials/status/42";
         String issuerId = "did:elsi:VATES-12345678A";
         String purpose = "revocation";
-        String encodedList = "uABCDEF123";
+        byte[] rawBits = new byte[]{(byte) 0b10100000};
+        String encodedList = bitstringEncoder.encode(rawBits);
 
         Map<String, Object> payload = factory.buildUnsigned(listUrl, issuerId, purpose, encodedList);
 
@@ -43,24 +71,34 @@ class TokenStatusListCredentialFactoryTest {
         Map<String, Object> statusList = (Map<String, Object>) payload.get("status_list");
         assertNotNull(statusList);
         assertEquals(1, statusList.get("bits"));
-        // Should strip the 'u' multibase prefix
-        assertEquals("ABCDEF123", statusList.get("lst"));
+        // Regression test: draft-ietf-oauth-status-list requires raw DEFLATE (RFC 1951) for
+        // `lst`, not the GZIP (RFC 1952) that encodedList's own storage format uses, and not
+        // header-less DEFLATE either - both produced an `lst` conformant readers couldn't inflate
+        // ("incorrect header check"). `lst` must be zlib-DEFLATE-decodable back to the
+        // original bitstring bytes.
+        String lst = (String) statusList.get("lst");
+        assertFalse(lst.startsWith("u"), "lst must not carry the multibase prefix");
+        assertArrayEquals(rawBits, inflateZlibBase64url(lst));
     }
 
     @Test
-    void buildUnsigned_doesNotStripWhenNoMultibasePrefix() {
+    void buildUnsigned_decodesEncodedListWithoutMultibasePrefix() throws DataFormatException {
+        byte[] rawBits = new byte[]{0x00, (byte) 0xFF};
+        String encodedListNoPrefix = bitstringEncoder.encode(rawBits).substring(1); // strip 'u'
+
         Map<String, Object> payload = factory.buildUnsigned(
-                "https://example.com/status/1", "did:example:1", "revocation", "ABCDEF");
+                "https://example.com/status/1", "did:example:1", "revocation", encodedListNoPrefix);
 
         @SuppressWarnings("unchecked")
         Map<String, Object> statusList = (Map<String, Object>) payload.get("status_list");
-        assertEquals("ABCDEF", statusList.get("lst"));
+        assertArrayEquals(rawBits, inflateZlibBase64url((String) statusList.get("lst")));
     }
 
     @Test
     void buildUnsigned_iatIsCloseToNow() {
+        String encodedList = bitstringEncoder.createEmptyEncodedList(8);
         Map<String, Object> payload = factory.buildUnsigned(
-                "https://example.com/status/1", "did:example:1", "revocation", "uXYZ");
+                "https://example.com/status/1", "did:example:1", "revocation", encodedList);
 
         long iat = (long) payload.get("iat");
         long nowEpoch = Instant.now().getEpochSecond();

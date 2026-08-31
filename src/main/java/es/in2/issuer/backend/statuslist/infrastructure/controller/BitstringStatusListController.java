@@ -3,6 +3,7 @@ package es.in2.issuer.backend.statuslist.infrastructure.controller;
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
+import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.dto.RevokeCredentialRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -36,7 +37,7 @@ public class BitstringStatusListController {
     public Mono<ResponseEntity<String>> getStatusList(@PathVariable Long listId) {
         String processId = UUID.randomUUID().toString();
 
-        return statusListWorkflow.getSignedStatusListCredential(listId)
+        return statusListWorkflow.getSignedStatusListCredential(listId, StatusListFormat.BITSTRING_VC)
                 .doFirst(() -> log.info("Process ID: {} - Getting Status List Credential (vc+jwt)...", processId))
                 .doOnSuccess(v -> log.info("processId={} action=getStatusList status=completed listId={}", processId, listId))
                 .doOnError(e -> log.warn("processId={} action=getStatusList status=failed listId={} error={}", processId, listId, e.toString()))

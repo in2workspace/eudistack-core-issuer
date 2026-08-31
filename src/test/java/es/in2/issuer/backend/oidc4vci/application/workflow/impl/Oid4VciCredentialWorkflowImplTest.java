@@ -182,7 +182,7 @@ class Oid4VciCredentialWorkflowImplTest {
     void createCredentialResponse_dcSdJwt_usesTokenJwtFormat() {
         // Arrange
         Issuance issuance = buildProcedure(DC_SD_JWT);
-        CredentialProfile profile = buildProfile(false);
+        CredentialProfile profile = buildProfile(false, DC_SD_JWT);
         CredentialIssuerMetadata metadata = buildMetadata(null);
         CredentialRequest request = CredentialRequest.builder()
                 .credentialConfigurationId(CREDENTIAL_TYPE)
@@ -234,6 +234,71 @@ class Oid4VciCredentialWorkflowImplTest {
                 .verifyComplete();
 
         // Verify TOKEN_JWT format used for dc+sd-jwt
+        verify(statusListWorkflow).allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.TOKEN_JWT, ISSUANCE_ID, BEARER_PREFIX + RAW_TOKEN, PUBLIC_BASE_URL);
+        verify(genericCredentialBuilder).injectCredentialStatus(eq(enrichedDataSet), any(CredentialStatus.class), eq(DC_SD_JWT));
+
+        verify(credentialIssuedLogger).logIssued(CREDENTIAL_TYPE);
+        verify(credentialIssuedLogger, never()).logFailed(any(), any());
+    }
+
+    @Test
+    void createCredentialResponse_profileIsDcSdJwtButStoredFormatIsStale_stillUsesTokenJwtFormat() {
+        // A row written before the profile moved to dc+sd-jwt keeps credential_format=jwt_vc_json.
+        // Honouring it downgraded the status list to BITSTRING_VC and wrote a W3C
+        // `credentialStatus` into an SD-JWT VC, so the wallet got a /token/... URI it could not
+        // decode (or no status_list at all). The profile wins.
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+        CredentialProfile profile = buildProfile(false, DC_SD_JWT);
+        CredentialIssuerMetadata metadata = buildMetadata(null);
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialConfigurationId(CREDENTIAL_TYPE)
+                .format(DC_SD_JWT)
+                .build();
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN)
+                .issuanceId(ISSUANCE_ID)
+                .build();
+
+        StatusListEntry statusEntry = new StatusListEntry(
+                "https://issuer.example/token/status/1#42",
+                "TokenStatusListEntry",
+                StatusPurpose.REVOCATION,
+                "42",
+                "https://issuer.example/token/status/1"
+        );
+
+        String enrichedDataSet = "{\"enriched\":true}";
+        String enrichedWithStatus = "{\"enriched\":true,\"status\":{\"status_list\":{}}}";
+        String signedCredential = "signed-sd-jwt~disclosure1~";
+
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+        when(genericCredentialBuilder.bindIssuer(eq(profile), eq(CREDENTIAL_DATA_SET), eq(ISSUANCE_ID), anyString()))
+                .thenReturn(Mono.just(enrichedDataSet));
+        when(statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.TOKEN_JWT, ISSUANCE_ID, BEARER_PREFIX + RAW_TOKEN, PUBLIC_BASE_URL))
+                .thenReturn(Mono.just(statusEntry));
+        when(genericCredentialBuilder.injectCredentialStatus(eq(enrichedDataSet), any(CredentialStatus.class), eq(DC_SD_JWT)))
+                .thenReturn(enrichedWithStatus);
+        when(enrichmentCacheStore.add(eq(ISSUANCE_ID), eq(enrichedWithStatus)))
+                .thenReturn(Mono.just(enrichedWithStatus));
+        when(credentialSignerWorkflow.signCredential(
+                eq(BEARER_PREFIX + RAW_TOKEN), eq(enrichedWithStatus), eq(CREDENTIAL_TYPE),
+                eq(DC_SD_JWT), isNull(), eq(ISSUANCE_ID), anyString()))
+                .thenReturn(Mono.just(signedCredential));
+        when(notificationCacheStore.add(anyString(), eq(ISSUANCE_ID)))
+                .thenReturn(Mono.just(ISSUANCE_ID));
+        when(issuanceService.updateIssuance(any(Issuance.class)))
+                .thenReturn(Mono.just(issuance));
+
+        // Act & Assert
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .assertNext(resp -> {
+                    assertThat(resp.credentials()).hasSize(1);
+                    assertThat(resp.credentials().getFirst().credential()).isEqualTo(signedCredential);
+                })
+                .verifyComplete();
+
         verify(statusListWorkflow).allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.TOKEN_JWT, ISSUANCE_ID, BEARER_PREFIX + RAW_TOKEN, PUBLIC_BASE_URL);
         verify(genericCredentialBuilder).injectCredentialStatus(eq(enrichedDataSet), any(CredentialStatus.class), eq(DC_SD_JWT));
 
@@ -720,9 +785,13 @@ class Oid4VciCredentialWorkflowImplTest {
     }
 
     private CredentialProfile buildProfile(boolean cnfRequired) {
+        return buildProfile(cnfRequired, JWT_VC_JSON);
+    }
+
+    private CredentialProfile buildProfile(boolean cnfRequired, String format) {
         return CredentialProfile.builder()
                 .credentialConfigurationId(CREDENTIAL_TYPE)
-                .format(JWT_VC_JSON)
+                .format(format)
                 .cnfRequired(cnfRequired)
                 .issuerType(CredentialProfile.IssuerType.SIMPLE)
                 .credentialDefinition(CredentialProfile.CredentialDefinition.builder()

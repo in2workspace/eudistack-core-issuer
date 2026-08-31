@@ -167,43 +167,6 @@ class CredentialIssuerMetadataServiceImplTest {
     }
 
     @Test
-    void getCredentialIssuerMetadata_withValueMapInClaims_propagatesValueMapToOutput() {
-        CredentialProfile.ClaimDefinition labelLevelClaim = CredentialProfile.ClaimDefinition.builder()
-                .path(List.of("credentialSubject", "gx:labelLevel"))
-                .valueMap(Map.of("BL", "Baseline", "P", "Professional"))
-                .build();
-
-        CredentialProfile.CredentialMetadata credentialMetadata = CredentialProfile.CredentialMetadata.builder()
-                .claims(List.of(labelLevelClaim))
-                .build();
-
-        CredentialProfile labelProfile = CredentialProfile.builder()
-                .credentialConfigurationId("gx.labelcredential.w3c.2")
-                .format(Constants.JWT_VC_JSON)
-                .credentialMetadata(credentialMetadata)
-                .build();
-
-        when(credentialProfileRegistry.getAllProfiles()).thenReturn(Map.of("gx.labelcredential.w3c.2", labelProfile));
-        when(tenantCredentialProfileService.getEnabledConfigurationIds())
-                .thenReturn(Mono.just(Set.of("gx.labelcredential.w3c.2")));
-
-        var service = new CredentialIssuerMetadataServiceImpl(credentialProfileRegistry, tenantCredentialProfileService);
-
-        StepVerifier.create(service.getCredentialIssuerMetadata(ISSUER_URL))
-                .assertNext(metadata -> {
-                    CredentialIssuerMetadata.CredentialConfiguration labelConfig =
-                            metadata.credentialConfigurationsSupported().get("gx.labelcredential.w3c.2");
-
-                    assertThat(labelConfig.credentialMetadata().claims()).hasSize(1);
-                    assertThat(labelConfig.credentialMetadata().claims().getFirst().valueMap())
-                            .containsEntry("BL", "Baseline")
-                            .containsEntry("P", "Professional");
-                })
-                .verifyComplete();
-    }
-
-
-    @Test
     void getCredentialIssuerMetadata_publishesFormatSpecificParametersOnly() {
         // OID4VCI 1.0 Final section 12.2.4: `vct` belongs to dc+sd-jwt configurations and
         // `credential_definition` to the W3C VC formats. Publishing either outside its format

@@ -244,13 +244,28 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         String issuanceId = proc.getIssuanceId().toString();
         String credentialType = proc.getCredentialType();
         String email = proc.getEmail();
-        String credentialFormat = proc.getCredentialFormat() != null ? proc.getCredentialFormat() : JWT_VC_JSON;
 
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialType);
         if (profile == null) {
             return Mono.error(new FormatUnsupportedException("No profile for credential type: " + credentialType));
         }
 
+        // The profile is the authority on the format, not the stored issuance row: the wallet asked
+        // by credential_configuration_id and the Credential Issuer Metadata advertises
+        // profile.format() for it, so that is what has to come back. A row written before the
+        // profile carried a format (or before the profile was switched to dc+sd-jwt) leaves
+        // credential_format NULL or jwt_vc_json, and honouring it silently downgrades the whole
+        // chain: BITSTRING_VC instead of TOKEN_JWT for the status list, and a W3C
+        // `credentialStatus` object instead of `status.status_list` inside an SD-JWT VC.
+        String credentialFormat = firstNonBlank(profile.format(), proc.getCredentialFormat(), JWT_VC_JSON);
+        if (proc.getCredentialFormat() != null && !credentialFormat.equals(proc.getCredentialFormat())) {
+            log.warn(
+                    "[{}] issuanceId={} configurationId={} stored credential_format={} differs from the profile's {}; issuing as {}",
+                    processId, issuanceId, credentialType, proc.getCredentialFormat(), profile.format(), credentialFormat
+            );
+        }
+
+        Map<String, Object> cnf = bindingInfo.cnf();
         Map<String, Object> cnf = resolveCnf(bindingInfo, proc);
         String token = BEARER_PREFIX + rawToken;
         StatusListFormat statusFormat = DC_SD_JWT.equals(credentialFormat)
@@ -300,6 +315,15 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                                     .build());
                 })
                 .doOnSuccess(resp -> log.info("[{}] Credential signed successfully for issuanceId={}", processId, issuanceId));
+    }
+
+    private static String firstNonBlank(String... candidates) {
+        for (String candidate : candidates) {
+            if (candidate != null && !candidate.isBlank()) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     // --- Proof validation logic (kept from existing implementation) ---

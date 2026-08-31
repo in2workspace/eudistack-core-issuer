@@ -20,15 +20,18 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_PATH;
 
 /**
- * End-to-end coverage for the `value_map` field on `/.well-known/openid-credential-issuer`
- * (dos-sistemas-paralelos-esquemas task): boots the real Spring context against a real
+ * End-to-end coverage of the claims description objects on
+ * `/.well-known/openid-credential-issuer`: boots the real Spring context against a real
  * Postgres (Testcontainers), loads a real credential profile from disk through
- * {@code CredentialProfileRegistry}, and asserts the wire JSON response still carries
- * {@code value_map} — the exact regression this task fixed (Jackson silently dropped the
- * field because {@code CredentialProfile.ClaimDefinition} didn't declare it).
+ * {@code CredentialProfileRegistry}, and asserts the wire JSON carries the OID4VCI 1.0 Final
+ * Appendix B.1 members only.
+ *
+ * <p>The fixture profile deliberately still declares `value_map`: a profile may carry members
+ * the spec does not define, but they must not reach the published metadata — the OIDF
+ * conformance suite reports any such member as an unexpected metadata field.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class CredentialIssuerMetadataValueMapIT {
+class CredentialIssuerMetadataClaimsWireFormatIT {
 
     private static final String TENANT = "labeltest";
     private static final String CONFIGURATION_ID = "gx.labelcredential.w3c.2";
@@ -111,7 +114,10 @@ class CredentialIssuerMetadataValueMapIT {
     }
 
     @Test
-    void getCredentialIssuerMetadata_forProfileWithValueMap_includesValueMapInResponseBody() {
+    void getCredentialIssuerMetadata_forProfileWithNonSpecClaimMembers_publishesOnlySpecMembers() {
+        String claim = "$.credential_configurations_supported['" + CONFIGURATION_ID
+                + "'].credential_metadata.claims[0]";
+
         webTestClient.get()
                 .uri(CREDENTIAL_ISSUER_METADATA_WELL_KNOWN_PATH)
                 .header(X_TENANT_HEADER, TENANT)
@@ -119,10 +125,9 @@ class CredentialIssuerMetadataValueMapIT {
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.credential_configurations_supported['" + CONFIGURATION_ID + "']").exists()
-                .jsonPath("$.credential_configurations_supported['" + CONFIGURATION_ID
-                        + "'].credential_metadata.claims[0].value_map.BL").isEqualTo("Baseline")
-                .jsonPath("$.credential_configurations_supported['" + CONFIGURATION_ID
-                        + "'].credential_metadata.claims[0].value_map.P").isEqualTo("Professional");
+                .jsonPath(claim + ".path").exists()
+                .jsonPath(claim + ".display").exists()
+                .jsonPath(claim + ".value_map").doesNotExist();
     }
 
 }

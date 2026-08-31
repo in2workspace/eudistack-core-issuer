@@ -106,9 +106,24 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.just(statusList));
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.getSignedStatusListCredential(TEST_LIST_ID))
+        StepVerifier.create(bitstringStatusListProvider.getSignedStatusListCredential(TEST_LIST_ID, StatusListFormat.BITSTRING_VC))
                 .expectNext(TEST_SIGNED_CREDENTIAL)
                 .verifyComplete();
+
+        verify(statusListRepository).findById(TEST_LIST_ID);
+    }
+
+    @Test
+    void getSignedStatusListCredential_shouldThrowStatusListNotFoundException_whenStoredFormatIsNotTheOneServed() {
+        // Both endpoints read the same table. A bitstring_vc row reached through the Token Status
+        // List endpoint used to come back as a 200 carrying application/statuslist+jwt over a W3C
+        // vc+jwt body; it must be a 404 instead.
+        when(statusListRepository.findById(TEST_LIST_ID))
+                .thenReturn(Mono.just(statusListRow("bitstring_vc")));
+
+        StepVerifier.create(bitstringStatusListProvider.getSignedStatusListCredential(TEST_LIST_ID, StatusListFormat.TOKEN_JWT))
+                .expectError(StatusListNotFoundException.class)
+                .verify();
 
         verify(statusListRepository).findById(TEST_LIST_ID);
     }
@@ -120,7 +135,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.empty());
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.getSignedStatusListCredential(TEST_LIST_ID))
+        StepVerifier.create(bitstringStatusListProvider.getSignedStatusListCredential(TEST_LIST_ID, StatusListFormat.BITSTRING_VC))
                 .expectError(StatusListNotFoundException.class)
                 .verify();
 
@@ -133,7 +148,7 @@ class BitstringStatusListProviderTest {
     @Test
     void getSignedStatusListCredential_shouldThrowException_whenListIdIsNull() {
         // Act & Assert
-        assertThatThrownBy(() -> bitstringStatusListProvider.getSignedStatusListCredential(null))
+        assertThatThrownBy(() -> bitstringStatusListProvider.getSignedStatusListCredential(null, StatusListFormat.BITSTRING_VC))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("listId");
 
@@ -169,6 +184,9 @@ class BitstringStatusListProviderTest {
         when(statusListIndexRepository.findByIssuanceId(procedureUuid))
                 .thenReturn(Mono.just(existingIndex));
 
+        when(statusListRepository.findById(TEST_LIST_ID))
+                .thenReturn(Mono.just(statusListRow("bitstring_vc")));
+
         when(statusListBuilder.buildStatusListEntry(expectedListUrl, 10, purpose))
                 .thenReturn(expectedEntry);
 
@@ -179,6 +197,34 @@ class BitstringStatusListProviderTest {
 
         verify(statusListIndexRepository).findByIssuanceId(procedureUuid);
         verify(statusListBuilder).buildStatusListEntry(expectedListUrl, 10, purpose);
+    }
+
+    @Test
+    void allocateEntry_shouldFail_whenExistingAllocationIsOnAListOfAnotherFormat() {
+        // A credential issued as dc+sd-jwt needs a token_jwt list: reusing the issuance's
+        // bitstring_vc allocation would embed a /token/v1/... URI resolving to a W3C VC, which no
+        // wallet can decode as a Status List Token. Fail instead of emitting that credential.
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
+
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
+                .thenReturn(Mono.just(new StatusListIndex(1L, TEST_LIST_ID, 10, procedureUuid, Instant.now())));
+
+        when(statusListRepository.findById(TEST_LIST_ID))
+                .thenReturn(Mono.just(statusListRow("bitstring_vc")));
+
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(
+                        StatusPurpose.REVOCATION, StatusListFormat.TOKEN_JWT, TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
+                .expectError(StatusListFormatMismatchException.class)
+                .verify();
+
+        verifyNoInteractions(tokenStatusListBuilder, statusListSigner);
+    }
+
+    private StatusList statusListRow(String format) {
+        return new StatusList(
+                TEST_LIST_ID, "revocation", format, "encodedList", TEST_SIGNED_CREDENTIAL,
+                Instant.now(), Instant.now()
+        );
     }
 
     @Test
@@ -733,7 +779,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.error(repoError));
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.getSignedStatusListCredential(TEST_LIST_ID))
+        StepVerifier.create(bitstringStatusListProvider.getSignedStatusListCredential(TEST_LIST_ID, StatusListFormat.BITSTRING_VC))
                 .expectErrorMatches(e -> e == repoError)
                 .verify();
 
@@ -760,7 +806,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.just(statusList));
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.getSignedStatusListCredential(TEST_LIST_ID))
+        StepVerifier.create(bitstringStatusListProvider.getSignedStatusListCredential(TEST_LIST_ID, StatusListFormat.BITSTRING_VC))
                 .expectError(SignedStatusListCredentialNotAvailableException.class)
                 .verify();
 
