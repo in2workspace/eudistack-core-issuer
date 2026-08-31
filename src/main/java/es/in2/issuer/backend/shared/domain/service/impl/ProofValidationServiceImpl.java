@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
+import es.in2.issuer.backend.oidc4vci.domain.exception.InvalidNonceException;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
@@ -39,7 +40,7 @@ public class ProofValidationServiceImpl implements ProofValidationService {
                                         : Mono.just(false))))
                 .defaultIfEmpty(false)
                 .doOnSuccess(result -> log.debug("Final validation result: {}", result))
-                .onErrorMap(e -> (e instanceof ProofValidationException) ? e
+                .onErrorMap(e -> (e instanceof ProofValidationException || e instanceof InvalidNonceException) ? e
                         : new ProofValidationException("Error during JWT validation"));
     }
 
@@ -53,9 +54,12 @@ public class ProofValidationServiceImpl implements ProofValidationService {
             return Mono.error(new ProofValidationException("invalid_proof: nonce is missing"));
         }
 
+        // §8.3.1.2 splits these two: a proof with no c_nonce at all is invalid_proof (case 3),
+        // while a proof carrying a c_nonce the Issuer does not recognize is invalid_nonce, which
+        // tells the Wallet to fetch a fresh nonce and retry rather than give up.
         String nonce = nonceObj.toString();
         return nonceCacheStore.get(nonce)
-                .switchIfEmpty(Mono.error(new ProofValidationException("invalid_proof: nonce is invalid or expired")))
+                .switchIfEmpty(Mono.error(new InvalidNonceException("Nonce is invalid or expired")))
                 .thenReturn(nonce);
     }
 
