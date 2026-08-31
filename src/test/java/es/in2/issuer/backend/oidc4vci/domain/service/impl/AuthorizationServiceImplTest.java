@@ -183,4 +183,71 @@ class AuthorizationServiceImplTest {
                         && e.getMessage().contains("Invalid or expired request_uri"))
                 .verify();
     }
+
+    @Test
+    void authorize_shouldRejectParFlowWhenClientIdDoesNotMatchThePusher() {
+        PushedAuthorizationRequest parRequest = PushedAuthorizationRequest.builder()
+                .clientId("client1")
+                .redirectUri("https://client1/callback")
+                .codeChallenge("challenge")
+                .codeChallengeMethod("S256")
+                .scope("openid")
+                .state("par-state")
+                .build();
+
+        when(parCacheStore.get(anyString())).thenReturn(Mono.just(parRequest));
+
+        String requestUri = "urn:ietf:params:oauth:request_uri:test-uuid";
+
+        StepVerifier.create(authorizationService.authorize(
+                        requestUri, "client2", null, null,
+                        null, null, null, null, null, "https://issuer.example.com"))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
+                        && e.getMessage().contains("client_id does not match"))
+                .verify();
+
+        // The foreign client must not be able to burn a request_uri it does not own.
+        verify(parCacheStore, never()).delete(anyString());
+        verify(authorizationCodeCacheStore, never()).add(anyString(), any(AuthorizationCodeData.class));
+    }
+
+    @Test
+    void authorize_shouldRejectParFlowWhenClientIdIsMissing() {
+        PushedAuthorizationRequest parRequest = PushedAuthorizationRequest.builder()
+                .clientId("client1")
+                .redirectUri("https://client1/callback")
+                .build();
+
+        when(parCacheStore.get(anyString())).thenReturn(Mono.just(parRequest));
+
+        StepVerifier.create(authorizationService.authorize(
+                        "urn:ietf:params:oauth:request_uri:test-uuid", null, null, null,
+                        null, null, null, null, null, "https://issuer.example.com"))
+                .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
+                        && "invalid_request".equals(oAuthTokenException.getErrorCode())
+                        && e.getMessage().contains("client_id does not match"))
+                .verify();
+
+        verify(parCacheStore, never()).delete(anyString());
+    }
+
+    @Test
+    void authorize_shouldAllowParFlowWhenNeitherPushNorAuthorizeCarriesClientId() {
+        PushedAuthorizationRequest parRequest = PushedAuthorizationRequest.builder()
+                .redirectUri("https://wallet/callback")
+                .state("par-state")
+                .build();
+
+        when(parCacheStore.get(anyString())).thenReturn(Mono.just(parRequest));
+        when(parCacheStore.delete(anyString())).thenReturn(Mono.empty());
+        when(authorizationCodeCacheStore.add(anyString(), any(AuthorizationCodeData.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0, String.class)));
+
+        StepVerifier.create(authorizationService.authorize(
+                        "urn:ietf:params:oauth:request_uri:test-uuid", null, null, null,
+                        null, null, null, null, null, "https://issuer.example.com"))
+                .assertNext(uri -> assertTrue(uri.toString().startsWith("https://wallet/callback?code=")))
+                .verifyComplete();
+    }
 }
