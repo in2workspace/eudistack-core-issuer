@@ -40,9 +40,14 @@ public class JwsSignHashServiceImpl implements JwsSignHashService {
         try {
             headerB64Url = Base64UrlUtils.encodeUtf8(headerJson);
             payloadB64Url = Base64UrlUtils.encodeUtf8(payloadJson);
-            jwsAlgorithm = readAlgorithm(headerJson);
         } catch (Exception e) {
             return Mono.error(new RemoteSignatureException("Failed to build JWS header/payload", e));
+        }
+
+        try {
+            jwsAlgorithm = readAlgorithm(headerJson);
+        } catch (Exception e) {
+            return Mono.error(new RemoteSignatureException("Failed to read 'alg' from the JAdES header", e));
         }
 
         String signingInput = headerB64Url + "." + payloadB64Url;

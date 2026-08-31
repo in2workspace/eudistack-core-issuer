@@ -71,6 +71,61 @@ class JwsSignatureEncoderTest {
     }
 
     @Test
+    void toJoseSignature_derSignatureAsLongAsTheConcatForm_isStillTranscoded() {
+        // A DER SEQUENCE measures 6 + len(R) + len(S) for ES256. With a 32-byte R and a
+        // 26-byte S that is exactly 64 bytes — the same length as the JOSE concat form — so
+        // a length-based "already concat" test would pass the DER blob through untouched.
+        byte[] r = filled(32, (byte) 0x7A);
+        byte[] s = filled(26, (byte) 0x5B);
+        byte[] der = der(r, s);
+        assertThat(der).hasSize(64);
+
+        String joseSignature = JwsSignatureEncoder.toJoseSignature(
+                Base64.getUrlEncoder().withoutPadding().encodeToString(der), JWSAlgorithm.ES256);
+
+        // R || S with S left-padded to the fixed 32-byte field
+        byte[] expected = new byte[64];
+        System.arraycopy(r, 0, expected, 0, 32);
+        System.arraycopy(s, 0, expected, 64 - s.length, s.length);
+        assertThat(new Base64URL(joseSignature).decode()).isEqualTo(expected);
+    }
+
+    @Test
+    void toJoseSignature_concatSignatureStartingWithDerSequenceTag_isLeftUnchanged() {
+        // R starts with 0x30, the DER SEQUENCE tag, but the following octet does not declare a
+        // length spanning the buffer, so the structural check must not treat this as DER.
+        byte[] concat = filled(64, (byte) 0x11);
+        concat[0] = 0x30;
+        concat[1] = 0x00;
+        String encoded = Base64.getUrlEncoder().withoutPadding().encodeToString(concat);
+
+        String joseSignature = JwsSignatureEncoder.toJoseSignature(encoded, JWSAlgorithm.ES256);
+
+        assertThat(new Base64URL(joseSignature).decode()).isEqualTo(concat);
+    }
+
+    private static byte[] filled(int length, byte value) {
+        byte[] bytes = new byte[length];
+        java.util.Arrays.fill(bytes, value);
+        return bytes;
+    }
+
+    /** Assembles {@code SEQUENCE { INTEGER r, INTEGER s }} in the DER short length form. */
+    private static byte[] der(byte[] r, byte[] s) {
+        int content = 2 + r.length + 2 + s.length;
+        byte[] out = new byte[2 + content];
+        out[0] = 0x30;
+        out[1] = (byte) content;
+        out[2] = 0x02;
+        out[3] = (byte) r.length;
+        System.arraycopy(r, 0, out, 4, r.length);
+        out[4 + r.length] = 0x02;
+        out[5 + r.length] = (byte) s.length;
+        System.arraycopy(s, 0, out, 6 + r.length, s.length);
+        return out;
+    }
+
+    @Test
     void toJoseSignature_ecdsaSignatureNeitherDerNorConcat_throws() {
         String malformed = Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[]{0x01, 0x02, 0x03});
 

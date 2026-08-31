@@ -3,6 +3,7 @@ package es.in2.issuer.backend.signing.domain.util;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.crypto.impl.ECDSA;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.Base64;
 
@@ -23,7 +24,11 @@ import java.util.Base64;
  *
  * RSA signatures need no transcoding — PKCS#1 output is already the raw octet string.
  */
+@Slf4j
 public final class JwsSignatureEncoder {
+
+    private static final int DER_TAG_SEQUENCE = 0x30;
+    private static final int DER_LENGTH_LONG_FORM_ONE_OCTET = 0x81;
 
     private JwsSignatureEncoder() {}
 
@@ -66,19 +71,51 @@ public final class JwsSignatureEncoder {
     }
 
     private static byte[] toConcatSignature(byte[] signature, JWSAlgorithm alg) {
+        int concatLength;
         try {
-            int concatLength = ECDSA.getSignatureByteArrayLength(alg);
-
-            // Already R || S: a QTSP that returns JOSE-encoded ECDSA needs no transcoding.
-            if (signature.length == concatLength) {
-                return signature;
-            }
-
-            return ECDSA.transcodeSignatureToConcat(signature, concatLength);
+            concatLength = ECDSA.getSignatureByteArrayLength(alg);
         } catch (JOSEException e) {
-            throw new IllegalStateException(
-                    "QTSP returned a %d-byte ECDSA signature that is neither DER nor %s R||S: %s"
-                            .formatted(signature.length, alg.getName(), e.getMessage()), e);
+            throw new IllegalStateException("Unsupported ECDSA algorithm: " + alg.getName(), e);
         }
+
+        // Length alone cannot separate the two encodings: a DER SEQUENCE whose INTEGERs are
+        // short enough can measure exactly concatLength, and conversely the first octet of R
+        // in an R||S signature may happen to be 0x30. So test the DER framing structurally
+        // and let Nimbus reject the candidate if the inner INTEGERs do not parse.
+        if (isDerSequence(signature)) {
+            try {
+                return ECDSA.transcodeSignatureToConcat(signature, concatLength);
+            } catch (JOSEException e) {
+                log.debug("ECDSA signature looked DER-framed but did not transcode: {}", e.getMessage());
+            }
+        }
+
+        // Already R || S: a QTSP that returns JOSE-encoded ECDSA needs no transcoding.
+        if (signature.length == concatLength) {
+            return signature;
+        }
+
+        throw new IllegalStateException(
+                "QTSP returned a %d-byte ECDSA signature that is neither DER nor %s R||S"
+                        .formatted(signature.length, alg.getName()));
+    }
+
+    /**
+     * Recognizes an ASN.1 DER {@code SEQUENCE} whose declared length spans exactly the buffer.
+     * ECDSA signatures use the short length form up to P-384 and the single-octet long form
+     * (0x81) for P-521, so no other length encoding needs handling.
+     */
+    private static boolean isDerSequence(byte[] signature) {
+        if (signature.length < 2 || (signature[0] & 0xFF) != DER_TAG_SEQUENCE) {
+            return false;
+        }
+        int firstLengthOctet = signature[1] & 0xFF;
+        if (firstLengthOctet == DER_LENGTH_LONG_FORM_ONE_OCTET) {
+            return signature.length >= 3 && signature.length == 3 + (signature[2] & 0xFF);
+        }
+        if (firstLengthOctet > 0x7F) {
+            return false;
+        }
+        return signature.length == 2 + firstLengthOctet;
     }
 }
