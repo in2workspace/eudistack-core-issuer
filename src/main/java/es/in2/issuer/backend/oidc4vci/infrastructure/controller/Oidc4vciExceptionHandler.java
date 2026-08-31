@@ -7,6 +7,7 @@ import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.domain.exception.InvalidOrMissingProofException;
 import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.UnknownCredentialIdentifierException;
+import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialRequestDeniedException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
@@ -94,6 +95,16 @@ public class Oidc4vciExceptionHandler {
     public Mono<CredentialErrorResponse> handleUnknownCredentialIdentifier(UnknownCredentialIdentifierException ex) {
         log.warn("Unknown credential identifier requested");
         return Mono.just(new CredentialErrorResponse("unknown_credential_identifier", ex.getMessage(), null, null));
+    }
+
+    // §8.3.1.2 credential_request_denied: the request was well-formed and authorized, but the
+    // Issuance is withdrawn, revoked, expired or archived. Unrecoverable, so no c_nonce is
+    // offered — a fresh nonce would only invite a retry that cannot succeed.
+    @ExceptionHandler(CredentialRequestDeniedException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<CredentialErrorResponse> handleCredentialRequestDenied(CredentialRequestDeniedException ex) {
+        log.warn("Credential request denied: {}", ex.getMessage());
+        return Mono.just(new CredentialErrorResponse("credential_request_denied", ex.getMessage(), null, null));
     }
 
     // Raised by ParServiceImpl, DpopValidationService, ClientAttestationValidationService and
