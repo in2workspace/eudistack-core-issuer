@@ -5,6 +5,7 @@ import es.in2.issuer.backend.oidc4vci.domain.model.NonceResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.domain.exception.InvalidOrMissingProofException;
 import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
+import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialRequestDeniedException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.UnknownCredentialIdentifierException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
@@ -134,6 +135,24 @@ class Oidc4vciExceptionHandlerTest {
                 .assertNext(body -> {
                     assertEquals("unknown_credential_configuration", body.error());
                     assertEquals("Unknown credential_configuration_id: bogus", body.errorDescription());
+                    assertEquals(null, body.cNonce());
+                    assertEquals(null, body.cNonceExpiresIn());
+                })
+                .verifyComplete();
+
+        verifyNoInteractions(nonceService);
+    }
+
+    // -------------------- handleCredentialRequestDenied --------------------
+
+    @Test
+    void handleCredentialRequestDenied_returnsCredentialErrorResponseWithoutNonce() {
+        var ex = new CredentialRequestDeniedException("Issuance is no longer issuable: REVOKED");
+
+        StepVerifier.create(handler.handleCredentialRequestDenied(ex))
+                .assertNext(body -> {
+                    assertEquals("credential_request_denied", body.error());
+                    assertEquals("Issuance is no longer issuable: REVOKED", body.errorDescription());
                     assertEquals(null, body.cNonce());
                     assertEquals(null, body.cNonceExpiresIn());
                 })
