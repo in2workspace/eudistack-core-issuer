@@ -10,6 +10,7 @@ import com.nimbusds.jose.jwk.KeyUse;
 import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import es.in2.issuer.backend.oidc4vci.domain.exception.InvalidNonceException;
 import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
@@ -364,7 +365,7 @@ class ProofValidationServiceImplTest {
     }
 
     @Test
-    void verifyProof_nonceInvalidOrExpired_throwsProofValidationException() {
+    void verifyProof_nonceInvalidOrExpired_throwsInvalidNonceException() {
         String aud = "aud";
         long now = Instant.now().getEpochSecond();
         String expiredNonce = "expired-nonce";
@@ -373,8 +374,9 @@ class ProofValidationServiceImplTest {
 
         when(nonceCacheStore.get(expiredNonce)).thenReturn(Mono.empty());
 
+        // §8.3.1.2: a proof carrying an unrecognized c_nonce is invalid_nonce, not invalid_proof
         StepVerifier.create(service.verifyProof(jwt, Set.of(SUPPORTED_PROOF_ALG), aud))
-                .expectError(ProofValidationException.class)
+                .expectError(InvalidNonceException.class)
                 .verify();
     }
 

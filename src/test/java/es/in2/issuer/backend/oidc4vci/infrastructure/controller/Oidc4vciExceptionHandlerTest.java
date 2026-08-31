@@ -6,6 +6,7 @@ import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.domain.exception.InvalidOrMissingProofException;
 import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialRequestDeniedException;
+import es.in2.issuer.backend.oidc4vci.domain.exception.InvalidNonceException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.UnknownCredentialIdentifierException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
@@ -29,7 +30,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class Oidc4vciExceptionHandlerTest {
 
     private ErrorResponseFactory errors;
-    private NonceService nonceService;
     private Oidc4vciExceptionHandler handler;
     private ServerHttpRequest request;
     private ServerHttpResponse response;
@@ -37,8 +37,7 @@ class Oidc4vciExceptionHandlerTest {
     @BeforeEach
     void setUp() {
         errors = mock(ErrorResponseFactory.class);
-        nonceService = mock(NonceService.class);
-        handler = new Oidc4vciExceptionHandler(errors, nonceService);
+        handler = new Oidc4vciExceptionHandler(errors);
         request = MockServerHttpRequest.get("/any").build();
         response = new MockServerHttpResponse();
     }
@@ -86,43 +85,48 @@ class Oidc4vciExceptionHandlerTest {
     // -------------------- handleInvalidOrMissingProof --------------------
 
     @Test
-    void handleInvalidOrMissingProof_returnsCredentialErrorResponseWithNonce() {
+    void handleInvalidOrMissingProof_returnsCredentialErrorResponse() {
         var ex = new InvalidOrMissingProofException("bad proof");
-        var nonce = NonceResponse.builder().cNonce("test-nonce-123").cNonceExpiresIn(600).build();
-
-        when(nonceService.issueNonce()).thenReturn(Mono.just(nonce));
 
         StepVerifier.create(handler.handleInvalidOrMissingProof(ex))
                 .assertNext(body -> {
                     assertEquals("invalid_proof", body.error());
                     assertEquals("bad proof", body.errorDescription());
-                    assertEquals("test-nonce-123", body.cNonce());
-                    assertEquals(600L, body.cNonceExpiresIn());
+                    assertEquals(null, body.errorUri());
                 })
                 .verifyComplete();
+    }
 
-        verify(nonceService).issueNonce();
+    // -------------------- handleInvalidNonce --------------------
+
+    // §8.3.1.2 keeps invalid_nonce apart from invalid_proof: the Wallet's recovery is to fetch a
+    // fresh nonce and retry, not to treat its own proof as broken.
+    @Test
+    void handleInvalidNonce_returnsInvalidNonceErrorCode() {
+        var ex = new InvalidNonceException("Nonce is invalid or expired");
+
+        StepVerifier.create(handler.handleInvalidNonce(ex))
+                .assertNext(body -> {
+                    assertEquals("invalid_nonce", body.error());
+                    assertEquals("Nonce is invalid or expired", body.errorDescription());
+                    assertEquals(null, body.errorUri());
+                })
+                .verifyComplete();
     }
 
     // -------------------- handleProofValidationException --------------------
 
     @Test
-    void handleProofValidationException_returnsCredentialErrorResponseWithNonce() {
+    void handleProofValidationException_returnsCredentialErrorResponse() {
         var ex = new ProofValidationException("proof invalid");
-        var nonce = NonceResponse.builder().cNonce("test-nonce-456").cNonceExpiresIn(600).build();
-
-        when(nonceService.issueNonce()).thenReturn(Mono.just(nonce));
 
         StepVerifier.create(handler.handleProofValidationException(ex))
                 .assertNext(body -> {
                     assertEquals("invalid_proof", body.error());
                     assertEquals("proof invalid", body.errorDescription());
-                    assertEquals("test-nonce-456", body.cNonce());
-                    assertEquals(600L, body.cNonceExpiresIn());
+                    assertEquals(null, body.errorUri());
                 })
                 .verifyComplete();
-
-        verify(nonceService).issueNonce();
     }
 
     // -------------------- handleUnknownCredentialConfiguration --------------------
@@ -135,12 +139,10 @@ class Oidc4vciExceptionHandlerTest {
                 .assertNext(body -> {
                     assertEquals("unknown_credential_configuration", body.error());
                     assertEquals("Unknown credential_configuration_id: bogus", body.errorDescription());
-                    assertEquals(null, body.cNonce());
-                    assertEquals(null, body.cNonceExpiresIn());
+                    assertEquals(null, body.errorUri());
                 })
                 .verifyComplete();
 
-        verifyNoInteractions(nonceService);
     }
 
     // -------------------- handleCredentialRequestDenied --------------------
@@ -153,12 +155,10 @@ class Oidc4vciExceptionHandlerTest {
                 .assertNext(body -> {
                     assertEquals("credential_request_denied", body.error());
                     assertEquals("Issuance is no longer issuable: REVOKED", body.errorDescription());
-                    assertEquals(null, body.cNonce());
-                    assertEquals(null, body.cNonceExpiresIn());
+                    assertEquals(null, body.errorUri());
                 })
                 .verifyComplete();
 
-        verifyNoInteractions(nonceService);
     }
 
     // -------------------- handleUnknownCredentialIdentifier --------------------
@@ -171,12 +171,10 @@ class Oidc4vciExceptionHandlerTest {
                 .assertNext(body -> {
                     assertEquals("unknown_credential_identifier", body.error());
                     assertEquals("Unknown credential_identifier: bogus", body.errorDescription());
-                    assertEquals(null, body.cNonce());
-                    assertEquals(null, body.cNonceExpiresIn());
+                    assertEquals(null, body.errorUri());
                 })
                 .verifyComplete();
 
-        verifyNoInteractions(nonceService);
     }
 
     // -------------------- handleIllegalArgumentException --------------------
