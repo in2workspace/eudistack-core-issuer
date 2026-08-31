@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
+import es.in2.issuer.backend.oidc4vci.domain.model.ClientAttestationHeaders;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
@@ -66,7 +67,8 @@ class TokenControllerTest {
                 "1234");
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn("https://issuer.example.com");
-        when(tokenService.exchangeToken(any(TokenRequest.class), isNull(), any(String.class), any(String.class)))
+        when(tokenService.exchangeToken(any(TokenRequest.class), isNull(), any(ClientAttestationHeaders.class),
+                any(String.class), any(String.class)))
                 .thenReturn(Mono.just(tokenResponse));
 
         webTestClient
