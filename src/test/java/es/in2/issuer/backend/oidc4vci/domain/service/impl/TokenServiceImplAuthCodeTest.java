@@ -3,6 +3,8 @@ package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 import es.in2.issuer.backend.apiclient.domain.service.ApiClientAuthenticationService;
 import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
+import es.in2.issuer.backend.oidc4vci.domain.model.ClientAttestationHeaders;
+import es.in2.issuer.backend.shared.domain.service.ClientAttestationValidationService;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
 import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
@@ -27,13 +29,17 @@ import java.util.List;
 
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -65,6 +71,11 @@ class TokenServiceImplAuthCodeTest {
     private TransientStore<String> issuerStateCacheStore;
     @Mock
     private ApiClientAuthenticationService apiClientAuthenticationService;
+    @Mock
+    private ClientAttestationValidationService clientAttestationValidationService;
+
+    private static final ClientAttestationHeaders NO_CLIENT_ATTESTATION =
+            new ClientAttestationHeaders(null, null);
 
     private TokenServiceImpl tokenService;
 
@@ -83,7 +94,8 @@ class TokenServiceImplAuthCodeTest {
                 profileProperties,
                 issuanceMetrics,
                 issuerStateCacheStore,
-                apiClientAuthenticationService
+                apiClientAuthenticationService,
+                clientAttestationValidationService
         );
     }
 
@@ -94,6 +106,117 @@ class TokenServiceImplAuthCodeTest {
                 .redirectUri(redirectUri)
                 .codeVerifier(codeVerifier)
                 .build();
+    }
+
+    // --- RFC 6749 4.1.3: the code must be bound to the client redeeming it ---
+
+    private static final ClientAttestationHeaders WALLET_ATTESTATION =
+            new ClientAttestationHeaders("wia-jwt", "wia-pop-jwt");
+
+    private Oid4vciProfileProperties.AuthorizationCodeProperties noClientAuthProfile() {
+        return new Oid4vciProfileProperties.AuthorizationCodeProperties(
+                false, true, List.of("S256"),
+                false, List.of("ES256"),
+                "none", false
+        );
+    }
+
+    private Oid4vciProfileProperties.AuthorizationCodeProperties attestationProfile() {
+        return new Oid4vciProfileProperties.AuthorizationCodeProperties(
+                false, true, List.of("S256"),
+                false, List.of("ES256"),
+                "attest_jwt_client_auth", false
+        );
+    }
+
+    private AuthorizationCodeData codeIssuedTo(String clientId) {
+        return AuthorizationCodeData.builder()
+                .clientId(clientId)
+                .redirectUri("https://wallet/callback")
+                .codeChallenge("challenge")
+                .codeChallengeMethod("S256")
+                .issuerState("issuer-state-1")
+                .build();
+    }
+
+    @Test
+    void exchangeToken_authCode_attestedClientMatchesTheCodeOwner_issuesToken() {
+        when(authorizationCodeCacheStore.get("auth-code-123")).thenReturn(Mono.just(codeIssuedTo("https://wallet.example/instance")));
+        when(authorizationCodeCacheStore.delete("auth-code-123")).thenReturn(Mono.empty());
+        when(profileProperties.authorizationCode()).thenReturn(attestationProfile());
+        when(clientAttestationValidationService.validateHeaders("wia-jwt", "wia-pop-jwt", "https://issuer"))
+                .thenReturn("https://wallet.example/instance");
+        doNothing().when(pkceVerifier).verifyS256("verifier", "challenge");
+        when(issuerStateCacheStore.get("issuer-state-1")).thenReturn(Mono.just("issuance-id-1"));
+        when(jwtService.issueJWT(anyString())).thenReturn("signed-jwt-token");
+
+        TokenRequest request = authCodeRequest("auth-code-123", "https://wallet/callback", "verifier");
+
+        StepVerifier.create(tokenService.exchangeToken(request, null, WALLET_ATTESTATION, TOKEN_ENDPOINT_URI, "https://issuer"))
+                .assertNext(response -> assertEquals("signed-jwt-token", response.accessToken()))
+                .verifyComplete();
+    }
+
+    @Test
+    void exchangeToken_authCode_redeemedByAnotherClient_returnsInvalidGrant() {
+        when(authorizationCodeCacheStore.get("auth-code-123")).thenReturn(Mono.just(codeIssuedTo("https://wallet.example/instance")));
+        when(authorizationCodeCacheStore.delete("auth-code-123")).thenReturn(Mono.empty());
+        when(profileProperties.authorizationCode()).thenReturn(attestationProfile());
+        when(clientAttestationValidationService.validateHeaders("wia-jwt", "wia-pop-jwt", "https://issuer"))
+                .thenReturn("https://attacker.example/instance");
+
+        TokenRequest request = authCodeRequest("auth-code-123", "https://wallet/callback", "verifier");
+
+        StepVerifier.create(tokenService.exchangeToken(request, null, WALLET_ATTESTATION, TOKEN_ENDPOINT_URI, "https://issuer"))
+                .expectErrorSatisfies(error -> {
+                    OAuthTokenException ex = assertInstanceOf(OAuthTokenException.class, error);
+                    assertEquals("invalid_grant", ex.getErrorCode());
+                    assertEquals("authorization code was not issued to this client", ex.getMessage());
+                })
+                .verify();
+
+        // the issuance is never resolved: the request dies before the issuer_state lookup
+        verifyNoInteractions(issuerStateCacheStore);
+    }
+
+    @Test
+    void exchangeToken_authCode_attestationMissingUnderAttestationProfile_returnsInvalidClient() {
+        when(profileProperties.authorizationCode()).thenReturn(attestationProfile());
+        when(clientAttestationValidationService.validateHeaders(isNull(), isNull(), eq("https://issuer")))
+                .thenThrow(new IllegalArgumentException("Missing OAuth-Client-Attestation header"));
+
+        TokenRequest request = authCodeRequest("auth-code-123", "https://wallet/callback", "verifier");
+
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, "https://issuer"))
+                .expectErrorSatisfies(error -> {
+                    OAuthTokenException ex = assertInstanceOf(OAuthTokenException.class, error);
+                    assertEquals("invalid_client", ex.getErrorCode());
+                })
+                .verify();
+
+        // the code is never even looked up, let alone consumed
+        verifyNoInteractions(authorizationCodeCacheStore);
+    }
+
+    @Test
+    void exchangeToken_authCode_nonAttestationProfile_skipsClientAuthentication() {
+        // A profile that does not use attestation-based client auth must not start demanding
+        // the headers - the pre-existing wallet flows have none.
+        when(authorizationCodeCacheStore.get("auth-code-123")).thenReturn(Mono.just(codeIssuedTo("some-other-client")));
+        when(authorizationCodeCacheStore.delete("auth-code-123")).thenReturn(Mono.empty());
+        when(profileProperties.authorizationCode()).thenReturn(new Oid4vciProfileProperties.AuthorizationCodeProperties(
+                false, true, List.of("S256"), false, List.of("ES256"), "none", false));
+        doNothing().when(pkceVerifier).verifyS256("verifier", "challenge");
+        when(issuerStateCacheStore.get("issuer-state-1")).thenReturn(Mono.just("issuance-id-1"));
+        when(jwtService.issueJWT(anyString())).thenReturn("signed-jwt-token");
+
+        TokenRequest request = authCodeRequest("auth-code-123", "https://wallet/callback", "verifier");
+
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, "https://issuer"))
+                .assertNext(response -> assertEquals("signed-jwt-token", response.accessToken()))
+                .verifyComplete();
+
+        verifyNoInteractions(clientAttestationValidationService);
     }
 
     @Test
@@ -121,7 +244,7 @@ class TokenServiceImplAuthCodeTest {
 
         TokenRequest request = authCodeRequest("auth-code-123", "https://wallet/callback", "verifier");
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, "https://issuer"))
                 .assertNext(response -> {
                     assertEquals("signed-jwt-token", response.accessToken());
                     assertEquals("bearer", response.tokenType());
@@ -161,7 +284,7 @@ class TokenServiceImplAuthCodeTest {
 
         TokenRequest request = authCodeRequest("auth-code-456", "https://wallet/callback", "verifier");
 
-        StepVerifier.create(tokenService.exchangeToken(request, "dpop-proof", TOKEN_ENDPOINT_URI, "https://issuer"))
+        StepVerifier.create(tokenService.exchangeToken(request, "dpop-proof", NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, "https://issuer"))
                 .assertNext(response -> {
                     assertEquals("signed-dpop-jwt", response.accessToken());
                     assertEquals("DPoP", response.tokenType());
@@ -172,12 +295,13 @@ class TokenServiceImplAuthCodeTest {
 
     @Test
     void exchangeToken_authCode_shouldFailOnInvalidCode() {
+        when(profileProperties.authorizationCode()).thenReturn(noClientAuthProfile());
         when(authorizationCodeCacheStore.get("invalid-code"))
                 .thenReturn(Mono.empty());
 
         TokenRequest request = authCodeRequest("invalid-code", "https://wallet/callback", "verifier");
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, "https://issuer"))
                 .expectErrorMatches(e -> e instanceof OAuthTokenException ex
                         && "invalid_grant".equals(ex.getErrorCode())
                         && e.getMessage().contains("Invalid or expired authorization code"))
@@ -191,12 +315,13 @@ class TokenServiceImplAuthCodeTest {
                 .redirectUri("https://wallet/callback")
                 .build();
 
+        when(profileProperties.authorizationCode()).thenReturn(noClientAuthProfile());
         when(authorizationCodeCacheStore.get("code-789")).thenReturn(Mono.just(codeData));
         when(authorizationCodeCacheStore.delete("code-789")).thenReturn(Mono.empty());
 
         TokenRequest request = authCodeRequest("code-789", "https://evil.example.com/callback", null);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, "https://issuer"))
                 .expectErrorMatches(e -> e instanceof OAuthTokenException ex
                         && "invalid_grant".equals(ex.getErrorCode())
                         && e.getMessage().contains("redirect_uri mismatch"))
@@ -226,7 +351,7 @@ class TokenServiceImplAuthCodeTest {
 
         TokenRequest request = authCodeRequest("code-pkce-fail", "https://wallet/callback", "wrong-verifier");
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, "https://issuer"))
                 .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
                         && "invalid_grant".equals(oAuthTokenException.getErrorCode())
                         && e.getMessage().contains("PKCE verification failed"))
@@ -261,7 +386,7 @@ class TokenServiceImplAuthCodeTest {
 
         TokenRequest request = authCodeRequest("code-no-verifier", "https://wallet/callback", null);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, "https://issuer"))
                 .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
                         && "invalid_grant".equals(oAuthTokenException.getErrorCode())
                         && e.getMessage().equals("Missing code_verifier"))
@@ -295,7 +420,7 @@ class TokenServiceImplAuthCodeTest {
 
         TokenRequest request = authCodeRequest("code-dpop-fail", "https://wallet/callback", null);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, "https://issuer"))
                 .expectErrorMatches(e -> e instanceof OAuthTokenException oAuthTokenException
                         && "invalid_request".equals(oAuthTokenException.getErrorCode())
                         && e.getMessage().equals("Missing DPoP proof"))
@@ -330,7 +455,7 @@ class TokenServiceImplAuthCodeTest {
 
         TokenRequest request = authCodeRequest("code-no-issuer-state", "https://wallet/callback", null);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, "https://issuer"))
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, "https://issuer"))
                 .expectErrorMatches(e -> e instanceof OAuthTokenException ex
                         && "invalid_grant".equals(ex.getErrorCode())
                         && e.getMessage().contains("issuer_state"))
