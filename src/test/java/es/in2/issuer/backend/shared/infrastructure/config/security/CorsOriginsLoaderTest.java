@@ -21,7 +21,9 @@ class CorsOriginsLoaderTest {
         List<String> origins = loader.loadOrigins();
 
         assertThat(origins).containsExactly(
-                "http://localhost:4200"
+                "http://localhost:4200",
+                "https://sandbox.127.0.0.1.nip.io:4443",
+                "https://kpmg.127.0.0.1.nip.io:4443"
         );
     }
 
@@ -74,7 +76,9 @@ class CorsOriginsLoaderTest {
 
         // Falls back to classpath cors-origins.yaml which has default origins
         assertThat(origins).containsExactly(
-                "http://localhost:4200"
+                "http://localhost:4200",
+                "https://sandbox.127.0.0.1.nip.io:4443",
+                "https://kpmg.127.0.0.1.nip.io:4443"
         );
     }
 
@@ -98,7 +102,9 @@ class CorsOriginsLoaderTest {
 
         // Classpath default has default origins
         assertThat(origins).containsExactly(
-                "http://localhost:4200"
+                "http://localhost:4200",
+                "https://sandbox.127.0.0.1.nip.io:4443",
+                "https://kpmg.127.0.0.1.nip.io:4443"
         );
     }
 }

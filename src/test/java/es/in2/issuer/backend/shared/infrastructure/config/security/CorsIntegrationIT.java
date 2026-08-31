@@ -22,13 +22,13 @@ class CorsIntegrationIT {
                 .header("Access-Control-Request-Headers", "Api-Version, Content-Type")
                 .exchange()
                 .expectStatus().isOk()
-                .expectHeader().valueEquals("Access-Control-Allow-Origin", allowedOrigin)
+                .expectHeader().valueEquals("Access-Control-Allow-Origin", "*")
                 .expectHeader().valueEquals("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
                 .expectHeader().valueMatches("Access-Control-Allow-Headers", ".*Api-Version.*");
     }
 
     @Test
-    void optionsRequest_FromDisallowedOrigin_DoesNotReturnCorsHeaders() {
+    void optionsRequest_FromDisallowedOrigin_ReturnsOpenCorsHeaders() {
         String disallowedOrigin = "https://malicious.com";
 
         webTestClient.options()
@@ -36,13 +36,12 @@ class CorsIntegrationIT {
                 .header("Origin", disallowedOrigin)
                 .header("Access-Control-Request-Method", "GET")
                 .exchange()
-                .expectStatus().isForbidden();
-        // Spring WebFlux CORS filter returns 403 Forbidden for disallowed origins in preflight if configured strictly,
-        // or just omits headers. In our case, it should at least not have the ACAO header.
+                .expectStatus().isOk()
+                .expectHeader().valueEquals("Access-Control-Allow-Origin", "*");
     }
 
     @Test
-    void optionsRequest_FromLocalhost4200_ReturnsCorsHeaders() {
+    void optionsRequest_FromLocalhost4200_ReturnsOpenCorsHeaders() {
         String allowedOrigin = "http://localhost:4200";
 
         webTestClient.options()
@@ -51,6 +50,31 @@ class CorsIntegrationIT {
                 .header("Access-Control-Request-Method", "GET")
                 .exchange()
                 .expectStatus().isOk()
+                .expectHeader().valueEquals("Access-Control-Allow-Origin", "*");
+    }
+
+    @Test
+    void optionsRequest_RestrictedEndpoint_FromAllowedOrigin_ReturnsOrigin() {
+        String allowedOrigin = "https://sandbox.127.0.0.1.nip.io:4443";
+
+        webTestClient.options()
+                .uri("/api/v1/issuances")
+                .header("Origin", allowedOrigin)
+                .header("Access-Control-Request-Method", "GET")
+                .exchange()
+                .expectStatus().isOk()
                 .expectHeader().valueEquals("Access-Control-Allow-Origin", allowedOrigin);
+    }
+
+    @Test
+    void optionsRequest_RestrictedEndpoint_FromDisallowedOrigin_IsForbidden() {
+        String disallowedOrigin = "https://malicious.com";
+
+        webTestClient.options()
+                .uri("/api/v1/issuances")
+                .header("Origin", disallowedOrigin)
+                .header("Access-Control-Request-Method", "GET")
+                .exchange()
+                .expectStatus().isForbidden();
     }
 }
