@@ -7,6 +7,8 @@ import es.in2.issuer.backend.signing.domain.service.HashGeneratorService;
 import es.in2.issuer.backend.signing.domain.util.Base64UrlUtils;
 import es.in2.issuer.backend.signing.domain.spi.CscPort;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
@@ -107,6 +109,22 @@ class JwsSignHashServiceImplTest {
         verify(cscPort).authorizeForHash(cfg, accessToken, expectedHashB64Url, HASH_ALGO_OID_SHA256);
         verify(cscPort).signHash(cfg, accessToken, "sad-1", expectedHashB64Url, HASH_ALGO_OID_SHA256, signAlgoOid);
         verifyNoMoreInteractions(cscPort);
+    }
+
+    @ParameterizedTest(name = "header={0}")
+    @ValueSource(strings = {"{\"typ\":\"JWT\"}", "{\"alg\":\"  \",\"typ\":\"JWT\"}"})
+    void signJwtWithSignHash_headerWithoutUsableAlg_returnsRemoteSignatureException(String headerJson) {
+        RemoteSignatureDto cfg = cfg();
+
+        StepVerifier.create(sut.signJwtWithSignHash(
+                        cfg, "access-token", headerJson, "{\"vc\":\"unsigned\"}", "1.2.840.10045.4.3.2"))
+                .expectErrorSatisfies(error -> {
+                    assertInstanceOf(RemoteSignatureException.class, error);
+                    assertTrue(error.getMessage().contains("Failed to read 'alg' from the JAdES header"));
+                })
+                .verify();
+
+        verifyNoInteractions(cscPort);
     }
 
     @Test
