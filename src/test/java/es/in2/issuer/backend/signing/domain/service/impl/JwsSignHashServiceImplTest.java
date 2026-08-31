@@ -12,7 +12,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import com.nimbusds.jose.crypto.ECDSAVerifier;
+import com.nimbusds.jose.jwk.Curve;
+import com.nimbusds.jose.jwk.ECKey;
+import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
+import com.nimbusds.jwt.SignedJWT;
+
 import java.nio.charset.StandardCharsets;
+import java.security.Signature;
+import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -69,6 +77,14 @@ class JwsSignHashServiceImplTest {
         when(cscPort.authorizeForHash(cfg, accessToken, expectedHashB64Url, HASH_ALGO_OID_SHA256))
                 .thenReturn(Mono.just("sad-1"));
 
+        // A CSC QTSP signs with the raw ECDSA primitive and returns ASN.1 DER, not the
+        // R||S concatenation RFC 7518 §3.4 mandates for the JWS signature segment.
+        ECKey signingKey = new ECKeyGenerator(Curve.P_256).generate();
+        Signature ecdsa = Signature.getInstance("SHA256withECDSA");
+        ecdsa.initSign(signingKey.toECPrivateKey());
+        ecdsa.update(signingInputBytes);
+        String derSignatureB64 = Base64.getEncoder().encodeToString(ecdsa.sign());
+
         when(cscPort.signHash(
                 cfg,
                 accessToken,
@@ -76,10 +92,16 @@ class JwsSignHashServiceImplTest {
                 expectedHashB64Url,
                 HASH_ALGO_OID_SHA256,
                 signAlgoOid
-        )).thenReturn(Mono.just("sigB64Url"));
+        )).thenReturn(Mono.just(derSignatureB64));
 
         StepVerifier.create(sut.signJwtWithSignHash(cfg, accessToken, headerJson, payloadJson, signAlgoOid))
-                .assertNext(jws -> assertEquals(signingInput + ".sigB64Url", jws))
+                .assertNext(jws -> assertDoesNotThrow(() -> {
+                    assertTrue(jws.startsWith(signingInput + "."));
+                    SignedJWT parsed = SignedJWT.parse(jws);
+                    assertEquals(64, parsed.getSignature().decode().length);
+                    assertTrue(parsed.verify(new ECDSAVerifier(signingKey.toECPublicKey())),
+                            "transcoded ES256 signature must verify with a conformant JOSE verifier");
+                }))
                 .verifyComplete();
 
         verify(cscPort).authorizeForHash(cfg, accessToken, expectedHashB64Url, HASH_ALGO_OID_SHA256);

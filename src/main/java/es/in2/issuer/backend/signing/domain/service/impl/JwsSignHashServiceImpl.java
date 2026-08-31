@@ -1,11 +1,14 @@
 package es.in2.issuer.backend.signing.domain.service.impl;
 
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.util.JSONObjectUtils;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.service.HashGeneratorService;
 import es.in2.issuer.backend.signing.domain.service.JwsSignHashService;
 import es.in2.issuer.backend.signing.domain.spi.CscPort;
 import es.in2.issuer.backend.signing.domain.util.Base64UrlUtils;
+import es.in2.issuer.backend.signing.domain.util.JwsSignatureEncoder;
 import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,6 +17,7 @@ import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
 import java.nio.charset.StandardCharsets;
+import java.text.ParseException;
 import java.time.Duration;
 
 @Service
@@ -31,10 +35,12 @@ public class JwsSignHashServiceImpl implements JwsSignHashService {
 
         final String headerB64Url;
         final String payloadB64Url;
+        final JWSAlgorithm jwsAlgorithm;
 
         try {
             headerB64Url = Base64UrlUtils.encodeUtf8(headerJson);
             payloadB64Url = Base64UrlUtils.encodeUtf8(payloadJson);
+            jwsAlgorithm = readAlgorithm(headerJson);
         } catch (Exception e) {
             return Mono.error(new RemoteSignatureException("Failed to build JWS header/payload", e));
         }
@@ -71,13 +77,26 @@ public class JwsSignHashServiceImpl implements JwsSignHashService {
                                 )
                                 .retryWhen(signHashRetrySpec("csc.signHash"))
                 )
-                .map(signatureB64Url -> signingInput + "." + signatureB64Url)
+                // The QTSP returns the raw signature primitive: for ECDSA that is an ASN.1 DER
+                // SEQUENCE, which RFC 7518 §3.4 does not allow in a JWS. Normalize before appending.
+                .map(qtspSignature -> signingInput + "." + JwsSignatureEncoder.toJoseSignature(qtspSignature, jwsAlgorithm))
                 .doOnSuccess(jwt ->
                         log.info("signHash completed successfully. JWS length={}", jwt.length())
                 )
                 .doOnError(ex ->
                         log.error("signHash failed after retries. reason={}", ex.getMessage(), ex)
                 );
+    }
+
+    private JWSAlgorithm readAlgorithm(String headerJson) throws ParseException {
+        // Read only `alg` instead of JWSHeader.parse(headerJson): the JAdES header carries
+        // params (sigT) that are not JWS registered header names, and full header parsing is
+        // stricter than this single lookup needs to be.
+        String alg = JSONObjectUtils.getString(JSONObjectUtils.parse(headerJson), "alg");
+        if (alg == null || alg.isBlank()) {
+            throw new ParseException("JAdES header is missing the 'alg' parameter", 0);
+        }
+        return JWSAlgorithm.parse(alg);
     }
 
     private Retry signHashRetrySpec(String operationName) {
