@@ -22,6 +22,7 @@ import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.issuance.infrastructure.config.properties.IssuanceProperties;
+import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryTrace;
 import es.in2.issuer.backend.issuance.domain.model.HolderKey;
@@ -48,6 +49,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
@@ -302,7 +304,11 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                             delivery,
                             e
                     );
-                    return Mono.just(DirectDeliveryOutcome.failed(resolveErrorDetail(e), e));
+                    // The stage tag (DeliveryStageFailure) exists only to pick a safe code; when
+                    // nothing else was delivered, assembleOutcome re-raises the original exception so
+                    // it keeps being handled (and typed) exactly as it was before F3/W1.
+                    Throwable original = e instanceof DeliveryStageFailure dsf ? dsf.getCause() : e;
+                    return Mono.just(DirectDeliveryOutcome.failed(resolveErrorDetail(e), original));
                 })
                 : Mono.just(DirectDeliveryOutcome.empty());
 
@@ -353,14 +359,23 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private String resolveWalletErrorDetail(Throwable ex) {
         if (ex instanceof TimeoutException) {
-            return "Wallet delivery timed out";
+            return DeliveryErrorCode.WALLET_DELIVERY_TIMEOUT.value();
         }
         return resolveErrorDetail(ex);
     }
 
+    /**
+     * Closed set of codes, never {@code Throwable.getMessage()} (F3/W1): a raw message from the
+     * signing provider, the status list or an R2DBC failure can carry an internal URL or the tenant's
+     * schema name. The direct leg tags which stage failed via {@link DeliveryStageFailure}; anything
+     * else (the wallet leg's own failures, or an untagged direct-leg stage) falls back to the generic
+     * code. The full detail is not lost -- it is already in the log line the caller emitted.
+     */
     private String resolveErrorDetail(Throwable ex) {
-        return ex.getMessage() != null && !ex.getMessage().isBlank()
-                ? ex.getMessage() : ex.getClass().getSimpleName();
+        if (ex instanceof DeliveryStageFailure stageFailure) {
+            return stageFailure.code.value();
+        }
+        return DeliveryErrorCode.DELIVERY_FAILED.value();
     }
 
     private IssuanceResponse assembleResponse(DirectDeliveryOutcome direct, WalletDeliveryOutcome wallet) {
@@ -475,11 +490,13 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                     return genericCredentialBuilder.injectCredentialStatus(
                                                             enrichedDataSet, credStatus, credentialFormat);
                                                 })
+                                                .onErrorMap(DeliveryStageFailure.wrapUnlessAlready(DeliveryErrorCode.STATUS_LIST_UNAVAILABLE))
                                 )
                                 .flatMap(enrichedWithStatus ->
                                         credentialSignerWorkflow.signCredential(
                                                         token, enrichedWithStatus, configId, credentialFormat,
                                                         cnf, issuanceId.toString(), request.email())
+                                                .onErrorMap(DeliveryStageFailure.wrapUnlessAlready(DeliveryErrorCode.SIGNING_FAILED))
                                                 .flatMap(signedCredential -> {
                                                     CredentialStatusEnum finalStatus = determineFinalStatus(buildResult);
                                                     Issuance issuance = buildDirectIssuanceEntity(
@@ -490,12 +507,33 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                             .doOnSuccess(saved -> log.debug(
                                                                     "ProcessId: {} - Direct issuance saved: {} status={}",
                                                                     processId, saved.getIssuanceId(), finalStatus))
+                                                            .onErrorMap(DeliveryStageFailure.wrapUnlessAlready(DeliveryErrorCode.PERSISTENCE_FAILED))
                                                             .thenReturn(IssuanceResponse.builder()
                                                                     .signedCredential(signedCredential)
                                                                     .build());
                                                 })
                                 )
                 );
+    }
+
+    /**
+     * Tags which stage of the direct leg failed, so {@link #resolveErrorDetail} can answer with a
+     * closed code instead of {@code Throwable.getMessage()} (F3/W1) -- a {@code WebClientResponseException}
+     * from the signing provider or the status list carries its method/URL, and an R2DBC failure carries
+     * table/column/schema names (the schema name <em>is</em> the tenant). The original exception is kept
+     * as the cause; it is what gets logged.
+     */
+    private static final class DeliveryStageFailure extends RuntimeException {
+        private final DeliveryErrorCode code;
+
+        private DeliveryStageFailure(DeliveryErrorCode code, Throwable cause) {
+            super(cause);
+            this.code = code;
+        }
+
+        static Function<Throwable, Throwable> wrapUnlessAlready(DeliveryErrorCode code) {
+            return ex -> ex instanceof DeliveryStageFailure ? ex : new DeliveryStageFailure(code, ex);
+        }
     }
 
     private Mono<Oid4VciLegResult> performOid4VciIssuance(String processId, IssuanceRequest request,
