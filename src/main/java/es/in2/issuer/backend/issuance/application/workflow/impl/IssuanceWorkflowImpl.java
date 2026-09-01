@@ -191,6 +191,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private Mono<IssuanceResponse> performIssuanceFlow(String processId, IssuanceRequest request, String bearerToken,
                                                         String publicIssuerBaseUrl, String publicWalletBaseUrl, String delivery) {
         String configId = request.credentialConfigurationId();
+        CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
 
         return resolveAndValidateDeliveryModes(configId, delivery)
                 .flatMap(modes -> {
@@ -198,7 +199,13 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                     // their schema declares no binding, sourced from the request holder_key. Not gated on
                     // the direct mode -- with proof_types_supported gone no key proof arrives through the
                     // wallet flow either, so the request is the only source of a holder key there is.
-                    Map<String, Object> cnf = HolderBindingExemption.isExempt(configId)
+                    //
+                    // Gated on !profile.requiresHolderBinding() as well as the id prefix (F4/S4): the
+                    // prefix match alone would also fire for a future profile of the same family that
+                    // recovers proof_types_supported, which would make holder_key required again for a
+                    // type the schema now binds through a real key proof -- exactly the invariant AD-9
+                    // exists to protect.
+                    Map<String, Object> cnf = HolderBindingExemption.isExempt(configId) && !profile.requiresHolderBinding()
                             ? HolderKey.fromJson(request.holderKey()).cnf() : null;
                     return executeIssuanceForModes(processId, request, bearerToken,
                             publicIssuerBaseUrl, publicWalletBaseUrl, delivery, modes, cnf);
