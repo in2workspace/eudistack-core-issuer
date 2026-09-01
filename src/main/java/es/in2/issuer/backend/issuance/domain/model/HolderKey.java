@@ -11,13 +11,11 @@ import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException
 import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
 public record HolderKey(Map<String, Object> cnf) {
 
-    private static final List<String> CNF_FORMS = List.of("jwk", "kid", "x5c");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     // Nimbus-parseable JWKs, allowlisted to exactly the key type and curve this issuer can actually
@@ -37,7 +35,17 @@ public record HolderKey(Map<String, Object> cnf) {
         Objects.requireNonNull(cnf, "cnf");
     }
 
-    /** Parses a {@code holder_key} JSON node into a {@link HolderKey}.*/
+    /**
+     * Parses a {@code holder_key} JSON node into a {@link HolderKey}. Requires the {@code jwk}
+     * member -- {@code kid}/{@code x5c} are RFC 7800 confirmation forms this issuer never actually
+     * accepts here: they carry no key material this path can verify without a wallet, and the
+     * OID4VCI key-proof path (the other place a {@code cnf} form matters) builds its own
+     * {@code BindingInfo} directly in {@code Oid4VciCredentialWorkflowImpl} and never calls this
+     * class. An earlier version of this parser accepted all three RFC 7800 forms on the theory that
+     * the other two were needed elsewhere; code-review (F1a, D3) found they were not, and dead,
+     * unvalidated code that even looks needed is worse than no code -- it is exactly what would have
+     * let a future caller reintroduce F1a by accident.
+     */
     public static HolderKey fromJson(JsonNode node) {
         if (node == null || node.isNull() || node.isMissingNode()) {
             throw new InvalidHolderKeyException(
@@ -45,66 +53,11 @@ public record HolderKey(Map<String, Object> cnf) {
                             + "declares no proof_types_supported, so no wallet key proof will ever "
                             + "arrive and the request is the only source of a holder key");
         }
-        if (!node.isObject()) {
-            throw new InvalidHolderKeyException("invalid holder_key: expected a JSON object");
+        JsonNode jwkNode = node.isObject() ? node.get("jwk") : null;
+        if (jwkNode == null || jwkNode.isNull()) {
+            throw new InvalidHolderKeyException("invalid holder_key: expected a jwk member");
         }
-
-        String presentForm = null;
-        for (String form : CNF_FORMS) {
-            JsonNode value = node.get(form);
-            if (value != null && !value.isNull()) {
-                if (presentForm != null) {
-                    throw new InvalidHolderKeyException(
-                            "invalid holder_key: expected exactly one of jwk/kid/x5c");
-                }
-                presentForm = form;
-            }
-        }
-        if (presentForm == null) {
-            throw new InvalidHolderKeyException(
-                    "invalid holder_key: expected exactly one of jwk/kid/x5c");
-        }
-
-        JsonNode valueNode = node.get(presentForm);
-        Object value = "jwk".equals(presentForm)
-                ? validateAndCanonicalizeJwk(valueNode)
-                : validateNonJwkFormShape(presentForm, valueNode);
-        return new HolderKey(Map.of(presentForm, value));
-    }
-
-    /**
-     * {@code true} when this node is a {@code jwk}-shaped {@code holder_key} -- the only form AD-8
-     * exempt types accept (F1a): {@code kid} is a pointer the issuer cannot resolve without a wallet,
-     * and {@code x5c} an unparsed certificate chain, so neither carries key material this path can
-     * validate or bind to {@code mandatee.id}. Checked at the call site rather than inside
-     * {@link #fromJson}, which stays a general-purpose RFC 7800 parser for the key-proof path where
-     * all three forms remain meaningful.
-     */
-    public boolean isJwkForm() {
-        return cnf.containsKey("jwk");
-    }
-
-    private static Object validateNonJwkFormShape(String form, JsonNode value) {
-        switch (form) {
-            case "kid" -> {
-                if (!value.isTextual() || value.asText().isBlank()) {
-                    throw new InvalidHolderKeyException("invalid holder_key: kid must be a non-blank string");
-                }
-            }
-            case "x5c" -> {
-                if (!value.isArray() || value.isEmpty()) {
-                    throw new InvalidHolderKeyException(
-                            "invalid holder_key: x5c must be a non-empty array of certificate strings");
-                }
-                for (JsonNode cert : value) {
-                    if (!cert.isTextual() || cert.asText().isBlank()) {
-                        throw new InvalidHolderKeyException("invalid holder_key: x5c entries must be non-blank strings");
-                    }
-                }
-            }
-            default -> throw new InvalidHolderKeyException("invalid holder_key: unsupported confirmation form " + form);
-        }
-        return OBJECT_MAPPER.convertValue(value, Object.class);
+        return new HolderKey(Map.of("jwk", validateAndCanonicalizeJwk(jwkNode)));
     }
 
     /**
@@ -113,9 +66,23 @@ public record HolderKey(Map<String, Object> cnf) {
      * This is the sole point where a caller-supplied {@code holder_key} becomes the {@code cnf} of a
      * signed credential (AD-8), so it is the sole point that has to hold the line (S1).
      *
-     * <p>Returns Nimbus's own canonical serialization ({@link JWK#toJSONObject()}), not the raw
-     * request node (F1b): Nimbus silently accepts and preserves unknown members alongside a
-     * structurally valid JWK, and the raw node was what used to reach the signed credential.
+     * <p>Builds the returned map explicitly from the parsed key's own coordinates -- {@code kty},
+     * {@code crv}, {@code x}, {@code y}, and nothing else -- rather than trusting
+     * {@link JWK#toJSONObject()} (code-review D2): Nimbus's own serialization preserves every
+     * <em>recognized</em> JWK member the caller sent alongside the coordinates ({@code x5u},
+     * {@code kid}, {@code alg}, {@code use}...), not just the four this issuer ever asked for. An
+     * unvalidated {@code x5u} is an attacker-chosen URL a verifier might dereference to resolve the
+     * confirmation key -- signed into the credential by this issuer.
+     *
+     * <p>Re-encoding the coordinates at a fixed field-size length also closes D1: Nimbus validates
+     * that {@code x}/{@code y} decode to a point mathematically on the curve, but not that they are
+     * encoded at the curve's canonical fixed octet length (RFC 7518 §6.2.1.2) -- a valid point
+     * encoded with e.g. one extra leading zero byte passes Nimbus's check, then breaks
+     * {@link DidKeyDerivation}'s fixed-32-byte array arithmetic. That exception was silently
+     * swallowed into a random fallback identifier, which the delivery workflows correctly refuse to
+     * bind -- but refusing to bind left whatever {@code mandatee.id} the caller supplied completely
+     * unchallenged, the exact cnf&harr;mandatee.id mismatch this whole mechanism exists to prevent.
+     * Re-encoding here means every {@code jwk} this method returns decodes to exactly 32 bytes.
      */
     private static Map<String, Object> validateAndCanonicalizeJwk(JsonNode value) {
         if (!value.isObject() || value.isEmpty()) {
@@ -141,15 +108,18 @@ public record HolderKey(Map<String, Object> cnf) {
         if (jwk.isPrivate()) {
             throw new InvalidHolderKeyException("invalid holder_key: jwk must not contain private key material");
         }
-        if (!ALLOWED_KEY_TYPE.equals(jwk.getKeyType())) {
+        if (!ALLOWED_KEY_TYPE.equals(jwk.getKeyType()) || !(jwk instanceof ECKey ecKey)
+                || !ALLOWED_EC_CURVE.equals(ecKey.getCurve())) {
             throw new InvalidHolderKeyException(
-                    "invalid holder_key: unsupported jwk key type '" + jwk.getKeyType() + "'");
-        }
-        if (!(jwk instanceof ECKey ecKey) || !ALLOWED_EC_CURVE.equals(ecKey.getCurve())) {
-            throw new InvalidHolderKeyException(
-                    "invalid holder_key: unsupported EC curve, only '" + ALLOWED_EC_CURVE + "' is accepted");
+                    "invalid holder_key: unsupported jwk key type or curve, only EC '" + ALLOWED_EC_CURVE + "' is accepted");
         }
 
-        return new LinkedHashMap<>(jwk.toJSONObject());
+        int fieldSizeBits = ALLOWED_EC_CURVE.toECParameterSpec().getCurve().getField().getFieldSize();
+        Map<String, Object> canonical = new LinkedHashMap<>();
+        canonical.put("kty", ALLOWED_KEY_TYPE.getValue());
+        canonical.put("crv", ALLOWED_EC_CURVE.getName());
+        canonical.put("x", ECKey.encodeCoordinate(fieldSizeBits, ecKey.getX().decodeToBigInteger()).toString());
+        canonical.put("y", ECKey.encodeCoordinate(fieldSizeBits, ecKey.getY().decodeToBigInteger()).toString());
+        return canonical;
     }
 }

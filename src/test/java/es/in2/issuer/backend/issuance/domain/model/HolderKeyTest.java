@@ -6,12 +6,10 @@ import com.fasterxml.jackson.databind.node.NullNode;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -33,43 +31,15 @@ class HolderKeyTest {
     private static final String VALID_EC_Y = "BBkUW2sUZX2kW7keQ-qZV3PCKCLOZesPpszoNGciDL4";
 
     @Test
-    void fromJson_withJwk_returnsCnfCarryingJwkObject() {
-        // Given
+    @SuppressWarnings("unchecked")
+    void fromJson_withJwk_returnsCnfCarryingCanonicalJwkObject() {
         JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + VALID_EC_X + "\",\"y\":\"" + VALID_EC_Y + "\"}}");
 
-        // When
         Map<String, Object> cnf = HolderKey.fromJson(node).cnf();
 
-        // Then
         assertEquals(1, cnf.size());
-        assertTrue(cnf.containsKey("jwk"));
-        assertInstanceOf(Map.class, cnf.get("jwk"));
-        assertEquals("EC", ((Map<?, ?>) cnf.get("jwk")).get("kty"));
-    }
-
-    @Test
-    void fromJson_withKid_returnsCnfCarryingKidString() {
-        // Given
-        JsonNode node = json("{\"kid\":\"did:key:z6Mk#key-1\"}");
-
-        // When
-        Map<String, Object> cnf = HolderKey.fromJson(node).cnf();
-
-        // Then
-        assertEquals(Map.of("kid", "did:key:z6Mk#key-1"), cnf);
-    }
-
-    @Test
-    void fromJson_withX5c_returnsCnfCarryingX5cArray() {
-        // Given
-        JsonNode node = json("{\"x5c\":[\"MIIBcert1\",\"MIIBcert2\"]}");
-
-        // When
-        Map<String, Object> cnf = HolderKey.fromJson(node).cnf();
-
-        // Then
-        assertEquals(1, cnf.size());
-        assertEquals(List.of("MIIBcert1", "MIIBcert2"), cnf.get("x5c"));
+        Map<String, Object> jwk = (Map<String, Object>) cnf.get("jwk");
+        assertEquals(Map.of("kty", "EC", "crv", "P-256", "x", VALID_EC_X, "y", VALID_EC_Y), jwk);
     }
 
     @Test
@@ -88,18 +58,6 @@ class HolderKeyTest {
     }
 
     @Test
-    void fromJson_withTwoForms_throwsInvalidHolderKey() {
-        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\"},\"kid\":\"did:key:z6Mk#key-1\"}");
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
-    }
-
-    @Test
-    void fromJson_withAllThreeForms_throwsInvalidHolderKey() {
-        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\"},\"kid\":\"k\",\"x5c\":[\"c\"]}");
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
-    }
-
-    @Test
     void fromJson_withNonObjectNode_throwsInvalidHolderKey() {
         assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("\"just-a-string\"")));
     }
@@ -107,18 +65,6 @@ class HolderKeyTest {
     @Test
     void fromJson_withUnrelatedKeysOnly_throwsInvalidHolderKey() {
         assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"foo\":\"bar\"}")));
-    }
-
-    // --- Per-form shape validation (RFC 7800) ---
-
-    @Test
-    void fromJson_withKidAsObject_throwsInvalidHolderKey() {
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"kid\":{\"x\":1}}")));
-    }
-
-    @Test
-    void fromJson_withBlankKid_throwsInvalidHolderKey() {
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"kid\":\"  \"}")));
     }
 
     @Test
@@ -131,19 +77,32 @@ class HolderKeyTest {
         assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"jwk\":{}}")));
     }
 
+    // --- jwk is the only accepted RFC 7800 form (code-review F1a, D3): kid/x5c carry no key
+    // material this path -- no wallet, no OID4VCI proof -- could ever verify, and are no longer
+    // parsed at all, not merely rejected after parsing. ---
+
     @Test
-    void fromJson_withEmptyX5cArray_throwsInvalidHolderKey() {
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"x5c\":[]}")));
+    void fromJson_withOnlyKid_throwsInvalidHolderKey() {
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"kid\":\"did:key:z6Mk#key-1\"}")));
     }
 
     @Test
-    void fromJson_withX5cContainingNonStringEntry_throwsInvalidHolderKey() {
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"x5c\":[\"MIIBcert\",123]}")));
+    void fromJson_withOnlyX5c_throwsInvalidHolderKey() {
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"x5c\":[\"MIIBcert1\",\"MIIBcert2\"]}")));
     }
 
     @Test
-    void fromJson_withX5cContainingBlankEntry_throwsInvalidHolderKey() {
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"x5c\":[\"MIIBcert\",\"\"]}")));
+    @SuppressWarnings("unchecked")
+    void fromJson_withJwkAndAnIrrelevantSiblingField_usesTheJwkAndIgnoresTheSibling() {
+        // Once kid/x5c stopped being recognized forms, a sibling field next to jwk is no longer a
+        // competing claim to resolve -- just noise the caller sent, silently ignored.
+        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + VALID_EC_X + "\",\"y\":\"" + VALID_EC_Y
+                + "\"},\"kid\":\"irrelevant\"}");
+
+        Map<String, Object> cnf = HolderKey.fromJson(node).cnf();
+
+        Map<String, Object> jwk = (Map<String, Object>) cnf.get("jwk");
+        assertEquals(VALID_EC_X, jwk.get("x"));
     }
 
     // --- Nimbus JWK content validation (EUD-168 F1, S1) ---
@@ -214,19 +173,47 @@ class HolderKeyTest {
         assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
     }
 
-    // --- Canonical serialization (code-review F1b): the signed cnf must be Nimbus's own
-    // interpretation of the jwk, not whatever extra members the raw request happened to carry. ---
+    // --- Canonical serialization (code-review F1b/D2): the signed cnf must be built explicitly
+    // from kty/crv/x/y, never trusting whatever other recognized-but-unwanted JWK members (x5u,
+    // kid, alg, use...) the raw request happened to carry alongside a structurally valid key. ---
 
     @Test
     @SuppressWarnings("unchecked")
-    void fromJson_withJwkCarryingAnUnrecognizedMember_dropsItFromTheCanonicalResult() {
+    void fromJson_withJwkCarryingUnrecognizedAndRecognizedExtraMembers_keepsOnlyTheFourCanonicalOnes() {
         JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + VALID_EC_X + "\",\"y\":\"" + VALID_EC_Y
-                + "\",\"smuggled\":\"payload\"}}");
+                + "\",\"smuggled\":\"payload\",\"x5u\":\"http://169.254.169.254/latest/meta-data/\","
+                + "\"kid\":\"<script>alert(1)</script>\",\"use\":\"sig\",\"alg\":\"ES256\"}}");
 
         Map<String, Object> jwk = (Map<String, Object>) HolderKey.fromJson(node).cnf().get("jwk");
 
-        assertTrue(jwk.containsKey("x"));
-        assertTrue(jwk.containsKey("y"));
+        assertEquals(Map.of("kty", "EC", "crv", "P-256", "x", VALID_EC_X, "y", VALID_EC_Y), jwk);
         assertFalse(jwk.containsKey("smuggled"));
+        assertFalse(jwk.containsKey("x5u"));
+        assertFalse(jwk.containsKey("kid"));
+        assertFalse(jwk.containsKey("use"));
+        assertFalse(jwk.containsKey("alg"));
+    }
+
+    // --- Fixed-length coordinate re-encoding (code-review D1): Nimbus accepts a mathematically
+    // valid point encoded with a non-canonical length (e.g. an extra leading zero byte, which
+    // BigInteger.toByteArray() adds whenever the true value's high bit is set), but
+    // DidKeyDerivation's fixed-32-byte array arithmetic cannot handle that and used to silently
+    // fail into a fallback identifier. Fixture is a real generated P-256 point whose raw x
+    // requires 33 bytes; y is already 32. ---
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void fromJson_withNonCanonicalLengthCoordinate_reEncodesToTheFixedCurveLength() {
+        String nonCanonicalX = "AMOk-XIh19undc22JKlmKhjUipQFwtI9JkWF_dWHvLUl"; // 33 raw bytes
+        String canonicalX = "w6T5ciHX26d1zbYkqWYqGNSKlAXC0j0mRYX91Ye8tSU"; // same value, 32 bytes
+        String y = "L8HP4e9THGZ9Bft_RbYd8FIRM1eYUbDIrt29UyZrE4Q"; // already 32 bytes
+        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + nonCanonicalX + "\",\"y\":\"" + y + "\"}}");
+
+        // Must not throw: Nimbus accepts this point as mathematically valid on the curve.
+        Map<String, Object> jwk = (Map<String, Object>) HolderKey.fromJson(node).cnf().get("jwk");
+
+        assertEquals(canonicalX, jwk.get("x"));
+        assertEquals(32, java.util.Base64.getUrlDecoder().decode((String) jwk.get("x")).length);
+        assertEquals(32, java.util.Base64.getUrlDecoder().decode((String) jwk.get("y")).length);
     }
 }

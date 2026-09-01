@@ -1,8 +1,6 @@
 package es.in2.issuer.backend.issuance.application.workflow.impl;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
-import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
@@ -210,29 +208,13 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                     // recovers proof_types_supported, which would make holder_key required again for a
                     // type the schema now binds through a real key proof -- exactly the invariant AD-9
                     // exists to protect.
+                    // HolderKey.fromJson requires the jwk member (code-review F1a/D3): kid/x5c carry
+                    // no key material this path -- no wallet, no OID4VCI proof -- could ever verify.
                     Map<String, Object> cnf = HolderBindingExemption.isExempt(configId) && !profile.requiresHolderBinding()
-                            ? requireJwkHolderKey(request.holderKey()) : null;
+                            ? HolderKey.fromJson(request.holderKey()).cnf() : null;
                     return executeIssuanceForModes(processId, request, bearerToken,
                             publicIssuerBaseUrl, publicWalletBaseUrl, delivery, modes, cnf);
                 });
-    }
-
-    /**
-     * AD-8 exempt types have no wallet and no OID4VCI proof, so a {@code kid} pointer or an
-     * {@code x5c} certificate chain cannot be resolved or verified by anything on this path --
-     * unlike the wallet's key-proof flow, where those forms remain meaningful. {@code jwk} is the
-     * only form that carries key material this path can validate and bind to {@code mandatee.id}
-     * (code-review F1a): accepting the other two here would let a caller smuggle arbitrary,
-     * unvalidated content into a signed credential's {@code cnf} with no coherence check at all.
-     */
-    private Map<String, Object> requireJwkHolderKey(JsonNode holderKeyNode) {
-        HolderKey holderKey = HolderKey.fromJson(holderKeyNode);
-        if (!holderKey.isJwkForm()) {
-            throw new InvalidHolderKeyException(
-                    "holder_key must be a jwk for this credential type: kid/x5c carry no key material "
-                            + "the issuer can verify without a wallet");
-        }
-        return holderKey.cnf();
     }
 
     /**
