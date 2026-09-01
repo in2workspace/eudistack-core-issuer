@@ -265,7 +265,6 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             );
         }
 
-        Map<String, Object> cnf = bindingInfo.cnf();
         Map<String, Object> cnf = resolveCnf(bindingInfo, proc);
         String token = BEARER_PREFIX + rawToken;
         StatusListFormat statusFormat = DC_SD_JWT.equals(credentialFormat)
