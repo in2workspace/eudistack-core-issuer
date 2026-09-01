@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
+import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidDeliveryConfigException;
 import es.in2.issuer.backend.shared.domain.model.entities.TenantConfig;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
@@ -38,7 +39,7 @@ public class TenantDeliveryConfigServiceImpl implements TenantDeliveryConfigServ
         // mode above the schema ceiling reads as enabled to whoever inspects the config later (EUD-168).
         try {
             schemaDeliveryCeiling.validateWithinCeiling(credentialConfigurationId, modes);
-        } catch (RuntimeException ex) {
+        } catch (DeliveryModeNotEligibleException ex) {
             return Mono.error(ex);
         }
         String key = keyFor(credentialConfigurationId);
