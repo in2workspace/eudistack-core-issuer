@@ -29,8 +29,15 @@ public interface StatusListProvider {
 
     /**
      * Returns the signed status list credential (JWT) for the given list.
+     *
+     * @param expectedFormat serialization the caller (i.e. the endpoint being hit) is going to
+     *                       serve the blob as. A list is only reachable through the endpoint
+     *                       matching its own stored format: asking the Token Status List endpoint
+     *                       for a {@code bitstring_vc} list (or vice versa) is a
+     *                       {@link es.in2.issuer.backend.statuslist.domain.exception.StatusListNotFoundException},
+     *                       never a 200 carrying the wrong media type.
      */
-    Mono<String> getSignedStatusListCredential(Long listId);
+    Mono<String> getSignedStatusListCredential(Long listId, StatusListFormat expectedFormat);
 
     /**
      * Revokes a credential by setting the corresponding bit to 1 in the Status List.

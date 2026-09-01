@@ -62,13 +62,27 @@ public class BitstringStatusListProvider implements StatusListProvider {
     private final BitstringEncoder encoder = new BitstringEncoder();
 
     @Override
-    public Mono<String> getSignedStatusListCredential(Long listId) {
+    public Mono<String> getSignedStatusListCredential(Long listId, StatusListFormat expectedFormat) {
         requireNonNullParam(listId, "listId");
-        log.debug("method=getSignedStatusListCredential step=START listId={}", listId);
+        requireNonNullParam(expectedFormat, "expectedFormat");
+        log.debug("method=getSignedStatusListCredential step=START listId={} expectedFormat={}", listId, expectedFormat);
 
         return statusListRepository.findById(listId)
                 .switchIfEmpty(Mono.error(new StatusListNotFoundException(listId)))
                 .flatMap(row -> {
+                    // The two endpoints share one table. Serving a bitstring_vc row from the Token
+                    // Status List endpoint (or the reverse) hands the reader a document that does not
+                    // match the Content-Type it was served under — a wallet following
+                    // `status.status_list.uri` then fails to decode the token. A list is only
+                    // reachable through the endpoint matching its own format.
+                    StatusListFormat storedFormat = StatusListFormat.fromValue(row.format());
+                    if (storedFormat != expectedFormat) {
+                        log.warn(
+                                "method=getSignedStatusListCredential step=FORMAT_MISMATCH listId={} storedFormat={} expectedFormat={}",
+                                listId, storedFormat, expectedFormat
+                        );
+                        return Mono.error(new StatusListNotFoundException(listId));
+                    }
                     String signed = row.signedCredential();
                     if (signed == null || signed.isBlank()) {
                         return Mono.error(new SignedStatusListCredentialNotAvailableException(listId));
@@ -306,9 +320,23 @@ public class BitstringStatusListProvider implements StatusListProvider {
         UUID procedureUuid = UUID.fromString(issuanceId);
 
         return statusListIndexRepository.findByIssuanceId(procedureUuid)
-                .map(existing -> {
+                .flatMap(existing -> {
                     log.debug("Found existing allocation in list {}, idx: {}", existing.statusListId(), existing.idx());
-                    return buildEntry(baseUrl, toIndexDomain(existing), format, purpose);
+                    // The entry URL is derived from `format`, but the row it points at was allocated
+                    // on a list whose own format may differ (an issuance re-requested under another
+                    // credential format). Building the URL from the requested format alone yields a
+                    // status reference that resolves to the wrong document type, so verify the
+                    // stored list first instead of trusting the caller's format.
+                    return statusListRepository.findById(existing.statusListId())
+                            .switchIfEmpty(Mono.error(new StatusListNotFoundException(existing.statusListId())))
+                            .flatMap(list -> {
+                                StatusListFormat storedFormat = StatusListFormat.fromValue(list.format());
+                                if (storedFormat != format) {
+                                    return Mono.error(new StatusListFormatMismatchException(
+                                            issuanceId, existing.statusListId(), storedFormat, format));
+                                }
+                                return Mono.just(buildEntry(baseUrl, toIndexDomain(existing), format, purpose));
+                            });
                 })
                 .doOnSuccess(v ->
                         log.debug("method=findExistingAllocation step=END issuanceId={} statusListEntry={}", issuanceId, v)

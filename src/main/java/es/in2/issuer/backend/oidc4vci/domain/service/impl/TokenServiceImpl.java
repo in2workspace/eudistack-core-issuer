@@ -5,6 +5,8 @@ import es.in2.issuer.backend.apiclient.domain.exception.ApiClientAuthenticationE
 import es.in2.issuer.backend.apiclient.domain.model.AuthenticatedApiClient;
 import es.in2.issuer.backend.apiclient.domain.service.ApiClientAuthenticationService;
 import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
+import es.in2.issuer.backend.oidc4vci.domain.model.ClientAttestationHeaders;
+import es.in2.issuer.backend.shared.domain.service.ClientAttestationValidationService;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenResponse;
@@ -46,6 +48,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 public class TokenServiceImpl implements TokenService {
 
     private static final String TOKEN_TYPE_BEARER = "bearer";
+    private static final String ATTEST_JWT_CLIENT_AUTH = "attest_jwt_client_auth";
     private static final String TOKEN_TYPE_DPOP = "DPoP";
 
     private final TransientStore<IssuanceIdAndTxCode> txCodeCacheStore;
@@ -60,10 +63,12 @@ public class TokenServiceImpl implements TokenService {
     private final IssuanceMetrics issuanceMetrics;
     private final TransientStore<String> issuerStateCacheStore;
     private final ApiClientAuthenticationService apiClientAuthenticationService;
+    private final ClientAttestationValidationService clientAttestationValidationService;
 
     @Override
     @Observed(name = "oid4vci.token", contextualName = "oid4vci-handle-token")
     public Mono<TokenResponse> exchangeToken(TokenRequest request, String dpopHeader,
+                                             ClientAttestationHeaders clientAttestation,
                                              String tokenEndpointUri, String publicIssuerBaseUrl) {
         String grantType = request.grantType();
 
@@ -73,8 +78,17 @@ public class TokenServiceImpl implements TokenService {
         } else if (REFRESH_TOKEN_GRANT_TYPE.equals(grantType)) {
             flow = handleRefreshToken(publicIssuerBaseUrl, request.refreshToken());
         } else if (AUTHORIZATION_CODE_GRANT_TYPE.equals(grantType)) {
-            flow = handleAuthorizationCode(publicIssuerBaseUrl, request.code(), request.redirectUri(),
-                    request.codeVerifier(), dpopHeader, tokenEndpointUri);
+            flow = Mono.defer(() -> {
+                final String attestedClientId;
+                try {
+                    attestedClientId = authenticateClient(clientAttestation, publicIssuerBaseUrl);
+                } catch (IllegalArgumentException e) {
+                    log.warn("Client attestation rejected at the token endpoint: {}", e.getMessage());
+                    return Mono.error(OAuthTokenException.invalidClient());
+                }
+                return handleAuthorizationCode(publicIssuerBaseUrl, request.code(), request.redirectUri(),
+                        request.codeVerifier(), dpopHeader, tokenEndpointUri, attestedClientId);
+            });
         } else if (CLIENT_CREDENTIALS_GRANT_TYPE.equals(grantType)) {
             flow = handleClientCredentials(publicIssuerBaseUrl, request.clientId(), request.clientSecret());
         } else {
@@ -239,23 +253,51 @@ public class TokenServiceImpl implements TokenService {
 
     // -- Authorization Code Flow --
 
+    /**
+     * Authenticates the client with attestation-based client authentication and returns the
+     * attested client_id, or null when the active profile does not use that method. The token
+     * endpoint has to authenticate the client in its own right: PAR having validated the
+     * attestation says nothing about who is presenting the code minutes later.
+     */
+    private String authenticateClient(ClientAttestationHeaders clientAttestation, String publicIssuerBaseUrl) {
+        if (!ATTEST_JWT_CLIENT_AUTH.equals(profileProperties.authorizationCode().clientAuthMethod())) {
+            return null;
+        }
+        String attestation = clientAttestation != null ? clientAttestation.attestation() : null;
+        String pop = clientAttestation != null ? clientAttestation.pop() : null;
+        return clientAttestationValidationService.validateHeaders(attestation, pop, publicIssuerBaseUrl);
+    }
+
     private Mono<TokenResponse> handleAuthorizationCode(
-            String baseUrl, String code, String redirectUri, String codeVerifier, String dpopHeader, String tokenEndpointUri
+            String baseUrl, String code, String redirectUri, String codeVerifier, String dpopHeader,
+            String tokenEndpointUri, String attestedClientId
     ) {
         log.debug("Token request: grant_type=authorization_code");
         return authorizationCodeCacheStore.get(code)
                 .switchIfEmpty(Mono.error(OAuthTokenException.invalidGrant("Invalid or expired authorization code")))
                 .flatMap(codeData -> authorizationCodeCacheStore.delete(code)
                         .then(Mono.defer(() -> validateAndBuildAuthCodeToken(
-                                baseUrl, codeData, redirectUri, codeVerifier, dpopHeader, tokenEndpointUri))));
+                                baseUrl, codeData, redirectUri, codeVerifier, dpopHeader, tokenEndpointUri,
+                                attestedClientId))));
     }
 
     private Mono<TokenResponse> validateAndBuildAuthCodeToken(
             String baseUrl, AuthorizationCodeData codeData, String redirectUri,
-            String codeVerifier, String dpopHeader, String tokenEndpointUri
+            String codeVerifier, String dpopHeader, String tokenEndpointUri, String attestedClientId
     ) {
         if (codeData.redirectUri() != null && !codeData.redirectUri().equals(redirectUri)) {
             return Mono.error(OAuthTokenException.invalidGrant("redirect_uri mismatch"));
+        }
+
+        // RFC 6749 4.1.3: the Authorization Server must ensure the authorization code was
+        // issued to the client redeeming it. Without this a leaked code could be exchanged by
+        // any other client that got hold of it - PKCE and DPoP narrow the window but neither
+        // is the binding the RFC asks for.
+        if (attestedClientId != null && codeData.clientId() != null
+                && !attestedClientId.equals(codeData.clientId())) {
+            log.warn("Authorization code redeemed by a different client than it was issued to");
+            return Mono.error(OAuthTokenException.invalidGrant(
+                    "authorization code was not issued to this client"));
         }
 
         // PkceVerifier/DpopValidationService raise plain IllegalArgumentException, which
