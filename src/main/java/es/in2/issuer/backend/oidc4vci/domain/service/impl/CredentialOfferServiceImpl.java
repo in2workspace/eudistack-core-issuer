@@ -84,19 +84,23 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
         log.info("Delivering credential offer for issuance={} — sendEmail={}, includeUri={}",
                 issuanceId, sendEmail, includeUri);
 
+        // The onErrorMap below wraps the whole lookup-and-send chain, not just the send (code-review
+        // F3b): findCredentialOfferEmailInfoByIssuanceId can fail too (e.g. a repository error whose
+        // message names a table/column/schema -- and the schema name is the tenant), and that failure
+        // used to reach describeEmailFailure() raw, bypassing the safe constant below entirely.
         Mono<Void> emailTask = sendEmail
                 ? issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId)
-                .flatMap(emailInfo -> buildRefreshUrl(credentialOfferRefreshToken)
-                        .flatMap(refreshUrl -> Mono.deferContextual(ctx -> {
-                            String tenantDomain = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
-                            return tenantDomain.contains("kpmg")
-                                    ? sendBrandedCredentialOfferEmail(credentialOfferUri, refreshUrl, emailInfo, publicWalletBaseUrl)
-                                    : sendLegacyCredentialOfferEmail(credentialOfferUri, refreshUrl, emailInfo, publicWalletBaseUrl);
-                        }))
-                        .doOnSuccess(v -> log.info("Credential offer email sent for issuanceId={}", issuanceId))
-                        .doOnError(ex -> log.error("Email sending failed for issuanceId={}: {}",
+                        .flatMap(emailInfo -> buildRefreshUrl(credentialOfferRefreshToken)
+                                .flatMap(refreshUrl -> Mono.deferContextual(ctx -> {
+                                    String tenantDomain = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
+                                    return tenantDomain.contains("kpmg")
+                                            ? sendBrandedCredentialOfferEmail(credentialOfferUri, refreshUrl, emailInfo, publicWalletBaseUrl)
+                                            : sendLegacyCredentialOfferEmail(credentialOfferUri, refreshUrl, emailInfo, publicWalletBaseUrl);
+                                }))
+                                .doOnSuccess(v -> log.info("Credential offer email sent for issuanceId={}", issuanceId)))
+                        .doOnError(ex -> log.error("Email delivery failed for issuanceId={}: {}",
                                 issuanceId, ex.getMessage(), ex))
-                        .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE)))
+                        .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE))
                 : Mono.empty();
 
         String uri = includeUri ? buildWalletDeepLink(credentialOfferUri, publicWalletBaseUrl) : null;
