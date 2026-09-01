@@ -5,7 +5,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
-import es.in2.issuer.backend.shared.infrastructure.repository.IssuanceRepository;
+import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
@@ -28,7 +28,7 @@ import static org.mockito.Mockito.*;
 
 class CredentialExpirationSchedulerImplTest {
 
-    @Mock private IssuanceRepository issuanceRepository;
+    @Mock private IssuancePort issuancePort;
     @Mock private IssuanceService issuanceService;
     @Mock private EmailService emailService;
     @Mock private TenantRegistryService tenantRegistryService;
@@ -53,8 +53,8 @@ class CredentialExpirationSchedulerImplTest {
 
         when(tenantRegistryService.getActiveTenantSchemas())
                 .thenReturn(Mono.just(List.of("default")));
-        when(issuanceRepository.findAll()).thenReturn(Flux.just(credential));
-        when(issuanceRepository.save(any(Issuance.class)))
+        when(issuancePort.findAll()).thenReturn(Flux.just(credential));
+        when(issuancePort.save(any(Issuance.class)))
                 .thenAnswer(invocation -> {
                     Issuance cp = invocation.getArgument(0);
                     cp.setUpdatedAt(Instant.now());
@@ -71,7 +71,7 @@ class CredentialExpirationSchedulerImplTest {
                 .expectSubscription()
                 .verifyComplete();
 
-        verify(issuanceRepository, atLeastOnce()).save(argThat(updated -> {
+        verify(issuancePort, atLeastOnce()).save(argThat(updated -> {
             Instant ua = updated.getUpdatedAt();
             return updated.getCredentialStatus() == EXPIRED
                     && ua != null
@@ -91,8 +91,8 @@ class CredentialExpirationSchedulerImplTest {
 
         when(tenantRegistryService.getActiveTenantSchemas())
                 .thenReturn(Mono.just(List.of("default")));
-        when(issuanceRepository.findAll()).thenReturn(Flux.just(credential));
-        when(issuanceRepository.save(any(Issuance.class)))
+        when(issuancePort.findAll()).thenReturn(Flux.just(credential));
+        when(issuancePort.save(any(Issuance.class)))
                 .thenAnswer(invocation -> {
                     Issuance cp = invocation.getArgument(0);
                     cp.setUpdatedAt(Instant.now());
@@ -121,13 +121,13 @@ class CredentialExpirationSchedulerImplTest {
 
         when(tenantRegistryService.getActiveTenantSchemas())
                 .thenReturn(Mono.just(List.of("default")));
-        when(issuanceRepository.findAll()).thenReturn(Flux.just(credential));
+        when(issuancePort.findAll()).thenReturn(Flux.just(credential));
 
         StepVerifier.create(credentialExpirationScheduler.checkAndExpireCredentials())
                 .expectSubscription()
                 .verifyComplete();
 
-        verify(issuanceRepository, never()).save(any(Issuance.class));
+        verify(issuancePort, never()).save(any(Issuance.class));
         verify(emailService, never()).sendCredentialStatusChangeNotification(any(), any(), any(), any());
 
         assertEquals(CredentialStatusEnum.VALID, credential.getCredentialStatus());
