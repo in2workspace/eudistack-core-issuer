@@ -81,6 +81,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
             String processId,
             IssuanceRequest request,
             String idToken,
+            String bearerToken,
             String publicIssuerBaseUrl,
             String publicWalletBaseUrl) {
 
@@ -92,7 +93,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 .then(Mono.defer(() -> validateRequest(request, idToken)))
                 .then(Mono.defer(() -> payloadSchemaValidator.validate(configId, request.payload())))
                 .then(Mono.defer(() -> issuancePdpService.authorize(configId, request.payload(), idToken)))
-                .then(Mono.defer(() -> performIssuanceFlow(processId, request, idToken, publicIssuerBaseUrl, publicWalletBaseUrl, delivery)))
+                .then(Mono.defer(() -> performIssuanceFlow(processId, request, bearerToken, publicIssuerBaseUrl, publicWalletBaseUrl, delivery)))
                 .transformDeferredContextual((flow, ctx) -> {
                     String tenant = ctx.hasKey(TENANT_DOMAIN_CONTEXT_KEY) ? ctx.get(TENANT_DOMAIN_CONTEXT_KEY) : null;
                     return flow
@@ -181,7 +182,13 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         return Mono.empty();
     }
 
-    private Mono<IssuanceResponse> performIssuanceFlow(String processId, IssuanceRequest request, String idToken,
+    /**
+     * @param bearerToken the caller's token, used by the direct mode alone: it signs the credential and
+     *                    may have to sign a new status list inside this same request. Not the
+     *                    {@code X-Id-Token}, which is an optional identity assertion for the PDP and is
+     *                    absent on every profile that does not require it (EUD-168).
+     */
+    private Mono<IssuanceResponse> performIssuanceFlow(String processId, IssuanceRequest request, String bearerToken,
                                                         String publicIssuerBaseUrl, String publicWalletBaseUrl, String delivery) {
         String configId = request.credentialConfigurationId();
 
@@ -193,7 +200,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                     // wallet flow either, so the request is the only source of a holder key there is.
                     Map<String, Object> cnf = HolderBindingExemption.isExempt(configId)
                             ? HolderKey.fromJson(request.holderKey()).cnf() : null;
-                    return executeIssuanceForModes(processId, request, idToken,
+                    return executeIssuanceForModes(processId, request, bearerToken,
                             publicIssuerBaseUrl, publicWalletBaseUrl, delivery, modes, cnf);
                 });
     }
@@ -256,7 +263,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 });
     }
 
-    private Mono<IssuanceResponse> executeIssuanceForModes(String processId, IssuanceRequest request, String idToken,
+    private Mono<IssuanceResponse> executeIssuanceForModes(String processId, IssuanceRequest request, String bearerToken,
                                                             String publicIssuerBaseUrl, String publicWalletBaseUrl,
                                                             String delivery, Set<DeliveryMode> modes,
                                                             Map<String, Object> cnf) {
@@ -266,15 +273,19 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         String oid4vciDelivery = extractOid4vciDelivery(modes);
 
         Mono<DirectDeliveryOutcome> directOutcome = hasDirect
-                ? performDirectIssuance(processId, request, idToken, publicIssuerBaseUrl, delivery, cnf)
+                ? performDirectIssuance(processId, request, bearerToken, publicIssuerBaseUrl, delivery, cnf)
                 .map(r -> new DirectDeliveryOutcome(r.signedCredential(),
-                        DeliveryResult.delivered(DeliveryMode.DIRECT.value)))
+                        DeliveryResult.delivered(DeliveryMode.DIRECT.value), null))
                 .doOnSuccess(outcome -> {
                     if (outcome != null) {
                         credentialIssuedLogger.logIssued(request.credentialConfigurationId());
                     }
                 })
-                .doOnError(e -> {
+                // Isolated the same way the wallet leg already is (FR-11): a direct failure used to
+                // abort the whole response, discarding the per-mode results and the credential offer
+                // URI of a wallet leg that had already dispatched. The error is carried, not lost --
+                // assembleOutcome re-raises it when nothing else was delivered.
+                .onErrorResume(e -> {
                     credentialIssuedLogger.logFailed(request.credentialConfigurationId(), e);
                     log.error(
                             "ProcessId: {} - Direct issuance failed for credentialConfigurationId={} delivery={}",
@@ -283,6 +294,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                             delivery,
                             e
                     );
+                    return Mono.just(DirectDeliveryOutcome.failed(resolveErrorDetail(e), e));
                 })
                 : Mono.just(DirectDeliveryOutcome.empty());
 
@@ -292,7 +304,29 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 : Mono.just(WalletDeliveryOutcome.empty());
 
         return Mono.zip(directOutcome, walletOutcome)
-                .map(tuple -> assembleResponse(tuple.getT1(), tuple.getT2()));
+                .flatMap(tuple -> assembleOutcome(tuple.getT1(), tuple.getT2()));
+    }
+
+    /**
+     * A mode that completed is reported as completed even when a sibling mode failed (FR-11) -- but a
+     * request where <em>nothing</em> was delivered is not a partial success, and answering it with a
+     * body full of failures would hide the cause behind a 5xx with no problem detail. So the direct
+     * error is re-raised in that case and handled as any other error, and only a genuine partial
+     * outcome comes back as a response: per-mode results, the signed credential if there is one, and
+     * the credential offer URI if a mode that produces one completed.
+     */
+    private Mono<IssuanceResponse> assembleOutcome(DirectDeliveryOutcome direct, WalletDeliveryOutcome wallet) {
+        IssuanceResponse response = assembleResponse(direct, wallet);
+        if (direct.error() != null && !hasAnyCompletedMode(response)) {
+            return Mono.error(direct.error());
+        }
+        return Mono.just(response);
+    }
+
+    private boolean hasAnyCompletedMode(IssuanceResponse response) {
+        List<DeliveryResult> results = response.deliveryResults();
+        return results != null && results.stream()
+                .anyMatch(r -> r.status() != DeliveryResult.DeliveryOutcome.FAILED);
     }
 
     private Mono<WalletDeliveryOutcome> performOid4VciIssuanceResilient(
@@ -301,7 +335,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
             Map<String, Object> cnf) {
 
         return performOid4VciIssuance(processId, request, publicIssuerBaseUrl, publicWalletBaseUrl, oid4vciDelivery, cnf)
-                .map(r -> WalletDeliveryOutcome.success(r.credentialOfferUri(), oid4vciDelivery))
+                .map(r -> WalletDeliveryOutcome.success(r.credentialOfferUri(), oid4vciDelivery, r.emailError()))
                 .timeout(Duration.ofSeconds(issuanceProperties.hybridWalletTimeoutSeconds()))
                 .onErrorResume(ex -> {
                     log.warn("ProcessId: {} - Wallet delivery failed (isolated): {}", processId, ex.toString());
@@ -313,7 +347,12 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         if (ex instanceof TimeoutException) {
             return "Wallet delivery timed out";
         }
-        return ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
+        return resolveErrorDetail(ex);
+    }
+
+    private String resolveErrorDetail(Throwable ex) {
+        return ex.getMessage() != null && !ex.getMessage().isBlank()
+                ? ex.getMessage() : ex.getClass().getSimpleName();
     }
 
     private IssuanceResponse assembleResponse(DirectDeliveryOutcome direct, WalletDeliveryOutcome wallet) {
@@ -330,10 +369,24 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 .build();
     }
 
-    /** Internal outcome of the direct path (not exposed in the API). */
-    private record DirectDeliveryOutcome(String signedCredential, DeliveryResult deliveryResult) {
+    /**
+     * What the wallet leg produced: the offer URI, and the email failure the offer service reported
+     * rather than threw. Kept apart from {@link IssuanceResponse} because a reported email failure is
+     * per-mode detail, not a field of the API response.
+     */
+    private record Oid4VciLegResult(String credentialOfferUri, String emailError) {}
+
+    /**
+     * Internal outcome of the direct path (not exposed in the API). {@code error} is the failure the
+     * leg was isolated from, kept so it can be re-raised when no other mode delivered.
+     */
+    private record DirectDeliveryOutcome(String signedCredential, DeliveryResult deliveryResult, Throwable error) {
         static DirectDeliveryOutcome empty() {
-            return new DirectDeliveryOutcome(null, null);
+            return new DirectDeliveryOutcome(null, null, null);
+        }
+
+        static DirectDeliveryOutcome failed(String detail, Throwable error) {
+            return new DirectDeliveryOutcome(null, DeliveryResult.failed(DeliveryMode.DIRECT.value, detail), error);
         }
     }
 
@@ -343,11 +396,18 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
             return new WalletDeliveryOutcome(null, List.of());
         }
 
-        static WalletDeliveryOutcome success(String uri, String oid4vciDelivery) {
+        /**
+         * The email and the QR/URI are separate modes of one offer (FR-11): a bounced email is reported
+         * on the {@code email} mode alone and leaves {@code ui} dispatched, with its URI in the
+         * response. Before this, both modes were reported failed and the URI was dropped.
+         */
+        static WalletDeliveryOutcome success(String uri, String oid4vciDelivery, String emailError) {
             List<DeliveryResult> results = Arrays.stream(oid4vciDelivery.split(","))
                     .map(String::trim)
                     .filter(s -> !s.isEmpty())
-                    .map(DeliveryResult::dispatched)
+                    .map(mode -> DeliveryMode.EMAIL.value.equals(mode) && emailError != null
+                            ? DeliveryResult.failed(mode, emailError)
+                            : DeliveryResult.dispatched(mode))
                     .toList();
             return new WalletDeliveryOutcome(uri, results);
         }
@@ -408,7 +468,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 );
     }
 
-    private Mono<IssuanceResponse> performOid4VciIssuance(String processId, IssuanceRequest request,
+    private Mono<Oid4VciLegResult> performOid4VciIssuance(String processId, IssuanceRequest request,
                                                            String publicIssuerBaseUrl, String publicWalletBaseUrl,
                                                            String oid4vciDelivery, Map<String, Object> cnf) {
         String configId = request.credentialConfigurationId();
@@ -430,9 +490,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                             saved.getIssuanceId().toString(), configId, grantType, request.email(),
                                             oid4vciDelivery, saved.getCredentialOfferRefreshToken(),
                                             publicIssuerBaseUrl, publicWalletBaseUrl)
-                                    .map(offerResult -> IssuanceResponse.builder()
-                                            .credentialOfferUri(offerResult.credentialOfferUri())
-                                            .build())
+                                    .map(offerResult -> new Oid4VciLegResult(
+                                            offerResult.credentialOfferUri(), offerResult.emailError()))
                             );
                 });
     }

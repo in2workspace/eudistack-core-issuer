@@ -34,6 +34,8 @@ import static es.in2.issuer.backend.shared.infrastructure.util.HttpUtils.ensureU
 public class CredentialOfferServiceImpl implements CredentialOfferService {
 
     private static final String GRANT_TYPE_PRE_AUTHORIZED_CODE = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
+    /** Sentinel for "no email failure", so the reactive chain carries a value rather than a null. */
+    private static final String NO_EMAIL_ERROR = "";
 
     private final PreAuthorizedCodeService preAuthorizedCodeService;
     private final TransientStore<String> issuerStateCacheStore;
@@ -97,13 +99,22 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                         .onErrorMap(ex -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE)))
                 : Mono.empty();
 
-        Mono<CredentialOfferResult> resultTask = includeUri
-                ? Mono.just(CredentialOfferResult.builder()
-                        .credentialOfferUri(buildWalletDeepLink(credentialOfferUri, publicWalletBaseUrl))
-                        .build())
-                : Mono.just(CredentialOfferResult.builder().build());
+        String uri = includeUri ? buildWalletDeepLink(credentialOfferUri, publicWalletBaseUrl) : null;
 
-        return emailTask.then(resultTask);
+        // The email failure is reported, not propagated (FR-11): propagating it discarded a URI that
+        // was already built, so a bounced email took the QR channel of the same offer down with it.
+        return emailTask
+                .then(Mono.just(NO_EMAIL_ERROR))
+                .onErrorResume(ex -> Mono.just(describeEmailFailure(ex)))
+                .map(emailError -> CredentialOfferResult.builder()
+                        .credentialOfferUri(uri)
+                        .emailError(NO_EMAIL_ERROR.equals(emailError) ? null : emailError)
+                        .build());
+    }
+
+    private String describeEmailFailure(Throwable ex) {
+        String message = ex.getMessage();
+        return (message == null || message.isBlank()) ? ex.getClass().getSimpleName() : message;
     }
 
     private Mono<Void> sendLegacyCredentialOfferEmail(String credentialOfferUri, String refreshUrl,

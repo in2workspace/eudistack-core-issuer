@@ -1,10 +1,12 @@
 package es.in2.issuer.backend.issuance.infrastructure.controller;
 
+import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.dtos.UpdateIssuanceStatusRequest;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialDetails;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
+import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
@@ -23,6 +25,7 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
+import java.util.List;
 import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ISSUANCES_PATH;
@@ -44,12 +47,18 @@ public class IssuanceController {
             produces = MediaType.APPLICATION_JSON_VALUE)
     public Mono<ResponseEntity<IssuanceResponse>> createIssuance(
             @RequestHeader(name = "X-Id-Token", required = false) String idToken,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
             @Valid @RequestBody IssuanceRequest request,
             ServerWebExchange exchange) {
         String processId = UUID.randomUUID().toString();
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
         String publicWalletBaseUrl = urlResolver.publicWalletBaseUrl(exchange);
-        return issuanceWorkflow.issueCredential(processId, request, idToken, publicIssuerBaseUrl, publicWalletBaseUrl)
+        // X-Id-Token and Authorization are not interchangeable: the first is an optional identity
+        // assertion read by the PDP, the second the caller's bearer credential. Direct delivery signs
+        // inside this request and needs the latter -- reading the former for it made every direct
+        // issuance of a profile that requires no X-Id-Token fail on a null token (EUD-168).
+        return issuanceWorkflow.issueCredential(processId, request, idToken, authorizationHeader,
+                        publicIssuerBaseUrl, publicWalletBaseUrl)
                 .map(this::toResponseEntity);
     }
 
@@ -97,6 +106,18 @@ public class IssuanceController {
                 });
     }
 
+    /**
+     * True only for a partial outcome: the direct mode failed while something else was delivered. A
+     * request where nothing was delivered never reaches here -- the workflow re-raises the original
+     * error so it is rendered as a problem detail with its own status, not flattened into a 500.
+     */
+    private boolean hasDirectFailure(IssuanceResponse response) {
+        List<DeliveryResult> results = response.deliveryResults();
+        return results != null && results.stream()
+                .anyMatch(r -> DeliveryMode.DIRECT.value.equals(r.mode())
+                        && r.status() == DeliveryResult.DeliveryOutcome.FAILED);
+    }
+
     private Mono<Void> authorizeAndArchive(AuthorizationContext ctx, String id) {
         if (ctx.isTenantAdmin()) {
             return issuanceService.archiveIssuance(id);
@@ -135,6 +156,16 @@ public class IssuanceController {
 
         log.debug("Issuance process completed. Signed Credential present: {}, Credential Offer URI present: {}, delivery results: {}",
                 hasSignedCredential, hasCredentialOfferUri, hasDeliveryResults ? response.deliveryResults().size() : 0);
+
+        // A failed direct mode is a failed issuance even when a wallet mode dispatched (FR-11): the
+        // operator asked for a credential on screen and has none, so the status must not read as
+        // success. The body is kept whole -- per-mode results plus the credential offer URI -- because
+        // what did get delivered is exactly what the operator needs to know about.
+        if (hasDirectFailure(response)) {
+            log.warn("Partial issuance outcome: direct delivery failed, delivery results: {}",
+                    response.deliveryResults());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
 
         if (hasSignedCredential || hasCredentialOfferUri) {
             return ResponseEntity.ok(response);

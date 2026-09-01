@@ -68,6 +68,7 @@ class IssuanceWorkflowImplTest {
     private static final String CONFIG_ID = "learcredential.employee.w3c.4";
     /** One of the two types exempted from ADR-110 by AD-8: cnf sourced from the request holder_key. */
     private static final String EXEMPT_CONFIG_ID = "learcredential.machine.w3c.3";
+    private static final String BEARER_TOKEN = "Bearer operator-access-token";
     private static final String EMAIL = "test@example.com";
     private static final String TENANT_ID = "sandbox";
     private static final int HYBRID_WALLET_TIMEOUT_SECONDS = 1;
@@ -122,7 +123,7 @@ class IssuanceWorkflowImplTest {
         CredentialProfile profile = profileWithoutCnf();
         CredentialBuildResult buildResult = buildResult(Instant.now().minusSeconds(100));
         Issuance savedIssuance = Issuance.builder().issuanceId(issuanceId).credentialOfferRefreshToken("refresh-token-123").build();
-        CredentialOfferResult offerResult = new CredentialOfferResult("openid-credential-offer://offer-uri");
+        CredentialOfferResult offerResult = new CredentialOfferResult("openid-credential-offer://offer-uri", null);
 
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
@@ -135,7 +136,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(offerResult));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> {
                     assertNotNull(response.credentialOfferUri());
                     assertNull(response.signedCredential());
@@ -158,7 +159,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId("UnknownType")).thenReturn(null);
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "idToken", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "idToken", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectError(CredentialTypeUnsupportedException.class)
                 .verify();
     }
@@ -177,7 +178,7 @@ class IssuanceWorkflowImplTest {
         when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
-                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
 
         StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "bootstrap-token", BASE_URL, WALLET_URL))
                 .assertNext(response -> assertNotNull(response))
@@ -187,6 +188,156 @@ class IssuanceWorkflowImplTest {
     }
 
     // --- New tests ---
+
+    /**
+     * FR-11. A mode that completed is reported as completed even when a sibling mode failed, and the
+     * credential offer URI of a wallet mode that dispatched stays in the response: it is the QR the
+     * operator can still hand over. Before this, a direct failure aborted the whole response and both
+     * were lost, even though the offer had already been created and delivered.
+     */
+    @Test
+    void hybridDeliveryWithFailedDirectShouldStillReportTheWalletModeAndKeepTheOfferUri() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "direct,ui", EMAIL, null);
+        CredentialProfile profile = profileWithoutCnf();
+        CredentialBuildResult buildResult = buildResult(Instant.now().minusSeconds(100));
+        Issuance oid4vciIssuance = Issuance.builder()
+                .issuanceId(UUID.randomUUID()).credentialOfferRefreshToken("rt").build();
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
+                .thenReturn(Mono.just("enriched-data-set"));
+        // The direct leg dies where it actually died in production: reserving the status list entry.
+        when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
+                .thenReturn(Mono.error(new IllegalStateException("QTSP unavailable")));
+        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(oid4vciIssuance));
+        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
+                .assertNext(response -> {
+                    assertNull(response.signedCredential());
+                    assertEquals("openid-credential-offer://offer-uri", response.credentialOfferUri());
+                    assertEquals(DeliveryResult.DeliveryOutcome.FAILED, deliveryResultFor(response, "direct").status());
+                    assertNotNull(deliveryResultFor(response, "direct").error());
+                    assertEquals(DeliveryResult.DeliveryOutcome.DISPATCHED, deliveryResultFor(response, "ui").status());
+                })
+                .verifyComplete();
+
+        verify(credentialIssuedLogger).logFailed(eq(CONFIG_ID), any());
+    }
+
+    /**
+     * FR-11, the other side of it: nothing was delivered, so this is not a partial outcome. The
+     * original failure is re-raised and rendered as its own problem detail -- flattening it into a
+     * body of failures would hide the cause behind a status with no explanation.
+     */
+    @Test
+    void directOnlyDeliveryThatFailsShouldPropagateTheErrorRatherThanAPartialResponse() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "direct", EMAIL, null);
+        CredentialProfile profile = profileWithoutCnf();
+        CredentialBuildResult buildResult = buildResult(Instant.now().minusSeconds(100));
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
+                .thenReturn(Mono.just("enriched-data-set"));
+        when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
+                .thenReturn(Mono.error(new IllegalStateException("QTSP unavailable")));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
+                .expectErrorMatches(e -> e instanceof IllegalStateException && "QTSP unavailable".equals(e.getMessage()))
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+    }
+
+    /**
+     * FR-11 for two wallet modes of the same offer: the email and the QR are separate modes. A bounced
+     * email used to be propagated as an exception, which failed the {@code ui} mode too and threw away
+     * a URI that had been built correctly.
+     */
+    @Test
+    void emailAndUiDeliveryWithAFailedEmailShouldKeepUiDispatchedAndReturnTheOfferUri() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email,ui", EMAIL, null);
+        CredentialProfile profile = profileWithoutCnf();
+        CredentialBuildResult buildResult = buildResult(Instant.now().minusSeconds(100));
+        Issuance oid4vciIssuance = Issuance.builder()
+                .issuanceId(UUID.randomUUID()).credentialOfferRefreshToken("rt").build();
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(oid4vciIssuance));
+        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(new CredentialOfferResult(
+                        "openid-credential-offer://offer-uri", "SMTP unavailable")));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
+                .assertNext(response -> {
+                    assertEquals("openid-credential-offer://offer-uri", response.credentialOfferUri());
+                    assertEquals(DeliveryResult.DeliveryOutcome.FAILED, deliveryResultFor(response, "email").status());
+                    assertEquals("SMTP unavailable", deliveryResultFor(response, "email").error());
+                    assertEquals(DeliveryResult.DeliveryOutcome.DISPATCHED, deliveryResultFor(response, "ui").status());
+                })
+                .verifyComplete();
+    }
+
+    /**
+     * The direct mode signs inside the issuance request, so it needs a caller token: the credential
+     * signature demands one (a blank {@code SigningContext.token} is a {@code SigningException}) and
+     * allocating a status list entry rejects a null one outright. Reading it from {@code X-Id-Token}
+     * conflated an optional identity assertion with the caller's bearer credential, so every direct
+     * issuance of a profile that requires no {@code X-Id-Token} -- which is all of them but
+     * VerifiableCertification -- died on {@code NullPointerException: token cannot be null}.
+     */
+    @Test
+    void directDeliveryWithoutAnIdTokenShouldStillSignUsingTheCallerBearerToken() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "direct", EMAIL, null);
+        CredentialProfile profile = profileWithoutCnf();
+        CredentialBuildResult buildResult = buildResult(Instant.now().minusSeconds(100));
+        StatusListEntry statusEntry = statusListEntry();
+        Issuance savedIssuance = Issuance.builder().issuanceId(UUID.randomUUID()).build();
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), isNull())).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
+                .thenReturn(Mono.just("enriched-data-set"));
+        when(statusListWorkflow.allocateEntry(eq(StatusPurpose.REVOCATION), any(StatusListFormat.class),
+                anyString(), eq(BEARER_TOKEN), eq(BASE_URL)))
+                .thenReturn(Mono.just(statusEntry));
+        when(genericCredentialBuilder.injectCredentialStatus(eq("enriched-data-set"), any(), anyString()))
+                .thenReturn("enriched-with-status");
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), eq("enriched-with-status"), eq(CONFIG_ID),
+                anyString(), isNull(), anyString(), eq(EMAIL)))
+                .thenReturn(Mono.just("signed-jwt"));
+        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, null, BEARER_TOKEN, BASE_URL, WALLET_URL)))
+                .assertNext(response -> assertEquals("signed-jwt", response.signedCredential()))
+                .verifyComplete();
+
+        // Both consumers get the bearer token, never the (absent) X-Id-Token.
+        verify(statusListWorkflow).allocateEntry(eq(StatusPurpose.REVOCATION), any(StatusListFormat.class),
+                anyString(), eq(BEARER_TOKEN), eq(BASE_URL));
+        verify(credentialSignerWorkflow).signCredential(eq(BEARER_TOKEN), anyString(), anyString(),
+                anyString(), isNull(), anyString(), anyString());
+    }
 
     @Test
     void directDeliveryShouldSignAndReturnCredentialWithValidStatusWhenValidFromIsPast() {
@@ -208,13 +359,13 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusEntry));
         when(genericCredentialBuilder.injectCredentialStatus(eq("enriched-data-set"), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), eq("enriched-with-status"), eq(CONFIG_ID),
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), eq("enriched-with-status"), eq(CONFIG_ID),
                 anyString(), isNull(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> {
                     assertEquals("signed-jwt", response.signedCredential());
                     assertNull(response.credentialOfferUri());
@@ -251,12 +402,12 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> assertEquals("signed-jwt", response.signedCredential()))
                 .verifyComplete();
 
@@ -284,7 +435,7 @@ class IssuanceWorkflowImplTest {
                 "Delivery mode 'direct' is not eligible for credential type '" + CONFIG_ID + "'"))
                 .when(schemaDeliveryCeiling).validateWithinCeiling(eq(CONFIG_ID), any());
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectError(DeliveryModeNotEligibleException.class)
                 .verify();
 
@@ -305,7 +456,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just("direct,email"));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectError(InvalidHolderKeyException.class)
                 .verify();
 
@@ -327,7 +478,7 @@ class IssuanceWorkflowImplTest {
                 "Delivery mode 'direct' is not eligible for credential type '" + CONFIG_ID + "'"))
                 .when(schemaDeliveryCeiling).validateWithinCeiling(eq(CONFIG_ID), any());
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectError(DeliveryModeNotEligibleException.class)
                 .verify();
 
@@ -356,13 +507,13 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), eq("enriched-with-status"), eq(EXEMPT_CONFIG_ID),
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), eq("enriched-with-status"), eq(EXEMPT_CONFIG_ID),
                 anyString(), anyMap(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> assertEquals("signed-jwt", response.signedCredential()))
                 .verifyComplete();
 
@@ -394,7 +545,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just("direct,email,ui"));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectError(InvalidHolderKeyException.class)
                 .verify();
 
@@ -421,13 +572,13 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(),
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(),
                 anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> assertEquals("signed-jwt", response.signedCredential()))
                 .verifyComplete();
 
@@ -442,7 +593,7 @@ class IssuanceWorkflowImplTest {
         CredentialProfile profile = profileWithCnf();
         Issuance savedIssuance = Issuance.builder().issuanceId(issuanceId)
                 .credentialOfferRefreshToken("refresh-token-123").build();
-        CredentialOfferResult offerResult = new CredentialOfferResult("openid-credential-offer://offer-uri");
+        CredentialOfferResult offerResult = new CredentialOfferResult("openid-credential-offer://offer-uri", null);
 
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
@@ -456,7 +607,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(offerResult));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> assertNotNull(response.credentialOfferUri()))
                 .verifyComplete();
 
@@ -471,7 +622,7 @@ class IssuanceWorkflowImplTest {
         CredentialProfile profile = profileExempt();
         Issuance savedIssuance = Issuance.builder().issuanceId(issuanceId)
                 .credentialOfferRefreshToken("refresh-token-123").build();
-        CredentialOfferResult offerResult = new CredentialOfferResult("openid-credential-offer://offer-uri");
+        CredentialOfferResult offerResult = new CredentialOfferResult("openid-credential-offer://offer-uri", null);
 
         when(credentialProfileRegistry.getByConfigurationId(EXEMPT_CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(EXEMPT_CONFIG_ID, payload)).thenReturn(Mono.empty());
@@ -487,7 +638,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(),
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(),
                 anyString(), anyMap(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
@@ -497,7 +648,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(offerResult));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> {
                     assertEquals("signed-jwt", response.signedCredential());
                     assertNotNull(response.credentialOfferUri());
@@ -532,7 +683,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.error(new IllegalStateException("signer down")));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectError(IllegalStateException.class)
                 .verify();
 
@@ -565,7 +716,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.error(new IllegalStateException("db down")));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectError(IllegalStateException.class)
                 .verify();
     }
@@ -583,7 +734,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.error(new IllegalStateException("config store down")));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectError(IllegalStateException.class)
                 .verify();
 
@@ -602,7 +753,7 @@ class IssuanceWorkflowImplTest {
         when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectError(InvalidDeliveryModeException.class)
                 .verify();
 
@@ -620,7 +771,7 @@ class IssuanceWorkflowImplTest {
         when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectError(InvalidDeliveryModeException.class)
                 .verify();
 
@@ -639,7 +790,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just("email,ui"));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectError(DeliveryModeNotEligibleException.class)
                 .verify();
 
@@ -667,7 +818,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(directIssuance));
@@ -676,10 +827,10 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(oid4vciIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 eq(oid4vciIssuanceId.toString()), any(), any(), any(), eq("email"), eq("rt-123"), eq(BASE_URL), eq(WALLET_URL)))
-                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> {
                     assertEquals("signed-jwt", response.signedCredential());
                     assertNotNull(response.credentialOfferUri());
@@ -715,10 +866,10 @@ class IssuanceWorkflowImplTest {
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 eq(issuanceId.toString()), eq(CONFIG_ID), any(), eq(EMAIL), eq("ui"), eq("rt-ui"), eq(BASE_URL), eq(WALLET_URL)))
-                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> {
                     assertNotNull(response.credentialOfferUri());
                     assertNull(response.signedCredential());
@@ -749,7 +900,7 @@ class IssuanceWorkflowImplTest {
         when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
-                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
 
         StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "bootstrap-token", BASE_URL, WALLET_URL))
                 .assertNext(response -> assertNull(response.signedCredential()))
@@ -779,7 +930,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, null, BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, null, BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectError(MissingIdTokenHeaderException.class)
                 .verify();
     }
@@ -798,7 +949,7 @@ class IssuanceWorkflowImplTest {
         when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
-                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
 
         StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "bootstrap-token", BASE_URL, WALLET_URL))
                 .assertNext(response -> assertNotNull(response.credentialOfferUri()))
@@ -832,10 +983,10 @@ class IssuanceWorkflowImplTest {
         when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
-                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> assertNotNull(response.credentialOfferUri()))
                 .verifyComplete();
     }
@@ -864,7 +1015,7 @@ class IssuanceWorkflowImplTest {
         when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
-                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
 
         StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "token", BASE_URL, WALLET_URL))
                 .assertNext(response -> assertNotNull(response))
@@ -896,12 +1047,12 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> assertEquals("signed-jwt", response.signedCredential()))
                 .verifyComplete();
 
@@ -934,12 +1085,12 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> assertEquals("signed-jwt", response.signedCredential()))
                 .verifyComplete();
 
@@ -973,12 +1124,12 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> assertEquals("signed-jwt", response.signedCredential()))
                 .verifyComplete();
 
@@ -1003,10 +1154,10 @@ class IssuanceWorkflowImplTest {
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 any(), eq(CONFIG_ID), eq("urn:ietf:params:oauth:grant-type:pre-authorized_code"),
                 eq(EMAIL), eq("email"), eq("rt-grant"), eq(BASE_URL), eq(WALLET_URL)))
-                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> assertNotNull(response.credentialOfferUri()))
                 .verifyComplete();
 
@@ -1039,7 +1190,7 @@ class IssuanceWorkflowImplTest {
         when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
-                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
 
         StepVerifier.create(workflow.issueCredentialWithoutAuthorization("p", request, "token", BASE_URL, WALLET_URL))
                 .assertNext(response -> assertNotNull(response))
@@ -1076,13 +1227,13 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), eq("dc+sd-jwt")))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), eq(CONFIG_ID),
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), eq(CONFIG_ID),
                 eq("dc+sd-jwt"), isNull(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("signed-sd-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> assertEquals("signed-sd-jwt", response.signedCredential()))
                 .verifyComplete();
 
@@ -1110,10 +1261,10 @@ class IssuanceWorkflowImplTest {
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 any(), any(), any(), any(), any(), any(), any(), any()))
-                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> assertNotNull(response.credentialOfferUri()))
                 .verifyComplete();
 
@@ -1141,7 +1292,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(directIssuance));
@@ -1151,7 +1302,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.error(new RuntimeException("SMTP unavailable")));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> {
                     assertEquals("signed-jwt", response.signedCredential());
                     assertNull(response.credentialOfferUri());
@@ -1188,7 +1339,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(directIssuance));
@@ -1196,10 +1347,10 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(oid4vciIssuance));
         // Wallet path never completes within the hybrid budget (HYBRID_WALLET_TIMEOUT_SECONDS = 1s).
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
-                .thenReturn(Mono.just(new CredentialOfferResult("offer")).delayElement(Duration.ofSeconds(30)));
+                .thenReturn(Mono.just(new CredentialOfferResult("offer", null)).delayElement(Duration.ofSeconds(30)));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> {
                     assertEquals("signed-jwt", response.signedCredential());
                     DeliveryResult email = deliveryResultFor(response, "email");
@@ -1230,11 +1381,11 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.error(new RuntimeException("QTSP down")));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectError(RuntimeException.class)
                 .verify();
 
@@ -1270,17 +1421,17 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(directIssuance));
         when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() == CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(oid4vciIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), eq(expectedWalletChannel), any(), any(), any()))
-                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri")));
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        IssuanceResponse response = withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)).block();
+        IssuanceResponse response = withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)).block();
         assertNotNull(response);
         verify(credentialOfferService).createAndDeliverCredentialOffer(any(), any(), any(), any(), eq(expectedWalletChannel), any(), any(), any());
         return response.signedCredential();
@@ -1304,12 +1455,12 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(eq("enriched-data-set"), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), eq("enriched-with-status"), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), eq("enriched-with-status"), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> assertEquals(DeliveryResult.DeliveryOutcome.DELIVERED,
                         deliveryResultFor(response, "direct").status()))
                 .verifyComplete();
@@ -1338,12 +1489,12 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.error(new RuntimeException("DB down")));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectError(RuntimeException.class)
                 .verify();
 
@@ -1369,12 +1520,12 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectNextCount(1)
                 .verifyComplete();
 
@@ -1406,11 +1557,11 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.error(new RuntimeException("QTSP down")));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectError(RuntimeException.class)
                 .verify();
 
@@ -1430,7 +1581,7 @@ class IssuanceWorkflowImplTest {
         IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "direct", EMAIL, null);
 
         // When / Then
-        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL))
+        StepVerifier.create(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL))
                 .expectError(TenantNotResolvedException.class)
                 .verify();
 
@@ -1464,7 +1615,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(argThat(i -> i != null && i.getCredentialStatus() != CredentialStatusEnum.DRAFT)))
                 .thenReturn(Mono.just(directIssuance));
@@ -1474,7 +1625,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.error(new RuntimeException("SMTP unavailable")));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectNextCount(1)
                 .verifyComplete();
 
@@ -1497,7 +1648,7 @@ class IssuanceWorkflowImplTest {
         CredentialProfile profile = profileWithoutCnf();
         CredentialBuildResult buildResult = buildResult(Instant.now().minusSeconds(100));
         Issuance savedIssuance = Issuance.builder().issuanceId(issuanceId).credentialOfferRefreshToken("refresh-token-123").build();
-        CredentialOfferResult offerResult = new CredentialOfferResult("openid-credential-offer://offer-uri");
+        CredentialOfferResult offerResult = new CredentialOfferResult("openid-credential-offer://offer-uri", null);
 
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
@@ -1510,7 +1661,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(offerResult));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectNextCount(1)
                 .verifyComplete();
 
@@ -1541,14 +1692,14 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(statusListEntry()));
         when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
                 .thenReturn("enriched-with-status");
-        when(credentialSignerWorkflow.signCredential(eq("id-token"), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
+        when(credentialSignerWorkflow.signCredential(eq(BEARER_TOKEN), anyString(), anyString(), anyString(), isNull(), anyString(), anyString()))
                 .thenReturn(Mono.just("signed-jwt"));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
         doThrow(new RuntimeException("AUDIT channel down")).when(auditService).auditDelivery(any());
 
         // Then: a broken audit channel must not surface as a failure of the response the operator receives.
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .assertNext(response -> assertEquals("signed-jwt", response.signedCredential()))
                 .verifyComplete();
     }
@@ -1604,7 +1755,7 @@ class IssuanceWorkflowImplTest {
         CredentialBuildResult buildResult = buildResult(Instant.now().minusSeconds(100));
         Issuance savedIssuance = Issuance.builder()
                 .issuanceId(issuanceId).credentialOfferRefreshToken("refresh-token-123").build();
-        CredentialOfferResult offerResult = new CredentialOfferResult("openid-credential-offer://offer-uri");
+        CredentialOfferResult offerResult = new CredentialOfferResult("openid-credential-offer://offer-uri", null);
 
         when(credentialProfileRegistry.getByConfigurationId(EXEMPT_CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(EXEMPT_CONFIG_ID, payload)).thenReturn(Mono.empty());
@@ -1617,7 +1768,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(offerResult));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectNextCount(1)
                 .verifyComplete();
 
@@ -1643,7 +1794,7 @@ class IssuanceWorkflowImplTest {
         CredentialBuildResult buildResult = buildResult(Instant.now().minusSeconds(100));
         Issuance savedIssuance = Issuance.builder()
                 .issuanceId(issuanceId).credentialOfferRefreshToken("refresh-token-123").build();
-        CredentialOfferResult offerResult = new CredentialOfferResult("openid-credential-offer://offer-uri");
+        CredentialOfferResult offerResult = new CredentialOfferResult("openid-credential-offer://offer-uri", null);
 
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
@@ -1656,7 +1807,7 @@ class IssuanceWorkflowImplTest {
                 .thenReturn(Mono.just(offerResult));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectNextCount(1)
                 .verifyComplete();
 
@@ -1680,7 +1831,7 @@ class IssuanceWorkflowImplTest {
         when(issuancePdpService.authorize(eq(EXEMPT_CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
                 .expectError(InvalidHolderKeyException.class)
                 .verify();
 
@@ -1699,10 +1850,14 @@ class IssuanceWorkflowImplTest {
                 .build();
     }
 
+    // A real P-256 public point: Nimbus (EUD-168 F1) validates x/y are actually on the declared
+    // curve, so an arbitrary placeholder string is not a valid fixture here.
     private JsonNode holderKeyJwk() {
         ObjectMapper m = new ObjectMapper();
         return m.createObjectNode().set("jwk",
-                m.createObjectNode().put("kty", "EC").put("crv", "P-256").put("x", "x-coord").put("y", "y-coord"));
+                m.createObjectNode().put("kty", "EC").put("crv", "P-256")
+                        .put("x", "jIoYu_tVQYeSX_WAXLz219rFkqGV6c4FTb4_cQdOaQg")
+                        .put("y", "BBkUW2sUZX2kW7keQ-qZV3PCKCLOZesPpszoNGciDL4"));
     }
 
     private CredentialBuildResult buildResult(Instant validFrom) {
