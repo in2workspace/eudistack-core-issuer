@@ -37,6 +37,26 @@ public final class CredentialProfileBindingInvariant {
                     bound ? "present and non-empty" : "absent or empty"));
         }
 
+        // EC-01 -- unconditional, independent of invariant 1: a key present but emptied is not the
+        // same as a key that was never declared, and must not be read as absence. Invariant 1 alone
+        // cannot catch this: when both fields are emptied together it sees them as agreeing (both
+        // "absent"), which is exactly the false negative EC-01 exists to close.
+        if (profile.proofTypesSupported() != null && profile.proofTypesSupported().isEmpty()) {
+            throw new IllegalStateException(String.format(
+                    "Incoherent credential profile '%s': 'proof_types_supported' is present but empty. "
+                            + "An empty object is not the same as an absent field -- declare absence by "
+                            + "removing the key, not by emptying it.",
+                    configId));
+        }
+        if (profile.cryptographicBindingMethodsSupported() != null
+                && profile.cryptographicBindingMethodsSupported().isEmpty()) {
+            throw new IllegalStateException(String.format(
+                    "Incoherent credential profile '%s': 'cryptographic_binding_methods_supported' is "
+                            + "present but empty. An empty object is not the same as an absent field -- "
+                            + "declare absence by removing the key, not by emptying it.",
+                    configId));
+        }
+
         // Invariant 2 -- exempted for the closed list of AD-8, and only for it. Those types keep
         // cnf_required: true with no proof_types_supported on purpose: their cnf comes from the
         // holder_key in the issuance request, not from a key proof.

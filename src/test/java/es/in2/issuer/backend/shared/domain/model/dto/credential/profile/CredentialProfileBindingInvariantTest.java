@@ -64,20 +64,8 @@ class CredentialProfileBindingInvariantTest {
                     .hasMessageContaining("proof_types_supported");
         }
 
-        /**
-         * ADR-110 requires absence to be declared by removing the key, never by emptying it. The message
-         * must say so, because "empty" and "absent" look identical to whoever is reading the failure and
-         * only one of them is the fix.
-         */
         @Test
-        void validate_emptyCollectionsAreTreatedAsAbsent_andTheMessageSaysHowToDeclareAbsence() {
-            assertThatCode(() -> CredentialProfileBindingInvariant.validate(
-                    profile("some.profile.3")
-                            .cryptographicBindingMethodsSupported(Set.of())
-                            .proofTypesSupported(Map.of())
-                            .build()))
-                    .doesNotThrowAnyException();
-
+        void validate_bindingMethodsWithEmptyProofTypes_failsNamingProfileAndField() {
             assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(
                     profile("some.profile.4")
                             .cryptographicBindingMethodsSupported(Set.of("did:key"))
@@ -85,6 +73,46 @@ class CredentialProfileBindingInvariantTest {
                             .build()))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("removing the key");
+        }
+
+        /**
+         * EC-01. An empty object is not an absent field. Invariant 1 alone cannot catch the case where
+         * both fields are emptied together -- it reads them as "agreeing" (both absent) -- so this check
+         * must run unconditionally, independent of invariant 1's comparison.
+         */
+        @Test
+        void validate_proofTypesSupportedPresentButEmpty_failsNamingProfileAndField() {
+            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(
+                    profile("some.profile.5")
+                            .proofTypesSupported(Map.of())
+                            .build()))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("some.profile.5")
+                    .hasMessageContaining("proof_types_supported")
+                    .hasMessageContaining("removing the key");
+        }
+
+        @Test
+        void validate_cryptographicBindingMethodsSupportedPresentButEmpty_failsNamingProfileAndField() {
+            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(
+                    profile("some.profile.6")
+                            .cryptographicBindingMethodsSupported(Set.of())
+                            .build()))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("some.profile.6")
+                    .hasMessageContaining("cryptographic_binding_methods_supported")
+                    .hasMessageContaining("removing the key");
+        }
+
+        @Test
+        void validate_bothFieldsPresentButEmptyTogether_stillFailsRatherThanReadingAsAbsence() {
+            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(
+                    profile("some.profile.7")
+                            .cryptographicBindingMethodsSupported(Set.of())
+                            .proofTypesSupported(Map.of())
+                            .build()))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("some.profile.7");
         }
     }
 
