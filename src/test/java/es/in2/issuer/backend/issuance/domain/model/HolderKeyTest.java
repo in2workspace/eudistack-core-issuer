@@ -26,10 +26,15 @@ class HolderKeyTest {
         }
     }
 
+    // A real P-256 public point: Nimbus validates x/y are actually on the declared curve, so an
+    // arbitrary placeholder string is not a valid fixture here.
+    private static final String VALID_EC_X = "jIoYu_tVQYeSX_WAXLz219rFkqGV6c4FTb4_cQdOaQg";
+    private static final String VALID_EC_Y = "BBkUW2sUZX2kW7keQ-qZV3PCKCLOZesPpszoNGciDL4";
+
     @Test
     void fromJson_withJwk_returnsCnfCarryingJwkObject() {
         // Given
-        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"abc\",\"y\":\"def\"}}");
+        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + VALID_EC_X + "\",\"y\":\"" + VALID_EC_Y + "\"}}");
 
         // When
         Map<String, Object> cnf = HolderKey.fromJson(node).cnf();
@@ -138,5 +143,45 @@ class HolderKeyTest {
     @Test
     void fromJson_withX5cContainingBlankEntry_throwsInvalidHolderKey() {
         assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"x5c\":[\"MIIBcert\",\"\"]}")));
+    }
+
+    // --- Nimbus JWK content validation (EUD-168 F1, S1) ---
+
+    @Test
+    void fromJson_withPrivateEcJwk_throwsInvalidHolderKey() {
+        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + VALID_EC_X + "\",\"y\":\"" + VALID_EC_Y
+                + "\",\"d\":\"PtiOr4fsLlHZ2QdHKcO2HoslwwlEXka6_ksM1fSDTdg\"}}");
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
+    }
+
+    @Test
+    void fromJson_withOctJwk_throwsInvalidHolderKey() {
+        JsonNode node = json("{\"jwk\":{\"kty\":\"oct\",\"k\":\"c2VjcmV0\"}}");
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
+    }
+
+    @Test
+    void fromJson_withUnrecognizedKty_throwsInvalidHolderKey() {
+        JsonNode node = json("{\"jwk\":{\"kty\":\"unsupported\",\"x\":\"abc\"}}");
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
+    }
+
+    @Test
+    void fromJson_withUnsupportedEcCurve_throwsInvalidHolderKey() {
+        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"secp256k1\",\"x\":\"abc\",\"y\":\"def\"}}");
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
+    }
+
+    @Test
+    void fromJson_withUndersizedRsaKey_throwsInvalidHolderKey() {
+        JsonNode node = json("{\"jwk\":{\"kty\":\"RSA\",\"n\":\"AQAB\",\"e\":\"AQAB\"}}");
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
+    }
+
+    @Test
+    void fromJson_withOversizedJwkNode_throwsInvalidHolderKey() {
+        String oversizedCoordinate = "A".repeat(10_000);
+        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + oversizedCoordinate + "\",\"y\":\"def\"}}");
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
     }
 }
