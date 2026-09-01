@@ -14,6 +14,7 @@ import reactor.core.publisher.Mono;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 
 import static es.in2.issuer.backend.shared.domain.util.Utils.generateSecureAuthorizationCode;
 
@@ -40,7 +41,7 @@ public class AuthorizationServiceImpl implements AuthorizationService {
             String publicIssuerBaseUrl
     ) {
         if (requestUri != null && !requestUri.isBlank()) {
-            return pushAuthorizationRequestAuthorization(publicIssuerBaseUrl, requestUri, state);
+            return redeemPushedRequest(publicIssuerBaseUrl, requestUri, clientId, state);
         }
         // RFC 9126 §5: this Issuer advertises require_pushed_authorization_requests=true
         // (AuthorizationServerMetadataServiceImpl) whenever the profile requires PAR, so an
@@ -55,10 +56,20 @@ public class AuthorizationServiceImpl implements AuthorizationService {
         );
     }
 
-    private Mono<URI> pushAuthorizationRequestAuthorization(String baseUrl, String requestUri, String state) {
+    private Mono<URI> redeemPushedRequest(String baseUrl, String requestUri, String clientId, String state) {
         return parCacheStore.get(requestUri)
                 .switchIfEmpty(Mono.error(OAuthTokenException.invalidRequest("Invalid or expired request_uri")))
                 .flatMap(parRequest -> {
+                    // RFC 9126 §4: a request_uri is bound to the client that pushed it. The
+                    // authorization request MUST carry the same client_id, otherwise any client
+                    // holding (or guessing) another client's request_uri could redeem it and
+                    // obtain an authorization code issued against the victim's pushed request.
+                    // Rejected before the one-time-use consumption below so a foreign client
+                    // cannot burn a request_uri that is not its own.
+                    if (!clientIdMatchesPushedRequest(parRequest.clientId(), clientId)) {
+                        return Mono.error(OAuthTokenException.invalidRequest(
+                                "client_id does not match the client that pushed the request_uri"));
+                    }
                     // Consume the PAR (one-time use)
                     return parCacheStore.delete(requestUri)
                             .then(generateAndStoreAuthorizationCode(
@@ -77,6 +88,18 @@ public class AuthorizationServiceImpl implements AuthorizationService {
                                     state != null ? state : parRequest.state()
                             ));
                 });
+    }
+
+    // Blank is treated as absent on both sides: a client that pushed no client_id (e.g. one
+    // authenticated solely through client attestation) can only redeem its request_uri without
+    // a client_id, and a request_uri pushed with a client_id can only be redeemed by that exact
+    // client_id. Mismatch in either direction is an error.
+    private boolean clientIdMatchesPushedRequest(String pushedClientId, String requestClientId) {
+        return Objects.equals(normalizeClientId(pushedClientId), normalizeClientId(requestClientId));
+    }
+
+    private String normalizeClientId(String clientId) {
+        return clientId == null || clientId.isBlank() ? null : clientId;
     }
 
     private Mono<URI> processDirectAuthorization(
