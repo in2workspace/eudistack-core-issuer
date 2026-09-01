@@ -3,7 +3,7 @@ package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 import com.nimbusds.jose.JWSObject;
 import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.exception.UnknownCredentialIdentifierException;
-import es.in2.issuer.backend.shared.domain.util.Base58Codec;
+import es.in2.issuer.backend.shared.domain.util.DidKeyDerivation;
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.*;
@@ -242,6 +242,25 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         return HolderCnfJson.read(proc.getHolderCnf());
     }
 
+    /**
+     * The proof supplies the holder DID whenever one arrives. An AD-8 exempt type never takes that
+     * path (no {@code proof_types_supported}, so no proof is ever requested), so its only source of a
+     * holder identifier is the jwk that {@code resolveCnf} already resolved -- deriving the did:key
+     * from it here is what makes {@code cnf} and {@code mandatee.id} agree on the same key pair (F2).
+     */
+    @SuppressWarnings("unchecked")
+    private String resolveHolderDid(BindingInfo bindingInfo, Map<String, Object> cnf) {
+        String fromProof = bindingInfo.subjectId();
+        if (fromProof != null) {
+            return fromProof;
+        }
+        Object jwk = cnf != null ? cnf.get("jwk") : null;
+        if (jwk instanceof Map<?, ?> jwkMap) {
+            return DidKeyDerivation.deriveDidKeyFromJwk((Map<String, Object>) jwkMap);
+        }
+        return null;
+    }
+
     private Mono<CredentialResponse> enrichAndSign(
             String processId,
             Issuance proc,
@@ -281,8 +300,11 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         // Step 1: Bind issuer to the credential dataSet (in memory, NOT persisted)
         return genericCredentialBuilder.bindIssuer(profile, proc.getCredentialDataSet(), issuanceId, email)
                 .map(enrichedDataSet -> {
-                    // Inject derived holder DID into mandatee.id when proof supplied a did:key-bound subject
-                    String holderDid = bindingInfo.subjectId();
+                    // Inject derived holder DID into mandatee.id when proof supplied a did:key-bound
+                    // subject, or -- an AD-8 exempt type never takes the proof path (F2, S2) -- derive it
+                    // from the cnf.jwk that resolveCnf sourced from the request instead. Either way,
+                    // cnf.jwk and mandatee.id end up naming the same key pair.
+                    String holderDid = resolveHolderDid(bindingInfo, cnf);
                     if (holderDid != null && holderDid.startsWith("did:")) {
                         return genericCredentialBuilder.bindHolderDid(enrichedDataSet, holderDid);
                     }
@@ -469,39 +491,9 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             throw new ProofValidationException("jwk must be a JSON object");
         }
         var jwkObj = (Map<String, Object>) jwkMap;
-        String subjectId = deriveDidKeyFromJwk(jwkObj);
+        String subjectId = DidKeyDerivation.deriveDidKeyFromJwk(jwkObj);
         log.info("Binding from proof: cnfType=jwk, subjectId={}", subjectId);
         return new BindingInfo(subjectId, Map.of("jwk", jwkObj));
-    }
-
-    private String deriveDidKeyFromJwk(Map<String, Object> jwk) {
-        try {
-            byte[] xRaw = java.util.Base64.getUrlDecoder().decode((String) jwk.get("x"));
-            byte[] yRaw = java.util.Base64.getUrlDecoder().decode((String) jwk.get("y"));
-
-            // Pad to 32 bytes
-            byte[] xBytes = new byte[32];
-            byte[] yBytes = new byte[32];
-            System.arraycopy(xRaw, 0, xBytes, 32 - xRaw.length, xRaw.length);
-            System.arraycopy(yRaw, 0, yBytes, 32 - yRaw.length, yRaw.length);
-
-            // Compressed point: 0x02 if y even, 0x03 if y odd
-            byte prefix = (yBytes[31] & 0x01) == 0 ? (byte) 0x02 : (byte) 0x03;
-            byte[] compressed = new byte[33];
-            compressed[0] = prefix;
-            System.arraycopy(xBytes, 0, compressed, 1, 32);
-
-            // P-256 multicodec varint prefix: 0x1200 → [0x80, 0x24]
-            byte[] keyWithPrefix = new byte[35];
-            keyWithPrefix[0] = (byte) 0x80;
-            keyWithPrefix[1] = 0x24;
-            System.arraycopy(compressed, 0, keyWithPrefix, 2, 33);
-
-            return "did:key:z" + Base58Codec.encode(keyWithPrefix);
-        } catch (Exception e) {
-            log.warn("Could not derive did:key from JWK proof, falling back to random subject: {}", e.getMessage());
-            return "urn:uuid:" + UUID.randomUUID();
-        }
     }
 
 }

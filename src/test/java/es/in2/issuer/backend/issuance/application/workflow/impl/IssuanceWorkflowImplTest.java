@@ -111,6 +111,11 @@ class IssuanceWorkflowImplTest {
         // for; the tests that care about the ceiling override this stub explicitly.
         lenient().when(schemaDeliveryCeiling.resolveEligibleModes(anyString()))
                 .thenReturn(EnumSet.allOf(DeliveryMode.class));
+        // Identity by default (F2): bindHolderDid only matters to the tests asserting on
+        // mandatee.id/cnf coherence for an AD-8 exempt type; everyone else just needs the dataSet
+        // to survive the call unchanged.
+        lenient().when(genericCredentialBuilder.bindHolderDid(anyString(), anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     // --- Existing tests ---
@@ -525,6 +530,10 @@ class IssuanceWorkflowImplTest {
         assertTrue(cnfCaptor.getValue().containsKey("jwk"));
         verify(issuanceService).saveIssuance(any(Issuance.class));
         verifyNoInteractions(credentialOfferService);
+
+        // F2: the direct leg derives the holder DID from the holder_key jwk and binds it into
+        // mandatee.id, the same invariant the wallet leg already enforces from a key proof.
+        verify(genericCredentialBuilder).bindHolderDid(eq("enriched-data-set"), argThat(did -> did.startsWith("did:key:z")));
     }
 
     @Test

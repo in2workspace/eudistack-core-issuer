@@ -730,6 +730,10 @@ class Oid4VciCredentialWorkflowImplTest {
         assertThat((Map<String, Object>) cnfCaptor.getValue().get("jwk")).containsEntry("crv", "P-256");
 
         verify(proofValidationService, never()).verifyProof(any(), any(), any());
+
+        // F2: with no proof to supply a subjectId, the holder DID is derived from the persisted
+        // cnf.jwk instead, so cnf and mandatee.id agree on the same key pair.
+        verify(genericCredentialBuilder).bindHolderDid(any(), argThat(did -> did.startsWith("did:")));
     }
 
     /**

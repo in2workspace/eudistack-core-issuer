@@ -17,6 +17,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.policy.service.IssuancePdpService;
 import es.in2.issuer.backend.shared.domain.service.*;
+import es.in2.issuer.backend.shared.domain.util.DidKeyDerivation;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
@@ -429,6 +430,18 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         }
     }
 
+    /**
+     * {@code cnf} is only ever non-null here for an AD-8 exempt type (F4), and only ever jwk-shaped for
+     * one (kid/x5c never reach this leg -- see {@link es.in2.issuer.backend.issuance.domain.model.HolderKey}).
+     * Deriving the did:key from it is what lets the direct leg enforce the same cnf-mandatee.id
+     * invariant the wallet leg already does from a key proof (F2).
+     */
+    @SuppressWarnings("unchecked")
+    private String holderDidFromCnf(Map<String, Object> cnf) {
+        Object jwk = cnf != null ? cnf.get("jwk") : null;
+        return jwk instanceof Map<?, ?> jwkMap ? DidKeyDerivation.deriveDidKeyFromJwk((Map<String, Object>) jwkMap) : null;
+    }
+
     private Mono<IssuanceResponse> performDirectIssuance(String processId, IssuanceRequest request, String token,
                                                           String publicIssuerBaseUrl, String originalDelivery,
                                                           Map<String, Object> cnf) {
@@ -444,6 +457,16 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 .flatMap(buildResult ->
                         genericCredentialBuilder.bindIssuer(profile, buildResult.credentialDataSet(),
                                         issuanceId.toString(), request.email())
+                                .map(enrichedDataSet -> {
+                                    // AD-8 exempt types take no key proof (F2, S2): derive the holder DID
+                                    // from the cnf.jwk the exemption already resolved, so cnf and
+                                    // mandatee.id agree on the same key pair -- the same invariant the
+                                    // wallet leg enforces via Oid4VciCredentialWorkflowImpl.
+                                    String holderDid = holderDidFromCnf(cnf);
+                                    return holderDid != null
+                                            ? genericCredentialBuilder.bindHolderDid(enrichedDataSet, holderDid)
+                                            : enrichedDataSet;
+                                })
                                 .flatMap(enrichedDataSet ->
                                         statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, statusFormat,
                                                         issuanceId.toString(), token, publicIssuerBaseUrl)
