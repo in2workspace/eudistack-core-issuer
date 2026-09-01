@@ -1,6 +1,8 @@
 package es.in2.issuer.backend.issuance.application.workflow.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
@@ -209,10 +211,28 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                     // type the schema now binds through a real key proof -- exactly the invariant AD-9
                     // exists to protect.
                     Map<String, Object> cnf = HolderBindingExemption.isExempt(configId) && !profile.requiresHolderBinding()
-                            ? HolderKey.fromJson(request.holderKey()).cnf() : null;
+                            ? requireJwkHolderKey(request.holderKey()) : null;
                     return executeIssuanceForModes(processId, request, bearerToken,
                             publicIssuerBaseUrl, publicWalletBaseUrl, delivery, modes, cnf);
                 });
+    }
+
+    /**
+     * AD-8 exempt types have no wallet and no OID4VCI proof, so a {@code kid} pointer or an
+     * {@code x5c} certificate chain cannot be resolved or verified by anything on this path --
+     * unlike the wallet's key-proof flow, where those forms remain meaningful. {@code jwk} is the
+     * only form that carries key material this path can validate and bind to {@code mandatee.id}
+     * (code-review F1a): accepting the other two here would let a caller smuggle arbitrary,
+     * unvalidated content into a signed credential's {@code cnf} with no coherence check at all.
+     */
+    private Map<String, Object> requireJwkHolderKey(JsonNode holderKeyNode) {
+        HolderKey holderKey = HolderKey.fromJson(holderKeyNode);
+        if (!holderKey.isJwkForm()) {
+            throw new InvalidHolderKeyException(
+                    "holder_key must be a jwk for this credential type: kid/x5c carry no key material "
+                            + "the issuer can verify without a wallet");
+        }
+        return holderKey.cnf();
     }
 
     /**
@@ -451,10 +471,22 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
      * Deriving the did:key from it is what lets the direct leg enforce the same cnf-mandatee.id
      * invariant the wallet leg already does from a key proof (F2).
      */
+    /**
+     * {@code null} unless the derivation actually produced a {@code did:...} identifier (code-review
+     * F2a/B1): {@link DidKeyDerivation#deriveDidKeyFromJwk} falls back to a random {@code urn:uuid}
+     * on a decode failure rather than throwing -- a tolerance that is safe on the OID4VCI proof path
+     * this method was written for (an already-signature-verified JWK), but would silently bind
+     * {@code mandatee.id} to a fabricated, unrelated identifier here if not screened out. Mirrors the
+     * same guard {@link Oid4VciCredentialWorkflowImpl}'s wallet leg already applies.
+     */
     @SuppressWarnings("unchecked")
     private String holderDidFromCnf(Map<String, Object> cnf) {
         Object jwk = cnf != null ? cnf.get("jwk") : null;
-        return jwk instanceof Map<?, ?> jwkMap ? DidKeyDerivation.deriveDidKeyFromJwk((Map<String, Object>) jwkMap) : null;
+        if (!(jwk instanceof Map<?, ?> jwkMap)) {
+            return null;
+        }
+        String holderDid = DidKeyDerivation.deriveDidKeyFromJwk((Map<String, Object>) jwkMap);
+        return holderDid.startsWith("did:") ? holderDid : null;
     }
 
     private Mono<IssuanceResponse> performDirectIssuance(String processId, IssuanceRequest request, String token,

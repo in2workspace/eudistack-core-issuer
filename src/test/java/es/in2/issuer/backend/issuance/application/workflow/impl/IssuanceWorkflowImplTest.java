@@ -51,6 +51,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import java.util.EnumSet;
 import java.util.UUID;
@@ -613,6 +614,55 @@ class IssuanceWorkflowImplTest {
         verify(genericCredentialBuilder).bindHolderDid(eq("enriched-data-set"), argThat(did -> did.startsWith("did:key:z")));
     }
 
+    /**
+     * Code-review W1 (F4 regression, S4). A future profile of the same machine family that
+     * recovers proof_types_supported still matches HolderBindingExemption's prefix, but is no
+     * longer unbound -- it now gets a real key proof through the wallet flow, and holder_key must
+     * go back to being irrelevant for it. Without the {@code !profile.requiresHolderBinding()}
+     * gate, this request would throw InvalidHolderKeyException for lacking a holder_key it no
+     * longer needs, breaking every wallet-mode emission of that profile.
+     */
+    @Test
+    void walletDeliveryOfExemptPrefixButNowBoundProfileShouldNotRequireHolderKey() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        UUID issuanceId = UUID.randomUUID();
+        IssuanceRequest request = new IssuanceRequest(EXEMPT_CONFIG_ID, payload, "email", EMAIL, null);
+        CredentialProfile profile = CredentialProfile.builder()
+                .credentialConfigurationId(EXEMPT_CONFIG_ID)
+                .format("jwt_vc_json")
+                .cnfRequired(true)
+                .cryptographicBindingMethodsSupported(Set.of("did:key"))
+                .proofTypesSupported(Map.of("jwt", CredentialProfile.ProofTypeConfig.builder()
+                        .proofSigningAlgValuesSupported(Set.of("ES256"))
+                        .build()))
+                .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
+                        .type(List.of("VerifiableCredential", "LEARCredentialMachine"))
+                        .build())
+                .build();
+        CredentialBuildResult buildResult = buildResult(Instant.now().minusSeconds(100));
+        Issuance savedIssuance = Issuance.builder().issuanceId(issuanceId).credentialOfferRefreshToken("refresh-token-123").build();
+        CredentialOfferResult offerResult = new CredentialOfferResult("openid-credential-offer://offer-uri", null);
+
+        when(credentialProfileRegistry.getByConfigurationId(EXEMPT_CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(EXEMPT_CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(EXEMPT_CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(credentialOfferService.createAndDeliverCredentialOffer(
+                eq(issuanceId.toString()), eq(EXEMPT_CONFIG_ID), eq("authorization_code"),
+                eq(EMAIL), eq("email"), eq("refresh-token-123"), eq(BASE_URL), eq(WALLET_URL)))
+                .thenReturn(Mono.just(offerResult));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
+                .assertNext(response -> assertNotNull(response.credentialOfferUri()))
+                .verifyComplete();
+
+        ArgumentCaptor<Issuance> issuanceCaptor = ArgumentCaptor.forClass(Issuance.class);
+        verify(issuanceService).saveIssuance(issuanceCaptor.capture());
+        assertNull(issuanceCaptor.getValue().getHolderCnf(), "no cnf should be built from a holder_key this profile no longer needs");
+    }
+
     @Test
     void directDeliveryOfCnfRequiredTypeWithAmbiguousHolderKeyShouldFailWith400() {
         ObjectMapper mapper = new ObjectMapper();
@@ -622,6 +672,57 @@ class IssuanceWorkflowImplTest {
         ((com.fasterxml.jackson.databind.node.ObjectNode) ambiguous)
                 .set("jwk", mapper.createObjectNode().put("kty", "EC"));
         IssuanceRequest request = new IssuanceRequest(EXEMPT_CONFIG_ID, payload, "direct", EMAIL, null, ambiguous);
+        CredentialProfile profile = profileExempt();
+
+        when(credentialProfileRegistry.getByConfigurationId(EXEMPT_CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(EXEMPT_CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(EXEMPT_CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(tenantConfigService.getStringOrDefault(eq("issuer.delivery.modes." + EXEMPT_CONFIG_ID), anyString()))
+                .thenReturn(Mono.just("direct,email,ui"));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
+                .expectError(InvalidHolderKeyException.class)
+                .verify();
+
+        verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
+        verify(issuanceService, never()).saveIssuance(any());
+    }
+
+    /**
+     * Code-review F1a: a bare kid/x5c carries no key material this path can validate or bind to
+     * mandatee.id (no wallet, no key proof), so it must be rejected the same way an ambiguous or
+     * malformed holder_key is -- not silently accepted the way HolderKey.fromJson accepts it for the
+     * (unrelated) OID4VCI proof path.
+     */
+    @Test
+    void directDeliveryOfCnfRequiredTypeWithKidHolderKeyShouldFailWith400() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        JsonNode kidOnly = new ObjectMapper().createObjectNode().put("kid", "did:key:z6Mk#key-1");
+        IssuanceRequest request = new IssuanceRequest(EXEMPT_CONFIG_ID, payload, "direct", EMAIL, null, kidOnly);
+        CredentialProfile profile = profileExempt();
+
+        when(credentialProfileRegistry.getByConfigurationId(EXEMPT_CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(EXEMPT_CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(EXEMPT_CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(tenantConfigService.getStringOrDefault(eq("issuer.delivery.modes." + EXEMPT_CONFIG_ID), anyString()))
+                .thenReturn(Mono.just("direct,email,ui"));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
+                .expectError(InvalidHolderKeyException.class)
+                .verify();
+
+        verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
+        verify(issuanceService, never()).saveIssuance(any());
+    }
+
+    @Test
+    void directDeliveryOfCnfRequiredTypeWithX5cHolderKeyShouldFailWith400() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        JsonNode x5cOnly = new ObjectMapper().createObjectNode()
+                .set("x5c", new ObjectMapper().createArrayNode().add("MIIBcert"));
+        IssuanceRequest request = new IssuanceRequest(EXEMPT_CONFIG_ID, payload, "direct", EMAIL, null, x5cOnly);
         CredentialProfile profile = profileExempt();
 
         when(credentialProfileRegistry.getByConfigurationId(EXEMPT_CONFIG_ID)).thenReturn(profile);

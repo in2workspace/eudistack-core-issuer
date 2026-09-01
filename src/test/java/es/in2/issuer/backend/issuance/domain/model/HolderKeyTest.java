@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -183,5 +184,49 @@ class HolderKeyTest {
         String oversizedCoordinate = "A".repeat(10_000);
         JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + oversizedCoordinate + "\",\"y\":\"def\"}}");
         assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
+    }
+
+    // --- Allowlist narrowed to EC P-256 only (code-review F2a): DidKeyDerivation can only turn a
+    // P-256 point into a did:key, so accepting a curve/kty it cannot handle here would let a
+    // Nimbus-valid jwk through validation and then fail did:key derivation silently downstream. ---
+
+    @Test
+    void fromJson_withRsaKey_throwsInvalidHolderKey() {
+        // A real-size RSA key, rejected purely for its kty -- not for size, unlike the undersized
+        // case above.
+        JsonNode node = json("{\"jwk\":{\"kty\":\"RSA\",\"n\":\"" + "s".repeat(342) + "\",\"e\":\"AQAB\"}}");
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
+    }
+
+    @Test
+    void fromJson_withOkpKey_throwsInvalidHolderKey() {
+        JsonNode node = json("{\"jwk\":{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"x\":\"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\"}}");
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
+    }
+
+    @Test
+    void fromJson_withEcP384Curve_throwsInvalidHolderKey() {
+        // A structurally valid, non-P-256 EC curve -- P-256 is the only one accepted, not "any EC
+        // curve Nimbus recognizes".
+        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-384\","
+                + "\"x\":\"2jCG5DmpbcqB4NBhngT8V1yr3ZapEvOr3EDRLPqQvSjHhpJZTGKzO51_TeR0aWje\","
+                + "\"y\":\"pDT9YKuTQzR1DzZLU_gcxA3ubMFxRW-eZm-eZzDp9-Ie55mYRIzMR15Fq3JBz3JR\"}}");
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
+    }
+
+    // --- Canonical serialization (code-review F1b): the signed cnf must be Nimbus's own
+    // interpretation of the jwk, not whatever extra members the raw request happened to carry. ---
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void fromJson_withJwkCarryingAnUnrecognizedMember_dropsItFromTheCanonicalResult() {
+        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + VALID_EC_X + "\",\"y\":\"" + VALID_EC_Y
+                + "\",\"smuggled\":\"payload\"}}");
+
+        Map<String, Object> jwk = (Map<String, Object>) HolderKey.fromJson(node).cnf().get("jwk");
+
+        assertTrue(jwk.containsKey("x"));
+        assertTrue(jwk.containsKey("y"));
+        assertFalse(jwk.containsKey("smuggled"));
     }
 }

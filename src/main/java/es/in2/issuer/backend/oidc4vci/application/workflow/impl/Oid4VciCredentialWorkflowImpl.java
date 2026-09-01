@@ -227,16 +227,17 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
      * request is the only source of a cnf left, and the profile still requires one. Reading it here
      * keeps the two sources ordered by strength: cryptographic evidence first, issuer assertion second.
      *
-     * <p>Gated on the AD-8 exemption (F5): the write side only ever populates {@code holder_cnf} for an
-     * exempt, still-unbound type (F4), but this is the last checkpoint before a persisted {@code cnf}
-     * reaches a signed credential, and defense-in-depth here costs one call to an in-memory allowlist.
+     * <p>Gated on the same condition as the write side (F4/F5, code-review L10: the two gates read
+     * alike on purpose): the write side only ever populates {@code holder_cnf} for a type that is
+     * both AD-8 exempt and still unbound, but this is the last checkpoint before a persisted
+     * {@code cnf} reaches a signed credential, and defense-in-depth here costs one profile lookup.
      */
-    private Map<String, Object> resolveCnf(BindingInfo bindingInfo, Issuance proc) {
+    private Map<String, Object> resolveCnf(BindingInfo bindingInfo, Issuance proc, CredentialProfile profile) {
         Map<String, Object> fromProof = bindingInfo.cnf();
         if (fromProof != null && !fromProof.isEmpty()) {
             return fromProof;
         }
-        if (!HolderBindingExemption.isExempt(proc.getCredentialType())) {
+        if (!HolderBindingExemption.isExempt(proc.getCredentialType()) || profile.requiresHolderBinding()) {
             return null;
         }
         return HolderCnfJson.read(proc.getHolderCnf());
@@ -247,18 +248,25 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
      * path (no {@code proof_types_supported}, so no proof is ever requested), so its only source of a
      * holder identifier is the jwk that {@code resolveCnf} already resolved -- deriving the did:key
      * from it here is what makes {@code cnf} and {@code mandatee.id} agree on the same key pair (F2).
+     *
+     * <p>{@code null} unless the derivation actually produced a {@code did:...} identifier
+     * (code-review F2a): {@link DidKeyDerivation#deriveDidKeyFromJwk} falls back to a random
+     * {@code urn:uuid} on a decode failure rather than throwing, which must never be bound into
+     * {@code mandatee.id} as if it were real. Mirrors the guard {@code IssuanceWorkflowImpl}'s
+     * direct leg applies.
      */
     @SuppressWarnings("unchecked")
     private String resolveHolderDid(BindingInfo bindingInfo, Map<String, Object> cnf) {
         String fromProof = bindingInfo.subjectId();
         if (fromProof != null) {
-            return fromProof;
+            return fromProof.startsWith("did:") ? fromProof : null;
         }
         Object jwk = cnf != null ? cnf.get("jwk") : null;
-        if (jwk instanceof Map<?, ?> jwkMap) {
-            return DidKeyDerivation.deriveDidKeyFromJwk((Map<String, Object>) jwkMap);
+        if (!(jwk instanceof Map<?, ?> jwkMap)) {
+            return null;
         }
-        return null;
+        String holderDid = DidKeyDerivation.deriveDidKeyFromJwk((Map<String, Object>) jwkMap);
+        return holderDid.startsWith("did:") ? holderDid : null;
     }
 
     private Mono<CredentialResponse> enrichAndSign(
@@ -292,7 +300,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             );
         }
 
-        Map<String, Object> cnf = resolveCnf(bindingInfo, proc);
+        Map<String, Object> cnf = resolveCnf(bindingInfo, proc, profile);
         String token = BEARER_PREFIX + rawToken;
         StatusListFormat statusFormat = DC_SD_JWT.equals(credentialFormat)
                 ? StatusListFormat.TOKEN_JWT : StatusListFormat.BITSTRING_VC;
@@ -305,10 +313,9 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                     // from the cnf.jwk that resolveCnf sourced from the request instead. Either way,
                     // cnf.jwk and mandatee.id end up naming the same key pair.
                     String holderDid = resolveHolderDid(bindingInfo, cnf);
-                    if (holderDid != null && holderDid.startsWith("did:")) {
-                        return genericCredentialBuilder.bindHolderDid(enrichedDataSet, holderDid);
-                    }
-                    return enrichedDataSet;
+                    return holderDid != null
+                            ? genericCredentialBuilder.bindHolderDid(enrichedDataSet, holderDid)
+                            : enrichedDataSet;
                 })
                 // Step 2: Allocate status list entry and inject credentialStatus
                 .flatMap(enrichedDataSet -> statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, statusFormat, issuanceId, token, publicIssuerBaseUrl)
