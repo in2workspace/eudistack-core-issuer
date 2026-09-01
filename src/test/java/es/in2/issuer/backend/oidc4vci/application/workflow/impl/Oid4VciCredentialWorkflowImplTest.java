@@ -63,6 +63,9 @@ class Oid4VciCredentialWorkflowImplTest {
     private static final String ISSUANCE_ID = ISSUANCE_UUID.toString();
     private static final String CREDENTIAL_TYPE = "learcredential.employee.w3c.4";
     private static final String CREDENTIAL_DATA_SET = "{\"type\":[\"VerifiableCredential\",\"learcredential.employee.w3c.4\"]}";
+    // AD-8 exempt family (HolderBindingExemption): the only credential types whose persisted
+    // holder_cnf may be read back with no key proof (F5).
+    private static final String EXEMPT_CREDENTIAL_TYPE = "learcredential.machine.w3c.3";
 
     @SuppressWarnings("unchecked")
     @BeforeEach
@@ -691,6 +694,52 @@ class Oid4VciCredentialWorkflowImplTest {
     @Test
     void createCredentialResponse_noKeyProof_shouldSignWithTheCnfPersistedOnTheIssuance() {
         Issuance issuance = buildProcedure(JWT_VC_JSON);
+        issuance.setCredentialType(EXEMPT_CREDENTIAL_TYPE);
+        issuance.setHolderCnf("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"x-coord\",\"y\":\"y-coord\"}}");
+        CredentialProfile profile = CredentialProfile.builder()
+                .credentialConfigurationId(EXEMPT_CREDENTIAL_TYPE)
+                .format(JWT_VC_JSON)
+                .cnfRequired(true)
+                .issuerType(CredentialProfile.IssuerType.SIMPLE)
+                .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
+                        .type(java.util.List.of("VerifiableCredential", EXEMPT_CREDENTIAL_TYPE))
+                        .build())
+                .build();
+        CredentialIssuerMetadata metadata = buildMetadata(null, EXEMPT_CREDENTIAL_TYPE);
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialConfigurationId(EXEMPT_CREDENTIAL_TYPE)
+                .format(JWT_VC_JSON)
+                .build();
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN)
+                .issuanceId(ISSUANCE_ID)
+                .build();
+
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
+        when(credentialProfileRegistry.getByConfigurationId(EXEMPT_CREDENTIAL_TYPE)).thenReturn(profile);
+
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .assertNext(resp -> assertThat(resp.credentials()).isNotEmpty())
+                .verifyComplete();
+
+        ArgumentCaptor<Map<String, Object>> cnfCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(credentialSignerWorkflow).signCredential(any(), any(), any(), any(),
+                cnfCaptor.capture(), any(), any());
+        assertThat(cnfCaptor.getValue()).containsOnlyKeys("jwk");
+        assertThat((Map<String, Object>) cnfCaptor.getValue().get("jwk")).containsEntry("crv", "P-256");
+
+        verify(proofValidationService, never()).verifyProof(any(), any(), any());
+    }
+
+    /**
+     * F5. The write side only ever populates {@code holder_cnf} for an AD-8 exempt type, but
+     * {@code resolveCnf} is the last checkpoint before it reaches a signed credential -- it must not
+     * trust a populated column on a non-exempt row (defense in depth: S5).
+     */
+    @Test
+    void createCredentialResponse_noKeyProof_nonExemptType_signsWithNoCnfEvenIfHolderCnfIsPopulated() {
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
         issuance.setHolderCnf("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"x-coord\",\"y\":\"y-coord\"}}");
         CredentialProfile profile = buildProfile(true);
         CredentialIssuerMetadata metadata = buildMetadata(null);
@@ -711,13 +760,7 @@ class Oid4VciCredentialWorkflowImplTest {
                 .assertNext(resp -> assertThat(resp.credentials()).isNotEmpty())
                 .verifyComplete();
 
-        ArgumentCaptor<Map<String, Object>> cnfCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(credentialSignerWorkflow).signCredential(any(), any(), any(), any(),
-                cnfCaptor.capture(), any(), any());
-        assertThat(cnfCaptor.getValue()).containsOnlyKeys("jwk");
-        assertThat((Map<String, Object>) cnfCaptor.getValue().get("jwk")).containsEntry("crv", "P-256");
-
-        verify(proofValidationService, never()).verifyProof(any(), any(), any());
+        verify(credentialSignerWorkflow).signCredential(any(), any(), any(), any(), isNull(), any(), any());
     }
 
     /**
@@ -801,6 +844,10 @@ class Oid4VciCredentialWorkflowImplTest {
     }
 
     private CredentialIssuerMetadata buildMetadata(Set<String> bindingMethods) {
+        return buildMetadata(bindingMethods, CREDENTIAL_TYPE);
+    }
+
+    private CredentialIssuerMetadata buildMetadata(Set<String> bindingMethods, String configId) {
         CredentialIssuerMetadata.CredentialConfiguration config =
                 CredentialIssuerMetadata.CredentialConfiguration.builder()
                         .format(JWT_VC_JSON)
@@ -810,7 +857,7 @@ class Oid4VciCredentialWorkflowImplTest {
         return CredentialIssuerMetadata.builder()
                 .credentialIssuer("https://issuer.example.com")
                 .credentialEndpoint("https://issuer.example.com/oid4vci/v1/credential")
-                .credentialConfigurationsSupported(Map.of(CREDENTIAL_TYPE, config))
+                .credentialConfigurationsSupported(Map.of(configId, config))
                 .build();
     }
 

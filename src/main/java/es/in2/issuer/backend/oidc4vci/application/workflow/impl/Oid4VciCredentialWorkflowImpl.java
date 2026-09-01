@@ -13,6 +13,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.HolderCnfJson;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.HolderBindingExemption;
 import es.in2.issuer.backend.shared.domain.model.entities.BindingInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
@@ -225,11 +226,18 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
      * and no proof is ever requested (EUD-168 AD-8) -- the holder key persisted with the issuance
      * request is the only source of a cnf left, and the profile still requires one. Reading it here
      * keeps the two sources ordered by strength: cryptographic evidence first, issuer assertion second.
+     *
+     * <p>Gated on the AD-8 exemption (F5): the write side only ever populates {@code holder_cnf} for an
+     * exempt, still-unbound type (F4), but this is the last checkpoint before a persisted {@code cnf}
+     * reaches a signed credential, and defense-in-depth here costs one call to an in-memory allowlist.
      */
     private Map<String, Object> resolveCnf(BindingInfo bindingInfo, Issuance proc) {
         Map<String, Object> fromProof = bindingInfo.cnf();
         if (fromProof != null && !fromProof.isEmpty()) {
             return fromProof;
+        }
+        if (!HolderBindingExemption.isExempt(proc.getCredentialType())) {
+            return null;
         }
         return HolderCnfJson.read(proc.getHolderCnf());
     }
