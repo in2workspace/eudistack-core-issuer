@@ -12,6 +12,7 @@ import org.springframework.core.io.support.ResourcePatternResolver;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -321,8 +322,9 @@ class CredentialProfileRegistryTest {
         ResourcePatternResolver resolver = mockResolver(validEmployeeProfile());
 
         CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
+        Map<String, CredentialProfile> allProfiles = registry.getAllProfiles();
 
-        assertThatThrownBy(() -> registry.getAllProfiles().put("key", null))
+        assertThatThrownBy(() -> allProfiles.put("key", null))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
@@ -608,7 +610,7 @@ class CredentialProfileRegistryTest {
     }
 
     @Test
-    void startupShouldFailWhenProfileDeclaresBindingMethodsWithoutProofTypes() throws java.io.IOException {
+    void startupShouldFailWhenProfileDeclaresBindingMethodsWithoutProofTypes() {
         String json = profileJson("some.profile.1",
                 "\"cryptographic_binding_methods_supported\": [\"did:key\"],", false);
 
@@ -619,8 +621,10 @@ class CredentialProfileRegistryTest {
     }
 
     @Test
-    void startupShouldFailWhenNonExemptProfileDeclaresCnfRequiredWithoutProofTypes() throws java.io.IOException {
-        assertThatThrownBy(() -> load("incoherent-cnf.json", profileJson("some.profile.2", "", true)))
+    void startupShouldFailWhenNonExemptProfileDeclaresCnfRequiredWithoutProofTypes() {
+        String json = profileJson("some.profile.2", "", true);
+
+        assertThatThrownBy(() -> load("incoherent-cnf.json", json))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("some.profile.2")
                 .hasMessageContaining("cnf_required");

@@ -44,10 +44,11 @@ class CredentialProfileBindingInvariantTest {
 
         @Test
         void validate_bindingMethodsWithoutProofTypes_failsNamingProfileAndField() {
-            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(
-                    profile("some.profile.1")
-                            .cryptographicBindingMethodsSupported(Set.of("did:key"))
-                            .build()))
+            CredentialProfile profile = profile("some.profile.1")
+                    .cryptographicBindingMethodsSupported(Set.of("did:key"))
+                    .build();
+
+            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(profile))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("some.profile.1")
                     .hasMessageContaining("cryptographic_binding_methods_supported");
@@ -55,10 +56,11 @@ class CredentialProfileBindingInvariantTest {
 
         @Test
         void validate_proofTypesWithoutBindingMethods_failsNamingProfileAndField() {
-            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(
-                    profile("some.profile.2")
-                            .proofTypesSupported(JWT_PROOF)
-                            .build()))
+            CredentialProfile profile = profile("some.profile.2")
+                    .proofTypesSupported(JWT_PROOF)
+                    .build();
+
+            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(profile))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("some.profile.2")
                     .hasMessageContaining("proof_types_supported");
@@ -66,11 +68,12 @@ class CredentialProfileBindingInvariantTest {
 
         @Test
         void validate_bindingMethodsWithEmptyProofTypes_failsNamingProfileAndField() {
-            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(
-                    profile("some.profile.4")
-                            .cryptographicBindingMethodsSupported(Set.of("did:key"))
-                            .proofTypesSupported(Map.of())
-                            .build()))
+            CredentialProfile profile = profile("some.profile.4")
+                    .cryptographicBindingMethodsSupported(Set.of("did:key"))
+                    .proofTypesSupported(Map.of())
+                    .build();
+
+            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(profile))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("removing the key");
         }
@@ -82,10 +85,11 @@ class CredentialProfileBindingInvariantTest {
          */
         @Test
         void validate_proofTypesSupportedPresentButEmpty_failsNamingProfileAndField() {
-            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(
-                    profile("some.profile.5")
-                            .proofTypesSupported(Map.of())
-                            .build()))
+            CredentialProfile profile = profile("some.profile.5")
+                    .proofTypesSupported(Map.of())
+                    .build();
+
+            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(profile))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("some.profile.5")
                     .hasMessageContaining("proof_types_supported")
@@ -94,10 +98,11 @@ class CredentialProfileBindingInvariantTest {
 
         @Test
         void validate_cryptographicBindingMethodsSupportedPresentButEmpty_failsNamingProfileAndField() {
-            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(
-                    profile("some.profile.6")
-                            .cryptographicBindingMethodsSupported(Set.of())
-                            .build()))
+            CredentialProfile profile = profile("some.profile.6")
+                    .cryptographicBindingMethodsSupported(Set.of())
+                    .build();
+
+            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(profile))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("some.profile.6")
                     .hasMessageContaining("cryptographic_binding_methods_supported")
@@ -106,11 +111,12 @@ class CredentialProfileBindingInvariantTest {
 
         @Test
         void validate_bothFieldsPresentButEmptyTogether_stillFailsRatherThanReadingAsAbsence() {
-            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(
-                    profile("some.profile.7")
-                            .cryptographicBindingMethodsSupported(Set.of())
-                            .proofTypesSupported(Map.of())
-                            .build()))
+            CredentialProfile profile = profile("some.profile.7")
+                    .cryptographicBindingMethodsSupported(Set.of())
+                    .proofTypesSupported(Map.of())
+                    .build();
+
+            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(profile))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("some.profile.7");
         }
@@ -132,10 +138,11 @@ class CredentialProfileBindingInvariantTest {
 
         @Test
         void validate_cnfRequiredWithoutProofTypesOnAnOrdinaryType_failsAtStartup() {
-            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(
-                    profile("gx.labelcredential.w3c.2")
-                            .cnfRequired(true)
-                            .build()))
+            CredentialProfile profile = profile("gx.labelcredential.w3c.2")
+                    .cnfRequired(true)
+                    .build();
+
+            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(profile))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("gx.labelcredential.w3c.2")
                     .hasMessageContaining("cnf_required");
@@ -177,8 +184,9 @@ class CredentialProfileBindingInvariantTest {
             // type in that same shape is the incoherence the invariant exists to catch.
             for (String configId : new String[]{
                     "learcredential.employee.w3c.4", "gx.labelcredential.w3c.2", "learcredential.machinery.w3c.1"}) {
-                assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(
-                        profile(configId).cnfRequired(true).build()))
+                CredentialProfile profile = profile(configId).cnfRequired(true).build();
+
+                assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(profile))
                         .as("non-exempt type %s must fail", configId)
                         .isInstanceOf(IllegalStateException.class)
                         .hasMessageContaining(configId);
@@ -187,11 +195,12 @@ class CredentialProfileBindingInvariantTest {
 
         @Test
         void validate_exemptTypeStillSubjectToInvariant1() {
-            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(
-                    profile("learcredential.machine.sd.1")
-                            .cryptographicBindingMethodsSupported(Set.of("did:key"))
-                            .cnfRequired(true)
-                            .build()))
+            CredentialProfile profile = profile("learcredential.machine.sd.1")
+                    .cryptographicBindingMethodsSupported(Set.of("did:key"))
+                    .cnfRequired(true)
+                    .build();
+
+            assertThatThrownBy(() -> CredentialProfileBindingInvariant.validate(profile))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("cryptographic_binding_methods_supported");
         }

@@ -113,8 +113,9 @@ class SchemaDeliveryCeilingTest {
         @Test
         void validateWithinCeiling_directOnBoundType_rejectsNamingModeTypeAndWhatRemains() {
             when(credentialProfileRegistry.getByConfigurationId(BOUND)).thenReturn(bound(BOUND));
+            Set<DeliveryMode> direct = EnumSet.of(DeliveryMode.DIRECT);
 
-            assertThatThrownBy(() -> ceiling.validateWithinCeiling(BOUND, EnumSet.of(DeliveryMode.DIRECT)))
+            assertThatThrownBy(() -> ceiling.validateWithinCeiling(BOUND, direct))
                     .isInstanceOf(DeliveryModeNotEligibleException.class)
                     .hasMessageContaining("direct")
                     .hasMessageContaining(BOUND)
@@ -125,9 +126,9 @@ class SchemaDeliveryCeilingTest {
         @Test
         void validateWithinCeiling_hybridContainingDirectOnBoundType_rejectsTheWholeRequest() {
             when(credentialProfileRegistry.getByConfigurationId(BOUND)).thenReturn(bound(BOUND));
+            Set<DeliveryMode> hybrid = EnumSet.of(DeliveryMode.DIRECT, DeliveryMode.EMAIL);
 
-            assertThatThrownBy(() -> ceiling.validateWithinCeiling(
-                    BOUND, EnumSet.of(DeliveryMode.DIRECT, DeliveryMode.EMAIL)))
+            assertThatThrownBy(() -> ceiling.validateWithinCeiling(BOUND, hybrid))
                     .isInstanceOf(DeliveryModeNotEligibleException.class);
         }
 
