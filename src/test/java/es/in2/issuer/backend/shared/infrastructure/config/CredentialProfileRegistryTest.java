@@ -7,10 +7,12 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.Credenti
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.core.io.support.ResourcePatternResolver;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -644,5 +646,50 @@ class CredentialProfileRegistryTest {
         CredentialProfile profile = registry.getByConfigurationId("learcredential.employee.w3c.4");
         assertThat(profile).isNotNull();
         assertThat(profile.requiresHolderBinding()).isTrue();
+    }
+
+    /**
+     * TD-07 / EC-07: the other tests in this file load handcrafted fixtures through a mocked
+     * {@link ResourcePatternResolver}. This one instead points a real
+     * {@link PathMatchingResourcePatternResolver} at the actual vendored copy
+     * ({@code dev-tools/credentials/profiles}, not the single fixture on the test classpath) to prove
+     * the 13 real profiles -- 7 current plus 6 under {@code legacy/} -- load without violating
+     * {@code CredentialProfileBindingInvariant}, exactly as they must at container startup.
+     */
+    @Test
+    void shouldLoadTheThirteenRealVendoredProfilesWithoutViolatingTheInvariant() throws IOException {
+        ResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
+
+        CredentialProfileRegistry registry = new CredentialProfileRegistry(
+                OBJECT_MAPPER, resolver, "file:dev-tools/credentials/profiles");
+
+        Set<String> currentConfigIds = Set.of(
+                "doctorid.sd.1",
+                "eu.europa.ec.eudi.pid.1",
+                "gx.labelcredential.w3c.2",
+                "learcredential.employee.sd.1",
+                "learcredential.employee.w3c.4",
+                "learcredential.machine.sd.1",
+                "learcredential.machine.w3c.3");
+        Set<String> legacyConfigIds = Set.of(
+                "gx.labelcredential.w3c.1",
+                "learcredential.employee.w3c.1",
+                "learcredential.employee.w3c.2",
+                "learcredential.employee.w3c.3",
+                "learcredential.machine.w3c.1",
+                "learcredential.machine.w3c.2");
+
+        assertThat(registry.getAllProfiles()).hasSize(currentConfigIds.size() + legacyConfigIds.size());
+
+        for (String configId : currentConfigIds) {
+            assertThat(registry.getByConfigurationId(configId))
+                    .as("current profile '%s' should have loaded", configId)
+                    .isNotNull();
+        }
+        for (String configId : legacyConfigIds) {
+            assertThat(registry.getByConfigurationId(configId))
+                    .as("legacy profile '%s' should have loaded", configId)
+                    .isNotNull();
+        }
     }
 }
