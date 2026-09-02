@@ -2,6 +2,7 @@ package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
 import com.nimbusds.jose.JWSObject;
 import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWorkflow;
+import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialRequestDeniedException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.UnknownCredentialIdentifierException;
 import es.in2.issuer.backend.shared.domain.util.DidKeyDerivation;
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
@@ -36,6 +37,7 @@ import reactor.core.publisher.Mono;
 
 import javax.naming.ConfigurationException;
 import java.time.Instant;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -218,10 +220,25 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         }
     }
 
+    // OID4VCI 1.0 Final §8.3 gives the Credential Endpoint two success codes and no notion of a
+    // one-shot access token: while the token lives, a repeated request for the Credential it
+    // authorizes has to be served. Restricting issuance to DRAFT made every request after the
+    // Wallet's credential_accepted notification fail, because that notification moves the
+    // Issuance to ISSUED and then VALID — the OIDF conformance suite hits exactly this
+    // (LOG-0302 / LOG-0348, EnsureHttpStatusCodeIsAnyOf 200/202, got 400).
+    //
+    // Re-issuing is safe: the status list allocation is keyed by issuanceId and returns the
+    // index already reserved, and bindIssuer overwrites the issuer field rather than appending,
+    // so running it over the dataset persisted at credential_accepted is idempotent.
+    private static final Set<CredentialStatusEnum> ISSUABLE_STATUSES =
+            EnumSet.of(CredentialStatusEnum.DRAFT, CredentialStatusEnum.ISSUED, CredentialStatusEnum.VALID);
+
     private Mono<Void> validateProcedureState(Issuance proc) {
-        if (proc.getCredentialStatus() != CredentialStatusEnum.DRAFT) {
-            return Mono.error(new InvalidCredentialFormatException(
-                    "Issuance is not in DRAFT status: " + proc.getCredentialStatus()));
+        if (!ISSUABLE_STATUSES.contains(proc.getCredentialStatus())) {
+            // Withdrawn, revoked, expired or archived: the credential is dead, and no retry can
+            // revive it — which is precisely what credential_request_denied means.
+            return Mono.error(new CredentialRequestDeniedException(
+                    "Issuance is no longer issuable: " + proc.getCredentialStatus()));
         }
         return Mono.empty();
     }

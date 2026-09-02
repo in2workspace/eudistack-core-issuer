@@ -20,6 +20,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.Proof;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
+import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialRequestDeniedException;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
@@ -39,6 +40,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -394,10 +397,56 @@ class Oid4VciCredentialWorkflowImplTest {
         verify(proofValidationService).verifyProof(eq(jwtProof), eq(Set.of("ES256")), eq(expectedIssuer));
     }
 
-    @Test
-    void createCredentialResponse_procedureNotDraft_returnsError() {
+    // OID4VCI 1.0 Final SS8.3 has no one-shot access token: while the token lives, a repeated
+    // request must still be served. credential_accepted moves the Issuance to ISSUED and then
+    // VALID, so gating on DRAFT broke every post-notification request (OIDF LOG-0302/LOG-0348).
+    @ParameterizedTest
+    @EnumSource(value = CredentialStatusEnum.class, names = {"DRAFT", "ISSUED", "VALID"})
+    void createCredentialResponse_issuableStatus_stillIssues(CredentialStatusEnum status) {
         Issuance issuance = buildProcedure(JWT_VC_JSON);
-        issuance.setCredentialStatus(CredentialStatusEnum.ISSUED);
+        issuance.setCredentialStatus(status);
+        CredentialProfile profile = buildProfile(false);
+
+        StatusListEntry statusEntry = new StatusListEntry(
+                "https://issuer.example/status/1#42", "BitstringStatusListEntry",
+                StatusPurpose.REVOCATION, "42", "https://issuer.example/status/1");
+        String enriched = "{\"enriched\":true}";
+        String enrichedWithStatus = "{\"enriched\":true,\"credentialStatus\":{}}";
+
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(buildMetadata(null)));
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+        when(genericCredentialBuilder.bindIssuer(eq(profile), eq(CREDENTIAL_DATA_SET), eq(ISSUANCE_ID), anyString()))
+                .thenReturn(Mono.just(enriched));
+        when(statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, ISSUANCE_ID, BEARER_PREFIX + RAW_TOKEN, PUBLIC_BASE_URL))
+                .thenReturn(Mono.just(statusEntry));
+        when(genericCredentialBuilder.injectCredentialStatus(eq(enriched), any(CredentialStatus.class), eq(JWT_VC_JSON)))
+                .thenReturn(enrichedWithStatus);
+        when(enrichmentCacheStore.add(eq(ISSUANCE_ID), eq(enrichedWithStatus))).thenReturn(Mono.just(enrichedWithStatus));
+        when(credentialSignerWorkflow.signCredential(
+                eq(BEARER_PREFIX + RAW_TOKEN), eq(enrichedWithStatus), eq(CREDENTIAL_TYPE),
+                eq(JWT_VC_JSON), isNull(), eq(ISSUANCE_ID), anyString()))
+                .thenReturn(Mono.just("signed-jwt-vc"));
+        when(notificationCacheStore.add(anyString(), eq(ISSUANCE_ID))).thenReturn(Mono.just(ISSUANCE_ID));
+        when(issuanceService.updateIssuance(any(Issuance.class))).thenReturn(Mono.just(issuance));
+
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialConfigurationId(CREDENTIAL_TYPE).format(JWT_VC_JSON).build();
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN).issuanceId(ISSUANCE_ID).build();
+
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .assertNext(resp -> assertThat(resp.credentials().getFirst().credential()).isEqualTo("signed-jwt-vc"))
+                .verifyComplete();
+
+        verify(credentialIssuedLogger).logIssued(CREDENTIAL_TYPE);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CredentialStatusEnum.class, names = {"WITHDRAWN", "REVOKED", "EXPIRED", "ARCHIVED"})
+    void createCredentialResponse_deadStatus_deniesTheRequest(CredentialStatusEnum status) {
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+        issuance.setCredentialStatus(status);
 
         CredentialIssuerMetadata metadata = buildMetadata(null);
 
@@ -415,7 +464,7 @@ class Oid4VciCredentialWorkflowImplTest {
                 .build();
 
         StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
-                .expectError()
+                .expectError(CredentialRequestDeniedException.class)
                 .verify();
 
         // The issuance did load, so the authoritative type (from the Issuance, not the request)

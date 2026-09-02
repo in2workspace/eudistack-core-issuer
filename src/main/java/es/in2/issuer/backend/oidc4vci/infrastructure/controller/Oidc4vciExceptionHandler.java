@@ -3,10 +3,11 @@ package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialErrorResponse;
 import es.in2.issuer.backend.oidc4vci.domain.model.OAuthErrorResponse;
-import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.domain.exception.InvalidOrMissingProofException;
 import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.UnknownCredentialIdentifierException;
+import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialRequestDeniedException;
+import es.in2.issuer.backend.oidc4vci.domain.exception.InvalidNonceException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
@@ -33,7 +34,6 @@ import reactor.core.publisher.Mono;
 public class Oidc4vciExceptionHandler {
 
     private final ErrorResponseFactory errors;
-    private final NonceService nonceService;
 
     @ExceptionHandler(OAuthTokenException.class)
     public Mono<OAuthErrorResponse> handleOAuthTokenException(OAuthTokenException ex, ServerHttpResponse response) {
@@ -48,27 +48,33 @@ public class Oidc4vciExceptionHandler {
     }
 
     // OID4VCI 1.0 §8.3.2: the credential endpoint's error body is {error, error_description,
-    // c_nonce, c_nonce_expires_in} - a distinct shape from RFC 6749/9126's OAuth2 endpoints and
-    // from our internal Problem-Details GlobalErrorMessage. Both a missing and an invalid proof
-    // map to the single "invalid_proof" error code the spec defines.
+    // error_uri} - a distinct shape from RFC 6749/9126's OAuth2 endpoints and from our internal
+    // Problem-Details GlobalErrorMessage. A missing, malformed or unverifiable proof maps to
+    // "invalid_proof"; a proof carrying an unrecognized c_nonce has its own code, below.
     private static final String INVALID_PROOF_ERROR = "invalid_proof";
 
     @ExceptionHandler(InvalidOrMissingProofException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<CredentialErrorResponse> handleInvalidOrMissingProof(InvalidOrMissingProofException ex) {
         log.warn("Invalid or missing proof: {}", ex.getMessage());
-        return nonceService.issueNonce()
-                .map(nonce -> new CredentialErrorResponse(
-                        INVALID_PROOF_ERROR, ex.getMessage(), nonce.cNonce(), nonce.cNonceExpiresIn()));
+        return Mono.just(new CredentialErrorResponse(INVALID_PROOF_ERROR, ex.getMessage()));
     }
 
     @ExceptionHandler(ProofValidationException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<CredentialErrorResponse> handleProofValidationException(ProofValidationException ex) {
         log.warn("Proof validation error: {}", ex.getMessage());
-        return nonceService.issueNonce()
-                .map(nonce -> new CredentialErrorResponse(
-                        INVALID_PROOF_ERROR, ex.getMessage(), nonce.cNonce(), nonce.cNonceExpiresIn()));
+        return Mono.just(new CredentialErrorResponse(INVALID_PROOF_ERROR, ex.getMessage()));
+    }
+
+    // §8.3.1.2 invalid_nonce: the proof carries a c_nonce this Issuer does not recognize or that
+    // has expired. Kept apart from invalid_proof because the Wallet's recovery differs - it
+    // should fetch a fresh nonce from the Nonce Endpoint and retry, not treat the proof as bad.
+    @ExceptionHandler(InvalidNonceException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<CredentialErrorResponse> handleInvalidNonce(InvalidNonceException ex) {
+        log.warn("Invalid nonce: {}", ex.getMessage());
+        return Mono.just(new CredentialErrorResponse("invalid_nonce", ex.getMessage()));
     }
 
     // Scoped override of SharedExceptionHandler's GlobalErrorMessage-shaped mapping (used
@@ -83,7 +89,7 @@ public class Oidc4vciExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<CredentialErrorResponse> handleUnknownCredentialConfiguration(UnknownCredentialConfigurationException ex) {
         log.warn("Unknown credential configuration requested");
-        return Mono.just(new CredentialErrorResponse("unknown_credential_configuration", ex.getMessage(), null, null));
+        return Mono.just(new CredentialErrorResponse("unknown_credential_configuration", ex.getMessage()));
     }
 
     // credential_identifier is a recognized but permanently unsupported addressing mode - see
@@ -93,7 +99,17 @@ public class Oidc4vciExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<CredentialErrorResponse> handleUnknownCredentialIdentifier(UnknownCredentialIdentifierException ex) {
         log.warn("Unknown credential identifier requested");
-        return Mono.just(new CredentialErrorResponse("unknown_credential_identifier", ex.getMessage(), null, null));
+        return Mono.just(new CredentialErrorResponse("unknown_credential_identifier", ex.getMessage()));
+    }
+
+    // §8.3.1.2 credential_request_denied: the request was well-formed and authorized, but the
+    // Issuance is withdrawn, revoked, expired or archived. Unrecoverable, so no c_nonce is
+    // offered — a fresh nonce would only invite a retry that cannot succeed.
+    @ExceptionHandler(CredentialRequestDeniedException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<CredentialErrorResponse> handleCredentialRequestDenied(CredentialRequestDeniedException ex) {
+        log.warn("Credential request denied: {}", ex.getMessage());
+        return Mono.just(new CredentialErrorResponse("credential_request_denied", ex.getMessage()));
     }
 
     // Raised by ParServiceImpl, DpopValidationService, ClientAttestationValidationService and

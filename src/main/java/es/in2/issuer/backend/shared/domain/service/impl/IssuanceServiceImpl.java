@@ -18,12 +18,10 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
+import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
-import es.in2.issuer.backend.shared.infrastructure.repository.IssuanceRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.OptimisticLockingFailureException;
-import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.stereotype.Service;
 import reactor.core.Exceptions;
 import reactor.core.publisher.Flux;
@@ -42,22 +40,21 @@ public class IssuanceServiceImpl implements IssuanceService {
 
     private final IssuerProperties appConfig;
     private static final String UPDATED_CREDENTIAL = "Updated credential";
-    private final IssuanceRepository issuanceRepository;
+    private final IssuancePort issuancePort;
     private final ObjectMapper objectMapper;
-    private final R2dbcEntityTemplate r2dbcEntityTemplate;
     private final CredentialProfileRegistry credentialProfileRegistry;
     private final TenantRegistryService tenantRegistryService;
 
     @Override
     public Mono<Issuance> saveIssuance(Issuance issuance) {
-        return r2dbcEntityTemplate.insert(issuance)
+        return issuancePort.insert(issuance)
                 .doOnSuccess(saved -> log.info("Created issuance: {}", saved.getIssuanceId()))
                 .doOnError(e -> log.error("Error saving issuance", e));
     }
 
     @Override
     public Mono<String> getCredentialTypeByIssuanceId(String issuanceId) {
-        return issuanceRepository.findById(UUID.fromString(issuanceId))
+        return issuancePort.findById(UUID.fromString(issuanceId))
                 .flatMap(this::getCredentialType);
     }
 
@@ -131,16 +128,16 @@ public class IssuanceServiceImpl implements IssuanceService {
 
     @Override
     public Mono<Void> updateCredentialDataSetByIssuanceId(String issuanceId, String credentialDataSet, String format) {
-        return issuanceRepository.findById(UUID.fromString(issuanceId))
+        return issuancePort.findById(UUID.fromString(issuanceId))
                 .flatMap(issuance -> {
                     validateTransition(issuance.getCredentialStatus(), CredentialStatusEnum.ISSUED);
                     issuance.setCredentialDataSet(credentialDataSet);
                     issuance.setCredentialStatus(CredentialStatusEnum.ISSUED);
                     issuance.setCredentialFormat(format);
 
-                    return issuanceRepository.save(issuance)
+                    return issuancePort.save(issuance)
                             .doOnSuccess(result -> log.info(UPDATED_CREDENTIAL))
-                            .onErrorMap(OptimisticLockingFailureException.class,
+                            .onErrorMap(ConcurrentIssuanceUpdateException.class,
                                     e -> concurrentUpdateConflict(issuance.getIssuanceId(), "updateCredentialDataSetByIssuanceId", e))
                             .then();
                 });
@@ -149,19 +146,19 @@ public class IssuanceServiceImpl implements IssuanceService {
 
     @Override
     public Mono<String> getCredentialDataSetByIssuanceId(String issuanceId) {
-        return issuanceRepository.findById(UUID.fromString(issuanceId))
+        return issuancePort.findById(UUID.fromString(issuanceId))
                 .map(Issuance::getCredentialDataSet);
     }
 
     @Override
     public Mono<String> getCredentialStatusByIssuanceId(String issuanceId) {
         log.debug("Getting credential status for issuanceId: {}", issuanceId);
-        return issuanceRepository.findCredentialStatusByIssuanceId(UUID.fromString(issuanceId));
+        return issuancePort.findCredentialStatusByIssuanceId(UUID.fromString(issuanceId));
     }
 
     @Override
     public Flux<String> getAllIssuedCredentialByOrganizationIdentifier(String organizationIdentifier) {
-        return issuanceRepository.findByCredentialStatusAndOrganizationIdentifier(CredentialStatusEnum.ISSUED, organizationIdentifier)
+        return issuancePort.findByCredentialStatusAndOrganizationIdentifier(CredentialStatusEnum.ISSUED, organizationIdentifier)
                 .map(Issuance::getCredentialDataSet);
     }
 
@@ -178,15 +175,15 @@ public class IssuanceServiceImpl implements IssuanceService {
             issuanceMono = tenantRegistryService.getActiveTenantSchemas()
                     .flatMapMany(Flux::fromIterable)
                     .flatMap(tenant ->
-                            issuanceRepository.findByIssuanceId(id)
+                            issuancePort.findByIssuanceId(id)
                                     .contextWrite(c -> c.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
                     )
                     .next();
         } else if (ctx.isTenantAdmin()) {
             log.debug("TenantAdmin access for issuanceId: {}", issuanceId);
-            issuanceMono = issuanceRepository.findByIssuanceId(id);
+            issuanceMono = issuancePort.findByIssuanceId(id);
         } else {
-            issuanceMono = issuanceRepository.findByIssuanceIdAndOrganizationIdentifier(id, ctx.organizationIdentifier());
+            issuanceMono = issuancePort.findByIssuanceIdAndOrganizationIdentifier(id, ctx.organizationIdentifier());
         }
         return issuanceMono
                 .switchIfEmpty(Mono.error(new NoCredentialFoundException("No credential found for issuanceId: " + issuanceId)))
@@ -209,14 +206,14 @@ public class IssuanceServiceImpl implements IssuanceService {
 
     @Override
     public Mono<Void> updateIssuanceStatusToValidByIssuanceId(String issuanceId) {
-        return issuanceRepository.findByIssuanceId(UUID.fromString(issuanceId))
+        return issuancePort.findByIssuanceId(UUID.fromString(issuanceId))
                 .flatMap(issuance -> {
                     validateTransition(issuance.getCredentialStatus(), CredentialStatusEnum.VALID);
                     log.debug("Updating credential status to VALID for issuanceId: {}", issuanceId);
                     issuance.setCredentialStatus(CredentialStatusEnum.VALID);
-                    return issuanceRepository.save(issuance)
+                    return issuancePort.save(issuance)
                             .doOnSuccess(result -> log.info(UPDATED_CREDENTIAL))
-                            .onErrorMap(OptimisticLockingFailureException.class,
+                            .onErrorMap(ConcurrentIssuanceUpdateException.class,
                                     e -> concurrentUpdateConflict(issuance.getIssuanceId(), "updateIssuanceStatusToValidByIssuanceId", e))
                             .then();
                 });
@@ -226,9 +223,9 @@ public class IssuanceServiceImpl implements IssuanceService {
     public Mono<Void> updateIssuanceStatusToRevoked(Issuance issuance) {
         validateTransition(issuance.getCredentialStatus(), CredentialStatusEnum.REVOKED);
         issuance.setCredentialStatus(CredentialStatusEnum.REVOKED);
-        return issuanceRepository.save(issuance)
+        return issuancePort.save(issuance)
                 .doOnSuccess(result -> log.info(UPDATED_CREDENTIAL))
-                .onErrorResume(OptimisticLockingFailureException.class,
+                .onErrorResume(ConcurrentIssuanceUpdateException.class,
                         e -> reconcileConcurrentRevoke(issuance.getIssuanceId(), e))
                 .then();
     }
@@ -237,17 +234,19 @@ public class IssuanceServiceImpl implements IssuanceService {
      * SD-04 (EUD-225): two concurrent revocations of the same credential (operator REST +
      * queue consumer, ES-03) can both pass {@link #validateTransition} against the same
      * in-memory VALID snapshot before either writes. The {@code version} column (V11) turns
-     * the losing write into an {@link OptimisticLockingFailureException} instead of a silent
-     * double-revoke. Re-fetch and check what actually landed: if the other path already won
-     * and persisted REVOKED, this is not a genuine conflict — it is exactly the "no longer
-     * revocable" outcome both {@code RevocationWorkflow} callers already handle end-to-end
-     * (HTTP 409 for the operator, silent skip-as-noop for the queue consumer, AC-06/ES-03),
-     * so it is reported the same way instead of inventing a second no-op path. Any other
-     * current status is a genuinely unexpected concurrent mutation and is not papered over:
-     * the original conflict is propagated as a real error.
+     * the losing write into an {@link org.springframework.dao.OptimisticLockingFailureException},
+     * which {@code IssuanceR2dbcAdapter} maps to {@link ConcurrentIssuanceUpdateException}
+     * before it reaches the domain (EUDISTACK-650 / H-05), instead of a silent double-revoke.
+     * Re-fetch and check what actually landed: if the other path already won and persisted
+     * REVOKED, this is not a genuine conflict — it is exactly the "no longer revocable"
+     * outcome both {@code RevocationWorkflow} callers already handle end-to-end (HTTP 409 for
+     * the operator, silent skip-as-noop for the queue consumer, AC-06/ES-03), so it is
+     * reported the same way instead of inventing a second no-op path. Any other current
+     * status is a genuinely unexpected concurrent mutation and is not papered over: the
+     * original conflict is propagated as a real error.
      */
-    private Mono<Issuance> reconcileConcurrentRevoke(UUID issuanceId, OptimisticLockingFailureException conflict) {
-        return issuanceRepository.findById(issuanceId)
+    private Mono<Issuance> reconcileConcurrentRevoke(UUID issuanceId, ConcurrentIssuanceUpdateException conflict) {
+        return issuancePort.findById(issuanceId)
                 .switchIfEmpty(Mono.error(conflict))
                 .flatMap(current -> {
                     if (current.getCredentialStatus() == CredentialStatusEnum.REVOKED) {
@@ -264,14 +263,14 @@ public class IssuanceServiceImpl implements IssuanceService {
 
     @Override
     public Mono<Void> withdrawIssuance(String issuanceId) {
-        return issuanceRepository.findByIssuanceId(UUID.fromString(issuanceId))
+        return issuancePort.findByIssuanceId(UUID.fromString(issuanceId))
                 .flatMap(issuance -> {
                     validateTransition(issuance.getCredentialStatus(), CredentialStatusEnum.WITHDRAWN);
                     log.debug("Withdrawing issuance: {}", issuanceId);
                     issuance.setCredentialStatus(CredentialStatusEnum.WITHDRAWN);
-                    return issuanceRepository.save(issuance)
+                    return issuancePort.save(issuance)
                             .doOnSuccess(result -> log.info("Issuance withdrawn: {}", issuanceId))
-                            .onErrorMap(OptimisticLockingFailureException.class,
+                            .onErrorMap(ConcurrentIssuanceUpdateException.class,
                                     e -> concurrentUpdateConflict(issuance.getIssuanceId(), "withdrawIssuance", e))
                             .then();
                 });
@@ -279,14 +278,14 @@ public class IssuanceServiceImpl implements IssuanceService {
 
     @Override
     public Mono<Void> archiveIssuance(String issuanceId) {
-        return issuanceRepository.findByIssuanceId(UUID.fromString(issuanceId))
+        return issuancePort.findByIssuanceId(UUID.fromString(issuanceId))
                 .flatMap(issuance -> {
                     validateTransition(issuance.getCredentialStatus(), CredentialStatusEnum.ARCHIVED);
                     log.debug("Archiving issuance: {}", issuanceId);
                     issuance.setCredentialStatus(CredentialStatusEnum.ARCHIVED);
-                    return issuanceRepository.save(issuance)
+                    return issuancePort.save(issuance)
                             .doOnSuccess(result -> log.info("Issuance archived: {}", issuanceId))
-                            .onErrorMap(OptimisticLockingFailureException.class,
+                            .onErrorMap(ConcurrentIssuanceUpdateException.class,
                                     e -> concurrentUpdateConflict(issuance.getIssuanceId(), "archiveIssuance", e))
                             .then();
                 });
@@ -294,7 +293,7 @@ public class IssuanceServiceImpl implements IssuanceService {
 
     @Override
     public Mono<IssuanceList> getAllIssuanceSummariesByOrganizationId(String organizationIdentifier) {
-        return toIssuanceList(issuanceRepository.findAllByOrganizationIdentifier(organizationIdentifier));
+        return toIssuanceList(issuancePort.findAllByOrganizationIdentifier(organizationIdentifier));
     }
 
     @Override
@@ -307,7 +306,7 @@ public class IssuanceServiceImpl implements IssuanceService {
             return buildCrossTenantIssuanceList();
         }
         if (ctx.isTenantAdmin()) {
-            return toIssuanceList(issuanceRepository.findAllOrderByUpdatedDesc());
+            return toIssuanceList(issuancePort.findAllOrderByUpdatedDesc());
         }
         return getAllIssuanceSummariesByOrganizationId(ctx.organizationIdentifier());
     }
@@ -317,7 +316,7 @@ public class IssuanceServiceImpl implements IssuanceService {
                 .flatMapMany(Flux::fromIterable)
                 .filter(tenant -> !PLATFORM_TENANT.equals(tenant))
                 .flatMap(tenant ->
-                        issuanceRepository.findAllOrderByUpdatedDesc()
+                        issuancePort.findAllOrderByUpdatedDesc()
                                 .map(issuance -> {
                                     try {
                                         return IssuanceList.IssuanceEntry.builder()
@@ -379,17 +378,17 @@ public class IssuanceServiceImpl implements IssuanceService {
 
     @Override
     public Mono<Issuance> getIssuanceById(String issuanceId) {
-        return issuanceRepository.findByIssuanceId(UUID.fromString(issuanceId));
+        return issuancePort.findByIssuanceId(UUID.fromString(issuanceId));
     }
 
     @Override
     public Mono<Issuance> getIssuanceByCredentialOfferRefreshToken(String credentialOfferRefreshToken) {
-        return issuanceRepository.findByCredentialOfferRefreshToken(credentialOfferRefreshToken);
+        return issuancePort.findByCredentialOfferRefreshToken(credentialOfferRefreshToken);
     }
 
     @Override
     public Mono<CredentialOfferEmailNotificationInfo> findCredentialOfferEmailInfoByIssuanceId(String issuanceId) {
-        return issuanceRepository
+        return issuancePort
                 .findByIssuanceId(UUID.fromString(issuanceId))
                 .flatMap(issuance -> {
                     String configId = issuance.getCredentialType();
@@ -465,24 +464,24 @@ public class IssuanceServiceImpl implements IssuanceService {
 
     @Override
     public Flux<Issuance> findIssuedReadyForActivation(Instant now) {
-        return issuanceRepository.findIssuedReadyForActivation(CredentialStatusEnum.ISSUED, now);
+        return issuancePort.findIssuedReadyForActivation(CredentialStatusEnum.ISSUED, now);
     }
 
     @Override
     public Flux<Issuance> findStaleDrafts(Instant cutoff) {
-        return issuanceRepository.findByCredentialStatusAndCreatedAtBefore(CredentialStatusEnum.DRAFT, cutoff);
+        return issuancePort.findByCredentialStatusAndCreatedAtBefore(CredentialStatusEnum.DRAFT, cutoff);
     }
 
     @Override
     public Mono<Issuance> updateIssuance(Issuance issuance) {
-        return issuanceRepository.save(issuance)
-                .onErrorMap(OptimisticLockingFailureException.class,
+        return issuancePort.save(issuance)
+                .onErrorMap(ConcurrentIssuanceUpdateException.class,
                         e -> concurrentUpdateConflict(issuance.getIssuanceId(), "updateIssuance", e));
     }
 
     @Override
     public Flux<Issuance> findFailedDeliveries(Instant cutoff) {
-        return issuanceRepository.findFailedDeliveries(cutoff);
+        return issuancePort.findFailedDeliveries(cutoff);
     }
 
     private void validateTransition(CredentialStatusEnum from, CredentialStatusEnum to) {
@@ -493,12 +492,13 @@ public class IssuanceServiceImpl implements IssuanceService {
 
     /**
      * SD-04 (EUD-225): the {@code version} column (V11) can turn a lost optimistic-locking
-     * race on this issuance into an {@link OptimisticLockingFailureException} at any write
-     * site, not only {@code updateIssuanceStatusToRevoked}. This call site has no defined
-     * reconciliation target for a concurrent conflict — designing one for every write path
-     * is out of this Story's scope (spec-deltas.md SD-04) — so the conflict is logged with
-     * enough context to be diagnosable and surfaced as a clear domain exception instead of a
-     * bare R2DBC exception with no context.
+     * race on this issuance into a {@link ConcurrentIssuanceUpdateException} (already mapped
+     * from the infrastructure-layer optimistic-locking failure by {@code IssuanceR2dbcAdapter})
+     * at any write site, not only {@code updateIssuanceStatusToRevoked}. This call site has no
+     * defined reconciliation target for a concurrent conflict — designing one for every write
+     * path is out of this Story's scope (spec-deltas.md SD-04) — so the conflict is logged
+     * with enough context to be diagnosable and re-surfaced with that per-call-site context
+     * instead of the adapter's generic {@code save}/{@code insert} operation label.
      */
     private ConcurrentIssuanceUpdateException concurrentUpdateConflict(UUID issuanceId, String operation, Throwable cause) {
         log.error("Concurrent update conflict on issuanceId={} during operation={}: {}", issuanceId, operation, cause.toString());

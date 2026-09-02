@@ -1,6 +1,7 @@
 package es.in2.issuer.backend;
 
 
+import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaType;
@@ -78,7 +79,25 @@ class ArchUnitTest {
                     BASE_PACKAGE + ".shared.infrastructure.config.logging.MaskingOpenTelemetryAppender",
                     // ... and this one is a Spring-managed bean discovered via component
                     // scanning (no direct class references)
-                    BASE_PACKAGE + ".shared.infrastructure.config.OpenTelemetryAppenderInitializer");
+                    BASE_PACKAGE + ".shared.infrastructure.config.OpenTelemetryAppenderInitializer",
+                    // EUDISTACK-650 (H-05): IssuanceR2dbcAdapter implements IssuancePort and is
+                    // wired by Spring DI through that interface — no direct class reference to
+                    // the concrete adapter exists in source, same situation as the other
+                    // component-scanning-discovered beans above.
+                    BASE_PACKAGE + ".shared.infrastructure.repository.IssuanceR2dbcAdapter");
+
+    // EUDISTACK-650 (H-05) scopes the hexagonal fix to Issuance only. These domain entities
+    // have the exact same Spring Data leakage (@Table/@Id/@Column, or a direct
+    // R2dbcEntityTemplate dependency in a domain service) but are out of scope for this
+    // ticket — carried forward as pre-existing, undocumented debt rather than silently
+    // widening this PR. Do not add new entries here; fix the offending class instead.
+    private static final Set<String> DOMAIN_SPRING_DATA_LEGACY_EXCEPTIONS =
+            Set.of(
+                    BASE_PACKAGE + ".shared.domain.model.entities.TenantConfig",
+                    BASE_PACKAGE + ".shared.domain.model.entities.TenantRegistry",
+                    BASE_PACKAGE + ".shared.domain.model.entities.TenantSigningConfig",
+                    BASE_PACKAGE + ".shared.domain.model.entities.TenantCredentialProfile",
+                    BASE_PACKAGE + ".shared.domain.service.impl.TenantCredentialProfileServiceImpl");
 
 //todo foo
 //    @ArchTest
@@ -99,6 +118,26 @@ class ArchUnitTest {
             noClasses()
                     .that().resideInAPackage(BASE_PACKAGE + "..")
                     .should().dependOnClassesThat().resideInAPackage("io.github.novacrypto..");
+
+    @ArchTest
+    static final ArchRule domainShouldNotDependOnSpringData =
+            noClasses()
+                    .that().resideInAPackage(BASE_PACKAGE + "..domain..")
+                    // *Test/*IT classes are exempt: Testcontainers IT fixtures legitimately seed
+                    // rows via R2dbcEntityTemplate directly (hexagonal-discipline.md testing
+                    // section already treats *IT as infrastructure-touching by design). This
+                    // rule targets production domain code, not test setup.
+                    .and(DescribedPredicate.describe(
+                            "are not test classes and not pre-existing Tenant* domain entities "
+                                    + "(out of EUDISTACK-650 scope, see DOMAIN_SPRING_DATA_LEGACY_EXCEPTIONS)",
+                            (JavaClass javaClass) -> !javaClass.getSimpleName().endsWith("Test")
+                                    && !javaClass.getSimpleName().endsWith("IT")
+                                    && !javaClass.getName().contains("Test$")
+                                    && !DOMAIN_SPRING_DATA_LEGACY_EXCEPTIONS.contains(javaClass.getName())))
+                    .should().dependOnClassesThat().resideInAnyPackage("org.springframework.data..", "org.springframework.dao..")
+                    .because("hexagonal boundary (H-05): domain must not depend on the persistence framework — "
+                            + "persistence annotations, R2dbcEntityTemplate/repository access, and Spring's data-access "
+                            + "exception hierarchy (org.springframework.dao..) belong in infrastructure");
 
     @ArchTest
     static final ArchRule implementationsShouldBeInSameLayerAsInterfaces =

@@ -18,7 +18,7 @@ import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
-import es.in2.issuer.backend.shared.infrastructure.repository.IssuanceRepository;
+import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
@@ -135,7 +135,7 @@ class RevocationInstructionListenerIT {
     private RabbitTemplate rabbitTemplate;
 
     @Autowired
-    private IssuanceRepository issuanceRepository;
+    private IssuancePort issuancePort;
 
     @Autowired
     private BitstringStatusListProvider statusListProvider;
@@ -241,7 +241,7 @@ class RevocationInstructionListenerIT {
                 .email("holder@example.com")
                 .delivery("email")
                 .build();
-        return issuanceRepository.save(issuance)
+        return issuancePort.insert(issuance)
                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
                 .block();
     }
@@ -257,7 +257,7 @@ class RevocationInstructionListenerIT {
     }
 
     private CredentialStatusEnum currentStatus(String tenant, UUID issuanceId) {
-        return issuanceRepository.findByIssuanceId(issuanceId)
+        return issuancePort.findByIssuanceId(issuanceId)
                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
                 .map(Issuance::getCredentialStatus)
                 .block();

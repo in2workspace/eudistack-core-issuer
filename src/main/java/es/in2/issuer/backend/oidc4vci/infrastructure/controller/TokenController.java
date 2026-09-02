@@ -13,6 +13,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
+
+import es.in2.issuer.backend.oidc4vci.domain.model.ClientAttestationHeaders;
+
+import static es.in2.issuer.backend.shared.domain.service.ClientAttestationValidationService.HEADER_CLIENT_ATTESTATION;
+import static es.in2.issuer.backend.shared.domain.service.ClientAttestationValidationService.HEADER_CLIENT_ATTESTATION_POP;
 import reactor.core.publisher.Mono;
 
 @RestController
@@ -30,10 +35,15 @@ public class TokenController {
     public Mono<TokenResponse> exchangeToken(
             TokenRequest tokenRequest,
             @RequestHeader(value = "DPoP", required = false) String dpopHeader,
+            @RequestHeader(value = HEADER_CLIENT_ATTESTATION, required = false) String clientAttestation,
+            @RequestHeader(value = HEADER_CLIENT_ATTESTATION_POP, required = false) String clientAttestationPop,
             ServerWebExchange exchange
     ) {
         String baseUrl = urlResolver.publicIssuerBaseUrl(exchange);
         String tokenEndpointUri = baseUrl + exchange.getRequest().getPath().pathWithinApplication().value();
-        return tokenService.exchangeToken(tokenRequest, dpopHeader, tokenEndpointUri, baseUrl);
+        return tokenService.exchangeToken(
+                tokenRequest, dpopHeader,
+                new ClientAttestationHeaders(clientAttestation, clientAttestationPop),
+                tokenEndpointUri, baseUrl);
     }
 }

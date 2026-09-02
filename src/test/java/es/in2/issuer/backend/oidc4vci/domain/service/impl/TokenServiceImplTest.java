@@ -5,6 +5,8 @@ import es.in2.issuer.backend.apiclient.domain.model.AuthenticatedApiClient;
 import es.in2.issuer.backend.apiclient.domain.service.ApiClientAuthenticationService;
 import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
+import es.in2.issuer.backend.oidc4vci.domain.model.ClientAttestationHeaders;
+import es.in2.issuer.backend.shared.domain.service.ClientAttestationValidationService;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndRefreshToken;
@@ -76,6 +78,11 @@ class TokenServiceImplTest {
     private TransientStore<String> issuerStateCacheStore;
     @Mock
     private ApiClientAuthenticationService apiClientAuthenticationService;
+    @Mock
+    private ClientAttestationValidationService clientAttestationValidationService;
+
+    private static final ClientAttestationHeaders NO_CLIENT_ATTESTATION =
+            new ClientAttestationHeaders(null, null);
 
     private TokenServiceImpl tokenService;
     private IssuanceIdAndTxCode testIssuanceIdAndTxCode;
@@ -95,7 +102,8 @@ class TokenServiceImplTest {
                 profileProperties,
                 issuanceMetrics,
                 issuerStateCacheStore,
-                apiClientAuthenticationService
+                apiClientAuthenticationService,
+                clientAttestationValidationService
         );
 
         testIssuanceIdAndTxCode = new IssuanceIdAndTxCode(
@@ -125,7 +133,7 @@ class TokenServiceImplTest {
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
                 .assertNext(tokenResponse -> {
                     assertThat(tokenResponse).isNotNull();
                     assertThat(tokenResponse.accessToken()).isEqualTo(TEST_ACCESS_TOKEN);
@@ -145,7 +153,7 @@ class TokenServiceImplTest {
     void exchangeToken_WhenUnsupportedGrantType_ShouldReturnOAuthError() {
         TokenRequest request = preAuthRequest(INVALID_GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
                 .expectErrorMatches(throwable ->
                         throwable instanceof OAuthTokenException ex &&
                                 "unsupported_grant_type".equals(ex.getErrorCode()) &&
@@ -170,7 +178,7 @@ class TokenServiceImplTest {
 
         TokenRequest request = clientCredentialsRequest("acme-hr", "s3cr3t");
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL)
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL)
                         .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "acme")))
                 .assertNext(tokenResponse -> {
                     assertThat(tokenResponse.accessToken()).isEqualTo(TEST_ACCESS_TOKEN);
@@ -199,7 +207,7 @@ class TokenServiceImplTest {
 
         TokenRequest request = clientCredentialsRequest("acme-hr", "wrong-secret");
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL)
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL)
                         .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "acme")))
                 .expectErrorMatches(throwable ->
                         throwable instanceof OAuthTokenException ex &&
@@ -214,7 +222,7 @@ class TokenServiceImplTest {
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
                 .expectErrorMatches(throwable ->
                         throwable instanceof OAuthTokenException ex &&
                                 "invalid_grant".equals(ex.getErrorCode()) &&
@@ -231,7 +239,7 @@ class TokenServiceImplTest {
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, INVALID_TX_CODE);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
                 .expectErrorMatches(throwable ->
                         throwable instanceof OAuthTokenException ex &&
                                 "invalid_grant".equals(ex.getErrorCode()) &&
@@ -249,7 +257,7 @@ class TokenServiceImplTest {
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
                 .expectErrorMatches(throwable -> throwable instanceof RuntimeException
                         && "Cache connection failed".equals(throwable.getMessage()))
                 .verify();
@@ -270,7 +278,7 @@ class TokenServiceImplTest {
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
                 .expectError(RuntimeException.class)
                 .verify();
 
@@ -285,7 +293,7 @@ class TokenServiceImplTest {
 
         TokenRequest request = preAuthRequest(GRANT_TYPE, TEST_PRE_AUTHORIZED_CODE, TEST_TX_CODE);
 
-        StepVerifier.create(tokenService.exchangeToken(request, null, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
+        StepVerifier.create(tokenService.exchangeToken(request, null, NO_CLIENT_ATTESTATION, TOKEN_ENDPOINT_URI, TEST_ISSUER_URL))
                 .expectError(RuntimeException.class)
                 .verify();
 
