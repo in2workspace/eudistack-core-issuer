@@ -3,9 +3,6 @@ package es.in2.issuer.backend.shared.domain.model.entities;
 import jakarta.annotation.Nullable;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import lombok.*;
-import org.springframework.data.annotation.*;
-import org.springframework.data.relational.core.mapping.Column;
-import org.springframework.data.relational.core.mapping.Table;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -59,18 +56,9 @@ public class Issuance {
     // Only the credential types exempt from ADR-110 populate it: they declare no
     // proof_types_supported, so the Credential Endpoint receives no key proof and this row is
     // the only surviving source of the holder key by the time the credential is signed.
-    @Column("holder_cnf")
     @Nullable
     private String holderCnf;
 
-    // Optimistic locking (V11, SD-04/EUD-225): every write to this row follows
-    // find -> validateTransition -> mutate -> save with no version check in between.
-    // Spring Data R2DBC manages this field automatically on save() -- a stale write now
-    // fails fast with OptimisticLockingFailureException instead of silently overwriting a
-    // concurrent writer's change (see IssuanceServiceImpl.updateIssuanceStatusToRevoked for
-    // the reconciliation this enables).
-    @Version
-    @Column("version")
     // Optimistic-concurrency version (V11, SD-04/EUD-225). Opaque to domain logic: callers
     // never compare or set it themselves, they just carry it through find -> mutate -> save
     // so the persistence adapter can detect a lost race (see IssuancePort / IssuanceR2dbcAdapter
