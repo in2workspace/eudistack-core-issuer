@@ -21,6 +21,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuerMetadataService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
@@ -53,6 +54,7 @@ class Oid4VciCredentialWorkflowImplTest {
     private TransientStore<String> enrichmentCacheStore;
     private TransientStore<String> notificationCacheStore;
     private CredentialIssuedLogger credentialIssuedLogger;
+    private AuditService auditService;
 
     private Oid4VciCredentialWorkflowImpl workflow;
 
@@ -80,6 +82,7 @@ class Oid4VciCredentialWorkflowImplTest {
         enrichmentCacheStore = mock(TransientStore.class);
         notificationCacheStore = mock(TransientStore.class);
         credentialIssuedLogger = mock(CredentialIssuedLogger.class);
+        auditService = mock(AuditService.class);
 
         workflow = new Oid4VciCredentialWorkflowImpl(
                 credentialSignerWorkflow,
@@ -91,7 +94,8 @@ class Oid4VciCredentialWorkflowImplTest {
                 statusListWorkflow,
                 enrichmentCacheStore,
                 notificationCacheStore,
-                credentialIssuedLogger
+                credentialIssuedLogger,
+                auditService
         );
 
         // Common mocks to avoid NPE when a test reaches further than expected
@@ -734,6 +738,58 @@ class Oid4VciCredentialWorkflowImplTest {
         // F2: with no proof to supply a subjectId, the holder DID is derived from the persisted
         // cnf.jwk instead, so cnf and mandatee.id agree on the same key pair.
         verify(genericCredentialBuilder).bindHolderDid(any(), argThat(did -> did.startsWith("did:")));
+    }
+
+    /**
+     * TD-09 (code-review re-verification, 2026-09-01). {@code x}/{@code y} bypass canonicalization
+     * here the same way "x-coord"/"y-coord" do above -- {@code holder_cnf} is read back verbatim from
+     * the persisted column, with no {@code HolderKey.validateAndCanonicalizeJwk} pass in between --
+     * but this time with a value {@link es.in2.issuer.backend.shared.domain.util.DidKeyDerivation}
+     * cannot base64url-decode, forcing its exception fallback (a random {@code urn:uuid}). Asserts the
+     * caller both skips the binding (unchanged behaviour, F2a) and now also emits a correlatable audit
+     * signal for it (TD-09), instead of leaving the case in DidKeyDerivation's own log.warn alone.
+     */
+    @SuppressWarnings("unchecked")
+    @Test
+    void createCredentialResponse_noKeyProof_derivationFallback_shouldAuditAndSkipBinding() {
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+        issuance.setCredentialType(EXEMPT_CREDENTIAL_TYPE);
+        issuance.setHolderCnf("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"!!!not-base64url!!!\",\"y\":\"y-coord\"}}");
+        CredentialProfile profile = CredentialProfile.builder()
+                .credentialConfigurationId(EXEMPT_CREDENTIAL_TYPE)
+                .format(JWT_VC_JSON)
+                .cnfRequired(true)
+                .issuerType(CredentialProfile.IssuerType.SIMPLE)
+                .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
+                        .type(java.util.List.of("VerifiableCredential", EXEMPT_CREDENTIAL_TYPE))
+                        .build())
+                .build();
+        CredentialIssuerMetadata metadata = buildMetadata(null, EXEMPT_CREDENTIAL_TYPE);
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialConfigurationId(EXEMPT_CREDENTIAL_TYPE)
+                .format(JWT_VC_JSON)
+                .build();
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN)
+                .issuanceId(ISSUANCE_ID)
+                .build();
+
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
+        when(credentialProfileRegistry.getByConfigurationId(EXEMPT_CREDENTIAL_TYPE)).thenReturn(profile);
+
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .assertNext(resp -> assertThat(resp.credentials()).isNotEmpty())
+                .verifyComplete();
+
+        verify(genericCredentialBuilder, never()).bindHolderDid(any(), any());
+
+        ArgumentCaptor<Map<String, Object>> detailsCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(auditService).auditFailure(eq("credential.holder_did.derivation_fallback"), isNull(),
+                anyString(), detailsCaptor.capture());
+        assertThat(detailsCaptor.getValue())
+                .containsEntry("processId", PROCESS_ID)
+                .containsEntry("issuanceId", ISSUANCE_ID);
     }
 
     /**
