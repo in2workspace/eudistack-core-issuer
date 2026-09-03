@@ -879,7 +879,7 @@ class Oid4VciCredentialWorkflowImplTest {
      */
     @SuppressWarnings("unchecked")
     @Test
-    void createCredentialResponse_withKeyProof_shouldPreferTheProofOverThePersistedCnf() throws Exception {
+    void createCredentialResponse_withKeyProof_shouldPreferTheProofOverThePersistedCnf() {
         Issuance issuance = buildProcedure(JWT_VC_JSON);
         issuance.setHolderCnf("{\"kid\":\"persisted-key\"}");
         CredentialProfile profile = buildProfile(true);
@@ -910,7 +910,7 @@ class Oid4VciCredentialWorkflowImplTest {
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
         when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL)).thenReturn(Mono.just(metadata));
         when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
-        when(proofValidationService.verifyProof(eq(jwtProof), eq(Set.of("ES256")), eq(expectedIssuer)))
+        when(proofValidationService.verifyProof(jwtProof, Set.of("ES256"), expectedIssuer))
                 .thenReturn(Mono.just(true));
 
         StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
