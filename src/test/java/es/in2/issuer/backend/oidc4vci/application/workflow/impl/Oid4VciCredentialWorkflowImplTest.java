@@ -109,7 +109,8 @@ class Oid4VciCredentialWorkflowImplTest {
                 enrichmentCacheStore,
                 notificationCacheStore,
                 credentialIssuedLogger,
-                holderDidFallbackAuditor
+                holderDidFallbackAuditor,
+                auditService
         );
 
         // Common mocks to avoid NPE when a test reaches further than expected
@@ -813,6 +814,12 @@ class Oid4VciCredentialWorkflowImplTest {
      * a fallback identifier. {@code HolderDidFallbackAuditor}'s own fallback logic is unchanged and
      * still covered by {@code HolderDidFallbackAuditorTest}; it is simply unreachable from this path
      * now that its input is guaranteed well-formed whenever this method returns at all.
+     *
+     * <p>TD-14 (2026-09-03): the old {@code credential.holder_did.derivation_fallback} audit event
+     * this scenario used to trigger is unreachable for the same reason -- replaced by a new
+     * {@code credential.holder_cnf.invalid} event emitted at the point {@code resolveCnf} itself
+     * catches the validation failure, so the condition stays correlatable by {@code issuanceId}
+     * even though the failure now happens earlier.
      */
     @Test
     void createCredentialResponse_noKeyProof_malformedPersistedCnf_failsClosedBeforeDerivation() {
@@ -849,6 +856,13 @@ class Oid4VciCredentialWorkflowImplTest {
         verify(genericCredentialBuilder, never()).bindHolderDid(any(), any());
         verify(credentialSignerWorkflow, never()).signCredential(any(), any(), any(), any(), any(), any(), any());
         verify(auditService, never()).auditFailure(eq("credential.holder_did.derivation_fallback"), any(), anyString(), any());
+
+        ArgumentCaptor<Map<String, Object>> detailsCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(auditService).auditFailure(eq("credential.holder_cnf.invalid"), isNull(),
+                anyString(), detailsCaptor.capture());
+        assertThat(detailsCaptor.getValue())
+                .containsEntry("processId", PROCESS_ID)
+                .containsEntry("issuanceId", ISSUANCE_ID);
     }
 
     /**

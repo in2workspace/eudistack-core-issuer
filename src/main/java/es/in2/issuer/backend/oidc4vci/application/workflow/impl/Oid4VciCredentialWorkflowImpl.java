@@ -4,6 +4,7 @@ import es.in2.issuer.backend.shared.domain.exception.*;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 
 import com.nimbusds.jose.JWSObject;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialRequestDeniedException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.UnknownCredentialIdentifierException;
@@ -18,6 +19,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.HolderBi
 import es.in2.issuer.backend.shared.domain.model.entities.BindingInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuerMetadataService;
 import es.in2.issuer.backend.shared.domain.service.HolderDidFallbackAuditor;
@@ -62,6 +64,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
     private final TransientStore<String> notificationCacheStore;
     private final CredentialIssuedLogger credentialIssuedLogger;
     private final HolderDidFallbackAuditor holderDidFallbackAuditor;
+    private final AuditService auditService;
 
     public Oid4VciCredentialWorkflowImpl(
             CredentialSignerWorkflow credentialSignerWorkflow,
@@ -74,7 +77,8 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             @Qualifier("enrichmentCacheStore") TransientStore<String> enrichmentCacheStore,
             @Qualifier("notificationCacheStore") TransientStore<String> notificationCacheStore,
             CredentialIssuedLogger credentialIssuedLogger,
-            HolderDidFallbackAuditor holderDidFallbackAuditor
+            HolderDidFallbackAuditor holderDidFallbackAuditor,
+            AuditService auditService
     ) {
         this.credentialSignerWorkflow = credentialSignerWorkflow;
         this.proofValidationService = proofValidationService;
@@ -87,6 +91,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         this.notificationCacheStore = notificationCacheStore;
         this.credentialIssuedLogger = credentialIssuedLogger;
         this.holderDidFallbackAuditor = holderDidFallbackAuditor;
+        this.auditService = auditService;
     }
 
     /**
@@ -254,7 +259,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
      * both AD-8 exempt and still unbound, but this is the last checkpoint before a persisted
      * {@code cnf} reaches a signed credential, and defense-in-depth here costs one profile lookup.
      */
-    private Map<String, Object> resolveCnf(BindingInfo bindingInfo, Issuance proc, CredentialProfile profile) {
+    private Map<String, Object> resolveCnf(String processId, BindingInfo bindingInfo, Issuance proc, CredentialProfile profile) {
         Map<String, Object> fromProof = bindingInfo.cnf();
         if (fromProof != null && !fromProof.isEmpty()) {
             return fromProof;
@@ -262,7 +267,29 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         if (!HolderBindingExemption.isExempt(proc.getCredentialType()) || profile.requiresHolderBinding()) {
             return Map.of();
         }
-        return HolderCnfJson.readValidated(proc.getHolderCnf());
+        try {
+            return HolderCnfJson.readValidated(proc.getHolderCnf());
+        } catch (InvalidHolderKeyException e) {
+            // EUD-168 TD-14: the derivation-fallback audit event this used to trigger
+            // (HolderDidFallbackAuditor, TD-09) is unreachable now that TD-13 fails closed here,
+            // before that code is ever reached -- without this, a corrupted stored cnf would leave
+            // no correlatable trace at all, only a generic warn/error log with no issuanceId.
+            auditInvalidPersistedCnf(processId, proc.getIssuanceId().toString());
+            throw e;
+        }
+    }
+
+    /** Best-effort (ES-03/ES-04, same pattern as {@link HolderDidFallbackAuditor}): a broken audit
+     *  channel must never mask the real failure -- log and let the original exception propagate. */
+    private void auditInvalidPersistedCnf(String processId, String issuanceId) {
+        try {
+            auditService.auditFailure("credential.holder_cnf.invalid", null,
+                    "persisted_holder_cnf_failed_revalidation",
+                    Map.of("processId", processId, "issuanceId", issuanceId));
+        } catch (RuntimeException e) {
+            log.warn("processId={} issuanceId={} action=resolveCnf step=auditFailureFailed error={}",
+                    processId, issuanceId, e.getMessage(), e);
+        }
     }
 
     /**
@@ -311,7 +338,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             );
         }
 
-        Map<String, Object> cnf = resolveCnf(bindingInfo, proc, profile);
+        Map<String, Object> cnf = resolveCnf(processId, bindingInfo, proc, profile);
         String token = BEARER_PREFIX + rawToken;
         StatusListFormat statusFormat = DC_SD_JWT.equals(credentialFormat)
                 ? StatusListFormat.TOKEN_JWT : StatusListFormat.BITSTRING_VC;
