@@ -162,7 +162,7 @@ class Oid4VciCredentialWorkflowImplTest {
                 .thenReturn(Mono.just(enrichedWithStatus));
         when(credentialSignerWorkflow.signCredential(
                 eq(BEARER_PREFIX + RAW_TOKEN), eq(enrichedWithStatus), eq(CREDENTIAL_TYPE),
-                eq(JWT_VC_JSON), isNull(), eq(ISSUANCE_ID), anyString()))
+                eq(JWT_VC_JSON), eq(Map.of()), eq(ISSUANCE_ID), anyString()))
                 .thenReturn(Mono.just(signedCredential));
         when(notificationCacheStore.add(anyString(), eq(ISSUANCE_ID)))
                 .thenReturn(Mono.just(ISSUANCE_ID));
@@ -228,7 +228,7 @@ class Oid4VciCredentialWorkflowImplTest {
                 .thenReturn(Mono.just(enrichedWithStatus));
         when(credentialSignerWorkflow.signCredential(
                 eq(BEARER_PREFIX + RAW_TOKEN), eq(enrichedWithStatus), eq(CREDENTIAL_TYPE),
-                eq(DC_SD_JWT), isNull(), eq(ISSUANCE_ID), anyString()))
+                eq(DC_SD_JWT), eq(Map.of()), eq(ISSUANCE_ID), anyString()))
                 .thenReturn(Mono.just(signedCredential));
         when(notificationCacheStore.add(anyString(), eq(ISSUANCE_ID)))
                 .thenReturn(Mono.just(ISSUANCE_ID));
@@ -294,7 +294,7 @@ class Oid4VciCredentialWorkflowImplTest {
                 .thenReturn(Mono.just(enrichedWithStatus));
         when(credentialSignerWorkflow.signCredential(
                 eq(BEARER_PREFIX + RAW_TOKEN), eq(enrichedWithStatus), eq(CREDENTIAL_TYPE),
-                eq(DC_SD_JWT), isNull(), eq(ISSUANCE_ID), anyString()))
+                eq(DC_SD_JWT), eq(Map.of()), eq(ISSUANCE_ID), anyString()))
                 .thenReturn(Mono.just(signedCredential));
         when(notificationCacheStore.add(anyString(), eq(ISSUANCE_ID)))
                 .thenReturn(Mono.just(ISSUANCE_ID));
@@ -425,7 +425,7 @@ class Oid4VciCredentialWorkflowImplTest {
         when(enrichmentCacheStore.add(eq(ISSUANCE_ID), eq(enrichedWithStatus))).thenReturn(Mono.just(enrichedWithStatus));
         when(credentialSignerWorkflow.signCredential(
                 eq(BEARER_PREFIX + RAW_TOKEN), eq(enrichedWithStatus), eq(CREDENTIAL_TYPE),
-                eq(JWT_VC_JSON), isNull(), eq(ISSUANCE_ID), anyString()))
+                eq(JWT_VC_JSON), eq(Map.of()), eq(ISSUANCE_ID), anyString()))
                 .thenReturn(Mono.just("signed-jwt-vc"));
         when(notificationCacheStore.add(anyString(), eq(ISSUANCE_ID))).thenReturn(Mono.just(ISSUANCE_ID));
         when(issuanceService.updateIssuance(any(Issuance.class))).thenReturn(Mono.just(issuance));
@@ -869,7 +869,7 @@ class Oid4VciCredentialWorkflowImplTest {
                 .assertNext(resp -> assertThat(resp.credentials()).isNotEmpty())
                 .verifyComplete();
 
-        verify(credentialSignerWorkflow).signCredential(any(), any(), any(), any(), isNull(), any(), any());
+        verify(credentialSignerWorkflow).signCredential(any(), any(), any(), any(), eq(Map.of()), any(), any());
     }
 
     /**
