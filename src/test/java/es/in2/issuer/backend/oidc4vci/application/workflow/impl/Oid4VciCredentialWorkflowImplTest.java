@@ -21,6 +21,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialRequestDeniedException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
@@ -73,6 +74,11 @@ class Oid4VciCredentialWorkflowImplTest {
     // AD-8 exempt family (HolderBindingExemption): the only credential types whose persisted
     // holder_cnf may be read back with no key proof (F5).
     private static final String EXEMPT_CREDENTIAL_TYPE = "learcredential.machine.w3c.3";
+    // A real P-256 public point (same fixture as HolderKeyTest): TD-13's readValidated pass runs
+    // this through Nimbus, which validates x/y are actually on the declared curve, so a placeholder
+    // string is not a valid fixture here.
+    private static final String VALID_EC_X = "jIoYu_tVQYeSX_WAXLz219rFkqGV6c4FTb4_cQdOaQg";
+    private static final String VALID_EC_Y = "BBkUW2sUZX2kW7keQ-qZV3PCKCLOZesPpszoNGciDL4";
 
     @SuppressWarnings("unchecked")
     @BeforeEach
@@ -753,7 +759,7 @@ class Oid4VciCredentialWorkflowImplTest {
     void createCredentialResponse_noKeyProof_shouldSignWithTheCnfPersistedOnTheIssuance() {
         Issuance issuance = buildProcedure(JWT_VC_JSON);
         issuance.setCredentialType(EXEMPT_CREDENTIAL_TYPE);
-        issuance.setHolderCnf("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"x-coord\",\"y\":\"y-coord\"}}");
+        issuance.setHolderCnf("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + VALID_EC_X + "\",\"y\":\"" + VALID_EC_Y + "\"}}");
         CredentialProfile profile = CredentialProfile.builder()
                 .credentialConfigurationId(EXEMPT_CREDENTIAL_TYPE)
                 .format(JWT_VC_JSON)
@@ -795,17 +801,21 @@ class Oid4VciCredentialWorkflowImplTest {
     }
 
     /**
-     * TD-09 (code-review re-verification, 2026-09-01). {@code x}/{@code y} bypass canonicalization
-     * here the same way "x-coord"/"y-coord" do above -- {@code holder_cnf} is read back verbatim from
-     * the persisted column, with no {@code HolderKey.validateAndCanonicalizeJwk} pass in between --
-     * but this time with a value {@link es.in2.issuer.backend.shared.domain.util.DidKeyDerivation}
-     * cannot base64url-decode, forcing its exception fallback (a random {@code urn:uuid}). Asserts the
-     * caller both skips the binding (unchanged behaviour, F2a) and now also emits a correlatable audit
-     * signal for it (TD-09), instead of leaving the case in DidKeyDerivation's own log.warn alone.
+     * TD-13 (2026-09-03, supersedes the TD-09 re-verification this test used to cover). Before
+     * TD-13, {@code holder_cnf} was read back verbatim from the persisted column with no
+     * {@code HolderKey.fromJson} pass in between -- a value {@link
+     * es.in2.issuer.backend.shared.domain.util.DidKeyDerivation} could not base64url-decode reached
+     * that class and hit its own exception fallback (a random {@code urn:uuid}), which this test used
+     * to assert as the expected outcome. {@code resolveCnf} now re-validates through
+     * {@code HolderCnfJson.readValidated} (same canonicalization pass a caller-supplied
+     * {@code holder_key} goes through at issuance time), so a malformed persisted value now fails
+     * closed here -- before {@code DidKeyDerivation} is ever reached -- instead of silently producing
+     * a fallback identifier. {@code HolderDidFallbackAuditor}'s own fallback logic is unchanged and
+     * still covered by {@code HolderDidFallbackAuditorTest}; it is simply unreachable from this path
+     * now that its input is guaranteed well-formed whenever this method returns at all.
      */
-    @SuppressWarnings("unchecked")
     @Test
-    void createCredentialResponse_noKeyProof_derivationFallback_shouldAuditAndSkipBinding() {
+    void createCredentialResponse_noKeyProof_malformedPersistedCnf_failsClosedBeforeDerivation() {
         Issuance issuance = buildProcedure(JWT_VC_JSON);
         issuance.setCredentialType(EXEMPT_CREDENTIAL_TYPE);
         issuance.setHolderCnf("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"!!!not-base64url!!!\",\"y\":\"y-coord\"}}");
@@ -833,17 +843,12 @@ class Oid4VciCredentialWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(EXEMPT_CREDENTIAL_TYPE)).thenReturn(profile);
 
         StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
-                .assertNext(resp -> assertThat(resp.credentials()).isNotEmpty())
-                .verifyComplete();
+                .expectError(InvalidHolderKeyException.class)
+                .verify();
 
         verify(genericCredentialBuilder, never()).bindHolderDid(any(), any());
-
-        ArgumentCaptor<Map<String, Object>> detailsCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(auditService).auditFailure(eq("credential.holder_did.derivation_fallback"), isNull(),
-                anyString(), detailsCaptor.capture());
-        assertThat(detailsCaptor.getValue())
-                .containsEntry("processId", PROCESS_ID)
-                .containsEntry("issuanceId", ISSUANCE_ID);
+        verify(credentialSignerWorkflow, never()).signCredential(any(), any(), any(), any(), any(), any(), any());
+        verify(auditService, never()).auditFailure(eq("credential.holder_did.derivation_fallback"), any(), anyString(), any());
     }
 
     /**

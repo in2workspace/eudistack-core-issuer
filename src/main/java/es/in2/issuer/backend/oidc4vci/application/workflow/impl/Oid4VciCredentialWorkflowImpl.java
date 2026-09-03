@@ -262,7 +262,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         if (!HolderBindingExemption.isExempt(proc.getCredentialType()) || profile.requiresHolderBinding()) {
             return Map.of();
         }
-        return HolderCnfJson.read(proc.getHolderCnf());
+        return HolderCnfJson.readValidated(proc.getHolderCnf());
     }
 
     /**

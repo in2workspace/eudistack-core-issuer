@@ -1,7 +1,9 @@
 package es.in2.issuer.backend.shared.domain.model.dto.credential;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.issuance.domain.model.HolderKey;
 
 import java.util.Map;
 
@@ -43,5 +45,33 @@ public final class HolderCnfJson {
         } catch (Exception e) {
             throw new IllegalStateException("Failed to deserialize holder cnf", e);
         }
+    }
+
+    /**
+     * Like {@link #read}, but re-validates the persisted value's shape through
+     * {@link HolderKey#fromJson} before returning it (EUD-168 TD-13).
+     *
+     * <p>The only writer of this column always derives its value from
+     * {@code HolderKey.fromJson(...).cnf()}, so a well-formed row is always {@code {"jwk": {kty,
+     * crv, x, y}}} -- but {@link #read} alone trusts that shape rather than checking it, and the
+     * write path is the sole point that ever held the line (S1). Re-running the same
+     * canonicalization pass here closes that gap: a row a client could never have produced through
+     * the normal write path (this column is write-once at insert) cannot silently reach a signed
+     * credential's {@code cnf} claim just because it deserializes as valid JSON.
+     *
+     * <p>Empty for an absent value, same as {@link #read} -- that is the legitimate "no cnf yet"
+     * case for a type that reached this column without ever populating it, and must fall through
+     * to the key-proof binding rather than fail closed.
+     *
+     * @throws es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException if the
+     *         persisted value is not a well-formed EC P-256 public {@code jwk}
+     */
+    public static Map<String, Object> readValidated(String json) {
+        Map<String, Object> persisted = read(json);
+        if (persisted.isEmpty()) {
+            return persisted;
+        }
+        JsonNode node = OBJECT_MAPPER.valueToTree(persisted);
+        return HolderKey.fromJson(node).cnf();
     }
 }
