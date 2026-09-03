@@ -1,16 +1,16 @@
 package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
+import es.in2.issuer.backend.shared.domain.exception.*;
+import es.in2.issuer.backend.shared.domain.model.dto.*;
+
 import com.nimbusds.jose.JWSObject;
 import es.in2.issuer.backend.oidc4vci.application.workflow.Oid4VciCredentialWorkflow;
 import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialRequestDeniedException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.UnknownCredentialIdentifierException;
-import es.in2.issuer.backend.shared.domain.util.DidKeyDerivation;
 import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
-import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
-import es.in2.issuer.backend.shared.domain.exception.*;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialResponse;
-import es.in2.issuer.backend.shared.domain.model.dto.*;
+import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.HolderCnfJson;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
@@ -23,9 +23,10 @@ import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuerMetadataService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.ProofValidationService;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
+import es.in2.issuer.backend.shared.domain.util.DidKeyDerivation;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
-import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
@@ -261,7 +262,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             return fromProof;
         }
         if (!HolderBindingExemption.isExempt(proc.getCredentialType()) || profile.requiresHolderBinding()) {
-            return null;
+            return Map.of();
         }
         return HolderCnfJson.read(proc.getHolderCnf());
     }

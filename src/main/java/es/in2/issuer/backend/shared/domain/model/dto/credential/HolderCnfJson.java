@@ -33,10 +33,10 @@ public final class HolderCnfJson {
         }
     }
 
-    /** {@code null} for an absent value, so callers can fall back to the key-proof binding. */
+    /** Empty map for an absent value, so callers can fall back to the key-proof binding. */
     public static Map<String, Object> read(String json) {
         if (json == null || json.isBlank()) {
-            return null;
+            return Map.of();
         }
         try {
             return OBJECT_MAPPER.readValue(json, new TypeReference<Map<String, Object>>() {});
