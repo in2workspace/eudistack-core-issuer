@@ -661,7 +661,7 @@ class CredentialProfileRegistryTest {
      * {@code CredentialProfileBindingInvariant}, exactly as they must at container startup.
      */
     @Test
-    void shouldLoadTheThirteenRealVendoredProfilesWithoutViolatingTheInvariant() throws IOException {
+    void shouldLoadTheThirteenRealVendoredProfilesWithoutViolatingTheInvariant() {
         ResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
 
         CredentialProfileRegistry registry = new CredentialProfileRegistry(
