@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.NullNode;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -14,7 +15,6 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class HolderKeyTest {
 
@@ -66,11 +66,6 @@ class HolderKeyTest {
     }
 
     @Test
-    void fromJson_withUnrelatedKeysOnly_throwsInvalidHolderKey() {
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"foo\":\"bar\"}")));
-    }
-
-    @Test
     void fromJson_withJwkNotObject_throwsInvalidHolderKey() {
         assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"jwk\":\"not-an-object\"}")));
     }
@@ -80,22 +75,18 @@ class HolderKeyTest {
         assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"jwk\":{}}")));
     }
 
-    // --- jwk is the only accepted RFC 7800 form (code-review F1a, D3): kid/x5c carry no key
-    // material this path -- no wallet, no OID4VCI proof -- could ever verify, and are no longer
-    // parsed at all, not merely rejected after parsing. ---
-
-    @Test
-    void fromJson_withOnlyKid_throwsInvalidHolderKey() {
-        JsonNode node = json("{\"kid\":\"did:key:z6Mk#key-1\"}");
-
+    @ParameterizedTest(name = "Unsupported holder key #{index}: {0}")
+    @MethodSource("unsupportedHolderKeyNodes")
+    void fromJson_withUnsupportedHolderKey_throwsInvalidHolderKey(String description, JsonNode node) {
         assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
     }
 
-    @Test
-    void fromJson_withOnlyX5c_throwsInvalidHolderKey() {
-        JsonNode node = json("{\"x5c\":[\"MIIBcert1\",\"MIIBcert2\"]}");
-
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
+    private static Stream<Arguments> unsupportedHolderKeyNodes() {
+        return Stream.of(
+                Arguments.of("unrelated key", json("{\"foo\":\"bar\"}")),
+                Arguments.of("kid only", json("{\"kid\":\"did:key:z6Mk#key-1\"}")),
+                Arguments.of("x5c only", json("{\"x5c\":[\"MIIBcert1\",\"MIIBcert2\"]}"))
+        );
     }
 
     @Test
