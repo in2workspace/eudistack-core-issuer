@@ -54,6 +54,12 @@ public class IssuanceExceptionHandler {
                 "The delivery mode is missing, blank or unknown"
         );
     }
+
+    // Also mapped in SharedExceptionHandler (EUD-168 code review): the exception itself lives in the
+    // shared package and is thrown by both the issuance path and the backoffice delivery-config PUT,
+    // which does not go through this advice in isolated (non-Spring-context) test setups such as
+    // DirectDeliveryCeilingTest -- kept here too so the issuance path's own tests stay decoupled from
+    // SharedExceptionHandler.
     @ExceptionHandler(DeliveryModeNotEligibleException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public Mono<GlobalErrorMessage> handleDeliveryModeNotEligible(

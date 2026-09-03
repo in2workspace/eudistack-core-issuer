@@ -101,4 +101,25 @@ class DeliveryEligibilityResolverTest {
                     .verifyComplete();
         }
     }
+
+    @Nested
+    class CeilingErrorsPropagateAsOnError {
+
+        /**
+         * Code review (EUD-168): the ceiling lookup must stay deferred inside the reactive chain, not run
+         * eagerly when this method is called. Constructing the Mono here must not throw even though the
+         * mocked ceiling always throws -- only subscribing (StepVerifier.create) may trigger it.
+         */
+        @Test
+        void resolveEligibleModes_unknownConfigId_signalsOnErrorRatherThanThrowingAtAssembly() {
+            when(schemaDeliveryCeiling.resolveEligibleModes("unknown"))
+                    .thenThrow(new IllegalStateException("Unknown credential_configuration_id reached the delivery ceiling: unknown"));
+
+            Mono<Set<DeliveryMode>> result = resolver.resolveEligibleModes("unknown");
+
+            StepVerifier.create(result)
+                    .expectError(IllegalStateException.class)
+                    .verify();
+        }
+    }
 }

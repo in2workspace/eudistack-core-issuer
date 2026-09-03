@@ -44,6 +44,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -261,6 +262,15 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                         .filter(s -> !s.isEmpty())
                         .collect(Collectors.toSet()))
                 .flatMap(eligibleValues -> {
+                    // The effective set is what the error message must report: the schema ceiling alone
+                    // overstates what is actually available whenever tenant configuration narrows it
+                    // further, which would mislead the caller about what to retry with.
+                    Set<DeliveryMode> effectiveEligible = ceiling.stream()
+                            .filter(mode -> eligibleValues.contains(mode.value))
+                            .collect(Collectors.toCollection(() -> EnumSet.noneOf(DeliveryMode.class)));
+                    String effectiveEligibleCsv = effectiveEligible.isEmpty()
+                            ? "none"
+                            : DeliveryMode.toCanonicalCsv(effectiveEligible);
                     for (DeliveryMode mode : modes) {
                         // Tenant configuration narrows the ceiling, never widens it: a mode must clear
                         // both. The ceiling was already checked above, so this can only reject a mode the
@@ -269,7 +279,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                             return Mono.error(new DeliveryModeNotEligibleException(
                                     "Delivery mode '" + mode.value + "' is not eligible for credential type '"
                                             + configId + "'. Eligible modes: "
-                                            + DeliveryMode.toCanonicalCsv(ceiling)));
+                                            + effectiveEligibleCsv));
                         }
                     }
                     return Mono.just(modes);

@@ -30,12 +30,15 @@ public class DeliveryEligibilityResolver {
     private final SchemaDeliveryCeiling schemaDeliveryCeiling;
 
     public Mono<Set<DeliveryMode>> resolveEligibleModes(String credentialConfigurationId) {
-        Set<DeliveryMode> ceiling = schemaDeliveryCeiling.resolveEligibleModes(credentialConfigurationId);
-        return tenantDeliveryConfigService.getEligibleModes(credentialConfigurationId)
-                .<Set<DeliveryMode>>map(configured -> configured.stream()
-                        .filter(ceiling::contains)
-                        .collect(Collectors.toCollection(() -> EnumSet.noneOf(DeliveryMode.class))))
-                .switchIfEmpty(Mono.just(ceiling));
+        // Deferred rather than resolved eagerly above: schemaDeliveryCeiling.resolveEligibleModes can
+        // throw for an unknown configuration ID, and a caller composing this Mono outside a defer of its
+        // own must still see that failure as an onError signal, not an assembly-time exception.
+        return Mono.fromSupplier(() -> schemaDeliveryCeiling.resolveEligibleModes(credentialConfigurationId))
+                .flatMap(ceiling -> tenantDeliveryConfigService.getEligibleModes(credentialConfigurationId)
+                        .<Set<DeliveryMode>>map(configured -> configured.stream()
+                                .filter(ceiling::contains)
+                                .collect(Collectors.toCollection(() -> EnumSet.noneOf(DeliveryMode.class))))
+                        .switchIfEmpty(Mono.just(ceiling)));
     }
 
 }

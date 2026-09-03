@@ -1010,7 +1010,42 @@ class IssuanceWorkflowImplTest {
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
         StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
-                .expectError(DeliveryModeNotEligibleException.class)
+                .expectErrorSatisfies(ex -> {
+                    assertInstanceOf(DeliveryModeNotEligibleException.class, ex);
+                    // The tenant narrowed the ceiling to email,ui: the message must report that
+                    // effective set, not the wider schema ceiling (direct,email,ui), or callers are
+                    // misled about what to retry with.
+                    assertEquals("Delivery mode 'direct' is not eligible for credential type '"
+                            + CONFIG_ID + "'. Eligible modes: email,ui", ex.getMessage());
+                })
+                .verify();
+
+        verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
+    }
+
+    @Test
+    void issueCredentialShouldReportNoneEligibleWhenTenantConfigurationSharesNothingWithCeiling() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null);
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profileWithoutCnf());
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        // Ceiling narrowed to wallet-only modes (a bound type), and a stale tenant configuration
+        // listing only "direct" -- it shares nothing with the ceiling, so the effective eligible set
+        // that ends up in the error message is empty.
+        when(schemaDeliveryCeiling.resolveEligibleModes(CONFIG_ID))
+                .thenReturn(EnumSet.of(DeliveryMode.EMAIL, DeliveryMode.UI));
+        when(tenantConfigService.getStringOrDefault(eq("issuer.delivery.modes." + CONFIG_ID), anyString()))
+                .thenReturn(Mono.just("direct"));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
+                .expectErrorSatisfies(ex -> {
+                    assertInstanceOf(DeliveryModeNotEligibleException.class, ex);
+                    assertEquals("Delivery mode 'email' is not eligible for credential type '"
+                            + CONFIG_ID + "'. Eligible modes: none", ex.getMessage());
+                })
                 .verify();
 
         verifyNoInteractions(credentialSignerWorkflow, statusListWorkflow, credentialOfferService);
