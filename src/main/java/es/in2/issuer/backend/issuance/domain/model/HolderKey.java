@@ -7,6 +7,7 @@ import com.nimbusds.jose.jwk.ECKey;
 import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.jwk.KeyType;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
+import es.in2.issuer.backend.shared.domain.util.DidKeyDerivation;
 
 import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
@@ -91,7 +92,7 @@ public record HolderKey(Map<String, Object> cnf) {
         String json;
         try {
             json = OBJECT_MAPPER.writeValueAsString(value);
-        } catch (Exception e) {
+        } catch (Exception _) {
             throw new InvalidHolderKeyException("invalid holder_key: jwk could not be read");
         }
         if (json.getBytes(StandardCharsets.UTF_8).length > MAX_JWK_NODE_BYTES) {
@@ -101,7 +102,7 @@ public record HolderKey(Map<String, Object> cnf) {
         JWK jwk;
         try {
             jwk = JWK.parse(json);
-        } catch (ParseException e) {
+        } catch (ParseException _) {
             throw new InvalidHolderKeyException("invalid holder_key: jwk is not a well-formed JWK");
         }
 
