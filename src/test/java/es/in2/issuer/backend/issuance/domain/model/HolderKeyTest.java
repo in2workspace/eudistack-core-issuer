@@ -5,8 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.NullNode;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.Map;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -83,12 +86,16 @@ class HolderKeyTest {
 
     @Test
     void fromJson_withOnlyKid_throwsInvalidHolderKey() {
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"kid\":\"did:key:z6Mk#key-1\"}")));
+        JsonNode node = json("{\"kid\":\"did:key:z6Mk#key-1\"}");
+
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
     }
 
     @Test
     void fromJson_withOnlyX5c_throwsInvalidHolderKey() {
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(json("{\"x5c\":[\"MIIBcert1\",\"MIIBcert2\"]}")));
+        JsonNode node = json("{\"x5c\":[\"MIIBcert1\",\"MIIBcert2\"]}");
+
+        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
     }
 
     @Test
@@ -107,35 +114,22 @@ class HolderKeyTest {
 
     // --- Nimbus JWK content validation (EUD-168 F1, S1) ---
 
-    @Test
-    void fromJson_withPrivateEcJwk_throwsInvalidHolderKey() {
-        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + VALID_EC_X + "\",\"y\":\"" + VALID_EC_Y
-                + "\",\"d\":\"PtiOr4fsLlHZ2QdHKcO2HoslwwlEXka6_ksM1fSDTdg\"}}");
+    @ParameterizedTest(name = "Invalid JWK #{index}")
+    @MethodSource("invalidJwkNodes")
+    void fromJson_withInvalidJwk_throwsInvalidHolderKey(JsonNode node) {
         assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
     }
 
-    @Test
-    void fromJson_withOctJwk_throwsInvalidHolderKey() {
-        JsonNode node = json("{\"jwk\":{\"kty\":\"oct\",\"k\":\"c2VjcmV0\"}}");
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
-    }
-
-    @Test
-    void fromJson_withUnrecognizedKty_throwsInvalidHolderKey() {
-        JsonNode node = json("{\"jwk\":{\"kty\":\"unsupported\",\"x\":\"abc\"}}");
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
-    }
-
-    @Test
-    void fromJson_withUnsupportedEcCurve_throwsInvalidHolderKey() {
-        JsonNode node = json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"secp256k1\",\"x\":\"abc\",\"y\":\"def\"}}");
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
-    }
-
-    @Test
-    void fromJson_withUndersizedRsaKey_throwsInvalidHolderKey() {
-        JsonNode node = json("{\"jwk\":{\"kty\":\"RSA\",\"n\":\"AQAB\",\"e\":\"AQAB\"}}");
-        assertThrows(InvalidHolderKeyException.class, () -> HolderKey.fromJson(node));
+    private static Stream<JsonNode> invalidJwkNodes() {
+        return Stream.of(
+                json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" + VALID_EC_X
+                        + "\",\"y\":\"" + VALID_EC_Y
+                        + "\",\"d\":\"PtiOr4fsLlHZ2QdHKcO2HoslwwlEXka6_ksM1fSDTdg\"}}"),
+                json("{\"jwk\":{\"kty\":\"oct\",\"k\":\"c2VjcmV0\"}}"),
+                json("{\"jwk\":{\"kty\":\"unsupported\",\"x\":\"abc\"}}"),
+                json("{\"jwk\":{\"kty\":\"EC\",\"crv\":\"secp256k1\",\"x\":\"abc\",\"y\":\"def\"}}"),
+                json("{\"jwk\":{\"kty\":\"RSA\",\"n\":\"AQAB\",\"e\":\"AQAB\"}}")
+        );
     }
 
     @Test
