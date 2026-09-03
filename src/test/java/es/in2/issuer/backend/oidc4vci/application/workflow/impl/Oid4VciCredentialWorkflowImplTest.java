@@ -25,6 +25,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuerMetadataService;
+import es.in2.issuer.backend.shared.domain.service.HolderDidFallbackAuditor;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.ProofValidationService;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
@@ -58,6 +59,7 @@ class Oid4VciCredentialWorkflowImplTest {
     private TransientStore<String> notificationCacheStore;
     private CredentialIssuedLogger credentialIssuedLogger;
     private AuditService auditService;
+    private HolderDidFallbackAuditor holderDidFallbackAuditor;
 
     private Oid4VciCredentialWorkflowImpl workflow;
 
@@ -86,6 +88,9 @@ class Oid4VciCredentialWorkflowImplTest {
         notificationCacheStore = mock(TransientStore.class);
         credentialIssuedLogger = mock(CredentialIssuedLogger.class);
         auditService = mock(AuditService.class);
+        // Real instance wrapping the mocked port, not a mock itself: assertions below still verify
+        // the auditFailure call end-to-end, exactly as when this logic lived inline in the workflow.
+        holderDidFallbackAuditor = new HolderDidFallbackAuditor(auditService);
 
         workflow = new Oid4VciCredentialWorkflowImpl(
                 credentialSignerWorkflow,
@@ -98,7 +103,7 @@ class Oid4VciCredentialWorkflowImplTest {
                 enrichmentCacheStore,
                 notificationCacheStore,
                 credentialIssuedLogger,
-                auditService
+                holderDidFallbackAuditor
         );
 
         // Common mocks to avoid NPE when a test reaches further than expected

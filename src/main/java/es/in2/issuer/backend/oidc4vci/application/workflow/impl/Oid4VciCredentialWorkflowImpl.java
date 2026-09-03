@@ -18,9 +18,9 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.HolderBi
 import es.in2.issuer.backend.shared.domain.model.entities.BindingInfo;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
-import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuerMetadataService;
+import es.in2.issuer.backend.shared.domain.service.HolderDidFallbackAuditor;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.ProofValidationService;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
@@ -51,8 +51,6 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 @Service
 public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow {
 
-    private static final String AUDIT_EVENT_HOLDER_DID_DERIVATION_FALLBACK = "credential.holder_did.derivation_fallback";
-
     private final CredentialSignerWorkflow credentialSignerWorkflow;
     private final ProofValidationService proofValidationService;
     private final IssuanceService issuanceService;
@@ -63,7 +61,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
     private final TransientStore<String> enrichmentCacheStore;
     private final TransientStore<String> notificationCacheStore;
     private final CredentialIssuedLogger credentialIssuedLogger;
-    private final AuditService auditService;
+    private final HolderDidFallbackAuditor holderDidFallbackAuditor;
 
     public Oid4VciCredentialWorkflowImpl(
             CredentialSignerWorkflow credentialSignerWorkflow,
@@ -76,7 +74,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             @Qualifier("enrichmentCacheStore") TransientStore<String> enrichmentCacheStore,
             @Qualifier("notificationCacheStore") TransientStore<String> notificationCacheStore,
             CredentialIssuedLogger credentialIssuedLogger,
-            AuditService auditService
+            HolderDidFallbackAuditor holderDidFallbackAuditor
     ) {
         this.credentialSignerWorkflow = credentialSignerWorkflow;
         this.proofValidationService = proofValidationService;
@@ -88,7 +86,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         this.enrichmentCacheStore = enrichmentCacheStore;
         this.notificationCacheStore = notificationCacheStore;
         this.credentialIssuedLogger = credentialIssuedLogger;
-        this.auditService = auditService;
+        this.holderDidFallbackAuditor = holderDidFallbackAuditor;
     }
 
     /**
@@ -271,51 +269,15 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
      * The proof supplies the holder DID whenever one arrives. An AD-8 exempt type never takes that
      * path (no {@code proof_types_supported}, so no proof is ever requested), so its only source of a
      * holder identifier is the jwk that {@code resolveCnf} already resolved -- deriving the did:key
-     * from it here is what makes {@code cnf} and {@code mandatee.id} agree on the same key pair (F2).
-     *
-     * <p>{@code null} unless the derivation actually produced a {@code did:...} identifier
-     * (code-review F2a): {@link DidKeyDerivation#deriveDidKeyFromJwk} falls back to a random
-     * {@code urn:uuid} on a decode failure rather than throwing, which must never be bound into
-     * {@code mandatee.id} as if it were real. Mirrors the guard {@code IssuanceWorkflowImpl}'s
-     * direct leg applies.
+     * from it (delegated to {@link HolderDidFallbackAuditor}, shared with {@code IssuanceWorkflowImpl}'s
+     * direct leg) is what makes {@code cnf} and {@code mandatee.id} agree on the same key pair (F2).
      */
-    @SuppressWarnings("unchecked")
     private String resolveHolderDid(String processId, String issuanceId, BindingInfo bindingInfo, Map<String, Object> cnf) {
         String fromProof = bindingInfo.subjectId();
         if (fromProof != null) {
             return fromProof.startsWith("did:") ? fromProof : null;
         }
-        Object jwk = cnf != null ? cnf.get("jwk") : null;
-        if (!(jwk instanceof Map<?, ?> jwkMap)) {
-            return null;
-        }
-        String holderDid = DidKeyDerivation.deriveDidKeyFromJwk((Map<String, Object>) jwkMap);
-        if (holderDid.startsWith("did:")) {
-            return holderDid;
-        }
-        auditHolderDidDerivationFallback(processId, issuanceId);
-        return null;
-    }
-
-    /**
-     * TD-09 (code-review re-verification, 2026-09-01). Mirrors {@code IssuanceWorkflowImpl}'s guard:
-     * {@link DidKeyDerivation}'s own {@code log.warn} is an operational note about the decode failure,
-     * not about its consequence here -- silently dropping the {@code cnf}-{@code mandatee.id} binding.
-     * D1/D2 canonicalize {@code holder_key} to fixed-length coordinates before this point, so today
-     * this branch is unreachable for a {@code holder_key} that already passed
-     * {@code HolderKey.validateAndCanonicalizeJwk} -- kept as a correlatable signal, distinguishable
-     * from an operational WARN, in case a future Nimbus version or a second caller changes that.
-     * Best-effort: a broken audit channel must never fail an issuance that would otherwise succeed.
-     */
-    private void auditHolderDidDerivationFallback(String processId, String issuanceId) {
-        try {
-            auditService.auditFailure(AUDIT_EVENT_HOLDER_DID_DERIVATION_FALLBACK, null,
-                    "did_key_derivation_did_not_produce_a_did",
-                    Map.of("processId", processId, "issuanceId", issuanceId));
-        } catch (RuntimeException e) {
-            log.warn("processId={} issuanceId={} action=resolveHolderDid step=auditFailureFailed error={}",
-                    processId, issuanceId, e.getMessage(), e);
-        }
+        return holderDidFallbackAuditor.deriveFromJwkCnf(processId, issuanceId, cnf);
     }
 
     private Mono<CredentialResponse> enrichAndSign(

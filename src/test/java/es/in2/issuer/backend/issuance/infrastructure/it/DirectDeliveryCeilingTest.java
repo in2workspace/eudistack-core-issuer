@@ -15,6 +15,7 @@ import es.in2.issuer.backend.shared.domain.policy.service.IssuancePdpService;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
+import es.in2.issuer.backend.shared.domain.service.HolderDidFallbackAuditor;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.PayloadSchemaValidator;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
@@ -104,6 +105,9 @@ class DirectDeliveryCeilingTest {
         CredentialIssuedLogger credentialIssuedLogger = mock(CredentialIssuedLogger.class);
         IssuanceMetrics issuanceMetrics = mock(IssuanceMetrics.class);
         IssuanceProperties issuanceProperties = new IssuanceProperties(30, "0 0 2 * * *", 60, "0 */5 * * * ?", 30);
+        // Rejection happens before the direct leg ever runs (the ceiling check is upstream of
+        // performIssuanceFlow), so this collaborator is never exercised by these tests.
+        HolderDidFallbackAuditor holderDidFallbackAuditor = mock(HolderDidFallbackAuditor.class);
 
         // The two gates the ceiling check runs after: both must clear for the request to reach
         // SchemaDeliveryCeiling at all. Real objects have nothing to say here -- they are the
@@ -125,7 +129,8 @@ class DirectDeliveryCeilingTest {
                 statusListWorkflow,
                 tenantConfigService,
                 issuanceProperties,
-                schemaDeliveryCeiling
+                schemaDeliveryCeiling,
+                holderDidFallbackAuditor
         );
 
         UrlResolver urlResolver = mock(UrlResolver.class);

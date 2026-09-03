@@ -24,6 +24,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.policy.service.IssuancePdpService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
+import es.in2.issuer.backend.shared.domain.service.HolderDidFallbackAuditor;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.PayloadSchemaValidator;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
@@ -96,6 +97,7 @@ class IssuanceWorkflowImplTest {
     @Mock private StatusListWorkflow statusListWorkflow;
     @Mock private TenantConfigService tenantConfigService;
     @Mock private SchemaDeliveryCeiling schemaDeliveryCeiling;
+    @Mock private HolderDidFallbackAuditor holderDidFallbackAuditor;
 
     @Spy
     private IssuanceProperties issuanceProperties =
@@ -117,6 +119,13 @@ class IssuanceWorkflowImplTest {
         // to survive the call unchanged.
         lenient().when(genericCredentialBuilder.bindHolderDid(anyString(), anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        // holderDidFallbackAuditor is @Mock only so @InjectMocks can wire it; delegate to a real
+        // instance wrapping the same auditService mock, so tests keep exercising the real derivation
+        // (and its audit-on-fallback behaviour) exactly as when this logic lived inline here.
+        HolderDidFallbackAuditor realHolderDidFallbackAuditor = new HolderDidFallbackAuditor(auditService);
+        lenient().when(holderDidFallbackAuditor.deriveFromJwkCnf(anyString(), anyString(), any()))
+                .thenAnswer(invocation -> realHolderDidFallbackAuditor.deriveFromJwkCnf(
+                        invocation.getArgument(0), invocation.getArgument(1), invocation.getArgument(2)));
     }
 
     // --- Existing tests ---
@@ -614,37 +623,9 @@ class IssuanceWorkflowImplTest {
         verify(genericCredentialBuilder).bindHolderDid(eq("enriched-data-set"), argThat(did -> did.startsWith("did:key:z")));
     }
 
-    /**
-     * TD-09 (code-review re-verification, 2026-09-01). {@code holderDidFromCnf} is the last place a
-     * {@code DidKeyDerivation} exception fallback (a random {@code urn:uuid}, never a {@code did:...})
-     * could otherwise be bound into {@code mandatee.id} unchallenged (F2a/B1) -- D1/D2 already close
-     * every path that could reach it through the public API, since {@code HolderKey
-     * .validateAndCanonicalizeJwk} rejects a non-decodable {@code x}/{@code y} before a request-level
-     * {@code cnf} ever gets built, so the fallback itself can only be forced here by invoking the
-     * private method directly with a {@code cnf} {@code HolderKey} would never have produced. Asserts
-     * it both still skips the binding (unchanged behaviour) and now also emits the TD-09 audit signal,
-     * correlatable by {@code processId}/{@code issuanceId} -- instead of leaving the case in
-     * {@code DidKeyDerivation}'s own {@code log.warn} alone.
-     */
-    @SuppressWarnings("unchecked")
-    @Test
-    void holderDidFromCnf_derivationFallback_shouldAuditAndReturnNull() throws Exception {
-        Map<String, Object> jwk = Map.of("kty", "EC", "crv", "P-256", "x", "!!!not-base64url!!!", "y", "y-coord");
-        Map<String, Object> cnf = Map.of("jwk", jwk);
-
-        var method = IssuanceWorkflowImpl.class.getDeclaredMethod(
-                "holderDidFromCnf", String.class, String.class, Map.class);
-        method.setAccessible(true);
-        Object result = method.invoke(workflow, "p", "issuance-1", cnf);
-
-        assertNull(result);
-
-        ArgumentCaptor<Map<String, Object>> detailsCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(auditService).auditFailure(eq("credential.holder_did.derivation_fallback"), isNull(),
-                anyString(), detailsCaptor.capture());
-        assertEquals("p", detailsCaptor.getValue().get("processId"));
-        assertEquals("issuance-1", detailsCaptor.getValue().get("issuanceId"));
-    }
+    // TD-09's derivation-fallback-audits case (holderDidFromCnf's private-method reflection test)
+    // moved to HolderDidFallbackAuditorTest once that logic was extracted to the shared
+    // HolderDidFallbackAuditor -- it's a public method there, so no reflection is needed any more.
 
     /**
      * Code-review W1 (F4 regression, S4). A future profile of the same machine family that
