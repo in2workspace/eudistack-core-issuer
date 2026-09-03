@@ -215,7 +215,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                     Map<String, Object> cnf = HolderBindingExemption.isExempt(configId) && !profile.requiresHolderBinding()
                             ? HolderKey.fromJson(request.holderKey()).cnf() : null;
                     return executeIssuanceForModes(processId, request, bearerToken,
-                            publicIssuerBaseUrl, publicWalletBaseUrl, delivery, modes, cnf);
+                            new BaseUrls(publicIssuerBaseUrl, publicWalletBaseUrl), delivery, modes, cnf);
                 });
     }
 
@@ -287,8 +287,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     }
 
     private Mono<IssuanceResponse> executeIssuanceForModes(String processId, IssuanceRequest request, String bearerToken,
-                                                            String publicIssuerBaseUrl, String publicWalletBaseUrl,
-                                                            String delivery, Set<DeliveryMode> modes,
+                                                            BaseUrls baseUrls, String delivery, Set<DeliveryMode> modes,
                                                             Map<String, Object> cnf) {
 
         boolean hasDirect  = modes.stream().anyMatch(DeliveryMode::isDirect);
@@ -296,7 +295,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         String oid4vciDelivery = extractOid4vciDelivery(modes);
 
         Mono<DirectDeliveryOutcome> directOutcome = hasDirect
-                ? performDirectIssuance(processId, request, bearerToken, publicIssuerBaseUrl, delivery, cnf)
+                ? performDirectIssuance(processId, request, bearerToken, baseUrls.issuerBaseUrl(), delivery, cnf)
                 .map(r -> new DirectDeliveryOutcome(r.signedCredential(),
                         DeliveryResult.delivered(DeliveryMode.DIRECT.value), null))
                 .doOnSuccess(outcome -> {
@@ -308,30 +307,33 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 // abort the whole response, discarding the per-mode results and the credential offer
                 // URI of a wallet leg that had already dispatched. The error is carried, not lost --
                 // assembleOutcome re-raises it when nothing else was delivered.
-                .onErrorResume(e -> {
-                    credentialIssuedLogger.logFailed(request.credentialConfigurationId(), e);
-                    log.error(
-                            "ProcessId: {} - Direct issuance failed for credentialConfigurationId={} delivery={}",
-                            processId,
-                            request.credentialConfigurationId(),
-                            delivery,
-                            e
-                    );
-                    // The stage tag (DeliveryStageFailure) exists only to pick a safe code; when
-                    // nothing else was delivered, assembleOutcome re-raises the original exception so
-                    // it keeps being handled (and typed) exactly as it was before F3/W1.
-                    Throwable original = e instanceof DeliveryStageFailure dsf ? dsf.getCause() : e;
-                    return Mono.just(DirectDeliveryOutcome.failed(resolveErrorDetail(e), original));
-                })
+                .onErrorResume(e -> resolveDirectFailureOutcome(processId, request, delivery, e))
                 : Mono.just(DirectDeliveryOutcome.empty());
 
         Mono<WalletDeliveryOutcome> walletOutcome = hasOid4vci
-                ? performOid4VciIssuanceResilient(processId, request, publicIssuerBaseUrl, publicWalletBaseUrl,
+                ? performOid4VciIssuanceResilient(processId, request, baseUrls.issuerBaseUrl(), baseUrls.walletBaseUrl(),
                         oid4vciDelivery, cnf)
                 : Mono.just(WalletDeliveryOutcome.empty());
 
         return Mono.zip(directOutcome, walletOutcome)
                 .flatMap(tuple -> assembleOutcome(tuple.getT1(), tuple.getT2()));
+    }
+
+    private Mono<DirectDeliveryOutcome> resolveDirectFailureOutcome(String processId, IssuanceRequest request,
+                                                                      String delivery, Throwable e) {
+        credentialIssuedLogger.logFailed(request.credentialConfigurationId(), e);
+        log.error(
+                "ProcessId: {} - Direct issuance failed for credentialConfigurationId={} delivery={}",
+                processId,
+                request.credentialConfigurationId(),
+                delivery,
+                e
+        );
+        // The stage tag (DeliveryStageFailure) exists only to pick a safe code; when nothing else was
+        // delivered, assembleOutcome re-raises the original exception so it keeps being handled (and
+        // typed) exactly as it was before F3/W1.
+        Throwable original = e instanceof DeliveryStageFailure dsf ? dsf.getCause() : e;
+        return Mono.just(DirectDeliveryOutcome.failed(resolveErrorDetail(e), original));
     }
 
     /**
@@ -412,6 +414,9 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
      */
     private record Oid4VciLegResult(String credentialOfferUri, String emailError) {}
 
+    /** The issuer/wallet public base URL pair that every issuance leg needs, grouped to stay within the 7-parameter limit. */
+    private record BaseUrls(String issuerBaseUrl, String walletBaseUrl) {}
+
     /**
      * Internal outcome of the direct path (not exposed in the API). {@code error} is the failure the
      * leg was isolated from, kept so it can be re-raised when no other mode delivered.
@@ -463,14 +468,13 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
      * one (kid/x5c never reach this leg -- see {@link es.in2.issuer.backend.issuance.domain.model.HolderKey}).
      * Deriving the did:key from it is what lets the direct leg enforce the same cnf-mandatee.id
      * invariant the wallet leg already does from a key proof (F2).
-     */
-    /**
-     * {@code null} unless the derivation actually produced a {@code did:...} identifier (code-review
-     * F2a/B1): {@link DidKeyDerivation#deriveDidKeyFromJwk} falls back to a random {@code urn:uuid}
-     * on a decode failure rather than throwing -- a tolerance that is safe on the OID4VCI proof path
-     * this method was written for (an already-signature-verified JWK), but would silently bind
-     * {@code mandatee.id} to a fabricated, unrelated identifier here if not screened out. Mirrors the
-     * same guard {@link Oid4VciCredentialWorkflowImpl}'s wallet leg already applies.
+     *
+     * <p>Returns {@code null} unless the derivation actually produced a {@code did:...} identifier
+     * (code-review F2a/B1): {@link DidKeyDerivation#deriveDidKeyFromJwk} falls back to a random
+     * {@code urn:uuid} on a decode failure rather than throwing -- a tolerance that is safe on the
+     * OID4VCI proof path this method was written for (an already-signature-verified JWK), but would
+     * silently bind {@code mandatee.id} to a fabricated, unrelated identifier here if not screened
+     * out. Mirrors the same guard {@link Oid4VciCredentialWorkflowImpl}'s wallet leg already applies.
      */
     @SuppressWarnings("unchecked")
     private String holderDidFromCnf(String processId, String issuanceId, Map<String, Object> cnf) {
