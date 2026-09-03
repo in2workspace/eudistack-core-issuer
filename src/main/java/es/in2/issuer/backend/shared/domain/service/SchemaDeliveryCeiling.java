@@ -3,7 +3,7 @@ package es.in2.issuer.backend.shared.domain.service;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
-import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
+import es.in2.issuer.backend.shared.domain.spi.CredentialProfileCatalog;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -30,7 +30,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class SchemaDeliveryCeiling {
 
-    private final CredentialProfileRegistry credentialProfileRegistry;
+    private final CredentialProfileCatalog credentialProfileCatalog;
 
     /**
      * The modes this credential type's schema permits.
@@ -42,7 +42,7 @@ public class SchemaDeliveryCeiling {
      *         a programming error, not a user error.
      */
     public Set<DeliveryMode> resolveEligibleModes(String credentialConfigurationId) {
-        CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialConfigurationId);
+        CredentialProfile profile = credentialProfileCatalog.getByConfigurationId(credentialConfigurationId);
         if (profile == null) {
             throw new IllegalStateException(
                     "Unknown credential_configuration_id reached the delivery ceiling: "

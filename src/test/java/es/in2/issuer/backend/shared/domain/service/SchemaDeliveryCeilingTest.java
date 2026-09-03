@@ -3,7 +3,7 @@ package es.in2.issuer.backend.shared.domain.service;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
-import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
+import es.in2.issuer.backend.shared.domain.spi.CredentialProfileCatalog;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,7 +27,7 @@ class SchemaDeliveryCeilingTest {
     private static final String UNBOUND = "gx.labelcredential.w3c.2";
 
     @Mock
-    private CredentialProfileRegistry credentialProfileRegistry;
+    private CredentialProfileCatalog credentialProfileCatalog;
 
     @InjectMocks
     private SchemaDeliveryCeiling ceiling;
@@ -55,7 +55,7 @@ class SchemaDeliveryCeilingTest {
 
         @Test
         void resolveEligibleModes_boundType_excludesDirect() {
-            when(credentialProfileRegistry.getByConfigurationId(BOUND)).thenReturn(bound(BOUND));
+            when(credentialProfileCatalog.getByConfigurationId(BOUND)).thenReturn(bound(BOUND));
 
             assertThat(ceiling.resolveEligibleModes(BOUND))
                     .containsExactlyInAnyOrder(DeliveryMode.EMAIL, DeliveryMode.UI)
@@ -64,7 +64,7 @@ class SchemaDeliveryCeilingTest {
 
         @Test
         void resolveEligibleModes_unboundType_allowsEveryMode() {
-            when(credentialProfileRegistry.getByConfigurationId(UNBOUND)).thenReturn(unbound(UNBOUND));
+            when(credentialProfileCatalog.getByConfigurationId(UNBOUND)).thenReturn(unbound(UNBOUND));
 
             assertThat(ceiling.resolveEligibleModes(UNBOUND))
                     .isEqualTo(EnumSet.allOf(DeliveryMode.class));
@@ -82,7 +82,7 @@ class SchemaDeliveryCeilingTest {
                     .format("jwt_vc_json")
                     .cnfRequired(true)
                     .build();
-            when(credentialProfileRegistry.getByConfigurationId("learcredential.machine.w3c.3"))
+            when(credentialProfileCatalog.getByConfigurationId("learcredential.machine.w3c.3"))
                     .thenReturn(exempt);
 
             assertThat(ceiling.resolveEligibleModes("learcredential.machine.w3c.3"))
@@ -91,7 +91,7 @@ class SchemaDeliveryCeilingTest {
 
         @Test
         void resolveEligibleModes_unknownType_failsLoudlyRatherThanDefaultingOpen() {
-            when(credentialProfileRegistry.getByConfigurationId("nope")).thenReturn(null);
+            when(credentialProfileCatalog.getByConfigurationId("nope")).thenReturn(null);
 
             assertThatThrownBy(() -> ceiling.resolveEligibleModes("nope"))
                     .isInstanceOf(IllegalStateException.class)
@@ -104,7 +104,7 @@ class SchemaDeliveryCeilingTest {
 
         @Test
         void validateWithinCeiling_walletModesOnBoundType_passes() {
-            when(credentialProfileRegistry.getByConfigurationId(BOUND)).thenReturn(bound(BOUND));
+            when(credentialProfileCatalog.getByConfigurationId(BOUND)).thenReturn(bound(BOUND));
 
             assertThatCode(() -> ceiling.validateWithinCeiling(BOUND, EnumSet.of(DeliveryMode.EMAIL)))
                     .doesNotThrowAnyException();
@@ -112,7 +112,7 @@ class SchemaDeliveryCeilingTest {
 
         @Test
         void validateWithinCeiling_directOnBoundType_rejectsNamingModeTypeAndWhatRemains() {
-            when(credentialProfileRegistry.getByConfigurationId(BOUND)).thenReturn(bound(BOUND));
+            when(credentialProfileCatalog.getByConfigurationId(BOUND)).thenReturn(bound(BOUND));
             Set<DeliveryMode> direct = EnumSet.of(DeliveryMode.DIRECT);
 
             assertThatThrownBy(() -> ceiling.validateWithinCeiling(BOUND, direct))
@@ -125,7 +125,7 @@ class SchemaDeliveryCeilingTest {
 
         @Test
         void validateWithinCeiling_hybridContainingDirectOnBoundType_rejectsTheWholeRequest() {
-            when(credentialProfileRegistry.getByConfigurationId(BOUND)).thenReturn(bound(BOUND));
+            when(credentialProfileCatalog.getByConfigurationId(BOUND)).thenReturn(bound(BOUND));
             Set<DeliveryMode> hybrid = EnumSet.of(DeliveryMode.DIRECT, DeliveryMode.EMAIL);
 
             assertThatThrownBy(() -> ceiling.validateWithinCeiling(BOUND, hybrid))
@@ -134,7 +134,7 @@ class SchemaDeliveryCeilingTest {
 
         @Test
         void validateWithinCeiling_directOnUnboundType_passes() {
-            when(credentialProfileRegistry.getByConfigurationId(UNBOUND)).thenReturn(unbound(UNBOUND));
+            when(credentialProfileCatalog.getByConfigurationId(UNBOUND)).thenReturn(unbound(UNBOUND));
 
             assertThatCode(() -> ceiling.validateWithinCeiling(UNBOUND, EnumSet.of(DeliveryMode.DIRECT)))
                     .doesNotThrowAnyException();

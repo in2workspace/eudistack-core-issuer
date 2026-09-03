@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfileBindingInvariant;
+import es.in2.issuer.backend.shared.domain.spi.CredentialProfileCatalog;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
@@ -21,7 +22,7 @@ import java.util.Map;
 
 @Slf4j
 @Component
-public class CredentialProfileRegistry {
+public class CredentialProfileRegistry implements CredentialProfileCatalog {
 
     private final Map<String, CredentialProfile> byConfigurationId;
     private final Map<String, CredentialProfile> byCredentialType;
@@ -143,6 +144,7 @@ public class CredentialProfileRegistry {
         }
     }
 
+    @Override
     public CredentialProfile getByConfigurationId(String credentialConfigurationId) {
         return byConfigurationId.get(credentialConfigurationId);
     }
