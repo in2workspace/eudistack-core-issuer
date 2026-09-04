@@ -326,6 +326,33 @@ class IssuanceControllerTest {
                 .jsonPath("$.responses[0].body.signed_credential").doesNotExist();
     }
 
+    /**
+     * TD-06 (code-review): the {@code delivery} field is rejected at Bean Validation, before
+     * {@code IssuanceWorkflow} ever runs -- the request never even reaches the mocked workflow, unlike
+     * {@link #createIssuance_InvalidDeliveryMode_Returns400()} below, which mocks a rejection that
+     * happens one layer further in ({@code DeliveryMode.parse}, inside the workflow).
+     */
+    @Test
+    void createIssuance_DeliveryContainsControlCharacters_Returns400WithoutInvokingWorkflow() throws JsonProcessingException {
+        IssuanceRequest request = IssuanceRequest.builder()
+                .credentialConfigurationId("test-schema")
+                .payload(objectMapper.createObjectNode().put("key", "value"))
+                .email("test@example.com")
+                .delivery("direct\r\nX-Forged-Header: 1")
+                .build();
+
+        webTestClient.mutateWith(csrf())
+                .post()
+                .uri(ISSUANCES_PATH)
+                .header("Authorization", BEARER_TOKEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(objectMapper.writeValueAsString(request))
+                .exchange()
+                .expectStatus().isBadRequest();
+
+        org.mockito.Mockito.verifyNoInteractions(issuanceWorkflow);
+    }
+
     @Test
     void createIssuance_InvalidDeliveryMode_Returns400() throws JsonProcessingException {
         IssuanceRequest request = buildIssuanceRequest();

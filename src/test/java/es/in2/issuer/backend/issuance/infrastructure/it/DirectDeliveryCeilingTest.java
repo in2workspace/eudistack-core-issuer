@@ -216,10 +216,16 @@ class DirectDeliveryCeilingTest {
     /**
      * ES-01: an unknown delivery mode is rejected as a 400 {@code invalid_request} before the ceiling
      * (or any other business rule) is even evaluated -- {@code DeliveryMode.parse} fails first.
+     *
+     * <p>Fixture is letters-only (no hyphen): this test targets {@code DeliveryMode.parse}'s rejection
+     * specifically, not the DTO-level {@code @Pattern} added for TD-06 -- a hyphenated value like the
+     * previous {@code "carrier-pigeon"} would now be rejected one layer earlier by Bean Validation,
+     * which this hand-wired {@code bindToController} harness (no default WebFlux exception handling,
+     * unlike the full app context) has no handler for.
      */
     @Test
     void createIssuance_InvalidDeliveryMode_Returns400InvalidRequest() throws JsonProcessingException {
-        IssuanceRequest request = buildIssuanceRequest(BOUND_CONFIG_ID, "carrier-pigeon");
+        IssuanceRequest request = buildIssuanceRequest(BOUND_CONFIG_ID, "carrierpigeon");
 
         webTestClient.post()
                 .uri(ISSUANCES_PATH)
@@ -231,7 +237,7 @@ class DirectDeliveryCeilingTest {
                 .expectBody()
                 .jsonPath("$.type").isEqualTo("invalid_request")
                 .jsonPath("$.status").isEqualTo(400)
-                .jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("carrier-pigeon"));
+                .jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("carrierpigeon"));
 
         verifyNoInteractions(credentialSignerWorkflow);
         verifyNoInteractions(statusListWorkflow);
