@@ -6,6 +6,7 @@ import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialDetails;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
+import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceHttpResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
@@ -40,11 +41,12 @@ public class IssuanceController {
     private final AccessTokenService accessTokenService;
     private final RevocationWorkflow revocationWorkflow;
     private final UrlResolver urlResolver;
+    private final IssuanceHttpEnvelopeMapper httpEnvelopeMapper;
 
     @PostMapping(
             consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
-    public Mono<ResponseEntity<IssuanceResponse>> createIssuance(
+    public Mono<ResponseEntity<IssuanceHttpResponse>> createIssuance(
             @RequestHeader(name = "X-Id-Token", required = false) String idToken,
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
             @Valid @RequestBody IssuanceRequest request,
@@ -136,18 +138,25 @@ public class IssuanceController {
                 });
     }
 
-    private ResponseEntity<IssuanceResponse> toResponseEntity(IssuanceResponse response) {
-        boolean hasSignedCredential = response.signedCredential() != null;
-        boolean hasCredentialOfferUri = response.credentialOfferUri() != null;
+    private ResponseEntity<IssuanceHttpResponse> toResponseEntity(IssuanceResponse response) {
         List<DeliveryResult> results = response.deliveryResults();
         boolean hasDeliveryResults = results != null && !results.isEmpty();
-        boolean anyChannelFailed = hasDeliveryResults
-                && results.stream().anyMatch(r -> r.status() == DeliveryResult.DeliveryOutcome.FAILED);
-        boolean anyChannelSucceeded = hasSignedCredential || hasCredentialOfferUri
-                || (hasDeliveryResults && results.stream().anyMatch(r -> r.status() != DeliveryResult.DeliveryOutcome.FAILED));
 
         log.debug("Issuance process completed. Signed Credential present: {}, Credential Offer URI present: {}, delivery results: {}",
-                hasSignedCredential, hasCredentialOfferUri, hasDeliveryResults ? results.size() : 0);
+                response.signedCredential() != null, response.credentialOfferUri() != null,
+                hasDeliveryResults ? results.size() : 0);
+
+        // No channel executed at all -- the pre-flight guard rejected before anything ran. Not
+        // modeled by D-5's responses[] envelope (that requires >=1 executed channel); every guard
+        // rejection is a thrown exception handled by IssuanceExceptionHandler before this method is
+        // ever reached, so this is the harmless residual default for an empty/absent result set.
+        if (!hasDeliveryResults) {
+            return ResponseEntity.accepted().build();
+        }
+
+        IssuanceHttpResponse body = httpEnvelopeMapper.toHttpResponse(response);
+        boolean anyChannelFailed = results.stream().anyMatch(r -> r.status() == DeliveryResult.DeliveryOutcome.FAILED);
+        boolean anyChannelSucceeded = results.stream().anyMatch(r -> r.status() != DeliveryResult.DeliveryOutcome.FAILED);
 
         // Mixed outcome (EUD-167 D-5 / AD-1 B, RFC 4918 §11.1/§13): at least one requested channel
         // completed and at least one failed, regardless of which channel is which -- supersedes
@@ -158,25 +167,17 @@ public class IssuanceController {
         // of being flattened here.
         if (anyChannelFailed && anyChannelSucceeded) {
             log.warn("Partial issuance outcome (mixed delivery results): {}", results);
-            return ResponseEntity.status(HttpStatus.MULTI_STATUS).body(response);
+            return ResponseEntity.status(HttpStatus.MULTI_STATUS).body(body);
         }
 
         // Every requested channel failed (e.g. wallet-only with the wallet dependency down, direct
         // never attempted so assembleOutcome had nothing to re-raise): not mixed, not a success.
         if (anyChannelFailed) {
             log.warn("Issuance fully failed across all requested channels: {}", results);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
-        }
-
-        if (hasSignedCredential || hasCredentialOfferUri) {
-            return ResponseEntity.ok(response);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(body);
         }
 
         // D-5: 202 wallet-only is retired -- a fully successful request is always 200.
-        if (hasDeliveryResults) {
-            return ResponseEntity.ok(response);
-        }
-
-        return ResponseEntity.accepted().build();
+        return ResponseEntity.ok(body);
     }
 }

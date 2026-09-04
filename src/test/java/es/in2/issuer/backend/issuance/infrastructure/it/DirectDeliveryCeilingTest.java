@@ -9,6 +9,7 @@ import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.issuance.infrastructure.config.properties.IssuanceProperties;
 import es.in2.issuer.backend.issuance.infrastructure.controller.IssuanceController;
 import es.in2.issuer.backend.issuance.infrastructure.controller.IssuanceExceptionHandler;
+import es.in2.issuer.backend.issuance.infrastructure.controller.IssuanceHttpEnvelopeMapper;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.policy.service.IssuancePdpService;
@@ -142,7 +143,8 @@ class DirectDeliveryCeilingTest {
                 mock(IssuanceService.class),
                 mock(AccessTokenService.class),
                 mock(RevocationWorkflow.class),
-                urlResolver
+                urlResolver,
+                new IssuanceHttpEnvelopeMapper()
         );
 
         // Stands in for TenantDomainWebFilter (which resolves the tenant against tenant_registry --

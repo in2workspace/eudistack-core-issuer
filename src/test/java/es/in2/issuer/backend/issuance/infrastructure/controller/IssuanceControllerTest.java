@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
+import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
@@ -50,7 +51,7 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
 @WithMockUser
 @MockitoBean(types = ReactiveAuthenticationManager.class)
 @WebFluxTest(IssuanceController.class)
-@Import(IssuanceExceptionHandler.class)
+@Import({IssuanceExceptionHandler.class, IssuanceHttpEnvelopeMapper.class})
 class IssuanceControllerTest {
 
     private static final String ISSUANCES_PATH = "/api/v1/issuances";
@@ -109,7 +110,7 @@ class IssuanceControllerTest {
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .credentialOfferUri(credentialOfferUri)
                         .deliveryResults(List.of(
-                                DeliveryResult.failed("direct", "QTSP unavailable"),
+                                DeliveryResult.failed("direct", DeliveryErrorCode.SIGNING_FAILED.value()),
                                 DeliveryResult.dispatched("ui")))
                         .build()));
 
@@ -122,11 +123,15 @@ class IssuanceControllerTest {
                 .exchange()
                 .expectStatus().isEqualTo(HttpStatus.MULTI_STATUS)
                 .expectBody()
-                .jsonPath("$.credential_offer_uri").isEqualTo(credentialOfferUri)
-                .jsonPath("$.delivery_results[0].mode").isEqualTo("direct")
-                .jsonPath("$.delivery_results[0].status").isEqualTo("failed")
-                .jsonPath("$.delivery_results[1].mode").isEqualTo("ui")
-                .jsonPath("$.delivery_results[1].status").isEqualTo("dispatched");
+                .jsonPath("$.responses[0].channel").isEqualTo("direct")
+                .jsonPath("$.responses[0].status").isEqualTo(503)
+                .jsonPath("$.responses[0].error.type").isEqualTo("signing_failed")
+                .jsonPath("$.responses[0].error.title").isEqualTo("Signing failed")
+                .jsonPath("$.responses[0].body").doesNotExist()
+                .jsonPath("$.responses[1].channel").isEqualTo("ui")
+                .jsonPath("$.responses[1].status").isEqualTo(200)
+                .jsonPath("$.responses[1].body.credential_offer_uri").isEqualTo(credentialOfferUri)
+                .jsonPath("$.responses[1].error").doesNotExist();
     }
 
     /**
@@ -146,7 +151,7 @@ class IssuanceControllerTest {
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .credentialOfferUri(credentialOfferUri)
                         .deliveryResults(List.of(
-                                DeliveryResult.failed("email", "SMTP unavailable"),
+                                DeliveryResult.failed("email", DeliveryErrorCode.DELIVERY_FAILED.value()),
                                 DeliveryResult.dispatched("ui")))
                         .build()));
 
@@ -159,9 +164,12 @@ class IssuanceControllerTest {
                 .exchange()
                 .expectStatus().isEqualTo(HttpStatus.MULTI_STATUS)
                 .expectBody()
-                .jsonPath("$.credential_offer_uri").isEqualTo(credentialOfferUri)
-                .jsonPath("$.delivery_results[0].status").isEqualTo("failed")
-                .jsonPath("$.delivery_results[1].status").isEqualTo("dispatched");
+                .jsonPath("$.responses[0].channel").isEqualTo("email")
+                .jsonPath("$.responses[0].status").isEqualTo(503)
+                .jsonPath("$.responses[0].error.type").isEqualTo("delivery_failed")
+                .jsonPath("$.responses[1].channel").isEqualTo("ui")
+                .jsonPath("$.responses[1].status").isEqualTo(200)
+                .jsonPath("$.responses[1].body.credential_offer_uri").isEqualTo(credentialOfferUri);
     }
 
     /**
@@ -179,8 +187,8 @@ class IssuanceControllerTest {
                 eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .deliveryResults(List.of(
-                                DeliveryResult.failed("email", "SMTP unavailable"),
-                                DeliveryResult.failed("ui", "wallet dependency down")))
+                                DeliveryResult.failed("email", DeliveryErrorCode.DELIVERY_FAILED.value()),
+                                DeliveryResult.failed("ui", DeliveryErrorCode.WALLET_DELIVERY_TIMEOUT.value())))
                         .build()));
 
         webTestClient.mutateWith(csrf())
@@ -192,8 +200,13 @@ class IssuanceControllerTest {
                 .exchange()
                 .expectStatus().is5xxServerError()
                 .expectBody()
-                .jsonPath("$.delivery_results[0].status").isEqualTo("failed")
-                .jsonPath("$.delivery_results[1].status").isEqualTo("failed");
+                .jsonPath("$.responses[0].channel").isEqualTo("email")
+                .jsonPath("$.responses[0].status").isEqualTo(503)
+                .jsonPath("$.responses[0].error.type").isEqualTo("delivery_failed")
+                // WALLET_DELIVERY_TIMEOUT maps to 504, distinct from the generic 503 (per-channel status).
+                .jsonPath("$.responses[1].channel").isEqualTo("ui")
+                .jsonPath("$.responses[1].status").isEqualTo(504)
+                .jsonPath("$.responses[1].error.type").isEqualTo("wallet_delivery_timeout");
     }
 
     @Test
@@ -206,6 +219,7 @@ class IssuanceControllerTest {
         when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .credentialOfferUri(credentialOfferUri)
+                        .deliveryResults(List.of(DeliveryResult.dispatched("ui")))
                         .build()));
 
         webTestClient.mutateWith(csrf())
@@ -217,7 +231,10 @@ class IssuanceControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.credential_offer_uri").isEqualTo(credentialOfferUri);
+                .jsonPath("$.responses[0].channel").isEqualTo("ui")
+                .jsonPath("$.responses[0].status").isEqualTo(200)
+                .jsonPath("$.responses[0].body.credential_offer_uri").isEqualTo(credentialOfferUri)
+                .jsonPath("$.responses[0].body.signed_credential").doesNotExist();
     }
 
     @Test
@@ -230,6 +247,7 @@ class IssuanceControllerTest {
         when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .signedCredential(signedCredential)
+                        .deliveryResults(List.of(DeliveryResult.delivered("direct")))
                         .build()));
 
         webTestClient.mutateWith(csrf())
@@ -241,7 +259,10 @@ class IssuanceControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.signed_credential").isEqualTo(signedCredential);
+                .jsonPath("$.responses[0].channel").isEqualTo("direct")
+                .jsonPath("$.responses[0].status").isEqualTo(200)
+                .jsonPath("$.responses[0].body.signed_credential").isEqualTo(signedCredential)
+                .jsonPath("$.responses[0].body.credential_offer_uri").doesNotExist();
     }
 
     @Test
@@ -268,22 +289,25 @@ class IssuanceControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.signed_credential").isEqualTo("signed-jwt")
-                .jsonPath("$.delivery_results[0].mode").isEqualTo("direct")
-                .jsonPath("$.delivery_results[0].status").isEqualTo("delivered")
-                .jsonPath("$.delivery_results[1].mode").isEqualTo("email")
-                .jsonPath("$.delivery_results[1].status").isEqualTo("dispatched");
+                .jsonPath("$.responses[0].channel").isEqualTo("direct")
+                .jsonPath("$.responses[0].status").isEqualTo(200)
+                .jsonPath("$.responses[0].body.signed_credential").isEqualTo("signed-jwt")
+                .jsonPath("$.responses[1].channel").isEqualTo("email")
+                .jsonPath("$.responses[1].status").isEqualTo(200)
+                .jsonPath("$.responses[1].body.credential_offer_uri").isEqualTo("openid-credential-offer://x");
     }
 
     /** D-5 retires the 202 wallet-only status: a fully successful request is always 200. */
     @Test
     void createIssuance_WalletOnly_Returns200WithDeliveryResultsBody() throws JsonProcessingException {
         IssuanceRequest request = buildIssuanceRequest();
+        String credentialOfferUri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fserver.example.com%2Fabc";
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
         when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
+                        .credentialOfferUri(credentialOfferUri)
                         .deliveryResults(List.of(DeliveryResult.dispatched("email")))
                         .build()));
 
@@ -296,9 +320,10 @@ class IssuanceControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.signed_credential").doesNotExist()
-                .jsonPath("$.delivery_results[0].mode").isEqualTo("email")
-                .jsonPath("$.delivery_results[0].status").isEqualTo("dispatched");
+                .jsonPath("$.responses[0].channel").isEqualTo("email")
+                .jsonPath("$.responses[0].status").isEqualTo(200)
+                .jsonPath("$.responses[0].body.credential_offer_uri").isEqualTo(credentialOfferUri)
+                .jsonPath("$.responses[0].body.signed_credential").doesNotExist();
     }
 
     @Test
