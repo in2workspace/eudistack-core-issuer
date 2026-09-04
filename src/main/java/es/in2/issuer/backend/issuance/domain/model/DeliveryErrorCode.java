@@ -3,7 +3,8 @@ package es.in2.issuer.backend.issuance.domain.model;
 import com.fasterxml.jackson.annotation.JsonValue;
 
 /**
- * Closed set of codes for {@code delivery_results[].error} (EUD-168 F3/W1).
+ * Closed set of codes for {@code responses[].error.type} (EUD-168 F3/W1; wire field renamed from
+ * {@code delivery_results[].error} by EUD-167 D-6 -- {@code deliveryResults} is now purely internal).
  *
  * <p>Before this, a failed mode carried {@code Throwable.getMessage()} verbatim: for the direct leg
  * that can be a {@code WebClientResponseException}'s method/URL from the signing provider or the

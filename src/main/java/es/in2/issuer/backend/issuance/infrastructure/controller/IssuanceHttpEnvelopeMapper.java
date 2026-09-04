@@ -16,10 +16,11 @@ import java.util.List;
  * Projects the domain-shaped {@link IssuanceResponse} (still flat: {@code signedCredential} /
  * {@code credentialOfferUri} / {@code deliveryResults}, produced by {@code IssuanceWorkflowImpl}
  * unchanged) onto the HTTP envelope EUD-167 D-5/D-6 specifies: one {@code responses[]} entry per
- * requested channel, {@code direct} carrying {@code signed_credential} in its {@code body} and
- * {@code ui}/{@code email} carrying {@code credential_offer_uri} -- or an RFC 9457 {@code error} for
- * a failed channel. {@link IssuanceController} decides the response-line HTTP status (200/207/500)
- * from the same {@code deliveryResults}; this mapper only shapes the body.
+ * requested channel, {@code direct} carrying {@code signed_credential} in its {@code body}, and
+ * {@code ui}/{@code email} carrying {@code credential_offer_uri} in it <em>only when there is one</em>
+ * (an email-only dispatch has none -- see {@link #offerBody}) -- or an RFC 9457 {@code error} for a
+ * failed channel. {@link IssuanceController} decides the response-line HTTP status (200/207/500) from
+ * the same {@code deliveryResults}; this mapper only shapes the body.
  */
 @Component
 public class IssuanceHttpEnvelopeMapper {
@@ -40,15 +41,24 @@ public class IssuanceHttpEnvelopeMapper {
 
     private ChannelResponse succeededChannel(DeliveryResult result, IssuanceResponse response) {
         // direct signs synchronously in this same request and returns the credential itself; ui/email
-        // both point at the same dispatched OID4VCI offer, just delivered through a different channel.
+        // both point at the same dispatched OID4VCI offer when there is one to point at. There isn't
+        // always: CredentialOfferServiceImpl only builds a URI when the requested modes include one
+        // that returnsUri (ui does, email alone does not) -- an email-only dispatch has nothing to
+        // report here, so body stays null rather than an uninformative empty object (B1, code-review).
         ChannelBody body = DeliveryMode.DIRECT.value.equals(result.mode())
                 ? ChannelBody.builder().signedCredential(response.signedCredential()).build()
-                : ChannelBody.builder().credentialOfferUri(response.credentialOfferUri()).build();
+                : offerBody(response.credentialOfferUri());
         return ChannelResponse.builder()
                 .channel(result.mode())
                 .status(200)
                 .body(body)
                 .build();
+    }
+
+    private ChannelBody offerBody(String credentialOfferUri) {
+        return credentialOfferUri != null
+                ? ChannelBody.builder().credentialOfferUri(credentialOfferUri).build()
+                : null;
     }
 
     private ChannelResponse failedChannel(DeliveryResult result) {
