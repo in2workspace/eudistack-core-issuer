@@ -92,13 +92,12 @@ class IssuanceControllerTest {
     private UrlResolver urlResolver;
 
     /**
-     * FR-11. A hybrid issuance whose direct mode failed is not a success: the operator asked for a
-     * credential on screen and has none, so the status is 5xx even though the wallet mode dispatched.
-     * The body is kept whole -- per-mode results and the credential offer URI -- because the QR that
-     * did get delivered is what the operator can still act on.
+     * EUD-167 D-6/D-5 (AD-1 B) supersedes EUD-168 AD-11's 500: a hybrid issuance whose direct mode
+     * failed while the wallet mode dispatched is a mixed outcome, reported as HTTP 207 Multi-Status
+     * (RFC 4918 §11.1/§13) with per-mode results and the credential offer URI intact -- not a 500.
      */
     @Test
-    void createIssuance_WhenDirectDeliveryFailedInHybrid_Returns500WithPerModeResultsAndOfferUri()
+    void createIssuance_WhenDirectDeliveryFailedInHybrid_Returns207WithPerModeResultsAndOfferUri()
             throws JsonProcessingException {
         IssuanceRequest request = buildIssuanceRequest();
         String credentialOfferUri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fserver.example.com%2Fabc";
@@ -121,7 +120,7 @@ class IssuanceControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(objectMapper.writeValueAsString(request))
                 .exchange()
-                .expectStatus().is5xxServerError()
+                .expectStatus().isEqualTo(HttpStatus.MULTI_STATUS)
                 .expectBody()
                 .jsonPath("$.credential_offer_uri").isEqualTo(credentialOfferUri)
                 .jsonPath("$.delivery_results[0].mode").isEqualTo("direct")
@@ -131,11 +130,12 @@ class IssuanceControllerTest {
     }
 
     /**
-     * The mirror case: a wallet mode failed but nothing the operator asked to receive synchronously
-     * did, so the request is a success reported per mode.
+     * The mirror case: a wallet mode failed while the direct mode delivered. Also a mixed outcome
+     * under D-5's general rule (at least one 2xx, at least one failure => 207) -- previously 200 under
+     * AD-11, which only looked at whether the *direct* mode failed.
      */
     @Test
-    void createIssuance_WhenOnlyAWalletModeFailed_Returns200WithPerModeResults() throws JsonProcessingException {
+    void createIssuance_WhenOnlyAWalletModeFailed_Returns207WithPerModeResults() throws JsonProcessingException {
         IssuanceRequest request = buildIssuanceRequest();
         String credentialOfferUri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fserver.example.com%2Fabc";
 
@@ -157,11 +157,43 @@ class IssuanceControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(objectMapper.writeValueAsString(request))
                 .exchange()
-                .expectStatus().isOk()
+                .expectStatus().isEqualTo(HttpStatus.MULTI_STATUS)
                 .expectBody()
                 .jsonPath("$.credential_offer_uri").isEqualTo(credentialOfferUri)
                 .jsonPath("$.delivery_results[0].status").isEqualTo("failed")
                 .jsonPath("$.delivery_results[1].status").isEqualTo("dispatched");
+    }
+
+    /**
+     * Every requested channel failed (e.g. the wallet dependency is down for a wallet-only request,
+     * so the direct leg was never attempted and assembleOutcome had nothing to re-raise). Not a mixed
+     * outcome -- a genuine failure, reported as 500 instead of 200/202.
+     */
+    @Test
+    void createIssuance_WhenAllChannelsFailed_Returns500() throws JsonProcessingException {
+        IssuanceRequest request = buildIssuanceRequest();
+
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(BEARER_TOKEN),
+                eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
+                .thenReturn(Mono.just(IssuanceResponse.builder()
+                        .deliveryResults(List.of(
+                                DeliveryResult.failed("email", "SMTP unavailable"),
+                                DeliveryResult.failed("ui", "wallet dependency down")))
+                        .build()));
+
+        webTestClient.mutateWith(csrf())
+                .post()
+                .uri(ISSUANCES_PATH)
+                .header("Authorization", BEARER_TOKEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(objectMapper.writeValueAsString(request))
+                .exchange()
+                .expectStatus().is5xxServerError()
+                .expectBody()
+                .jsonPath("$.delivery_results[0].status").isEqualTo("failed")
+                .jsonPath("$.delivery_results[1].status").isEqualTo("failed");
     }
 
     @Test
@@ -243,8 +275,9 @@ class IssuanceControllerTest {
                 .jsonPath("$.delivery_results[1].status").isEqualTo("dispatched");
     }
 
+    /** D-5 retires the 202 wallet-only status: a fully successful request is always 200. */
     @Test
-    void createIssuance_WalletOnly_Returns202WithDeliveryResultsBody() throws JsonProcessingException {
+    void createIssuance_WalletOnly_Returns200WithDeliveryResultsBody() throws JsonProcessingException {
         IssuanceRequest request = buildIssuanceRequest();
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
@@ -261,7 +294,7 @@ class IssuanceControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(objectMapper.writeValueAsString(request))
                 .exchange()
-                .expectStatus().isAccepted()
+                .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.signed_credential").doesNotExist()
                 .jsonPath("$.delivery_results[0].mode").isEqualTo("email")
