@@ -1,0 +1,59 @@
+name: deploy-pro-fallback
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Component version to publish, without the leading v
+        required: true
+        type: string
+      digest:
+        description: Exact STG image digest from release evidence (sha256:...)
+        required: true
+        type: string
+      source_sha:
+        description: Exact 40-character commit SHA from release evidence
+        required: true
+        type: string
+      release_run_id:
+        description: Release workflow run ID containing the attested release evidence
+        required: true
+        type: string
+      allow_downgrade:
+        description: Allow deployment of a version older than the current production version
+        required: false
+        default: false
+        type: boolean
+      downgrade_reason:
+        description: Required audit reason when deploying an older version
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+  id-token: write
+
+jobs:
+  deploy:
+    uses: in2workspace/eudistack-devops-workflows/.github/workflows/ecs-api-deploy-pro.yml@12ed6fa9090ebd4564c6541b67111ed4466a61b1
+    with:
+      version: ${{ inputs.version }}
+      digest: ${{ inputs.digest }}
+      source_sha: ${{ inputs.source_sha }}
+      release_run_id: ${{ inputs.release_run_id }}
+      project_name: 'eudistack'
+      app_name: 'issuer-core'
+      region_code: 'ew1'
+      production_smoke_url: 'https://sandbox.eudistack.net/issuer/health'
+      production_concurrency_group: ${{ vars.PRODUCTION_CONCURRENCY_GROUP || format('{0}-production', github.repository) }}
+      production_monitor_minutes: ${{ vars.PRO_MONITOR_MINUTES || '30' }}
+      allow_downgrade: ${{ inputs.allow_downgrade }}
+      downgrade_reason: ${{ inputs.downgrade_reason }}
+    secrets:
+      AWS_ACCESS_KEY_ID_STG: ${{ secrets.AWS_ACCESS_KEY_ID_STG }}
+      AWS_SECRET_ACCESS_KEY_STG: ${{ secrets.AWS_SECRET_ACCESS_KEY_STG }}
+      AWS_ACCESS_KEY_ID_PRO: ${{ secrets.AWS_ACCESS_KEY_ID_PRO }}
+      AWS_SECRET_ACCESS_KEY_PRO: ${{ secrets.AWS_SECRET_ACCESS_KEY_PRO }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
