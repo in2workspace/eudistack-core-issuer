@@ -2,7 +2,9 @@ name: pr-to-main
 
 on:
   pull_request:
-    branches: [main]
+    branches:
+      - main
+      - feature/EUD-33
     types: [opened, synchronize, reopened]
 
 env:
