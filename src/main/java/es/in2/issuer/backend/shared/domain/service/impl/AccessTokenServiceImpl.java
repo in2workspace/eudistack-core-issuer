@@ -96,9 +96,6 @@ public class AccessTokenServiceImpl implements AccessTokenService {
                     JsonNode root = parseTokenPayload(token);
                     JsonNode tenantNode = root.get("tenant");
                     String tenant = tenantNode != null && !tenantNode.isNull() ? tenantNode.asText() : null;
-                    // M3 (re-verification): normalize the same way TenantDomainWebFilter already
-                    // normalizes the resolved tenant side, so a legacy env-suffixed claim (e.g.
-                    // "sandbox-stg") doesn't fail requireTenantMatch's comparison on formatting alone.
                     return TenantIdentifiers.stripEnvSuffix(tenant);
                 }).onErrorMap(e -> e instanceof InvalidTokenException ? e : new InvalidTokenException()));
     }

@@ -51,13 +51,6 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.CREDEN
  *         read side can never relax the write side as a side effect.</li>
  * </ul>
  *
- * <p>Both gates additionally require the access token's own {@code tenant} claim to match
- * the resolved tenant ({@link #requireTenantMatch}) — SysAdmin included, no exemption
- * (security review, EUD-169, S1 / M2 follow-up): every other tenant-match check in the
- * codebase (issuance, revocation, {@code RequireTenantMatchRule}) already holds SysAdmin to
- * the same rule, and only bypasses a later, narrower power/organization check once a genuine
- * match already passed — this controller's own earlier exemption was the sole outlier, not a
- * shared convention.
  *
  * <p>An empty catalog is not a valid state: <b>PUT</b> with an empty
  * {@code enabledConfigurationIds} is rejected (400, bean validation) and <b>GET</b> answers
@@ -86,12 +79,6 @@ public class CredentialCatalogController {
                 .then(Mono.defer(tenantCredentialProfileService::getCatalog));
     }
 
-    /**
-     * A tenant's delivery-mode policy governs whether a credential can be delivered without
-     * holder binding, which makes an audit trail non-optional here (security review, EUD-169;
-     * conv-quality-security-gates.md §3.3/§3.4/§10.1). {@code doOnSuccess}/{@code doOnError}
-     * rather than a `try`/`catch`: the write itself must not fail because the audit sink does.
-     */
     @PutMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
     public Mono<Void> updateCatalog(
@@ -115,11 +102,6 @@ public class CredentialCatalogController {
                 }));
     }
 
-    /**
-     * Raw strings, parsed here rather than in the DTO (task-planner decision): keeps
-     * {@code DeliveryMode.parse} -- not this controller -- as the single source of truth for
-     * which combinations are valid (ES-01 unknown value, ES-02 empty set).
-     */
     private Map<String, Set<DeliveryMode>> parseDeliveryModes(Map<String, Set<String>> deliveryModesByConfigurationId) {
         if (deliveryModesByConfigurationId == null) {
             return Map.of();
@@ -177,27 +159,7 @@ public class CredentialCatalogController {
                 });
     }
 
-    /**
-     * Security review (EUD-169, S1): the tenant is resolved from {@code X-Tenant}/the
-     * request host ({@code TenantDomainWebFilter}), a value the caller controls, while the
-     * access token's own {@code tenant} claim is never cross-checked against it -- a caller
-     * holding a valid token for their own tenant could read or write another tenant's
-     * catalog by sending a different {@code X-Tenant}. SAD §8.6/§8.7 step 5 mandates this
-     * check for every backend; this closes it for the catalog specifically (scoped fix --
-     * {@code IssuanceController}/{@code MeController} share the same gap via
-     * {@code AccessTokenServiceImpl.getAuthorizationContext()} and are tracked separately,
-     * TDG-21).
-     *
-     * <p>No SysAdmin exemption (M2, re-verification: reversed 2026-09-10 — see F2 in
-     * {@code quality-report.md}, formerly kept as an accepted convention). Verified that no
-     * other tenant-match check in the codebase actually exempts SysAdmin: {@code
-     * RequireTenantMatchRule} (the PDP rule used for issuance and revocation) never bypasses
-     * it either, and the SysAdmin bypasses that do exist elsewhere ({@code RequirePowerRule},
-     * {@code RequireOrganizationRule}) only skip a narrower power/organization check that
-     * runs <em>after</em> a genuine tenant match already succeeded. A SysAdmin administering a
-     * tenant other than their own must hold a token whose {@code tenant} claim actually names
-     * it, exactly like everyone else.
-     */
+
     private Mono<AuthorizationContext> requireTenantMatch(AuthorizationContext ctx, String authorizationHeader) {
         return Mono.deferContextual(reactorCtx -> {
             String tenantDomain = reactorCtx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, SYSTEM_TENANT);

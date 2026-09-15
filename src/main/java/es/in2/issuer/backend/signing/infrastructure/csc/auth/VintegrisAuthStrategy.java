@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import javax.annotation.Nullable;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
@@ -73,26 +74,29 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
     }
 
     private Mono<String> authorizeApp(RemoteSignatureDto cfg, String jwt) {
+        logSensitiveRequest("POST", cfg.authUrl() + AUTHORIZE_PATH, "Authorization", jwt, null);
         return webClient.post()
                 .uri(cfg.authUrl() + AUTHORIZE_PATH)
                 .header("Authorization", jwt)
                 .retrieve()
                 .bodyToMono(TrustedAppActivationResponse.class)
                 .map(r -> r.content().authorization())
-                .doOnNext(_ -> log.debug("Vintegris trusted app authorized"))
+                .doOnNext(appToken -> logSensitiveResponse(cfg.authUrl() + AUTHORIZE_PATH, "authorization=" + appToken))
                 .doOnError(e -> log.error("Vintegris trusted app authorization failed", e));
     }
 
     private Mono<String> fetchSimpleToken(RemoteSignatureDto cfg, String appToken) {
         String encodedUsername = Base64.getEncoder()
                 .encodeToString(cfg.managerId().getBytes(StandardCharsets.UTF_8));
+        String uri = cfg.authUrl() + SIMPLE_TOKEN_PATH + "?username=" + encodedUsername;
+        logSensitiveRequest("POST", uri, "Application", appToken, null);
         return webClient.post()
-                .uri(cfg.authUrl() + SIMPLE_TOKEN_PATH + "?username=" + encodedUsername)
+                .uri(uri)
                 .header("Application", appToken)
                 .retrieve()
                 .bodyToMono(SimpleTokenResponse.class)
                 .map(r -> r.content().token())
-                .doOnNext(_ -> log.debug("Vintegris simple token acquired"))
+                .doOnNext(simpleToken -> logSensitiveResponse(uri, "token=" + simpleToken))
                 .doOnError(e -> log.error("Vintegris simple token fetch failed", e));
     }
 
@@ -104,15 +108,35 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
      * and the app token (Application) are sent as {@code Bearer} credentials.
      */
     private Mono<String> fetchRobustToken(RemoteSignatureDto cfg, String appToken, String simpleToken) {
+        String uri = cfg.authUrl() + ROBUST_TOKEN_PATH;
+        logSensitiveRequest("POST", uri, "Authorization=Bearer " + simpleToken, "Application=Bearer " + appToken, null);
         return webClient.post()
-                .uri(cfg.authUrl() + ROBUST_TOKEN_PATH)
+                .uri(uri)
                 .header("Authorization", "Bearer " + simpleToken)
                 .header("Application", "Bearer " + appToken)
                 .retrieve()
                 .bodyToMono(SimpleTokenResponse.class)
                 .map(r -> r.content().token())
-                .doOnNext(_ -> log.debug("Vintegris robust token acquired"))
+                .doOnNext(robustToken -> logSensitiveResponse(uri, "token=" + robustToken))
                 .doOnError(e -> log.error("Vintegris robust token fetch failed", e));
+    }
+
+    /**
+     * DEBUG-only, local-dev logging of the full outbound request, including the
+     * signed JWT / bearer tokens sent as headers. Never enable {@code es.in2.issuer}
+     * at DEBUG outside a local machine: these lines print secrets that must not
+     * reach shared logs (staging/prod, log aggregators, CI artifacts).
+     */
+    private void logSensitiveRequest(String method, String url, String header1, String header2, @Nullable String body) {
+        if (log.isDebugEnabled()) {
+            log.debug("[SIGNING-HTTP][SENSITIVE][LOCAL-ONLY] --> {} {} {} {} body={}", method, url, header1, header2, body);
+        }
+    }
+
+    private void logSensitiveResponse(String url, String body) {
+        if (log.isDebugEnabled()) {
+            log.debug("[SIGNING-HTTP][SENSITIVE][LOCAL-ONLY] <-- {} body={}", url, body);
+        }
     }
 
     private byte[] sha256(String value) throws Exception {

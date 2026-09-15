@@ -13,8 +13,7 @@ public interface AccessTokenService {
 
     /**
      * Extracts the {@code tenant} claim from the access token, if present. Empty (not an
-     * error) when the claim is absent -- callers that require it decide how to react
-     * (security review, EUD-169: {@code CredentialCatalogController} rejects on mismatch).
+     * error) when the claim is absent -- callers that require it decide how to react.
      */
     Mono<String> getTokenTenant(String authorizationHeader);
 }

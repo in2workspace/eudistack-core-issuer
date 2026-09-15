@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.issuance.application.workflow.impl;
 
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
+import es.in2.issuer.backend.oidc4vci.application.workflow.impl.Oid4VciCredentialWorkflowImpl;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
@@ -251,10 +252,6 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
             return Mono.error(ex);
         }
 
-        // Single point of resolution (AD-5): the same seam the admin-facing catalog reads from
-        // (EUD-169), so issuance can never reject a mode the catalog promised, or accept one the
-        // catalog would have rejected. Any error/timeout propagates untouched -- fail-closed,
-        // ES-09: no onErrorReturn/onErrorResume default.
         return deliveryEligibilityResolver.resolveEligibleModes(configId)
                 .flatMap(eligible -> {
                     for (DeliveryMode mode : modes) {

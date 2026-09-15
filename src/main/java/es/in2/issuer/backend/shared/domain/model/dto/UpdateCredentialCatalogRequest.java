@@ -23,15 +23,6 @@ import java.util.Set;
  * currently-stored delivery modes rather than clearing them. Values are raw strings --
  * parsed into {@code DeliveryMode} at the controller boundary, not here.
  *
- * <p>Security review (F4): the map, its keys and its values are bounded -- an
- * unconstrained map previously let an attacker-controlled key (a
- * {@code credential_configuration_id} that is never validated against the registry before
- * being echoed into an error message) or a {@code null} value reach a log line / RFC-9457
- * {@code detail} unsanitized. The registry today holds ~7 profiles and a request declares
- * at most 3 delivery modes (direct/email/ui); the bounds below are generous, not tight.
- * {@code enabledConfigurationIds} carries the same bound (F4, second pass): it was left
- * unbounded when the sibling map was first fixed, reaching {@code UnknownCredentialConfigurationException}'s
- * message (and its log line) unsanitized the same way.
  */
 public record UpdateCredentialCatalogRequest(
         @NotEmpty(message = "enabledConfigurationIds must not be empty")

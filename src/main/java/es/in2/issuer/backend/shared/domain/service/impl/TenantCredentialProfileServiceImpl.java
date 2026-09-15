@@ -80,22 +80,6 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
                 .map(enabledIds -> enabledIds.contains(credentialConfigurationId));
     }
 
-    /**
-     * Unlike {@link #getEnabledConfigurationIds()} (tolerant of a missing tenant --
-     * {@link es.in2.issuer.backend.shared.domain.service.impl.CredentialIssuerMetadataServiceImpl}
-     * reads it for public, unauthenticated metadata), this feeds a security decision
-     * ({@link es.in2.issuer.backend.shared.domain.service.DeliveryEligibilityResolver} on the
-     * issuance path) and must fail closed rather than silently resolve against {@code public}
-     * schema (security review, EUD-169).
-     *
-     * <p>Security review (F6): a type not enabled for this tenant errors with
-     * {@link CredentialConfigurationNotEnabledException} instead of emitting an empty
-     * {@code Set} -- an empty value means "enabled, but no delivery modes configured, default
-     * to the schema ceiling" (AD-8); collapsing "not enabled at all" into that same empty value
-     * let an unenabled type inherit the ceiling instead of being refused.
-     * {@link es.in2.issuer.backend.shared.domain.service.DeliveryEligibilityResolver} already
-     * propagates any error untouched (ES-09, fail-closed), so no caller change was needed.
-     */
     @Override
     public Mono<Set<DeliveryMode>> findConfiguredDeliveryModes(String credentialConfigurationId) {
         return Mono.deferContextual(ctx -> {
@@ -151,14 +135,6 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
         }));
     }
 
-    /**
-     * Validates, in this strict order, before any transaction opens: (1) every enabled id is
-     * known to the registry -- must run before touching {@link SchemaDeliveryCeiling}, which
-     * throws an unchecked, unhandled {@link IllegalStateException} (→ generic 500) for an
-     * unknown id; (2) every id declaring delivery modes is among the enabled ids (ES-03); (3)
-     * each declared set of modes is within that type's schema ceiling (AC-04 → 409, via
-     * {@link #validateWithinCeiling}).
-     */
     private void validateUpdateRequest(Set<String> enabledConfigurationIds, Map<String, Set<DeliveryMode>> deliveryModesByConfigurationId) {
         validateKnownToRegistry(enabledConfigurationIds);
 
@@ -215,14 +191,6 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
      * {@link #getCatalog()}, and {@code DeliveryEligibilityResolver} via
      * {@link #findConfiguredDeliveryModes}) fall back to the schema ceiling for (AD-8); an
      * absent key means "not enabled". {@code keySet()} of this map is exactly the enabled ids.
-     *
-     * <p>Security review (F10/TD-5): the cache key falls back to {@link
-     * es.in2.issuer.backend.shared.domain.util.Constants#SYSTEM_TENANT}, the same sentinel
-     * {@link es.in2.issuer.backend.shared.infrastructure.config.TenantAwareConnectionFactoryDecorator}
-     * uses for the identical fallback -- it is what the connection factory actually resolves
-     * the {@code search_path} to (the {@code public} schema) when the tenant is absent, so the
-     * cache key now names the real key space instead of an ad hoc string that corresponded to
-     * nothing.
      */
     private Mono<Map<String, Set<DeliveryMode>>> getTenantModesMap() {
         return Mono.deferContextual(ctx -> {

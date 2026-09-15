@@ -54,12 +54,6 @@ import static org.mockito.Mockito.when;
  * {@link IssuancePdpService} -- and everything a rejected request must never reach -- signing, status
  * list, persistence, the Wallet offer trigger -- are mocked, because those are the actual I/O
  * boundaries {@link IssuanceWorkflowImpl} injects.
- *
- * <p>No Spring context, no Testcontainers (TD-07): {@code IssuanceController} and
- * {@code IssuanceWorkflowImpl} are constructed by hand and bound directly via
- * {@code WebTestClient.bindToController}, with a stub {@link WebFilter} standing in for
- * {@code TenantDomainWebFilter} (which itself needs a DB-backed tenant registry lookup this test has
- * no reason to pull in).
  */
 class DirectDeliveryCeilingTest {
 

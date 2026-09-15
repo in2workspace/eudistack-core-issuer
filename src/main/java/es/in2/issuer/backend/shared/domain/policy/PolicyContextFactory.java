@@ -146,9 +146,7 @@ public class PolicyContextFactory {
      * The verifier injects this claim based on the OIDC client's tenant configuration.
      *
      * <p>Normalized the same way {@code TenantDomainWebFilter} already normalizes the resolved
-     * tenant side (M3, re-verification): a legacy env-suffixed claim (e.g. {@code "sandbox-stg"})
-     * must not fail {@link es.in2.issuer.backend.shared.domain.policy.rules.RequireTenantMatchRule}'s
-     * comparison on formatting alone.
+     * tenant side.
      */
     private String extractTokenTenant(com.nimbusds.jose.Payload payload) {
         try {
