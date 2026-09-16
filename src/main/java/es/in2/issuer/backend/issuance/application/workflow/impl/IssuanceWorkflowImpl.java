@@ -547,8 +547,14 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                     // The cnf travels on the row, not in this request: the wallet legs sign in a
                     // later request to the Credential Endpoint, where the holder key of an exempt
                     // type has no other source (AD-8).
-                    Issuance issuance = buildIssuanceEntity(issuanceId, configId, profile.format(),
-                            buildResult, request.email(), oid4vciDelivery, cnf, grantType);
+                    Issuance issuance = buildIssuanceEntity(
+                            issuanceId,
+                            request,
+                            profile,
+                            buildResult,
+                            oid4vciDelivery,
+                            cnf,
+                            grantType);
 
                     return issuanceService.saveIssuance(issuance)
                             .doOnSuccess(saved -> log.debug("ProcessId: {} - Created OID4VCI issuance: {}", processId, saved.getIssuanceId()))
@@ -562,20 +568,26 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 });
     }
 
-    private Issuance buildIssuanceEntity(UUID issuanceId, String credentialType, String credentialFormat,
-                                          CredentialBuildResult buildResult, String email, String delivery,
-                                          Map<String, Object> cnf, String grantType) {
+    private Issuance buildIssuanceEntity(
+            UUID issuanceId,
+            IssuanceRequest request,
+            CredentialProfile profile,
+            CredentialBuildResult buildResult,
+            String delivery,
+            Map<String, Object> cnf,
+            String grantType) {
+
         return Issuance.builder()
                 .issuanceId(issuanceId)
                 .credentialStatus(CredentialStatusEnum.DRAFT)
                 .credentialDataSet(buildResult.credentialDataSet())
-                .credentialFormat(credentialFormat)
+                .credentialFormat(profile.format())
                 .organizationIdentifier(buildResult.organizationIdentifier())
-                .credentialType(credentialType)
+                .credentialType(request.credentialConfigurationId())
                 .subject(buildResult.subject())
                 .validFrom(buildResult.validFrom())
                 .validUntil(buildResult.validUntil())
-                .email(email)
+                .email(request.email())
                 .delivery(delivery)
                 .grantType(grantType)
                 .credentialOfferRefreshToken(UUID.randomUUID().toString())
