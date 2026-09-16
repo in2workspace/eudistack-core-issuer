@@ -22,7 +22,7 @@ class CertificateServiceImplTest {
 
     private CertificateServiceImpl certificateService;
 
-    // Self-signed certificate WITH OID 2.5.4.97 = "VATES-B12345678"
+    // Self-signed certificate WITH OID 2.5.4.97 = "VATES-B12345678".
     // Generated with: keytool -genkeypair -dname "CN=Test Certificate, O=Test Org, OID.2.5.4.97=VATES-B12345678"
     private static final String PEM_CERT_WITH_ORG_ID =
             "-----BEGIN CERTIFICATE-----\n" +

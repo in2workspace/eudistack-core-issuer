@@ -57,6 +57,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import java.util.EnumSet;
 import java.util.UUID;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.AUTHORIZATION_CODE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -145,7 +146,7 @@ class IssuanceWorkflowImplTest {
         when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
-                issuanceId.toString(), CONFIG_ID, "authorization_code",
+                issuanceId.toString(), CONFIG_ID, AUTHORIZATION_CODE,
                 EMAIL, "email", "refresh-token-123", BASE_URL, WALLET_URL))
                 .thenReturn(Mono.just(offerResult));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
@@ -159,7 +160,7 @@ class IssuanceWorkflowImplTest {
 
         verify(issuanceService).saveIssuance(any(Issuance.class));
         verify(credentialOfferService).createAndDeliverCredentialOffer(
-                issuanceId.toString(), CONFIG_ID, "authorization_code",
+                issuanceId.toString(), CONFIG_ID, AUTHORIZATION_CODE,
                 EMAIL, "email", "refresh-token-123", BASE_URL, WALLET_URL);
         // A wallet offer is not an emitted credential — only the OID4VCI /credential endpoint
         // (where the wallet actually collects it) counts this leg.
@@ -2015,7 +2016,7 @@ class IssuanceWorkflowImplTest {
         when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
-                issuanceId.toString(), CONFIG_ID, "authorization_code",
+                issuanceId.toString(), CONFIG_ID, AUTHORIZATION_CODE,
                 EMAIL, "email", "refresh-token-123", BASE_URL, WALLET_URL))
                 .thenReturn(Mono.just(offerResult));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
