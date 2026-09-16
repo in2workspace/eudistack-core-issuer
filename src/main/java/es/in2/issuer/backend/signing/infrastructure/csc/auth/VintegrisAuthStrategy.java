@@ -77,18 +77,14 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
     }
 
     private Mono<String> authorizeApp(RemoteSignatureDto cfg, String jwt) {
-        logSensitiveRequest("POST", cfg.authUrl() + AUTHORIZE_PATH, AUTHORIZATION_HEADER, jwt, null);
         return webClient.post()
                 .uri(cfg.authUrl() + AUTHORIZE_PATH)
                 .header(AUTHORIZATION_HEADER, jwt)
                 .retrieve()
                 .bodyToMono(TrustedAppActivationResponse.class)
                 .map(r -> r.content().authorization())
-                .doOnNext(appToken ->
-                        logSensitiveResponse(
-                                cfg.authUrl() + AUTHORIZE_PATH,
-                                "authorization=" + appToken
-                        ))
+                .doOnNext(_ ->
+                        log.debug("Vintegris trusted app authorized"))
                 .doOnError(e -> log.error("Vintegris trusted app authorization failed", e));
     }
 
@@ -97,15 +93,13 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
                 .encodeToString(cfg.managerId().getBytes(StandardCharsets.UTF_8));
         String uri = cfg.authUrl() + SIMPLE_TOKEN_PATH + "?username=" + encodedUsername;
 
-        logSensitiveRequest("POST", uri, APPLICATION_HEADER, appToken, null);
-
         return webClient.post()
                 .uri(uri)
                 .header(APPLICATION_HEADER, appToken)
                 .retrieve()
                 .bodyToMono(SimpleTokenResponse.class)
                 .map(r -> r.content().token())
-                .doOnNext(simpleToken -> logSensitiveResponse(uri, "token=" + simpleToken))
+                .doOnNext(_ -> log.debug("Vintegris simple token acquired"))
                 .doOnError(e -> log.error("Vintegris simple token fetch failed", e));
     }
 
@@ -123,14 +117,6 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
     ) {
         String uri = cfg.authUrl() + ROBUST_TOKEN_PATH;
 
-        logSensitiveRequest(
-                "POST",
-                uri,
-                AUTHORIZATION_HEADER + "=Bearer " + simpleToken,
-                APPLICATION_HEADER + "=Bearer " + appToken,
-                null
-        );
-
         return webClient.post()
                 .uri(uri)
                 .header(AUTHORIZATION_HEADER, "Bearer " + simpleToken)
@@ -138,43 +124,8 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
                 .retrieve()
                 .bodyToMono(SimpleTokenResponse.class)
                 .map(r -> r.content().token())
-                .doOnNext(robustToken -> logSensitiveResponse(uri, "token=" + robustToken))
+                .doOnNext(_ -> log.debug("Vintegris robust token acquired"))
                 .doOnError(e -> log.error("Vintegris robust token fetch failed", e));
-    }
-
-    /**
-     * DEBUG-only, local-dev logging of the full outbound request, including the
-     * signed JWT / bearer tokens sent as headers. Never enable {@code es.in2.issuer}
-     * at DEBUG outside a local machine: these lines print secrets that must not
-     * reach shared logs (staging/prod, log aggregators, CI artifacts).
-     */
-    private void logSensitiveRequest(
-            String method,
-            String url,
-            String header1,
-            String header2,
-            @Nullable String body
-    ) {
-        if (log.isDebugEnabled()) {
-            log.debug(
-                    "[SIGNING-HTTP][SENSITIVE][LOCAL-ONLY] --> {} {} {} {} body={}",
-                    method,
-                    url,
-                    header1,
-                    header2,
-                    body
-            );
-        }
-    }
-
-    private void logSensitiveResponse(String url, String body) {
-        if (log.isDebugEnabled()) {
-            log.debug(
-                    "[SIGNING-HTTP][SENSITIVE][LOCAL-ONLY] <-- {} body={}",
-                    url,
-                    body
-            );
-        }
     }
 
     private byte[] sha256(String value) throws Exception {
