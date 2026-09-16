@@ -1,17 +1,23 @@
 package es.in2.issuer.backend.shared.infrastructure.controller;
 
+import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.domain.exception.CredentialCatalogNotConfiguredException;
+import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
+import es.in2.issuer.backend.shared.domain.exception.InvalidDeliveryConfigException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
 import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
-import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.context.annotation.Import;
@@ -24,9 +30,12 @@ import reactor.core.publisher.Mono;
 
 import java.util.List;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.SYSTEM_TENANT;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.CREDENTIAL_CATALOG_PATH;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -47,6 +56,9 @@ class CredentialCatalogControllerTest {
     @MockitoBean
     private TenantCredentialProfileService tenantCredentialProfileService;
 
+    @MockitoBean
+    private AuditService auditService;
+
     // Required only because @WebFluxTest loads all @ControllerAdvice and WebFilter beans:
     // Oidc4vciExceptionHandler depends on NonceService, IdempotencyFilter on IssuanceMetrics.
     @MockitoBean
@@ -58,13 +70,34 @@ class CredentialCatalogControllerTest {
     @MockitoBean
     private TenantRegistryService tenantRegistryService;
 
+    /**
+     * Default stub for the tenant-match gate (security review, EUD-169, S1): this slice test
+     * has no {@code TenantDomainWebFilter}, so the resolved tenant defaults to {@link
+     * SYSTEM_TENANT} ({@code TENANT_DOMAIN_CONTEXT_KEY}'s fallback, L2: aligned with the same
+     * sentinel TD-5 already adopted in {@code TenantCredentialProfileServiceImpl}, replacing
+     * the ad hoc {@code "unknown"} string this controller used to fall back to) -- matching it
+     * here keeps every pre-existing test passing without asserting anything about tenant
+     * matching. Tests that care about the mismatch override this per-test.
+     */
+    @BeforeEach
+    void stubTokenTenantMatchesDefault() {
+        when(accessTokenService.getTokenTenant(anyString())).thenReturn(Mono.just(SYSTEM_TENANT));
+    }
+
     @Test
     void getCatalog_asTenantAdmin_returns200WithEntries() {
         when(accessTokenService.getAuthorizationContext(anyString()))
                 .thenReturn(Mono.just(admin()));
         when(tenantCredentialProfileService.getCatalog())
                 .thenReturn(Mono.just(List.of(
-                        new CredentialCatalogEntryDto("learcredential.employee.w3c.4", "Employee", true))));
+                        new CredentialCatalogEntryDto(
+                                "learcredential.employee.w3c.4",
+                                "Employee",
+                                true,
+                                List.of(),
+                                List.of()
+                        )
+                )));
 
         webTestClient.get()
                 .uri(CREDENTIAL_CATALOG_PATH)
@@ -72,22 +105,139 @@ class CredentialCatalogControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$[0].credentialConfigurationId").isEqualTo("learcredential.employee.w3c.4")
-                .jsonPath("$[0].enabled").isEqualTo(true);
+                .jsonPath("$[0].credentialConfigurationId")
+                .isEqualTo("learcredential.employee.w3c.4")
+                .jsonPath("$[0].enabled")
+                .isEqualTo(true);
     }
 
+    /**
+     * AD-16 (2026-09-08 (2)): the operator (LEAR) can now read the catalog to discover a
+     * type's eligible delivery modes and schema ceiling before attempting to issue it --
+     * the single test in this whole Story whose intent inverts (it used to assert 403).
+     */
     @Test
-    void getCatalog_asLear_returns403AndDoesNotReadCatalog() {
+    void getCatalog_asLear_returns200AndReadsCatalog() {
         when(accessTokenService.getAuthorizationContext(anyString()))
                 .thenReturn(Mono.just(lear()));
+        when(tenantCredentialProfileService.getCatalog())
+                .thenReturn(Mono.just(List.of(
+                        new CredentialCatalogEntryDto(
+                                "learcredential.employee.w3c.4",
+                                "Employee",
+                                true,
+                                List.of(),
+                                List.of()
+                        )
+                )));
 
         webTestClient.get()
                 .uri(CREDENTIAL_CATALOG_PATH)
                 .header("Authorization", "Bearer token")
                 .exchange()
-                .expectStatus().isForbidden();
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$[0].credentialConfigurationId")
+                .isEqualTo("learcredential.employee.w3c.4");
 
-        verify(tenantCredentialProfileService, never()).getCatalog();
+        verify(tenantCredentialProfileService).getCatalog();
+    }
+
+    /**
+     * AC-12: the operator's read carries the same eligible-modes/schema-ceiling
+     * enrichment as the administrator's, so it can guide the operator's delivery-mode
+     * choice before issuance.
+     */
+    @Test
+    void getCatalog_asLear_returns200WithDeliveryModesAndSchemaCeiling() {
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(lear()));
+        when(tenantCredentialProfileService.getCatalog())
+                .thenReturn(Mono.just(List.of(
+                        new CredentialCatalogEntryDto(
+                                "learcredential.employee.w3c.4",
+                                "Employee",
+                                true,
+                                List.of("email", "ui"),
+                                List.of("email", "ui")
+                        )
+                )));
+
+        webTestClient.get()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$[0].deliveryModes[0]")
+                .isEqualTo("email")
+                .jsonPath("$[0].schemaEligibleModes[0]")
+                .isEqualTo("email");
+    }
+
+    /**
+     * EC-12: the same tenant state produces an identical payload for the administrator
+     * and for the operator -- eligibility does not depend on who is asking.
+     */
+    @Test
+    void getCatalog_sameStateAsAdminAndAsLear_returnsIdenticalPayload() {
+        List<CredentialCatalogEntryDto> catalog = List.of(
+                new CredentialCatalogEntryDto(
+                        "learcredential.employee.w3c.4",
+                        "Employee",
+                        true,
+                        List.of("email", "ui"),
+                        List.of("email", "ui")
+                )
+        );
+
+        when(tenantCredentialProfileService.getCatalog()).thenReturn(Mono.just(catalog));
+
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(admin()));
+
+        byte[] adminBody = webTestClient.get()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .returnResult()
+                .getResponseBody();
+
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(lear()));
+
+        byte[] learBody = webTestClient.get()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(adminBody).isEqualTo(learBody);
+    }
+
+    /**
+     * AD-16 / R-13: {@code UserRole} has exactly three values today, which is what makes
+     * {@code canReadCredentialCatalog()}'s explicit role check vacuously true. This test
+     * exists to go red the moment a fourth value is added, forcing a conscious decision
+     * about whether it can read the catalog instead of it inheriting access silently.
+     */
+    @Test
+    void canReadCredentialCatalog_allThreeRolesPass_exhaustivenessTripwire() {
+        assertThat(UserRole.values()).hasSize(3);
+
+        for (UserRole role : UserRole.values()) {
+            AuthorizationContext ctx =
+                    new AuthorizationContext("org-1", role, false, "tenant");
+
+            assertThat(ctx.canReadCredentialCatalog())
+                    .as("role %s must pass canReadCredentialCatalog()", role)
+                    .isTrue();
+        }
     }
 
     /**
@@ -100,7 +250,14 @@ class CredentialCatalogControllerTest {
                 .thenReturn(Mono.just(readOnlyAdmin()));
         when(tenantCredentialProfileService.getCatalog())
                 .thenReturn(Mono.just(List.of(
-                        new CredentialCatalogEntryDto("learcredential.employee.w3c.4", "Employee", true))));
+                        new CredentialCatalogEntryDto(
+                                "learcredential.employee.w3c.4",
+                                "Employee",
+                                true,
+                                List.of(),
+                                List.of()
+                        )
+                )));
 
         webTestClient.get()
                 .uri(CREDENTIAL_CATALOG_PATH)
@@ -108,14 +265,15 @@ class CredentialCatalogControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$[0].credentialConfigurationId").isEqualTo("learcredential.employee.w3c.4");
+                .jsonPath("$[0].credentialConfigurationId")
+                .isEqualTo("learcredential.employee.w3c.4");
     }
 
     @Test
     void updateCatalog_asTenantAdmin_returns200() {
         when(accessTokenService.getAuthorizationContext(anyString()))
                 .thenReturn(Mono.just(admin()));
-        when(tenantCredentialProfileService.updateCatalog(any()))
+        when(tenantCredentialProfileService.updateCatalog(any(), any()))
                 .thenReturn(Mono.empty());
 
         webTestClient.mutateWith(csrf())
@@ -123,9 +281,56 @@ class CredentialCatalogControllerTest {
                 .uri(CREDENTIAL_CATALOG_PATH)
                 .header("Authorization", "Bearer token")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}")
+                .bodyValue(
+                        "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}"
+                )
                 .exchange()
                 .expectStatus().isOk();
+
+        // Security review (EUD-169, F2): a catalog write is a policy change and must be
+        // audit-logged with the caller's organization as actor -- not just a plain log line.
+        verify(auditService).auditSuccess(
+                eq("tenant.credential_catalog.changed"),
+                eq("org-1"),
+                eq("credential-catalog"),
+                anyString(),
+                any()
+        );
+    }
+
+    @Test
+    void updateCatalog_serviceFails_auditsFailureNotSuccess() {
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(admin()));
+        when(tenantCredentialProfileService.updateCatalog(any(), any()))
+                .thenReturn(Mono.error(
+                        new UnknownCredentialConfigurationException(
+                                "Unknown credential configuration id(s): [nope]"
+                        )
+                ));
+
+        webTestClient.mutateWith(csrf())
+                .put()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"enabledConfigurationIds\":[\"nope\"]}")
+                .exchange()
+                .expectStatus().isBadRequest();
+
+        verify(auditService).auditFailure(
+                eq("tenant.credential_catalog.changed"),
+                eq("org-1"),
+                anyString(),
+                any()
+        );
+        verify(auditService, never()).auditSuccess(
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                any()
+        );
     }
 
     @Test
@@ -138,11 +343,13 @@ class CredentialCatalogControllerTest {
                 .uri(CREDENTIAL_CATALOG_PATH)
                 .header("Authorization", "Bearer token")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}")
+                .bodyValue(
+                        "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}"
+                )
                 .exchange()
                 .expectStatus().isForbidden();
 
-        verify(tenantCredentialProfileService, never()).updateCatalog(any());
+        verify(tenantCredentialProfileService, never()).updateCatalog(any(), any());
     }
 
     @Test
@@ -155,20 +362,25 @@ class CredentialCatalogControllerTest {
                 .uri(CREDENTIAL_CATALOG_PATH)
                 .header("Authorization", "Bearer token")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}")
+                .bodyValue(
+                        "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}"
+                )
                 .exchange()
                 .expectStatus().isForbidden();
 
-        verify(tenantCredentialProfileService, never()).updateCatalog(any());
+        verify(tenantCredentialProfileService, never()).updateCatalog(any(), any());
     }
 
     @Test
     void updateCatalog_unknownId_returns400() {
         when(accessTokenService.getAuthorizationContext(anyString()))
                 .thenReturn(Mono.just(admin()));
-        when(tenantCredentialProfileService.updateCatalog(any()))
-                .thenReturn(Mono.error(new UnknownCredentialConfigurationException(
-                        "Unknown credential configuration id(s): [nope]")));
+        when(tenantCredentialProfileService.updateCatalog(any(), any()))
+                .thenReturn(Mono.error(
+                        new UnknownCredentialConfigurationException(
+                                "Unknown credential configuration id(s): [nope]"
+                        )
+                ));
 
         webTestClient.mutateWith(csrf())
                 .put()
@@ -180,13 +392,135 @@ class CredentialCatalogControllerTest {
                 .expectStatus().isBadRequest();
     }
 
+    /**
+     * AC-01: the catalog read carries both the eligible modes and the schema ceiling,
+     * so the admin UI can disable the direct mode by reading the ceiling alone.
+     */
+    @Test
+    void getCatalog_asTenantAdmin_includesDeliveryModesAndSchemaCeiling() {
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(admin()));
+        when(tenantCredentialProfileService.getCatalog())
+                .thenReturn(Mono.just(List.of(
+                        new CredentialCatalogEntryDto(
+                                "learcredential.employee.w3c.4",
+                                "Employee",
+                                true,
+                                List.of("email", "ui"),
+                                List.of("email", "ui")
+                        )
+                )));
+
+        webTestClient.get()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$[0].deliveryModes[0]")
+                .isEqualTo("email")
+                .jsonPath("$[0].deliveryModes[1]")
+                .isEqualTo("ui")
+                .jsonPath("$[0].schemaEligibleModes[0]")
+                .isEqualTo("email")
+                .jsonPath("$[0].schemaEligibleModes[1]")
+                .isEqualTo("ui");
+    }
+
+    /**
+     * AC-04: rejecting a mode above the schema ceiling is a 409 conflict, not a 400 --
+     * distinct from the payload-shape errors below (ES-01..03).
+     */
+    @Test
+    void updateCatalog_directAboveSchemaCeiling_returns409() {
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(admin()));
+        when(tenantCredentialProfileService.updateCatalog(any(), any()))
+                .thenReturn(Mono.error(
+                        new DeliveryModeNotEligibleException(
+                                "Delivery mode 'direct' is not eligible for credential type "
+                                        + "'learcredential.employee.w3c.4': its schema requires "
+                                        + "cryptographic holder binding. Eligible modes: email,ui"
+                        )
+                ));
+
+        webTestClient.mutateWith(csrf())
+                .put()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(
+                        "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"],"
+                                + "\"deliveryModesByConfigurationId\":"
+                                + "{\"learcredential.employee.w3c.4\":[\"direct\"]}}"
+                )
+                .exchange()
+                .expectStatus().isEqualTo(409);
+    }
+
+    /**
+     * ES-01 / ES-02 / F3: invalid delivery-mode configurations are rejected with 400
+     * before the service is reached.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"],"
+                    + "\"deliveryModesByConfigurationId\":"
+                    + "{\"learcredential.employee.w3c.4\":[\"carrier-pigeon\"]}}",
+            "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"],"
+                    + "\"deliveryModesByConfigurationId\":"
+                    + "{\"learcredential.employee.w3c.4\":[]}}",
+            "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"],"
+                    + "\"deliveryModesByConfigurationId\":"
+                    + "{\"learcredential.employee.w3c.4\":null}}"
+    })
+    void updateCatalog_invalidDeliveryModes_returns400WithoutCallingService(
+            String requestBody
+    ) {
+        assertInvalidCatalogRequest(requestBody);
+    }
+
+    /**
+     * ES-03: modes declared for a type outside enabledConfigurationIds (or the global
+     * registry) are a 400, surfaced by the service -- unlike ES-01/02 this one needs the
+     * enabled-ids subset registry / map subset enabled-ids checks the service itself owns.
+     */
+    @Test
+    void updateCatalog_modesForNotEnabledType_returns400() {
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(admin()));
+        when(tenantCredentialProfileService.updateCatalog(any(), any()))
+                .thenReturn(Mono.error(
+                        new InvalidDeliveryConfigException(
+                                "Delivery modes declared for credential configuration id(s) "
+                                        + "not enabled in this request: [other.type]"
+                        )
+                ));
+
+        webTestClient.mutateWith(csrf())
+                .put()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(
+                        "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"],"
+                                + "\"deliveryModesByConfigurationId\":"
+                                + "{\"other.type\":[\"email\"]}}"
+                )
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
     @Test
     void getCatalog_tenantWithNothingEnabled_returns404() {
         when(accessTokenService.getAuthorizationContext(anyString()))
                 .thenReturn(Mono.just(admin()));
         when(tenantCredentialProfileService.getCatalog())
-                .thenReturn(Mono.error(new CredentialCatalogNotConfiguredException(
-                        "No credential configuration enabled for tenant 'demo'")));
+                .thenReturn(Mono.error(
+                        new CredentialCatalogNotConfiguredException(
+                                "No credential configuration enabled for tenant 'demo'"
+                        )
+                ));
 
         webTestClient.get()
                 .uri(CREDENTIAL_CATALOG_PATH)
@@ -195,25 +529,206 @@ class CredentialCatalogControllerTest {
                 .expectStatus().isNotFound();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"enabledConfigurationIds\":[]}",
+            "{}",
+            "{\"enabledConfigurationIds\":[\"bad id with spaces\"]}"
+    })
+    void updateCatalog_invalidEnabledConfigurationIds_returns400WithoutCallingService(
+            String requestBody
+    ) {
+        assertInvalidCatalogRequest(requestBody);
+    }
+
+    // ---- enabledConfigurationIds bounds (security review, F4) -------------------
+
     @Test
-    void updateCatalog_emptySet_returns400AndDoesNotWrite() {
+    void updateCatalog_tooManyEnabledConfigurationIds_returns400WithoutCallingService() {
         when(accessTokenService.getAuthorizationContext(anyString()))
                 .thenReturn(Mono.just(admin()));
+
+        String tooMany = java.util.stream.IntStream.rangeClosed(1, 65)
+                .mapToObj(i -> "\"type." + i + "\"")
+                .collect(java.util.stream.Collectors.joining(",", "[", "]"));
 
         webTestClient.mutateWith(csrf())
                 .put()
                 .uri(CREDENTIAL_CATALOG_PATH)
                 .header("Authorization", "Bearer token")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"enabledConfigurationIds\":[]}")
+                .bodyValue("{\"enabledConfigurationIds\":" + tooMany + "}")
                 .exchange()
                 .expectStatus().isBadRequest();
 
-        verify(tenantCredentialProfileService, never()).updateCatalog(any());
+        verify(tenantCredentialProfileService, never()).updateCatalog(any(), any());
+    }
+
+    // --- Tenant-match tests (security review, EUD-169, S1) ---
+
+    @Test
+    void getCatalog_asLear_tenantMismatch_returns403AndAuditsBreach() {
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(lear()));
+        when(accessTokenService.getTokenTenant(anyString()))
+                .thenReturn(Mono.just("other-tenant"));
+
+        webTestClient.get()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .exchange()
+                .expectStatus().isForbidden();
+
+        verify(tenantCredentialProfileService, never()).getCatalog();
+        verify(auditService).auditFailure(
+                eq("tenant_isolation_breach"),
+                eq("org-1"),
+                anyString(),
+                any()
+        );
     }
 
     @Test
-    void updateCatalog_missingRequiredField_returns400() {
+    void getCatalog_asSysAdmin_tenantMismatch_returns403() {
+        // M2 (re-verification, reversed 2026-09-10): SysAdmin no longer bypasses
+        // requireTenantMatch -- see F2 in quality-report.md. Default stub from
+        // stubTokenTenantMatchesDefault() (SYSTEM_TENANT) would match the default
+        // resolved tenant too, so this test overrides it to force a genuine mismatch.
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(readOnlyAdmin()));
+        when(accessTokenService.getTokenTenant(anyString()))
+                .thenReturn(Mono.just("other-tenant"));
+
+        webTestClient.get()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .exchange()
+                .expectStatus().isForbidden();
+
+        verify(tenantCredentialProfileService, never()).getCatalog();
+        verify(auditService).auditFailure(
+                eq("tenant_isolation_breach"),
+                eq("org-1"),
+                anyString(),
+                any()
+        );
+    }
+
+    @Test
+    void updateCatalog_asTenantAdmin_tenantMismatch_returns403AndDoesNotWrite() {
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(admin()));
+        when(accessTokenService.getTokenTenant(anyString()))
+                .thenReturn(Mono.just("other-tenant"));
+
+        webTestClient.mutateWith(csrf())
+                .put()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(
+                        "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}"
+                )
+                .exchange()
+                .expectStatus().isForbidden();
+
+        verify(tenantCredentialProfileService, never()).updateCatalog(any(), any());
+        verify(auditService).auditFailure(
+                eq("tenant_isolation_breach"),
+                eq("org-1"),
+                anyString(),
+                any()
+        );
+    }
+
+    @Test
+    void updateCatalog_asSysAdmin_tenantMismatch_returns403AndDoesNotWrite() {
+        // M2 (re-verification, reversed 2026-09-10): SysAdmin no longer bypasses
+        // requireTenantMatch -- see F2 in quality-report.md.
+        AuthorizationContext sysAdminActingCrossTenant =
+                new AuthorizationContext(
+                        "org-1",
+                        UserRole.SYSADMIN,
+                        false,
+                        "tenant"
+                );
+
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(sysAdminActingCrossTenant));
+        when(accessTokenService.getTokenTenant(anyString()))
+                .thenReturn(Mono.just("other-tenant"));
+
+        webTestClient.mutateWith(csrf())
+                .put()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(
+                        "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}"
+                )
+                .exchange()
+                .expectStatus().isForbidden();
+
+        verify(tenantCredentialProfileService, never()).updateCatalog(any(), any());
+        verify(auditService).auditFailure(
+                eq("tenant_isolation_breach"),
+                eq("org-1"),
+                anyString(),
+                any()
+        );
+    }
+
+    // --- Authorization-denial audit tests (security review, EUD-169, F3) ---
+
+    @Test
+    void updateCatalog_asLear_deniedWriteIsAudited() {
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(lear()));
+
+        webTestClient.mutateWith(csrf())
+                .put()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(
+                        "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}"
+                )
+                .exchange()
+                .expectStatus().isForbidden();
+
+        verify(auditService).auditFailure(
+                eq("authorization.deny"),
+                eq("org-1"),
+                anyString(),
+                any()
+        );
+    }
+
+    @Test
+    void updateCatalog_asReadOnlyAdmin_deniedWriteIsAudited() {
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(readOnlyAdmin()));
+
+        webTestClient.mutateWith(csrf())
+                .put()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(
+                        "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}"
+                )
+                .exchange()
+                .expectStatus().isForbidden();
+
+        verify(auditService).auditFailure(
+                eq("authorization.deny"),
+                eq("org-1"),
+                anyString(),
+                any()
+        );
+    }
+
+    private void assertInvalidCatalogRequest(String requestBody) {
         when(accessTokenService.getAuthorizationContext(anyString()))
                 .thenReturn(Mono.just(admin()));
 
@@ -222,22 +737,37 @@ class CredentialCatalogControllerTest {
                 .uri(CREDENTIAL_CATALOG_PATH)
                 .header("Authorization", "Bearer token")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{}")
+                .bodyValue(requestBody)
                 .exchange()
                 .expectStatus().isBadRequest();
 
-        verify(tenantCredentialProfileService, never()).updateCatalog(any());
+        verify(tenantCredentialProfileService, never()).updateCatalog(any(), any());
     }
 
     private static AuthorizationContext admin() {
-        return new AuthorizationContext("org-1", UserRole.TENANT_ADMIN, false, "tenant");
+        return new AuthorizationContext(
+                "org-1",
+                UserRole.TENANT_ADMIN,
+                false,
+                "tenant"
+        );
     }
 
     private static AuthorizationContext readOnlyAdmin() {
-        return new AuthorizationContext("org-1", UserRole.SYSADMIN, true, "platform");
+        return new AuthorizationContext(
+                "org-1",
+                UserRole.SYSADMIN,
+                true,
+                "platform"
+        );
     }
 
     private static AuthorizationContext lear() {
-        return new AuthorizationContext("org-1", UserRole.LEAR, false, "tenant");
+        return new AuthorizationContext(
+                "org-1",
+                UserRole.LEAR,
+                false,
+                "tenant"
+        );
     }
 }

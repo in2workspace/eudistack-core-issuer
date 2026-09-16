@@ -16,11 +16,11 @@ import es.in2.issuer.backend.shared.domain.policy.service.IssuancePdpService;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
+import es.in2.issuer.backend.shared.domain.service.DeliveryEligibilityResolver;
 import es.in2.issuer.backend.shared.domain.service.HolderDidFallbackAuditor;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.PayloadSchemaValidator;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
-import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
@@ -54,12 +54,6 @@ import static org.mockito.Mockito.when;
  * {@link IssuancePdpService} -- and everything a rejected request must never reach -- signing, status
  * list, persistence, the Wallet offer trigger -- are mocked, because those are the actual I/O
  * boundaries {@link IssuanceWorkflowImpl} injects.
- *
- * <p>No Spring context, no Testcontainers (TD-07): {@code IssuanceController} and
- * {@code IssuanceWorkflowImpl} are constructed by hand and bound directly via
- * {@code WebTestClient.bindToController}, with a stub {@link WebFilter} standing in for
- * {@code TenantDomainWebFilter} (which itself needs a DB-backed tenant registry lookup this test has
- * no reason to pull in).
  */
 class DirectDeliveryCeilingTest {
 
@@ -101,7 +95,9 @@ class DirectDeliveryCeilingTest {
         credentialSignerWorkflow = mock(CredentialSignerWorkflow.class);
         statusListWorkflow = mock(StatusListWorkflow.class);
         genericCredentialBuilder = mock(GenericCredentialBuilder.class);
-        TenantConfigService tenantConfigService = mock(TenantConfigService.class);
+        // Rejection happens at the schema-ceiling fast-path, before performIssuanceFlow ever calls
+        // the resolver (AD-5), so this collaborator is never exercised by these tests either.
+        DeliveryEligibilityResolver deliveryEligibilityResolver = mock(DeliveryEligibilityResolver.class);
         AuditService auditService = mock(AuditService.class);
         CredentialIssuedLogger credentialIssuedLogger = mock(CredentialIssuedLogger.class);
         IssuanceMetrics issuanceMetrics = mock(IssuanceMetrics.class);
@@ -128,7 +124,7 @@ class DirectDeliveryCeilingTest {
                 genericCredentialBuilder,
                 credentialSignerWorkflow,
                 statusListWorkflow,
-                tenantConfigService,
+                deliveryEligibilityResolver,
                 issuanceProperties,
                 schemaDeliveryCeiling,
                 holderDidFallbackAuditor

@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import javax.annotation.Nullable;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
@@ -24,6 +25,9 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
     private static final String AUTHORIZE_PATH = "/trustedapps/v1/trusted/app/authorize";
     private static final String SIMPLE_TOKEN_PATH = "/trustedapps/v1/trusted/app/login/first";
     private static final String ROBUST_TOKEN_PATH = "/trustedapps/v1/trusted/app/login/second";
+
+    private static final String AUTHORIZATION_HEADER = "Authorization";
+    private static final String APPLICATION_HEADER = "Application";
 
     private final ObjectMapper objectMapper;
     private final WebClient webClient;
@@ -73,26 +77,35 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
     }
 
     private Mono<String> authorizeApp(RemoteSignatureDto cfg, String jwt) {
+        logSensitiveRequest("POST", cfg.authUrl() + AUTHORIZE_PATH, AUTHORIZATION_HEADER, jwt, null);
         return webClient.post()
                 .uri(cfg.authUrl() + AUTHORIZE_PATH)
-                .header("Authorization", jwt)
+                .header(AUTHORIZATION_HEADER, jwt)
                 .retrieve()
                 .bodyToMono(TrustedAppActivationResponse.class)
                 .map(r -> r.content().authorization())
-                .doOnNext(_ -> log.debug("Vintegris trusted app authorized"))
+                .doOnNext(appToken ->
+                        logSensitiveResponse(
+                                cfg.authUrl() + AUTHORIZE_PATH,
+                                "authorization=" + appToken
+                        ))
                 .doOnError(e -> log.error("Vintegris trusted app authorization failed", e));
     }
 
     private Mono<String> fetchSimpleToken(RemoteSignatureDto cfg, String appToken) {
         String encodedUsername = Base64.getEncoder()
                 .encodeToString(cfg.managerId().getBytes(StandardCharsets.UTF_8));
+        String uri = cfg.authUrl() + SIMPLE_TOKEN_PATH + "?username=" + encodedUsername;
+
+        logSensitiveRequest("POST", uri, APPLICATION_HEADER, appToken, null);
+
         return webClient.post()
-                .uri(cfg.authUrl() + SIMPLE_TOKEN_PATH + "?username=" + encodedUsername)
-                .header("Application", appToken)
+                .uri(uri)
+                .header(APPLICATION_HEADER, appToken)
                 .retrieve()
                 .bodyToMono(SimpleTokenResponse.class)
                 .map(r -> r.content().token())
-                .doOnNext(_ -> log.debug("Vintegris simple token acquired"))
+                .doOnNext(simpleToken -> logSensitiveResponse(uri, "token=" + simpleToken))
                 .doOnError(e -> log.error("Vintegris simple token fetch failed", e));
     }
 
@@ -103,20 +116,70 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
      * alone yields a 400 on authorize. Both the simple token (Authorization)
      * and the app token (Application) are sent as {@code Bearer} credentials.
      */
-    private Mono<String> fetchRobustToken(RemoteSignatureDto cfg, String appToken, String simpleToken) {
+    private Mono<String> fetchRobustToken(
+            RemoteSignatureDto cfg,
+            String appToken,
+            String simpleToken
+    ) {
+        String uri = cfg.authUrl() + ROBUST_TOKEN_PATH;
+
+        logSensitiveRequest(
+                "POST",
+                uri,
+                AUTHORIZATION_HEADER + "=Bearer " + simpleToken,
+                APPLICATION_HEADER + "=Bearer " + appToken,
+                null
+        );
+
         return webClient.post()
-                .uri(cfg.authUrl() + ROBUST_TOKEN_PATH)
-                .header("Authorization", "Bearer " + simpleToken)
-                .header("Application", "Bearer " + appToken)
+                .uri(uri)
+                .header(AUTHORIZATION_HEADER, "Bearer " + simpleToken)
+                .header(APPLICATION_HEADER, "Bearer " + appToken)
                 .retrieve()
                 .bodyToMono(SimpleTokenResponse.class)
                 .map(r -> r.content().token())
-                .doOnNext(_ -> log.debug("Vintegris robust token acquired"))
+                .doOnNext(robustToken -> logSensitiveResponse(uri, "token=" + robustToken))
                 .doOnError(e -> log.error("Vintegris robust token fetch failed", e));
     }
 
+    /**
+     * DEBUG-only, local-dev logging of the full outbound request, including the
+     * signed JWT / bearer tokens sent as headers. Never enable {@code es.in2.issuer}
+     * at DEBUG outside a local machine: these lines print secrets that must not
+     * reach shared logs (staging/prod, log aggregators, CI artifacts).
+     */
+    private void logSensitiveRequest(
+            String method,
+            String url,
+            String header1,
+            String header2,
+            @Nullable String body
+    ) {
+        if (log.isDebugEnabled()) {
+            log.debug(
+                    "[SIGNING-HTTP][SENSITIVE][LOCAL-ONLY] --> {} {} {} {} body={}",
+                    method,
+                    url,
+                    header1,
+                    header2,
+                    body
+            );
+        }
+    }
+
+    private void logSensitiveResponse(String url, String body) {
+        if (log.isDebugEnabled()) {
+            log.debug(
+                    "[SIGNING-HTTP][SENSITIVE][LOCAL-ONLY] <-- {} body={}",
+                    url,
+                    body
+            );
+        }
+    }
+
     private byte[] sha256(String value) throws Exception {
-        return MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+        return MessageDigest.getInstance("SHA-256")
+                .digest(value.getBytes(StandardCharsets.UTF_8));
     }
 
     private byte[] hmacSha256(String data, byte[] key) throws Exception {
@@ -126,7 +189,9 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
     }
 
     private String base64UrlEncode(byte[] data) {
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(data);
+        return Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(data);
     }
 
     private record TrustedAppActivationResponse(Content content) {

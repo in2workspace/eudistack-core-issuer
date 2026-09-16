@@ -28,4 +28,19 @@ public record AuthorizationContext(
     public boolean canWrite() {
         return !readOnly;
     }
+
+    /**
+     * Whether the caller may read the tenant's credential catalog (EUD-169, AD-16):
+     * a tenant administrator, SysAdmin (including its cross-tenant read-only view over
+     * {@code platform}), and the tenant's operator ({@link UserRole#LEAR}) -- who needs
+     * to discover a type's eligible delivery modes and schema ceiling before attempting
+     * to issue it (AC-09, AC-12).
+     *
+     * <p>Deliberately does not delegate to {@link #isTenantAdmin()}: that predicate also
+     * gates the write path ({@code CredentialCatalogController}'s write authorization),
+     * and widening it would silently open {@code PUT}/{@code PATCH} to the operator too.
+     */
+    public boolean canReadCredentialCatalog() {
+        return isTenantAdmin() || role == UserRole.LEAR;
+    }
 }
