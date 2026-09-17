@@ -9,7 +9,6 @@ import com.nimbusds.jose.crypto.RSASSAVerifier;
 import com.nimbusds.jose.util.X509CertUtils;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.signing.domain.exception.SignatureProcessingException;
-import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
@@ -91,24 +90,24 @@ public class SignDocServiceImpl implements SignDocService {
                             String signAlgoOid = certInfo.keyAlgorithms().getFirst();
                             return cscPort.authorizeForDoc(cfg, accessToken)
                                     .flatMap(sad -> cscPort.signDoc(cfg, accessToken, sad, docB64, signAlgoOid))
-                                    .flatMap(signedDocB64 -> verifyAndBuild(request, certInfo, signedDocB64));
+                                    .flatMap(signedDocB64 -> verifyAndBuild(request, signedDocB64));
                         })
                 );
     }
 
-    private Mono<SigningResult> verifyAndBuild(SigningRequest request, CertificateInfo certInfo, String signedDocB64) {
+    private Mono<SigningResult> verifyAndBuild(SigningRequest request, String signedDocB64) {
         return Mono.fromCallable(() -> {
             String signedDoc = new String(Base64.getDecoder().decode(signedDocB64), StandardCharsets.UTF_8);
             String receivedPayload = jwtUtils.decodePayload(signedDoc);
             if (!jwtUtils.areJsonsEqual(receivedPayload, request.data())) {
                 throw new SignatureProcessingException("Signed payload received does not match the original data");
             }
-            verifySignature(signedDoc, certInfo);
+            verifySignature(signedDoc);
             return new SigningResult(request.type(), signedDoc);
         });
     }
 
-    private void verifySignature(String signedDoc, CertificateInfo certInfo) {
+    private void verifySignature(String signedDoc) {
         SignedJWT signedJWT;
         try {
             signedJWT = SignedJWT.parse(signedDoc);
@@ -131,27 +130,11 @@ public class SignDocServiceImpl implements SignDocService {
             throw new SignatureProcessingException("Could not parse the leaf certificate from x5c");
         }
 
-        List<String> expectedCertificates = certInfo.certificates();
-        String expectedLeafBase64 = (expectedCertificates == null || expectedCertificates.isEmpty())
-                ? null : expectedCertificates.getFirst();
-
-        X509Certificate expectedLeaf;
-        try {
-            expectedLeaf = expectedLeafBase64 == null
-                    ? null : X509CertUtils.parse(Base64.getDecoder().decode(expectedLeafBase64));
-        } catch (IllegalArgumentException ex) {
-            // W2 (code-review): certInfo.certificates() comes back from the QTSP (getCredentialInfo),
-            // not from the signed document itself -- invalid Base64 there is a malformed response, not
-            // a well-formed rejection, but it must still surface as SignatureProcessingException rather
-            // than an unmapped 500 (H1's closed error contract).
-            throw new SignatureProcessingException(
-                    "Could not parse the credential's own certificate", ex);
-        }
-
-        if (expectedLeaf == null || !leaf.equals(expectedLeaf)) {
-            throw new SignatureProcessingException(
-                    "Signed document's certificate does not match the credential's own certificate");
-        }
+        // No strict equality check against the credential's own certificate (from getCredentialInfo)
+        // here: some QTSPs (confirmed with Digitel) mint a fresh, single-use leaf certificate per
+        // signing operation for the same credentialId, so the certificate returned by
+        // getCredentialInfo() before signing legitimately differs (same subject/issuer, different
+        // serial/validity) from the one embedded in x5c afterwards.
 
         try {
             JWSVerifier verifier = buildVerifier(header.getAlgorithm(), leaf);
@@ -176,11 +159,12 @@ public class SignDocServiceImpl implements SignDocService {
     }
 
     private JWSVerifier buildVerifier(JWSAlgorithm alg, X509Certificate leaf) throws JOSEException {
+        Set<String> deferredCritHeaders = Set.of("sigT");
         if (JWSAlgorithm.Family.EC.contains(alg)) {
-            return new ECDSAVerifier((ECPublicKey) leaf.getPublicKey());
+            return new ECDSAVerifier((ECPublicKey) leaf.getPublicKey(), deferredCritHeaders);
         }
         if (JWSAlgorithm.Family.RSA.contains(alg)) {
-            return new RSASSAVerifier((RSAPublicKey) leaf.getPublicKey());
+            return new RSASSAVerifier((RSAPublicKey) leaf.getPublicKey(), deferredCritHeaders);
         }
         throw new JOSEException("Unsupported algorithm family: " + alg);
     }
