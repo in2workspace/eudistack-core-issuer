@@ -243,20 +243,20 @@ class SignDocServiceImplTest {
     }
 
     @Test
-    void signIssuedCredential_failsWhenCertificateDoesNotMatchCredentialInfo() throws Exception {
+    void signIssuedCredential_succeedsWhenCertificateDiffersFromCredentialInfo() throws Exception {
+        // Some QTSPs (confirmed with Digitel) mint a fresh, single-use leaf certificate per
+        // signing operation, so certInfo (queried before signing) legitimately disagrees with the
+        // certificate embedded in x5c afterwards. As long as x5c's own certificate genuinely signed
+        // the document, that mismatch alone must not be treated as a rejection.
         signDocService = new SignDocServiceImpl(cscPort, jwtUtils);
         SigningRequest req = request(SigningType.JADES, "{\"vc\":1}");
-        // certInfo says the credential's certificate is `otherCert`, but the JWS carries `leafCert`.
         CertificateInfo certInfo = certInfoFor(otherCert);
         String signedJwt = signedJws("{\"vc\":1}", JWSAlgorithm.ES256, leafKeyPair.getPrivate(), leafCert);
         stubSigningChain(req.remoteSignature(), req, certInfo, signedJwt);
 
         StepVerifier.create(signDocService.signIssuedCredential(req, "proc"))
-                .expectErrorSatisfies(ex -> {
-                    assertThat(ex).isInstanceOf(SignatureProcessingException.class);
-                    assertThat(ex.getMessage()).contains("does not match the credential's own certificate");
-                })
-                .verify();
+                .assertNext(result -> assertThat(result.data()).isEqualTo(signedJwt))
+                .verifyComplete();
     }
 
     @Test

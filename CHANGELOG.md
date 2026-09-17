@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`SignDocServiceImpl` no longer rejects a QTSP that mints a fresh, single-use leaf certificate per signing operation** (Digitel's sandbox CSC endpoint): the leaf certificate embedded in the signed document's `x5c` legitimately differs (same subject/issuer, different serial number and validity window) from the certificate `getCredentialInfo()` returned before signing, so comparing them for exact equality was rejecting otherwise-valid signatures. The cryptographic verification against the certificate actually used to sign is unchanged and remains mandatory.
+- **JAdES signatures marking `sigT` (signing time) as a critical header (RFC 7515 §4.1.11) are no longer rejected.** `buildVerifier` now declares `sigT` as a deferred/acknowledged critical header, so Nimbus proceeds with the underlying RSA/EC signature check instead of failing closed on a `crit` entry it previously had no way to process.
+
 ### Added
 
 - **EUD-169 — Delivery modes become a column of the tenant credential catalog (FR-09, FR-02)**: `tenant_credential_profile` gains a `delivery_modes` column (`V13`, additive + idempotent + fail-closed guard, backfilled losslessly from the retiring `tenant_config` keys). `GET /admin/v1/credential-catalog` now returns, per entry, `deliveryModes` (effective modes: stored ∩ schema ceiling, or the ceiling itself when nothing is stored) and `schemaEligibleModes` (the ceiling alone, carried over from EUD-168's `schema_eligible_modes` contract). `PUT` gains an optional `deliveryModesByConfigurationId` map — omitting a type preserves its stored modes (no read-modify-write, engine-side `COALESCE` on the `UPSERT`); a mode outside the schema ceiling is rejected with `409 delivery_mode_not_eligible`; a malformed or incoherent declaration is `400`. Fully additive contract: the live `eudistack-mfe-credential-manager` consumer needs no change.
