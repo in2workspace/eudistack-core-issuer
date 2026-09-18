@@ -21,6 +21,7 @@ public class HttpUtils {
     }
 
     public Mono<String> getRequest(@Nullable String url, List<Map.Entry<String, String>> headers) {
+
         return webClient.get()
                 .uri(Objects.requireNonNull(ensureUrlHasProtocol(url)))
                 .headers(httpHeaders -> headers.forEach(entry -> httpHeaders.add(entry.getKey(), entry.getValue())))
@@ -35,6 +36,7 @@ public class HttpUtils {
     }
 
     public Mono<String> postRequest(@Nullable String url, List<Map.Entry<String, String>> headers, String body) {
+
         return webClient.post()
                 .uri(Objects.requireNonNull(ensureUrlHasProtocol(url)))
                 .headers(httpHeaders -> headers.forEach(entry -> httpHeaders.add(entry.getKey(), entry.getValue())))

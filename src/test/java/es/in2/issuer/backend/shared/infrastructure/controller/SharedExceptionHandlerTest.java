@@ -708,21 +708,27 @@ class SharedExceptionHandlerTest {
     // -------------------- handleTenantMismatchException --------------------
 
     @Test
-    void handleTenantMismatchException() {
-        var ex = new TenantMismatchException("tenant does not match");
+    void handleTenantMismatchException_neverLeaksTokenOrTenantValues() {
+        // Security review (N1): handleSafe, not handleWith -- ex.getMessage() embeds the
+        // caller-supplied tokenTenant/resolved-tenant values verbatim.
+        var ex = new TenantMismatchException("Token tenant 'acme' does not match tenant header 'sandbox'");
         var type = GlobalErrorTypes.TENANT_MISMATCH.getCode();
         var title = "Tenant mismatch";
         var st = HttpStatus.FORBIDDEN;
-        var fallback = "The token's organization does not match the requested tenant";
-        var expected = new GlobalErrorMessage(type, title, st.value(), "tenant does not match", UUID.randomUUID().toString());
+        var detail = "The token's organization does not match the requested tenant";
+        var expected = new GlobalErrorMessage(type, title, st.value(), detail, UUID.randomUUID().toString());
 
-        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+        when(errors.handleSafe(ex, request, type, title, st, detail)).thenReturn(Mono.just(expected));
 
         StepVerifier.create(handler.handleTenantMismatchException(ex, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, "tenant does not match"))
+                .assertNext(gem -> {
+                    assertGem(gem, type, title, st, detail);
+                    assertFalse(gem.detail().contains("acme"));
+                    assertFalse(gem.detail().contains("sandbox"));
+                })
                 .verifyComplete();
 
-        verify(errors).handleWith(ex, request, type, title, st, fallback);
+        verify(errors).handleSafe(ex, request, type, title, st, detail);
     }
 
     // -------------------- handlePayloadValidationException --------------------
@@ -1005,24 +1011,56 @@ class SharedExceptionHandlerTest {
         verify(errors).handleWith(ex, request, type, title, st, fallback);
     }
 
-    // -------------------- handleDeliveryConfigProfileNotFoundException --------------------
+    // -------------------- handleDeliveryModeNotEligibleException (AC-05, EUD-168) --------------------
 
     @Test
-    void handleDeliveryConfigProfileNotFoundException() {
-        var ex = new DeliveryConfigProfileNotFoundException("Unknown credential_configuration_id: xyz");
-        var type = GlobalErrorTypes.DELIVERY_CONFIG_PROFILE_NOT_FOUND.getCode();
-        var title = "Delivery config profile not found";
-        var st = HttpStatus.NOT_FOUND;
-        var fallback = "The given credential_configuration_id is unknown or not enabled for this tenant";
-        var expected = new GlobalErrorMessage(type, title, st.value(), "Unknown credential_configuration_id: xyz", UUID.randomUUID().toString());
+    void handleDeliveryModeNotEligibleException_usesExceptionMessage_whenPresent() {
+        var ex = new DeliveryModeNotEligibleException(
+                "Delivery mode 'direct' is not eligible for credential type: learcredential.employee.w3c.4");
 
-        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+        String type   = GlobalErrorTypes.DELIVERY_MODE_NOT_ELIGIBLE.getCode();
+        String title  = "Delivery mode not eligible";
+        HttpStatus st = HttpStatus.CONFLICT;
+        String fallback = "The declared delivery mode is not eligible for this credential type";
 
-        StepVerifier.create(handler.handleDeliveryConfigProfileNotFoundException(ex, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, "Unknown credential_configuration_id: xyz"))
+        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
+        when(errors.handleWith(ex, request, type, title, st, fallback))
+                .thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleDeliveryModeNotEligibleException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st,
+                        "Delivery mode 'direct' is not eligible for credential type: learcredential.employee.w3c.4"))
                 .verifyComplete();
 
         verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    @Test
+    void handleDeliveryModeNotEligibleException_usesFallback_whenMessageNullOrBlank() {
+        var exNull  = new DeliveryModeNotEligibleException(null);
+        var exBlank = new DeliveryModeNotEligibleException("");
+
+        String type   = GlobalErrorTypes.DELIVERY_MODE_NOT_ELIGIBLE.getCode();
+        String title  = "Delivery mode not eligible";
+        HttpStatus st = HttpStatus.CONFLICT;
+        String fallback = "The declared delivery mode is not eligible for this credential type";
+
+        var expectedNull  = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
+        var expectedBlank = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
+
+        when(errors.handleWith(exNull,  request, type, title, st, fallback)).thenReturn(Mono.just(expectedNull));
+        when(errors.handleWith(exBlank, request, type, title, st, fallback)).thenReturn(Mono.just(expectedBlank));
+
+        StepVerifier.create(handler.handleDeliveryModeNotEligibleException(exNull, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
+                .verifyComplete();
+
+        StepVerifier.create(handler.handleDeliveryModeNotEligibleException(exBlank, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, fallback))
+                .verifyComplete();
+
+        verify(errors).handleWith(exNull,  request, type, title, st, fallback);
+        verify(errors).handleWith(exBlank, request, type, title, st, fallback);
     }
 
 }
