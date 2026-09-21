@@ -62,7 +62,7 @@ dependencies {
     implementation 'io.github.ehn-digital-green-development:base45:0.0.3'
 
     // --- Cryptography ---
-    implementation 'com.nimbusds:nimbus-jose-jwt:9.40'
+    implementation 'com.nimbusds:nimbus-jose-jwt:10.10'
     implementation 'com.nimbusds:oauth2-oidc-sdk:11.21.1'
     implementation 'org.bouncycastle:bcprov-jdk18on:1.84'
 
