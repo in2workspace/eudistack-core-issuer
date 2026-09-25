@@ -7,6 +7,7 @@ import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
+import es.in2.issuer.backend.shared.domain.exception.JWTVerificationException;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +20,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.server.ServerWebExchange;
+import org.springframework.security.web.server.authentication.AuthenticationWebFilter;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
@@ -78,9 +80,14 @@ public class CustomAuthenticationManager implements ReactiveAuthenticationManage
                         null, null, Map.of()))
                 .doOnError(e -> auditService.auditFailure("auth.failure", null,
                         e.getMessage(), Map.of()))
-                .onErrorMap(e -> (e instanceof AuthenticationException)
-                        ? e
-                        : new AuthenticationServiceException(e.getMessage(), e));
+                .onErrorMap(e -> {
+                    if (e instanceof JWTVerificationException jve) {
+                        return new BadCredentialsException(jve.getMessage(), jve);
+                    }
+                    return (e instanceof AuthenticationException)
+                            ? e
+                            : new AuthenticationServiceException(e.getMessage(), e);
+                });
     }
 
     // Returns the preferred principal: ID Token first; falls back to Access Token.

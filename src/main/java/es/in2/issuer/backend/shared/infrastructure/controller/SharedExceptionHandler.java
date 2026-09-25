@@ -105,6 +105,8 @@ public class SharedExceptionHandler {
         );
     }
 
+    // Fallback for malformed JWT/JWK or other parsing errors.
+    // Internal paths should wrap specific parsing issues to provide better context.
     @ExceptionHandler(ParseException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<GlobalErrorMessage> handleParseException(

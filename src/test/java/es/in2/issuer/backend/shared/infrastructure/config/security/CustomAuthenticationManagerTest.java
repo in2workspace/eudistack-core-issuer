@@ -7,6 +7,7 @@ import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
+import es.in2.issuer.backend.shared.domain.exception.JWTVerificationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,7 +18,6 @@ import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
@@ -145,6 +145,20 @@ class CustomAuthenticationManagerTest {
 
         StepVerifier.create(result)
                 .expectErrorMatches(e -> e.getMessage() != null
+                        && e.getMessage().contains("invalid signature"))
+                .verify();
+    }
+
+    @Test
+    void authenticate_verifierRejectsWithJWTVerificationException_mapsToBadCredentialsException() {
+        String token = jwt(VERIFIER_BASE_URL);
+        when(verifierService.verifyToken(token))
+                .thenReturn(Mono.error(new JWTVerificationException("invalid signature")));
+
+        Mono<Authentication> result = authenticationManager.authenticate(authFor(token, exchange()));
+
+        StepVerifier.create(result)
+                .expectErrorMatches(e -> e instanceof BadCredentialsException
                         && e.getMessage().contains("invalid signature"))
                 .verify();
     }
