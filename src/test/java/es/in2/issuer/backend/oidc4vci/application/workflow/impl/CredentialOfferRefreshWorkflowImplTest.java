@@ -1,6 +1,8 @@
 package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
+import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialOfferExpiredException;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
+import es.in2.issuer.backend.shared.domain.exception.CredentialOfferNotFoundException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferResult;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
@@ -11,8 +13,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -116,10 +116,9 @@ class CredentialOfferRefreshWorkflowImplTest {
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(workflow.refreshCredentialOffer(UNKNOWN_CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL, PUBLIC_WALLET_BASE_URL))
-                .expectErrorMatches(error -> error instanceof ResponseStatusException responseStatusException
-                        && responseStatusException.getStatusCode() == HttpStatus.NOT_FOUND
+                .expectErrorMatches(error -> error instanceof CredentialOfferNotFoundException
                         && "Invalid or unknown credential offer refresh token"
-                        .equals(responseStatusException.getReason()))
+                        .equals(error.getMessage()))
                 .verify();
 
         verify(issuanceService).getIssuanceByCredentialOfferRefreshToken(UNKNOWN_CREDENTIAL_OFFER_REFRESH_TOKEN);
@@ -134,10 +133,9 @@ class CredentialOfferRefreshWorkflowImplTest {
                 .thenReturn(Mono.just(issuance));
 
         StepVerifier.create(workflow.refreshCredentialOffer(CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL, PUBLIC_WALLET_BASE_URL))
-                .expectErrorMatches(error -> error instanceof ResponseStatusException responseStatusException
-                        && responseStatusException.getStatusCode() == HttpStatus.GONE
+                .expectErrorMatches(error -> error instanceof CredentialOfferExpiredException
                         && "This credential offer can no longer be refreshed"
-                        .equals(responseStatusException.getReason()))
+                        .equals(error.getMessage()))
                 .verify();
 
         verify(issuanceService).getIssuanceByCredentialOfferRefreshToken(CREDENTIAL_OFFER_REFRESH_TOKEN);
@@ -152,10 +150,9 @@ class CredentialOfferRefreshWorkflowImplTest {
                 .thenReturn(Mono.just(issuance));
 
         StepVerifier.create(workflow.refreshCredentialOffer(CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL, PUBLIC_WALLET_BASE_URL))
-                .expectErrorMatches(error -> error instanceof ResponseStatusException responseStatusException
-                        && responseStatusException.getStatusCode() == HttpStatus.GONE
+                .expectErrorMatches(error -> error instanceof CredentialOfferExpiredException
                         && "This credential offer can no longer be refreshed"
-                        .equals(responseStatusException.getReason()))
+                        .equals(error.getMessage()))
                 .verify();
 
         verify(issuanceService).getIssuanceByCredentialOfferRefreshToken(CREDENTIAL_OFFER_REFRESH_TOKEN);
@@ -170,10 +167,9 @@ class CredentialOfferRefreshWorkflowImplTest {
                 .thenReturn(Mono.just(issuance));
 
         StepVerifier.create(workflow.refreshCredentialOffer(CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL, PUBLIC_WALLET_BASE_URL))
-                .expectErrorMatches(error -> error instanceof ResponseStatusException responseStatusException
-                        && responseStatusException.getStatusCode() == HttpStatus.GONE
+                .expectErrorMatches(error -> error instanceof CredentialOfferExpiredException
                         && "This credential offer can no longer be refreshed"
-                        .equals(responseStatusException.getReason()))
+                        .equals(error.getMessage()))
                 .verify();
 
         verify(issuanceService).getIssuanceByCredentialOfferRefreshToken(CREDENTIAL_OFFER_REFRESH_TOKEN);

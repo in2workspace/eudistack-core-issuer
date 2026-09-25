@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.shared.infrastructure.controller;
 
 import es.in2.issuer.backend.shared.domain.exception.*;
+import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialOfferExpiredException;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
@@ -207,6 +208,21 @@ public class SharedExceptionHandler {
                 "Credential offer not found",
                 HttpStatus.NOT_FOUND,
                 "Credential offer not found."
+        );
+    }
+
+    @ExceptionHandler(CredentialOfferExpiredException.class)
+    @ResponseStatus(HttpStatus.GONE)
+    public Mono<GlobalErrorMessage> handleCredentialOfferExpiredException(
+            CredentialOfferExpiredException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.CREDENTIAL_OFFER_GONE.getCode(),
+                "Credential offer gone",
+                HttpStatus.GONE,
+                "This credential offer can no longer be refreshed"
         );
     }
 
