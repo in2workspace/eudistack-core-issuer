@@ -105,8 +105,10 @@ public class SharedExceptionHandler {
         );
     }
 
+    // Fallback for malformed JWT/JWK or other parsing errors.
+    // Internal paths should wrap specific parsing issues to provide better context.
     @ExceptionHandler(ParseException.class)
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<GlobalErrorMessage> handleParseException(
             ParseException ex,
             ServerHttpRequest request
@@ -115,8 +117,8 @@ public class SharedExceptionHandler {
                 ex, request,
                 GlobalErrorTypes.PARSE_ERROR.getCode(),
                 "Parse error",
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "An internal parsing error occurred."
+                HttpStatus.BAD_REQUEST,
+                "The request could not be parsed. Please check the format of the provided data."
         );
     }
 
@@ -376,7 +378,7 @@ public class SharedExceptionHandler {
     }
 
     @ExceptionHandler(JWTParsingException.class)
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<GlobalErrorMessage> handleJWTParsingException(
             JWTParsingException ex,
             ServerHttpRequest request
@@ -385,7 +387,7 @@ public class SharedExceptionHandler {
                 ex, request,
                 GlobalErrorTypes.INVALID_JWT.getCode(),
                 "JWT parsing error",
-                HttpStatus.INTERNAL_SERVER_ERROR,
+                HttpStatus.BAD_REQUEST,
                 "The provided JWT is invalid or can't be parsed."
         );
     }

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Improved JWT validation error handling**: `JWTVerificationException` is now mapped to `BadCredentialsException` in `CustomAuthenticationManager`, ensuring it is correctly handled by the security filter chain (returning 401). This keeps the domain decoupled from Spring Security.
+- **Refined exception mapping**: `JWTParsingException` and `ParseException` are now mapped to `400 Bad Request` in the `SharedExceptionHandler`, avoiding generic `500 Internal Server Error` responses for malformed tokens or requests.
+- **Enhanced error messages**: Global error messages were updated to be more informative when parsing or validation fails.
 - **`SignDocServiceImpl` no longer rejects a QTSP that mints a fresh, single-use leaf certificate per signing operation** (Digitel's sandbox CSC endpoint): the leaf certificate embedded in the signed document's `x5c` legitimately differs (same subject/issuer, different serial number and validity window) from the certificate `getCredentialInfo()` returned before signing, so comparing them for exact equality was rejecting otherwise-valid signatures. The cryptographic verification against the certificate actually used to sign is unchanged and remains mandatory.
 - **JAdES signatures marking `sigT` (signing time) as a critical header (RFC 7515 §4.1.11) are no longer rejected.** `buildVerifier` now declares `sigT` as a deferred/acknowledged critical header, so Nimbus proceeds with the underlying RSA/EC signature check instead of failing closed on a `crit` entry it previously had no way to process.
 
