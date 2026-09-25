@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Credential offer refresh returns `410 Gone` with functional error code `credential_offer_gone` when the offer has already been issued or is no longer in `DRAFT` status.** This replaces the generic 500 error and allows the frontend to display a specific, localized message to the user.
+- **`JWTVerificationException` mapping moved to the infrastructure layer.** In the reactive authentication flow, this exception is now explicitly mapped to `BadCredentialsException` within `CustomAuthenticationManager`, ensuring a consistent 401 response without coupling the domain exceptions to Spring Security.
 - **`SignDocServiceImpl` no longer rejects a QTSP that mints a fresh, single-use leaf certificate per signing operation** (Digitel's sandbox CSC endpoint): the leaf certificate embedded in the signed document's `x5c` legitimately differs (same subject/issuer, different serial number and validity window) from the certificate `getCredentialInfo()` returned before signing, so comparing them for exact equality was rejecting otherwise-valid signatures. The cryptographic verification against the certificate actually used to sign is unchanged and remains mandatory.
 - **JAdES signatures marking `sigT` (signing time) as a critical header (RFC 7515 §4.1.11) are no longer rejected.** `buildVerifier` now declares `sigT` as a deferred/acknowledged critical header, so Nimbus proceeds with the underlying RSA/EC signature check instead of failing closed on a `crit` entry it previously had no way to process.
+
+### Changed
+- **Decoupled `JWTVerificationException` from Spring Security.** The exception no longer extends `AuthenticationException`, reverting to a standard `RuntimeException` to preserve domain purity.
+- **Refactored `JWTVerificationExceptionTest` assertions.** Multiple independent `assertThat` calls were joined into a single fluent assertion chain for better readability.
 
 ### Added
 
