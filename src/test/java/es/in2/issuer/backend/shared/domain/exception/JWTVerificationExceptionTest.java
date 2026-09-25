@@ -8,7 +8,8 @@ class JWTVerificationExceptionTest {
     @Test
     void shouldExtendRuntimeException() {
         JWTVerificationException exception = new JWTVerificationException("error");
-        assertThat(exception).isInstanceOf(RuntimeException.class);
-        assertThat(exception).isNotInstanceOf(org.springframework.security.core.AuthenticationException.class);
+        assertThat(exception)
+                .isInstanceOf(RuntimeException.class)
+                .isNotInstanceOf(org.springframework.security.core.AuthenticationException.class);
     }
 }
