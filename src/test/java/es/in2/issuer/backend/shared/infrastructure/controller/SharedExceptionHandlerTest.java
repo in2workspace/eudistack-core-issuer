@@ -194,8 +194,8 @@ class SharedExceptionHandlerTest {
         var ex = new ParseException("bad date", 0);
         var type = GlobalErrorTypes.PARSE_ERROR.getCode();
         var title = "Parse error";
-        var st = HttpStatus.INTERNAL_SERVER_ERROR;
-        var fallback = "An internal parsing error occurred.";
+        var st = HttpStatus.BAD_REQUEST;
+        var fallback = "The request could not be parsed. Please check the format of the provided data.";
         var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
 
         when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
@@ -211,8 +211,8 @@ class SharedExceptionHandlerTest {
     void handleParseException_usesFallback_whenMessageNullOrBlank() {
         var type = GlobalErrorTypes.PARSE_ERROR.getCode();
         var title = "Parse error";
-        var st = HttpStatus.INTERNAL_SERVER_ERROR;
-        var fallback = "An internal parsing error occurred.";
+        var st = HttpStatus.BAD_REQUEST;
+        var fallback = "The request could not be parsed. Please check the format of the provided data.";
 
         var exNull = new ParseException(null, 0);
         var exBlank = new ParseException("   ", 0);
@@ -589,7 +589,7 @@ class SharedExceptionHandlerTest {
         var ex = new JWTParsingException("jwt parsing exception");
         var type = GlobalErrorTypes.INVALID_JWT.getCode();
         var title = "JWT parsing error";
-        var st = HttpStatus.INTERNAL_SERVER_ERROR;
+        var st = HttpStatus.BAD_REQUEST;
         var fallback = "The provided JWT is invalid or can't be parsed.";
 
         var expected = new GlobalErrorMessage(
