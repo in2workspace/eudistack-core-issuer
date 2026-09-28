@@ -370,6 +370,8 @@ public class IssuanceServiceImpl implements IssuanceService {
                 .subject(issuance.getSubject())
                 .credentialType(issuance.getCredentialType())
                 .status(String.valueOf(issuance.getCredentialStatus()))
+                .issuedAt(issuance.getCreatedAt())
+                .expiresAt(issuance.getValidUntil() != null ? issuance.getValidUntil().toInstant() : null)
                 .organizationIdentifier(issuance.getOrganizationIdentifier())
                 .updated(issuance.getUpdatedAt())
                 .tenant(tenant)

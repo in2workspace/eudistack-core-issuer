@@ -573,7 +573,9 @@ class IssuanceServiceImplTest {
         cp1.setCredentialType("TYPE_A");
         cp1.setCredentialStatus(CredentialStatusEnum.DRAFT);
         cp1.setOrganizationIdentifier("org-1");
+        cp1.setCreatedAt(Instant.parse("2025-01-05T10:00:00Z"));
         cp1.setUpdatedAt(Instant.parse("2025-01-10T10:00:00Z"));
+        cp1.setValidUntil(Timestamp.from(Instant.parse("2026-01-05T10:00:00Z")));
         cp1.setCredentialDataSet("{\"vc\":{}}");
 
         Issuance cp2 = new Issuance();
@@ -582,7 +584,9 @@ class IssuanceServiceImplTest {
         cp2.setCredentialType("TYPE_B");
         cp2.setCredentialStatus(CredentialStatusEnum.ISSUED);
         cp2.setOrganizationIdentifier("org-2");
+        cp2.setCreatedAt(Instant.parse("2025-02-01T09:30:00Z"));
         cp2.setUpdatedAt(Instant.parse("2025-02-12T09:30:00Z"));
+        cp2.setValidUntil(Timestamp.from(Instant.parse("2026-02-01T09:30:00Z")));
         cp2.setCredentialDataSet("{\"vc\":{}}");
 
         when(issuancePort.findAllOrderByUpdatedDesc())
@@ -612,6 +616,8 @@ class IssuanceServiceImplTest {
                     assertEquals("TYPE_B", first.credentialType());
                     assertEquals(CredentialStatusEnum.ISSUED.name(), first.status());
                     assertEquals("org-2", first.organizationIdentifier());
+                    assertEquals(cp2.getCreatedAt(), first.issuedAt());
+                    assertEquals(cp2.getValidUntil().toInstant(), first.expiresAt());
                     assertEquals(cp2.getUpdatedAt(), first.updated());
 
                     assertEquals(cp1.getIssuanceId(), second.issuanceId());
@@ -619,6 +625,8 @@ class IssuanceServiceImplTest {
                     assertEquals("TYPE_A", second.credentialType());
                     assertEquals(CredentialStatusEnum.DRAFT.name(), second.status());
                     assertEquals("org-1", second.organizationIdentifier());
+                    assertEquals(cp1.getCreatedAt(), second.issuedAt());
+                    assertEquals(cp1.getValidUntil().toInstant(), second.expiresAt());
                     assertEquals(cp1.getUpdatedAt(), second.updated());
                 })
                 .verifyComplete();
@@ -710,7 +718,9 @@ class IssuanceServiceImplTest {
         cp1.setCredentialType("TYPE_A");
         cp1.setCredentialStatus(CredentialStatusEnum.DRAFT);
         cp1.setOrganizationIdentifier(orgId);
+        cp1.setCreatedAt(Instant.parse("2025-01-05T10:00:00Z"));
         cp1.setUpdatedAt(Instant.parse("2025-01-10T10:00:00Z"));
+        cp1.setValidUntil(Timestamp.from(Instant.parse("2026-01-05T10:00:00Z")));
         cp1.setCredentialDataSet("{\"vc\":{}}");
 
         Issuance cp2 = new Issuance();
@@ -719,7 +729,9 @@ class IssuanceServiceImplTest {
         cp2.setCredentialType("TYPE_B");
         cp2.setCredentialStatus(CredentialStatusEnum.ISSUED);
         cp2.setOrganizationIdentifier(orgId);
+        cp2.setCreatedAt(Instant.parse("2025-02-01T09:30:00Z"));
         cp2.setUpdatedAt(Instant.parse("2025-02-12T09:30:00Z"));
+        cp2.setValidUntil(Timestamp.from(Instant.parse("2026-02-01T09:30:00Z")));
         cp2.setCredentialDataSet("{\"vc\":{}}");
 
         when(issuancePort.findAllByOrganizationIdentifier(orgId))
@@ -749,6 +761,8 @@ class IssuanceServiceImplTest {
                     assertEquals("TYPE_A", first.credentialType());
                     assertEquals(CredentialStatusEnum.DRAFT.name(), first.status());
                     assertEquals(orgId, first.organizationIdentifier());
+                    assertEquals(cp1.getCreatedAt(), first.issuedAt());
+                    assertEquals(cp1.getValidUntil().toInstant(), first.expiresAt());
                     assertEquals(cp1.getUpdatedAt(), first.updated());
 
                     assertEquals(cp2.getIssuanceId(), second.issuanceId());
@@ -756,6 +770,8 @@ class IssuanceServiceImplTest {
                     assertEquals("TYPE_B", second.credentialType());
                     assertEquals(CredentialStatusEnum.ISSUED.name(), second.status());
                     assertEquals(orgId, second.organizationIdentifier());
+                    assertEquals(cp2.getCreatedAt(), second.issuedAt());
+                    assertEquals(cp2.getValidUntil().toInstant(), second.expiresAt());
                     assertEquals(cp2.getUpdatedAt(), second.updated());
                 })
                 .verifyComplete();
