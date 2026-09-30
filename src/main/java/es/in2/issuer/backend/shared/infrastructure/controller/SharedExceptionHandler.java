@@ -303,6 +303,23 @@ public class SharedExceptionHandler {
         );
     }
 
+    // Same 403 contract as InsufficientPermissionException, plus the stable `reason` code so the
+    // issuance UI can tell the operator which business rule rejected the request (I-03).
+    @ExceptionHandler(LearIssuancePolicyException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Mono<GlobalErrorMessage> handleLearIssuancePolicyException(
+            LearIssuancePolicyException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.INSUFFICIENT_PERMISSION.getCode(),
+                "Insufficient permission",
+                HttpStatus.FORBIDDEN,
+                "The client who made the issuance request do not have the required permissions"
+        ).map(body -> body.withReason(ex.getReason().getCode()));
+    }
+
     @ExceptionHandler(UnauthorizedRoleException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public Mono<GlobalErrorMessage> handleUnauthorizedRoleException(

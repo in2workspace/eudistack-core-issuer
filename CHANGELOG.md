@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **I-03 — LEAR issuance policy denials now carry a stable `reason` code.** `RequireLearCredentialIssuanceRule` throws `LearIssuancePolicyException` (a subclass of `InsufficientPermissionException`, so status and `type` stay `403 insufficient_permission`), and the error body gains an optional `reason` member (`onboarding_delegation_same_org`, `on_behalf_requires_tenant_admin`, …). Clients can now explain which business rule rejected an on-behalf issuance instead of showing a generic error. Additive contract: the member is omitted for every other error.
 - **Credential offer refresh returns `410 Gone` with functional error code `credential_offer_gone` when the offer has already been issued or is no longer in `DRAFT` status.** This replaces the generic 500 error and allows the frontend to display a specific, localized message to the user.
 - **`JWTVerificationException` mapping moved to the infrastructure layer.** In the reactive authentication flow, this exception is now explicitly mapped to `BadCredentialsException` within `CustomAuthenticationManager`, ensuring a consistent 401 response without coupling the domain exceptions to Spring Security.
 - **Improved JWT validation error handling**: `JWTVerificationException` is now mapped to `BadCredentialsException` in `CustomAuthenticationManager`, ensuring it is correctly handled by the security filter chain (returning 401). This keeps the domain decoupled from Spring Security.
