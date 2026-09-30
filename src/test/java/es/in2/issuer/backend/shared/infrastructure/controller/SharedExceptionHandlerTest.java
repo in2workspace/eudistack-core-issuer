@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.controller;
 
+import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialOfferExpiredException;
 import es.in2.issuer.backend.shared.domain.exception.*;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
@@ -1061,6 +1062,27 @@ class SharedExceptionHandlerTest {
 
         verify(errors).handleWith(exNull,  request, type, title, st, fallback);
         verify(errors).handleWith(exBlank, request, type, title, st, fallback);
+    }
+
+    // -------------------- handleCredentialOfferExpiredException --------------------
+
+    @Test
+    void handleCredentialOfferExpiredException() {
+        var reason = "This credential offer can no longer be refreshed";
+        var ex = new CredentialOfferExpiredException(reason);
+        var type = GlobalErrorTypes.CREDENTIAL_OFFER_GONE.getCode();
+        var title = "Credential offer gone";
+        var st = HttpStatus.GONE;
+        var fallback = "This credential offer can no longer be refreshed";
+        var expected = new GlobalErrorMessage(type, title, st.value(), reason, UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleCredentialOfferExpiredException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, reason))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
     }
 
 }
