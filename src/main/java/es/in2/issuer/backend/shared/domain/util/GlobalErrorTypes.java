@@ -57,7 +57,8 @@ public enum GlobalErrorTypes {
     INVALID_HOLDER_KEY("invalid_holder_key"),
     UNKNOWN_CREDENTIAL_CONFIGURATION("unknown_credential_configuration"),
     CREDENTIAL_CATALOG_NOT_CONFIGURED("credential_catalog_not_configured"),
-    CREDENTIAL_CONFIGURATION_NOT_ENABLED("credential_configuration_not_enabled");
+    CREDENTIAL_CONFIGURATION_NOT_ENABLED("credential_configuration_not_enabled"),
+    CREDENTIAL_ALREADY_ACTIVE("CREDENTIAL_ALREADY_ACTIVE");
 
     private final String code;
 

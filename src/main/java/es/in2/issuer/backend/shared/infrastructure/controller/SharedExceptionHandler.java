@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.shared.infrastructure.controller;
 
 import es.in2.issuer.backend.shared.domain.exception.*;
+import es.in2.issuer.backend.shared.domain.exception.CredentialAlreadyActiveException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialOfferExpiredException;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
@@ -240,6 +241,21 @@ public class SharedExceptionHandler {
                 "Credential already issued",
                 HttpStatus.CONFLICT,
                 "The credential has already been issued."
+        );
+    }
+
+    @ExceptionHandler(CredentialAlreadyActiveException.class)
+    @ResponseStatus(HttpStatus.GONE)
+    public Mono<GlobalErrorMessage> handleCredentialAlreadyActiveException(
+            CredentialAlreadyActiveException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.CREDENTIAL_ALREADY_ACTIVE.getCode(),
+                "Credential already active",
+                HttpStatus.GONE,
+                "The credential is already active."
         );
     }
 

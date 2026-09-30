@@ -1085,5 +1085,24 @@ class SharedExceptionHandlerTest {
         verify(errors).handleWith(ex, request, type, title, st, fallback);
     }
 
+    @Test
+    void handleCredentialAlreadyActiveException() {
+        var reason = "The credential is already active.";
+        var ex = new CredentialAlreadyActiveException(reason);
+        var type = GlobalErrorTypes.CREDENTIAL_ALREADY_ACTIVE.getCode();
+        var title = "Credential already active";
+        var st = HttpStatus.GONE;
+        var fallback = "The credential is already active.";
+        var expected = new GlobalErrorMessage(type, title, st.value(), reason, UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleCredentialAlreadyActiveException(ex, request))
+                .assertNext(gem -> assertGem(gem, type, title, st, reason))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
 }
 
