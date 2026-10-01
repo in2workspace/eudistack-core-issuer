@@ -780,6 +780,30 @@ class IssuanceServiceImplTest {
     }
 
     @Test
+    void getAllIssuanceSummariesByOrganizationId_shouldLeaveExpiresAtNull_whenValidUntilIsMissing() {
+        String orgId = "org-no-expiry";
+
+        Issuance issuance = new Issuance();
+        issuance.setIssuanceId(UUID.randomUUID());
+        issuance.setCredentialStatus(CredentialStatusEnum.DRAFT);
+        issuance.setOrganizationIdentifier(orgId);
+        issuance.setCreatedAt(Instant.parse("2025-01-05T10:00:00Z"));
+        issuance.setUpdatedAt(Instant.parse("2025-01-10T10:00:00Z"));
+        issuance.setValidUntil(null);
+        issuance.setCredentialDataSet("{\"vc\":{}}");
+
+        when(issuancePort.findAllByOrganizationIdentifier(orgId)).thenReturn(Flux.just(issuance));
+
+        StepVerifier.create(issuanceService.getAllIssuanceSummariesByOrganizationId(orgId))
+                .assertNext(result -> {
+                    IssuanceSummary summary = result.issuances().get(0).issuance();
+                    assertEquals(issuance.getCreatedAt(), summary.createdAt());
+                    assertNull(summary.expiresAt());
+                })
+                .verifyComplete();
+    }
+
+    @Test
     void getAllIssuanceSummariesByOrganizationId_shouldReturnEmptyList_whenRepositoryIsEmpty() {
         // Given
         String orgId = "org-empty";
