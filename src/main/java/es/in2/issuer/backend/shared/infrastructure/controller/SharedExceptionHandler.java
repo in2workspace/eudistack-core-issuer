@@ -3,6 +3,7 @@ package es.in2.issuer.backend.shared.infrastructure.controller;
 import es.in2.issuer.backend.shared.domain.exception.*;
 import es.in2.issuer.backend.shared.domain.exception.CredentialAlreadyActiveException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialOfferExpiredException;
+import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialOfferNoLongerAvailableException;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
@@ -226,6 +227,30 @@ public class SharedExceptionHandler {
                 "Credential offer gone",
                 HttpStatus.GONE,
                 "This credential offer can no longer be refreshed"
+        );
+    }
+
+    @ExceptionHandler(CredentialOfferNoLongerAvailableException.class)
+    @ResponseStatus(HttpStatus.GONE)
+    public Mono<GlobalErrorMessage> handleCredentialOfferNoLongerAvailableException(
+            CredentialOfferNoLongerAvailableException ex,
+            ServerHttpRequest request
+    ) {
+        if (ex.isConsumed()) {
+            return errors.handleWith(
+                    ex, request,
+                    GlobalErrorTypes.CREDENTIAL_ALREADY_ISSUED.getCode(),
+                    "Credential already issued",
+                    HttpStatus.GONE,
+                    "The credential offer has already been used."
+            );
+        }
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.CREDENTIAL_OFFER_EXPIRED.getCode(),
+                "Credential offer expired",
+                HttpStatus.GONE,
+                "The credential offer has expired."
         );
     }
 

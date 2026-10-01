@@ -22,6 +22,7 @@ public enum GlobalErrorTypes {
     PRE_AUTHORIZATION_CODE_GET("pre_authorization_code_get_error"),
     CREDENTIAL_OFFER_NOT_FOUND("credential_offer_not_found"),
     CREDENTIAL_OFFER_GONE("credential_offer_gone"),
+    CREDENTIAL_OFFER_EXPIRED("credential_offer_expired"),
     CREDENTIAL_ALREADY_ISSUED("credential_already_issued"),
     JWT_VERIFICATION("jwt_verification_error"),
     UNAUTHORIZED_ROLE("unauthorized_role"),

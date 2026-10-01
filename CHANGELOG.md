@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Improved credential offer redemption flow**: the redemption of a credential offer now marks it as consumed instead of deleting it from the cache, and respects a logical expiry. This enables the OIDC4VCI endpoint to return `410 Gone` with specific error codes (`credential_offer_expired` or `credential_already_issued`) for a retention period, replacing generic errors and allowing for better UX in the wallet.
 - **Credential offer refresh returns `410 Gone` with functional error code `credential_offer_gone` when the offer has already been issued or is no longer in `DRAFT` status.** This replaces the generic 500 error and allows the frontend to display a specific, localized message to the user.
 - **`JWTVerificationException` mapping moved to the infrastructure layer.** In the reactive authentication flow, this exception is now explicitly mapped to `BadCredentialsException` within `CustomAuthenticationManager`, ensuring a consistent 401 response without coupling the domain exceptions to Spring Security.
 - **Improved JWT validation error handling**: `JWTVerificationException` is now mapped to `BadCredentialsException` in `CustomAuthenticationManager`, ensuring it is correctly handled by the security filter chain (returning 401). This keeps the domain decoupled from Spring Security.

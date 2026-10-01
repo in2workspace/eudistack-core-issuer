@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.shared.infrastructure.controller;
 
 import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialOfferExpiredException;
+import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialOfferNoLongerAvailableException;
 import es.in2.issuer.backend.shared.domain.exception.*;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
@@ -1080,6 +1081,46 @@ class SharedExceptionHandlerTest {
 
         StepVerifier.create(handler.handleCredentialOfferExpiredException(ex, request))
                 .assertNext(gem -> assertGem(gem, type, title, st, reason))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    // -------------------- handleCredentialOfferNoLongerAvailableException --------------------
+
+    @Test
+    void handleCredentialOfferNoLongerAvailableException_mapsToGoneWithExpiredType() {
+        var ex = CredentialOfferNoLongerAvailableException.expired();
+        var reason = ex.getMessage();
+        var type = GlobalErrorTypes.CREDENTIAL_OFFER_EXPIRED.getCode();
+        var title = "Credential offer expired";
+        var st = HttpStatus.GONE;
+        var fallback = "The credential offer has expired.";
+        var expected = new GlobalErrorMessage(type, title, st.value(), reason, UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleCredentialOfferNoLongerAvailableException(ex, request))
+                .assertNext(gem -> assertGem(gem, "credential_offer_expired", title, st, reason))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
+    @Test
+    void handleCredentialOfferNoLongerAvailableException_consumedOffer_mapsToGoneWithAlreadyIssuedType() {
+        var ex = CredentialOfferNoLongerAvailableException.alreadyUsed();
+        var reason = ex.getMessage();
+        var type = GlobalErrorTypes.CREDENTIAL_ALREADY_ISSUED.getCode();
+        var title = "Credential already issued";
+        var st = HttpStatus.GONE;
+        var fallback = "The credential offer has already been used.";
+        var expected = new GlobalErrorMessage(type, title, st.value(), reason, UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleCredentialOfferNoLongerAvailableException(ex, request))
+                .assertNext(gem -> assertGem(gem, "credential_already_issued", title, st, reason))
                 .verifyComplete();
 
         verify(errors).handleWith(ex, request, type, title, st, fallback);
