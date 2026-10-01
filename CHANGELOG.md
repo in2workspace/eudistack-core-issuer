@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [3.10.9] - 2026-10-01
+
+### Fixed
+- **#1060488** El Issuer responde 500 al validar un access token firmado con una clave que no es la del Verifier. Esa validación pasa a responder 401.
+
 ### Fixed
 - **Credential offer refresh returns `410 Gone` with functional error code `credential_offer_gone` when the offer has already been issued or is no longer in `DRAFT` status.** This replaces the generic 500 error and allows the frontend to display a specific, localized message to the user.
 - **`JWTVerificationException` mapping moved to the infrastructure layer.** In the reactive authentication flow, this exception is now explicitly mapped to `BadCredentialsException` within `CustomAuthenticationManager`, ensuring a consistent 401 response without coupling the domain exceptions to Spring Security.
