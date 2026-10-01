@@ -616,7 +616,7 @@ class IssuanceServiceImplTest {
                     assertEquals("TYPE_B", first.credentialType());
                     assertEquals(CredentialStatusEnum.ISSUED.name(), first.status());
                     assertEquals("org-2", first.organizationIdentifier());
-                    assertEquals(cp2.getCreatedAt(), first.issuedAt());
+                    assertEquals(cp2.getCreatedAt(), first.createdAt());
                     assertEquals(cp2.getValidUntil().toInstant(), first.expiresAt());
                     assertEquals(cp2.getUpdatedAt(), first.updated());
 
@@ -625,7 +625,7 @@ class IssuanceServiceImplTest {
                     assertEquals("TYPE_A", second.credentialType());
                     assertEquals(CredentialStatusEnum.DRAFT.name(), second.status());
                     assertEquals("org-1", second.organizationIdentifier());
-                    assertEquals(cp1.getCreatedAt(), second.issuedAt());
+                    assertEquals(cp1.getCreatedAt(), second.createdAt());
                     assertEquals(cp1.getValidUntil().toInstant(), second.expiresAt());
                     assertEquals(cp1.getUpdatedAt(), second.updated());
                 })
@@ -761,7 +761,7 @@ class IssuanceServiceImplTest {
                     assertEquals("TYPE_A", first.credentialType());
                     assertEquals(CredentialStatusEnum.DRAFT.name(), first.status());
                     assertEquals(orgId, first.organizationIdentifier());
-                    assertEquals(cp1.getCreatedAt(), first.issuedAt());
+                    assertEquals(cp1.getCreatedAt(), first.createdAt());
                     assertEquals(cp1.getValidUntil().toInstant(), first.expiresAt());
                     assertEquals(cp1.getUpdatedAt(), first.updated());
 
@@ -770,7 +770,7 @@ class IssuanceServiceImplTest {
                     assertEquals("TYPE_B", second.credentialType());
                     assertEquals(CredentialStatusEnum.ISSUED.name(), second.status());
                     assertEquals(orgId, second.organizationIdentifier());
-                    assertEquals(cp2.getCreatedAt(), second.issuedAt());
+                    assertEquals(cp2.getCreatedAt(), second.createdAt());
                     assertEquals(cp2.getValidUntil().toInstant(), second.expiresAt());
                     assertEquals(cp2.getUpdatedAt(), second.updated());
                 })

@@ -15,7 +15,7 @@ public record IssuanceSummary(
         @JsonProperty("credential_type") String credentialType,
         @JsonProperty("status") String status,
         @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss'Z'", timezone = "UTC")
-        @JsonProperty("issued_at") Instant issuedAt,
+        @JsonProperty("created_at") Instant createdAt,
         @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss'Z'", timezone = "UTC")
         @JsonProperty("expires_at") Instant expiresAt,
         @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss'Z'", timezone = "UTC")
