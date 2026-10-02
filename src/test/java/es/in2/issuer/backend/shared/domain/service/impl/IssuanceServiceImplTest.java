@@ -463,6 +463,22 @@ class IssuanceServiceImplTest {
     }
 
     @Test
+    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldErrorAsNotFound_whenIdIsMalformed() {
+        // When
+        Mono<CredentialDetails> result = issuanceService
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext("org-123", UserRole.LEAR, false, "multi_org"), "not-a-uuid");
+
+        // Then
+        StepVerifier.create(result)
+                .expectErrorSatisfies(err -> {
+                    assertInstanceOf(NoCredentialFoundException.class, err);
+                    assertFalse(err.getMessage().contains("not-a-uuid"));
+                })
+                .verify();
+        verifyNoInteractions(issuancePort);
+    }
+
+    @Test
     void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldHandleJsonProcessingException() throws Exception {
         // Given
         String issuanceId = UUID.randomUUID().toString();

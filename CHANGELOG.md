@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **`GET /api/v1/issuances/{id}` answers a malformed `id` with `404 Not Found`** (`CREDENTIAL_NOT_FOUND`, as for an unknown id) instead of a generic `500`, and no longer echoes the malformed value in the error message.
 - **Credential offer refresh returns `410 Gone` with functional error code `credential_offer_gone` when the offer has already been issued or is no longer in `DRAFT` status.** This replaces the generic 500 error and allows the frontend to display a specific, localized message to the user.
 - **`JWTVerificationException` mapping moved to the infrastructure layer.** In the reactive authentication flow, this exception is now explicitly mapped to `BadCredentialsException` within `CustomAuthenticationManager`, ensuring a consistent 401 response without coupling the domain exceptions to Spring Security.
 - **Improved JWT validation error handling**: `JWTVerificationException` is now mapped to `BadCredentialsException` in `CustomAuthenticationManager`, ensuring it is correctly handled by the security filter chain (returning 401). This keeps the domain decoupled from Spring Security.
