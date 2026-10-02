@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateException;
+import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
 import es.in2.issuer.backend.shared.domain.exception.NoCredentialFoundException;
@@ -14,10 +15,13 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
+import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import static org.junit.jupiter.api.Assertions.*;
 import org.mockito.InjectMocks;
@@ -52,6 +56,9 @@ class IssuanceServiceImplTest {
 
     @Mock
     private CredentialProfileRegistry credentialProfileRegistry;
+
+    @Mock
+    private TenantRegistryService tenantRegistryService;
 
     @InjectMocks
     private IssuanceServiceImpl issuanceService;
@@ -1028,6 +1035,377 @@ class IssuanceServiceImplTest {
 
         verify(issuancePort, times(1)).findAllOrderByUpdatedDesc();
         verify(issuancePort, never()).findAllByOrganizationIdentifier(anyString());
+    }
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final String SYS_TENANT = "sys-tenant";
+
+    private static Issuance issuanceWithStatus(CredentialStatusEnum status) {
+        Issuance issuance = new Issuance();
+        issuance.setIssuanceId(UUID.randomUUID());
+        issuance.setCredentialStatus(status);
+        return issuance;
+    }
+
+    private static ConcurrentIssuanceUpdateException staleVersion(UUID issuanceId) {
+        return new ConcurrentIssuanceUpdateException(issuanceId, "save", new RuntimeException("stale version"));
+    }
+
+    private static boolean isConflictDuring(Throwable error, String operation) {
+        return error instanceof ConcurrentIssuanceUpdateException && error.getMessage().endsWith("during " + operation);
+    }
+
+    @Test
+    void getCredentialTypeByIssuanceId_shouldReadTopLevelType_whenThereIsNoVcWrapper() throws Exception {
+        String dataSet = "{\"type\":[\"VerifiableCredential\",\"TopLevelType\"]}";
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.ISSUED);
+        issuance.setCredentialDataSet(dataSet);
+        when(issuancePort.findById(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        when(objectMapper.readTree(dataSet)).thenReturn(JSON.readTree(dataSet));
+
+        StepVerifier.create(issuanceService.getCredentialTypeByIssuanceId(issuance.getIssuanceId().toString()))
+                .expectNext("TopLevelType")
+                .verifyComplete();
+    }
+
+    @Test
+    void getCredentialTypeByIssuanceId_shouldError_whenTypeIsNotAnArray() throws Exception {
+        String dataSet = "{\"vc\":{\"type\":\"TestType\"}}";
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.ISSUED);
+        issuance.setCredentialDataSet(dataSet);
+        when(issuancePort.findById(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        when(objectMapper.readTree(dataSet)).thenReturn(JSON.readTree(dataSet));
+
+        StepVerifier.create(issuanceService.getCredentialTypeByIssuanceId(issuance.getIssuanceId().toString()))
+                .expectError(MissingCredentialTypeException.class)
+                .verify();
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "{\"vc\":{\"id\":\"urn:vc\"},\"id\":\"urn:top\",\"jti\":\"jti-1\"} | urn:vc",
+            "{\"vc\":{\"id\":\" \"},\"id\":\"urn:top\",\"jti\":\"jti-1\"}    | urn:top",
+            "{\"id\":\"\",\"jti\":\"jti-1\"}                                 | jti-1"
+    })
+    void extractCredentialId_shouldPreferVcIdThenTopLevelIdThenJti(String dataSet, String expectedId) throws Exception {
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.ISSUED);
+        issuance.setCredentialDataSet(dataSet);
+        when(objectMapper.readTree(dataSet)).thenReturn(JSON.readTree(dataSet));
+
+        StepVerifier.create(issuanceService.extractCredentialId(issuance))
+                .expectNext(expectedId)
+                .verifyComplete();
+    }
+
+    @Test
+    void extractCredentialId_shouldCompleteEmpty_whenTheCredentialHasNoId() throws Exception {
+        String dataSet = "{\"vc\":{}}";
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.ISSUED);
+        issuance.setCredentialDataSet(dataSet);
+        when(objectMapper.readTree(dataSet)).thenReturn(JSON.readTree(dataSet));
+
+        StepVerifier.create(issuanceService.extractCredentialId(issuance)).verifyComplete();
+    }
+
+    @Test
+    void updateCredentialDataSetByIssuanceId_shouldReportTheOperation_whenTheSaveLosesARace() {
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.DRAFT);
+        when(issuancePort.findById(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        when(issuancePort.save(issuance)).thenReturn(Mono.error(staleVersion(issuance.getIssuanceId())));
+
+        StepVerifier.create(issuanceService.updateCredentialDataSetByIssuanceId(issuance.getIssuanceId().toString(), "{}", "jwt_vc_json"))
+                .expectErrorMatches(error -> isConflictDuring(error, "updateCredentialDataSetByIssuanceId"))
+                .verify();
+    }
+
+    @Test
+    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldSearchEveryActiveTenant_forPlatformSysAdmin() throws Exception {
+        String dataSet = "{\"vc\":{}}";
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.VALID);
+        issuance.setCredentialDataSet(dataSet);
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("tenant-a", "tenant-b")));
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        when(objectMapper.readTree(dataSet)).thenReturn(JSON.readTree(dataSet));
+
+        Mono<CredentialDetails> result = issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
+                new AuthorizationContext(ADMIN_ORG_ID, UserRole.SYSADMIN, true, "multi_org"), issuance.getIssuanceId().toString());
+
+        StepVerifier.create(result)
+                .assertNext(details -> assertEquals(issuance.getIssuanceId(), details.issuanceId()))
+                .verifyComplete();
+        verify(issuancePort, never()).findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), anyString());
+    }
+
+    @Test
+    void updateIssuanceStatusToValidByIssuanceId_shouldActivateAnIssuedCredential() {
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.ISSUED);
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        when(issuancePort.save(issuance)).thenReturn(Mono.just(issuance));
+
+        StepVerifier.create(issuanceService.updateIssuanceStatusToValidByIssuanceId(issuance.getIssuanceId().toString()))
+                .verifyComplete();
+        assertEquals(CredentialStatusEnum.VALID, issuance.getCredentialStatus());
+    }
+
+    @Test
+    void updateIssuanceStatusToValidByIssuanceId_shouldRejectAnInvalidTransition() {
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.DRAFT);
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+
+        StepVerifier.create(issuanceService.updateIssuanceStatusToValidByIssuanceId(issuance.getIssuanceId().toString()))
+                .expectError(InvalidCredentialStatusTransitionException.class)
+                .verify();
+        verify(issuancePort, never()).save(any(Issuance.class));
+    }
+
+    @Test
+    void updateIssuanceStatusToValidByIssuanceId_shouldReportTheOperation_whenTheSaveLosesARace() {
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.ISSUED);
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        when(issuancePort.save(issuance)).thenReturn(Mono.error(staleVersion(issuance.getIssuanceId())));
+
+        StepVerifier.create(issuanceService.updateIssuanceStatusToValidByIssuanceId(issuance.getIssuanceId().toString()))
+                .expectErrorMatches(error -> isConflictDuring(error, "updateIssuanceStatusToValidByIssuanceId"))
+                .verify();
+    }
+
+    @Test
+    void updateIssuanceStatusToRevoked_shouldPropagateConflict_whenTheIssuanceIsGoneOnRefetch() {
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.VALID);
+        ConcurrentIssuanceUpdateException conflict = staleVersion(issuance.getIssuanceId());
+        when(issuancePort.save(issuance)).thenReturn(Mono.error(conflict));
+        when(issuancePort.findById(issuance.getIssuanceId())).thenReturn(Mono.empty());
+
+        StepVerifier.create(issuanceService.updateIssuanceStatusToRevoked(issuance))
+                .expectErrorMatches(conflict::equals)
+                .verify();
+    }
+
+    @Test
+    void withdrawIssuance_shouldWithdrawADraft() {
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.DRAFT);
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        when(issuancePort.save(issuance)).thenReturn(Mono.just(issuance));
+
+        StepVerifier.create(issuanceService.withdrawIssuance(issuance.getIssuanceId().toString())).verifyComplete();
+        assertEquals(CredentialStatusEnum.WITHDRAWN, issuance.getCredentialStatus());
+    }
+
+    @Test
+    void withdrawIssuance_shouldReportTheOperation_whenTheSaveLosesARace() {
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.DRAFT);
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        when(issuancePort.save(issuance)).thenReturn(Mono.error(staleVersion(issuance.getIssuanceId())));
+
+        StepVerifier.create(issuanceService.withdrawIssuance(issuance.getIssuanceId().toString()))
+                .expectErrorMatches(error -> isConflictDuring(error, "withdrawIssuance"))
+                .verify();
+    }
+
+    @Test
+    void archiveIssuance_shouldReportTheOperation_whenTheSaveLosesARace() {
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.WITHDRAWN);
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        when(issuancePort.save(issuance)).thenReturn(Mono.error(staleVersion(issuance.getIssuanceId())));
+
+        StepVerifier.create(issuanceService.archiveIssuance(issuance.getIssuanceId().toString()))
+                .expectErrorMatches(error -> isConflictDuring(error, "archiveIssuance"))
+                .verify();
+    }
+
+    @Test
+    void getAllIssuancesVisibleFor_platformSysAdmin_shouldMergeEveryTenantButPlatform_newestFirst() throws Exception {
+        Issuance older = issuanceWithStatus(CredentialStatusEnum.VALID);
+        older.setCredentialDataSet("{}");
+        older.setUpdatedAt(Instant.parse("2025-01-01T00:00:00Z"));
+        Issuance newer = issuanceWithStatus(CredentialStatusEnum.VALID);
+        newer.setCredentialDataSet("{}");
+        newer.setUpdatedAt(Instant.parse("2025-06-01T00:00:00Z"));
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("platform", "tenant-a", "tenant-b")));
+        when(issuancePort.findAllOrderByUpdatedDesc()).thenReturn(Flux.just(older), Flux.just(newer));
+        when(objectMapper.readTree("{}")).thenReturn(JSON.readTree("{}"));
+
+        Mono<IssuanceList> result = issuanceService.getAllIssuancesVisibleFor(
+                new AuthorizationContext(ADMIN_ORG_ID, UserRole.SYSADMIN, true, "multi_org"));
+
+        StepVerifier.create(result)
+                .assertNext(list -> {
+                    assertEquals(List.of(newer.getIssuanceId(), older.getIssuanceId()),
+                            list.issuances().stream().map(entry -> entry.issuance().issuanceId()).toList());
+                    assertEquals(List.of("tenant-b", "tenant-a"),
+                            list.issuances().stream().map(entry -> entry.issuance().tenant()).toList());
+                })
+                .verifyComplete();
+        verify(issuancePort, times(2)).findAllOrderByUpdatedDesc();
+    }
+
+    @Test
+    void getAllIssuancesVisibleFor_platformSysAdmin_shouldKeepIssuancesWithoutAnUpdateDate() throws Exception {
+        Issuance dated = issuanceWithStatus(CredentialStatusEnum.VALID);
+        dated.setCredentialDataSet("{}");
+        dated.setUpdatedAt(Instant.parse("2025-01-01T00:00:00Z"));
+        Issuance undated = issuanceWithStatus(CredentialStatusEnum.DRAFT);
+        undated.setCredentialDataSet("{}");
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("tenant-a")));
+        when(issuancePort.findAllOrderByUpdatedDesc()).thenReturn(Flux.just(dated, undated));
+        when(objectMapper.readTree("{}")).thenReturn(JSON.readTree("{}"));
+
+        StepVerifier.create(issuanceService.getAllIssuancesVisibleFor(
+                        new AuthorizationContext(ADMIN_ORG_ID, UserRole.SYSADMIN, true, "multi_org")))
+                .assertNext(list -> assertEquals(2, list.issuances().size()))
+                .verifyComplete();
+    }
+
+    @Test
+    void getAllIssuancesVisibleFor_platformSysAdmin_shouldError_whenACredentialIsNotValidJson() throws Exception {
+        Issuance broken = issuanceWithStatus(CredentialStatusEnum.VALID);
+        broken.setCredentialDataSet("{");
+        when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("tenant-a")));
+        when(issuancePort.findAllOrderByUpdatedDesc()).thenReturn(Flux.just(broken));
+        when(objectMapper.readTree("{")).thenThrow(new JsonParseException(null, "unexpected end"));
+
+        StepVerifier.create(issuanceService.getAllIssuancesVisibleFor(
+                        new AuthorizationContext(ADMIN_ORG_ID, UserRole.SYSADMIN, true, "multi_org")))
+                .expectError(ParseCredentialJsonException.class)
+                .verify();
+    }
+
+    @Test
+    void getAllIssuanceSummariesByOrganizationId_shouldError_whenACredentialIsNotValidJson() throws Exception {
+        Issuance broken = issuanceWithStatus(CredentialStatusEnum.VALID);
+        broken.setCredentialDataSet("{");
+        when(issuancePort.findAllByOrganizationIdentifier("org-123")).thenReturn(Flux.just(broken));
+        when(objectMapper.readTree("{")).thenThrow(new JsonParseException(null, "unexpected end"));
+
+        StepVerifier.create(issuanceService.getAllIssuanceSummariesByOrganizationId("org-123"))
+                .expectError(ParseCredentialJsonException.class)
+                .verify();
+    }
+
+    @Test
+    void findCredentialOfferEmailInfoByIssuanceId_shouldError_whenTheConfigurationIsUnknown() {
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.DRAFT);
+        issuance.setCredentialType("unknown.type.1");
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        when(credentialProfileRegistry.getByConfigurationId("unknown.type.1")).thenReturn(null);
+
+        StepVerifier.create(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuance.getIssuanceId().toString()))
+                .expectError(FormatUnsupportedException.class)
+                .verify();
+    }
+
+    @Test
+    void findCredentialOfferEmailInfoByIssuanceId_shouldUseTheSysTenant_whenTheStrategyIsNone() {
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.DRAFT);
+        issuance.setCredentialType("doctorid.sd.1");
+        issuance.setEmail("owner@example.com");
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        when(credentialProfileRegistry.getByConfigurationId("doctorid.sd.1")).thenReturn(CredentialProfile.builder()
+                .organizationExtraction(CredentialProfile.OrganizationExtraction.builder().strategy("none").build())
+                .build());
+        when(appConfig.getSysTenant()).thenReturn(SYS_TENANT);
+
+        StepVerifier.create(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuance.getIssuanceId().toString()))
+                .assertNext(info -> assertEquals(SYS_TENANT, info.organization()))
+                .verifyComplete();
+    }
+
+    private Mono<CredentialOfferEmailNotificationInfo> emailInfoForMandatorCredential(
+            CredentialProfile.Validation validation, String dataSet) throws Exception {
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.DRAFT);
+        issuance.setCredentialType("learcredential.employee.w3c.4");
+        issuance.setEmail("owner@example.com");
+        issuance.setCredentialDataSet(dataSet);
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4")).thenReturn(CredentialProfile.builder()
+                .organizationExtraction(CredentialProfile.OrganizationExtraction.builder().strategy("mandator").build())
+                .validation(validation)
+                .build());
+        when(objectMapper.readTree(dataSet)).thenReturn(JSON.readTree(dataSet));
+        return issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuance.getIssuanceId().toString());
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "{\"credentialSubject\":{\"mandate\":{\"mandator\":{\"organization\":\"ACME\"}}}} | ACME",
+            "{\"credentialSubject\":{\"mandate\":{\"mandator\":{}}}}                         | sys-tenant",
+            "{\"credentialSubject\":{}}                                                       | sys-tenant"
+    })
+    void findCredentialOfferEmailInfoByIssuanceId_shouldReadTheMandatorOrganization_orFallBackToTheSysTenant(
+            String dataSet, String expectedOrganization) throws Exception {
+        lenient().when(appConfig.getSysTenant()).thenReturn(SYS_TENANT);
+
+        StepVerifier.create(emailInfoForMandatorCredential(
+                        new CredentialProfile.Validation("credentialSubject.mandate.mandator.organizationIdentifier"), dataSet))
+                .assertNext(info -> {
+                    assertEquals(expectedOrganization, info.organization());
+                    assertEquals("owner@example.com", info.email());
+                })
+                .verifyComplete();
+    }
+
+    @ParameterizedTest
+    @CsvSource(value = {"NO_VALIDATION", "NO_PATH", "organizationIdentifier"})
+    void findCredentialOfferEmailInfoByIssuanceId_shouldUseTheSysTenant_whenNoMandatorPathCanBeDerived(String orgIdPath) throws Exception {
+        CredentialProfile.Validation validation = switch (orgIdPath) {
+            case "NO_VALIDATION" -> null;
+            case "NO_PATH" -> new CredentialProfile.Validation(null);
+            default -> new CredentialProfile.Validation(orgIdPath);
+        };
+        when(appConfig.getSysTenant()).thenReturn(SYS_TENANT);
+
+        StepVerifier.create(emailInfoForMandatorCredential(validation, "{\"organization\":\"ACME\"}"))
+                .assertNext(info -> assertEquals(SYS_TENANT, info.organization()))
+                .verifyComplete();
+    }
+
+    @Test
+    void findCredentialOfferEmailInfoByIssuanceId_shouldError_whenTheCredentialIsNotValidJson() throws Exception {
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.DRAFT);
+        issuance.setCredentialType("learcredential.employee.w3c.4");
+        issuance.setCredentialDataSet("{");
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4")).thenReturn(CredentialProfile.builder()
+                .organizationExtraction(CredentialProfile.OrganizationExtraction.builder().strategy("mandator").build())
+                .build());
+        when(objectMapper.readTree("{")).thenThrow(new JsonParseException(null, "unexpected end"));
+
+        StepVerifier.create(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuance.getIssuanceId().toString()))
+                .expectError(ParseCredentialJsonException.class)
+                .verify();
+    }
+
+    @Test
+    void updateIssuance_shouldSaveTheIssuance() {
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.DRAFT);
+        when(issuancePort.save(issuance)).thenReturn(Mono.just(issuance));
+
+        StepVerifier.create(issuanceService.updateIssuance(issuance)).expectNext(issuance).verifyComplete();
+    }
+
+    @Test
+    void updateIssuance_shouldReportTheOperation_whenTheSaveLosesARace() {
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.DRAFT);
+        when(issuancePort.save(issuance)).thenReturn(Mono.error(staleVersion(issuance.getIssuanceId())));
+
+        StepVerifier.create(issuanceService.updateIssuance(issuance))
+                .expectErrorMatches(error -> isConflictDuring(error, "updateIssuance"))
+                .verify();
+    }
+
+    @Test
+    void lookupQueries_shouldDelegateToThePort() {
+        Instant cutoff = Instant.parse("2025-01-01T00:00:00Z");
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.ISSUED);
+        when(issuancePort.findByCredentialOfferRefreshToken("refresh-token")).thenReturn(Mono.just(issuance));
+        when(issuancePort.findIssuedReadyForActivation(CredentialStatusEnum.ISSUED, cutoff)).thenReturn(Flux.just(issuance));
+        when(issuancePort.findByCredentialStatusAndCreatedAtBefore(CredentialStatusEnum.DRAFT, cutoff)).thenReturn(Flux.just(issuance));
+        when(issuancePort.findFailedDeliveries(cutoff)).thenReturn(Flux.just(issuance));
+
+        StepVerifier.create(issuanceService.getIssuanceByCredentialOfferRefreshToken("refresh-token")).expectNext(issuance).verifyComplete();
+        StepVerifier.create(issuanceService.findIssuedReadyForActivation(cutoff)).expectNext(issuance).verifyComplete();
+        StepVerifier.create(issuanceService.findStaleDrafts(cutoff)).expectNext(issuance).verifyComplete();
+        StepVerifier.create(issuanceService.findFailedDeliveries(cutoff)).expectNext(issuance).verifyComplete();
     }
 
 }
