@@ -54,7 +54,6 @@ public class CredentialOfferCacheRepositoryImpl implements CredentialOfferCacheR
                                 ? CredentialOfferNoLongerAvailableException.alreadyUsed()
                                 : CredentialOfferNoLongerAvailableException.expired());
                     }
-                    log.debug("CredentialOffer found for nonce: {}", id);
                     return cacheStore.add(id, credentialOfferData.markConsumed())
                             .thenReturn(credentialOfferData);
                 });
