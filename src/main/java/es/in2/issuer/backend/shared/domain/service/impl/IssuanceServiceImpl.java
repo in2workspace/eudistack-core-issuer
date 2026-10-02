@@ -171,7 +171,7 @@ public class IssuanceServiceImpl implements IssuanceService {
         UUID id;
         try {
             id = UUID.fromString(issuanceId);
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException _) {
             return Mono.error(new NoCredentialFoundException("No credential found for a malformed issuanceId"));
         }
         Mono<Issuance> issuanceMono;
