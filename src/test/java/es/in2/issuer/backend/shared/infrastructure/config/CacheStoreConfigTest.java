@@ -45,8 +45,8 @@ class CacheStoreConfigTest {
 
     @Test
     void testCacheStoreForCredentialOffer() {
-        long cacheLifetime = 60;
-        when(cacheConfig.getCacheLifetimeForCredentialOffer()).thenReturn(cacheLifetime);
+        long cacheRetention = 60;
+        when(cacheConfig.getCacheRetentionForCredentialOffer()).thenReturn(cacheRetention);
 
         TransientStore<CredentialOfferData> customCredentialOfferCacheStore = cacheStoreConfig.cacheStoreForCredentialOffer();
         assertNotNull(customCredentialOfferCacheStore);
