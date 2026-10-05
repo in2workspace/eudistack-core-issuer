@@ -80,37 +80,55 @@ public class RequireLearCredentialIssuanceRule implements PolicyRule<JsonNode> {
         }
         List<Power> payloadPowers = objectMapper.convertValue(powerArray, new TypeReference<>() {});
         for (Power p : payloadPowers) {
-            if (FN_ONBOARDING.equals(p.function()) && PolicyContext.hasAction(p, ACT_EXECUTE)) {
-                if (!context.tenantAdmin()) {
-                    return new Denial(Reason.ONBOARDING_DELEGATION_REQUIRES_TENANT_ADMIN,
-                            "Onboarding/Execute delegation requires TenantAdmin");
-                }
-                if (!PolicyContext.TENANT_TYPE_MULTI_ORG.equals(context.tenantType())) {
-                    return new Denial(Reason.ONBOARDING_DELEGATION_REQUIRES_MULTI_ORG,
-                            "Onboarding/Execute delegation only allowed in multi_org tenant (current: '"
-                            + context.tenantType() + "')");
-                }
-                String payloadMandatorOrgId = payload.path("mandator").path("organizationIdentifier").asText(null);
-                String operatorOrgId = context.organizationIdentifier();
-                log.debug("checkEscalationPrevention: on-behalf check — operatorOrgId='{}', payloadMandatorOrgId='{}', sameOrg={}",
-                        operatorOrgId, payloadMandatorOrgId, payloadMandatorOrgId != null && payloadMandatorOrgId.equals(operatorOrgId));
-                if (payloadMandatorOrgId == null || payloadMandatorOrgId.equals(operatorOrgId)) {
-                    return new Denial(Reason.ONBOARDING_DELEGATION_SAME_ORG,
-                            "Onboarding/Execute delegation only allowed on-behalf (payload mandator org must differ from operator org '"
-                            + operatorOrgId + "')");
-                }
+            Denial denial = checkPowerDelegation(context, payload, p);
+            if (denial != null) {
+                return denial;
             }
-            if (FN_CERTIFICATION.equals(p.function()) && PolicyContext.hasAction(p, ACT_ATTEST)) {
-                if (!context.tenantAdmin()) {
-                    return new Denial(Reason.CERTIFICATION_DELEGATION_REQUIRES_TENANT_ADMIN,
-                            "Certification/Attest delegation requires TenantAdmin");
-                }
-                if (!PolicyContext.TENANT_TYPE_MULTI_ORG.equals(context.tenantType())) {
-                    return new Denial(Reason.CERTIFICATION_DELEGATION_REQUIRES_MULTI_ORG,
-                            "Certification/Attest delegation only allowed in multi_org tenant (current: '"
-                            + context.tenantType() + "')");
-                }
-            }
+        }
+        return null;
+    }
+
+    private Denial checkPowerDelegation(PolicyContext context, JsonNode payload, Power p) {
+        if (FN_ONBOARDING.equals(p.function()) && PolicyContext.hasAction(p, ACT_EXECUTE)) {
+            return checkOnboardingDelegation(context, payload);
+        }
+        if (FN_CERTIFICATION.equals(p.function()) && PolicyContext.hasAction(p, ACT_ATTEST)) {
+            return checkTenantAdminInMultiOrg(context, "Certification/Attest",
+                    Reason.CERTIFICATION_DELEGATION_REQUIRES_TENANT_ADMIN,
+                    Reason.CERTIFICATION_DELEGATION_REQUIRES_MULTI_ORG);
+        }
+        return null;
+    }
+
+    private Denial checkOnboardingDelegation(PolicyContext context, JsonNode payload) {
+        Denial denial = checkTenantAdminInMultiOrg(context, "Onboarding/Execute",
+                Reason.ONBOARDING_DELEGATION_REQUIRES_TENANT_ADMIN,
+                Reason.ONBOARDING_DELEGATION_REQUIRES_MULTI_ORG);
+        if (denial != null) {
+            return denial;
+        }
+        String payloadMandatorOrgId = payload.path("mandator").path("organizationIdentifier").asText(null);
+        String operatorOrgId = context.organizationIdentifier();
+        boolean sameOrg = payloadMandatorOrgId == null || payloadMandatorOrgId.equals(operatorOrgId);
+        log.debug("checkEscalationPrevention: on-behalf check — operatorOrgId='{}', payloadMandatorOrgId='{}', sameOrg={}",
+                operatorOrgId, payloadMandatorOrgId, payloadMandatorOrgId != null && sameOrg);
+        if (sameOrg) {
+            return new Denial(Reason.ONBOARDING_DELEGATION_SAME_ORG,
+                    "Onboarding/Execute delegation only allowed on-behalf (payload mandator org must differ from operator org '"
+                    + operatorOrgId + "')");
+        }
+        return null;
+    }
+
+    /** Delegating {@code powerLabel} requires a TenantAdmin operator in a {@code multi_org} tenant. */
+    private Denial checkTenantAdminInMultiOrg(PolicyContext context, String powerLabel,
+                                              Reason requiresTenantAdmin, Reason requiresMultiOrg) {
+        if (!context.tenantAdmin()) {
+            return new Denial(requiresTenantAdmin, powerLabel + " delegation requires TenantAdmin");
+        }
+        if (!PolicyContext.TENANT_TYPE_MULTI_ORG.equals(context.tenantType())) {
+            return new Denial(requiresMultiOrg, powerLabel + " delegation only allowed in multi_org tenant (current: '"
+                    + context.tenantType() + "')");
         }
         return null;
     }
