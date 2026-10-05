@@ -58,15 +58,18 @@ public class IssuanceHttpEnvelopeMapper {
         }
 
         if (mode != null && mode.returnsUri) {
-            return offerBody(response.credentialOfferUri());
+            return offerBody(response.credentialOfferUri(), response.credentialOfferRefreshToken());
         }
 
         return null;
     }
 
-    private ChannelBody offerBody(String credentialOfferUri) {
+    private ChannelBody offerBody(String credentialOfferUri, String credentialOfferRefreshToken) {
         return credentialOfferUri != null
-                ? ChannelBody.builder().credentialOfferUri(credentialOfferUri).build()
+                ? ChannelBody.builder()
+                        .credentialOfferUri(credentialOfferUri)
+                        .credentialOfferRefreshToken(credentialOfferRefreshToken)
+                        .build()
                 : null;
     }
 

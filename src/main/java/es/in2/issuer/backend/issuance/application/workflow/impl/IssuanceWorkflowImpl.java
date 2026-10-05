@@ -343,7 +343,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
             Map<String, Object> cnf) {
 
         return performOid4VciIssuance(processId, request, publicIssuerBaseUrl, publicWalletBaseUrl, oid4vciDelivery, cnf)
-                .map(r -> WalletDeliveryOutcome.success(r.credentialOfferUri(), oid4vciDelivery, r.emailError()))
+                .map(r -> WalletDeliveryOutcome.success(r.credentialOfferUri(), oid4vciDelivery, r.emailError(), r.refreshToken()))
                 .timeout(Duration.ofSeconds(issuanceProperties.hybridWalletTimeoutSeconds()))
                 .onErrorResume(ex -> {
                     log.warn("ProcessId: {} - Wallet delivery failed (isolated): {}", processId, ex.toString());
@@ -383,6 +383,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 .signedCredential(direct.signedCredential())
                 .credentialOfferUri(wallet.credentialOfferUri())
                 .deliveryResults(results.isEmpty() ? null : results)
+                .credentialOfferRefreshToken(wallet.refreshToken())
                 .build();
     }
 
@@ -391,7 +392,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
      * rather than threw. Kept apart from {@link IssuanceResponse} because a reported email failure is
      * per-mode detail, not a field of the API response.
      */
-    private record Oid4VciLegResult(String credentialOfferUri, String emailError) {}
+    private record Oid4VciLegResult(String credentialOfferUri, String emailError, String refreshToken) {}
 
     /** The issuer/wallet public base URL pair that every issuance leg needs, grouped to stay within the 7-parameter limit. */
     private record BaseUrls(String issuerBaseUrl, String walletBaseUrl) {}
@@ -411,9 +412,10 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     }
 
     /** Internal outcome of the wallet path — supports multi-mode CSV (email,ui). */
-    private record WalletDeliveryOutcome(String credentialOfferUri, List<DeliveryResult> deliveryResults) {
+    private record WalletDeliveryOutcome(String credentialOfferUri, List<DeliveryResult> deliveryResults,
+                                         String refreshToken) {
         static WalletDeliveryOutcome empty() {
-            return new WalletDeliveryOutcome(null, List.of());
+            return new WalletDeliveryOutcome(null, List.of(), null);
         }
 
         /**
@@ -421,7 +423,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
          * on the {@code email} mode alone and leaves {@code ui} dispatched, with its URI in the
          * response. Before this, both modes were reported failed and the URI was dropped.
          */
-        static WalletDeliveryOutcome success(String uri, String oid4vciDelivery, String emailError) {
+        static WalletDeliveryOutcome success(String uri, String oid4vciDelivery, String emailError,
+                                             String refreshToken) {
             List<DeliveryResult> results = Arrays.stream(oid4vciDelivery.split(","))
                     .map(String::trim)
                     .filter(s -> !s.isEmpty())
@@ -429,7 +432,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                             ? DeliveryResult.failed(mode, emailError)
                             : DeliveryResult.dispatched(mode))
                     .toList();
-            return new WalletDeliveryOutcome(uri, results);
+            return new WalletDeliveryOutcome(uri, results, refreshToken);
         }
 
         static WalletDeliveryOutcome failed(String oid4vciDelivery, String error) {
@@ -438,7 +441,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                     .filter(s -> !s.isEmpty())
                     .map(mode -> DeliveryResult.failed(mode, error))
                     .toList();
-            return new WalletDeliveryOutcome(null, results);
+            return new WalletDeliveryOutcome(null, results, null);
         }
     }
 
@@ -563,7 +566,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                             oid4vciDelivery, saved.getCredentialOfferRefreshToken(),
                                             publicIssuerBaseUrl, publicWalletBaseUrl)
                                     .map(offerResult -> new Oid4VciLegResult(
-                                            offerResult.credentialOfferUri(), offerResult.emailError()))
+                                            offerResult.credentialOfferUri(), offerResult.emailError(),
+                                            saved.getCredentialOfferRefreshToken()))
                             );
                 });
     }

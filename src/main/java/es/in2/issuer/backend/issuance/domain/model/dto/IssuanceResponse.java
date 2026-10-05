@@ -12,6 +12,7 @@ import java.util.List;
 public record IssuanceResponse(
         @JsonProperty("credential_offer_uri") String credentialOfferUri,
         @JsonProperty("signed_credential") String signedCredential,
-        @JsonProperty("delivery_results") List<DeliveryResult> deliveryResults
+        @JsonProperty("delivery_results") List<DeliveryResult> deliveryResults,
+        @JsonProperty("credential_offer_refresh_token") String credentialOfferRefreshToken
 ) {
 }

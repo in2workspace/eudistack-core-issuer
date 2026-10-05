@@ -13,6 +13,7 @@ import lombok.Builder;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ChannelBody(
         @JsonProperty("signed_credential") String signedCredential,
-        @JsonProperty("credential_offer_uri") String credentialOfferUri
+        @JsonProperty("credential_offer_uri") String credentialOfferUri,
+        @JsonProperty("credential_offer_refresh_token") String credentialOfferRefreshToken
 ) {
 }

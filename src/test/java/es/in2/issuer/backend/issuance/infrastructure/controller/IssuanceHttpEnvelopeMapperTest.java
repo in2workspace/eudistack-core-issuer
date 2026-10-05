@@ -46,6 +46,46 @@ class IssuanceHttpEnvelopeMapperTest {
         assertThat(channel.body().signedCredential()).isNull();
     }
 
+    @Test
+    void toHttpResponse_UiSucceeded_BodyCarriesTheRefreshTokenSoTheQrCanBeReminted() {
+        IssuanceResponse response = IssuanceResponse.builder()
+                .credentialOfferUri("openid-credential-offer://x")
+                .credentialOfferRefreshToken("a-refresh-token")
+                .deliveryResults(List.of(DeliveryResult.dispatched("ui")))
+                .build();
+
+        ChannelResponse channel = mapper.toHttpResponse(response).responses().get(0);
+
+        assertThat(channel.body().credentialOfferRefreshToken()).isEqualTo("a-refresh-token");
+    }
+
+    @Test
+    void toHttpResponse_EmailSucceeded_NeverCarriesTheRefreshToken() {
+        IssuanceResponse response = IssuanceResponse.builder()
+                .credentialOfferUri("openid-credential-offer://x")
+                .credentialOfferRefreshToken("a-refresh-token")
+                .deliveryResults(List.of(DeliveryResult.dispatched("email")))
+                .build();
+
+        ChannelResponse channel = mapper.toHttpResponse(response).responses().get(0);
+
+        assertThat(channel.body()).isNull();
+    }
+
+    @Test
+    void toHttpResponse_DirectSucceeded_NeverCarriesTheRefreshToken() {
+        IssuanceResponse response = IssuanceResponse.builder()
+                .signedCredential("a-signed-credential")
+                .credentialOfferRefreshToken("a-refresh-token")
+                .deliveryResults(List.of(DeliveryResult.delivered("direct")))
+                .build();
+
+        ChannelResponse channel = mapper.toHttpResponse(response).responses().get(0);
+
+        assertThat(channel.body().signedCredential()).isEqualTo("a-signed-credential");
+        assertThat(channel.body().credentialOfferRefreshToken()).isNull();
+    }
+
     /**
      * B1 (code-review, 2026-09-04): an email-only dispatch never gets a URI --
      * {@code CredentialOfferServiceImpl} only builds one when the requested modes include one that
