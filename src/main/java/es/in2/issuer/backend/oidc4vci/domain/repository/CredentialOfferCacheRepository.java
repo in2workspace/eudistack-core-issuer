@@ -6,4 +6,5 @@ import reactor.core.publisher.Mono;
 public interface CredentialOfferCacheRepository {
     Mono<String> saveCredentialOffer(CredentialOfferData credentialOfferData);
     Mono<CredentialOfferData> findCredentialOfferById(String id);
+    Mono<Void> deleteCredentialOfferById(String id);
 }

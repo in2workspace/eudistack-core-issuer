@@ -24,6 +24,11 @@ public class CredentialOfferCacheRepositoryImpl implements CredentialOfferCacheR
     }
 
     @Override
+    public Mono<Void> deleteCredentialOfferById(String id) {
+        return cacheStore.delete(id);
+    }
+
+    @Override
     public Mono<CredentialOfferData> findCredentialOfferById(String id) {
         return cacheStore.get(id)
                 .switchIfEmpty(Mono.error(

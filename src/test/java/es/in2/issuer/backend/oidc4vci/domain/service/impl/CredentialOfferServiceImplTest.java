@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
+import es.in2.issuer.backend.oidc4vci.domain.model.CurrentCredentialOffer;
 import es.in2.issuer.backend.oidc4vci.domain.repository.CredentialOfferCacheRepository;
 import es.in2.issuer.backend.oidc4vci.domain.service.PreAuthorizedCodeService;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotificationInfo;
@@ -9,9 +10,9 @@ import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
@@ -30,6 +31,8 @@ class CredentialOfferServiceImplTest {
     @Mock
     private TransientStore<String> issuerStateCacheStore;
     @Mock
+    private TransientStore<CurrentCredentialOffer> currentCredentialOfferByIssuanceCacheStore;
+    @Mock
     private CredentialOfferCacheRepository credentialOfferCacheRepository;
     @Mock
     private EmailService emailService;
@@ -38,8 +41,23 @@ class CredentialOfferServiceImplTest {
     @Mock
     private TenantConfigService tenantConfigService;
 
-    @InjectMocks
     private CredentialOfferServiceImpl credentialOfferService;
+
+    @BeforeEach
+    void setUp() {
+        credentialOfferService = new CredentialOfferServiceImpl(
+                preAuthorizedCodeService,
+                issuerStateCacheStore,
+                currentCredentialOfferByIssuanceCacheStore,
+                credentialOfferCacheRepository,
+                emailService,
+                issuanceService,
+                tenantConfigService);
+
+        lenient().when(currentCredentialOfferByIssuanceCacheStore.get(anyString())).thenReturn(Mono.empty());
+        lenient().when(currentCredentialOfferByIssuanceCacheStore.add(anyString(), any()))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0, String.class)));
+    }
 
     @Test
     void createAndDeliverCredentialOffer_withPreAuthorizedCodeAndUiDelivery_shouldReturnUri() {
@@ -230,5 +248,82 @@ class CredentialOfferServiceImplTest {
         verify(emailService).sendCredentialOfferEmail(
                 eq("user@sandbox.com"), any(), argThat(url -> url.startsWith("https://sandbox.eudistack.net/wallet")), any(), eq("Sandbox Org"), isNull());
         verify(emailService, never()).sendBrandedCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    private static final String PRE_AUTH_GRANT = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
+
+    @Test
+    void createAndDeliverCredentialOffer_whenAnOfferAlreadyStands_shouldRetireItsNonceAndPreAuthorizedCode() {
+        String issuanceId = "test-issuance-id";
+
+        when(preAuthorizedCodeService.issuePreAuthorizedCode(anyString(), any()))
+                .thenReturn(Mono.just(PreAuthorizedCodeResponse.builder()
+                        .preAuthorizedCode("new-code")
+                        .txCode(TxCode.builder().length(6).inputMode("numeric").build())
+                        .txCodeValue("1234")
+                        .build()));
+        when(credentialOfferCacheRepository.saveCredentialOffer(any())).thenReturn(Mono.just("new-nonce"));
+        when(currentCredentialOfferByIssuanceCacheStore.get(issuanceId))
+                .thenReturn(Mono.just(new CurrentCredentialOffer("old-nonce", PRE_AUTH_GRANT, "old-code")));
+        when(credentialOfferCacheRepository.deleteCredentialOfferById("old-nonce")).thenReturn(Mono.empty());
+        when(preAuthorizedCodeService.revokePreAuthorizedCode("old-code")).thenReturn(Mono.empty());
+        when(currentCredentialOfferByIssuanceCacheStore.add(eq(issuanceId), any())).thenReturn(Mono.just(issuanceId));
+
+        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
+                        issuanceId, "learcredential.employee.w3c.4", PRE_AUTH_GRANT,
+                        "test@example.com", "ui", "refresh-token", "https://example.com", "https://example.com/wallet"))
+                .assertNext(result -> assertThat(result.credentialOfferUri()).isNotNull())
+                .verifyComplete();
+
+        verify(credentialOfferCacheRepository).deleteCredentialOfferById("old-nonce");
+        verify(preAuthorizedCodeService).revokePreAuthorizedCode("old-code");
+        verify(currentCredentialOfferByIssuanceCacheStore)
+                .add(issuanceId, new CurrentCredentialOffer("new-nonce", PRE_AUTH_GRANT, "new-code"));
+    }
+
+    @Test
+    void createAndDeliverCredentialOffer_whenTheSupersededOfferUsedAuthorizationCode_shouldRetireItsIssuerState() {
+        String issuanceId = "test-issuance-id";
+
+        when(issuerStateCacheStore.add(anyString(), eq(issuanceId))).thenReturn(Mono.just(issuanceId));
+        when(credentialOfferCacheRepository.saveCredentialOffer(any())).thenReturn(Mono.just("new-nonce"));
+        when(currentCredentialOfferByIssuanceCacheStore.get(issuanceId))
+                .thenReturn(Mono.just(new CurrentCredentialOffer("old-nonce", "authorization_code", "old-issuer-state")));
+        when(credentialOfferCacheRepository.deleteCredentialOfferById("old-nonce")).thenReturn(Mono.empty());
+        when(issuerStateCacheStore.delete("old-issuer-state")).thenReturn(Mono.empty());
+        when(currentCredentialOfferByIssuanceCacheStore.add(eq(issuanceId), any())).thenReturn(Mono.just(issuanceId));
+
+        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
+                        issuanceId, "learcredential.employee.w3c.4", "authorization_code",
+                        "test@example.com", "ui", "refresh-token", "https://example.com", "https://example.com/wallet"))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        verify(issuerStateCacheStore).delete("old-issuer-state");
+        verify(preAuthorizedCodeService, never()).revokePreAuthorizedCode(anyString());
+    }
+
+    @Test
+    void createAndDeliverCredentialOffer_whenNoOfferStandsYet_shouldRetireNothing() {
+        String issuanceId = "test-issuance-id";
+
+        when(preAuthorizedCodeService.issuePreAuthorizedCode(anyString(), any()))
+                .thenReturn(Mono.just(PreAuthorizedCodeResponse.builder()
+                        .preAuthorizedCode("first-code")
+                        .txCode(TxCode.builder().length(6).inputMode("numeric").build())
+                        .txCodeValue("1234")
+                        .build()));
+        when(credentialOfferCacheRepository.saveCredentialOffer(any())).thenReturn(Mono.just("first-nonce"));
+        when(currentCredentialOfferByIssuanceCacheStore.get(issuanceId)).thenReturn(Mono.empty());
+        when(currentCredentialOfferByIssuanceCacheStore.add(eq(issuanceId), any())).thenReturn(Mono.just(issuanceId));
+
+        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
+                        issuanceId, "learcredential.employee.w3c.4", PRE_AUTH_GRANT,
+                        "test@example.com", "ui", "refresh-token", "https://example.com", "https://example.com/wallet"))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        verify(credentialOfferCacheRepository, never()).deleteCredentialOfferById(anyString());
+        verify(preAuthorizedCodeService, never()).revokePreAuthorizedCode(anyString());
     }
 }

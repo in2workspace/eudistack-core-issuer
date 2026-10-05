@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
+import es.in2.issuer.backend.oidc4vci.domain.model.CurrentCredentialOffer;
 import es.in2.issuer.backend.oidc4vci.domain.repository.CredentialOfferCacheRepository;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.oidc4vci.domain.service.PreAuthorizedCodeService;
@@ -39,6 +40,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
 
     private final PreAuthorizedCodeService preAuthorizedCodeService;
     private final TransientStore<String> issuerStateCacheStore;
+    private final TransientStore<CurrentCredentialOffer> currentCredentialOfferByIssuanceCacheStore;
     private final CredentialOfferCacheRepository credentialOfferCacheRepository;
     private final EmailService emailService;
     private final IssuanceService issuanceService;
@@ -67,7 +69,10 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                             .txCode(grantResult.txCode)
                             .build();
 
-                    return credentialOfferCacheRepository.saveCredentialOffer(data);
+                    return credentialOfferCacheRepository.saveCredentialOffer(data)
+                            .flatMap(nonce -> supersedePreviousOffer(issuanceId,
+                                    new CurrentCredentialOffer(nonce, grantType, grantResult.grantKey()))
+                                    .thenReturn(nonce));
                 })
                 .flatMap(nonce -> buildCredentialOfferUri(publicIssuerBaseUrl, nonce)
                         .flatMap(uri -> deliverOffer(uri, issuanceId, credentialOfferRefreshToken, delivery, publicWalletBaseUrl)));
@@ -159,7 +164,27 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                 .map(frontendUrl -> frontendUrl + "/credential-offer-refresh/" + credentialOfferRefreshToken);
     }
 
-    private record GrantResult(CredentialOfferGrants grants, String txCode) {}
+    private record GrantResult(CredentialOfferGrants grants, String txCode, String grantKey) {}
+
+ 
+    private Mono<Void> supersedePreviousOffer(String issuanceId, CurrentCredentialOffer current) {
+        return currentCredentialOfferByIssuanceCacheStore.get(issuanceId)
+                .flatMap(this::retireOffer)
+                .then(Mono.defer(() -> currentCredentialOfferByIssuanceCacheStore.add(issuanceId, current)))
+                .then();
+    }
+
+    private Mono<Void> retireOffer(CurrentCredentialOffer superseded) {
+        Mono<Void> retireGrant = superseded.grantKey() == null
+                ? Mono.empty()
+                : GRANT_TYPE_PRE_AUTHORIZED_CODE.equals(superseded.grantType())
+                        ? preAuthorizedCodeService.revokePreAuthorizedCode(superseded.grantKey())
+                        : issuerStateCacheStore.delete(superseded.grantKey());
+
+        return credentialOfferCacheRepository.deleteCredentialOfferById(superseded.nonce())
+                .then(retireGrant)
+                .doOnSuccess(v -> log.info("Superseded the previous credential offer of this issuance"));
+    }
 
     private Mono<GrantResult> generateGrant(String issuanceId, String grantType) {
         if (GRANT_TYPE_PRE_AUTHORIZED_CODE.equals(grantType)) {
@@ -184,7 +209,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                             .preAuthorizedCode(preAuthGrant)
                             .build();
 
-                    return new GrantResult(grants, preAuthResponse.txCodeValue());
+                    return new GrantResult(grants, preAuthResponse.txCodeValue(), preAuthResponse.preAuthorizedCode());
                 });
     }
 
@@ -201,7 +226,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                             .authorizationCode(authCodeGrant)
                             .build();
 
-                    return new GrantResult(grants, null);
+                    return new GrantResult(grants, null, issuerState);
                 });
     }
 

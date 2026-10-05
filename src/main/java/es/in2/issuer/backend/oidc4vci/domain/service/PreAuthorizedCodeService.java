@@ -5,4 +5,5 @@ import reactor.core.publisher.Mono;
 
 public interface PreAuthorizedCodeService {
     Mono<PreAuthorizedCodeResponse> issuePreAuthorizedCode(String processId, Mono<String> issuanceIdMono);
+    Mono<Void> revokePreAuthorizedCode(String preAuthorizedCode);
 }

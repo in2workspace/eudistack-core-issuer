@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
+import es.in2.issuer.backend.oidc4vci.domain.model.CurrentCredentialOffer;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferData;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndRefreshToken;
@@ -74,6 +75,13 @@ public class CacheStoreConfig {
     @Bean
     public TransientStore<String> enrichmentCacheStore() {
         return new CacheStore<>(NOTIFICATION_CACHE_EXPIRY_HOURS, TimeUnit.HOURS);
+    }
+
+    @Bean
+    public TransientStore<CurrentCredentialOffer> currentCredentialOfferByIssuanceCacheStore() {
+        return new CacheStore<>(
+                Math.max(cacheConfig.getCacheLifetimeForCredentialOffer(), PRE_AUTH_CODE_EXPIRY_DURATION_MINUTES),
+                TimeUnit.MINUTES);
     }
 
     @Bean
