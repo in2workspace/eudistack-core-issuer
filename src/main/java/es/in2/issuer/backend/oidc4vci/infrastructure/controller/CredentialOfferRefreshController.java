@@ -1,7 +1,9 @@
 package es.in2.issuer.backend.oidc4vci.infrastructure.controller;
 
 import es.in2.issuer.backend.oidc4vci.application.workflow.CredentialOfferRefreshWorkflow;
+import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialOfferUriResponse;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
+import es.in2.issuer.backend.shared.domain.util.EndpointsConstants;
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -15,6 +17,8 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
+
+import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ISSUANCE_CREDENTIAL_OFFER_REFRESH_PATH;
 
 @RestController
 @RequiredArgsConstructor
@@ -40,5 +44,16 @@ public class CredentialOfferRefreshController {
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
         String publicWalletBaseUrl = urlResolver.publicWalletBaseUrl(exchange);
         return credentialOfferRefreshWorkflow.refreshCredentialOffer(credentialOfferRefreshToken, publicIssuerBaseUrl, publicWalletBaseUrl);
+    }
+
+    @PostMapping(ISSUANCE_CREDENTIAL_OFFER_REFRESH_PATH)
+    @ResponseStatus(HttpStatus.OK)
+    public Mono<CredentialOfferUriResponse> refreshCredentialOfferUri(@PathVariable String credentialOfferRefreshToken,
+                                                                      ServerWebExchange exchange) {
+        String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
+        String publicWalletBaseUrl = urlResolver.publicWalletBaseUrl(exchange);
+        return credentialOfferRefreshWorkflow
+                .refreshCredentialOfferUri(credentialOfferRefreshToken, publicIssuerBaseUrl, publicWalletBaseUrl)
+                .map(CredentialOfferUriResponse::new);
     }
 }

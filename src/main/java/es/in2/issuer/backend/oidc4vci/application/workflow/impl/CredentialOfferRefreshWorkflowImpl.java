@@ -31,6 +31,28 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
     public Mono<Void> refreshCredentialOffer(String credentialOfferRefreshToken, String publicIssuerBaseUrl, String publicWalletBaseUrl) {
         log.info("Refreshing credential offer");
 
+        return mintOffer(credentialOfferRefreshToken, DeliveryMode.EMAIL.value, publicIssuerBaseUrl, publicWalletBaseUrl)
+                .flatMap(result -> result.emailError() != null
+                        ? Mono.<CredentialOfferResult>error(new EmailCommunicationException(result.emailError()))
+                        : Mono.just(result))
+                .doOnSuccess(v -> log.info("Credential offer refreshed successfully"))
+                .then();
+    }
+
+    @Override
+    @Observed(name = "issuance.refresh-offer-uri", contextualName = "refresh-credential-offer-uri")
+    public Mono<String> refreshCredentialOfferUri(String credentialOfferRefreshToken, String publicIssuerBaseUrl, String publicWalletBaseUrl) {
+        log.info("Refreshing credential offer URI");
+
+        return mintOffer(credentialOfferRefreshToken, DeliveryMode.UI.value, publicIssuerBaseUrl, publicWalletBaseUrl)
+                .map(CredentialOfferResult::credentialOfferUri)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(
+                        HttpStatus.BAD_GATEWAY, "The issuer produced no credential offer URI")))
+                .doOnSuccess(uri -> log.info("Credential offer URI refreshed successfully"));
+    }
+
+    private Mono<CredentialOfferResult> mintOffer(String credentialOfferRefreshToken, String deliveryMode,
+                                                  String publicIssuerBaseUrl, String publicWalletBaseUrl) {
         return issuanceService.getIssuanceByCredentialOfferRefreshToken(credentialOfferRefreshToken)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Invalid or unknown credential offer refresh token")))
@@ -44,18 +66,11 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
                             issuance.getCredentialType(),
                             grantType,
                             issuance.getEmail(),
-                            DeliveryMode.EMAIL.value,
+                            deliveryMode,
                             credentialOfferRefreshToken,
                             publicIssuerBaseUrl,
                             publicWalletBaseUrl);
-                })
-                // This endpoint exists to re-send the email, so a reported email failure is a failure
-                // here -- unlike an issuance, which records it per mode and keeps the other modes.
-                .flatMap(result -> result.emailError() != null
-                        ? Mono.<CredentialOfferResult>error(new EmailCommunicationException(result.emailError()))
-                        : Mono.just(result))
-                .doOnSuccess(v -> log.info("Credential offer refreshed successfully"))
-                .then();
+                });
     }
 
     private Mono<Issuance> validateDraftStatus(Issuance issuance) {

@@ -83,6 +83,8 @@ public class EndpointsConstants {
 
     // Credential Offer Refresh
     public static final String CREDENTIAL_OFFER_REFRESH_PATH = "/credential-offer/refresh/**";
+    // Credential Offer Refresh In Issuer
+    public static final String ISSUANCE_CREDENTIAL_OFFER_REFRESH_PATH = "/api/v1/issuances/credential-offer/refresh/{credentialOfferRefreshToken}";
 
     //status list Endpoints
     public static final String STATUS_LIST_BASE = "/w3c/v1/credentials/status";
