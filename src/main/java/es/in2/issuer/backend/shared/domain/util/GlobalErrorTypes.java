@@ -59,7 +59,7 @@ public enum GlobalErrorTypes {
     UNKNOWN_CREDENTIAL_CONFIGURATION("unknown_credential_configuration"),
     CREDENTIAL_CATALOG_NOT_CONFIGURED("credential_catalog_not_configured"),
     CREDENTIAL_CONFIGURATION_NOT_ENABLED("credential_configuration_not_enabled"),
-    CREDENTIAL_ALREADY_ACTIVE("CREDENTIAL_ALREADY_ACTIVE");
+    CREDENTIAL_ALREADY_ACTIVE("credential_already_active");
 
     private final String code;
 
