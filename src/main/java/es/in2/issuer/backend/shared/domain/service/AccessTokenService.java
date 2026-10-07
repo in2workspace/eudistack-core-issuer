@@ -10,4 +10,10 @@ public interface AccessTokenService {
     Mono<AuthorizationContext> getAuthorizationContext(String authorizationHeader);
     Mono<String> getOrganizationIdFromCurrentSession();
     Mono<AccessTokenContext> resolveAccessTokenContext(String authorizationHeader);
+
+    /**
+     * Extracts the {@code tenant} claim from the access token, if present. Empty (not an
+     * error) when the claim is absent -- callers that require it decide how to react.
+     */
+    Mono<String> getTokenTenant(String authorizationHeader);
 }

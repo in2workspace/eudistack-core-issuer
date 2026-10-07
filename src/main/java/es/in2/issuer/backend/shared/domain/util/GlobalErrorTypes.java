@@ -21,6 +21,7 @@ public enum GlobalErrorTypes {
     CREDENTIAL_NOT_FOUND("credential_not_found"),
     PRE_AUTHORIZATION_CODE_GET("pre_authorization_code_get_error"),
     CREDENTIAL_OFFER_NOT_FOUND("credential_offer_not_found"),
+    CREDENTIAL_OFFER_GONE("credential_offer_gone"),
     CREDENTIAL_ALREADY_ISSUED("credential_already_issued"),
     JWT_VERIFICATION("jwt_verification_error"),
     UNAUTHORIZED_ROLE("unauthorized_role"),
@@ -51,12 +52,12 @@ public enum GlobalErrorTypes {
     WELL_KNOWN_INFO_FETCH_ERROR("well_known_info_fetch_error"),
     INVALID_CREDENTIAL_STATUS_TRANSITION("invalid_credential_status_transition"),
     INVALID_DELIVERY_CONFIG("invalid_delivery_config"),
-    DELIVERY_CONFIG_PROFILE_NOT_FOUND("delivery_config_profile_not_found"),
     INVALID_REQUEST("invalid_request"),
     DELIVERY_MODE_NOT_ELIGIBLE("delivery_mode_not_eligible"),
     INVALID_HOLDER_KEY("invalid_holder_key"),
     UNKNOWN_CREDENTIAL_CONFIGURATION("unknown_credential_configuration"),
-    CREDENTIAL_CATALOG_NOT_CONFIGURED("credential_catalog_not_configured");
+    CREDENTIAL_CATALOG_NOT_CONFIGURED("credential_catalog_not_configured"),
+    CREDENTIAL_CONFIGURATION_NOT_ENABLED("credential_configuration_not_enabled");
 
     private final String code;
 

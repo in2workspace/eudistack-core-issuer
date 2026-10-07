@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import javax.annotation.Nullable;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
@@ -24,6 +25,9 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
     private static final String AUTHORIZE_PATH = "/trustedapps/v1/trusted/app/authorize";
     private static final String SIMPLE_TOKEN_PATH = "/trustedapps/v1/trusted/app/login/first";
     private static final String ROBUST_TOKEN_PATH = "/trustedapps/v1/trusted/app/login/second";
+
+    private static final String AUTHORIZATION_HEADER = "Authorization";
+    private static final String APPLICATION_HEADER = "Application";
 
     private final ObjectMapper objectMapper;
     private final WebClient webClient;
@@ -75,20 +79,23 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
     private Mono<String> authorizeApp(RemoteSignatureDto cfg, String jwt) {
         return webClient.post()
                 .uri(cfg.authUrl() + AUTHORIZE_PATH)
-                .header("Authorization", jwt)
+                .header(AUTHORIZATION_HEADER, jwt)
                 .retrieve()
                 .bodyToMono(TrustedAppActivationResponse.class)
                 .map(r -> r.content().authorization())
-                .doOnNext(_ -> log.debug("Vintegris trusted app authorized"))
+                .doOnNext(_ ->
+                        log.debug("Vintegris trusted app authorized"))
                 .doOnError(e -> log.error("Vintegris trusted app authorization failed", e));
     }
 
     private Mono<String> fetchSimpleToken(RemoteSignatureDto cfg, String appToken) {
         String encodedUsername = Base64.getEncoder()
                 .encodeToString(cfg.managerId().getBytes(StandardCharsets.UTF_8));
+        String uri = cfg.authUrl() + SIMPLE_TOKEN_PATH + "?username=" + encodedUsername;
+
         return webClient.post()
-                .uri(cfg.authUrl() + SIMPLE_TOKEN_PATH + "?username=" + encodedUsername)
-                .header("Application", appToken)
+                .uri(uri)
+                .header(APPLICATION_HEADER, appToken)
                 .retrieve()
                 .bodyToMono(SimpleTokenResponse.class)
                 .map(r -> r.content().token())
@@ -103,11 +110,17 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
      * alone yields a 400 on authorize. Both the simple token (Authorization)
      * and the app token (Application) are sent as {@code Bearer} credentials.
      */
-    private Mono<String> fetchRobustToken(RemoteSignatureDto cfg, String appToken, String simpleToken) {
+    private Mono<String> fetchRobustToken(
+            RemoteSignatureDto cfg,
+            String appToken,
+            String simpleToken
+    ) {
+        String uri = cfg.authUrl() + ROBUST_TOKEN_PATH;
+
         return webClient.post()
-                .uri(cfg.authUrl() + ROBUST_TOKEN_PATH)
-                .header("Authorization", "Bearer " + simpleToken)
-                .header("Application", "Bearer " + appToken)
+                .uri(uri)
+                .header(AUTHORIZATION_HEADER, "Bearer " + simpleToken)
+                .header(APPLICATION_HEADER, "Bearer " + appToken)
                 .retrieve()
                 .bodyToMono(SimpleTokenResponse.class)
                 .map(r -> r.content().token())
@@ -116,7 +129,8 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
     }
 
     private byte[] sha256(String value) throws Exception {
-        return MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+        return MessageDigest.getInstance("SHA-256")
+                .digest(value.getBytes(StandardCharsets.UTF_8));
     }
 
     private byte[] hmacSha256(String data, byte[] key) throws Exception {
@@ -126,7 +140,9 @@ public class VintegrisAuthStrategy implements CscAuthStrategy {
     }
 
     private String base64UrlEncode(byte[] data) {
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(data);
+        return Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(data);
     }
 
     private record TrustedAppActivationResponse(Content content) {

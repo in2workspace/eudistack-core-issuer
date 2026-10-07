@@ -177,7 +177,7 @@ public class CscV2Adapter implements CscPort {
                 List.of(Map.of(
                         "document", docB64,
                         "signature_format", "J",
-                        "conformance_level", "Ades-B-B",
+                        "conformance_level", "Ades-B",
                         "signAlgo", signAlgoOid
                 ))
         );

@@ -60,6 +60,9 @@ public class IssuanceEntity {
     @Column("delivery")
     private String delivery;
 
+    @Column("grant_type")
+    private String grantType;
+
     @Column("credential_offer_refresh_token")
     private String credentialOfferRefreshToken;
 
@@ -70,6 +73,14 @@ public class IssuanceEntity {
     @Column("delivery_attempted_at")
     @Nullable
     private Instant deliveryAttemptedAt;
+
+    // EUD-168 AD-8/AD-9: cnf claim for the two machine LEARCredential types exempt from
+    // ADR-110, sourced from the issuance request's holder_key and read back by the Wallet
+    // leg's Credential Endpoint request, where no key proof will ever arrive to replace it.
+    // Null for every other credential type (V12 migration).
+    @Column("holder_cnf")
+    @Nullable
+    private String holderCnf;
 
     // Optimistic locking (V11, SD-04/EUD-225): every write to this row follows
     // find -> validateTransition -> mutate -> save with no version check in between.

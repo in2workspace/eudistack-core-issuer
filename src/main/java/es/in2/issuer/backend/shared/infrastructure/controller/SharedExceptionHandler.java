@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.shared.infrastructure.controller;
 
 import es.in2.issuer.backend.shared.domain.exception.*;
+import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialOfferExpiredException;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
@@ -105,8 +106,10 @@ public class SharedExceptionHandler {
         );
     }
 
+    // Fallback for malformed JWT/JWK or other parsing errors.
+    // Internal paths should wrap specific parsing issues to provide better context.
     @ExceptionHandler(ParseException.class)
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<GlobalErrorMessage> handleParseException(
             ParseException ex,
             ServerHttpRequest request
@@ -115,8 +118,8 @@ public class SharedExceptionHandler {
                 ex, request,
                 GlobalErrorTypes.PARSE_ERROR.getCode(),
                 "Parse error",
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "An internal parsing error occurred."
+                HttpStatus.BAD_REQUEST,
+                "The request could not be parsed. Please check the format of the provided data."
         );
     }
 
@@ -207,6 +210,21 @@ public class SharedExceptionHandler {
                 "Credential offer not found",
                 HttpStatus.NOT_FOUND,
                 "Credential offer not found."
+        );
+    }
+
+    @ExceptionHandler(CredentialOfferExpiredException.class)
+    @ResponseStatus(HttpStatus.GONE)
+    public Mono<GlobalErrorMessage> handleCredentialOfferExpiredException(
+            CredentialOfferExpiredException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.CREDENTIAL_OFFER_GONE.getCode(),
+                "Credential offer gone",
+                HttpStatus.GONE,
+                "This credential offer can no longer be refreshed"
         );
     }
 
@@ -376,7 +394,7 @@ public class SharedExceptionHandler {
     }
 
     @ExceptionHandler(JWTParsingException.class)
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Mono<GlobalErrorMessage> handleJWTParsingException(
             JWTParsingException ex,
             ServerHttpRequest request
@@ -385,7 +403,7 @@ public class SharedExceptionHandler {
                 ex, request,
                 GlobalErrorTypes.INVALID_JWT.getCode(),
                 "JWT parsing error",
-                HttpStatus.INTERNAL_SERVER_ERROR,
+                HttpStatus.BAD_REQUEST,
                 "The provided JWT is invalid or can't be parsed."
         );
     }
@@ -426,7 +444,7 @@ public class SharedExceptionHandler {
             TenantMismatchException ex,
             ServerHttpRequest request
     ) {
-        return errors.handleWith(
+        return errors.handleSafe(
                 ex, request,
                 GlobalErrorTypes.TENANT_MISMATCH.getCode(),
                 "Tenant mismatch",
@@ -541,7 +559,7 @@ public class SharedExceptionHandler {
             UnknownCredentialConfigurationException ex,
             ServerHttpRequest request
     ) {
-        return errors.handleWith(
+        return errors.handleSafe(
                 ex, request,
                 GlobalErrorTypes.UNKNOWN_CREDENTIAL_CONFIGURATION.getCode(),
                 "Unknown credential configuration",
@@ -730,18 +748,40 @@ public class SharedExceptionHandler {
         );
     }
 
-    @ExceptionHandler(DeliveryConfigProfileNotFoundException.class)
-    @ResponseStatus(HttpStatus.NOT_FOUND)
-    public Mono<GlobalErrorMessage> handleDeliveryConfigProfileNotFoundException(
-            DeliveryConfigProfileNotFoundException ex,
+    // Shared rather than issuance-only (EUD-168 code review): thrown from both the issuance path
+    // (SchemaDeliveryCeiling.validateWithinCeiling) and the credential-catalog PUT
+    // (TenantCredentialProfileServiceImpl, EUD-169), matching where the exception class itself lives.
+    @ExceptionHandler(DeliveryModeNotEligibleException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Mono<GlobalErrorMessage> handleDeliveryModeNotEligibleException(
+            DeliveryModeNotEligibleException ex,
             ServerHttpRequest request
     ) {
         return errors.handleWith(
                 ex, request,
-                GlobalErrorTypes.DELIVERY_CONFIG_PROFILE_NOT_FOUND.getCode(),
-                "Delivery config profile not found",
-                HttpStatus.NOT_FOUND,
-                "The given credential_configuration_id is unknown or not enabled for this tenant"
+                GlobalErrorTypes.DELIVERY_MODE_NOT_ELIGIBLE.getCode(),
+                "Delivery mode not eligible",
+                HttpStatus.CONFLICT,
+                "The declared delivery mode is not eligible for this credential type"
+        );
+    }
+
+    // TenantCredentialProfileServiceImpl#findConfiguredDeliveryModes (EUD-169, F6): the declared
+    // credential_configuration_id exists globally but is not enabled for this tenant -- a state
+    // conflict, not a malformed request, hence 409 rather than 400 (same divide AD-7 already drew
+    // for the schema ceiling).
+    @ExceptionHandler(CredentialConfigurationNotEnabledException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Mono<GlobalErrorMessage> handleCredentialConfigurationNotEnabledException(
+            CredentialConfigurationNotEnabledException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleSafe(
+                ex, request,
+                GlobalErrorTypes.CREDENTIAL_CONFIGURATION_NOT_ENABLED.getCode(),
+                "Credential configuration not enabled",
+                HttpStatus.CONFLICT,
+                "The declared credential configuration id is not enabled for this tenant"
         );
     }
 }

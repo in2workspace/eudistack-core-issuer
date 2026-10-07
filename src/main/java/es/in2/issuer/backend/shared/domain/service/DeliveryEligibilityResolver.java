@@ -1,44 +1,52 @@
 package es.in2.issuer.backend.shared.domain.service;
 
-import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
-import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.util.EnumSet;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- * Resolves which delivery modes are eligible for a {@code credential_configuration_id},
- * for display on the TenantAdmin-facing {@code GET} endpoint.
+ * Resolves the delivery modes effectively eligible for a {@code credential_configuration_id}:
+ * {@code tenant configuration ∩ schema ceiling}, with the ceiling as the default when no
+ * configuration exists (ADR-110, EUD-168).
  *
- * <p>The actual issuance-time enforcement (including the hard rule that
- * {@code cnfRequired} credential types always exclude {@link DeliveryMode#DIRECT},
- * regardless of tenant configuration) lives in
- * {@code IssuanceWorkflowImpl#resolveAndValidateDeliveryModes} (EUD-167). The default
- * applied here when no explicit configuration exists mirrors that same rule, so the
- * admin view never shows a mode as eligible that issuance would in fact reject.
+ * <p>Intersecting rather than merely defaulting is the point. A configuration stored before the
+ * ceiling existed may still list {@code direct} for a type whose schema forbids it; honouring it would
+ * show the admin a mode that issuance rejects, which is exactly the divergence this replaces.
+ *
+ * <p>Issuance-time enforcement lives in {@code IssuanceWorkflowImpl#resolveAndValidateDeliveryModes}
+ * and applies the same two rules in the same order, so the admin view can never promise what issuance
+ * would refuse.
  */
 @Service
 @RequiredArgsConstructor
 public class DeliveryEligibilityResolver {
 
-    private final TenantDeliveryConfigService tenantDeliveryConfigService;
-    private final CredentialProfileRegistry credentialProfileRegistry;
+    private final TenantCredentialProfileService tenantCredentialProfileService;
+    private final SchemaDeliveryCeiling schemaDeliveryCeiling;
 
-    public Mono<Set<DeliveryMode>> getEligibleModes(String credentialConfigurationId) {
-        return tenantDeliveryConfigService.getEligibleModes(credentialConfigurationId)
-                .switchIfEmpty(Mono.fromSupplier(() -> defaultModesFor(credentialConfigurationId)));
-    }
-
-    private Set<DeliveryMode> defaultModesFor(String credentialConfigurationId) {
-        CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialConfigurationId);
-        boolean cnfRequired = profile != null && profile.cnfRequired();
-        return cnfRequired
-                ? EnumSet.of(DeliveryMode.EMAIL, DeliveryMode.UI)
-                : EnumSet.allOf(DeliveryMode.class);
+    public Mono<Set<DeliveryMode>> resolveEligibleModes(String credentialConfigurationId) {
+        // Deferred rather than resolved eagerly above: schemaDeliveryCeiling.resolveEligibleModes can
+        // throw for an unknown configuration ID, and a caller composing this Mono outside a defer of its
+        // own must still see that failure as an onError signal, not an assembly-time exception.
+        return Mono.fromSupplier(() -> schemaDeliveryCeiling.resolveEligibleModes(credentialConfigurationId))
+                .flatMap(ceiling -> tenantCredentialProfileService.findConfiguredDeliveryModes(credentialConfigurationId)
+                        // findConfiguredDeliveryModes emits an empty Set for "enabled but unconfigured"
+                        // -- never an empty Mono for that
+                        // case, so the ceiling fallback branches on Set emptiness here, not on
+                        // Mono#switchIfEmpty (which would never fire and would incorrectly return an
+                        // empty result instead of the ceiling, EC-09 vs P-1). A genuinely not-enabled
+                        // type instead errors and propagates untouched here --
+                        // fail-closed, no onErrorReturn/onErrorResume.
+                        .map(configured -> configured.isEmpty()
+                                ? ceiling
+                                : configured.stream()
+                                        .filter(ceiling::contains)
+                                        .collect(Collectors.toCollection(() -> EnumSet.noneOf(DeliveryMode.class)))));
     }
 
 }

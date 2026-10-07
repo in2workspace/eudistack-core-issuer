@@ -1,0 +1,34 @@
+name: cd-dev
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - '.github/**'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  security-events: write
+
+jobs:
+  analyze:
+    uses: in2workspace/eudistack-devops-workflows/.github/workflows/common-codeql-java.yml@12ed6fa9090ebd4564c6541b67111ed4466a61b1
+
+  deploy:
+    uses: in2workspace/eudistack-devops-workflows/.github/workflows/ecs-api-cd-dev.yml@12ed6fa9090ebd4564c6541b67111ed4466a61b1
+    with:
+      project_name: 'eudistack'
+      app_name: 'issuer-core'
+      region_code: 'ew1'
+      smoke_url: 'https://sandbox.dev.eudistack.net/issuer/health'
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      AWS_ACCESS_KEY_ID_DEV: ${{ secrets.AWS_ACCESS_KEY_ID_DEV }}
+      AWS_SECRET_ACCESS_KEY_DEV: ${{ secrets.AWS_SECRET_ACCESS_KEY_DEV }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
