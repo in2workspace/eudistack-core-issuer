@@ -19,6 +19,13 @@ public class LearIssuancePolicyException extends InsufficientPermissionException
         this.reason = reason;
     }
 
+    /**
+     * Wire contract: the codes are duplicated in eudistack-mfe-credential-manager
+     * ({@code LEAR_ISSUANCE_POLICY_REASONS} in {@code issuance-error.helpers.ts}), which maps each one
+     * to an explanation. A code missing there degrades safely to the generic error message, but
+     * nothing warns about it -- add, rename or remove codes in both places (and their i18n keys).
+     * {@code LearIssuancePolicyExceptionTest} pins this list so a change here is a conscious one.
+     */
     @Getter
     @RequiredArgsConstructor
     public enum Reason {

@@ -109,10 +109,10 @@ public class RequireLearCredentialIssuanceRule implements PolicyRule<JsonNode> {
         }
         String payloadMandatorOrgId = payload.path("mandator").path("organizationIdentifier").asText(null);
         String operatorOrgId = context.organizationIdentifier();
-        boolean sameOrg = payloadMandatorOrgId == null || payloadMandatorOrgId.equals(operatorOrgId);
-        log.debug("checkEscalationPrevention: on-behalf check — operatorOrgId='{}', payloadMandatorOrgId='{}', sameOrg={}",
-                operatorOrgId, payloadMandatorOrgId, payloadMandatorOrgId != null && sameOrg);
-        if (sameOrg) {
+        boolean mandatorMissingOrSameAsOperator = payloadMandatorOrgId == null || payloadMandatorOrgId.equals(operatorOrgId);
+        log.debug("checkOnboardingDelegation: on-behalf check — operatorOrgId='{}', payloadMandatorOrgId='{}', mandatorMissingOrSameAsOperator={}",
+                operatorOrgId, payloadMandatorOrgId, mandatorMissingOrSameAsOperator);
+        if (mandatorMissingOrSameAsOperator) {
             return new Denial(Reason.ONBOARDING_DELEGATION_SAME_ORG,
                     "Onboarding/Execute delegation only allowed on-behalf (payload mandator org must differ from operator org '"
                     + operatorOrgId + "')");
