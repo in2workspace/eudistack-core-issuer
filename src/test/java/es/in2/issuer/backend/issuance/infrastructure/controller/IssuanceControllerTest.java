@@ -536,6 +536,8 @@ class IssuanceControllerTest {
                 .issuanceId(UUID.randomUUID())
                 .subject("testFullName")
                 .status("testStatus")
+                .createdAt(Instant.parse("2026-01-05T10:15:30.123Z"))
+                .expiresAt(Instant.parse("2027-01-05T10:15:30Z"))
                 .updated(Instant.now())
                 .organizationIdentifier(orgId)
                 .build();
@@ -556,7 +558,40 @@ class IssuanceControllerTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.credential_procedures").isArray();
+                .jsonPath("$.credential_procedures").isArray()
+                .jsonPath("$.credential_procedures[0].credential_procedure.created_at").isEqualTo("2026-01-05T10:15:30Z")
+                .jsonPath("$.credential_procedures[0].credential_procedure.expires_at").isEqualTo("2027-01-05T10:15:30Z");
+    }
+
+    @Test
+    void getAllIssuances_OmitsExpiresAtWhenThereIsNoExpiry() {
+        String orgId = "testOrganizationId";
+        AuthorizationContext authCtx = new AuthorizationContext(orgId, UserRole.LEAR, false, "multi_org");
+
+        IssuanceSummary summary = IssuanceSummary.builder()
+                .issuanceId(UUID.randomUUID())
+                .status("DRAFT")
+                .createdAt(Instant.parse("2026-01-05T10:15:30Z"))
+                .updated(Instant.now())
+                .organizationIdentifier(orgId)
+                .build();
+
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(authCtx));
+        when(issuanceService.getAllIssuancesVisibleFor(authCtx))
+                .thenReturn(Mono.just(IssuanceList.builder()
+                        .issuances(List.of(new IssuanceList.IssuanceEntry(summary)))
+                        .build()));
+
+        webTestClient
+                .get()
+                .uri(ISSUANCES_PATH)
+                .header("Authorization", "Bearer testToken")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.credential_procedures[0].credential_procedure.created_at").isEqualTo("2026-01-05T10:15:30Z")
+                .jsonPath("$.credential_procedures[0].credential_procedure.expires_at").doesNotExist();
     }
 
     @Test
