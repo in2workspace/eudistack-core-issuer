@@ -1,7 +1,9 @@
 package es.in2.issuer.backend.shared.infrastructure.controller;
 
 import es.in2.issuer.backend.shared.domain.exception.*;
+import es.in2.issuer.backend.shared.domain.exception.CredentialAlreadyActiveException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialOfferExpiredException;
+import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialOfferNoLongerAvailableException;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
@@ -228,6 +230,30 @@ public class SharedExceptionHandler {
         );
     }
 
+    @ExceptionHandler(CredentialOfferNoLongerAvailableException.class)
+    @ResponseStatus(HttpStatus.GONE)
+    public Mono<GlobalErrorMessage> handleCredentialOfferNoLongerAvailableException(
+            CredentialOfferNoLongerAvailableException ex,
+            ServerHttpRequest request
+    ) {
+        if (ex.isConsumed()) {
+            return errors.handleWith(
+                    ex, request,
+                    GlobalErrorTypes.CREDENTIAL_ALREADY_ISSUED.getCode(),
+                    "Credential already issued",
+                    HttpStatus.GONE,
+                    "The credential offer has already been used."
+            );
+        }
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.CREDENTIAL_OFFER_EXPIRED.getCode(),
+                "Credential offer expired",
+                HttpStatus.GONE,
+                "The credential offer has expired."
+        );
+    }
+
     @ExceptionHandler(CredentialAlreadyIssuedException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public Mono<GlobalErrorMessage> handleCredentialAlreadyIssuedException(
@@ -240,6 +266,21 @@ public class SharedExceptionHandler {
                 "Credential already issued",
                 HttpStatus.CONFLICT,
                 "The credential has already been issued."
+        );
+    }
+
+    @ExceptionHandler(CredentialAlreadyActiveException.class)
+    @ResponseStatus(HttpStatus.GONE)
+    public Mono<GlobalErrorMessage> handleCredentialAlreadyActiveException(
+            CredentialAlreadyActiveException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.CREDENTIAL_ALREADY_ACTIVE.getCode(),
+                "Credential already active",
+                HttpStatus.GONE,
+                "The credential is already active."
         );
     }
 
