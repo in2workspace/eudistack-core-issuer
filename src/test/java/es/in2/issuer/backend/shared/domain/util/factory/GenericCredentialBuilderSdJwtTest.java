@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
-import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.statuslist.domain.util.factory.IssuerFactory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -43,9 +42,6 @@ class GenericCredentialBuilderSdJwtTest {
 
     @Mock
     private IssuerFactory issuerFactory;
-
-    @Mock
-    private AccessTokenService accessTokenService;
 
     @InjectMocks
     private GenericCredentialBuilder builder;
