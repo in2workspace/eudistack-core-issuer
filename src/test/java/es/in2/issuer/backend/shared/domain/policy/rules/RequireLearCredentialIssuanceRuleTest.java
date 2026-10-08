@@ -3,6 +3,7 @@ package es.in2.issuer.backend.shared.domain.policy.rules;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
+import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -67,6 +68,8 @@ class RequireLearCredentialIssuanceRuleTest {
         StepVerifier.create(rule.evaluate(context, payload))
                 .expectErrorSatisfies(error -> assertThat(error)
                         .isInstanceOf(InsufficientPermissionException.class)
+                        .satisfies(e -> assertThat(((LearIssuancePolicyException) e).getReason())
+                                .isEqualTo(LearIssuancePolicyException.Reason.OPERATOR_LACKS_ONBOARDING))
                         .hasMessageContaining("operator lacks Onboarding/Execute power"))
                 .verify();
     }
@@ -109,6 +112,8 @@ class RequireLearCredentialIssuanceRuleTest {
         StepVerifier.create(rule.evaluate(context, payload))
                 .expectErrorSatisfies(error -> assertThat(error)
                         .isInstanceOf(InsufficientPermissionException.class)
+                        .satisfies(e -> assertThat(((LearIssuancePolicyException) e).getReason())
+                                .isEqualTo(LearIssuancePolicyException.Reason.MANDATOR_ORGANIZATION_MISSING))
                         .hasMessageContaining("payload mandator.organizationIdentifier missing"))
                 .verify();
     }
@@ -146,6 +151,8 @@ class RequireLearCredentialIssuanceRuleTest {
         StepVerifier.create(rule.evaluate(context, payload))
                 .expectErrorSatisfies(error -> assertThat(error)
                         .isInstanceOf(InsufficientPermissionException.class)
+                        .satisfies(e -> assertThat(((LearIssuancePolicyException) e).getReason())
+                                .isEqualTo(LearIssuancePolicyException.Reason.ON_BEHALF_REQUIRES_TENANT_ADMIN))
                         .hasMessageContaining("on-behalf issuance requires TenantAdmin")
                         .hasMessageContaining("payload org='" + OTHER_ORG_ID + "'")
                         .hasMessageContaining("operator org='" + OPERATOR_ORG_ID + "'"))
@@ -168,6 +175,8 @@ class RequireLearCredentialIssuanceRuleTest {
         StepVerifier.create(rule.evaluate(context, payload))
                 .expectErrorSatisfies(error -> assertThat(error)
                         .isInstanceOf(InsufficientPermissionException.class)
+                        .satisfies(e -> assertThat(((LearIssuancePolicyException) e).getReason())
+                                .isEqualTo(LearIssuancePolicyException.Reason.ON_BEHALF_REQUIRES_MULTI_ORG))
                         .hasMessageContaining("on-behalf issuance not allowed in tenant of type 'simple'"))
                 .verify();
     }
@@ -211,6 +220,8 @@ class RequireLearCredentialIssuanceRuleTest {
         StepVerifier.create(rule.evaluate(context, payload))
                 .expectErrorSatisfies(error -> assertThat(error)
                         .isInstanceOf(InsufficientPermissionException.class)
+                        .satisfies(e -> assertThat(((LearIssuancePolicyException) e).getReason())
+                                .isEqualTo(LearIssuancePolicyException.Reason.ONBOARDING_DELEGATION_REQUIRES_TENANT_ADMIN))
                         .hasMessageContaining("Onboarding/Execute delegation requires TenantAdmin"))
                 .verify();
     }
@@ -234,6 +245,8 @@ class RequireLearCredentialIssuanceRuleTest {
         StepVerifier.create(rule.evaluate(context, payload))
                 .expectErrorSatisfies(error -> assertThat(error)
                         .isInstanceOf(InsufficientPermissionException.class)
+                        .satisfies(e -> assertThat(((LearIssuancePolicyException) e).getReason())
+                                .isEqualTo(LearIssuancePolicyException.Reason.ONBOARDING_DELEGATION_REQUIRES_MULTI_ORG))
                         .hasMessageContaining("Onboarding/Execute delegation only allowed in multi_org tenant")
                         .hasMessageContaining("current: 'simple'"))
                 .verify();
@@ -258,6 +271,8 @@ class RequireLearCredentialIssuanceRuleTest {
         StepVerifier.create(rule.evaluate(context, payload))
                 .expectErrorSatisfies(error -> assertThat(error)
                         .isInstanceOf(InsufficientPermissionException.class)
+                        .satisfies(e -> assertThat(((LearIssuancePolicyException) e).getReason())
+                                .isEqualTo(LearIssuancePolicyException.Reason.ONBOARDING_DELEGATION_SAME_ORG))
                         .hasMessageContaining("Onboarding/Execute delegation only allowed on-behalf")
                         .hasMessageContaining("payload mandator org must differ from operator org '" + OPERATOR_ORG_ID + "'"))
                 .verify();
@@ -289,6 +304,8 @@ class RequireLearCredentialIssuanceRuleTest {
         StepVerifier.create(rule.evaluate(context, payload))
                 .expectErrorSatisfies(error -> assertThat(error)
                         .isInstanceOf(InsufficientPermissionException.class)
+                        .satisfies(e -> assertThat(((LearIssuancePolicyException) e).getReason())
+                                .isEqualTo(LearIssuancePolicyException.Reason.ONBOARDING_DELEGATION_SAME_ORG))
                         .hasMessageContaining("Onboarding/Execute delegation only allowed on-behalf")
                         .hasMessageContaining("payload mandator org must differ from operator org '" + OPERATOR_ORG_ID + "'"))
                 .verify();
@@ -333,6 +350,8 @@ class RequireLearCredentialIssuanceRuleTest {
         StepVerifier.create(rule.evaluate(context, payload))
                 .expectErrorSatisfies(error -> assertThat(error)
                         .isInstanceOf(InsufficientPermissionException.class)
+                        .satisfies(e -> assertThat(((LearIssuancePolicyException) e).getReason())
+                                .isEqualTo(LearIssuancePolicyException.Reason.CERTIFICATION_DELEGATION_REQUIRES_TENANT_ADMIN))
                         .hasMessageContaining("Certification/Attest delegation requires TenantAdmin"))
                 .verify();
     }
@@ -356,6 +375,8 @@ class RequireLearCredentialIssuanceRuleTest {
         StepVerifier.create(rule.evaluate(context, payload))
                 .expectErrorSatisfies(error -> assertThat(error)
                         .isInstanceOf(InsufficientPermissionException.class)
+                        .satisfies(e -> assertThat(((LearIssuancePolicyException) e).getReason())
+                                .isEqualTo(LearIssuancePolicyException.Reason.CERTIFICATION_DELEGATION_REQUIRES_MULTI_ORG))
                         .hasMessageContaining("Certification/Attest delegation only allowed in multi_org tenant")
                         .hasMessageContaining("current: 'simple'"))
                 .verify();

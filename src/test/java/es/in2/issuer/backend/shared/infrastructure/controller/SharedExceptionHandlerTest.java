@@ -455,6 +455,28 @@ class SharedExceptionHandlerTest {
         verify(errors).handleWith(ex, request, type, title, st, fallback);
     }
 
+    // -------------------- handleLearIssuancePolicyException --------------------
+
+    @Test
+    void handleLearIssuancePolicyExceptionAddsReasonCode() {
+        var ex = new LearIssuancePolicyException(
+                LearIssuancePolicyException.Reason.ONBOARDING_DELEGATION_SAME_ORG, "same org");
+        var type = GlobalErrorTypes.INSUFFICIENT_PERMISSION.getCode();
+        var title = "Insufficient permission";
+        var st = HttpStatus.FORBIDDEN;
+        var fallback = "The client who made the issuance request do not have the required permissions";
+        var expected = new GlobalErrorMessage(type, title, st.value(), "same org", UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleLearIssuancePolicyException(ex, request))
+                .assertNext(gem -> {
+                    assertGem(gem, type, title, st, "same org");
+                    assertEquals("onboarding_delegation_same_org", gem.reason());
+                })
+                .verifyComplete();
+    }
+
     // -------------------- handleUnauthorizedRoleException --------------------
 
     @Test
