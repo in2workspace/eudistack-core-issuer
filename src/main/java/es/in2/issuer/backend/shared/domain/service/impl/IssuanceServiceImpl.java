@@ -168,10 +168,15 @@ public class IssuanceServiceImpl implements IssuanceService {
         // sysAdmin from platform → cross-tenant search.
         // sysAdmin/tenantAdmin → any issuance within current tenant.
         // LEAR → filtered by organization.
-        UUID id = UUID.fromString(issuanceId);
+        UUID id;
+        try {
+            id = UUID.fromString(issuanceId);
+        } catch (IllegalArgumentException _) {
+            return Mono.error(new NoCredentialFoundException("No credential found for a malformed issuanceId"));
+        }
         Mono<Issuance> issuanceMono;
         if (ctx.isSysAdmin() && ctx.readOnly()) {
-            log.debug("Platform admin cross-tenant access for issuanceId: {}", issuanceId);
+            log.debug("Platform admin cross-tenant access for issuanceId: {}", id);
             issuanceMono = tenantRegistryService.getActiveTenantSchemas()
                     .flatMapMany(Flux::fromIterable)
                     .flatMap(tenant ->
@@ -180,7 +185,7 @@ public class IssuanceServiceImpl implements IssuanceService {
                     )
                     .next();
         } else if (ctx.isTenantAdmin()) {
-            log.debug("TenantAdmin access for issuanceId: {}", issuanceId);
+            log.debug("TenantAdmin access for issuanceId: {}", id);
             issuanceMono = issuancePort.findByIssuanceId(id);
         } else {
             issuanceMono = issuancePort.findByIssuanceIdAndOrganizationIdentifier(id, ctx.organizationIdentifier());
@@ -370,6 +375,8 @@ public class IssuanceServiceImpl implements IssuanceService {
                 .subject(issuance.getSubject())
                 .credentialType(issuance.getCredentialType())
                 .status(String.valueOf(issuance.getCredentialStatus()))
+                .createdAt(issuance.getCreatedAt())
+                .expiresAt(issuance.getValidUntil() != null ? issuance.getValidUntil().toInstant() : null)
                 .organizationIdentifier(issuance.getOrganizationIdentifier())
                 .updated(issuance.getUpdatedAt())
                 .tenant(tenant)
