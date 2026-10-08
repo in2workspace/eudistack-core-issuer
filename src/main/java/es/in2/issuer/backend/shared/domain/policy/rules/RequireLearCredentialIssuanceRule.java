@@ -3,7 +3,8 @@ package es.in2.issuer.backend.shared.domain.policy.rules;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
+import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
+import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException.Reason;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.policy.PolicyContext;
 import es.in2.issuer.backend.shared.domain.policy.PolicyRule;
@@ -53,12 +54,12 @@ public class RequireLearCredentialIssuanceRule implements PolicyRule<JsonNode> {
         }
 
         if (!hasOnboardingExecute(context.powers())) {
-            return deny("operator lacks Onboarding/Execute power");
+            return deny(Reason.OPERATOR_LACKS_ONBOARDING, "operator lacks Onboarding/Execute power");
         }
 
-        String denyReason = checkEscalationPrevention(context, payload);
-        if (denyReason != null) {
-            return deny(denyReason);
+        Denial denial = checkEscalationPrevention(context, payload);
+        if (denial != null) {
+            return deny(denial.reason(), denial.message());
         }
 
         return checkOrgScope(context, payload);
@@ -69,7 +70,7 @@ public class RequireLearCredentialIssuanceRule implements PolicyRule<JsonNode> {
                 FN_ONBOARDING.equals(p.function()) && PolicyContext.hasAction(p, ACT_EXECUTE));
     }
 
-    private String checkEscalationPrevention(PolicyContext context, JsonNode payload) {
+    private Denial checkEscalationPrevention(PolicyContext context, JsonNode payload) {
         JsonNode powerArray = payload.path("power");
         log.debug("checkEscalationPrevention: payloadPowerArray={}", powerArray);
 
@@ -79,32 +80,55 @@ public class RequireLearCredentialIssuanceRule implements PolicyRule<JsonNode> {
         }
         List<Power> payloadPowers = objectMapper.convertValue(powerArray, new TypeReference<>() {});
         for (Power p : payloadPowers) {
-            if (FN_ONBOARDING.equals(p.function()) && PolicyContext.hasAction(p, ACT_EXECUTE)) {
-                if (!context.tenantAdmin()) {
-                    return "Onboarding/Execute delegation requires TenantAdmin";
-                }
-                if (!PolicyContext.TENANT_TYPE_MULTI_ORG.equals(context.tenantType())) {
-                    return "Onboarding/Execute delegation only allowed in multi_org tenant (current: '"
-                            + context.tenantType() + "')";
-                }
-                String payloadMandatorOrgId = payload.path("mandator").path("organizationIdentifier").asText(null);
-                String operatorOrgId = context.organizationIdentifier();
-                log.debug("checkEscalationPrevention: on-behalf check — operatorOrgId='{}', payloadMandatorOrgId='{}', sameOrg={}",
-                        operatorOrgId, payloadMandatorOrgId, payloadMandatorOrgId != null && payloadMandatorOrgId.equals(operatorOrgId));
-                if (payloadMandatorOrgId == null || payloadMandatorOrgId.equals(operatorOrgId)) {
-                    return "Onboarding/Execute delegation only allowed on-behalf (payload mandator org must differ from operator org '"
-                            + operatorOrgId + "')";
-                }
+            Denial denial = checkPowerDelegation(context, payload, p);
+            if (denial != null) {
+                return denial;
             }
-            if (FN_CERTIFICATION.equals(p.function()) && PolicyContext.hasAction(p, ACT_ATTEST)) {
-                if (!context.tenantAdmin()) {
-                    return "Certification/Attest delegation requires TenantAdmin";
-                }
-                if (!PolicyContext.TENANT_TYPE_MULTI_ORG.equals(context.tenantType())) {
-                    return "Certification/Attest delegation only allowed in multi_org tenant (current: '"
-                            + context.tenantType() + "')";
-                }
-            }
+        }
+        return null;
+    }
+
+    private Denial checkPowerDelegation(PolicyContext context, JsonNode payload, Power p) {
+        if (FN_ONBOARDING.equals(p.function()) && PolicyContext.hasAction(p, ACT_EXECUTE)) {
+            return checkOnboardingDelegation(context, payload);
+        }
+        if (FN_CERTIFICATION.equals(p.function()) && PolicyContext.hasAction(p, ACT_ATTEST)) {
+            return checkTenantAdminInMultiOrg(context, "Certification/Attest",
+                    Reason.CERTIFICATION_DELEGATION_REQUIRES_TENANT_ADMIN,
+                    Reason.CERTIFICATION_DELEGATION_REQUIRES_MULTI_ORG);
+        }
+        return null;
+    }
+
+    private Denial checkOnboardingDelegation(PolicyContext context, JsonNode payload) {
+        Denial denial = checkTenantAdminInMultiOrg(context, "Onboarding/Execute",
+                Reason.ONBOARDING_DELEGATION_REQUIRES_TENANT_ADMIN,
+                Reason.ONBOARDING_DELEGATION_REQUIRES_MULTI_ORG);
+        if (denial != null) {
+            return denial;
+        }
+        String payloadMandatorOrgId = payload.path("mandator").path("organizationIdentifier").asText(null);
+        String operatorOrgId = context.organizationIdentifier();
+        boolean mandatorMissingOrSameAsOperator = payloadMandatorOrgId == null || payloadMandatorOrgId.equals(operatorOrgId);
+        log.debug("checkOnboardingDelegation: on-behalf check — operatorOrgId='{}', payloadMandatorOrgId='{}', mandatorMissingOrSameAsOperator={}",
+                operatorOrgId, payloadMandatorOrgId, mandatorMissingOrSameAsOperator);
+        if (mandatorMissingOrSameAsOperator) {
+            return new Denial(Reason.ONBOARDING_DELEGATION_SAME_ORG,
+                    "Onboarding/Execute delegation only allowed on-behalf (payload mandator org must differ from operator org '"
+                    + operatorOrgId + "')");
+        }
+        return null;
+    }
+
+    /** Delegating {@code powerLabel} requires a TenantAdmin operator in a {@code multi_org} tenant. */
+    private Denial checkTenantAdminInMultiOrg(PolicyContext context, String powerLabel,
+                                              Reason requiresTenantAdmin, Reason requiresMultiOrg) {
+        if (!context.tenantAdmin()) {
+            return new Denial(requiresTenantAdmin, powerLabel + " delegation requires TenantAdmin");
+        }
+        if (!PolicyContext.TENANT_TYPE_MULTI_ORG.equals(context.tenantType())) {
+            return new Denial(requiresMultiOrg, powerLabel + " delegation only allowed in multi_org tenant (current: '"
+                    + context.tenantType() + "')");
         }
         return null;
     }
@@ -113,7 +137,7 @@ public class RequireLearCredentialIssuanceRule implements PolicyRule<JsonNode> {
         String payloadOrgId = payload.path("mandator").path("organizationIdentifier").asText(null);
 
         if (payloadOrgId == null) {
-            return deny("payload mandator.organizationIdentifier missing");
+            return deny(Reason.MANDATOR_ORGANIZATION_MISSING, "payload mandator.organizationIdentifier missing");
         }
 
         String operatorOrgId = context.organizationIdentifier();
@@ -123,20 +147,22 @@ public class RequireLearCredentialIssuanceRule implements PolicyRule<JsonNode> {
         }
 
         if (!context.tenantAdmin()) {
-            return deny("on-behalf issuance requires TenantAdmin (payload org='" + payloadOrgId
+            return deny(Reason.ON_BEHALF_REQUIRES_TENANT_ADMIN, "on-behalf issuance requires TenantAdmin (payload org='" + payloadOrgId
                     + "', operator org='" + operatorOrgId + "')");
         }
 
         if (!PolicyContext.TENANT_TYPE_MULTI_ORG.equals(context.tenantType())) {
-            return deny("on-behalf issuance not allowed in tenant of type '" + context.tenantType() + "'");
+            return deny(Reason.ON_BEHALF_REQUIRES_MULTI_ORG, "on-behalf issuance not allowed in tenant of type '" + context.tenantType() + "'");
         }
 
         return Mono.empty();
     }
 
-    private Mono<Void> deny(String reason) {
-        log.debug("LEAR issuance rule denied: {}", reason);
-        return Mono.error(new InsufficientPermissionException(
-                "LEAR issuance policy not met: " + reason));
+    private Mono<Void> deny(Reason reason, String message) {
+        log.debug("LEAR issuance rule denied ({}): {}", reason.getCode(), message);
+        return Mono.error(new LearIssuancePolicyException(reason,
+                "LEAR issuance policy not met: " + message));
     }
+
+    private record Denial(Reason reason, String message) {}
 }
