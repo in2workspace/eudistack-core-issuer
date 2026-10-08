@@ -38,7 +38,9 @@ public class CacheStoreConfig {
 
     @Bean
     public TransientStore<CredentialOfferData> cacheStoreForCredentialOffer() {
-        return new CacheStore<>(cacheConfig.getCacheLifetimeForCredentialOffer(), TimeUnit.MINUTES);
+        // Physical TTL outlives the logical one (CredentialOfferData.expiresAt) so expired offers
+        // stay recognisable for the retention window; expiry itself is decided in the domain.
+        return new CacheStore<>(cacheConfig.getCacheRetentionForCredentialOffer(), TimeUnit.MINUTES);
     }
 
     @Bean
