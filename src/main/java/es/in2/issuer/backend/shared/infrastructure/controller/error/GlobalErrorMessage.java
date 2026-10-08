@@ -14,19 +14,28 @@ public record GlobalErrorMessage(
         String instance,
         List<FieldViolation> violations,
         @JsonProperty("c_nonce") String cNonce,
-        @JsonProperty("c_nonce_expires_in") Long cNonceExpiresIn
+        @JsonProperty("c_nonce_expires_in") Long cNonceExpiresIn,
+        String reason
 ) {
     public GlobalErrorMessage(String type, String title, int status, String detail, String instance) {
-        this(type, title, status, detail, instance, null, null, null);
+        this(type, title, status, detail, instance, null, null, null, null);
     }
 
     public GlobalErrorMessage(String type, String title, int status, String detail, String instance,
                               List<FieldViolation> violations) {
-        this(type, title, status, detail, instance, violations, null, null);
+        this(type, title, status, detail, instance, violations, null, null, null);
     }
 
     public GlobalErrorMessage withNonce(String cNonce, long cNonceExpiresIn) {
-        return new GlobalErrorMessage(type, title, status, detail, instance, violations, cNonce, cNonceExpiresIn);
+        return new GlobalErrorMessage(type, title, status, detail, instance, violations, cNonce, cNonceExpiresIn, reason);
+    }
+
+    /**
+     * Stable, machine-readable sub-code of {@code type} (e.g. which business rule denied the
+     * request), for clients that need to explain the error rather than show a generic message.
+     */
+    public GlobalErrorMessage withReason(String reason) {
+        return new GlobalErrorMessage(type, title, status, detail, instance, violations, cNonce, cNonceExpiresIn, reason);
     }
 
     public record FieldViolation(String field, String message) {}

@@ -77,6 +77,9 @@ public final class Constants {
 
     // EXPIRATION TIMES
     public static final Integer CREDENTIAL_OFFER_CACHE_EXPIRATION_TIME = 10;
+    // How long an expired or consumed credential offer is kept after its logical expiry, so that
+    // GET /credential-offer/{nonce} can answer 410 Gone instead of 404 Not Found.
+    public static final long CREDENTIAL_OFFER_EXPIRED_RETENTION_MINUTES = 24 * 60L;
     public static final Integer VERIFIABLE_CREDENTIAL_JWT_CACHE_EXPIRATION_TIME = 10;
     // SEC-02: Refresh token — 24 hours (was 30 days)
     public static final long REFRESH_TOKEN_EXPIRATION = 24;
