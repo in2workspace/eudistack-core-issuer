@@ -26,7 +26,6 @@ public class CredentialOfferWorkflowImpl implements CredentialOfferWorkflow {
                         return emailService
                             .sendTxCodeNotification(
                                 credentialOfferData.credentialEmail(),
-                                "email.tx-code",
                                 credentialOfferData.txCode())
                             .then(Mono.just(credentialOfferData.credentialOffer()));
                     }

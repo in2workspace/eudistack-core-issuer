@@ -68,7 +68,7 @@ class CredentialOfferWorkflowImplTest {
                 .thenReturn(Mono.just(credentialOfferData));
 
         // IMPORTANT: match the template key used in the implementation ("email.tx-code")
-        when(emailService.sendTxCodeNotification(credentialEmail, "email.tx-code", txCode))
+        when(emailService.sendTxCodeNotification(credentialEmail, txCode))
                 .thenReturn(Mono.empty());
 
         // Act
@@ -82,7 +82,7 @@ class CredentialOfferWorkflowImplTest {
         // Verify interactions happen in the expected order
         InOrder inOrder = inOrder(credentialOfferCacheRepository, emailService);
         inOrder.verify(credentialOfferCacheRepository).findCredentialOfferById(credentialOfferId);
-        inOrder.verify(emailService).sendTxCodeNotification(credentialEmail, "email.tx-code", txCode);
+        inOrder.verify(emailService).sendTxCodeNotification(credentialEmail, txCode);
         inOrder.verifyNoMoreInteractions();
     }
 

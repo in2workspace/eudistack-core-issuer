@@ -97,7 +97,7 @@ class CredentialOfferServiceImplTest {
         when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("test@example.com", "TestOrg")));
         when(emailService.sendCredentialOfferEmail(
-                anyString(), anyString(), anyString(), anyString(), anyString(), isNull()))
+                anyString(), anyString(), anyString(), anyString(), isNull()))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
@@ -106,7 +106,7 @@ class CredentialOfferServiceImplTest {
                 .verifyComplete();
 
         verify(emailService).sendCredentialOfferEmail(
-                eq("test@example.com"), anyString(), anyString(), anyString(), eq("TestOrg"), isNull());
+                eq("test@example.com"), anyString(), anyString(), eq("TestOrg"), isNull());
     }
 
     /**
@@ -158,7 +158,7 @@ class CredentialOfferServiceImplTest {
         when(issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("test@example.com", "TestOrg")));
         when(emailService.sendCredentialOfferEmail(
-                anyString(), anyString(), anyString(), anyString(), anyString(), isNull()))
+                anyString(), anyString(), anyString(), anyString(), isNull()))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
@@ -167,7 +167,7 @@ class CredentialOfferServiceImplTest {
                 .verifyComplete();
 
         verify(emailService).sendCredentialOfferEmail(
-                eq("test@example.com"), anyString(), anyString(), anyString(), eq("TestOrg"), isNull());
+                eq("test@example.com"), anyString(), anyString(), eq("TestOrg"), isNull());
     }
 
     @Test
@@ -198,7 +198,7 @@ class CredentialOfferServiceImplTest {
 
         verify(emailService).sendBrandedCredentialOfferEmail(
                 eq("user@kpmg.com"), anyString(), argThat(url -> url.startsWith("https://kpmg.eudistack.net/wallet")), anyString(), eq("KPMG"));
-        verify(emailService, never()).sendCredentialOfferEmail(any(), any(), any(), any(), any(), any());
+        verify(emailService, never()).sendCredentialOfferEmail(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -215,7 +215,7 @@ class CredentialOfferServiceImplTest {
                 .thenReturn(Mono.just("nonce"));
         when(issuanceService.findCredentialOfferEmailInfoByIssuanceId("issuance-sandbox"))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("user@sandbox.com", "Sandbox Org")));
-        when(emailService.sendCredentialOfferEmail(any(), any(), any(), any(), any(), isNull()))
+        when(emailService.sendCredentialOfferEmail(any(), any(), any(), any(), isNull()))
                 .thenReturn(Mono.empty());
 
         // Act & Assert
@@ -228,7 +228,7 @@ class CredentialOfferServiceImplTest {
                 .verifyComplete();
 
         verify(emailService).sendCredentialOfferEmail(
-                eq("user@sandbox.com"), any(), argThat(url -> url.startsWith("https://sandbox.eudistack.net/wallet")), any(), eq("Sandbox Org"), isNull());
+                eq("user@sandbox.com"), argThat(url -> url.startsWith("https://sandbox.eudistack.net/wallet")), any(), eq("Sandbox Org"), isNull());
         verify(emailService, never()).sendBrandedCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), anyString());
     }
 }
