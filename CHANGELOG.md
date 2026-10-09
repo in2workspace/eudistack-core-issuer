@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.10.10] - 2026-10-09
+
+### Added
+- **#1045910 — GET /api/v1/issuances returns created_at and expires_at.** created_at is the moment the issuance record was created. expires_at is omitted when the issuance has no expiration. The credential-manager "Issued on" / "Expires on" columns depend on this.
+
+### Fixed
+- **A credential offer that can no longer be refreshed or redeemed returns 410 with a stable code** (credential_offer_expired, credential_already_issued, credential_already_active or credential_offer_gone) instead of a generic 500. A redeemed offer is marked consumed and kept until the retention window ends.
+- **I-03 — a LEAR issuance denied by policy includes a stable reason** on the 403 (onboarding_delegation_same_org, on_behalf_requires_tenant_admin, and the other policy reasons), so the client can explain the rule.
+- **GET /api/v1/issuances/{id} answers a malformed id with 404**, not 500, and does not echo the malformed value.
+
 ## [Unreleased]
 
 ### Fixed
