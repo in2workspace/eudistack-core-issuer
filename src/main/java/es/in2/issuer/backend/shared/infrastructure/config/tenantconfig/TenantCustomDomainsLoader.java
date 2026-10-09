@@ -36,6 +36,7 @@ public class TenantCustomDomainsLoader {
     private final String configPath;
     private Map<String, TenantEntry> entries = Map.of();
     private Map<String, String> walletUrlByIssuerHost = Map.of();
+    private Map<String, String> environmentLabelByIssuerHost = Map.of();
 
     public TenantCustomDomainsLoader(
             ResourceLoader resourceLoader,
@@ -60,6 +61,7 @@ public class TenantCustomDomainsLoader {
             validate(tenants);
             Map<String, TenantEntry> index = new HashMap<>();
             Map<String, String> walletIndex = new HashMap<>();
+            Map<String, String> labelIndex = new HashMap<>();
             for (TenantEntry entry : tenants) {
                 TenantEntry previous = index.putIfAbsent(entry.id(), entry);
                 if (previous != null) {
@@ -72,9 +74,13 @@ public class TenantCustomDomainsLoader {
                         throw new IllegalArgumentException("Duplicate issuer host '" + issuerHost + "'");
                     }
                 }
+                if (issuerHost != null && entry.environmentLabel() != null && !entry.environmentLabel().isBlank()) {
+                    labelIndex.putIfAbsent(issuerHost, entry.environmentLabel().trim());
+                }
             }
             this.entries = Map.copyOf(index);
             this.walletUrlByIssuerHost = Map.copyOf(walletIndex);
+            this.environmentLabelByIssuerHost = Map.copyOf(labelIndex);
             log.info("Loaded {} tenant custom domain(s) from '{}'", entries.size(), configPath);
         } catch (IllegalArgumentException e) {
             throw new IllegalStateException(
@@ -130,6 +136,19 @@ public class TenantCustomDomainsLoader {
         return Optional.ofNullable(walletUrlByIssuerHost.get(issuerHost));
     }
 
+    /**
+     * Returns the environment label (e.g. {@code SBX}, {@code Dev}) configured for the entry whose
+     * {@code issuer} URL has the given host, or {@link Optional#empty()} if the host is unknown or
+     * its entry has no {@code environmentLabel}. Matched by request host, like
+     * {@link #findWalletUrlByIssuerHost}, because several domains can map to one tenant.
+     */
+    public Optional<String> findEnvironmentLabelByIssuerHost(String issuerHost) {
+        if (issuerHost == null || issuerHost.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(environmentLabelByIssuerHost.get(issuerHost));
+    }
+
     private static String hostOf(String url) {
         if (url == null || url.isBlank()) {
             return null;
@@ -179,6 +198,7 @@ public class TenantCustomDomainsLoader {
             @JsonProperty("id")        String id,
             @JsonProperty("issuer")    String issuer,
             @JsonProperty("verifiers") List<String> verifiers,
-            @JsonProperty("wallet")    String wallet
+            @JsonProperty("wallet")    String wallet,
+            @JsonProperty("environmentLabel") String environmentLabel
     ) {}
 }

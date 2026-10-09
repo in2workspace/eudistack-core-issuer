@@ -25,6 +25,7 @@ public class TenantRegistryServiceImpl implements TenantRegistryService {
     private final TenantRegistryRepository tenantRegistryRepository;
     private final AsyncCache<String, List<String>> cache;
     private final ConcurrentMap<String, String> tenantTypeCache = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, String> displayNameCache = new ConcurrentHashMap<>();
 
     public TenantRegistryServiceImpl(TenantRegistryRepository tenantRegistryRepository) {
         this.tenantRegistryRepository = tenantRegistryRepository;
@@ -57,6 +58,19 @@ public class TenantRegistryServiceImpl implements TenantRegistryService {
         return tenantRegistryRepository.findById(schemaName)
                 .map(TenantRegistry::tenantType)
                 .doOnNext(type -> tenantTypeCache.put(schemaName, type));
+    }
+
+    @Override
+    public Mono<String> getDisplayName(String schemaName) {
+        String cached = displayNameCache.get(schemaName);
+        if (cached != null) {
+            return Mono.just(cached);
+        }
+        return tenantRegistryRepository.findById(schemaName)
+                .flatMap(tenant -> Mono.justOrEmpty(tenant.displayName()))
+                .filter(name -> !name.isBlank())
+                .defaultIfEmpty(schemaName)
+                .doOnNext(name -> displayNameCache.put(schemaName, name));
     }
 
 }

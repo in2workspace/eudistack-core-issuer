@@ -264,4 +264,44 @@ class TenantCustomDomainsLoaderTest {
                     wallet: https://kpmg.wallet.eudistack.net
                 """));
     }
+
+    // ── environmentLabel ────────────────────────────────────────────────────
+
+    private static final String LABELLED_YAML = """
+            tenants:
+              - id: dome-dev
+                issuer: https://issuer.dev.dome.example
+                verifiers:
+                  - https://verifier.dev.dome.example
+                wallet: https://wallet.dev.dome.example
+                environmentLabel: Dev
+              - id: dome
+                issuer: https://issuer.dome.example
+                verifiers:
+                  - https://verifier.dome.example
+                wallet: https://wallet.dome.example
+            """;
+
+    @Test
+    void findEnvironmentLabelByIssuerHost_entryWithLabel_returnsLabel() throws IOException {
+        TenantCustomDomainsLoader loader = loaderFrom(LABELLED_YAML);
+
+        assertEquals(java.util.Optional.of("Dev"), loader.findEnvironmentLabelByIssuerHost("issuer.dev.dome.example"));
+    }
+
+    @Test
+    void findEnvironmentLabelByIssuerHost_entryWithoutLabel_returnsEmpty() throws IOException {
+        TenantCustomDomainsLoader loader = loaderFrom(LABELLED_YAML);
+
+        assertTrue(loader.findEnvironmentLabelByIssuerHost("issuer.dome.example").isEmpty());
+    }
+
+    @Test
+    void findEnvironmentLabelByIssuerHost_unknownOrBlankHost_returnsEmpty() throws IOException {
+        TenantCustomDomainsLoader loader = loaderFrom(LABELLED_YAML);
+
+        assertTrue(loader.findEnvironmentLabelByIssuerHost("other.example").isEmpty());
+        assertTrue(loader.findEnvironmentLabelByIssuerHost(" ").isEmpty());
+        assertTrue(loader.findEnvironmentLabelByIssuerHost(null).isEmpty());
+    }
 }
