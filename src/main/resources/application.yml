@@ -14,9 +14,6 @@ spring:
   config:
     import:
       - classpath:email-branding.yaml
-      # Optional per-environment override of the email branding (APP_EMAIL_BRANDING_PATH); the
-      # default path is a sentinel so that an unset variable resolves to a missing optional file.
-      - optional:file:${APP_EMAIL_BRANDING_PATH:/etc/eudistack/issuer/email-branding.yaml}
   codec:
     max-in-memory-size: ${SPRING_CODEC_MAX_IN_MEMORY_SIZE:256KB}
   reactor:
@@ -67,6 +64,13 @@ spring:
     virtual-host: ${SPRING_RABBITMQ_VIRTUAL_HOST:/}
 
 # Logging
+email-branding:
+  # Tenant-assets root of this environment (one per environment, set by platform-iac).
+  # Default targets STG on purpose: local SMTP sends real emails, and external mail
+  # clients (Gmail image proxy) cannot load images from 127.0.0.1.nip.io.
+  assets-base-url: ${EMAIL_ASSETS_BASE_URL:https://sandbox.stg.eudistack.net/assets/tenants}
+  default-folder: eudistack
+
 logging:
   pattern:
     level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-},%X{tenantDomain:-}]"

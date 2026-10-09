@@ -132,11 +132,13 @@ Refer to the [Keycloak Plugin Documentation](https://github.com/in2workspace/in2
 An SMTP Email Server of your choice. It must support StartTLS for a secure connection.
 
 ### Email branding
-Transactional emails take their logo, header background, social links, support URL and knowledge-base URL from `email-branding.yaml` (classpath base, bound to `email-branding.*`). Image paths are relative to the tenant folder under `assets-base-url` (`<assets-base-url>/<tenant>/<path>`, served from `eudistack-platform-assets` `tenants/<tenant>/email/`); a tenant inherits any field it does not define from `default`.
+Transactional emails take their support URL, knowledge-base URL and social links from `email-branding.yaml` (classpath, brand data only, bound to `email-branding.*`). Images follow a fixed naming convention and are served from `eudistack-platform-assets`: `<assets-base-url>/<folder>/email/logo.png` and `<assets-base-url>/<folder>/email/header-bg.png`, where `<folder>` is the tenant id if the tenant has a block under `email-branding.tenants`, otherwise `email-branding.default-folder` (`eudistack`). Links a tenant does not define are inherited from `default`.
+
+To brand a new tenant: upload `tenants/<tenant-id>/email/logo.png` and `tenants/<tenant-id>/email/header-bg.png` (a fully transparent PNG when there is no background) to `eudistack-platform-assets`, and add the tenant's block to `email-branding.yaml`.
 
 | Variable / key | Purpose |
 |---|---|
-| `APP_EMAIL_BRANDING_PATH` | Optional path of a per-environment YAML merged on top of the base file (maps merge key by key, lists are replaced whole). Minimum content: `email-branding.assets-base-url`. |
+| `EMAIL_ASSETS_BASE_URL` | Tenant-assets root of the environment (`email-branding.assets-base-url`). Default: `https://sandbox.stg.eudistack.net/assets/tenants` (local SMTP sends real emails and external mail clients cannot load images from `127.0.0.1.nip.io`). PRO: `https://sandbox.eudistack.net/assets/tenants`. |
 | `environmentLabel` (in `tenants-custom-domains.yaml`, per entry) | Optional `SBX` / `Dev` / `Dev2`: prefixes `[label] ` to the credential-offer email subject when the request arrives through that entry's issuer host. Omit it in production. |
 
 ## Understanding the Configuration

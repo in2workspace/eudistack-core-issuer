@@ -22,8 +22,7 @@
 <tr th:fragment="header(branding)">
     <td align="center" bgcolor="#ffffff"
         th:attr="background=${branding.headerBackgroundUrl}"
-        th:style="'padding: 28px 24px 12px 24px; background-color: #ffffff;'
-                  + (${branding.headerBackgroundUrl} != null ? ' background-image: url(' + ${branding.headerBackgroundUrl} + '); background-repeat: no-repeat; background-position: top left;' : '')"
+        th:style="'padding: 28px 24px 12px 24px; background-color: #ffffff; background-image: url(' + ${branding.headerBackgroundUrl} + '); background-repeat: no-repeat; background-position: top left;'"
         style="padding: 28px 24px 12px 24px; background-color: #ffffff;">
         <img th:src="${branding.logoUrl}"
              th:alt="${#strings.isEmpty(tenantDisplayName) ? 'EUDIStack' : tenantDisplayName}"

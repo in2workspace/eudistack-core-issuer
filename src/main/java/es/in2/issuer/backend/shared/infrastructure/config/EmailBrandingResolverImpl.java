@@ -15,6 +15,8 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 @Component
 public class EmailBrandingResolverImpl implements EmailBrandingResolver {
 
+    private static final String LOGO_PATH = "email/logo.png";
+    private static final String HEADER_BACKGROUND_PATH = "email/header-bg.png";
     private static final String ICONS_PATH = "email/icons/";
 
     private final EmailBrandingProperties properties;
@@ -31,23 +33,16 @@ public class EmailBrandingResolverImpl implements EmailBrandingResolver {
     EmailBranding resolveFor(String tenantId) {
         TenantEmailBranding defaults = properties.defaults();
         TenantEmailBranding tenant = properties.tenants().get(tenantId);
+        String folder = tenant != null ? tenantId : properties.defaultFolder();
 
         return new EmailBranding(
-                imageUrl(tenant != null ? tenant.logo() : null, tenantId, defaults.logo()),
-                imageUrl(tenant != null ? tenant.headerBackground() : null, tenantId, defaults.headerBackground()),
+                assetUrl(folder, LOGO_PATH),
+                assetUrl(folder, HEADER_BACKGROUND_PATH),
                 assetUrl(properties.defaultFolder(), ICONS_PATH + "warning.png"),
                 firstNonBlank(tenant != null ? tenant.supportUrl() : null, defaults.supportUrl()),
                 firstNonBlank(tenant != null ? tenant.knowledgeBaseUrl() : null, defaults.knowledgeBaseUrl()),
                 socialLinks(tenant, defaults)
         );
-    }
-
-    /** A tenant-defined path resolves against the tenant folder; an inherited one against the default folder (D5). */
-    private String imageUrl(String tenantPath, String tenantId, String defaultPath) {
-        if (notBlank(tenantPath)) {
-            return assetUrl(tenantId, tenantPath);
-        }
-        return notBlank(defaultPath) ? assetUrl(properties.defaultFolder(), defaultPath) : null;
     }
 
     private List<EmailBranding.SocialLink> socialLinks(TenantEmailBranding tenant, TenantEmailBranding defaults) {

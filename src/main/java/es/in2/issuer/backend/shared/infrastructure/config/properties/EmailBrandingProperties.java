@@ -13,9 +13,10 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Per-tenant branding of the transactional emails (logo, header background, support and
- * knowledge-base links, social links). Image paths are relative to the tenant folder inside
- * {@code assetsBaseUrl}; fields a tenant does not define are inherited from {@link #defaults()}.
+ * Branding data of the transactional emails (support and knowledge-base links, social links),
+ * per tenant with fallback to {@link #defaults()}. Images are not configured: they follow the
+ * fixed names {@code email/logo.png} and {@code email/header-bg.png} inside the tenant folder
+ * under {@code assetsBaseUrl}.
  */
 @ConfigurationProperties(prefix = "email-branding")
 @Validated
@@ -29,8 +30,6 @@ public record EmailBrandingProperties(
     public static final Set<String> SOCIAL_LINK_TYPES = Set.of("github", "linkedin");
 
     public record TenantEmailBranding(
-            String logo,
-            String headerBackground,
             String supportUrl,
             String knowledgeBaseUrl,
             @DefaultValue List<@Valid SocialLink> socialLinks

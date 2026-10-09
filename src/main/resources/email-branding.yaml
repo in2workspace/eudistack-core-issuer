@@ -1,32 +1,25 @@
 # ---------------------------------------------------------------------------
-# Email branding (logo, header background, support / knowledge-base links, social links).
+# Email branding data (support / knowledge-base links, social links).
 #
-# Image paths are relative to the tenant folder under assets-base-url
-# (<assets-base-url>/<tenant>/<path>); the tenant id is the folder name. Fields a tenant does
-# not define are inherited from `default`, resolved against `default-folder`. Tenants without a
-# block use the default entirely. Social-link icons are common:
+# Images are NOT configured here. They follow a fixed naming convention under the assets root
+# (email-branding.assets-base-url, application.yml):
+#   <assets-base-url>/<folder>/email/logo.png
+#   <assets-base-url>/<folder>/email/header-bg.png
+# <folder> is the tenant id when the tenant has a block below, else email-branding.default-folder.
+# To brand a new tenant: upload its email/logo.png + email/header-bg.png to eudistack-platform-assets
+# (tenants/<tenant-id>/email/) and add its block here.
+#
+# Link fields a tenant does not define are inherited from `default`. Social-link icons are common:
 # <default-folder>/email/icons/<type>.png (types: github, linkedin).
-#
-# Per-environment override (optional): APP_EMAIL_BRANDING_PATH points to a file merged on top of
-# this one. Maps merge key by key; lists are replaced whole.
 # ---------------------------------------------------------------------------
 email-branding:
-  # Full URL of the tenant-assets root of this environment. Overridden per environment.
-  # Default points to STG on purpose: local SMTP sends real emails, and external mail
-  # clients (Gmail image proxy) cannot load images from 127.0.0.1.nip.io.
-  assets-base-url: https://sandbox.stg.eudistack.net/assets/tenants
-  default-folder: eudistack
   default:
-    logo: email/logo.png
-    header-background:
     # TODO: real EUDIStack support URL (email-ui-refactor plan, section 8.7)
     support-url: https://example.invalid/support
     knowledge-base-url: https://docs.eudistack.net/
     social-links: []
   tenants:
     dome:
-      logo: email/logo.png
-      header-background: email/header-bg.png
       support-url: https://ticketing.dome-marketplace.eu/
       # TODO: real DOME GitHub / LinkedIn URLs (email-ui-refactor plan, section 8.9)
       social-links:

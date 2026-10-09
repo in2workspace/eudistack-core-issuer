@@ -17,7 +17,7 @@ final class EmailTemplateTestSupport {
 
     static final EmailBranding DEFAULT_BRANDING = new EmailBranding(
             ASSETS + "/eudistack/email/logo.png",
-            null,
+            ASSETS + "/eudistack/email/header-bg.png",
             ASSETS + "/eudistack/email/icons/warning.png",
             "https://support.eudistack.example/help",
             "https://docs.eudistack.example/",

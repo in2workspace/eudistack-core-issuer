@@ -39,7 +39,8 @@ class EmailServiceImplTest {
     @Mock private TenantRegistryService tenantRegistryService;
 
     private static final EmailBranding BRANDING = new EmailBranding(
-            "https://assets.example.com/dome/email/logo.png", null,
+            "https://assets.example.com/dome/email/logo.png",
+            "https://assets.example.com/dome/email/header-bg.png",
             "https://assets.example.com/eudistack/email/icons/warning.png",
             "https://support.example.com", "https://kb.example.com", List.of());
 

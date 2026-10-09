@@ -69,19 +69,17 @@ class EmailTemplatesRenderTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("allVariants")
-    void render_everyVariant_headerBackgroundAndSocialLinksFollowBranding(Variant v) {
+    void render_everyVariant_headerBackgroundAlwaysPresentAndSocialLinksFollowBranding(Variant v) {
         String html = render(v.template(), v.context());
 
+        assertThat(html).contains("background=\"" + v.branding().headerBackgroundUrl() + "\"");
+        assertThat(html).contains("background-image: url(" + v.branding().headerBackgroundUrl() + ")");
         if (v.branding() == DOME_BRANDING) {
-            assertThat(html).contains("background=\"" + DOME_BRANDING.headerBackgroundUrl() + "\"");
-            assertThat(html).contains("background-image: url(" + DOME_BRANDING.headerBackgroundUrl() + ")");
             assertThat(html).contains("href=\"https://github.com/dome-example\"");
             assertThat(html).contains("src=\"" + ASSETS + "/eudistack/email/icons/github.png\"");
             assertThat(html).contains("href=\"https://www.linkedin.com/company/dome-example\"");
             assertThat(html).contains("src=\"" + ASSETS + "/eudistack/email/icons/linkedin.png\"");
         } else {
-            assertThat(html).doesNotContain("background-image");
-            assertThat(html).doesNotContain("background=\"");
             assertThat(html).doesNotContain("icons/github.png");
             assertThat(html).doesNotContain("icons/linkedin.png");
         }
