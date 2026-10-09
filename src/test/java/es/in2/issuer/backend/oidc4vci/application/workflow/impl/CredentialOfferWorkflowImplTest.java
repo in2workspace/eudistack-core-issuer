@@ -67,7 +67,7 @@ class CredentialOfferWorkflowImplTest {
         when(credentialOfferCacheRepository.findCredentialOfferById(credentialOfferId))
                 .thenReturn(Mono.just(credentialOfferData));
 
-        // IMPORTANT: match the template key used in the implementation ("email.tx-code")
+        // IMPORTANT: match the single sendTxCodeNotification signature
         when(emailService.sendTxCodeNotification(credentialEmail, txCode))
                 .thenReturn(Mono.empty());
 
