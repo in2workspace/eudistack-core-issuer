@@ -11,7 +11,7 @@ plugins {
 }
 
 group = 'com.eudistack'
-version = '3.10.8'
+version = '3.11.0'
 
 ext['netty.version'] = '4.1.132.Final'
 
@@ -178,6 +178,8 @@ tasks.named('compileJava') {
 
 tasks.named('test') {
     useJUnitPlatform()
+    // Forwards -Demail.previews=true to the test JVM (EmailPreviewGeneratorTest writes build/email-previews)
+    systemProperty 'email.previews', System.getProperty('email.previews', 'false')
     finalizedBy(tasks.jacocoTestReport)
 }
 
