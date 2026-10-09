@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Tests (TECH-DEBT — SonarCloud coverage)
 
 - **Branch-focused unit tests for the services with the most uncovered branches**, with no production changes: `IssuanceServiceImpl`, `Oid4VciCredentialWorkflowImpl`, `ProofValidationServiceImpl`, `DpopValidationService`, `AccessTokenServiceImpl`, `ClientAttestationValidationService`, `DynamicCredentialParser`, `SdJwtPayloadBuilder`, `GenericCredentialBuilder` (SD-JWT path) and the CSC v1/v2 certificate info mappers. Local JaCoCo goes from 83.8% to 89.8% lines and from 70.9% to 82.2% branches.
+- **Overall test coverage raised above the 80% SonarCloud threshold.** SonarCloud reported 79.1% overall (82.5% lines, 69.7% branches) before this change. Local JaCoCo now gives 87.7% overall (lines and branches combined, as SonarCloud computes it), up from 80.3%, with 90.4% method and 94.6% class coverage.
 
 ### Security (EUD-169 — cross-tenant catalog disclosure, `/code-review` full-mode security audit, S1/F2/F3)
 
