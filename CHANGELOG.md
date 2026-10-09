@@ -18,10 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Enhanced error messages**: Global error messages were updated to be more informative when parsing or validation fails.
 - **`SignDocServiceImpl` no longer rejects a QTSP that mints a fresh, single-use leaf certificate per signing operation** (Digitel's sandbox CSC endpoint): the leaf certificate embedded in the signed document's `x5c` legitimately differs (same subject/issuer, different serial number and validity window) from the certificate `getCredentialInfo()` returned before signing, so comparing them for exact equality was rejecting otherwise-valid signatures. The cryptographic verification against the certificate actually used to sign is unchanged and remains mandatory.
 - **JAdES signatures marking `sigT` (signing time) as a critical header (RFC 7515 §4.1.11) are no longer rejected.** `buildVerifier` now declares `sigT` as a deferred/acknowledged critical header, so Nimbus proceeds with the underlying RSA/EC signature check instead of failing closed on a `crit` entry it previously had no way to process.
+- **`GET /issuance/v1/credentials/status/**` is reachable without authentication.** The path was already listed under `permitAll()`, but it was missing from the unified filter chain's `securityMatcher` (`SecurityConfig`), so that rule never applied to it. `ISSUANCE_STATUS_CREDENTIALS` is now part of the matcher.
 
 ### Changed
 - **Decoupled `JWTVerificationException` from Spring Security.** The exception no longer extends `AuthenticationException`, reverting to a standard `RuntimeException` to preserve domain purity.
 - **Refactored `JWTVerificationExceptionTest` assertions.** Multiple independent `assertThat` calls were joined into a single fluent assertion chain for better readability.
+- **The dummy secret hash used by `ApiClientAuthenticationServiceImpl` is now configurable** (`app.security.dummy-secret-hash`, env `APP_SECURITY_DUMMY_SECRET_HASH`) instead of a hard-coded BCrypt constant. The property is optional (empty by default); it must hold a valid BCrypt hash for unknown clients to take as long to reject as known ones.
+- **`TenantSchemaFlywayMigrator`** relies on Flyway's native schema creation (`createSchemas(true)`) instead of running `CREATE SCHEMA` by hand, and builds its dynamic queries with standard JDBC practices.
 
 ### Added
 
@@ -35,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The parallel delivery-config module** (`/api/v1/backoffice/delivery-config/{credentialConfigurationId}`, `TenantDeliveryConfigService(Impl)`, backed by `tenant_config` keys `issuer.delivery.modes.*`) — superseded by the catalog column above (EUD-169, single cutover). The `tenant_config` keys themselves are left in place, inert (no code path reads them anymore) as a rollback safety net; their physical purge is tracked as separate tech debt.
 - **`PATCH /api/v1/backoffice/credential-catalog` (AC-11), withdrawn before release.** Design review concluded the endpoint was speculative: the live `eudistack-mfe-credential-manager` consumer always holds the full catalog and can already reconstruct a complete `enabledConfigurationIds` set for `PUT`, so the narrower write path this endpoint existed to make safer (an admin forgetting an already-enabled type on a `PUT` and silently disabling it) is not a real risk for this Story's own frontend. Removed entirely rather than kept unused: `patchDeliveryModes`, `TenantCredentialProfileService(Impl).updateDeliveryModes`, `TenantCredentialProfileRepository.updateDeliveryModesIfEnabled`, `UpdateDeliveryModesRequest`, and all their tests. `PUT` (full replace) is unaffected and remains the only write path. Never merged to `main` and never called by any consumer, so this is a clean revert, not a deprecation.
 - **`EndpointsConstants.ISSUANCE_RETRY_SIGN_CREDENTIALS`** (`/issuance/v1/retry-sign-credential/{id}`): no controller maps it any more and nothing referenced it.
+
+### Tests (TECH-DEBT — SonarCloud coverage)
+
+- **Branch-focused unit tests for the services with the most uncovered branches**, with no production changes: `IssuanceServiceImpl`, `Oid4VciCredentialWorkflowImpl`, `ProofValidationServiceImpl`, `DpopValidationService`, `AccessTokenServiceImpl`, `ClientAttestationValidationService`, `DynamicCredentialParser`, `SdJwtPayloadBuilder`, `GenericCredentialBuilder` (SD-JWT path) and the CSC v1/v2 certificate info mappers. Local JaCoCo goes from 83.8% to 89.8% lines and from 70.9% to 82.2% branches.
+- **Overall test coverage raised above the 80% SonarCloud threshold.** SonarCloud reported 79.1% overall (82.5% lines, 69.7% branches) before this change. Local JaCoCo now gives 87.7% overall (lines and branches combined, as SonarCloud computes it), up from 80.3%, with 90.4% method and 94.6% class coverage.
 
 ### Security (EUD-169 — cross-tenant catalog disclosure, `/code-review` full-mode security audit, S1/F2/F3)
 
