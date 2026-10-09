@@ -11,6 +11,12 @@ spring:
     name: in2-issuer-backend
   main:
     web-application-type: reactive
+  config:
+    import:
+      - classpath:email-branding.yaml
+      # Optional per-environment override of the email branding (APP_EMAIL_BRANDING_PATH); the
+      # default path is a sentinel so that an unset variable resolves to a missing optional file.
+      - optional:file:${APP_EMAIL_BRANDING_PATH:/etc/eudistack/issuer/email-branding.yaml}
   codec:
     max-in-memory-size: ${SPRING_CODEC_MAX_IN_MEMORY_SIZE:256KB}
   reactor:
