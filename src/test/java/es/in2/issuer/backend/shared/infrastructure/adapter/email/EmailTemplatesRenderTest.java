@@ -94,7 +94,7 @@ class EmailTemplatesRenderTest {
         assertThat(html).contains("Hello,");
         assertThat(html).contains("Your Activation Code");
         assertThat(html).contains(">4821<");
-        assertThat(html).contains("max-width: 450px");
+        assertThat(html).contains("max-width: 500px");
         assertThat(html).contains("border-radius: 16px");
         assertThat(html).contains("Please enter this activation code in your Wallet App.");
         assertThat(html).contains("If you did not request this code, please ignore this email.");

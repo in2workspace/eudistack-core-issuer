@@ -67,6 +67,8 @@ class EmailServiceImplTest {
         lenient().when(translationService.getLocaleOrDefault(anyString())).thenReturn("en");
         lenient().when(translationService.translateWithLocale(anyString(), anyString()))
                 .thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(translationService.translateWithLocale(anyString(), anyString(), any()))
+                .thenAnswer(inv -> inv.getArgument(0));
     }
 
     @Test
@@ -377,12 +379,16 @@ class EmailServiceImplTest {
     }
 
     @Test
-    void sendTxCodeNotification_usesTxCodeSubjectAndBranding() throws Exception {
+    void sendTxCodeNotification_usesTenantNamedSubjectAndBranding() throws Exception {
         MimeMessage mimeMessage = stubMimeMessage("tx-code-email");
+        when(translationService.translateWithLocale("email.tx-code.subject", "en", "DOME Marketplace"))
+                .thenReturn("Your DOME Marketplace activation code");
 
-        StepVerifier.create(emailService.sendTxCodeNotification("to@example.com", "1234")).verifyComplete();
+        StepVerifier.create(emailService.sendTxCodeNotification("to@example.com", "1234")
+                        .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "dome")))
+                .verifyComplete();
 
-        verify(mimeMessage).setSubject("email.tx-code.subject", "UTF-8");
+        verify(mimeMessage).setSubject("Your DOME Marketplace activation code", "UTF-8");
         ArgumentCaptor<Context> ctxCaptor = ArgumentCaptor.forClass(Context.class);
         verify(templateEngine).process(eq("tx-code-email"), ctxCaptor.capture());
         assertEquals(BRANDING, ctxCaptor.getValue().getVariable("branding"));

@@ -11,10 +11,18 @@
     <!-- Gmail and Outlook desktop ignore web fonts: the Arial fallback is expected there. -->
     <link href="https://fonts.googleapis.com/css2?family=Blinker:wght@400;600;700&amp;display=swap" rel="stylesheet" />
     <style>
+        /* Repeated per element: some clients do not inherit the font into nested tables. */
+        body, table, td, p, span, a { font-family: 'Blinker', Arial, Helvetica, sans-serif; }
         @media (max-width: 480px) {
             .email-box { width: 100% !important; }
         }
     </style>
+    <!-- Outlook desktop falls back to Times New Roman (not Arial) when the first font is not installed. -->
+    <!--[if mso]>
+    <style>
+        body, table, td, p, span, a { font-family: Arial, Helvetica, sans-serif !important; }
+    </style>
+    <![endif]-->
 </head>
 <body>
 

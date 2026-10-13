@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
-<head th:replace="~{fragments/email-layout :: head(title=#{email.tx-code.subject})}">
+<head th:replace="~{fragments/email-layout :: head(title=#{email.tx-code.subject(${tenantDisplayName})})}">
     <title>Your Activation Code</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Blinker', Arial, Helvetica, sans-serif;">
@@ -13,26 +13,26 @@
                 <!-- CONTENT -->
                 <tr>
                     <td align="center" style="padding: 24px 40px 32px 40px; font-family: 'Blinker', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.5; color: #000000; text-align: center;">
-                        <p style="margin: 0 0 8px 0;" th:text="#{email.tx-code.greeting}">Hello,</p>
-                        <p style="margin: 0 0 24px 0; font-size: 24px; font-weight: 700;" th:text="#{email.tx-code.body}">Your Activation Code</p>
+                        <p style="margin: 0 0 8px 0; font-size: 18px; font-weight: 400;" th:text="#{email.tx-code.greeting}">Hello,</p>
+                        <p style="margin: 0 0 24px 0; font-size: 14px; font-weight: 400;" th:text="#{email.tx-code.body}">Your Activation Code</p>
 
                         <!-- ACTIVATION CODE -->
-                        <table role="presentation" class="email-box" width="450" align="center" cellspacing="0" cellpadding="0" border="0"
-                               style="width: 100%; max-width: 450px; margin: 0 auto;">
+                        <table role="presentation" class="email-box" width="500" align="center" cellspacing="0" cellpadding="0" border="0"
+                               style="width: 100%; max-width: 500px; margin: 0 auto;">
                             <tr>
-                                <td align="center" style="padding: 22px 16px; background-color: #EBF0F7; border: 1px solid #8EACE1; border-radius: 16px;">
+                                <td align="center" style="padding: 16px; background-color: #EBF0F7; border: 1px solid #8EACE1; border-radius: 16px; font-family: 'Blinker', Arial, Helvetica, sans-serif; color: #000000;">
                                     <span style="font-family: 'Blinker', Arial, Helvetica, sans-serif; font-size: 30px; font-weight: 700; letter-spacing: 6px; color: #000000;" th:text="${txCode}">1234</span>
                                 </td>
                             </tr>
                         </table>
 
-                        <p style="margin: 24px 0 0 0; font-size: 14px; color: #000000;" th:text="#{email.tx-code.hint}">Please enter this activation code in your Wallet App.</p>
+                        <p style="margin: 24px 0 0 0; font-size: 14px; font-weight: 400; color: #000000;" th:text="#{email.tx-code.hint}">Please enter this activation code in your Wallet App.</p>
                     </td>
                 </tr>
 
                 <tr th:replace="~{fragments/email-layout :: footer(${branding}, ~{::footerText})}">
                     <td>
-                        <span th:fragment="footerText" th:text="#{email.tx-code.footer}">If you did not request this code, please ignore this email.</span>
+                        <span th:fragment="footerText" style="font-size: 12px; font-weight: 400;" th:text="#{email.tx-code.footer}">If you did not request this code, please ignore this email.</span>
                     </td>
                 </tr>
             </table>

@@ -88,7 +88,7 @@ public class EmailServiceImpl implements EmailService {
     @Override
     public Mono<Void> sendTxCodeNotification(String to, String txCode) {
         return send("tx-code-email", to, true,
-                setup -> translationService.translateWithLocale(TX_CODE_SUBJECT_KEY, setup.locale()),
+                setup -> translationService.translateWithLocale(TX_CODE_SUBJECT_KEY, setup.locale(), setup.tenantDisplayName()),
                 (context, inlinePngs, setup) -> context.setVariable("txCode", txCode))
                 .onErrorMap(ex -> {
                     log.error("Failed to send tx code notification", ex);
