@@ -16,7 +16,6 @@ import jakarta.mail.internet.MimeMessage;
 import io.micrometer.observation.annotation.Observed;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ByteArrayResource;
-import org.springframework.core.io.InputStreamSource;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
@@ -26,6 +25,7 @@ import org.thymeleaf.context.Context;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import java.io.ByteArrayOutputStream;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -56,9 +56,10 @@ public class EmailServiceImpl implements EmailService {
                              String tenantDisplayName, Optional<String> environmentLabel) {
     }
 
+    /** Fills the template context; inline PNGs are registered by content id and attached after the body. */
     @FunctionalInterface
     private interface ContentBuilder {
-        void apply(Context context, MimeMessageHelper helper, SendSetup setup) throws Exception;
+        void apply(Context context, Map<String, byte[]> inlinePngs, SendSetup setup);
     }
 
     private final JavaMailSender javaMailSender;
@@ -88,7 +89,7 @@ public class EmailServiceImpl implements EmailService {
     public Mono<Void> sendTxCodeNotification(String to, String txCode) {
         return send("tx-code-email", to, true,
                 setup -> translationService.translateWithLocale(TX_CODE_SUBJECT_KEY, setup.locale()),
-                (context, helper, setup) -> context.setVariable("txCode", txCode))
+                (context, inlinePngs, setup) -> context.setVariable("txCode", txCode))
                 .onErrorMap(ex -> {
                     log.error("Failed to send tx code notification", ex);
                     return new EmailCommunicationException("Error when sending tx code notification");
@@ -102,8 +103,8 @@ public class EmailServiceImpl implements EmailService {
         return tenantConfigService.getStringOrThrow("issuer.wallet_url")
                 .flatMap(walletUrl -> send("credential-offer-email", to, true,
                         this::offerSubject,
-                        (context, helper, setup) -> {
-                            fillOfferContext(context, helper, walletDeepLink, reissueUrl, organization, walletUrl);
+                        (context, inlinePngs, setup) -> {
+                            fillOfferContext(context, inlinePngs, walletDeepLink, reissueUrl, organization, walletUrl);
                             if (txCode != null) {
                                 context.setVariable("txCode", txCode);
                             }
@@ -118,8 +119,8 @@ public class EmailServiceImpl implements EmailService {
         return tenantConfigService.getStringOrThrow("issuer.wallet_url")
                 .flatMap(walletUrl -> send("credential-offer-email-v2", to, false,
                         setup -> translationService.translateWithLocale(subject, setup.locale()),
-                        (context, helper, setup) ->
-                                fillOfferContext(context, helper, walletDeepLink, reissueUrl, organization, walletUrl)));
+                        (context, inlinePngs, setup) ->
+                                fillOfferContext(context, inlinePngs, walletDeepLink, reissueUrl, organization, walletUrl)));
     }
 
     @Override
@@ -133,7 +134,7 @@ public class EmailServiceImpl implements EmailService {
                 setup -> style == null
                         ? translationService.translateWithLocale(DEFAULT_STATUS_SUBJECT_KEY, setup.locale())
                         : translationService.translateWithLocale(style.keyPrefix() + ".title", setup.locale()),
-                (context, helper, setup) -> {
+                (context, inlinePngs, setup) -> {
                     context.setVariable("credentialId", credentialId);
                     context.setVariable("type", type);
                     context.setVariable("credentialStatus", status);
@@ -153,7 +154,7 @@ public class EmailServiceImpl implements EmailService {
     public Mono<Void> sendCredentialFailureNotification(String to, String eventDescription) {
         return send("credential-failure-email", to, true,
                 setup -> translationService.translateWithLocale(CREDENTIAL_FAILURE_SUBJECT_KEY, setup.locale()),
-                (context, helper, setup) ->
+                (context, inlinePngs, setup) ->
                         context.setVariable("eventDescription", eventDescription != null ? eventDescription : ""))
                 .onErrorMap(e -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE));
     }
@@ -177,9 +178,15 @@ public class EmailServiceImpl implements EmailService {
                         context.setVariable("branding", branding);
                         context.setVariable("tenantDisplayName", setup.tenantDisplayName());
                     });
-                    content.apply(context, helper, setup);
+                    Map<String, byte[]> inlinePngs = new LinkedHashMap<>();
+                    content.apply(context, inlinePngs, setup);
 
+                    // Inline parts must follow setText: otherwise the image becomes the first part of
+                    // multipart/related and clients (Outlook, Gmail) show it as the body and the HTML as an attachment.
                     helper.setText(templateEngine.process(template, context), true);
+                    for (Map.Entry<String, byte[]> inline : inlinePngs.entrySet()) {
+                        helper.addInline(inline.getKey(), new ByteArrayResource(inline.getValue()), MimeTypeUtils.IMAGE_PNG_VALUE);
+                    }
                     javaMailSender.send(mimeMessage);
                     return null;
                 }).subscribeOn(Schedulers.boundedElastic()))
@@ -218,8 +225,8 @@ public class EmailServiceImpl implements EmailService {
                 CREDENTIAL_OFFER_SUBJECT_KEY, setup.locale(), setup.tenantDisplayName());
     }
 
-    private void fillOfferContext(Context context, MimeMessageHelper helper, String walletDeepLink,
-                                  String reissueUrl, String organization, String walletUrl) throws Exception {
+    private void fillOfferContext(Context context, Map<String, byte[]> inlinePngs, String walletDeepLink,
+                                  String reissueUrl, String organization, String walletUrl) {
         byte[] qrImageBytes = generateQrCodeImage(walletDeepLink, 300, 300);
 
         context.setVariable("organization", organization);
@@ -227,9 +234,7 @@ public class EmailServiceImpl implements EmailService {
         context.setVariable("walletDeepLink", walletDeepLink);
         context.setVariable("walletInstallUrl", walletUrl.endsWith("/") ? walletUrl : walletUrl + "/");
         context.setVariable("reissueUrl", reissueUrl);
-
-        InputStreamSource qrImageSource = new ByteArrayResource(qrImageBytes);
-        helper.addInline("qr-credential-offer.png", qrImageSource, MimeTypeUtils.IMAGE_PNG_VALUE);
+        inlinePngs.put("qr-credential-offer.png", qrImageBytes);
     }
 
     private byte[] generateQrCodeImage(String content, int width, int height) {

@@ -6,7 +6,10 @@ import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.service.TranslationService;
 import es.in2.issuer.backend.shared.domain.spi.EmailBrandingResolver;
+import jakarta.mail.Session;
+import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
+import jakarta.mail.internet.MimeMultipart;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,6 +28,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.ENVIRONMENT_LAB
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -452,5 +456,37 @@ class EmailServiceImplTest {
         assertNull(ctx.getVariable("tenantDisplayName"));
         assertEquals("https://wallet.example.com/", ctx.getVariable("walletInstallUrl"));
         verifyNoInteractions(emailBrandingResolver, tenantRegistryService);
+    }
+
+    /** Regression: the QR part must follow the HTML body, or clients show the image as body and the HTML as an attachment. */
+    @Test
+    void sendCredentialOfferEmail_htmlBodyIsFirstRelatedPartAndQrFollows() throws Exception {
+        assertHtmlBodyPrecedesQr(emailService.sendCredentialOfferEmail(
+                "to@example.com", OFFER_DEEP_LINK, "https://example.com/reissue", "ACME Corp", null),
+                "credential-offer-email");
+    }
+
+    @Test
+    void sendBrandedCredentialOfferEmail_htmlBodyIsFirstRelatedPartAndQrFollows() throws Exception {
+        assertHtmlBodyPrecedesQr(emailService.sendBrandedCredentialOfferEmail(
+                "user@kpmg.com", "email.activation.subject", OFFER_DEEP_LINK,
+                "https://example.com/reissue", "KPMG Spain"),
+                "credential-offer-email-v2");
+    }
+
+    private void assertHtmlBodyPrecedesQr(Mono<Void> send, String template) throws Exception {
+        MimeMessage mimeMessage = new MimeMessage((Session) null);
+        when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq(template), any(Context.class))).thenReturn("<p>body</p>");
+
+        StepVerifier.create(send).verifyComplete();
+        mimeMessage.saveChanges();
+
+        MimeMultipart mixed = (MimeMultipart) mimeMessage.getContent();
+        MimeMultipart related = (MimeMultipart) mixed.getBodyPart(0).getContent();
+        assertEquals(2, related.getCount());
+        assertTrue(related.getBodyPart(0).isMimeType("text/html"));
+        assertEquals("<qr-credential-offer.png>", ((MimeBodyPart) related.getBodyPart(1)).getContentID());
+        assertTrue(related.getBodyPart(1).isMimeType("image/png"));
     }
 }
