@@ -7,10 +7,14 @@
 <head th:fragment="head(title)">
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Asks clients not to recolour the email in dark mode (Apple Mail honours it; Gmail ignores it). -->
+    <meta name="color-scheme" content="light only" />
+    <meta name="supported-color-schemes" content="light only" />
     <title th:text="${title}">Email</title>
     <!-- Gmail and Outlook desktop ignore web fonts: the Arial fallback is expected there. -->
     <link href="https://fonts.googleapis.com/css2?family=Blinker:wght@400;600;700&amp;display=swap" rel="stylesheet" />
     <style>
+        :root { color-scheme: light only; supported-color-schemes: light only; }
         /* Repeated per element: some clients do not inherit the font into nested tables. */
         body, table, td, p, span, a { font-family: 'Blinker', Arial, Helvetica, sans-serif; }
         @media (max-width: 480px) {
@@ -26,16 +30,28 @@
 </head>
 <body>
 
-<!-- HEADER: logo on a white background; DOME adds a background image with its own shape in the top-left corner. -->
-<tr th:fragment="header(branding)">
-    <td align="center" bgcolor="#ffffff"
-        th:attr="background=${branding.headerBackgroundUrl}"
-        th:style="'padding: 28px 24px 12px 24px; background-color: #ffffff; background-image: url(' + ${branding.headerBackgroundUrl} + '); background-repeat: no-repeat; background-position: top left;'"
-        style="padding: 28px 24px 12px 24px; background-color: #ffffff;">
-        <img th:src="${branding.logoUrl}"
+<!--
+  HEADER: optional logo and greeting on a white background, with an optional background image (e.g. DOME's
+  shape in the top-left corner). The logo and the background are independent: each shows only when the
+  branding has its URL. Without a logo the greeting moves up to the top padding; with a background the cell
+  is at least as tall as the image (148px = 640px-wide image) so it is never cropped, and the greeting sits at
+  the bottom. greetingStyle carries the per-template font size, line height and the gap to the first body
+  line (margin-bottom); the body cell that follows starts with no top padding.
+-->
+<tr th:fragment="header(branding, greeting, greetingStyle)">
+    <td align="center" valign="bottom" bgcolor="#ffffff"
+        th:with="hasLogo=${!#strings.isEmpty(branding.logoUrl)}, hasBackground=${!#strings.isEmpty(branding.headerBackgroundUrl)}"
+        th:attr="background=${hasBackground ? branding.headerBackgroundUrl : null}, height=${hasBackground ? '148' : null}"
+        th:style="'padding: 30px 24px 0 24px; background-color: #ffffff;' + (${hasBackground} ? ' height: 148px; background-image: url(' + ${branding.headerBackgroundUrl} + '); background-repeat: no-repeat; background-size: contain; background-position: top left;' : '')"
+        style="padding: 30px 24px 0 24px; background-color: #ffffff;">
+        <img th:if="${hasLogo}" th:src="${branding.logoUrl}"
              th:alt="${#strings.isEmpty(tenantDisplayName) ? 'EUDIStack' : tenantDisplayName}"
-             alt="EUDIStack" height="48"
-             style="display: block; margin: 0 auto; height: 48px; border: 0;" />
+             alt="EUDIStack" height="54"
+             style="display: block; margin: 0 auto; height: 54px; border: 0;" />
+        <!-- 54px = the former 30px header bottom padding + 24px body top padding between logo and greeting. -->
+        <p th:style="'margin: ' + (${hasLogo} ? '54px' : '0') + ' 0 0 0; font-family: \'Blinker\', Arial, Helvetica, sans-serif; font-weight: 400; color: #000000; text-align: center; ' + ${greetingStyle}"
+           style="margin: 54px 0 0 0; color: #000000; text-align: center;"
+           th:text="${greeting}">Hello,</p>
     </td>
 </tr>
 
@@ -55,8 +71,8 @@
             <tr>
                 <td th:each="link : ${branding.socialLinks}" style="padding: 0 6px;">
                     <a th:href="${link.url}" target="_blank" rel="noopener noreferrer">
-                        <img th:src="${link.iconUrl}" th:alt="${link.type}" alt="social" width="32" height="32"
-                             style="display: block; width: 32px; height: 32px; border: 0; border-radius: 50%;" />
+                        <img th:src="'cid:icon-' + ${link.type} + '.png'" th:alt="${link.type}" alt="social" width="32" height="32"
+                             style="display: block; width: 32px; height: 32px; border: 0;" />
                     </a>
                 </td>
             </tr>

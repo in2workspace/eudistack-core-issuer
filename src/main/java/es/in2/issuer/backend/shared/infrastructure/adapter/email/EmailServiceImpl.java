@@ -16,6 +16,7 @@ import jakarta.mail.internet.MimeMessage;
 import io.micrometer.observation.annotation.Observed;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
@@ -25,10 +26,14 @@ import org.thymeleaf.context.Context;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
@@ -44,6 +49,9 @@ public class EmailServiceImpl implements EmailService {
     private static final String TX_CODE_SUBJECT_KEY = "email.tx-code.subject";
     private static final String CREDENTIAL_FAILURE_SUBJECT_KEY = "email.credential-failure.subject";
     private static final String DEFAULT_STATUS_SUBJECT_KEY = "email.default-status.subject";
+
+    private static final String ICONS_PATH = "email/icons/";
+    private static final Map<String, byte[]> ICONS = new ConcurrentHashMap<>();
 
     /** Presentation of a revoked / expired notification. Colours are approximations pending UI confirmation. */
     private record StatusStyle(String keyPrefix, String wordColor, String badgeBackground, String badgeText) {
@@ -154,8 +162,13 @@ public class EmailServiceImpl implements EmailService {
     public Mono<Void> sendCredentialFailureNotification(String to, String eventDescription) {
         return send("credential-failure-email", to, true,
                 setup -> translationService.translateWithLocale(CREDENTIAL_FAILURE_SUBJECT_KEY, setup.locale()),
-                (context, inlinePngs, setup) ->
-                        context.setVariable("eventDescription", eventDescription != null ? eventDescription : ""))
+                (context, inlinePngs, setup) -> {
+                    boolean hasDetails = eventDescription != null && !eventDescription.isEmpty();
+                    context.setVariable("eventDescription", hasDetails ? eventDescription : "");
+                    if (hasDetails) {
+                        addIcon(inlinePngs, "warning");
+                    }
+                })
                 .onErrorMap(e -> new EmailCommunicationException(MAIL_ERROR_COMMUNICATION_EXCEPTION_MESSAGE));
     }
 
@@ -179,6 +192,9 @@ public class EmailServiceImpl implements EmailService {
                         context.setVariable("tenantDisplayName", setup.tenantDisplayName());
                     });
                     Map<String, byte[]> inlinePngs = new LinkedHashMap<>();
+                    setup.branding().ifPresent(branding -> {
+                        branding.socialLinks().forEach(link -> addIcon(inlinePngs, link.type()));
+                    });
                     content.apply(context, inlinePngs, setup);
 
                     // Inline parts must follow setText: otherwise the image becomes the first part of
@@ -235,6 +251,23 @@ public class EmailServiceImpl implements EmailService {
         context.setVariable("walletInstallUrl", walletUrl.endsWith("/") ? walletUrl : walletUrl + "/");
         context.setVariable("reissueUrl", reissueUrl);
         inlinePngs.put("qr-credential-offer.png", qrImageBytes);
+    }
+
+    /** Common icon shipped in {@code email/icons/}, referenced by the templates as {@code cid:icon-<name>.png}. */
+    private void addIcon(Map<String, byte[]> inlinePngs, String name) {
+        inlinePngs.put("icon-" + name + ".png", ICONS.computeIfAbsent(name, EmailServiceImpl::readIcon));
+    }
+
+    private static byte[] readIcon(String name) {
+        return readClasspath(ICONS_PATH + name + ".png");
+    }
+
+    private static byte[] readClasspath(String path) {
+        try (InputStream in = new ClassPathResource(path).getInputStream()) {
+            return in.readAllBytes();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Missing email image: " + path, e);
+        }
     }
 
     private byte[] generateQrCodeImage(String content, int width, int height) {

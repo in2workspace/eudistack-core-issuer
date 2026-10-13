@@ -22,6 +22,7 @@ import org.thymeleaf.context.Context;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.ENVIRONMENT_LABEL_CONTEXT_KEY;
@@ -45,7 +46,6 @@ class EmailServiceImplTest {
     private static final EmailBranding BRANDING = new EmailBranding(
             "https://assets.example.com/dome/email/logo.png",
             "https://assets.example.com/dome/email/header-bg.png",
-            "https://assets.example.com/eudistack/email/icons/warning.png",
             "https://support.example.com", "https://kb.example.com", List.of());
 
     private EmailServiceImpl emailService;
@@ -478,6 +478,42 @@ class EmailServiceImplTest {
                 "user@kpmg.com", "email.activation.subject", OFFER_DEEP_LINK,
                 "https://example.com/reissue", "KPMG Spain"),
                 "credential-offer-email-v2");
+    }
+
+    @Test
+    void sendCredentialFailureNotification_withDetailsAndSocialLinks_attachesBundledIconsInline() throws Exception {
+        when(emailBrandingResolver.resolve()).thenReturn(Mono.just(new EmailBranding(
+                BRANDING.logoUrl(), BRANDING.headerBackgroundUrl(), BRANDING.supportUrl(), BRANDING.knowledgeBaseUrl(),
+                List.of(new EmailBranding.SocialLink("github", "https://github.com/dome"),
+                        new EmailBranding.SocialLink("linkedin", "https://linkedin.com/dome")))));
+
+        assertEquals(List.of("<icon-github.png>", "<icon-linkedin.png>", "<icon-warning.png>"),
+                inlineContentIds(emailService.sendCredentialFailureNotification("to@example.com", "Timeout")));
+    }
+
+    @Test
+    void sendCredentialFailureNotification_withoutDetailsOrSocialLinks_attachesNoIcons() throws Exception {
+        assertEquals(List.of(),
+                inlineContentIds(emailService.sendCredentialFailureNotification("to@example.com", "")));
+    }
+
+    /** Content ids of the inline parts that follow the HTML body in multipart/related. */
+    private List<String> inlineContentIds(Mono<Void> send) throws Exception {
+        MimeMessage mimeMessage = new MimeMessage((Session) null);
+        when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("credential-failure-email"), any(Context.class))).thenReturn("<p>body</p>");
+
+        StepVerifier.create(send).verifyComplete();
+        mimeMessage.saveChanges();
+
+        MimeMultipart related = (MimeMultipart) ((MimeMultipart) mimeMessage.getContent()).getBodyPart(0).getContent();
+        assertTrue(related.getBodyPart(0).isMimeType("text/html"));
+        List<String> ids = new ArrayList<>();
+        for (int i = 1; i < related.getCount(); i++) {
+            assertTrue(related.getBodyPart(i).isMimeType("image/png"));
+            ids.add(((MimeBodyPart) related.getBodyPart(i)).getContentID());
+        }
+        return ids;
     }
 
     private void assertHtmlBodyPrecedesQr(Mono<Void> send, String template) throws Exception {

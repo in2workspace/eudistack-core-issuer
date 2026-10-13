@@ -57,32 +57,80 @@ class EmailTemplatesRenderTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("allVariants")
-    void render_everyVariant_hasNoUnresolvedMessagesAndUsesBlinkerAndBrandLogo(Variant v) {
+    void render_everyVariant_hasNoUnresolvedMessagesAndUsesBlinkerAndLogoOnlyWhenConfigured(Variant v) {
         String html = render(v.template(), v.context());
 
         assertThat(html).doesNotContain("??");
         assertThat(html).contains("Blinker");
-        assertThat(html).contains("src=\"" + v.branding().logoUrl() + "\"");
+        if (v.branding() == DOME_BRANDING) {
+            assertThat(html).contains("src=\"" + v.branding().logoUrl() + "\"");
+        } else {
+            assertThat(html).doesNotContain("logo.png");
+        }
         assertThat(html).contains("max-width: 640px");
         assertThat(html).doesNotContain("#0F2B5B; padding: 20px");
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("allVariants")
-    void render_everyVariant_headerBackgroundAlwaysPresentAndSocialLinksFollowBranding(Variant v) {
+    void render_everyVariant_headerBackgroundAndSocialLinksFollowBranding(Variant v) {
         String html = render(v.template(), v.context());
 
-        assertThat(html).contains("background=\"" + v.branding().headerBackgroundUrl() + "\"");
-        assertThat(html).contains("background-image: url(" + v.branding().headerBackgroundUrl() + ")");
+        if (v.branding() == DOME_BRANDING) {
+            assertThat(html).contains("background=\"" + v.branding().headerBackgroundUrl() + "\"");
+            assertThat(html).contains("background-image: url(" + v.branding().headerBackgroundUrl() + ")");
+        } else {
+            assertThat(html).doesNotContain("background=\"");
+            assertThat(html).doesNotContain("background-image");
+        }
         if (v.branding() == DOME_BRANDING) {
             assertThat(html).contains("href=\"https://github.com/dome-example\"");
-            assertThat(html).contains("src=\"" + ASSETS + "/eudistack/email/icons/github.png\"");
+            assertThat(html).contains("src=\"cid:icon-github.png\"");
             assertThat(html).contains("href=\"https://www.linkedin.com/company/dome-example\"");
-            assertThat(html).contains("src=\"" + ASSETS + "/eudistack/email/icons/linkedin.png\"");
+            assertThat(html).contains("src=\"cid:icon-linkedin.png\"");
         } else {
-            assertThat(html).doesNotContain("icons/github.png");
-            assertThat(html).doesNotContain("icons/linkedin.png");
+            assertThat(html).doesNotContain("cid:icon-github.png");
+            assertThat(html).doesNotContain("cid:icon-linkedin.png");
         }
+    }
+
+    // --- Header: logo and background are independent -------------------------------------------
+
+    private static final String LOGO = ASSETS + "/acme/email/logo.png";
+    private static final String BACKGROUND = ASSETS + "/acme/email/header-bg.png";
+
+    private String renderHeader(String logoUrl, String backgroundUrl) {
+        EmailBranding branding = new EmailBranding(logoUrl, backgroundUrl, "https://s", "https://k", List.of());
+        return render("tx-code-email", txCodeContext(EN, branding, "4821"));
+    }
+
+    @Test
+    void header_withLogo_showsLogoAndKeepsGapToGreeting() {
+        String html = renderHeader(LOGO, null);
+
+        assertThat(html).contains("src=\"" + LOGO + "\"");
+        assertThat(html).contains("margin: 54px 0 0 0;");
+        assertThat(html).doesNotContain("background-image");
+        assertThat(html).doesNotContain("height=\"148\"");
+    }
+
+    @Test
+    void header_withoutLogo_omitsLogoAndGap() {
+        String html = renderHeader(null, null);
+
+        assertThat(html).doesNotContain("logo.png");
+        assertThat(html).doesNotContain("height=\"54\"");
+        assertThat(html).contains("margin: 0 0 0 0;");
+    }
+
+    @Test
+    void header_backgroundWithoutLogo_keepsTheImageHeight() {
+        String html = renderHeader(null, BACKGROUND);
+
+        assertThat(html).doesNotContain("height=\"54\"");
+        assertThat(html).contains("background=\"" + BACKGROUND + "\"");
+        assertThat(html).contains("height=\"148\"");
+        assertThat(html).contains("height: 148px; background-image: url(" + BACKGROUND + ")");
     }
 
     // --- tx-code --------------------------------------------------------------------------------
@@ -213,9 +261,9 @@ class EmailTemplatesRenderTest {
     void failure_withEventDescription_showsDetailBoxWithWarningIcon() {
         String html = render("credential-failure-email", failureContext(EN, DEFAULT_BRANDING, "Timeout waiting"));
 
-        assertThat(html).contains("Technical details");
+        assertThat(html).contains("Error Details");
         assertThat(html).contains("Timeout waiting");
-        assertThat(html).contains("src=\"" + ASSETS + "/eudistack/email/icons/warning.png\"");
+        assertThat(html).contains("src=\"cid:icon-warning.png\"");
         assertThat(html).contains("background-color: #FFF8EF");
         assertThat(html).contains("border: 1px solid #F2E18C");
     }
@@ -224,10 +272,10 @@ class EmailTemplatesRenderTest {
     void failure_withEmptyEventDescription_hidesWholeDetailBox() {
         String html = render("credential-failure-email", failureContext(EN, DEFAULT_BRANDING, ""));
 
-        assertThat(html).doesNotContain("Technical details");
-        assertThat(html).doesNotContain("icons/warning.png");
+        assertThat(html).doesNotContain("Error Details");
+        assertThat(html).doesNotContain("cid:icon-warning.png");
         assertThat(html).doesNotContain("#FFF8EF");
-        assertThat(html).contains("You can request your credential again");
+        assertThat(html).contains("You can try again by requesting a new credential offer.");
     }
 
     @Test

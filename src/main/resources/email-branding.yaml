@@ -1,25 +1,30 @@
 # ---------------------------------------------------------------------------
-# Email branding data (support / knowledge-base links, social links).
+# Email branding data, per tenant.
 #
-# Images are NOT configured here. They follow a fixed naming convention under the assets root
-# (email-branding.assets-base-url, application.yml):
-#   <assets-base-url>/<folder>/email/logo.png
-#   <assets-base-url>/<folder>/email/header-bg.png
-# <folder> is the tenant id when the tenant has a block below, else email-branding.default-folder.
-# To brand a new tenant: upload its email/logo.png + email/header-bg.png to eudistack-platform-assets
-# (tenants/<tenant-id>/email/) and add its block here.
+# - support-url / knowledge-base-url: the tenant's own, else the ones under `default`.
+# - logo / header-background (default false): the email shows the image only when the tenant's block
+#   sets it to true. Image locations are not configured; they follow a fixed naming convention under the
+#   assets root (email-branding.assets-base-url, application.yml):
+#     <assets-base-url>/<tenant-id>/email/logo.png
+#     <assets-base-url>/<tenant-id>/email/header-bg.png
+#   header-bg.png must be exactly 640px wide (the email width): some clients (e.g. Thunderbird) ignore
+#   background-size and paint it at its natural size.
+# - social-links: shown only when the tenant's block lists them (types: github, linkedin). The icons ship
+#   with the app (src/main/resources/email/icons/) and are sent as inline images, like the warning icon.
 #
-# Link fields a tenant does not define are inherited from `default`. Social-link icons are common:
-# <default-folder>/email/icons/<type>.png (types: github, linkedin).
+# Tenants without a block get the default links and no images or social links.
+# To brand a tenant: upload its images to eudistack-platform-assets (tenants/<tenant-id>/email/) and add
+# its block here.
 # ---------------------------------------------------------------------------
 email-branding:
   default:
     # TODO: real EUDIStack support URL (email-ui-refactor plan, section 8.7)
     support-url: https://example.invalid/support
     knowledge-base-url: https://docs.eudistack.net/
-    social-links: []
   tenants:
     dome:
+      logo: true
+      header-background: true
       support-url: https://ticketing.dome-marketplace.eu/
       # TODO: real DOME GitHub / LinkedIn URLs (email-ui-refactor plan, section 8.9)
       social-links:

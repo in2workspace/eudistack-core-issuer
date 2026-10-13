@@ -3,7 +3,7 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 import es.in2.issuer.backend.shared.domain.model.dto.EmailBranding;
 import es.in2.issuer.backend.shared.domain.spi.EmailBrandingResolver;
 import es.in2.issuer.backend.shared.infrastructure.config.properties.EmailBrandingProperties;
-import es.in2.issuer.backend.shared.infrastructure.config.properties.EmailBrandingProperties.SocialLink;
+import es.in2.issuer.backend.shared.infrastructure.config.properties.EmailBrandingProperties.DefaultEmailBranding;
 import es.in2.issuer.backend.shared.infrastructure.config.properties.EmailBrandingProperties.TenantEmailBranding;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
@@ -17,7 +17,6 @@ public class EmailBrandingResolverImpl implements EmailBrandingResolver {
 
     private static final String LOGO_PATH = "email/logo.png";
     private static final String HEADER_BACKGROUND_PATH = "email/header-bg.png";
-    private static final String ICONS_PATH = "email/icons/";
 
     private final EmailBrandingProperties properties;
 
@@ -31,44 +30,33 @@ public class EmailBrandingResolverImpl implements EmailBrandingResolver {
     }
 
     EmailBranding resolveFor(String tenantId) {
-        TenantEmailBranding defaults = properties.defaults();
+        DefaultEmailBranding defaults = properties.defaults();
         TenantEmailBranding tenant = properties.tenants().get(tenantId);
-        String folder = tenant != null ? tenantId : properties.defaultFolder();
-
+        if (tenant == null) {
+            return new EmailBranding(null, null, defaults.supportUrl(), defaults.knowledgeBaseUrl(), List.of());
+        }
         return new EmailBranding(
-                assetUrl(folder, LOGO_PATH),
-                assetUrl(folder, HEADER_BACKGROUND_PATH),
-                assetUrl(properties.defaultFolder(), ICONS_PATH + "warning.png"),
-                firstNonBlank(tenant != null ? tenant.supportUrl() : null, defaults.supportUrl()),
-                firstNonBlank(tenant != null ? tenant.knowledgeBaseUrl() : null, defaults.knowledgeBaseUrl()),
-                socialLinks(tenant, defaults)
+                tenant.logo() ? imageUrl(tenantId, LOGO_PATH) : null,
+                tenant.headerBackground() ? imageUrl(tenantId, HEADER_BACKGROUND_PATH) : null,
+                firstNonBlank(tenant.supportUrl(), defaults.supportUrl()),
+                firstNonBlank(tenant.knowledgeBaseUrl(), defaults.knowledgeBaseUrl()),
+                tenant.socialLinks() == null ? List.of() : tenant.socialLinks().stream()
+                        .map(link -> new EmailBranding.SocialLink(link.type(), link.url()))
+                        .toList()
         );
     }
 
-    private List<EmailBranding.SocialLink> socialLinks(TenantEmailBranding tenant, TenantEmailBranding defaults) {
-        List<SocialLink> source = tenant != null && tenant.socialLinks() != null && !tenant.socialLinks().isEmpty()
-                ? tenant.socialLinks()
-                : defaults.socialLinks();
-        if (source == null) {
-            return List.of();
-        }
-        return source.stream()
-                .map(link -> new EmailBranding.SocialLink(link.type(), link.url(),
-                        assetUrl(properties.defaultFolder(), ICONS_PATH + link.type() + ".png")))
-                .toList();
+    private String imageUrl(String tenantId, String relativePath) {
+        return assetUrl(tenantId, relativePath);
     }
 
-    private String assetUrl(String folder, String relativePath) {
-        return stripTrailingSlashes(properties.assetsBaseUrl()) + "/" + stripSlashes(folder) + "/"
+    private String assetUrl(String tenantId, String relativePath) {
+        return stripTrailingSlashes(properties.assetsBaseUrl()) + "/" + tenantId + "/"
                 + stripLeadingSlashes(relativePath);
     }
 
     private static String firstNonBlank(String first, String second) {
-        return notBlank(first) ? first : second;
-    }
-
-    private static boolean notBlank(String value) {
-        return value != null && !value.isBlank();
+        return first != null && !first.isBlank() ? first : second;
     }
 
     private static String stripTrailingSlashes(String value) {
@@ -77,9 +65,5 @@ public class EmailBrandingResolverImpl implements EmailBrandingResolver {
 
     private static String stripLeadingSlashes(String value) {
         return value.replaceAll("^/+", "");
-    }
-
-    private static String stripSlashes(String value) {
-        return stripLeadingSlashes(stripTrailingSlashes(value));
     }
 }

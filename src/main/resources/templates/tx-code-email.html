@@ -8,12 +8,11 @@
     <tr>
         <td align="center" style="padding: 24px 10px;">
             <table role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" style="width: 100%; max-width: 640px; background-color: #ffffff; border-radius: 8px; overflow: hidden;">
-                <tr th:replace="~{fragments/email-layout :: header(${branding})}"></tr>
+                <tr th:replace="~{fragments/email-layout :: header(${branding}, #{email.tx-code.greeting}, 'font-size: 18px; line-height: 1.5; margin-bottom: 8px;')}"></tr>
 
                 <!-- CONTENT -->
                 <tr>
-                    <td align="center" style="padding: 24px 40px 32px 40px; font-family: 'Blinker', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.5; color: #000000; text-align: center;">
-                        <p style="margin: 0 0 8px 0; font-size: 18px; font-weight: 400;" th:text="#{email.tx-code.greeting}">Hello,</p>
+                    <td align="center" style="padding: 0 40px 32px 40px; font-family: 'Blinker', Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.5; color: #000000; text-align: center;">
                         <p style="margin: 0 0 24px 0; font-size: 14px; font-weight: 400;" th:text="#{email.tx-code.body}">Your Activation Code</p>
 
                         <!-- ACTIVATION CODE -->

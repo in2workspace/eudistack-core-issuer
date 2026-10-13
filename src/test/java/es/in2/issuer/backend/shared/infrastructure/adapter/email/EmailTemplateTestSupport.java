@@ -15,10 +15,10 @@ final class EmailTemplateTestSupport {
 
     static final String ASSETS = "https://assets.example.com/assets/tenants";
 
+    /** A tenant without its own block: default links, no images, no social links. */
     static final EmailBranding DEFAULT_BRANDING = new EmailBranding(
-            ASSETS + "/eudistack/email/logo.png",
-            ASSETS + "/eudistack/email/header-bg.png",
-            ASSETS + "/eudistack/email/icons/warning.png",
+            null,
+            null,
             "https://support.eudistack.example/help",
             "https://docs.eudistack.example/",
             List.of());
@@ -26,14 +26,11 @@ final class EmailTemplateTestSupport {
     static final EmailBranding DOME_BRANDING = new EmailBranding(
             ASSETS + "/dome/email/logo.png",
             ASSETS + "/dome/email/header-bg.png",
-            ASSETS + "/eudistack/email/icons/warning.png",
             "https://ticketing.dome.example/",
             "https://docs.eudistack.example/",
             List.of(
-                    new EmailBranding.SocialLink("github", "https://github.com/dome-example",
-                            ASSETS + "/eudistack/email/icons/github.png"),
-                    new EmailBranding.SocialLink("linkedin", "https://www.linkedin.com/company/dome-example",
-                            ASSETS + "/eudistack/email/icons/linkedin.png")));
+                    new EmailBranding.SocialLink("github", "https://github.com/dome-example"),
+                    new EmailBranding.SocialLink("linkedin", "https://www.linkedin.com/company/dome-example")));
 
     private EmailTemplateTestSupport() {
     }

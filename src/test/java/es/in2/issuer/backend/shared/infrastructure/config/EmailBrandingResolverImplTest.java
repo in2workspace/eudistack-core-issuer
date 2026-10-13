@@ -2,6 +2,7 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 
 import es.in2.issuer.backend.shared.domain.model.dto.EmailBranding;
 import es.in2.issuer.backend.shared.infrastructure.config.properties.EmailBrandingProperties;
+import es.in2.issuer.backend.shared.infrastructure.config.properties.EmailBrandingProperties.DefaultEmailBranding;
 import es.in2.issuer.backend.shared.infrastructure.config.properties.EmailBrandingProperties.SocialLink;
 import es.in2.issuer.backend.shared.infrastructure.config.properties.EmailBrandingProperties.TenantEmailBranding;
 import org.junit.jupiter.api.Test;
@@ -23,84 +24,103 @@ class EmailBrandingResolverImplTest {
     private static final String BASE = "https://assets.example.com/assets/tenants";
 
     private static EmailBrandingResolverImpl resolver(String baseUrl) {
-        TenantEmailBranding defaults = new TenantEmailBranding(
-                "https://support.default", "https://kb.default", List.of());
-        TenantEmailBranding dome = new TenantEmailBranding(
-                "https://support.dome", null,
+        DefaultEmailBranding defaults = new DefaultEmailBranding("https://support.default", "https://kb.default");
+        TenantEmailBranding brand = new TenantEmailBranding(
+                "https://support.dome", null, true, true,
                 List.of(new SocialLink("github", "https://github.com/dome"),
                         new SocialLink("linkedin", "https://linkedin.com/dome")));
-        TenantEmailBranding linksOnly = new TenantEmailBranding(null, "https://kb.acme", List.of());
-        return new EmailBrandingResolverImpl(new EmailBrandingProperties(
-                baseUrl, "eudistack", defaults, Map.of("dome", dome, "acme", linksOnly)));
+        TenantEmailBranding linksOnly = new TenantEmailBranding(null, "https://kb.acme", false, false, List.of());
+        TenantEmailBranding logoOnly = new TenantEmailBranding(null, null, true, false, List.of());
+        TenantEmailBranding backgroundOnly = new TenantEmailBranding(null, null, false, true, List.of());
+        return new EmailBrandingResolverImpl(new EmailBrandingProperties(baseUrl, defaults, Map.of(
+                "brand", brand, "acme", linksOnly, "logo-only", logoOnly, "bg-only", backgroundOnly)));
     }
 
     @Test
-    void resolveFor_tenantWithBlock_usesOwnFolderForBothImages() {
-        EmailBranding branding = resolver(BASE).resolveFor("dome");
+    void resolveFor_tenantWithBothImages_usesOwnFolder() {
+        EmailBranding branding = resolver(BASE).resolveFor("brand");
 
-        assertThat(branding.logoUrl()).isEqualTo(BASE + "/dome/email/logo.png");
-        assertThat(branding.headerBackgroundUrl()).isEqualTo(BASE + "/dome/email/header-bg.png");
+        assertThat(branding.logoUrl()).isEqualTo(BASE + "/brand/email/logo.png");
+        assertThat(branding.headerBackgroundUrl()).isEqualTo(BASE + "/brand/email/header-bg.png");
         assertThat(branding.supportUrl()).isEqualTo("https://support.dome");
     }
 
     @Test
-    void resolveFor_tenantWithoutBlock_usesDefaultFolderAndDefaultLinks() {
+    void resolveFor_tenantWithoutBlock_hasDefaultLinksAndNoImagesNorSocialLinks() {
         EmailBranding branding = resolver(BASE).resolveFor("sandbox");
 
-        assertThat(branding.logoUrl()).isEqualTo(BASE + "/eudistack/email/logo.png");
-        assertThat(branding.headerBackgroundUrl()).isEqualTo(BASE + "/eudistack/email/header-bg.png");
+        assertThat(branding.logoUrl()).isNull();
+        assertThat(branding.headerBackgroundUrl()).isNull();
         assertThat(branding.supportUrl()).isEqualTo("https://support.default");
         assertThat(branding.knowledgeBaseUrl()).isEqualTo("https://kb.default");
         assertThat(branding.socialLinks()).isEmpty();
     }
 
     @Test
+    void resolveFor_tenantWithoutImageFlags_hasNoImages() {
+        EmailBranding acme = resolver(BASE).resolveFor("acme");
+
+        assertThat(acme.logoUrl()).isNull();
+        assertThat(acme.headerBackgroundUrl()).isNull();
+    }
+
+    @Test
+    void resolveFor_logoAndBackgroundFlags_areIndependent() {
+        EmailBranding logoOnly = resolver(BASE).resolveFor("logo-only");
+        EmailBranding backgroundOnly = resolver(BASE).resolveFor("bg-only");
+
+        assertThat(logoOnly.logoUrl()).isEqualTo(BASE + "/logo-only/email/logo.png");
+        assertThat(logoOnly.headerBackgroundUrl()).isNull();
+        assertThat(backgroundOnly.logoUrl()).isNull();
+        assertThat(backgroundOnly.headerBackgroundUrl()).isEqualTo(BASE + "/bg-only/email/header-bg.png");
+    }
+
+    @Test
     void resolveFor_partialLinkOverride_inheritsMissingLinksFromDefault() {
-        EmailBranding branding = resolver(BASE).resolveFor("dome");
+        EmailBranding branding = resolver(BASE).resolveFor("brand");
 
         assertThat(branding.knowledgeBaseUrl()).isEqualTo("https://kb.default");
 
         EmailBranding acme = resolver(BASE).resolveFor("acme");
 
-        assertThat(acme.logoUrl()).isEqualTo(BASE + "/acme/email/logo.png");
         assertThat(acme.supportUrl()).isEqualTo("https://support.default");
         assertThat(acme.knowledgeBaseUrl()).isEqualTo("https://kb.acme");
         assertThat(acme.socialLinks()).isEmpty();
     }
 
     @Test
-    void resolveFor_socialLinks_useCommonIconsFromDefaultFolder() {
-        EmailBranding branding = resolver(BASE).resolveFor("dome");
+    void resolveFor_tenantWithSocialLinks_hasThem() {
+        EmailBranding branding = resolver(BASE).resolveFor("brand");
 
         assertThat(branding.socialLinks()).containsExactly(
-                new EmailBranding.SocialLink("github", "https://github.com/dome",
-                        BASE + "/eudistack/email/icons/github.png"),
-                new EmailBranding.SocialLink("linkedin", "https://linkedin.com/dome",
-                        BASE + "/eudistack/email/icons/linkedin.png"));
-        assertThat(branding.warningIconUrl()).isEqualTo(BASE + "/eudistack/email/icons/warning.png");
+                new EmailBranding.SocialLink("github", "https://github.com/dome"),
+                new EmailBranding.SocialLink("linkedin", "https://linkedin.com/dome"));
     }
 
     @Test
-    void resolveFor_slashesInBaseAndPaths_areNormalised() {
-        TenantEmailBranding defaults = new TenantEmailBranding("s", "k", List.of());
+    void resolveFor_trailingSlashesInBase_areNormalised() {
         EmailBrandingResolverImpl resolver = new EmailBrandingResolverImpl(new EmailBrandingProperties(
-                BASE + "//", "/eudistack/", defaults, Map.of()));
+                BASE + "//", new DefaultEmailBranding("s", "k"),
+                Map.of("x", new TenantEmailBranding(null, null, true, false, List.of()))));
 
-        assertThat(resolver.resolveFor("x").logoUrl()).isEqualTo(BASE + "/eudistack/email/logo.png");
+        assertThat(resolver.resolveFor("x").logoUrl()).isEqualTo(BASE + "/x/email/logo.png");
     }
 
     @Test
     void resolve_readsTenantFromReactorContext() {
         StepVerifier.create(resolver(BASE).resolve()
-                        .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "dome")))
-                .assertNext(b -> assertThat(b.logoUrl()).isEqualTo(BASE + "/dome/email/logo.png"))
+                        .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "brand")))
+                .assertNext(b -> assertThat(b.supportUrl()).isEqualTo("https://support.dome"))
                 .verifyComplete();
     }
 
     @Test
-    void resolve_withoutTenantInContext_usesDefault() {
+    void resolve_withoutTenantInContext_usesDefaultLinksAndNoImages() {
         StepVerifier.create(resolver(BASE).resolve())
-                .assertNext(b -> assertThat(b.logoUrl()).isEqualTo(BASE + "/eudistack/email/logo.png"))
+                .assertNext(b -> {
+                    assertThat(b.logoUrl()).isNull();
+                    assertThat(b.supportUrl()).isEqualTo("https://support.default");
+                })
                 .verifyComplete();
     }
 
@@ -120,10 +140,11 @@ class EmailBrandingResolverImplTest {
         runner.withPropertyValues("spring.config.location=classpath:application.yml,classpath:email-branding.yaml")
                 .run(ctx -> {
                     EmailBrandingProperties props = ctx.getBean(EmailBrandingProperties.class);
-                    assertThat(props.defaultFolder()).isEqualTo("eudistack");
                     assertThat(props.assetsBaseUrl()).isEqualTo("https://sandbox.stg.eudistack.net/assets/tenants");
                     assertThat(props.defaults().knowledgeBaseUrl()).isEqualTo("https://docs.eudistack.net/");
                     assertThat(props.tenants().get("dome").socialLinks()).hasSize(2);
+                    assertThat(props.tenants().get("dome").logo()).isTrue();
+                    assertThat(props.tenants().get("dome").headerBackground()).isTrue();
                 });
     }
 
