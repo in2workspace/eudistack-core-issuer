@@ -185,6 +185,17 @@ class EmailTemplatesRenderTest {
     }
 
     @Test
+    void offer_outlookDesktop_buttonCellAndSocialIconsGapUseCellStyles() {
+        String html = render("credential-offer-email", offerContext(EN, DOME_BRANDING, null));
+
+        assertThat(html)
+                .contains("bgcolor=\"#2D58A7\" class=\"button-cell\"")
+                .contains(".button-cell { padding: 12px 72px !important; }")
+                .contains("style=\"padding: 20px 6px 0 6px;\"")
+                .doesNotContain("margin: 20px auto 0 auto;");
+    }
+
+    @Test
     void offer_withTxCode_showsActivationCodeBlock() {
         String html = render("credential-offer-email", offerContext(EN, DEFAULT_BRANDING, "4821"));
 
