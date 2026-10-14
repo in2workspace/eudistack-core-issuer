@@ -185,6 +185,9 @@ tasks.named('test') {
     useJUnitPlatform()
     // Forwards -Demail.previews=true to the test JVM (EmailPreviewGeneratorTest writes build/email-previews)
     systemProperty 'email.previews', System.getProperty('email.previews', 'false')
+    if (System.getProperty('email.previews.assets')) {
+        systemProperty 'email.previews.assets', System.getProperty('email.previews.assets')
+    }
     finalizedBy(tasks.jacocoTestReport)
 }
 
