@@ -132,13 +132,14 @@ Refer to the [Keycloak Plugin Documentation](https://github.com/in2workspace/in2
 An SMTP Email Server of your choice. It must support StartTLS for a secure connection.
 
 ### Email branding
-Transactional emails take their support URL, knowledge-base URL and social links from `email-branding.yaml` (classpath, brand data only, bound to `email-branding.*`). Images follow a fixed naming convention and are served from `eudistack-platform-assets`: `<assets-base-url>/<folder>/email/logo.png` and `<assets-base-url>/<folder>/email/header-bg.png`, where `<folder>` is the tenant id if the tenant has a block under `email-branding.tenants`, otherwise `email-branding.default-folder` (`eudistack`). Links a tenant does not define are inherited from `default`.
+Transactional emails take their branding from `email-branding.yaml` (bound to `email-branding.*`): the bundled classpath file, or the file `EMAIL_BRANDING_PATH` points to, which replaces it entirely. Support and knowledge-base URLs a tenant does not define are taken from `default`. The logo and the header background show only when the tenant's block sets `logo: true` / `header-background: true` (independently, no fallback); social links (`github`, `linkedin`) only when the tenant lists them. Tenants without a block get the default links and no images or social links. Images follow a fixed naming convention and are served from `eudistack-platform-assets`: `<assets-base-url>/<tenant-id>/email/logo.png` and `<assets-base-url>/<tenant-id>/email/header-bg.png` (exactly 640x190px). The warning and social icons ship with the app.
 
-To brand a new tenant: upload `tenants/<tenant-id>/email/logo.png` and `tenants/<tenant-id>/email/header-bg.png` (a fully transparent PNG when there is no background) to `eudistack-platform-assets`, and add the tenant's block to `email-branding.yaml`.
+To brand a new tenant: upload its images to `tenants/<tenant-id>/email/` in `eudistack-platform-assets` and add the tenant's block, with the flags of the images it has, to the environment's `email-branding.yaml`.
 
 | Variable / key | Purpose |
 |---|---|
 | `EMAIL_ASSETS_BASE_URL` | Tenant-assets root of the environment (`email-branding.assets-base-url`). Default: `https://sandbox.stg.eudistack.net/assets/tenants` (local SMTP sends real emails and external mail clients cannot load images from `127.0.0.1.nip.io`). PRO: `https://sandbox.eudistack.net/assets/tenants`. |
+| `EMAIL_BRANDING_PATH` | Location of the environment's email branding file, e.g. `file:/etc/eudistack/issuer/email-branding.yaml`. Unset: the bundled `email-branding.yaml`. |
 | `environmentLabel` (in `tenants-custom-domains.yaml`, per entry) | Optional `SBX` / `Dev` / `Dev2`: prefixes `[label] ` to the credential-offer email subject when the request arrives through that entry's issuer host. Omit it in production. |
 
 ## Understanding the Configuration

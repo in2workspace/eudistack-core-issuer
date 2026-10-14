@@ -1,5 +1,6 @@
 # ---------------------------------------------------------------------------
-# Email branding data, per tenant.
+# Email branding data, per tenant. This bundled file is the default: an environment can replace it
+# entirely by pointing EMAIL_BRANDING_PATH at its own file (e.g. file:/etc/eudistack/issuer/email-branding.yaml).
 #
 # - support-url / knowledge-base-url: the tenant's own, else the ones under `default`.
 # - logo / header-background (default false): the email shows the image only when the tenant's block
@@ -7,8 +8,8 @@
 #   assets root (email-branding.assets-base-url, application.yml):
 #     <assets-base-url>/<tenant-id>/email/logo.png
 #     <assets-base-url>/<tenant-id>/email/header-bg.png
-#   header-bg.png must be exactly 640px wide (the email width): some clients (e.g. Thunderbird) ignore
-#   background-size and paint it at its natural size.
+#   header-bg.png must be exactly 640x190px (the email width x the header height): some clients (e.g. Thunderbird) ignore
+#   background-size and paint it at its natural size, tiling it when the header is taller.
 # - social-links: shown only when the tenant's block lists them (types: github, linkedin). The icons ship
 #   with the app (src/main/resources/email/icons/) and are sent as inline images, like the warning icon.
 #
@@ -18,15 +19,14 @@
 # ---------------------------------------------------------------------------
 email-branding:
   default:
-    # TODO: real EUDIStack support URL (email-ui-refactor plan, section 8.7)
-    support-url: https://example.invalid/support
+    support-url: https://docs.eudistack.net/en/support/
     knowledge-base-url: https://docs.eudistack.net/
   tenants:
     dome:
       logo: true
       header-background: true
       support-url: https://ticketing.dome-marketplace.eu/
-      # TODO: real DOME GitHub / LinkedIn URLs (email-ui-refactor plan, section 8.9)
+      knowledge-base-url: https://knowledgebase.dome-marketplace.eu/
       social-links:
-        - { type: github, url: "https://github.com/TODO" }
-        - { type: linkedin, url: "https://www.linkedin.com/TODO" }
+        - { type: github, url: "https://github.com/DOME-Marketplace" }
+        - { type: linkedin, url: "https://be.linkedin.com/company/dome-marketplace" }

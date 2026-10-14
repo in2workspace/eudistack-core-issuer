@@ -6,12 +6,16 @@ import es.in2.issuer.backend.shared.infrastructure.config.properties.EmailBrandi
 import es.in2.issuer.backend.shared.infrastructure.config.properties.EmailBrandingProperties.SocialLink;
 import es.in2.issuer.backend.shared.infrastructure.config.properties.EmailBrandingProperties.TenantEmailBranding;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Configuration;
 import reactor.test.StepVerifier;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -145,6 +149,39 @@ class EmailBrandingResolverImplTest {
                     assertThat(props.tenants().get("dome").socialLinks()).hasSize(2);
                     assertThat(props.tenants().get("dome").logo()).isTrue();
                     assertThat(props.tenants().get("dome").headerBackground()).isTrue();
+                });
+    }
+
+    @Test
+    void binding_withoutEmailBrandingPath_importsTheBundledFile() {
+        runner.withPropertyValues("spring.config.location=classpath:application.yml")
+                .run(ctx -> {
+                    EmailBrandingProperties props = ctx.getBean(EmailBrandingProperties.class);
+                    assertThat(props.defaults().supportUrl()).isEqualTo("https://docs.eudistack.net/en/support/");
+                    assertThat(props.tenants().get("dome").knowledgeBaseUrl())
+                            .isEqualTo("https://knowledgebase.dome-marketplace.eu/");
+                });
+    }
+
+    @Test
+    void binding_emailBrandingPath_replacesTheBundledFile(@TempDir Path dir) throws IOException {
+        Path file = Files.writeString(dir.resolve("email-branding.yaml"), """
+                email-branding:
+                  default:
+                    support-url: https://support.env
+                  tenants:
+                    acme:
+                      logo: true
+                """);
+
+        runner.withPropertyValues(
+                        "spring.config.location=classpath:application.yml",
+                        "EMAIL_BRANDING_PATH=file:" + file.toAbsolutePath())
+                .run(ctx -> {
+                    EmailBrandingProperties props = ctx.getBean(EmailBrandingProperties.class);
+                    assertThat(props.defaults().supportUrl()).isEqualTo("https://support.env");
+                    assertThat(props.defaults().knowledgeBaseUrl()).isNull();
+                    assertThat(props.tenants()).containsOnlyKeys("acme");
                 });
     }
 

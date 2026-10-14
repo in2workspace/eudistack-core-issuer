@@ -34,15 +34,15 @@
   HEADER: optional logo and greeting on a white background, with an optional background image (e.g. DOME's
   shape in the top-left corner). The logo and the background are independent: each shows only when the
   branding has its URL. Without a logo the greeting moves up to the top padding; with a background the cell
-  is at least as tall as the image (148px = 640px-wide image) so it is never cropped, and the greeting sits at
-  the bottom. greetingStyle carries the per-template font size, line height and the gap to the first body
-  line (margin-bottom); the body cell that follows starts with no top padding.
+  is exactly as tall as the image (header-bg.png is 640x190) so it is neither cropped nor tiled, and the greeting sits at
+  the bottom. That cell has no top padding: some clients (e.g. Thunderbird) add it to the height and tile the image. greetingStyle carries the per-template font size, line height and the gap to the first body
+  line (margin-bottom); the body cell that follows adds a 12px top padding.
 -->
 <tr th:fragment="header(branding, greeting, greetingStyle)">
     <td align="center" valign="bottom" bgcolor="#ffffff"
         th:with="hasLogo=${!#strings.isEmpty(branding.logoUrl)}, hasBackground=${!#strings.isEmpty(branding.headerBackgroundUrl)}"
-        th:attr="background=${hasBackground ? branding.headerBackgroundUrl : null}, height=${hasBackground ? '148' : null}"
-        th:style="'padding: 30px 24px 0 24px; background-color: #ffffff;' + (${hasBackground} ? ' height: 148px; background-image: url(' + ${branding.headerBackgroundUrl} + '); background-repeat: no-repeat; background-size: contain; background-position: top left;' : '')"
+        th:attr="background=${hasBackground ? branding.headerBackgroundUrl : null}, height=${hasBackground ? '190' : null}"
+        th:style="'padding: ' + (${hasBackground} ? '0' : '30px') + ' 24px 0 24px; background-color: #ffffff;' + (${hasBackground} ? ' height: 190px; background-image: url(' + ${branding.headerBackgroundUrl} + '); background-repeat: no-repeat; background-size: contain; background-position: top left;' : '')"
         style="padding: 30px 24px 0 24px; background-color: #ffffff;">
         <img th:if="${hasLogo}" th:src="${branding.logoUrl}"
              th:alt="${#strings.isEmpty(tenantDisplayName) ? 'EUDIStack' : tenantDisplayName}"

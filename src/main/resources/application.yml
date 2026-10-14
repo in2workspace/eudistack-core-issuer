@@ -13,7 +13,9 @@ spring:
     web-application-type: reactive
   config:
     import:
-      - classpath:email-branding.yaml
+      # Email branding per tenant (links, image flags). Each environment can replace the whole file:
+      # EMAIL_BRANDING_PATH=file:/path/email-branding.yaml (the bundled one is then not loaded).
+      - ${EMAIL_BRANDING_PATH:classpath:email-branding.yaml}
   codec:
     max-in-memory-size: ${SPRING_CODEC_MAX_IN_MEMORY_SIZE:256KB}
   reactor:

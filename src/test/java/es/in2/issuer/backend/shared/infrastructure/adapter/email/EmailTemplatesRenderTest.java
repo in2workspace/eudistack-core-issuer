@@ -111,7 +111,8 @@ class EmailTemplatesRenderTest {
         assertThat(html).contains("src=\"" + LOGO + "\"");
         assertThat(html).contains("margin: 54px 0 0 0;");
         assertThat(html).doesNotContain("background-image");
-        assertThat(html).doesNotContain("height=\"148\"");
+        assertThat(html).doesNotContain("height=\"190\"");
+        assertThat(html).contains("padding: 30px 24px 0 24px;");
     }
 
     @Test
@@ -129,8 +130,9 @@ class EmailTemplatesRenderTest {
 
         assertThat(html).doesNotContain("height=\"54\"");
         assertThat(html).contains("background=\"" + BACKGROUND + "\"");
-        assertThat(html).contains("height=\"148\"");
-        assertThat(html).contains("height: 148px; background-image: url(" + BACKGROUND + ")");
+        assertThat(html).contains("height=\"190\"");
+        assertThat(html).contains("height: 190px; background-image: url(" + BACKGROUND + ")");
+        assertThat(html).contains("padding: 0 24px 0 24px;");
     }
 
     // --- tx-code --------------------------------------------------------------------------------
