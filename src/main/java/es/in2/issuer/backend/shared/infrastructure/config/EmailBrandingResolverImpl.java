@@ -6,6 +6,7 @@ import es.in2.issuer.backend.shared.infrastructure.config.properties.EmailBrandi
 import es.in2.issuer.backend.shared.infrastructure.config.properties.EmailBrandingProperties.DefaultEmailBranding;
 import es.in2.issuer.backend.shared.infrastructure.config.properties.EmailBrandingProperties.TenantEmailBranding;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
@@ -47,19 +48,11 @@ public class EmailBrandingResolverImpl implements EmailBrandingResolver {
     }
 
     private String assetUrl(String tenantId, String relativePath) {
-        return stripTrailingSlashes(properties.assetsBaseUrl()) + "/" + tenantId + "/"
-                + stripLeadingSlashes(relativePath);
+        return StringUtils.trimTrailingCharacter(properties.assetsBaseUrl(), '/') + "/" + tenantId + "/"
+                + StringUtils.trimLeadingCharacter(relativePath, '/');
     }
 
     private static String firstNonBlank(String first, String second) {
         return first != null && !first.isBlank() ? first : second;
-    }
-
-    private static String stripTrailingSlashes(String value) {
-        return value.replaceAll("/+$", "");
-    }
-
-    private static String stripLeadingSlashes(String value) {
-        return value.replaceAll("^/+", "");
     }
 }

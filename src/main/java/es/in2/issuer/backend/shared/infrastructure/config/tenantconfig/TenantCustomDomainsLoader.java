@@ -67,16 +67,7 @@ public class TenantCustomDomainsLoader {
                 if (previous != null) {
                     throw new IllegalArgumentException("Duplicate tenant id '" + entry.id() + "'");
                 }
-                String issuerHost = hostOf(entry.issuer());
-                if (issuerHost != null && entry.wallet() != null) {
-                    String prevWallet = walletIndex.putIfAbsent(issuerHost, entry.wallet());
-                    if (prevWallet != null) {
-                        throw new IllegalArgumentException("Duplicate issuer host '" + issuerHost + "'");
-                    }
-                }
-                if (issuerHost != null && entry.environmentLabel() != null && !entry.environmentLabel().isBlank()) {
-                    labelIndex.putIfAbsent(issuerHost, entry.environmentLabel().trim());
-                }
+                indexByIssuerHost(entry, walletIndex, labelIndex);
             }
             this.entries = Map.copyOf(index);
             this.walletUrlByIssuerHost = Map.copyOf(walletIndex);
@@ -147,6 +138,20 @@ public class TenantCustomDomainsLoader {
             return Optional.empty();
         }
         return Optional.ofNullable(environmentLabelByIssuerHost.get(issuerHost));
+    }
+
+    private static void indexByIssuerHost(TenantEntry entry, Map<String, String> walletIndex,
+                                          Map<String, String> labelIndex) {
+        String issuerHost = hostOf(entry.issuer());
+        if (issuerHost == null) {
+            return;
+        }
+        if (entry.wallet() != null && walletIndex.putIfAbsent(issuerHost, entry.wallet()) != null) {
+            throw new IllegalArgumentException("Duplicate issuer host '" + issuerHost + "'");
+        }
+        if (entry.environmentLabel() != null && !entry.environmentLabel().isBlank()) {
+            labelIndex.putIfAbsent(issuerHost, entry.environmentLabel().trim());
+        }
     }
 
     private static String hostOf(String url) {
