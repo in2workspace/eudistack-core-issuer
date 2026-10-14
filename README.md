@@ -138,7 +138,7 @@ To brand a new tenant: upload its images to `tenants/<tenant-id>/email/` in `eud
 
 | Variable / key | Purpose |
 |---|---|
-| `EMAIL_ASSETS_BASE_URL` | Tenant-assets root of the environment (`email-branding.assets-base-url`). Default: `https://sandbox.stg.eudistack.net/assets/tenants` (local SMTP sends real emails and external mail clients cannot load images from `127.0.0.1.nip.io`). PRO: `https://sandbox.eudistack.net/assets/tenants`. |
+| `EMAIL_ASSETS_BASE_URL` | Tenant-assets root of the environment (`email-branding.assets-base-url`). Default: `https://sandbox.dev.eudistack.net/assets/tenants` (local SMTP sends real emails and external mail clients cannot load images from `127.0.0.1.nip.io`). PRO: `https://sandbox.eudistack.net/assets/tenants`. |
 | `EMAIL_BRANDING_PATH` | Location of the environment's email branding file, e.g. `file:/etc/eudistack/issuer/email-branding.yaml`. Unset: the bundled `email-branding.yaml`. |
 | `environmentLabel` (in `tenants-custom-domains.yaml`, per entry) | Optional `SBX` / `Dev` / `Dev2`: prefixes `[label] ` to the credential-offer email subject when the request arrives through that entry's issuer host. Omit it in production. |
 

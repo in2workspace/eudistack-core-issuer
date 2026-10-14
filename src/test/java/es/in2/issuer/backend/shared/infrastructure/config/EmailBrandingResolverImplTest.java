@@ -144,7 +144,7 @@ class EmailBrandingResolverImplTest {
         runner.withPropertyValues("spring.config.location=classpath:application.yml,classpath:email-branding.yaml")
                 .run(ctx -> {
                     EmailBrandingProperties props = ctx.getBean(EmailBrandingProperties.class);
-                    assertThat(props.assetsBaseUrl()).isEqualTo("https://sandbox.stg.eudistack.net/assets/tenants");
+                    assertThat(props.assetsBaseUrl()).isEqualTo("https://sandbox.dev.eudistack.net/assets/tenants");
                     assertThat(props.defaults().knowledgeBaseUrl()).isEqualTo("https://docs.eudistack.net/");
                     assertThat(props.tenants().get("dome").socialLinks()).hasSize(2);
                     assertThat(props.tenants().get("dome").logo()).isTrue();
