@@ -291,6 +291,17 @@ class EmailTemplatesRenderTest {
     }
 
     @Test
+    void failure_eventDescriptionWrapsLongTokens_withOutlookFallback() {
+        String html = render("credential-failure-email", failureContext(EN, DEFAULT_BRANDING, "Timeout waiting"));
+
+        assertThat(html)
+                .contains("style=\"table-layout: fixed;\"")
+                .contains("class=\"break-long\"")
+                .contains("word-break: normal; overflow-wrap: break-word;")
+                .contains(".break-long { word-break: break-word !important; }");
+    }
+
+    @Test
     void failure_withEmptyEventDescription_hidesWholeDetailBox() {
         String html = render("credential-failure-email", failureContext(EN, DEFAULT_BRANDING, ""));
 

@@ -22,9 +22,12 @@
         }
     </style>
     <!-- Outlook desktop falls back to Times New Roman (not Arial) when the first font is not installed. -->
+    <!-- .break-long: Outlook desktop wraps long tokens with word-break: break-word, which works there; other
+         clients use the standard overflow-wrap set inline (break-word is deprecated and buggy elsewhere). -->
     <!--[if mso]>
     <style>
         body, table, td, p, span, a { font-family: Arial, Helvetica, sans-serif !important; }
+        .break-long { word-break: break-word !important; }
     </style>
     <![endif]-->
 </head>
