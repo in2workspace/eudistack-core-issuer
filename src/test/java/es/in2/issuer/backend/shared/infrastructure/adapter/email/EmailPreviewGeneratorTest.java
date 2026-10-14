@@ -47,7 +47,7 @@ class EmailPreviewGeneratorTest {
         SpringTemplateEngine engine = EmailTemplateTestSupport.engine();
         Files.createDirectories(OUTPUT_DIR);
 
-        String assets = System.getProperty("email.previews.assets", DEFAULT_ASSETS).replaceAll("/+$", "");
+        String assets = stripTrailingSlashes(System.getProperty("email.previews.assets", DEFAULT_ASSETS));
         Map<String, EmailBranding> brandings = new LinkedHashMap<>();
         brandings.put("default", DEFAULT_BRANDING);
         brandings.put("dome", new EmailBranding(
@@ -81,6 +81,14 @@ class EmailPreviewGeneratorTest {
                 .replaceAll(match -> "data:image/png;base64," + Base64.getEncoder().encodeToString(inlineImage(match.group(1))));
         Files.writeString(OUTPUT_DIR.resolve(name + "-" + brand + "-" + lang + ".html"), html, StandardCharsets.UTF_8);
         return 1;
+    }
+
+    private static String stripTrailingSlashes(String url) {
+        int end = url.length();
+        while (end > 0 && url.charAt(end - 1) == '/') {
+            end--;
+        }
+        return url.substring(0, end);
     }
 
     /** Bytes of the image EmailServiceImpl attaches under this content id. */
