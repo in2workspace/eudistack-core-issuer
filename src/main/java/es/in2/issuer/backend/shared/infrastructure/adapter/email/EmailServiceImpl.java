@@ -139,9 +139,8 @@ public class EmailServiceImpl implements EmailService {
             default -> null;
         };
         return send("revoked-expired-credential-email", to, true,
-                setup -> style == null
-                        ? translationService.translateWithLocale(DEFAULT_STATUS_SUBJECT_KEY, setup.locale())
-                        : translationService.translateWithLocale(style.keyPrefix() + ".title", setup.locale()),
+                setup -> translationService.translateWithLocale(
+                        style == null ? DEFAULT_STATUS_SUBJECT_KEY : style.keyPrefix() + ".title", setup.locale()),
                 (context, inlinePngs, setup) -> {
                     context.setVariable("credentialId", credentialId);
                     context.setVariable("type", type);
