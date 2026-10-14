@@ -19,7 +19,7 @@
 # ---------------------------------------------------------------------------
 email-branding:
   default:
-    support-url: https://docs.eudistack.net/en/support/
+    support-url: https://docs.eudistack.net
     knowledge-base-url: https://docs.eudistack.net/
   tenants:
     dome:
