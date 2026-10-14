@@ -8,6 +8,7 @@ import es.in2.issuer.backend.oidc4vci.domain.service.TokenService;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
+import es.in2.issuer.backend.shared.infrastructure.config.tenantconfig.TenantCustomDomainsLoader;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import org.junit.jupiter.api.Test;
@@ -53,6 +54,9 @@ class TokenControllerTest {
 
     @MockitoBean
     TenantRegistryService tenantRegistryService;
+
+    @MockitoBean
+    private TenantCustomDomainsLoader tenantCustomDomainsLoader;
 
     @MockitoBean
     es.in2.issuer.backend.shared.domain.spi.UrlResolver urlResolver;

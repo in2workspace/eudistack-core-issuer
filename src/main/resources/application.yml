@@ -11,6 +11,11 @@ spring:
     name: in2-issuer-backend
   main:
     web-application-type: reactive
+  config:
+    import:
+      # Email branding per tenant (links, image flags). Each environment can replace the whole file:
+      # EMAIL_BRANDING_PATH=file:/path/email-branding.yaml (the bundled one is then not loaded).
+      - ${EMAIL_BRANDING_PATH:classpath:email-branding.yaml}
   codec:
     max-in-memory-size: ${SPRING_CODEC_MAX_IN_MEMORY_SIZE:256KB}
   reactor:
@@ -59,6 +64,12 @@ spring:
     username: ${SPRING_RABBITMQ_USERNAME:}
     password: ${SPRING_RABBITMQ_PASSWORD:}
     virtual-host: ${SPRING_RABBITMQ_VIRTUAL_HOST:/}
+
+email-branding:
+  # Tenant-assets root of this environment (one per environment, set by platform-iac).
+  # Default targets DEV on purpose: local SMTP sends real emails, and external mail
+  # clients (Gmail image proxy) cannot load images from 127.0.0.1.nip.io.
+  assets-base-url: ${EMAIL_ASSETS_BASE_URL:https://sandbox.dev.eudistack.net/assets/tenants}
 
 # Logging
 logging:
