@@ -100,7 +100,6 @@ public class SecurityConfig {
                         // Issuance endpoints (unified)
                         ISSUANCES_PATH,
                         ISSUANCES_WILDCARD_PATH,
-                        ISSUANCE_STATUS_CREDENTIALS,
                         // Current caller role resolution
                         ME_PATH,
                         // Tenant credential catalog (EUD-72, EUD-169) -- not admin-only, see
@@ -152,8 +151,7 @@ public class SecurityConfig {
                                 PROMETHEUS_PATH,
                                 SPRINGDOC_PATH,
                                 STATUS_LIST_PATH,
-                                TOKEN_STATUS_LIST_PATH,
-                                ISSUANCE_STATUS_CREDENTIALS
+                                TOKEN_STATUS_LIST_PATH
                         ).permitAll()
                         .pathMatchers(HttpMethod.POST, OAUTH_TOKEN_PATH).permitAll()
                         .pathMatchers(HttpMethod.POST, OID4VCI_PAR_PATH).permitAll()

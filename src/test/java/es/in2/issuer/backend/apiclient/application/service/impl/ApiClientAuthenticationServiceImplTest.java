@@ -9,6 +9,7 @@ import es.in2.issuer.backend.shared.domain.service.AuditService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -22,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -31,7 +33,6 @@ class ApiClientAuthenticationServiceImplTest {
     private static final String TENANT = "acme";
     private static final String CLIENT_ID = "acme-hr";
     private static final String RAW_SECRET = "s3cr3t-value";
-    private static final String DUMMY_HASH = "$2a$10$rCk2.19r3MaYAe4KZkmvIOXv6FBRCMvaKH9FG7txMfvek27a45y26";
 
     @Mock
     private ApiClientRepository apiClientRepository;
@@ -39,16 +40,18 @@ class ApiClientAuthenticationServiceImplTest {
     @Mock
     private AuditService auditService;
 
-    private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+    private final PasswordEncoder secretHasher = new BCryptPasswordEncoder();
+
+    private final PasswordEncoder passwordEncoder = spy(secretHasher);
 
     private ApiClientAuthenticationServiceImpl service;
 
     private void init() {
-        service = new ApiClientAuthenticationServiceImpl(apiClientRepository, passwordEncoder, auditService, DUMMY_HASH);
+        service = new ApiClientAuthenticationServiceImpl(apiClientRepository, passwordEncoder, auditService);
     }
 
     private ApiClient clientWith(AuthorizationStatus status, boolean canTriggerIssuance) {
-        return new ApiClient(CLIENT_ID, status, canTriggerIssuance, passwordEncoder.encode(RAW_SECRET));
+        return new ApiClient(CLIENT_ID, status, canTriggerIssuance, secretHasher.encode(RAW_SECRET));
     }
 
     @Test
@@ -75,6 +78,46 @@ class ApiClientAuthenticationServiceImplTest {
         StepVerifier.create(result)
                 .expectError(ApiClientAuthenticationException.class)
                 .verify();
+        verify(auditService).auditFailure(eq("intake.auth.failure"), eq(CLIENT_ID), eq("client_not_found"), anyMapArg());
+    }
+
+    @Test
+    void authenticateForToken_unknownClientId_comparesAgainstValidBcryptHash() {
+        init();
+        when(apiClientRepository.findByClientId(CLIENT_ID)).thenReturn(Mono.empty());
+        Mockito.clearInvocations(passwordEncoder);
+
+        StepVerifier.create(service.authenticateForToken(TENANT, CLIENT_ID, RAW_SECRET))
+                .expectError(ApiClientAuthenticationException.class)
+                .verify();
+
+        ArgumentCaptor<String> hashCaptor = ArgumentCaptor.forClass(String.class);
+        verify(passwordEncoder).matches(eq(RAW_SECRET), hashCaptor.capture());
+        assertThat(hashCaptor.getValue()).matches("^\\$2[aby]\\$\\d{2}\\$[./A-Za-z0-9]{53}$");
+    }
+
+    @Test
+    void authenticateForToken_secretLongerThan72Bytes_deniesAsInvalidSecretNotRepositoryError() {
+        init();
+        when(apiClientRepository.findByClientId(CLIENT_ID))
+                .thenReturn(Mono.just(clientWith(AuthorizationStatus.ACTIVE, true)));
+
+        StepVerifier.create(service.authenticateForToken(TENANT, CLIENT_ID, "x".repeat(73)))
+                .expectError(ApiClientAuthenticationException.class)
+                .verify();
+
+        verify(auditService).auditFailure(eq("intake.auth.failure"), eq(CLIENT_ID), eq("invalid_secret"), anyMapArg());
+    }
+
+    @Test
+    void authenticateForToken_unknownClientAndSecretLongerThan72Bytes_deniesAsClientNotFound() {
+        init();
+        when(apiClientRepository.findByClientId(CLIENT_ID)).thenReturn(Mono.empty());
+
+        StepVerifier.create(service.authenticateForToken(TENANT, CLIENT_ID, "x".repeat(73)))
+                .expectError(ApiClientAuthenticationException.class)
+                .verify();
+
         verify(auditService).auditFailure(eq("intake.auth.failure"), eq(CLIENT_ID), eq("client_not_found"), anyMapArg());
     }
 

@@ -7,13 +7,14 @@ import es.in2.issuer.backend.apiclient.domain.service.ApiClientAuthenticationSer
 import es.in2.issuer.backend.apiclient.domain.spi.ApiClientRepository;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -27,21 +28,24 @@ public class ApiClientAuthenticationServiceImpl implements ApiClientAuthenticati
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
 
-    // Valid-format BCrypt hash that matches no real secret. Compared against
-    // on every "client not found" path so that an unknown client_id costs
-    // the same wall-clock time as a wrong secret (ES-03, NFR-S-EUD75-02) —
-    // otherwise the early return would be a timing oracle for enumeration.
+    // BCrypt only considers the first 72 bytes of a secret; longer inputs are rejected.
+    private static final int BCRYPT_MAX_SECRET_BYTES = 72;
+
+    // Valid BCrypt hash of a random value, computed at startup with the same encoder (and
+    // therefore the same cost) as the stored client secrets. Compared against on every
+    // "client not found" path so that an unknown client_id costs the same wall-clock time
+    // as a wrong secret (ES-03, NFR-S-EUD75-02) — otherwise the early return would be a
+    // timing oracle for client_id enumeration.
     private final String dummySecretHash;
 
     public ApiClientAuthenticationServiceImpl(
             ApiClientRepository apiClientRepository,
             PasswordEncoder passwordEncoder,
-            AuditService auditService,
-            @Value("${app.security.dummy-secret-hash}") String dummySecretHash) {
+            AuditService auditService) {
         this.apiClientRepository = apiClientRepository;
         this.passwordEncoder = passwordEncoder;
         this.auditService = auditService;
-        this.dummySecretHash = dummySecretHash;
+        this.dummySecretHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
     @Override
@@ -57,27 +61,17 @@ public class ApiClientAuthenticationServiceImpl implements ApiClientAuthenticati
 
     private Mono<AuthenticatedApiClient> verify(String tenant, String clientId, String clientSecret, ApiClient client) {
         return matches(clientSecret, client.secretHash())
-              .flatMap(secretMatches -> {
-                if (!Boolean.TRUE.equals(secretMatches)) {
-                  return deny(tenant, clientId, "invalid_secret");
-                }
-
-                if (!client.isActive()) {
-                  return deny(tenant, clientId, "client_not_active");
-                }
-
-                auditService.auditSuccess(
-                        AUDIT_SUCCESS_EVENT,
-                        clientId,
-                        RESOURCE_TYPE,
-                        tenant,
-                        Map.of("tenant", tenant, "grant_type", "client_credentials"));
-
-                return Mono.just(
-                        new AuthenticatedApiClient(
-                                client.clientId(),
-                                client.canTriggerIssuance()));
-              });
+                .flatMap(secretMatches -> {
+                    if (!secretMatches) {
+                        return deny(tenant, clientId, "invalid_secret");
+                    }
+                    if (!client.isActive()) {
+                        return deny(tenant, clientId, "client_not_active");
+                    }
+                    auditService.auditSuccess(AUDIT_SUCCESS_EVENT, clientId, RESOURCE_TYPE, tenant,
+                            Map.of("tenant", tenant, "grant_type", "client_credentials"));
+                    return Mono.just(new AuthenticatedApiClient(client.clientId(), client.canTriggerIssuance()));
+                });
     }
 
     private Mono<AuthenticatedApiClient> denyUnknownClient(String tenant, String clientId, String clientSecret) {
@@ -97,7 +91,13 @@ public class ApiClientAuthenticationServiceImpl implements ApiClientAuthenticati
     }
 
     private Mono<Boolean> matches(String rawSecret, String hash) {
-        return Mono.fromCallable(() -> passwordEncoder.matches(rawSecret == null ? "" : rawSecret, hash))
+        String secret = rawSecret == null ? "" : rawSecret;
+        // Over-long secrets would make BCrypt throw; burn the same cost against the hash and deny.
+        boolean tooLong = secret.getBytes(StandardCharsets.UTF_8).length > BCRYPT_MAX_SECRET_BYTES;
+        return Mono.fromCallable(() -> {
+                    boolean result = passwordEncoder.matches(tooLong ? "" : secret, hash);
+                    return result && !tooLong;
+                })
                 .subscribeOn(Schedulers.boundedElastic());
     }
 }
