@@ -169,6 +169,7 @@ class EmailBrandingResolverImplTest {
                 email-branding:
                   default:
                     support-url: https://support.env
+                    knowledge-base-url: https://kb.env
                   tenants:
                     acme:
                       logo: true
@@ -180,7 +181,7 @@ class EmailBrandingResolverImplTest {
                 .run(ctx -> {
                     EmailBrandingProperties props = ctx.getBean(EmailBrandingProperties.class);
                     assertThat(props.defaults().supportUrl()).isEqualTo("https://support.env");
-                    assertThat(props.defaults().knowledgeBaseUrl()).isNull();
+                    assertThat(props.defaults().knowledgeBaseUrl()).isEqualTo("https://kb.env");
                     assertThat(props.tenants()).containsOnlyKeys("acme");
                 });
     }
@@ -198,6 +199,25 @@ class EmailBrandingResolverImplTest {
     void binding_withoutAssetsBaseUrl_failsStartup() {
         runner.withPropertyValues(
                         "spring.config.location=optional:classpath:/no-such-file.yaml",
+                        "email-branding.default.support-url=https://s.example.com",
+                        "email-branding.default.knowledge-base-url=https://k.example.com")
+                .run(ctx -> assertThat(ctx).hasFailed());
+    }
+
+    @Test
+    void binding_withoutDefaultSupportUrl_failsStartup() {
+        runner.withPropertyValues(
+                        "spring.config.location=optional:classpath:/no-such-file.yaml",
+                        "email-branding.assets-base-url=https://a.example.com",
+                        "email-branding.default.knowledge-base-url=https://k.example.com")
+                .run(ctx -> assertThat(ctx).hasFailed());
+    }
+
+    @Test
+    void binding_withoutDefaultKnowledgeBaseUrl_failsStartup() {
+        runner.withPropertyValues(
+                        "spring.config.location=optional:classpath:/no-such-file.yaml",
+                        "email-branding.assets-base-url=https://a.example.com",
                         "email-branding.default.support-url=https://s.example.com")
                 .run(ctx -> assertThat(ctx).hasFailed());
     }
@@ -208,6 +228,7 @@ class EmailBrandingResolverImplTest {
                         "spring.config.location=optional:classpath:/no-such-file.yaml",
                         "email-branding.assets-base-url=https://a.example.com",
                         "email-branding.default.support-url=https://s.example.com",
+                        "email-branding.default.knowledge-base-url=https://k.example.com",
                         "email-branding.tenants.dome.social-links[0].type=twitter",
                         "email-branding.tenants.dome.social-links[0].url=https://x.example.com")
                 .run(ctx -> assertThat(ctx).hasFailed());

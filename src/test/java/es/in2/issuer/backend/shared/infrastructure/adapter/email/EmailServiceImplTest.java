@@ -362,6 +362,20 @@ class EmailServiceImplTest {
     }
 
     @Test
+    void sendCredentialOfferEmail_lineBreaksInSubjectValues_areReplacedBySpaces() throws Exception {
+        MimeMessage mimeMessage = stubMimeMessage("credential-offer-email");
+        stubOfferSubject("DOME Marketplace", "Your DOME\r\nBcc: x@example.com credential is ready");
+
+        StepVerifier.create(emailService.sendCredentialOfferEmail(
+                        "to@example.com", OFFER_DEEP_LINK, "https://example.com/reissue", "ACME Corp", null)
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "dome")
+                        .put(ENVIRONMENT_LABEL_CONTEXT_KEY, "S\nBX")))
+                .verifyComplete();
+
+        verify(mimeMessage).setSubject("[S BX] Your DOME Bcc: x@example.com credential is ready", "UTF-8");
+    }
+
+    @Test
     void sendCredentialOfferEmail_schedulerStyleCallWithoutRequestHost_hasNoLabelButResolvesBranding() throws Exception {
         MimeMessage mimeMessage = stubMimeMessage("credential-offer-email");
         stubOfferSubject("DOME Marketplace", "Your DOME Marketplace credential is ready");

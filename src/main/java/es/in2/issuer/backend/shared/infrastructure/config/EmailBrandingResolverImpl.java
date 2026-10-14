@@ -36,18 +36,14 @@ public class EmailBrandingResolverImpl implements EmailBrandingResolver {
             return new EmailBranding(null, null, defaults.supportUrl(), defaults.knowledgeBaseUrl(), List.of());
         }
         return new EmailBranding(
-                tenant.logo() ? imageUrl(tenantId, LOGO_PATH) : null,
-                tenant.headerBackground() ? imageUrl(tenantId, HEADER_BACKGROUND_PATH) : null,
+                tenant.logo() ? assetUrl(tenantId, LOGO_PATH) : null,
+                tenant.headerBackground() ? assetUrl(tenantId, HEADER_BACKGROUND_PATH) : null,
                 firstNonBlank(tenant.supportUrl(), defaults.supportUrl()),
                 firstNonBlank(tenant.knowledgeBaseUrl(), defaults.knowledgeBaseUrl()),
                 tenant.socialLinks() == null ? List.of() : tenant.socialLinks().stream()
                         .map(link -> new EmailBranding.SocialLink(link.type(), link.url()))
                         .toList()
         );
-    }
-
-    private String imageUrl(String tenantId, String relativePath) {
-        return assetUrl(tenantId, relativePath);
     }
 
     private String assetUrl(String tenantId, String relativePath) {

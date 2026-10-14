@@ -2,7 +2,7 @@
 # Email branding data, per tenant. This bundled file is the default: an environment can replace it
 # entirely by pointing EMAIL_BRANDING_PATH at its own file (e.g. file:/etc/eudistack/issuer/email-branding.yaml).
 #
-# - support-url / knowledge-base-url: the tenant's own, else the ones under `default`.
+# - support-url / knowledge-base-url: the tenant's own, else the ones under `default` (both required there).
 # - logo / header-background (default false): the email shows the image only when the tenant's block
 #   sets it to true. Image locations are not configured; they follow a fixed naming convention under the
 #   assets root (email-branding.assets-base-url, application.yml):

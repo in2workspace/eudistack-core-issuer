@@ -29,10 +29,10 @@ public record EmailBrandingProperties(
 
     public static final Set<String> SOCIAL_LINK_TYPES = Set.of("github", "linkedin");
 
-    /** Links used by tenants that do not define their own. */
+    /** Links used by tenants that do not define their own. Required: every email links to them. */
     public record DefaultEmailBranding(
-            String supportUrl,
-            String knowledgeBaseUrl
+            @NotBlank String supportUrl,
+            @NotBlank String knowledgeBaseUrl
     ) {
     }
 

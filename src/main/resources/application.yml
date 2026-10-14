@@ -65,13 +65,13 @@ spring:
     password: ${SPRING_RABBITMQ_PASSWORD:}
     virtual-host: ${SPRING_RABBITMQ_VIRTUAL_HOST:/}
 
-# Logging
 email-branding:
   # Tenant-assets root of this environment (one per environment, set by platform-iac).
   # Default targets STG on purpose: local SMTP sends real emails, and external mail
   # clients (Gmail image proxy) cannot load images from 127.0.0.1.nip.io.
   assets-base-url: ${EMAIL_ASSETS_BASE_URL:https://sandbox.stg.eudistack.net/assets/tenants}
 
+# Logging
 logging:
   pattern:
     level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-},%X{tenantDomain:-}]"

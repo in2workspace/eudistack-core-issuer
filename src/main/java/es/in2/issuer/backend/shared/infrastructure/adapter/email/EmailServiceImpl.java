@@ -184,15 +184,14 @@ public class EmailServiceImpl implements EmailService {
                     MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
                     helper.setFrom(setup.mailFrom());
                     helper.setTo(to);
-                    helper.setSubject(subject.apply(setup));
+                    // The subject carries admin-configured values (tenant display name, environment label).
+                    helper.setSubject(subject.apply(setup).replaceAll("[\\r\\n]+", " "));
 
                     Context context = createLocalizedContext(setup.locale());
+                    Map<String, byte[]> inlinePngs = new LinkedHashMap<>();
                     setup.branding().ifPresent(branding -> {
                         context.setVariable("branding", branding);
                         context.setVariable("tenantDisplayName", setup.tenantDisplayName());
-                    });
-                    Map<String, byte[]> inlinePngs = new LinkedHashMap<>();
-                    setup.branding().ifPresent(branding -> {
                         branding.socialLinks().forEach(link -> addIcon(inlinePngs, link.type()));
                     });
                     content.apply(context, inlinePngs, setup);
