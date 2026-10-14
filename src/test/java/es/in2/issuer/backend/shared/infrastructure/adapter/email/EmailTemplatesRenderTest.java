@@ -191,7 +191,7 @@ class EmailTemplatesRenderTest {
         assertThat(html)
                 .contains("bgcolor=\"#2D58A7\" class=\"button-cell\"")
                 .contains(".button-cell { padding: 12px 72px !important; }")
-                .contains("style=\"padding: 20px 6px 0 6px;\"")
+                .contains("style=\"padding: 18px 4px 0 4px;\"")
                 .doesNotContain("margin: 20px auto 0 auto;");
     }
 
