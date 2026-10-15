@@ -24,12 +24,12 @@ public class ApiClientAuthenticationServiceImpl implements ApiClientAuthenticati
     private static final String AUDIT_FAILURE_EVENT = "intake.auth.failure";
     private static final String RESOURCE_TYPE = "api_client";
 
+    // BCrypt only considers the first 72 bytes of a secret; longer inputs are rejected.
+    private static final int BCRYPT_MAX_SECRET_BYTES = 72;
+
     private final ApiClientRepository apiClientRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
-
-    // BCrypt only considers the first 72 bytes of a secret; longer inputs are rejected.
-    private static final int BCRYPT_MAX_SECRET_BYTES = 72;
 
     // Valid BCrypt hash of a random value, computed at startup with the same encoder (and
     // therefore the same cost) as the stored client secrets. Compared against on every

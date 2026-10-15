@@ -9,7 +9,6 @@ import es.in2.issuer.backend.shared.domain.service.AuditService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Mockito;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -22,6 +21,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
@@ -85,7 +85,7 @@ class ApiClientAuthenticationServiceImplTest {
     void authenticateForToken_unknownClientId_comparesAgainstValidBcryptHash() {
         init();
         when(apiClientRepository.findByClientId(CLIENT_ID)).thenReturn(Mono.empty());
-        Mockito.clearInvocations(passwordEncoder);
+        clearInvocations(passwordEncoder);
 
         StepVerifier.create(service.authenticateForToken(TENANT, CLIENT_ID, RAW_SECRET))
                 .expectError(ApiClientAuthenticationException.class)
