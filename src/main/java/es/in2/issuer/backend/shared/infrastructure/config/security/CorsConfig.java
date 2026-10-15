@@ -23,24 +23,22 @@ import java.util.List;
  * CORS headers are set regardless of which security chain handles the request and regardless
  * of how reverse proxies interpret the spring.webflux.base-path context path.
  *
- * <p><b>Why a wildcard origin is acceptable here (SonarCloud S5122, reviewed and accepted).</b>
- * A single configuration is registered for every path, with {@code allowCredentials=false} and
- * without {@code Access-Control-Allow-Credentials}. The browser therefore never attaches cookies
- * or other ambient credentials to a cross-origin request, so a foreign page gains nothing it could
- * not already do by calling the endpoint directly. Every protected endpoint authenticates with a
- * {@code Bearer} access token (or {@code client_credentials} on intake), which a browser does not
- * send on its own: an attacker page would first need to hold a valid token.
- *
- * <p>{@code /api/**} (backoffice, issuances, me, intake) is covered by the same wildcard on purpose.
- * It is not a public OID4VCI path, but the Portal de administración reaches it same-origin through the
- * reverse proxy ({@code /issuer/api/v1/...}) and intake is server-to-server, so CORS does not apply to
- * either today. Restricting it to an allowlist ({@link CorsOriginsLoader}, {@code app.cors.origins-path})
- * was deliberately left out: it relies on same-origin detection behind CloudFront/ALB
- * ({@code Host}/{@code X-Forwarded-Host}) that cannot be verified outside STG, and a mistake would
- * answer the portal's own POST/PUT with 403. Revisit with the allowlist once it can be tested in STG.
+ * <p><b>Two policies (SonarCloud S5122).</b> The paths external wallets call
+ * ({@code /.well-known/**}, {@code /oid4vci/**}, {@code /oauth/**}, {@code /credential-offer/**},
+ * {@code /w3c/**}, {@code /token/**}) are public by design and accept any origin, without credentials.
+ * {@code /api/**} (backoffice, issuances, me, intake) is not an OID4VCI path, so it only accepts the
+ * origins listed in {@code cors-origins.yaml} ({@link CorsOriginsLoader}, {@code app.cors.origins-path}).
+ * With an empty list no cross-origin caller is allowed; same-origin callers (the Portal de administración
+ * through the reverse proxy) and server-to-server callers (intake) are not subject to CORS.
  */
 @Configuration
 public class CorsConfig {
+
+    private final CorsOriginsLoader corsOriginsLoader;
+
+    public CorsConfig(CorsOriginsLoader corsOriginsLoader) {
+        this.corsOriginsLoader = corsOriginsLoader;
+    }
 
     @Bean
     public UrlBasedCorsConfigurationSource corsConfigurationSource() {
@@ -60,10 +58,20 @@ public class CorsConfig {
         source.registerCorsConfiguration("/credential-offer/**", publicConfig);
         source.registerCorsConfiguration("/w3c/**", publicConfig);
         source.registerCorsConfiguration("/token/**", publicConfig);
-        // Bearer-authenticated, no credentials: see the class Javadoc for why this stays a wildcard.
-        source.registerCorsConfiguration("/api/**", publicConfig);
+        source.registerCorsConfiguration("/api/**", apiConfig());
 
         return source;
+    }
+
+    // /api/** is not public: only the configured origins may call it cross-origin.
+    private CorsConfiguration apiConfig() {
+        CorsConfiguration apiConfig = new CorsConfiguration();
+        apiConfig.setAllowedOrigins(corsOriginsLoader.loadOrigins());
+        apiConfig.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        apiConfig.setAllowedHeaders(List.of("Content-Type", "Authorization"));
+        apiConfig.setAllowCredentials(false);
+        apiConfig.setMaxAge(1800L);
+        return apiConfig;
     }
 
     // Standalone filter — runs before all SecurityWebFilterChains so CORS headers are
