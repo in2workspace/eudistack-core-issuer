@@ -29,7 +29,7 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
 
     @Override
     @Observed(name = "issuance.refresh-offer", contextualName = "refresh-credential-offer")
-    public Mono<Void> refreshCredentialOffer(String credentialOfferRefreshToken, String publicIssuerBaseUrl, String publicWalletBaseUrl) {
+    public Mono<Void> refreshCredentialOffer(String credentialOfferRefreshToken, String publicIssuerBaseUrl) {
         log.info("Refreshing credential offer");
 
         return issuanceService.getIssuanceByCredentialOfferRefreshToken(credentialOfferRefreshToken)
@@ -46,8 +46,7 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
                             issuance.getEmail(),
                             DeliveryMode.EMAIL.value,
                             credentialOfferRefreshToken,
-                            publicIssuerBaseUrl,
-                            publicWalletBaseUrl);
+                            publicIssuerBaseUrl);
                 })
                 // This endpoint exists to re-send the email, so a reported email failure is a failure
                 // here -- unlike an issuance, which records it per mode and keeps the other modes.

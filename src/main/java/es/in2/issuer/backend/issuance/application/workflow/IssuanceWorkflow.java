@@ -14,10 +14,9 @@ public interface IssuanceWorkflow {
      *                    sign later, against their own OID4VCI access token, and ignore it.
      */
     Mono<IssuanceResponse> issueCredential(String processId, IssuanceRequest request, String idToken,
-                                           String bearerToken, String publicIssuerBaseUrl,
-                                           String publicWalletBaseUrl);
+                                           String bearerToken, String publicIssuerBaseUrl);
 
     Mono<IssuanceResponse> issueCredentialWithoutAuthorization(String processId, IssuanceRequest request, String token,
-                                                               String publicIssuerBaseUrl, String publicWalletBaseUrl);
+                                                               String publicIssuerBaseUrl);
 
 }

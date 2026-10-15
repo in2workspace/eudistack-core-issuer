@@ -94,31 +94,34 @@ public class EmailServiceImpl implements EmailService {
 
     @Observed(name = "issuance.send-email", contextualName = "issuance-send-email")
     @Override
-    public Mono<Void> sendCredentialOfferEmail(String to, String subject, String walletDeepLink,
+    public Mono<Void> sendCredentialOfferEmail(String to, String subject, String credentialOfferLink,
                                                String reissueUrl, String organization, String txCode) {
         return doSendCredentialOfferEmail("credential-offer-email", to, subject,
-                walletDeepLink, reissueUrl, organization, txCode);
+                credentialOfferLink, reissueUrl, organization, txCode);
     }
 
     @Observed(name = "issuance.send-email", contextualName = "issuance-send-email")
     @Override
-    public Mono<Void> sendBrandedCredentialOfferEmail(String to, String subject, String walletDeepLink,
+    public Mono<Void> sendBrandedCredentialOfferEmail(String to, String subject, String credentialOfferLink,
                                                       String reissueUrl, String organization) {
         return doSendCredentialOfferEmail("credential-offer-email-v2", to, subject,
-                walletDeepLink, reissueUrl, organization, null);
+                credentialOfferLink, reissueUrl, organization, null);
     }
 
+    /**
+     * @param credentialOfferLink what the button and the QR carry, decided by the caller: a link to
+     *                            the tenant's wallet, or the standard {@code openid-credential-offer://}
+     *                            form when the tenant configures none (EUD-305).
+     */
     private Mono<Void> doSendCredentialOfferEmail(String template, String to, String subject,
-                                                   String walletDeepLink, String reissueUrl,
+                                                   String credentialOfferLink, String reissueUrl,
                                                    String organization, String txCode) {
         return Mono.zip(
                 tenantConfigService.getStringOrThrow(MAIL_FROM_KEY),
-                tenantConfigService.getStringOrThrow("issuer.wallet_url"),
                 tenantConfigService.getStringOrDefault(DEFAULT_LANG_KEY, "")
         ).flatMap(tuple -> {
             String mailFrom = tuple.getT1();
-            String walletUrl = tuple.getT2();
-            String locale = translationService.getLocaleOrDefault(tuple.getT3());
+            String locale = translationService.getLocaleOrDefault(tuple.getT2());
             return Mono.fromCallable(() -> {
                 MimeMessage mimeMessage = javaMailSender.createMimeMessage();
                 MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
@@ -126,13 +129,12 @@ public class EmailServiceImpl implements EmailService {
                 helper.setTo(to);
                 helper.setSubject(translationService.translateWithLocale(subject, locale));
 
-                byte[] qrImageBytes = generateQrCodeImage(walletDeepLink, 300, 300);
+                byte[] qrImageBytes = generateQrCodeImage(credentialOfferLink, 300, 300);
 
                 Context context = createLocalizedContext(locale);
                 context.setVariable("organization", organization);
                 context.setVariable("qrImageCid", "cid:qr-credential-offer.png");
-                context.setVariable("walletDeepLink", walletDeepLink);
-                context.setVariable("walletInstallUrl", walletUrl.endsWith("/") ? walletUrl : walletUrl + "/");
+                context.setVariable("credentialOfferLink", credentialOfferLink);
                 context.setVariable("reissueUrl", reissueUrl);
                 if (txCode != null) {
                     context.setVariable("txCode", txCode);

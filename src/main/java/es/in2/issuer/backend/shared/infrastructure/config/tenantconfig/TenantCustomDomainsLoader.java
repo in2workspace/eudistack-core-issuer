@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config.tenantconfig;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
@@ -35,7 +36,6 @@ public class TenantCustomDomainsLoader {
     private final ResourceLoader resourceLoader;
     private final String configPath;
     private Map<String, TenantEntry> entries = Map.of();
-    private Map<String, String> walletUrlByIssuerHost = Map.of();
 
     public TenantCustomDomainsLoader(
             ResourceLoader resourceLoader,
@@ -59,22 +59,13 @@ public class TenantCustomDomainsLoader {
             List<TenantEntry> tenants = data.tenants() != null ? data.tenants() : List.of();
             validate(tenants);
             Map<String, TenantEntry> index = new HashMap<>();
-            Map<String, String> walletIndex = new HashMap<>();
             for (TenantEntry entry : tenants) {
                 TenantEntry previous = index.putIfAbsent(entry.id(), entry);
                 if (previous != null) {
                     throw new IllegalArgumentException("Duplicate tenant id '" + entry.id() + "'");
                 }
-                String issuerHost = hostOf(entry.issuer());
-                if (issuerHost != null && entry.wallet() != null) {
-                    String prevWallet = walletIndex.putIfAbsent(issuerHost, entry.wallet());
-                    if (prevWallet != null) {
-                        throw new IllegalArgumentException("Duplicate issuer host '" + issuerHost + "'");
-                    }
-                }
             }
             this.entries = Map.copyOf(index);
-            this.walletUrlByIssuerHost = Map.copyOf(walletIndex);
             log.info("Loaded {} tenant custom domain(s) from '{}'", entries.size(), configPath);
         } catch (IllegalArgumentException e) {
             throw new IllegalStateException(
@@ -111,39 +102,12 @@ public class TenantCustomDomainsLoader {
         return entry != null ? Optional.of(entry.verifiers()) : Optional.empty();
     }
 
-    /**
-     * Returns the configured wallet base URL for the entry whose {@code issuer}
-     * URL has the given host, or {@link Optional#empty()} if no entry matches.
-     *
-     * <p>Used to build the credential-offer wallet deep-link. In non-canonical
-     * deployments the wallet runs on a separate host (e.g.
-     * {@code wallet.dome-marketplace.org}) that cannot be derived from the
-     * issuer request origin, so it MUST be read from this registry, matched by
-     * the host the request actually arrived through. In canonical (path-based)
-     * deployments the host is absent from the registry and callers fall back to
-     * origin-based resolution.
-     */
-    public Optional<String> findWalletUrlByIssuerHost(String issuerHost) {
-        if (issuerHost == null || issuerHost.isBlank()) {
-            return Optional.empty();
-        }
-        return Optional.ofNullable(walletUrlByIssuerHost.get(issuerHost));
-    }
-
-    private static String hostOf(String url) {
-        if (url == null || url.isBlank()) {
-            return null;
-        }
-        return URI.create(url).getHost();
-    }
-
     private static void validate(List<TenantEntry> tenants) {
         for (TenantEntry entry : tenants) {
             if (entry.id() == null || entry.id().isBlank()) {
                 throw new IllegalArgumentException("A tenant entry has a blank id");
             }
             validateUrl("issuer", entry.id(), entry.issuer());
-            validateUrl("wallet", entry.id(), entry.wallet());
             validateVerifiers(entry.id(), entry.verifiers());
         }
     }
@@ -175,10 +139,16 @@ public class TenantCustomDomainsLoader {
             @JsonProperty("tenants") List<TenantEntry> tenants
     ) {}
 
+    /**
+     * Unknown fields are ignored (EUD-305): the issuer no longer resolves wallets, but the file
+     * still carries a {@code wallet} field where other consumers read it (the local nginx
+     * entrypoint routes the wallet host from it), and a registry not yet cleaned up must not
+     * stop the issuer from starting.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record TenantEntry(
             @JsonProperty("id")        String id,
             @JsonProperty("issuer")    String issuer,
-            @JsonProperty("verifiers") List<String> verifiers,
-            @JsonProperty("wallet")    String wallet
+            @JsonProperty("verifiers") List<String> verifiers
     ) {}
 }

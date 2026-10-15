@@ -38,8 +38,6 @@ class EmailServiceImplTest {
         );
         lenient().when(tenantConfigService.getStringOrThrow("issuer.mail_from"))
                 .thenReturn(Mono.just("noreply@example.com"));
-        lenient().when(tenantConfigService.getStringOrThrow("issuer.wallet_url"))
-                .thenReturn(Mono.just("https://wallet.example.com"));
         lenient().when(tenantConfigService.getStringOrDefault("issuer.default_lang", ""))
                 .thenReturn(Mono.just("en"));
         lenient().when(translationService.getLocaleOrDefault(anyString())).thenReturn("en");
@@ -130,6 +128,31 @@ class EmailServiceImplTest {
         ArgumentCaptor<Context> ctxCaptor = ArgumentCaptor.forClass(Context.class);
         verify(templateEngine).process(eq("credential-offer-email"), ctxCaptor.capture());
         assertNull(ctxCaptor.getValue().getVariable("txCode"));
+    }
+
+    /**
+     * EUD-305: the link is decided by the caller (wallet link or standard form); the email service
+     * renders it as given and no longer requires {@code issuer.wallet_url}.
+     */
+    @Test
+    void sendCredentialOfferEmail_withStandardOfferUri_rendersItAsGivenWithoutReadingWalletUrl() {
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("credential-offer-email"), any(Context.class))).thenReturn("htmlContent");
+        String standardOfferUri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fcredential-offer%2Fnonce";
+
+        StepVerifier.create(emailService.sendCredentialOfferEmail(
+                "to@example.com", "subject.key", standardOfferUri,
+                "https://example.com/reissue", "ACME Corp", null
+        )).verifyComplete();
+
+        verify(javaMailSender).send(mimeMessage);
+        ArgumentCaptor<Context> ctxCaptor = ArgumentCaptor.forClass(Context.class);
+        verify(templateEngine).process(eq("credential-offer-email"), ctxCaptor.capture());
+        assertEquals(standardOfferUri, ctxCaptor.getValue().getVariable("credentialOfferLink"));
+        assertNull(ctxCaptor.getValue().getVariable("walletInstallUrl"));
+        verify(tenantConfigService, never()).getStringOrThrow("issuer.wallet_url");
+        verify(tenantConfigService, never()).getString("issuer.wallet_url");
     }
 
     @Test
@@ -254,14 +277,14 @@ class EmailServiceImplTest {
         when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
         when(templateEngine.process(eq("credential-offer-email-v2"), any(Context.class))).thenReturn("<html>v2</html>");
 
-        String walletDeepLink = "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fcredential-offer%2Fnonce";
+        String credentialOfferLink = "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fcredential-offer%2Fnonce";
         String reissueUrl = "https://issuer.example.com/credential-offer/refresh/abc";
 
         // Act
         StepVerifier.create(emailService.sendBrandedCredentialOfferEmail(
                 "user@kpmg.com",
                 "email.activation.subject",
-                walletDeepLink,
+                credentialOfferLink,
                 reissueUrl,
                 "KPMG Spain"
         )).verifyComplete();
@@ -274,7 +297,7 @@ class EmailServiceImplTest {
         assertEquals("KPMG Spain", ctx.getVariable("organization"));
         assertEquals("cid:qr-credential-offer.png", ctx.getVariable("qrImageCid"));
         assertEquals(reissueUrl, ctx.getVariable("reissueUrl"));
-        assertEquals(walletDeepLink, ctx.getVariable("walletDeepLink"));
+        assertEquals(credentialOfferLink, ctx.getVariable("credentialOfferLink"));
     }
 
     @Test
