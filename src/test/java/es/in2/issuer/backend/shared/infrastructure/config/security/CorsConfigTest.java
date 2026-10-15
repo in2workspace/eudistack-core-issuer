@@ -2,6 +2,8 @@ package es.in2.issuer.backend.shared.infrastructure.config.security;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.web.cors.CorsConfiguration;
@@ -33,40 +35,20 @@ class CorsConfigTest {
         assertThat(filter).isNotNull();
     }
 
-    @Test
-    void CorsConfigurationSource_WellKnownPath_AllowsAnyOriginForExternalWallets() {
+    // Public OID4VCI paths called by external wallets. The authorize endpoint returns a 302 redirect and
+    // Chrome requires Access-Control-Allow-Origin on that response for cross-origin XHR to follow it.
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "/.well-known/openid-credential-issuer",
+            "/oid4vci/credential",
+            "/oid4vci/v1/authorize",
+            "/oauth/token",
+            "/credential-offer/abc",
+            "/w3c/v1/credentials/status/1",
+            "/token/v1/credentials/status/1"})
+    void CorsConfigurationSource_PublicWalletPaths_AllowAnyOriginWithoutCredentials(String path) {
         UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
-        var exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("/.well-known/openid-credential-issuer").build()
-        );
-
-        CorsConfiguration config = source.getCorsConfiguration(exchange);
-
-        assertThat(config).isNotNull();
-        assertThat(config.getAllowedOriginPatterns()).contains("*");
-    }
-
-    @Test
-    void CorsConfigurationSource_Oid4vciPath_AllowsAnyOriginForExternalWallets() {
-        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
-        var exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("/oid4vci/credential").build()
-        );
-
-        CorsConfiguration config = source.getCorsConfiguration(exchange);
-
-        assertThat(config).isNotNull();
-        assertThat(config.getAllowedOriginPatterns()).contains("*");
-    }
-
-    // The authorize endpoint returns a 302 redirect. Chrome requires Access-Control-Allow-Origin
-    // on that response for cross-origin XHR to follow the redirect and read response.url.
-    @Test
-    void CorsConfigurationSource_AuthorizePath_AllowsAnyOriginOnRedirectResponse() {
-        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
-        var exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("/oid4vci/v1/authorize").build()
-        );
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest.get(path).build());
 
         CorsConfiguration config = source.getCorsConfiguration(exchange);
 
@@ -160,16 +142,4 @@ class CorsConfigTest {
         assertThat(config.getAllowedMethods()).contains("PUT", "DELETE");
     }
 
-    @Test
-    void CorsConfigurationSource_OAuthTokenPath_KeepsWildcardForExternalWallets() {
-        UrlBasedCorsConfigurationSource source = corsConfig.corsConfigurationSource();
-        var exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("/oauth/token").build()
-        );
-
-        CorsConfiguration config = source.getCorsConfiguration(exchange);
-
-        assertThat(config).isNotNull();
-        assertThat(config.getAllowedOriginPatterns()).contains("*");
-    }
 }
