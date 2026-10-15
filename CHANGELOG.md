@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`ApiClientAuthenticationServiceImpl` no longer hard-codes the dummy BCrypt hash** used to equalise the response time of unknown `client_id`s (ES-03). It is now generated at startup with the configured `PasswordEncoder`, so it is always valid and has the same cost as the stored client secrets; no configuration is needed. Secrets longer than BCrypt's 72-byte limit are now denied as `invalid_secret` instead of surfacing as a repository failure.
 - **Removed the unused `ISSUANCE_STATUS_CREDENTIALS` path (`/issuance/v1/credentials/status/**`)** and its `permitAll()` entry in `SecurityConfig`: no controller serves it, so it only left an anonymous-by-default prefix open for any future endpoint.
 - **`TenantSchemaFlywayMigrator`** relies on Flyway's native schema creation (`createSchemas(true)`) instead of concatenating a `CREATE SCHEMA` statement by hand. The tenant schema name is validated beforehand and must be lowercase, start with a letter and be at most 63 characters (tenant names up to 56 characters once the `_issuer` suffix is added); an invalid name aborts the startup.
+- **`CorsConfig` documents why the wildcard origin is kept on `/api/**`** (SonarCloud S5122): credentials are not allowed and every protected endpoint uses a Bearer token, which browsers do not send by themselves. Restricting `/api/**` to an allowlist is left as a follow-up that needs testing in STG.
 
 ### Added
 
