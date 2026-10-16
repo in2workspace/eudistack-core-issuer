@@ -4,7 +4,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Named;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -61,19 +63,21 @@ class SdJwtPayloadBuilderTest {
 
     static Stream<Arguments> claimsWithoutCommonParent() {
         return Stream.of(
-                Arguments.of(Named.of("top-level claims", List.of("givenName", "familyName"))),
-                Arguments.of(Named.of("different parents", List.of("a.x", "b.y"))),
-                Arguments.of(Named.of("mixed nested and top-level", List.of("mandate.mandatee", "givenName"))));
+                // flat profile: the three undeclared top-level claims (mandate, a, b) are disclosed as well
+                Arguments.of(Named.of("top-level claims", List.of("givenName", "familyName")), 5),
+                Arguments.of(Named.of("different parents", List.of("a.x", "b.y")), 2),
+                Arguments.of(Named.of("mixed nested and top-level", List.of("mandate.mandatee", "givenName")), 2));
     }
 
     @ParameterizedTest
     @MethodSource("claimsWithoutCommonParent")
-    void build_withoutCommonParent_placesDigestsAtRoot(List<String> sdClaims) throws JsonProcessingException {
+    void build_withoutCommonParent_placesDigestsAtRoot(List<String> sdClaims, int expectedDigests)
+            throws JsonProcessingException {
         CredentialProfile profile = profile(sdClaims, false);
 
         JsonNode payload = objectMapper.readTree(builder.build(CREDENTIAL, profile, null).payloadJson());
 
-        assertThat(payload.path("_sd")).hasSize(2);
+        assertThat(payload.path("_sd")).hasSize(expectedDigests);
         assertThat(payload.path("_sd_alg").asText()).isEqualTo("sha-256");
     }
 
@@ -185,6 +189,86 @@ class SdJwtPayloadBuilderTest {
                 .encodeToString("[\"salt\",\"name\"]".getBytes());
 
         assertThrows(RuntimeException.class, () -> Disclosure.parse(encoded));
+    }
+
+    @Nested
+    @DisplayName("build: additional business attributes of a flat profile")
+    class AdditionalBusinessAttributes {
+
+        private static final String FLAT_CREDENTIAL = """
+                {
+                  "iss": "did:elsi:VATES-B12345678", "iat": 1, "nbf": 1, "exp": 2, "vct": "urn:test:doctor",
+                  "validFrom": "2026-01-01T00:00:00Z", "validUntil": "2027-01-01T00:00:00Z",
+                  "status": {"status_list": {"idx": 7}},
+                  "givenName": "Jane", "familyName": "Doe"%s
+                }
+                """;
+
+        @Test
+        @DisplayName("build_claimNotListedInSdClaims_isDisclosedSelectively")
+        void build_claimNotListedInSdClaims_isDisclosedSelectively() throws JsonProcessingException {
+            // Arrange
+            String json = FLAT_CREDENTIAL.formatted(", \"externalReference\": \"REF-1\"");
+            CredentialProfile profile = profile(List.of("givenName", "familyName"), false);
+
+            // Act
+            SdJwtPayloadBuilder.SdJwtComponents result = builder.build(json, profile, null);
+
+            // Assert
+            JsonNode payload = objectMapper.readTree(result.payloadJson());
+            assertThat(result.disclosures()).extracting(Disclosure::claimName)
+                    .containsExactlyInAnyOrder("givenName", "familyName", "externalReference");
+            assertThat(payload.path("_sd")).hasSize(3);
+            assertThat(payload.has("externalReference")).isFalse();
+        }
+
+        @Test
+        @DisplayName("build_onlyDeclaredClaims_disclosesExactlyTheDeclaredOnes")
+        void build_onlyDeclaredClaims_disclosesExactlyTheDeclaredOnes() {
+            // Arrange
+            String json = FLAT_CREDENTIAL.formatted("");
+            CredentialProfile profile = profile(List.of("givenName", "familyName"), false);
+
+            // Act
+            SdJwtPayloadBuilder.SdJwtComponents result = builder.build(json, profile, null);
+
+            // Assert
+            assertThat(result.disclosures()).extracting(Disclosure::claimName)
+                    .containsExactlyInAnyOrder("givenName", "familyName");
+        }
+
+        @Test
+        @DisplayName("build_fixedClaimsAndMetadata_areNeverDisclosed")
+        void build_fixedClaimsAndMetadata_areNeverDisclosed() throws JsonProcessingException {
+            // Arrange
+            String json = FLAT_CREDENTIAL.formatted("");
+            CredentialProfile profile = profile(List.of("givenName", "familyName"), false);
+
+            // Act
+            SdJwtPayloadBuilder.SdJwtComponents result = builder.build(json, profile, null);
+
+            // Assert
+            JsonNode payload = objectMapper.readTree(result.payloadJson());
+            assertThat(payload.path("vct").asText()).isEqualTo("urn:test:doctor");
+            assertThat(payload.has("status")).isTrue();
+            assertThat(payload.has("validFrom")).isFalse();
+            assertThat(result.disclosures()).extracting(Disclosure::claimName)
+                    .doesNotContain("vct", "iss", "status", "validFrom", "validUntil");
+        }
+
+        @Test
+        @DisplayName("build_profileWithNestedClaims_doesNotDiscloseUndeclaredClaims")
+        void build_profileWithNestedClaims_doesNotDiscloseUndeclaredClaims() {
+            // Arrange
+            String json = FLAT_CREDENTIAL.formatted(", \"externalReference\": \"REF-1\"");
+            CredentialProfile profile = profile(List.of("givenName", "mandate.mandatee"), false);
+
+            // Act
+            SdJwtPayloadBuilder.SdJwtComponents result = builder.build(json, profile, null);
+
+            // Assert
+            assertThat(result.disclosures()).extracting(Disclosure::claimName).containsExactly("givenName");
+        }
     }
 
     private static CredentialProfile profile(List<String> sdClaims, boolean cnfRequired) {
