@@ -6,34 +6,47 @@ import es.in2.issuer.backend.apiclient.domain.model.AuthenticatedApiClient;
 import es.in2.issuer.backend.apiclient.domain.service.ApiClientAuthenticationService;
 import es.in2.issuer.backend.apiclient.domain.spi.ApiClientRepository;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.UUID;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ApiClientAuthenticationServiceImpl implements ApiClientAuthenticationService {
 
     private static final String AUDIT_SUCCESS_EVENT = "intake.auth.success";
     private static final String AUDIT_FAILURE_EVENT = "intake.auth.failure";
     private static final String RESOURCE_TYPE = "api_client";
 
-    // Valid-format BCrypt hash that matches no real secret. Compared against
-    // on every "client not found" path so that an unknown client_id costs
-    // the same wall-clock time as a wrong secret (ES-03, NFR-S-EUD75-02) —
-    // otherwise the early return would be a timing oracle for enumeration.
-    private static final String DUMMY_SECRET_HASH =
-            "$2a$10$7EqJtq98hPqEX7fNZaFWoOJZLh9E9x3tOWpz1FnQAksB2hSJVvzKS";
+    // BCrypt only considers the first 72 bytes of a secret; longer inputs are rejected.
+    private static final int BCRYPT_MAX_SECRET_BYTES = 72;
 
     private final ApiClientRepository apiClientRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+
+    // Valid BCrypt hash of a random value, computed at startup with the same encoder (and
+    // therefore the same cost) as the stored client secrets. Compared against on every
+    // "client not found" path so that an unknown client_id costs the same wall-clock time
+    // as a wrong secret (ES-03, NFR-S-EUD75-02) — otherwise the early return would be a
+    // timing oracle for client_id enumeration.
+    private final String dummySecretHash;
+
+    public ApiClientAuthenticationServiceImpl(
+            ApiClientRepository apiClientRepository,
+            PasswordEncoder passwordEncoder,
+            AuditService auditService) {
+        this.apiClientRepository = apiClientRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.auditService = auditService;
+        this.dummySecretHash = passwordEncoder.encode(UUID.randomUUID().toString());
+    }
 
     @Override
     public Mono<AuthenticatedApiClient> authenticateForToken(String tenant, String clientId, String clientSecret) {
@@ -63,7 +76,7 @@ public class ApiClientAuthenticationServiceImpl implements ApiClientAuthenticati
 
     private Mono<AuthenticatedApiClient> denyUnknownClient(String tenant, String clientId, String clientSecret) {
         // Burn the same BCrypt cost as a real comparison before denying.
-        return matches(clientSecret, DUMMY_SECRET_HASH)
+        return matches(clientSecret, dummySecretHash)
                 .then(deny(tenant, clientId, "client_not_found"));
     }
 
@@ -78,7 +91,13 @@ public class ApiClientAuthenticationServiceImpl implements ApiClientAuthenticati
     }
 
     private Mono<Boolean> matches(String rawSecret, String hash) {
-        return Mono.fromCallable(() -> passwordEncoder.matches(rawSecret == null ? "" : rawSecret, hash))
+        String secret = rawSecret == null ? "" : rawSecret;
+        // Over-long secrets would make BCrypt throw; burn the same cost against the hash and deny.
+        boolean tooLong = secret.getBytes(StandardCharsets.UTF_8).length > BCRYPT_MAX_SECRET_BYTES;
+        return Mono.fromCallable(() -> {
+                    boolean result = passwordEncoder.matches(tooLong ? "" : secret, hash);
+                    return result && !tooLong;
+                })
                 .subscribeOn(Schedulers.boundedElastic());
     }
 }

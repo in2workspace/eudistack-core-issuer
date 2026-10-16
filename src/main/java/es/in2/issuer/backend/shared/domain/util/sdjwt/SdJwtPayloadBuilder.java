@@ -47,8 +47,9 @@ public class SdJwtPayloadBuilder {
                 }
             }
 
-            // The profile's sd_claims are a minimum: any extra top-level business attribute is also selectively disclosable
-            if (commonParent == null) {
+            // The profile's sd_claims are a minimum: in a flat profile (only top-level claims) any extra
+            // business attribute is also selectively disclosable
+            if (isFlatProfile(sdJwtConfig.sdClaims())) {
                 credential.fieldNames().forEachRemaining(name -> {
                     if (!SdJwtReservedClaims.isReserved(name) && !sdJwtConfig.sdClaims().contains(name)) {
                         addDisclosure(name, credential.get(name), disclosures, sdDigests);
@@ -101,6 +102,10 @@ public class SdJwtPayloadBuilder {
         } catch (Exception e) {
             throw new RuntimeException("Failed to build SD-JWT payload", e);
         }
+    }
+
+    private boolean isFlatProfile(List<String> sdClaims) {
+        return !sdClaims.isEmpty() && sdClaims.stream().noneMatch(claim -> claim.contains("."));
     }
 
     private void addDisclosure(String claimName, JsonNode claimNode, List<Disclosure> disclosures, List<String> sdDigests) {

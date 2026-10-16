@@ -22,9 +22,23 @@ import java.util.List;
  * {@link org.springframework.security.web.server.SecurityWebFilterChain}. This guarantees
  * CORS headers are set regardless of which security chain handles the request and regardless
  * of how reverse proxies interpret the spring.webflux.base-path context path.
+ *
+ * <p><b>Two policies (SonarCloud S5122).</b> The paths external wallets call
+ * ({@code /.well-known/**}, {@code /oid4vci/**}, {@code /oauth/**}, {@code /credential-offer/**},
+ * {@code /w3c/**}, {@code /token/**}) are public by design and accept any origin, without credentials.
+ * {@code /api/**} (backoffice, issuances, me, intake) is not an OID4VCI path, so it only accepts the
+ * origins listed in {@code cors-origins.yaml} ({@link CorsOriginsLoader}, {@code app.cors.origins-path}).
+ * With an empty list no cross-origin caller is allowed; same-origin callers (the Portal de administración
+ * through the reverse proxy) and server-to-server callers (intake) are not subject to CORS.
  */
 @Configuration
 public class CorsConfig {
+
+    private final CorsOriginsLoader corsOriginsLoader;
+
+    public CorsConfig(CorsOriginsLoader corsOriginsLoader) {
+        this.corsOriginsLoader = corsOriginsLoader;
+    }
 
     @Bean
     public UrlBasedCorsConfigurationSource corsConfigurationSource() {
@@ -44,9 +58,20 @@ public class CorsConfig {
         source.registerCorsConfiguration("/credential-offer/**", publicConfig);
         source.registerCorsConfiguration("/w3c/**", publicConfig);
         source.registerCorsConfiguration("/token/**", publicConfig);
-        source.registerCorsConfiguration("/api/**", publicConfig);
+        source.registerCorsConfiguration("/api/**", apiConfig());
 
         return source;
+    }
+
+    // /api/** is not public: only the configured origins may call it cross-origin.
+    private CorsConfiguration apiConfig() {
+        CorsConfiguration apiConfig = new CorsConfiguration();
+        apiConfig.setAllowedOrigins(corsOriginsLoader.loadOrigins());
+        apiConfig.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        apiConfig.setAllowedHeaders(List.of("Content-Type", "Authorization"));
+        apiConfig.setAllowCredentials(false);
+        apiConfig.setMaxAge(1800L);
+        return apiConfig;
     }
 
     // Standalone filter — runs before all SecurityWebFilterChains so CORS headers are
