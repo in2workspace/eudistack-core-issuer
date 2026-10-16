@@ -4,7 +4,6 @@ import es.in2.issuer.backend.oidc4vci.application.workflow.CredentialOfferRefres
 import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialOfferExpiredException;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.domain.exception.CredentialOfferNotFoundException;
-import es.in2.issuer.backend.shared.domain.exception.CredentialAlreadyActiveException;
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferResult;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
@@ -60,10 +59,8 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
 
     private Mono<Issuance> validateDraftStatus(Issuance issuance) {
         CredentialStatusEnum status = issuance.getCredentialStatus();
-        if (status == CredentialStatusEnum.ISSUED || status == CredentialStatusEnum.VALID) {
-            log.warn("Refresh rejected: procedure {} is already ACTIVE (status={})", issuance.getIssuanceId(), status);
-            return Mono.error(new CredentialAlreadyActiveException("The credential is already active."));
-        }
+        // Only a DRAFT issuance can get a new offer. Every other status (issued, valid, revoked,
+        // withdrawn, expired...) answers the same way, so the holder sees a single message.
         if (status != CredentialStatusEnum.DRAFT) {
             log.warn("Refresh rejected: procedure {} is in status {}", issuance.getIssuanceId(), status);
             return Mono.error(new CredentialOfferExpiredException("This credential offer can no longer be refreshed"));
