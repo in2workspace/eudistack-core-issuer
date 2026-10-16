@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (EUD-301)
+
+- **EUD-301 — Additional business attributes in SD-JWT VC issuance**: attributes that a profile's `sd_claims` does not list are no longer dropped silently; they are issued as selectively disclosable claims.
+- **EUD-301 — Reserved claim names**: an additional attribute named like a claim the issuer owns (`iss`, `vct`, `cnf`, `status`, `iat`, `exp`...) is rejected with `payload_validation_error`.
+
+### Changed(EUD-301)
+
+- **EUD-301 — Issuance payload validated against the full per-format schema**: types without a `mandate` subtree, such as DoctorID, are now validated too. A missing mandatory attribute or a declared attribute with the wrong data type is rejected with `payload_validation_error`.
+- **EUD-301 — Credential profiles synced**: DoctorID v1 now follows the DC4EU schema (`givenName`, `familyName`, `personal_administrative_number`, `medical_board`, `medical_speciality`, `legally_entitled`) and LEAR Employee W3C admits additional attributes in `mandatee` and `mandator`.
+
 ### Fixed
 - **`GET /api/v1/issuances/{id}` answers a malformed `id` with `404 Not Found`** (`CREDENTIAL_NOT_FOUND`, as for an unknown id) instead of a generic `500`, and no longer echoes the malformed value in the error message.
 - **Improved credential offer redemption flow**: the redemption of a credential offer now marks it as consumed instead of deleting it from the cache, and respects a logical expiry. This enables the OIDC4VCI endpoint to return `410 Gone` with specific error codes (`credential_offer_expired` or `credential_already_issued`) for a retention period, replacing generic errors and allowing for better UX in the wallet.
