@@ -460,7 +460,7 @@ class SharedExceptionHandlerTest {
     @Test
     void handleLearIssuancePolicyExceptionAddsReasonCode() {
         var ex = new LearIssuancePolicyException(
-                LearIssuancePolicyException.Reason.ONBOARDING_DELEGATION_SAME_ORG, "same org");
+                LearIssuancePolicyException.Reason.ON_BEHALF_REQUIRES_TENANT_ADMIN, "same org");
         var type = GlobalErrorTypes.INSUFFICIENT_PERMISSION.getCode();
         var title = "Insufficient permission";
         var st = HttpStatus.FORBIDDEN;
@@ -472,7 +472,7 @@ class SharedExceptionHandlerTest {
         StepVerifier.create(handler.handleLearIssuancePolicyException(ex, request))
                 .assertNext(gem -> {
                     assertGem(gem, type, title, st, "same org");
-                    assertEquals("onboarding_delegation_same_org", gem.reason());
+                    assertEquals("on_behalf_requires_tenant_admin", gem.reason());
                 })
                 .verifyComplete();
     }

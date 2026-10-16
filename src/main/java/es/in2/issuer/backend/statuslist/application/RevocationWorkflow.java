@@ -9,7 +9,10 @@ import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
-import es.in2.issuer.backend.shared.domain.policy.service.StatusListPdpService;
+import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
+import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.policy.CallerResolver;
+import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.statuslist.domain.spi.StatusListProvider;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
@@ -46,7 +49,8 @@ public class RevocationWorkflow {
 
     private final StatusListProvider statusListProvider;
     private final AccessTokenService accessTokenService;
-    private final StatusListPdpService statusListPdpService;
+    private final CallerResolver callerResolver;
+    private final PowerAuthorizationService powerAuthorizationService;
     private final IssuanceService issuanceService;
     private final EmailService emailService;
     private final AuditService auditService;
@@ -77,7 +81,7 @@ public class RevocationWorkflow {
                                         issuanceId,
                                         reason,
                                         actor,
-                                        (pid, t, issuance) -> statusListPdpService.validateRevokeCredential(pid, t, issuance),
+                                        this::authorizeOperatorRevocation,
                                         "revokeCredential",
                                         publicIssuerBaseUrl,
                                         null
@@ -115,11 +119,32 @@ public class RevocationWorkflow {
                 issuanceId,
                 reason,
                 actor,
-                (pid, t, issuance) -> statusListPdpService.validateRevokeCredentialSystem(pid, issuance),
+                (pid, t, issuance) -> requireRevocable(issuance),
                 "revokeSystemCredential",
                 publicIssuerBaseUrl,
                 tenantSource
         );
+    }
+
+    /**
+     * R1 (EUD-253): decided by the caller's powers and the organization stored with the process, the
+     * same for a person and a system. The decision goes first so that an attestation outside the
+     * caller's scope reads as not found whatever its status, and the platform administrator's attempt
+     * on an already revoked one is traced as a security action before it is rejected (AC-10).
+     */
+    private Mono<Void> authorizeOperatorRevocation(String processId, String token, Issuance issuance) {
+        log.info("Process ID: {} - Validating 'revoke' action...", processId);
+        return callerResolver.fromToken(token)
+                .flatMap(caller -> powerAuthorizationService.authorize(PowerAuthorizationService.REVOKE, caller,
+                        issuance.getOrganizationIdentifier(), String.valueOf(issuance.getIssuanceId())))
+                .then(Mono.defer(() -> requireRevocable(issuance)));
+    }
+
+    private static Mono<Void> requireRevocable(Issuance issuance) {
+        if (issuance.getCredentialStatus() == CredentialStatusEnum.VALID) {
+            return Mono.empty();
+        }
+        return Mono.error(new InvalidStatusException("Invalid status: " + issuance.getCredentialStatus()));
     }
 
     private Mono<String> resolveActor() {
@@ -200,6 +225,9 @@ public class RevocationWorkflow {
         }
         if (error instanceof TenantMismatchException) {
             return "tenant_mismatch";
+        }
+        if (error instanceof InsufficientPermissionException) {
+            return "insufficient_permission";
         }
         return error.getClass().getSimpleName();
     }

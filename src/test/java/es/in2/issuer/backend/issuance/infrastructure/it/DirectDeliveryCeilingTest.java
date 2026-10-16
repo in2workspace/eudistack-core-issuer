@@ -12,7 +12,8 @@ import es.in2.issuer.backend.issuance.infrastructure.controller.IssuanceExceptio
 import es.in2.issuer.backend.issuance.infrastructure.controller.IssuanceHttpEnvelopeMapper;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
-import es.in2.issuer.backend.shared.domain.policy.service.IssuancePdpService;
+import es.in2.issuer.backend.shared.domain.policy.IssuanceAuthorization;
+import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
@@ -73,7 +74,7 @@ class DirectDeliveryCeilingTest {
             .build();
 
     private PayloadSchemaValidator payloadSchemaValidator;
-    private IssuancePdpService issuancePdpService;
+    private PowerAuthorizationService powerAuthorizationService;
     private IssuanceService issuanceService;
     private CredentialOfferService credentialOfferService;
     private CredentialSignerWorkflow credentialSignerWorkflow;
@@ -89,7 +90,7 @@ class DirectDeliveryCeilingTest {
         SchemaDeliveryCeiling schemaDeliveryCeiling = new SchemaDeliveryCeiling(credentialProfileRegistry);
 
         payloadSchemaValidator = mock(PayloadSchemaValidator.class);
-        issuancePdpService = mock(IssuancePdpService.class);
+        powerAuthorizationService = mock(PowerAuthorizationService.class);
         issuanceService = mock(IssuanceService.class);
         credentialOfferService = mock(CredentialOfferService.class);
         credentialSignerWorkflow = mock(CredentialSignerWorkflow.class);
@@ -110,12 +111,13 @@ class DirectDeliveryCeilingTest {
         // SchemaDeliveryCeiling at all. Real objects have nothing to say here -- they are the
         // I/O boundaries this test stubs, not the rule under test.
         when(payloadSchemaValidator.validate(any(), any())).thenReturn(Mono.empty());
-        when(issuancePdpService.authorize(any(), any(), any())).thenReturn(Mono.empty());
+        when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(new IssuanceAuthorization(null, "ORG", java.util.List.of("E1"))));
 
         IssuanceWorkflowImpl issuanceWorkflow = new IssuanceWorkflowImpl(
                 issuanceService,
                 credentialOfferService,
-                issuancePdpService,
+                powerAuthorizationService,
                 payloadSchemaValidator,
                 credentialProfileRegistry,
                 issuanceMetrics,
@@ -138,6 +140,7 @@ class DirectDeliveryCeilingTest {
                 issuanceWorkflow,
                 mock(IssuanceService.class),
                 mock(AccessTokenService.class),
+                mock(PowerAuthorizationService.class),
                 mock(RevocationWorkflow.class),
                 urlResolver,
                 new IssuanceHttpEnvelopeMapper()

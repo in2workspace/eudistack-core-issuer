@@ -1,5 +1,11 @@
 package es.in2.issuer.backend.issuance.infrastructure.controller;
 
+import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
+import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
+import es.in2.issuer.backend.shared.domain.policy.AuthorizationMatrix;
+import es.in2.issuer.backend.shared.domain.policy.Caller;
+import es.in2.issuer.backend.shared.domain.policy.RecognizedCaller;
+import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
@@ -81,6 +87,9 @@ class IssuanceControllerTest {
     private AccessTokenService accessTokenService;
 
     @MockitoBean
+    private PowerAuthorizationService powerAuthorizationService;
+
+    @MockitoBean
     private RevocationWorkflow revocationWorkflow;
 
     @MockitoBean
@@ -105,7 +114,7 @@ class IssuanceControllerTest {
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(BEARER_TOKEN),
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN),
                 eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .credentialOfferUri(credentialOfferUri)
@@ -146,7 +155,7 @@ class IssuanceControllerTest {
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(BEARER_TOKEN),
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN),
                 eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .credentialOfferUri(credentialOfferUri)
@@ -183,7 +192,7 @@ class IssuanceControllerTest {
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(BEARER_TOKEN),
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN),
                 eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .deliveryResults(List.of(
@@ -216,7 +225,7 @@ class IssuanceControllerTest {
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .credentialOfferUri(credentialOfferUri)
                         .deliveryResults(List.of(DeliveryResult.dispatched("ui")))
@@ -244,7 +253,7 @@ class IssuanceControllerTest {
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .signedCredential(signedCredential)
                         .deliveryResults(List.of(DeliveryResult.delivered("direct")))
@@ -271,7 +280,7 @@ class IssuanceControllerTest {
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .signedCredential("signed-jwt")
                         .credentialOfferUri("openid-credential-offer://x")
@@ -309,7 +318,7 @@ class IssuanceControllerTest {
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .credentialOfferUri(credentialOfferUri)
                         .deliveryResults(List.of(
@@ -438,7 +447,7 @@ class IssuanceControllerTest {
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(BEARER_TOKEN), any(), any()))
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), any(), any()))
                 .thenReturn(Mono.error(new InvalidDeliveryModeException(detail)));
         when(errorResponseFactory.handleWith(any(), any(), eq("invalid_request"), eq("Invalid request"),
                 eq(HttpStatus.BAD_REQUEST), anyString()))
@@ -465,7 +474,7 @@ class IssuanceControllerTest {
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(BEARER_TOKEN), any(), any()))
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), any(), any()))
                 .thenReturn(Mono.error(new DeliveryModeNotEligibleException(detail)));
         when(errorResponseFactory.handleWith(any(), any(), eq("delivery_mode_not_eligible"),
                 eq("Delivery mode not eligible"), eq(HttpStatus.CONFLICT), anyString()))
@@ -491,7 +500,7 @@ class IssuanceControllerTest {
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), isNull(), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder().build()));
 
         webTestClient.mutateWith(csrf())
@@ -505,32 +514,11 @@ class IssuanceControllerTest {
                 .expectBody().isEmpty();
     }
 
-    @Test
-    void createIssuance_WithIdToken_PassesIdTokenToWorkflow() throws JsonProcessingException {
-        String idToken = "id-token-value";
-        IssuanceRequest request = buildIssuanceRequest();
-
-        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(idToken), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
-                .thenReturn(Mono.just(IssuanceResponse.builder().build()));
-
-        webTestClient.mutateWith(csrf())
-                .post()
-                .uri(ISSUANCES_PATH)
-                .header("Authorization", BEARER_TOKEN)
-                .header("X-Id-Token", idToken)
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(objectMapper.writeValueAsString(request))
-                .exchange()
-                .expectStatus().isAccepted()
-                .expectBody().isEmpty();
-    }
 
     @Test
     void getAllIssuances_ReturnsIssuanceList() {
         String orgId = "testOrganizationId";
-        AuthorizationContext authCtx = new AuthorizationContext(orgId, UserRole.LEAR, false, "multi_org");
+        AuthorizationDecision authCtx = organizationAdminDecision(orgId);
 
         IssuanceSummary summary = IssuanceSummary.builder()
                 .issuanceId(UUID.randomUUID())
@@ -546,7 +534,7 @@ class IssuanceControllerTest {
                 .issuances(List.of(new IssuanceList.IssuanceEntry(summary)))
                 .build();
 
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(powerAuthorizationService.authorize(eq(PowerAuthorizationService.QUERY), any(), any()))
                 .thenReturn(Mono.just(authCtx));
         when(issuanceService.getAllIssuancesVisibleFor(authCtx))
                 .thenReturn(Mono.just(issuanceList));
@@ -566,7 +554,7 @@ class IssuanceControllerTest {
     @Test
     void getAllIssuances_OmitsExpiresAtWhenThereIsNoExpiry() {
         String orgId = "testOrganizationId";
-        AuthorizationContext authCtx = new AuthorizationContext(orgId, UserRole.LEAR, false, "multi_org");
+        AuthorizationDecision authCtx = organizationAdminDecision(orgId);
 
         IssuanceSummary summary = IssuanceSummary.builder()
                 .issuanceId(UUID.randomUUID())
@@ -576,7 +564,7 @@ class IssuanceControllerTest {
                 .organizationIdentifier(orgId)
                 .build();
 
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(powerAuthorizationService.authorize(eq(PowerAuthorizationService.QUERY), any(), any()))
                 .thenReturn(Mono.just(authCtx));
         when(issuanceService.getAllIssuancesVisibleFor(authCtx))
                 .thenReturn(Mono.just(IssuanceList.builder()
@@ -598,7 +586,7 @@ class IssuanceControllerTest {
     void getIssuance_ReturnsCredentialDetails() {
         String orgId = "testOrganizationId";
         String issuanceId = "test-issuance-id";
-        AuthorizationContext authCtx = new AuthorizationContext(orgId, UserRole.LEAR, false, "multi_org");
+        AuthorizationDecision authCtx = organizationAdminDecision(orgId);
 
         CredentialDetails details = CredentialDetails.builder()
                 .issuanceId(UUID.randomUUID())
@@ -607,7 +595,7 @@ class IssuanceControllerTest {
                 .credential(null)
                 .build();
 
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(powerAuthorizationService.authorize(eq(PowerAuthorizationService.QUERY), any(), any()))
                 .thenReturn(Mono.just(authCtx));
         when(issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(authCtx, issuanceId))
                 .thenReturn(Mono.just(details));
@@ -734,5 +722,29 @@ class IssuanceControllerTest {
                 .payload(objectMapper.createObjectNode().put("key", "value"))
                 .email("test@example.com")
                 .build();
+    }
+
+    private static AuthorizationDecision organizationAdminDecision(String orgId) {
+        Caller caller = new Caller(orgId, List.of(), "sandbox", "learcredential.machine.w3c.3", "sub", "jti");
+        RecognizedCaller recognized = new RecognizedCaller(caller, "sandbox", RecognizedCaller.ORGANIZATION_ADMIN,
+                RecognizedCaller.ORGANIZATION_ADMIN, false, false);
+        return new AuthorizationDecision(PowerAuthorizationService.QUERY, recognized, AuthorizationMatrix.Scope.OWN_ORGANIZATION);
+    }
+
+    /** The 403 mapping of the denial is SharedExceptionHandler's (SharedExceptionHandlerTest), not part of this slice. */
+    @Test
+    void getAllIssuances_DeniedByAuthorization_NeverQueries() {
+        when(powerAuthorizationService.authorize(eq(PowerAuthorizationService.QUERY), any(), any()))
+                .thenReturn(Mono.error(new LearIssuancePolicyException(
+                        LearIssuancePolicyException.Reason.OPERATOR_LACKS_ONBOARDING, "no power")));
+
+        webTestClient
+                .get()
+                .uri(ISSUANCES_PATH)
+                .header("Authorization", "Bearer testToken")
+                .exchange()
+                .expectStatus().value(status -> org.assertj.core.api.Assertions.assertThat(status).isNotEqualTo(200));
+
+        org.mockito.Mockito.verifyNoInteractions(issuanceService);
     }
 }

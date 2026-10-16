@@ -29,6 +29,11 @@ public record AuthorizationContext(
         return !readOnly;
     }
 
+    /** Whether the caller holds an administration power in the tenant (any role but {@link UserRole#USER}). */
+    public boolean isAdministrator() {
+        return role != UserRole.USER;
+    }
+
     /**
      * Whether the caller may read the tenant's credential catalog (EUD-169, AD-16):
      * a tenant administrator, SysAdmin (including its cross-tenant read-only view over

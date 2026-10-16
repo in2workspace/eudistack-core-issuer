@@ -5,7 +5,6 @@ import es.in2.issuer.backend.oidc4vci.application.workflow.impl.Oid4VciCredentia
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
-import es.in2.issuer.backend.shared.domain.exception.MissingIdTokenHeaderException;
 import es.in2.issuer.backend.shared.domain.exception.TenantNotResolvedException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialBuildResult;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
@@ -16,7 +15,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.Credenti
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
-import es.in2.issuer.backend.shared.domain.policy.service.IssuancePdpService;
+import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.service.*;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
@@ -43,6 +42,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -62,7 +62,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private final IssuanceService issuanceService;
     private final CredentialOfferService credentialOfferService;
-    private final IssuancePdpService issuancePdpService;
+    private final PowerAuthorizationService powerAuthorizationService;
     private final PayloadSchemaValidator payloadSchemaValidator;
     private final CredentialProfileRegistry credentialProfileRegistry;
     private final IssuanceMetrics issuanceMetrics;
@@ -81,7 +81,6 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     public Mono<IssuanceResponse> issueCredential(
             String processId,
             IssuanceRequest request,
-            String idToken,
             String bearerToken,
             String publicIssuerBaseUrl,
             String publicWalletBaseUrl) {
@@ -91,10 +90,15 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         String delivery = request.delivery() != null ? request.delivery() : DEFAULT_DELIVERY;
 
         return requireResolvedTenant()
-                .then(Mono.defer(() -> validateRequest(request, idToken)))
+                .then(Mono.defer(() -> validateRequest(request)))
                 .then(Mono.defer(() -> payloadSchemaValidator.validate(configId, request.payload())))
-                .then(Mono.defer(() -> issuancePdpService.authorize(configId, request.payload(), idToken)))
-                .then(Mono.defer(() -> performIssuanceFlow(processId, request, bearerToken, publicIssuerBaseUrl, publicWalletBaseUrl, delivery)))
+                .then(Mono.defer(() -> powerAuthorizationService.authorizeIssuance(processId, configId,
+                        credentialProfileRegistry.getByConfigurationId(configId).credentialType(),
+                        request.organization(), request.payload())))
+                // FR-07: the process belongs to the organization the decision set, never to the content.
+                .flatMap(authorization -> performIssuanceFlow(processId,
+                        request.withOrganization(authorization.organizationIdentifier()),
+                        bearerToken, publicIssuerBaseUrl, publicWalletBaseUrl, delivery))
                 .transformDeferredContextual((flow, ctx) -> {
                     String tenant = ctx.hasKey(TENANT_DOMAIN_CONTEXT_KEY) ? ctx.get(TENANT_DOMAIN_CONTEXT_KEY) : null;
                     return flow
@@ -143,6 +147,24 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         }
     }
 
+    /**
+     * FR-13: the issued attestation, its organization and type, under the same {@code processId} as the
+     * authorization decision that names the caller's attestation -- together they are the evidence of
+     * who asked for what. Best-effort: the process is already saved.
+     */
+    private void auditIssuanceCreatedBestEffort(String processId, Issuance issuance) {
+        try {
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("processId", processId);
+            details.put("organization", issuance.getOrganizationIdentifier());
+            details.put("credentialType", issuance.getCredentialType());
+            auditService.auditSuccess("issuance.created", issuance.getOrganizationIdentifier(), "issuance",
+                    String.valueOf(issuance.getIssuanceId()), details);
+        } catch (RuntimeException e) {
+            log.warn("ProcessId: {} - Failed to emit issuance audit trace", processId, e);
+        }
+    }
+
     /** Best-effort (ES-03/ES-04). Failure path has no per-mode result (ES-01: indeterminate). */
     private void auditDeliveryFailureBestEffort(String tenant, String processId) {
         try {
@@ -165,29 +187,23 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         String delivery = request.delivery() != null ? request.delivery() : DEFAULT_DELIVERY;
 
         return Mono.fromCallable(() -> keepOnlyOid4vciDeliveryModes(delivery))
-                .flatMap(safeDelivery -> validateRequest(request, null)
+                .flatMap(safeDelivery -> validateRequest(request)
                         .then(Mono.defer(() -> payloadSchemaValidator.validate(request.credentialConfigurationId(), request.payload())))
                         .then(Mono.defer(() -> performIssuanceFlow(processId, request, token, publicIssuerBaseUrl, publicWalletBaseUrl, safeDelivery))));
     }
 
-    private Mono<Void> validateRequest(IssuanceRequest request, String idToken) {
+    private Mono<Void> validateRequest(IssuanceRequest request) {
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(request.credentialConfigurationId());
         if (profile == null) {
             return Mono.error(new CredentialTypeUnsupportedException(
                     "Unknown credential_configuration_id: " + request.credentialConfigurationId()));
-        }
-        if (requiresIdToken(profile) && idToken == null) {
-            return Mono.error(new MissingIdTokenHeaderException(
-                    "Missing required ID Token header for VerifiableCertification issuance."));
         }
         return Mono.empty();
     }
 
     /**
      * @param bearerToken the caller's token, used by the direct mode alone: it signs the credential and
-     *                    may have to sign a new status list inside this same request. Not the
-     *                    {@code X-Id-Token}, which is an optional identity assertion for the PDP and is
-     *                    absent on every profile that does not require it (EUD-168).
+     *                    may have to sign a new status list inside this same request (EUD-168).
      */
     private Mono<IssuanceResponse> performIssuanceFlow(String processId, IssuanceRequest request, String bearerToken,
                                                         String publicIssuerBaseUrl, String publicWalletBaseUrl, String delivery) {
@@ -491,9 +507,10 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                                 CredentialStatusEnum finalStatus = determineFinalStatus(buildResult);
                                                                 Issuance issuance = buildDirectIssuanceEntity(
                                                                         issuanceId, configId, credentialFormat,
-                                                                        buildResult, enrichedWithStatus,
+                                                                        buildResult, enrichedWithStatus, organizationOf(request),
                                                                         request.email(), originalDelivery, finalStatus, cnf);
                                                                 return issuanceService.saveIssuance(issuance)
+                                                                        .doOnSuccess(saved -> auditIssuanceCreatedBestEffort(processId, issuance))
                                                                         .doOnSuccess(saved -> log.debug(
                                                                                 "ProcessId: {} - Direct issuance saved: {} status={}",
                                                                                 processId, saved.getIssuanceId(), finalStatus))
@@ -558,6 +575,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
                     return issuanceService.saveIssuance(issuance)
                             .doOnSuccess(saved -> log.debug("ProcessId: {} - Created OID4VCI issuance: {}", processId, saved.getIssuanceId()))
+                            .doOnSuccess(saved -> auditIssuanceCreatedBestEffort(processId, issuance))
                             .flatMap(saved -> credentialOfferService.createAndDeliverCredentialOffer(
                                             saved.getIssuanceId().toString(), configId, grantType, request.email(),
                                             oid4vciDelivery, saved.getCredentialOfferRefreshToken(),
@@ -582,7 +600,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 .credentialStatus(CredentialStatusEnum.DRAFT)
                 .credentialDataSet(buildResult.credentialDataSet())
                 .credentialFormat(profile.format())
-                .organizationIdentifier(buildResult.organizationIdentifier())
+                .organizationIdentifier(organizationOf(request))
                 .credentialType(request.credentialConfigurationId())
                 .subject(buildResult.subject())
                 .validFrom(buildResult.validFrom())
@@ -610,6 +628,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private Issuance buildDirectIssuanceEntity(UUID issuanceId, String credentialType, String credentialFormat,
                                                 CredentialBuildResult buildResult, String enrichedDataSet,
+                                                String organizationIdentifier,
                                                 String email, String delivery, CredentialStatusEnum status,
                                                 Map<String, Object> cnf) {
         return Issuance.builder()
@@ -617,7 +636,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 .credentialStatus(status)
                 .credentialDataSet(enrichedDataSet)
                 .credentialFormat(credentialFormat)
-                .organizationIdentifier(buildResult.organizationIdentifier())
+                .organizationIdentifier(organizationIdentifier)
                 .credentialType(credentialType)
                 .subject(buildResult.subject())
                 .validFrom(buildResult.validFrom())
@@ -667,9 +686,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         return oid4vciDelivery;
     }
 
-    private boolean requiresIdToken(CredentialProfile profile) {
-        return profile.issuancePolicy() != null
-                && profile.issuancePolicy().rules() != null
-                && profile.issuancePolicy().rules().contains("RequireCertificationIssuance");
+    /** The organization the process belongs to, as authorization (or bootstrap) set it on the request. */
+    private static String organizationOf(IssuanceRequest request) {
+        return request.organization() != null ? request.organization() : "";
     }
 }

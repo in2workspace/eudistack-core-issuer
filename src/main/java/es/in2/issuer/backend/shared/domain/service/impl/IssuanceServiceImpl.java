@@ -11,7 +11,7 @@ import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeExcept
 import es.in2.issuer.backend.shared.domain.exception.NoCredentialFoundException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
-import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
+import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
@@ -163,11 +163,11 @@ public class IssuanceServiceImpl implements IssuanceService {
     }
 
     @Override
-    public Mono<CredentialDetails> getIssuanceDetailByIssuanceIdAndOrganizationId(AuthorizationContext ctx, String issuanceId) {
-        // Tenant isolation enforced by search_path.
-        // sysAdmin from platform → cross-tenant search.
-        // sysAdmin/tenantAdmin → any issuance within current tenant.
-        // LEAR → filtered by organization.
+    public Mono<CredentialDetails> getIssuanceDetailByIssuanceIdAndOrganizationId(AuthorizationDecision decision, String issuanceId) {
+        // Tenant isolation enforced by search_path; the scope comes from the authorization decision (C1).
+        // Platform administrator from the platform tenant → cross-tenant read-only search.
+        // Scope on any organization → any issuance within the current tenant.
+        // Scope on its own organization → filtered by organization (another one's reads as not found).
         UUID id;
         try {
             id = UUID.fromString(issuanceId);
@@ -175,7 +175,7 @@ public class IssuanceServiceImpl implements IssuanceService {
             return Mono.error(new NoCredentialFoundException("No credential found for a malformed issuanceId"));
         }
         Mono<Issuance> issuanceMono;
-        if (ctx.isSysAdmin() && ctx.readOnly()) {
+        if (decision.caller().readOnly()) {
             log.debug("Platform admin cross-tenant access for issuanceId: {}", id);
             issuanceMono = tenantRegistryService.getActiveTenantSchemas()
                     .flatMapMany(Flux::fromIterable)
@@ -184,11 +184,11 @@ public class IssuanceServiceImpl implements IssuanceService {
                                     .contextWrite(c -> c.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
                     )
                     .next();
-        } else if (ctx.isTenantAdmin()) {
-            log.debug("TenantAdmin access for issuanceId: {}", id);
+        } else if (decision.anyOrganization()) {
+            log.debug("Tenant-wide access for issuanceId: {}", id);
             issuanceMono = issuancePort.findByIssuanceId(id);
         } else {
-            issuanceMono = issuancePort.findByIssuanceIdAndOrganizationIdentifier(id, ctx.organizationIdentifier());
+            issuanceMono = issuancePort.findByIssuanceIdAndOrganizationIdentifier(id, decision.caller().organizationIdentifier());
         }
         return issuanceMono
                 .switchIfEmpty(Mono.error(new NoCredentialFoundException("No credential found for issuanceId: " + issuanceId)))
@@ -302,18 +302,19 @@ public class IssuanceServiceImpl implements IssuanceService {
     }
 
     @Override
-    public Mono<IssuanceList> getAllIssuancesVisibleFor(AuthorizationContext ctx) {
-        // Tenant isolation is enforced by the search_path (TenantAwareConnectionFactory).
-        // - sysAdmin + platform tenant → cross-tenant read-only view (all tenants, with tenant column)
-        // - sysAdmin/tenantAdmin       → all issuances within the current tenant (no org filter)
-        // - LEAR                       → only issuances from their organization
-        if (ctx.isSysAdmin() && ctx.readOnly()) {
+    public Mono<IssuanceList> getAllIssuancesVisibleFor(AuthorizationDecision decision) {
+        // Tenant isolation is enforced by the search_path (TenantAwareConnectionFactory); the scope
+        // comes from the authorization decision (C1):
+        // - platform administrator in the platform tenant → cross-tenant read-only view (with tenant column)
+        // - scope on any organization                     → all issuances within the current tenant
+        // - scope on its own organization                 → only issuances from its organization
+        if (decision.caller().readOnly()) {
             return buildCrossTenantIssuanceList();
         }
-        if (ctx.isTenantAdmin()) {
+        if (decision.anyOrganization()) {
             return toIssuanceList(issuancePort.findAllOrderByUpdatedDesc());
         }
-        return getAllIssuanceSummariesByOrganizationId(ctx.organizationIdentifier());
+        return getAllIssuanceSummariesByOrganizationId(decision.caller().organizationIdentifier());
     }
 
     private Mono<IssuanceList> buildCrossTenantIssuanceList() {
@@ -405,13 +406,12 @@ public class IssuanceServiceImpl implements IssuanceService {
                                 "Unknown credential configuration: " + configId));
                     }
 
-                    // If the profile has organization extraction, use it to get the org name
-                    if (profile.organizationExtraction() != null
-                            && !"none".equals(profile.organizationExtraction().strategy())) {
+                    // Display only: the email names the mandator's organization when the type has one
+                    if (mandatorPathFromValidation(profile) != null) {
                         return extractOrganizationFromCredential(issuance, issuanceId);
                     }
 
-                    // No organization extraction (e.g., label credentials) → use system tenant
+                    // No mandator (e.g., label credentials) → use system tenant
                     return Mono.just(new CredentialOfferEmailNotificationInfo(
                             issuance.getEmail(),
                             appConfig.getSysTenant()

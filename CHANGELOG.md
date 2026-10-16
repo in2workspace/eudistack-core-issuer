@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **EUD-272 (EUD-253) — Power-based authorization of issuance, query and revocation.** A single decision point (`PowerAuthorizationService`) decides actions `E1`–`E6`, `E9`, `C1`, `C2` and `R1` from the caller's powers, the `X-Tenant` of the request and the organization stored with each process, following the action matrix of the PRD (`authorization/authorization-matrix.yaml`). The rules are configuration: `APP_AUTHORIZATION_MATRIX_PATH` points to an external copy that is re-read when it changes (no redeploy, no restart); an invalid change is rejected and the previous rules stay. Persons and systems get the same decision, for every attestation type.
+  - The tenant administrator is recognized by `organization · <tenant> · Onboarding · Execute`, no longer by `tenant_config.admin_organization_id`. **Deploy note:** current tenant administrator attestations must be reissued with that power (operation, point 2).
+  - `GET /api/v1/me` can answer the new role `USER` (an attestation of the tenant without administration powers), which can no longer list, see, withdraw, archive or issue.
+  - The platform administrator no longer bypasses the checks: inside a tenant it acts as its administrator (same checks, traced as a security action); from the `platform` tenant it can only read.
+  - Issuance requires the power of the tenant's domain. Product certifications (`gx:LabelCredential`) require `domain · <tenant> · Certification · Attest`, whatever the user type, and no longer need `X-Id-Token` (the header is ignored).
+  - Who may grant each power (FR-10) is an explicit rule: the tenant administrator power only the platform administrator (`E4`); administering an organization and certifying, the tenant administrator (`E3`, `E5`), in any tenant — the `multi_org` and "only on behalf" restrictions are gone; a power outside the tenant's domain, only the platform administrator (`E9`).
+  - The organization of a process is the caller's or, for a tenant administrator, the new optional `organization` field of `POST /api/v1/issuances` (EUD-268); it is never read from the content. Types without `organization_extraction` (Doctor ID) are now issued and stored with an organization.
+  - Listing and detail (`C1`) require `Onboarding · Execute` of the tenant; an organization administrator sees its organization only. A revocation of another organization's attestation answers `404 issuance_not_found` and the trace keeps the reason (`resource_out_of_scope`).
+  - Every decision is audited (`authorization.permit` / `authorization.deny`) with caller, user type, action, power, resource, reason and `processId`; the issued attestation is audited as `issuance.created` under the same `processId`.
+  - The power type is compared in lowercase only (`Domain` is not recognized).
+  - The tenant is taken only from the `X-Tenant` header, never from the request host (point 12). **Deploy note:** the entry infrastructure must always set it (EUD-274).
+  - New `LearIssuancePolicyException` reason codes: `tenant_admin_delegation_requires_platform_admin`, `foreign_domain_delegation_requires_platform_admin`, `certification_power_required`, `platform_tenant_read_only`, `authorization_rule_missing`; removed `onboarding_delegation_requires_multi_org`, `onboarding_delegation_same_org`, `certification_delegation_requires_multi_org`, `mandator_organization_missing`, `on_behalf_requires_multi_org` (deploy with the matching `eudistack-mfe-credential-manager`).
+
+### Removed
+- **EUD-272 — per-type issuance policy and content-based extraction**: `issuance_policy`, `organization_extraction` and `policy_extraction` are no longer read from credential profiles (unknown keys are still ignored), together with `PolicyContext(Factory)`, `PolicyEnforcer`, the `Require*Rule` classes, `IssuancePdpService`, `StatusListPdpService` and `DynamicCredentialParser`.
+
 ### Fixed
 - **`GET /api/v1/issuances/{id}` answers a malformed `id` with `404 Not Found`** (`CREDENTIAL_NOT_FOUND`, as for an unknown id) instead of a generic `500`, and no longer echoes the malformed value in the error message.
 - **Improved credential offer redemption flow**: the redemption of a credential offer now marks it as consumed instead of deleting it from the cache, and respects a logical expiry. This enables the OIDC4VCI endpoint to return `410 Gone` with specific error codes (`credential_offer_expired` or `credential_already_issued`) for a retention period, replacing generic errors and allowing for better UX in the wallet.

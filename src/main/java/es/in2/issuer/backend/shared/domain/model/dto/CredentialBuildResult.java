@@ -8,7 +8,6 @@ import java.sql.Timestamp;
 public record CredentialBuildResult(
         String credentialDataSet,
         String subject,
-        String organizationIdentifier,
         Timestamp validFrom,
         Timestamp validUntil
 ) {

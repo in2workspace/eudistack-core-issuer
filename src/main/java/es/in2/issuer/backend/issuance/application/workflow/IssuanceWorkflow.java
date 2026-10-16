@@ -7,13 +7,14 @@ import reactor.core.publisher.Mono;
 public interface IssuanceWorkflow {
 
     /**
-     * @param idToken     optional {@code X-Id-Token}, the DOME identity assertion some profiles require
-     *                    for authorization. Never a bearer credential.
+     * Issues on behalf of the current caller once the power-based authorization permits it; the
+     * process belongs to the organization that decision sets (EUD-253 FR-07).
+     *
      * @param bearerToken the caller's {@code Authorization} header. The direct delivery mode signs
      *                    inside this request, so it needs a caller token of its own; the wallet modes
      *                    sign later, against their own OID4VCI access token, and ignore it.
      */
-    Mono<IssuanceResponse> issueCredential(String processId, IssuanceRequest request, String idToken,
+    Mono<IssuanceResponse> issueCredential(String processId, IssuanceRequest request,
                                            String bearerToken, String publicIssuerBaseUrl,
                                            String publicWalletBaseUrl);
 

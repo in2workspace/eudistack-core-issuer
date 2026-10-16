@@ -192,6 +192,10 @@ app:
     path: ${APP_TENANTS_CUSTOM_DOMAINS_PATH:classpath:tenants-custom-domains.yaml}
   cors:
     origins-path: ${APP_CORS_ORIGINS_PATH:}
+  # Issuer action matrix (EUD-253 FR-15). External YAML re-read when it changes, so a rule change
+  # applies without redeploying; empty = the copy bundled in authorization/authorization-matrix.yaml.
+  authorization:
+    matrix-path: ${APP_AUTHORIZATION_MATRIX_PATH:}
   # mail-from removed — now per-tenant via tenant_config.issuer.mail_from
   default-lang: ${APP_DEFAULT_LANG:en}
   sys-tenant: ${APP_SYS_TENANT:SYSTEM}

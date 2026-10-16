@@ -34,10 +34,27 @@ public record IssuanceRequest(
         @Size(max = 64, message = "grant_type must be at most 64 characters")
         @Pattern(regexp = "^[a-zA-Z0-9_:-]*$", message = "grant_type must only contain letters, digits, underscore, colon and hyphen")
         @JsonProperty("grant_type") String grantType,
-        @JsonProperty("holder_key") JsonNode holderKey
+        @JsonProperty("holder_key") JsonNode holderKey,
+        // EUD-253 FR-07 / EUD-268: organization the attestation is issued for. Optional: absent, it is
+        // the caller's own; another organization of the tenant is only accepted from a tenant
+        // administrator (action E2). The attestation content never sets it.
+        @Size(max = 100, message = "organization must be at most 100 characters")
+        @Pattern(regexp = "^[a-zA-Z0-9._:-]*$", message = "organization must only contain letters, digits, dots, underscores, colons and hyphens")
+        @JsonProperty("organization") String organization
 ) {
     public IssuanceRequest(String credentialConfigurationId, JsonNode payload, String delivery,
                            String email, String grantType) {
-        this(credentialConfigurationId, payload, delivery, email, grantType, null);
+        this(credentialConfigurationId, payload, delivery, email, grantType, null, null);
+    }
+
+    public IssuanceRequest(String credentialConfigurationId, JsonNode payload, String delivery,
+                           String email, String grantType, JsonNode holderKey) {
+        this(credentialConfigurationId, payload, delivery, email, grantType, holderKey, null);
+    }
+
+    /** This request with the organization the authorization decided the process belongs to. */
+    public IssuanceRequest withOrganization(String decidedOrganization) {
+        return new IssuanceRequest(credentialConfigurationId, payload, delivery, email, grantType, holderKey,
+                decidedOrganization);
     }
 }

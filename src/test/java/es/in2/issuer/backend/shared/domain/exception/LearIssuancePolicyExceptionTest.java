@@ -19,12 +19,12 @@ class LearIssuancePolicyExceptionTest {
                 .containsExactlyInAnyOrder(
                         "operator_lacks_onboarding",
                         "onboarding_delegation_requires_tenant_admin",
-                        "onboarding_delegation_requires_multi_org",
-                        "onboarding_delegation_same_org",
                         "certification_delegation_requires_tenant_admin",
-                        "certification_delegation_requires_multi_org",
-                        "mandator_organization_missing",
+                        "tenant_admin_delegation_requires_platform_admin",
+                        "foreign_domain_delegation_requires_platform_admin",
                         "on_behalf_requires_tenant_admin",
-                        "on_behalf_requires_multi_org");
+                        "certification_power_required",
+                        "platform_tenant_read_only",
+                        "authorization_rule_missing");
     }
 }

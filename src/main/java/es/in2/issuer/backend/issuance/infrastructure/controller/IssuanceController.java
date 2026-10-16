@@ -9,6 +9,8 @@ import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceHttpResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
+import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
+import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
@@ -39,6 +41,7 @@ public class IssuanceController {
     private final IssuanceWorkflow issuanceWorkflow;
     private final IssuanceService issuanceService;
     private final AccessTokenService accessTokenService;
+    private final PowerAuthorizationService powerAuthorizationService;
     private final RevocationWorkflow revocationWorkflow;
     private final UrlResolver urlResolver;
     private final IssuanceHttpEnvelopeMapper httpEnvelopeMapper;
@@ -47,37 +50,33 @@ public class IssuanceController {
             consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
     public Mono<ResponseEntity<IssuanceHttpResponse>> createIssuance(
-            @RequestHeader(name = "X-Id-Token", required = false) String idToken,
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
             @Valid @RequestBody IssuanceRequest request,
             ServerWebExchange exchange) {
         String processId = UUID.randomUUID().toString();
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
         String publicWalletBaseUrl = urlResolver.publicWalletBaseUrl(exchange);
-        // X-Id-Token and Authorization are not interchangeable: the first is an optional identity
-        // assertion read by the PDP, the second the caller's bearer credential. Direct delivery signs
-        // inside this request and needs the latter -- reading the former for it made every direct
-        // issuance of a profile that requires no X-Id-Token fail on a null token (EUD-168).
-        return issuanceWorkflow.issueCredential(processId, request, idToken, authorizationHeader,
+        // Direct delivery signs inside this request with the caller's bearer credential (EUD-168).
+        // No second identity assertion is read: who may issue depends only on the caller's powers
+        // (EUD-253, point 10 -- the X-Id-Token of product certifications is gone).
+        return issuanceWorkflow.issueCredential(processId, request, authorizationHeader,
                         publicIssuerBaseUrl, publicWalletBaseUrl)
                 .map(this::toResponseEntity);
     }
 
+    /** C1/C2 (EUD-253): the decision's scope says whether the caller sees its organization or the whole tenant. */
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
-    public Mono<IssuanceList> getAllIssuances(
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader) {
-        return accessTokenService.getAuthorizationContext(authorizationHeader)
+    public Mono<IssuanceList> getAllIssuances() {
+        return powerAuthorizationService.authorize(PowerAuthorizationService.QUERY, null, null)
                 .flatMap(issuanceService::getAllIssuancesVisibleFor);
     }
 
     @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
-    public Mono<CredentialDetails> getIssuance(
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
-            @PathVariable("id") String id) {
-        return accessTokenService.getAuthorizationContext(authorizationHeader)
-                .flatMap(ctx -> issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(ctx, id));
+    public Mono<CredentialDetails> getIssuance(@PathVariable("id") String id) {
+        return powerAuthorizationService.authorize(PowerAuthorizationService.QUERY, null, id)
+                .flatMap(decision -> issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(decision, id));
     }
 
     @PatchMapping(value = "/{id}",
@@ -108,6 +107,9 @@ public class IssuanceController {
     }
 
     private Mono<Void> authorizeAndArchive(AuthorizationContext ctx, String id) {
+        if (!ctx.isAdministrator()) {
+            return Mono.error(new InsufficientPermissionException("Access denied: no administration power in this tenant"));
+        }
         if (ctx.isTenantAdmin()) {
             return issuanceService.archiveIssuance(id);
         }
@@ -123,6 +125,9 @@ public class IssuanceController {
     }
 
     private Mono<Void> authorizeAndWithdraw(AuthorizationContext ctx, String id) {
+        if (!ctx.isAdministrator()) {
+            return Mono.error(new InsufficientPermissionException("Access denied: no administration power in this tenant"));
+        }
         if (ctx.isTenantAdmin()) {
             return issuanceService.withdrawIssuance(id);
         }

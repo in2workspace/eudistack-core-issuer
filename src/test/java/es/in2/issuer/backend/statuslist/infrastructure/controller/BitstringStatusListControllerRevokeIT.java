@@ -145,15 +145,8 @@ class BitstringStatusListControllerRevokeIT {
         webTestClient = WebTestClient.bindToServer().baseUrl(issuerOrigin).build();
         signingKey = new ECKeyGenerator(Curve.P_256).keyID("test-signer").generate();
         when(verifierService.verifyToken(anyString())).thenReturn(Mono.empty());
-
-        // admin_organization_id is deliberately NOT seeded by V1__Tenant_schema.sql (it's
-        // provisioned per-tenant outside the issuer in real environments — see the comment
-        // in that migration). Seed it here to a value that never matches a test operator's
-        // org, so PolicyContextFactory#resolveTenantAdmin resolves to `false` instead of
-        // throwing TenantConfigMissingException, and none of our operators are accidentally
-        // treated as the tenant's admin-org bypass.
-        seedAdminOrgPlaceholder(TENANT_A);
-        seedAdminOrgPlaceholder(TENANT_B);
+        // EUD-253: no tenant configuration takes part in the decision any more (the tenant
+        // administrator is recognized by its power, not by tenant_config.admin_organization_id).
     }
 
     // EUD-98: capture the AUDIT logger's output so tests can assert the revocation
@@ -179,16 +172,6 @@ class BitstringStatusListControllerRevokeIT {
 
     private List<String> auditMessages() {
         return auditAppender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
-    }
-
-    private void seedAdminOrgPlaceholder(String tenant) throws SQLException {
-        try (Connection conn = jdbcConnection(); Statement stmt = conn.createStatement()) {
-            stmt.execute(("""
-                    INSERT INTO %s%s.tenant_config (config_key, config_value)
-                    VALUES ('admin_organization_id', 'ADMIN-ORG-NONE')
-                    ON CONFLICT (config_key) DO NOTHING
-                    """).formatted(tenant, SCHEMA_SUFFIX));
-        }
     }
 
     // ---------------------------------------------------------------- helpers
@@ -232,7 +215,16 @@ class BitstringStatusListControllerRevokeIT {
     }
 
     private static Map<String, Object> executePower(String domain) {
+        // Organization administrator of `domain` (EUD-253: type `domain`).
+        return Map.of("function", "Onboarding", "action", "Execute", "domain", domain, "type", "domain");
+    }
+
+    private static Map<String, Object> tenantAdminPower(String domain) {
         return Map.of("function", "Onboarding", "action", "Execute", "domain", domain, "type", "organization");
+    }
+
+    private static Map<String, Object> platformAdminPower() {
+        return Map.of("function", "System", "action", List.of("Administration"), "domain", "EUDISTACK", "type", "organization");
     }
 
     private WebTestClient.ResponseSpec revoke(String tenantHeader, String bearerToken, String issuanceId) {
@@ -283,11 +275,58 @@ class BitstringStatusListControllerRevokeIT {
 
     // ---------------------------------------------------------------- AC-03 / AC-04 / AC-05
 
+    /**
+     * EUD-272 AC: a system with domain · tenant · Onboarding · Execute revoking an attestation of another
+     * organization of the tenant gets issuance_not_found (its existence is not disclosed), and the trace
+     * keeps the reason.
+     */
     @Test
-    void revoke_crossOrganization_returns403AndKeepsStatus() throws Exception {
+    void revoke_crossOrganization_returns404IssuanceNotFound_andTracesTheReason() throws Exception {
         Issuance issuance = seedIssuance(TENANT_A, "ORG-B", CredentialStatusEnum.VALID);
-        // Operator belongs to ORG-A and has the required power, but the credential belongs to ORG-B.
+        // Operator administers ORG-A, but the credential belongs to ORG-B.
         String bearer = token("ORG-A", TENANT_A, List.of(executePower(TENANT_A)));
+
+        revoke(TENANT_A, bearer, issuance.getIssuanceId().toString())
+                .expectStatus().isEqualTo(404)
+                .expectBody().jsonPath("$.type").isEqualTo("issuance_not_found");
+
+        assertThat(currentStatus(TENANT_A, issuance.getIssuanceId())).isEqualTo(CredentialStatusEnum.VALID);
+        assertThat(auditMessages()).anySatisfy(m -> assertThat(m)
+                .contains("event=authorization.deny").contains("reason=resource_out_of_scope")
+                .contains("ORG-B"));
+    }
+
+    /** A tenant administrator acts on every organization of the tenant (the status check still applies). */
+    @Test
+    void revoke_tenantAdminOnAnotherOrganization_isAuthorized_thenStatusChecked() throws Exception {
+        Issuance issuance = seedIssuance(TENANT_A, "ORG-B", CredentialStatusEnum.REVOKED);
+        String bearer = token("ORG-A", TENANT_A, List.of(tenantAdminPower(TENANT_A)));
+
+        revoke(TENANT_A, bearer, issuance.getIssuanceId().toString())
+                .expectStatus().isEqualTo(409);
+
+        assertThat(auditMessages()).anySatisfy(m -> assertThat(m)
+                .contains("event=authorization.permit").contains("tenant_admin"));
+    }
+
+    /** AC-10: the platform administrator gets the same denial as the tenant administrator, traced as a security action. */
+    @Test
+    void revoke_platformAdminOnAlreadyRevoked_isDeniedLikeTheTenantAdmin_withSecurityTrace() throws Exception {
+        Issuance issuance = seedIssuance(TENANT_A, "ORG-B", CredentialStatusEnum.REVOKED);
+        String bearer = token("ORG-A", TENANT_A, List.of(platformAdminPower()));
+
+        revoke(TENANT_A, bearer, issuance.getIssuanceId().toString())
+                .expectStatus().isEqualTo(409);
+
+        assertThat(auditMessages()).anySatisfy(m -> assertThat(m)
+                .contains("event=authorization.permit").contains("platform_admin").contains("securityAction=true"));
+    }
+
+    /** Point 3 / AC-05: the power of another tenant gives nothing here. */
+    @Test
+    void revoke_withOnboardingPowerOfAnotherTenant_returns403AndKeepsStatus() throws Exception {
+        Issuance issuance = seedIssuance(TENANT_A, "ORG-A", CredentialStatusEnum.VALID);
+        String bearer = token("ORG-A", TENANT_A, List.of(executePower(TENANT_B)));
 
         revoke(TENANT_A, bearer, issuance.getIssuanceId().toString())
                 .expectStatus().isEqualTo(403);
@@ -299,7 +338,7 @@ class BitstringStatusListControllerRevokeIT {
     void revoke_crossTenant_returns403AndKeepsStatus() throws Exception {
         Issuance issuance = seedIssuance(TENANT_B, "ORG-B", CredentialStatusEnum.VALID);
         // Token's 'tenant' claim is tenant-a, but the request is resolved against tenant-b
-        // (X-Tenant header) — RequireTenantMatchRule must deny before anything else runs.
+        // (X-Tenant header) — the decision point denies before anything else runs (FR-02).
         String bearer = token("ORG-B", TENANT_A, List.of(executePower(TENANT_A)));
 
         revoke(TENANT_B, bearer, issuance.getIssuanceId().toString())

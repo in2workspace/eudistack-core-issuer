@@ -11,7 +11,12 @@ import es.in2.issuer.backend.shared.domain.exception.InvalidTokenException;
 import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
 import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
-import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
+import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
+import es.in2.issuer.backend.shared.domain.policy.CallerResolver;
+import es.in2.issuer.backend.shared.domain.policy.service.impl.PowerAuthorizationServiceImpl;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
+import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
+import es.in2.issuer.backend.shared.infrastructure.config.FileAuthorizationMatrixProvider;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Named;
@@ -36,6 +41,7 @@ import java.util.stream.Stream;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -53,18 +59,20 @@ class AccessTokenServiceImplBranchesTest {
     @Mock
     private IssuerProperties appConfig;
     @Mock
-    private TenantConfigService tenantConfigService;
-    @Mock
     private TenantRegistryService tenantRegistryService;
 
     private AccessTokenServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new AccessTokenServiceImpl(new ObjectMapper(), appConfig, tenantConfigService, tenantRegistryService);
+        ObjectMapper objectMapper = new ObjectMapper();
+        CallerResolver callerResolver = new CallerResolver(objectMapper);
+        // The real decision point with the bundled matrix: role resolution is the matrix's recognition.
+        PowerAuthorizationServiceImpl pdp = new PowerAuthorizationServiceImpl(
+                new FileAuthorizationMatrixProvider(""), callerResolver,
+                mock(TenantCredentialProfileService.class), mock(AuditService.class), objectMapper);
+        service = new AccessTokenServiceImpl(objectMapper, appConfig, tenantRegistryService, callerResolver, pdp);
         lenient().when(appConfig.getManagementTokenOrgIdJsonPath()).thenReturn(ORG_ID_PATH);
-        lenient().when(appConfig.getManagementTokenAdminPowerFunction()).thenReturn("Onboarding");
-        lenient().when(appConfig.getManagementTokenAdminPowerAction()).thenReturn("Execute");
     }
 
     // --- getCleanBearerToken ---
@@ -86,9 +94,12 @@ class AccessTokenServiceImplBranchesTest {
     // --- getAuthorizationContext: role resolution ---
 
     static Stream<Arguments> roleCases() {
-        Map<String, Object> adminPower = Map.of("function", "Onboarding", "action", "Execute");
+        Map<String, Object> tenantAdminPower = Map.of("type", "organization", "domain", TENANT,
+                "function", "Onboarding", "action", List.of("Execute"));
+        Map<String, Object> orgAdminPower = Map.of("type", "domain", "domain", TENANT,
+                "function", "Onboarding", "action", "Execute");
         return Stream.of(
-                Arguments.of(Named.of("sysadmin with action array", Map.of(
+                Arguments.of(Named.of("platform admin with action array", Map.of(
                         "mandator", Map.of("organizationIdentifier", "ANY"),
                         "power", List.of(Map.of("type", "organization", "domain", "EUDISTACK",
                                 "function", "System", "action", List.of("Read", "Administration"))))),
@@ -97,46 +108,63 @@ class AccessTokenServiceImplBranchesTest {
                         "mandator", Map.of("organizationIdentifier", "OTHER"),
                         "power", List.of(Map.of("type", "organization", "domain", "DOME",
                                 "function", "System", "action", "Administration")))),
+                        UserRole.USER),
+                Arguments.of(Named.of("tenant admin by its power, whatever its organization", Map.of(
+                        "mandator", Map.of("organizationIdentifier", "ANY-ORG"),
+                        "power", List.of(Map.of("function", "Other", "action", "Execute"), tenantAdminPower))),
+                        UserRole.TENANT_ADMIN),
+                Arguments.of(Named.of("tenant admin with tmf aliases", Map.of(
+                        "mandator", Map.of("organizationIdentifier", ADMIN_ORG),
+                        "power", List.of(Map.of("tmf_type", "organization", "tmf_domain", TENANT,
+                                "tmf_function", "Onboarding", "tmf_action", List.of("Execute"))))),
+                        UserRole.TENANT_ADMIN),
+                Arguments.of(Named.of("organization admin, even from the former admin organization", Map.of(
+                        "mandator", Map.of("organizationIdentifier", ADMIN_ORG),
+                        "power", List.of(orgAdminPower))),
                         UserRole.LEAR),
-                Arguments.of(Named.of("tenant admin with tmf power", Map.of(
-                        "mandator", Map.of("organizationIdentifier", ADMIN_ORG),
-                        "power", List.of(Map.of("tmf_function", "Onboarding", "tmf_action", List.of("Execute"))))),
-                        UserRole.TENANT_ADMIN),
-                Arguments.of(Named.of("tenant admin with textual action", Map.of(
-                        "mandator", Map.of("organizationIdentifier", ADMIN_ORG),
-                        "power", List.of(Map.of("function", "Other", "action", "Execute"), adminPower))),
-                        UserRole.TENANT_ADMIN),
-                Arguments.of(Named.of("admin org without power claim", Map.of(
+                Arguments.of(Named.of("organization admin, domain in another case", Map.of(
+                        "mandator", Map.of("organizationIdentifier", "OTHER"),
+                        "power", List.of(Map.of("type", "domain", "domain", "ACME",
+                                "function", "Onboarding", "action", "Execute")))),
+                        UserRole.LEAR),
+                Arguments.of(Named.of("power type not in lowercase is not recognized", Map.of(
+                        "mandator", Map.of("organizationIdentifier", "OTHER"),
+                        "power", List.of(Map.of("type", "Domain", "domain", TENANT,
+                                "function", "Onboarding", "action", "Execute")))),
+                        UserRole.USER),
+                Arguments.of(Named.of("Onboarding power of another tenant", Map.of(
+                        "mandator", Map.of("organizationIdentifier", "OTHER"),
+                        "power", List.of(Map.of("type", "organization", "domain", "kpmg",
+                                "function", "Onboarding", "action", "Execute")))),
+                        UserRole.USER),
+                Arguments.of(Named.of("without power claim", Map.of(
                         "mandator", Map.of("organizationIdentifier", ADMIN_ORG))),
-                        UserRole.LEAR),
-                Arguments.of(Named.of("admin org with non-array power", Map.of(
+                        UserRole.USER),
+                Arguments.of(Named.of("with non-array power", Map.of(
                         "mandator", Map.of("organizationIdentifier", ADMIN_ORG),
                         "power", "Onboarding")),
-                        UserRole.LEAR),
-                Arguments.of(Named.of("admin org with power lacking action", Map.of(
+                        UserRole.USER),
+                Arguments.of(Named.of("power lacking action", Map.of(
                         "mandator", Map.of("organizationIdentifier", ADMIN_ORG),
-                        "power", List.of(Map.of("function", "Onboarding")))),
-                        UserRole.LEAR),
-                Arguments.of(Named.of("admin org with wrong action", Map.of(
+                        "power", List.of(Map.of("type", "domain", "domain", TENANT, "function", "Onboarding")))),
+                        UserRole.USER),
+                Arguments.of(Named.of("wrong action", Map.of(
                         "mandator", Map.of("organizationIdentifier", ADMIN_ORG),
-                        "power", List.of(Map.of("function", "Onboarding", "action", List.of("Read"))))),
-                        UserRole.LEAR),
-                Arguments.of(Named.of("admin org with non-text action", Map.of(
+                        "power", List.of(Map.of("type", "domain", "domain", TENANT,
+                                "function", "Onboarding", "action", List.of("Read"))))),
+                        UserRole.USER),
+                Arguments.of(Named.of("non-text action", Map.of(
                         "mandator", Map.of("organizationIdentifier", ADMIN_ORG),
-                        "power", List.of(Map.of("function", "Onboarding", "action", 42)))),
-                        UserRole.LEAR),
-                Arguments.of(Named.of("admin power but different org", Map.of(
-                        "mandator", Map.of("organizationIdentifier", "OTHER"),
-                        "power", List.of(adminPower))),
-                        UserRole.LEAR));
+                        "power", List.of(Map.of("type", "domain", "domain", TENANT,
+                                "function", "Onboarding", "action", 42)))),
+                        UserRole.USER));
     }
 
     @ParameterizedTest
     @MethodSource("roleCases")
-    void getAuthorizationContext_resolvesRole(Map<String, Object> claims, UserRole expectedRole) throws JOSEException {
+    void getAuthorizationContext_resolvesRoleFromPowersAlone(Map<String, Object> claims, UserRole expectedRole) throws JOSEException {
         // Arrange
         String token = token(b -> withClaims(b, claims));
-        lenient().when(tenantConfigService.getStringOrThrow("admin_organization_id")).thenReturn(Mono.just(ADMIN_ORG));
         when(tenantRegistryService.getTenantType(TENANT)).thenReturn(Mono.just("STANDARD"));
 
         // Act + Assert
@@ -150,22 +178,35 @@ class AccessTokenServiceImplBranchesTest {
                 .verifyComplete();
     }
 
-    static Stream<Arguments> tokensWithoutOrgId() {
-        return Stream.of(
-                Arguments.of(Named.of("no mandator", Map.<String, Object>of("sub", "x"))),
-                Arguments.of(Named.of("mandator without org id", Map.<String, Object>of("mandator", Map.of("name", "ACME")))));
+    @Test
+    void getAuthorizationContext_platformAdminInPlatformTenant_isReadOnly() throws JOSEException {
+        String token = token(b -> withClaims(b, Map.of(
+                "mandator", Map.of("organizationIdentifier", "ANY"),
+                "power", List.of(Map.of("type", "organization", "domain", "EUDISTACK",
+                        "function", "System", "action", List.of("Administration"))))));
+        when(tenantRegistryService.getTenantType("platform")).thenReturn(Mono.just("platform"));
+
+        StepVerifier.create(service.getAuthorizationContext("Bearer " + token)
+                        .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "platform")))
+                .assertNext(ctx -> {
+                    assertThat(ctx.role()).isEqualTo(UserRole.SYSADMIN);
+                    assertThat(ctx.readOnly()).isTrue();
+                })
+                .verifyComplete();
     }
 
-    @ParameterizedTest
-    @MethodSource("tokensWithoutOrgId")
-    void getAuthorizationContext_whenOrgIdMissing_errorsWithPath(Map<String, Object> claims) throws JOSEException {
-        String token = token(b -> withClaims(b, claims));
+    @Test
+    void getAuthorizationContext_withoutMandator_isAUserWithoutOrganization() throws JOSEException {
+        String token = token(b -> withClaims(b, Map.of("sub", "x")));
+        when(tenantRegistryService.getTenantType(TENANT)).thenReturn(Mono.just("STANDARD"));
 
-        StepVerifier.create(service.getAuthorizationContext("Bearer " + token))
-                .expectErrorSatisfies(e -> assertThat(e)
-                        .isInstanceOf(InvalidTokenException.class)
-                        .hasMessageContaining(ORG_ID_PATH))
-                .verify();
+        StepVerifier.create(service.getAuthorizationContext("Bearer " + token)
+                        .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .assertNext(ctx -> {
+                    assertThat(ctx.role()).isEqualTo(UserRole.USER);
+                    assertThat(ctx.organizationIdentifier()).isNull();
+                })
+                .verifyComplete();
     }
 
     @Test
@@ -176,13 +217,11 @@ class AccessTokenServiceImplBranchesTest {
     }
 
     @Test
-    void getAuthorizationContext_withoutTenantInContext_usesEmptyTenant() throws JOSEException {
+    void getAuthorizationContext_withoutTenantInContext_failsClosed() throws JOSEException {
         String token = token(b -> withClaims(b, Map.of("mandator", Map.of("organizationIdentifier", "OTHER"))));
-        when(tenantConfigService.getStringOrThrow("admin_organization_id")).thenReturn(Mono.just(ADMIN_ORG));
-        when(tenantRegistryService.getTenantType("")).thenReturn(Mono.empty());
 
         StepVerifier.create(service.getAuthorizationContext("Bearer " + token))
-                .expectError(InvalidTokenException.class)
+                .expectError(TenantMismatchException.class)
                 .verify();
     }
 

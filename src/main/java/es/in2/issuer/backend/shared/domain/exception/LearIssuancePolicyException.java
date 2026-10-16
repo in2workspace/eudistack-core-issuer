@@ -4,10 +4,11 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
 /**
- * Denial of the LEAR issuance policy ({@code RequireLearCredentialIssuanceRule}) carrying a stable,
- * machine-readable {@link Reason}. The HTTP layer exposes it as the {@code reason} member of the
- * error body so a client can explain the business rule to the operator instead of a generic
- * "forbidden" -- the free-text message stays for logs and is not a contract.
+ * Denial of an issuer action by the power-based authorization ({@code PowerAuthorizationService},
+ * EUD-253) carrying a stable, machine-readable {@link Reason}. The HTTP layer exposes it as the
+ * {@code reason} member of the error body so a client can explain the business rule to the operator
+ * instead of a generic "forbidden" -- the free-text message stays for logs and is not a contract.
+ * The name is kept from when it only covered LEAR issuance: the wire contract did not change.
  */
 @Getter
 public class LearIssuancePolicyException extends InsufficientPermissionException {
@@ -29,15 +30,24 @@ public class LearIssuancePolicyException extends InsufficientPermissionException
     @Getter
     @RequiredArgsConstructor
     public enum Reason {
+        /** The caller holds no power that allows the action in this tenant (user without powers). */
         OPERATOR_LACKS_ONBOARDING("operator_lacks_onboarding"),
+        /** E3: only a tenant administrator grants the power to administer an organization. */
         ONBOARDING_DELEGATION_REQUIRES_TENANT_ADMIN("onboarding_delegation_requires_tenant_admin"),
-        ONBOARDING_DELEGATION_REQUIRES_MULTI_ORG("onboarding_delegation_requires_multi_org"),
-        ONBOARDING_DELEGATION_SAME_ORG("onboarding_delegation_same_org"),
+        /** E5: only a tenant administrator grants the power to certify. */
         CERTIFICATION_DELEGATION_REQUIRES_TENANT_ADMIN("certification_delegation_requires_tenant_admin"),
-        CERTIFICATION_DELEGATION_REQUIRES_MULTI_ORG("certification_delegation_requires_multi_org"),
-        MANDATOR_ORGANIZATION_MISSING("mandator_organization_missing"),
+        /** E4: only the platform administrator grants the power to administer the tenant. */
+        TENANT_ADMIN_DELEGATION_REQUIRES_PLATFORM_ADMIN("tenant_admin_delegation_requires_platform_admin"),
+        /** E9: a power outside the tenant's domain is only granted by the platform administrator. */
+        FOREIGN_DOMAIN_DELEGATION_REQUIRES_PLATFORM_ADMIN("foreign_domain_delegation_requires_platform_admin"),
+        /** E2: only a tenant administrator issues for another organization of the tenant. */
         ON_BEHALF_REQUIRES_TENANT_ADMIN("on_behalf_requires_tenant_admin"),
-        ON_BEHALF_REQUIRES_MULTI_ORG("on_behalf_requires_multi_org");
+        /** E6: a product certification needs {@code domain · <tenant> · Certification · Attest}. */
+        CERTIFICATION_POWER_REQUIRED("certification_power_required"),
+        /** The platform administrator in the platform tenant can only read. */
+        PLATFORM_TENANT_READ_ONLY("platform_tenant_read_only"),
+        /** No rule for the action: denied by default (FR-11). */
+        AUTHORIZATION_RULE_MISSING("authorization_rule_missing");
 
         private final String code;
     }

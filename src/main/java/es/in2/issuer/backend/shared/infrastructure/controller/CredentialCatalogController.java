@@ -130,10 +130,8 @@ public class CredentialCatalogController {
         return accessTokenService.getAuthorizationContext(authorizationHeader)
                 .flatMap(ctx -> {
                     if (!ctx.canReadCredentialCatalog()) {
-                        // Unreachable today -- UserRole has exactly three values and all three
-                        // pass canReadCredentialCatalog() (see its javadoc / the exhaustiveness
-                        // tripwire test). Kept audited so a future fourth role's denial is not
-                        // silently invisible the day this stops being vacuous.
+                        // USER (EUD-253 point 6): an attestation of the tenant without
+                        // administration powers. Audited like any other denial.
                         return auditDenyThenForbid(ctx, "read_catalog",
                                 "Tenant administrator, SysAdmin or operator role required");
                     }

@@ -24,12 +24,9 @@ public record CredentialProfile(
         @JsonProperty("cnf_required") boolean cnfRequired,
         @JsonProperty("description") String description,
         @JsonProperty("subject_extraction") SubjectExtraction subjectExtraction,
-        @JsonProperty("organization_extraction") OrganizationExtraction organizationExtraction,
         @JsonProperty("sd_jwt") SdJwtConfig sdJwt,
         @JsonProperty("credential_subject_strategy") String credentialSubjectStrategy,
         @JsonProperty("json_schema") String jsonSchema,
-        @JsonProperty("policy_extraction") PolicyExtraction policyExtraction,
-        @JsonProperty("issuance_policy") IssuancePolicy issuancePolicy,
         @JsonProperty("token_claims_mapping") TokenClaimsMapping tokenClaimsMapping,
         @JsonProperty("validation") Validation validation
 ) {
@@ -92,12 +89,6 @@ public record CredentialProfile(
     ) {}
 
     @Builder
-    public record OrganizationExtraction(
-            @JsonProperty("strategy") String strategy,
-            @JsonProperty("field") String field
-    ) {}
-
-    @Builder
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record SdJwtConfig(
             @JsonProperty("vct") String vct,
@@ -107,25 +98,8 @@ public record CredentialProfile(
 
     @Builder
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record PolicyExtraction(
-            @JsonProperty("powers_path") String powersPath,
-            @JsonProperty("mandator_path") String mandatorPath,
-            @JsonProperty("org_id_field") String orgIdField
-    ) {}
-
-    @Builder
-    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Validation(
             @JsonProperty("mandator_org_id_path") String mandatorOrgIdPath
-    ) {}
-
-    @Builder
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record IssuancePolicy(
-            @JsonProperty("policy_group") String policyGroup,
-            @JsonProperty("required_emitter_config_ids") List<String> requiredEmitterConfigIds,
-            @JsonProperty("rules") List<String> rules,
-            @JsonProperty("delegation_function") String delegationFunction
     ) {}
 
     @Builder

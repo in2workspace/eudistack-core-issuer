@@ -9,7 +9,8 @@ import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
 import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
-import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
+import es.in2.issuer.backend.shared.domain.policy.CallerResolver;
+import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.util.TenantIdentifiers;
@@ -24,7 +25,6 @@ import java.time.Instant;
 import java.util.Map;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.BEARER_PREFIX;
-import static es.in2.issuer.backend.shared.domain.util.Constants.PLATFORM_TENANT;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 @Service
@@ -34,8 +34,9 @@ public class AccessTokenServiceImpl implements AccessTokenService {
 
     private final ObjectMapper objectMapper;
     private final IssuerProperties appConfig;
-    private final TenantConfigService tenantConfigService;
     private final TenantRegistryService tenantRegistryService;
+    private final CallerResolver callerResolver;
+    private final PowerAuthorizationService powerAuthorizationService;
 
     private static final String DPOP_PREFIX = "DPoP ";
 
@@ -60,31 +61,25 @@ public class AccessTokenServiceImpl implements AccessTokenService {
                 .switchIfEmpty(Mono.error(new InvalidTokenException()));
     }
 
+    /**
+     * The caller's role in the request's tenant, recognized from its powers by the single decision
+     * point (EUD-253 FR-03) -- no tenant configuration takes part. Read-only for the platform
+     * administrator in the {@code platform} tenant.
+     */
     @Override
     public Mono<AuthorizationContext> getAuthorizationContext(String authorizationHeader) {
-        String orgIdPath = appConfig.getManagementTokenOrgIdJsonPath();
-
         return Mono.deferContextual(ctx -> {
             String currentTenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
 
             return getCleanBearerToken(authorizationHeader)
-                    .flatMap(token -> Mono.fromCallable(() -> {
-                        JsonNode root = parseTokenPayload(token);
-                        String orgId = resolveJsonPath(root, orgIdPath);
-                        if (orgId == null) {
-                            throw new InvalidTokenException("Organization ID not found at path: " + orgIdPath);
-                        }
-                        return new TokenInfo(root, orgId);
-                    }).onErrorMap(e -> e instanceof InvalidTokenException ? e : new InvalidTokenException()))
-                    .flatMap(info -> resolveRole(info.root, info.orgId)
-                            .flatMap(role -> tenantRegistryService.getTenantType(currentTenant)
-                                    .map(tenantType -> {
-                                        boolean readOnly = role == UserRole.SYSADMIN
-                                                && PLATFORM_TENANT.equals(currentTenant);
-                                        return new AuthorizationContext(info.orgId, role, readOnly, tenantType);
-                                    })
-                            )
-                    )
+                    .flatMap(callerResolver::fromToken)
+                    .flatMap(powerAuthorizationService::recognize)
+                    .flatMap(recognized -> tenantRegistryService.getTenantType(currentTenant)
+                            .map(tenantType -> new AuthorizationContext(
+                                    recognized.organizationIdentifier(),
+                                    UserRole.fromUserType(recognized.userType()),
+                                    recognized.readOnly(),
+                                    tenantType)))
                     .switchIfEmpty(Mono.error(new InvalidTokenException()));
         });
     }
@@ -98,42 +93,6 @@ public class AccessTokenServiceImpl implements AccessTokenService {
                     String tenant = tenantNode != null && !tenantNode.isNull() ? tenantNode.asText() : null;
                     return TenantIdentifiers.stripEnvSuffix(tenant);
                 }).onErrorMap(e -> e instanceof InvalidTokenException ? e : new InvalidTokenException()));
-    }
-
-    private record TokenInfo(JsonNode root, String orgId) {}
-
-    private Mono<UserRole> resolveRole(JsonNode root, String orgId) {
-        // 1. SysAdmin: power organization/EUDISTACK/System/Administration
-        if (hasSysAdminPower(root)) {
-            return Mono.just(UserRole.SYSADMIN);
-        }
-
-        // 2. TenantAdmin: orgId == tenant.admin_organization_id + domain power
-        return tenantConfigService.getStringOrThrow("admin_organization_id")
-                .map(adminOrgId -> {
-                    if (orgId.equals(adminOrgId)
-                            && hasPowerInPayload(root,
-                                appConfig.getManagementTokenAdminPowerFunction(),
-                                appConfig.getManagementTokenAdminPowerAction())) {
-                        return UserRole.TENANT_ADMIN;
-                    }
-                    // 3. LEAR: has domain power but not admin org
-                    return UserRole.LEAR;
-                });
-    }
-
-    private boolean hasSysAdminPower(JsonNode root) {
-        JsonNode powers = root.get("power");
-        if (powers == null || !powers.isArray()) return false;
-        for (JsonNode p : powers) {
-            if ("organization".equals(p.path("type").asText(null))
-                    && "EUDISTACK".equals(p.path("domain").asText(null))
-                    && "System".equals(p.path("function").asText(null))
-                    && matchesAction(p.get("action"), "Administration")) {
-                return true;
-            }
-        }
-        return false;
     }
 
     @Override
@@ -218,44 +177,6 @@ public class AccessTokenServiceImpl implements AccessTokenService {
         return (current != null && !current.isMissingNode() && !current.isNull())
                 ? current.asText()
                 : null;
-    }
-
-    /**
-     * Searches for a power entry with the given function and action in the token payload.
-     * With flat access token structure, "power" is a top-level claim.
-     */
-    private boolean hasPowerInPayload(JsonNode root, String function, String action) {
-        JsonNode powerNode = root.get("power");
-        if (powerNode == null || !powerNode.isArray()) {
-            return false;
-        }
-        for (JsonNode power : powerNode) {
-            if (matchesPowerFunction(power, function)) {
-                JsonNode actionNode = power.has("action") ? power.get("action") : power.get("tmf_action");
-                if (actionNode != null && matchesAction(actionNode, action)) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    private boolean matchesPowerFunction(JsonNode power, String function) {
-        return function.equals(power.path("function").asText(null))
-                || function.equals(power.path("tmf_function").asText(null));
-    }
-
-    private boolean matchesAction(JsonNode actionNode, String action) {
-        if (actionNode.isTextual()) {
-            return action.equals(actionNode.asText());
-        } else if (actionNode.isArray()) {
-            for (JsonNode a : actionNode) {
-                if (action.equals(a.asText())) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     private Mono<String> getTokenFromCurrentSession() {
