@@ -338,6 +338,20 @@ class AttestationCatalogServiceTest {
         verify(port, never()).updateIfVersion(any(), anyLong());
     }
 
+    /** A replacement is always complete, so there is nothing to answer 404 for after writing: it is refused before. */
+    @Test
+    void replace_ofARowWhoseTypeFileIsNotLoaded_isUnknownSchemaWithoutWriting() {
+        CatalogEntry orphan = new CatalogEntry("retired.type.sd.1", null, false, null, null, null, List.of(), 0,
+                Instant.now(), Instant.now());
+        when(port.findById("retired.type.sd.1")).thenReturn(Mono.just(orphan));
+
+        StepVerifier.create(inTenant(service.replace("retired.type.sd.1", doctorIdConfiguration().toInput(), "\"0\"")))
+                .expectError(UnknownSchemaException.class)
+                .verify();
+
+        verify(port, never()).updateIfVersion(any(), anyLong());
+    }
+
     // ---- setEnabled ------------------------------------------------------------
 
     @Test
@@ -383,6 +397,36 @@ class AttestationCatalogServiceTest {
                     assertThat(entry.enabled()).isTrue();
                     assertThat(entry.isFilled()).isTrue();
                 })
+                .verifyComplete();
+    }
+
+    /** Its credential type file is gone, so the filler cannot complete it: 404 as for get, and nothing is written. */
+    @Test
+    void setEnabled_ofARowWhoseTypeFileIsNotLoaded_isCatalogEntryNotFoundWithoutWriting() {
+        CatalogEntry orphan = new CatalogEntry("retired.type.sd.1", null, false, null, null, null, List.of(), 0,
+                Instant.now(), Instant.now());
+        when(port.findById("retired.type.sd.1")).thenReturn(Mono.just(orphan));
+
+        StepVerifier.create(inTenant(service.setEnabled("retired.type.sd.1", true, "\"0\"")))
+                .expectError(CatalogEntryNotFoundException.class)
+                .verify();
+        StepVerifier.create(inTenant(service.setEnabled("retired.type.sd.1", false, "\"0\"")))
+                .expectError(CatalogEntryNotFoundException.class)
+                .verify();
+
+        verify(port, never()).updateIfVersion(any(), anyLong());
+        verify(tenantCredentialProfileService, never()).invalidateCache(any());
+    }
+
+    @Test
+    void setEnabled_disablingAFilledRowWhoseTypeFileIsNotLoaded_stillWrites() {
+        CatalogEntry retired = filled("retired.type.sd.1", null, 4);
+        when(port.findById("retired.type.sd.1")).thenReturn(Mono.just(retired));
+        when(port.updateIfVersion(any(), eq(4L))).thenAnswer(inv ->
+                Mono.just(Optional.of(stored(inv.getArgument(0), 5))));
+
+        StepVerifier.create(inTenant(service.setEnabled("retired.type.sd.1", false, "\"4\"")))
+                .assertNext(entry -> assertThat(entry.enabled()).isFalse())
                 .verifyComplete();
     }
 

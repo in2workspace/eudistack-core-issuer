@@ -131,6 +131,11 @@ public class AttestationCatalogService {
                         requireCurrentVersion(ifMatch, current);
                         // Filled in the same write: a row not configured yet leaves with its configuration (D13).
                         CatalogEntry target = catalogEntryFiller.fill(current).withEnabled(enabled);
+                        if (!target.isFilled()) {
+                            // Its type file is not loaded, so it cannot be completed: it does not exist for the
+                            // API (see get), and writing it only to answer 404 would change it for nothing.
+                            return Mono.<CatalogEntry>error(new CatalogEntryNotFoundException(credentialConfigurationId));
+                        }
                         if (enabled) {
                             catalogEntryValidator.validateEnabling(target);
                         }
