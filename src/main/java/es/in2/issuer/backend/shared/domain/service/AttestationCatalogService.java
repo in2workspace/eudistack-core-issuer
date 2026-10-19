@@ -6,6 +6,7 @@ import es.in2.issuer.backend.shared.domain.exception.PreconditionRequiredExcepti
 import es.in2.issuer.backend.shared.domain.exception.TenantNotResolvedException;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogConfigurationInput;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
+import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntryChange;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntryETag;
 import es.in2.issuer.backend.shared.domain.model.catalog.CreateCatalogEntryCommand;
 import es.in2.issuer.backend.shared.domain.spi.CatalogEntryPort;
@@ -30,7 +31,8 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  * {@link PreconditionRequiredException}; one that does not match, weak ones included, is
  * {@link PreconditionFailedException}. Every write runs in a transaction and drops the
  * {@link TenantCredentialProfileService} cache of this instance once it has committed, so issuance and
- * the OID4VCI metadata stop seeing what was disabled.
+ * the OID4VCI metadata stop seeing what was disabled. Once committed, each change is also audited, one
+ * event per entry (AC-12, see {@link CatalogEntryChangeAuditor}).
  *
  * <p>A row that predates the entry configuration (seeded while the issuer was running) is completed
  * from its credential type file when it is read, and stored (D13). Entries are returned ready to
@@ -50,6 +52,7 @@ public class AttestationCatalogService {
     private final CredentialProfileCatalog credentialProfileCatalog;
     private final TenantCredentialProfileService tenantCredentialProfileService;
     private final TransactionalOperator transactionalOperator;
+    private final CatalogEntryChangeAuditor changeAuditor;
 
     /** The entries of the tenant, only the enabled or only the disabled ones when {@code enabled} is given. */
     public Flux<CatalogEntry> list(Boolean enabled) {
@@ -86,7 +89,7 @@ public class AttestationCatalogService {
         return Mono.deferContextual(ctx -> {
             String tenant = requireTenant(ctx);
             CatalogEntry entry = catalogEntryValidator.validateForCreate(command);
-            return committed(tenant, catalogEntryPort.insert(entry))
+            return committed(tenant, catalogEntryPort.insert(entry).map(this::createdChange))
                     .doOnNext(created -> log.info("Catalog entry '{}' created for tenant '{}'",
                             created.credentialConfigurationId(), tenant))
                     .map(this::withResolvedSchemaUri);
@@ -103,12 +106,13 @@ public class AttestationCatalogService {
         return Mono.deferContextual(ctx -> {
             String tenant = requireTenant(ctx);
             requireIfMatch(ifMatch);
-            Mono<CatalogEntry> replace = findExisting(credentialConfigurationId)
+            Mono<CatalogEntryChange> replace = findExisting(credentialConfigurationId)
                     .flatMap(current -> {
                         requireCurrentVersion(ifMatch, current);
                         CatalogEntry replacement =
                                 catalogEntryValidator.validateForReplace(credentialConfigurationId, configuration);
-                        return updateIfVersion(replacement, current.version());
+                        return updateIfVersion(replacement, current.version())
+                                .map(updated -> change(CatalogEntryChange.Action.REPLACE, current, updated));
                     });
             return committed(tenant, replace)
                     .doOnNext(updated -> log.info("Catalog entry '{}' replaced for tenant '{}'",
@@ -126,7 +130,9 @@ public class AttestationCatalogService {
         return Mono.deferContextual(ctx -> {
             String tenant = requireTenant(ctx);
             requireIfMatch(ifMatch);
-            Mono<CatalogEntry> change = findExisting(credentialConfigurationId)
+            CatalogEntryChange.Action action =
+                    enabled ? CatalogEntryChange.Action.ENABLE : CatalogEntryChange.Action.DISABLE;
+            Mono<CatalogEntryChange> toggle = findExisting(credentialConfigurationId)
                     .flatMap(current -> {
                         requireCurrentVersion(ifMatch, current);
                         // Filled in the same write: a row not configured yet leaves with its configuration (D13).
@@ -134,14 +140,15 @@ public class AttestationCatalogService {
                         if (!target.isFilled()) {
                             // Its type file is not loaded, so it cannot be completed: it does not exist for the
                             // API (see get), and writing it only to answer 404 would change it for nothing.
-                            return Mono.<CatalogEntry>error(new CatalogEntryNotFoundException(credentialConfigurationId));
+                            return Mono.<CatalogEntryChange>error(new CatalogEntryNotFoundException(credentialConfigurationId));
                         }
                         if (enabled) {
                             catalogEntryValidator.validateEnabling(target);
                         }
-                        return updateIfVersion(target, current.version());
+                        return updateIfVersion(target, current.version())
+                                .map(updated -> change(action, current, updated));
                     });
-            return committed(tenant, change)
+            return committed(tenant, toggle)
                     .doOnNext(updated -> log.info("Catalog entry '{}' {} for tenant '{}'",
                             credentialConfigurationId, enabled ? "enabled" : "disabled", tenant))
                     .map(this::withResolvedSchemaUri);
@@ -182,10 +189,14 @@ public class AttestationCatalogService {
                         stored.credentialConfigurationId()));
     }
 
-    /** Runs {@code operation} in a transaction and, once it has committed, drops this instance's cache. */
-    private Mono<CatalogEntry> committed(String tenant, Mono<CatalogEntry> operation) {
+    /**
+     * Runs {@code operation} in a transaction and, once it has committed, drops this instance's cache and
+     * audits the change. Emits the entry as stored.
+     */
+    private Mono<CatalogEntry> committed(String tenant, Mono<CatalogEntryChange> operation) {
         return transactionalOperator.transactional(operation)
-                .doOnSuccess(result -> tenantCredentialProfileService.invalidateCache(tenant));
+                .doOnSuccess(result -> tenantCredentialProfileService.invalidateCache(tenant))
+                .flatMap(change -> changeAuditor.audit(change).thenReturn(change.after()));
     }
 
     // ---- preconditions ---------------------------------------------------------
@@ -212,6 +223,14 @@ public class AttestationCatalogService {
     }
 
     // ---- helpers ---------------------------------------------------------------
+
+    private CatalogEntryChange createdChange(CatalogEntry created) {
+        return CatalogEntryChange.created(withResolvedSchemaUri(created));
+    }
+
+    private CatalogEntryChange change(CatalogEntryChange.Action action, CatalogEntry before, CatalogEntry after) {
+        return new CatalogEntryChange(action, withResolvedSchemaUri(before), withResolvedSchemaUri(after));
+    }
 
     /** A stored entry shows the synthetic schema URI while its type file still declares no real one. */
     private CatalogEntry withResolvedSchemaUri(CatalogEntry entry) {

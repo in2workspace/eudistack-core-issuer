@@ -9,10 +9,12 @@ import es.in2.issuer.backend.shared.domain.exception.InvalidDeliveryConfigExcept
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
 import es.in2.issuer.backend.shared.domain.exception.UnsupportedBindingTypeException;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
+import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntryChange;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.enums.BindingType;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
+import es.in2.issuer.backend.shared.domain.service.CatalogEntryChangeAuditor;
 import es.in2.issuer.backend.shared.domain.service.CatalogEntryFiller;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
@@ -53,6 +55,7 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
     private final CredentialProfileRegistry registry;
     private final SchemaDeliveryCeiling schemaDeliveryCeiling;
     private final TransactionalOperator transactionalOperator;
+    private final CatalogEntryChangeAuditor changeAuditor;
     private final Cache<String, Map<String, CatalogEntry>> cache;
 
     public TenantCredentialProfileServiceImpl(
@@ -60,12 +63,14 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
             CatalogEntryFiller catalogEntryFiller,
             CredentialProfileRegistry registry,
             SchemaDeliveryCeiling schemaDeliveryCeiling,
-            TransactionalOperator transactionalOperator) {
+            TransactionalOperator transactionalOperator,
+            CatalogEntryChangeAuditor changeAuditor) {
         this.catalogEntryPort = catalogEntryPort;
         this.catalogEntryFiller = catalogEntryFiller;
         this.registry = registry;
         this.schemaDeliveryCeiling = schemaDeliveryCeiling;
         this.transactionalOperator = transactionalOperator;
+        this.changeAuditor = changeAuditor;
         this.cache = Caffeine.newBuilder()
                 .expireAfterWrite(CACHE_TTL)
                 .maximumSize(100)
@@ -143,15 +148,17 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
             String tenant = requireTenant(ctx);
 
             // Re-run from the read when another write got to an entry first.
-            Mono<Void> write = transactionalOperator.transactional(
+            Mono<List<CatalogEntryChange>> write = transactionalOperator.transactional(
                             Mono.defer(() -> replaceEnabledSet(enabledConfigurationIds, deliveryModesByConfigurationId)))
                     .retryWhen(Retry.max(MAX_CONCURRENT_WRITE_RETRIES)
                             .filter(ConcurrentEntryChange.class::isInstance));
 
-            return write.doOnSuccess(v -> {
+            // Once committed: drop the cache, and audit one event per entry that changed (AC-12).
+            return write.flatMap(changes -> {
                 cache.invalidate(tenant);
-                log.info("Credential catalog updated for tenant '{}': {} type(s) enabled",
-                        tenant, enabledConfigurationIds.size());
+                log.info("Credential catalog updated for tenant '{}': {} type(s) enabled, {} entr{} changed",
+                        tenant, enabledConfigurationIds.size(), changes.size(), changes.size() == 1 ? "y" : "ies");
+                return changeAuditor.auditAll(changes);
             });
         }));
     }
@@ -166,24 +173,26 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
      * entry that was saved with none (possible only for a disabled one) reopens to the schema ceiling,
      * as it did before entries could hold an explicit empty list. A type without an entry gets one, with the
      * values of its type file. An entry not completed yet is completed in the same write (D13).
+     *
+     * @return what changed, one {@link CatalogEntryChange} per entry written
      */
-    private Mono<Void> replaceEnabledSet(Set<String> enabledConfigurationIds,
+    private Mono<List<CatalogEntryChange>> replaceEnabledSet(Set<String> enabledConfigurationIds,
                                          Map<String, Set<DeliveryMode>> deliveryModesByConfigurationId) {
         return catalogEntryPort.findAll().collectList()
                 .flatMapMany(stored -> {
                     Map<String, CatalogEntry> byId = new HashMap<>();
                     stored.forEach(entry -> byId.put(entry.credentialConfigurationId(), entry));
-                    Flux<Void> enable = Flux.fromIterable(enabledConfigurationIds)
+                    Flux<CatalogEntryChange> enable = Flux.fromIterable(enabledConfigurationIds)
                             .concatMap(id -> enable(byId.get(id), id, deliveryModesByConfigurationId.get(id)));
-                    Flux<Void> disable = Flux.fromIterable(stored)
+                    Flux<CatalogEntryChange> disable = Flux.fromIterable(stored)
                             .filter(entry -> entry.enabled() && !enabledConfigurationIds.contains(entry.credentialConfigurationId()))
                             .concatMap(this::disable);
                     return enable.concatWith(disable);
                 })
-                .then();
+                .collectList();
     }
 
-    private Mono<Void> enable(CatalogEntry stored, String credentialConfigurationId, Set<DeliveryMode> declaredModes) {
+    private Mono<CatalogEntryChange> enable(CatalogEntry stored, String credentialConfigurationId, Set<DeliveryMode> declaredModes) {
         if (stored == null) {
             return insertEnabled(credentialConfigurationId, declaredModes);
         }
@@ -192,12 +201,12 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
         return target.equals(stored) ? Mono.empty() : write(stored, target);
     }
 
-    private Mono<Void> disable(CatalogEntry stored) {
+    private Mono<CatalogEntryChange> disable(CatalogEntry stored) {
         return write(stored, catalogEntryFiller.fill(stored).withEnabled(false));
     }
 
     /** A new entry for a type that had none: its type file's values, and the ceiling when no modes are declared. */
-    private Mono<Void> insertEnabled(String credentialConfigurationId, Set<DeliveryMode> declaredModes) {
+    private Mono<CatalogEntryChange> insertEnabled(String credentialConfigurationId, Set<DeliveryMode> declaredModes) {
         if (registry.bindingTypeOf(credentialConfigurationId) == BindingType.UNSUPPORTED) {
             return Mono.error(new UnsupportedBindingTypeException(registry.schemaUriOf(credentialConfigurationId)));
         }
@@ -206,15 +215,23 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
         // Created by someone else since the read: start over and update it instead.
         return catalogEntryPort.insert(entry)
                 .onErrorMap(CatalogEntryAlreadyExistsException.class, e -> new ConcurrentEntryChange())
-                .then();
+                .map(created -> CatalogEntryChange.created(withResolvedSchemaUri(created)));
     }
 
     /** Writes only if nobody changed the entry since it was read, otherwise the whole replacement starts over. */
-    private Mono<Void> write(CatalogEntry before, CatalogEntry after) {
+    private Mono<CatalogEntryChange> write(CatalogEntry before, CatalogEntry after) {
         return catalogEntryPort.updateIfVersion(after, before.version())
-                .flatMap(updated -> updated.isPresent()
-                        ? Mono.<Void>empty()
-                        : Mono.<Void>error(new ConcurrentEntryChange()));
+                .flatMap(updated -> updated
+                        .map(written -> Mono.just(CatalogEntryChange.between(
+                                withResolvedSchemaUri(before), withResolvedSchemaUri(written))))
+                        .orElseGet(() -> Mono.error(new ConcurrentEntryChange())));
+    }
+
+    /** An entry shows the synthetic schema URI while its type file declares no real one, as the API presents it. */
+    private CatalogEntry withResolvedSchemaUri(CatalogEntry entry) {
+        return entry.schemaUri() != null
+                ? entry
+                : entry.withSchemaUri(registry.schemaUriOf(entry.credentialConfigurationId()));
     }
 
     private Set<DeliveryMode> storedOrCeilingModes(CatalogEntry stored) {

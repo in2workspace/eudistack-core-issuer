@@ -1,11 +1,15 @@
 package es.in2.issuer.backend.shared.infrastructure.controller;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import es.in2.issuer.backend.support.PostgresIntegrationBase;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -25,8 +29,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * The Attestation Catalogue API over real HTTP (server under {@code /issuer}), with real ES256 tokens
  * and Postgres: authentication and the {@code SecurityConfig} patterns of {@code /{id}}, the PDP, the
- * context path in {@code Location} and {@code instance} (D11), ETag and {@code If-Match}, and the contract's
- * DoctorID v1 example (AC-02) on a type file that declares its schema URI.
+ * context path in {@code Location} and {@code instance} (D11), ETag and {@code If-Match}, the contract's
+ * DoctorID v1 example (AC-02) on a type file that declares its schema URI, and the audit event of every change
+ * with the person of the token (AC-12).
  *
  * <p>Uses the pre-registered {@code e2e-tenant-a}/{@code e2e-tenant-b} schemas ({@code TenantDomainWebFilter}
  * rejects an unregistered tenant), and empties the catalog of tenant A around each test.
@@ -36,6 +41,7 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
     private static final String TENANT_A = "e2e-tenant-a";
     private static final String TENANT_B = "e2e-tenant-b";
     private static final String ADMIN_ORG_ID = "admin-org-for-catalog-it";
+    private static final String ADMIN_PERSON = "alice.admin@example.org";
     private static final String OPERATOR_ORG_ID = "operator-org-for-catalog-it";
 
     private static final String CATALOG = "/api/v1/attestation-catalog";
@@ -64,6 +70,8 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
               "search_identifiers": [ { "name": "colegiado", "field": ["personal_administrative_number"] } ]
             }""";
 
+    private ListAppender<ILoggingEvent> auditAppender;
+
     @DynamicPropertySource
     static void useCatalogProfiles(DynamicPropertyRegistry registry) {
         registry.add("credential.profiles.path", () -> "classpath:catalog-profiles");
@@ -76,9 +84,18 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
         emptyCatalog(TENANT_A);
     }
 
+    @BeforeEach
+    void attachAuditAppender() {
+        auditAppender = new ListAppender<>();
+        auditAppender.start();
+        ((Logger) LoggerFactory.getLogger("AUDIT")).addAppender(auditAppender);
+    }
+
     @AfterEach
     void cleanUp() {
         emptyCatalog(TENANT_A);
+        ((Logger) LoggerFactory.getLogger("AUDIT")).detachAppender(auditAppender);
+        auditAppender.stop();
     }
 
     // ---- AC-02: the contract example ------------------------------------------------
@@ -227,6 +244,40 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                 .jsonPath("$.search_identifiers[0].field[0]").isEqualTo("personal_administrative_number");
     }
 
+    // ---- AC-12: the trail of every change -----------------------------------------------
+
+    @Test
+    void everyChange_isAuditedWithThePersonOfTheToken_andTheOrganizationInTheDetails() {
+        String admin = administratorToken(TENANT_A, ADMIN_PERSON);
+
+        post(admin, CONTRACT_EXAMPLE).expectStatus().isCreated();
+        put(admin, DOCTORID_PATH, "\"0\"", CONTRACT_CONFIGURATION.replace("36500", "100")).expectStatus().isOk();
+        patch(admin, DOCTORID_PATH, "\"1\"", "{\"enabled\": false}").expectStatus().isOk();
+
+        List<String> events = catalogAuditEvents();
+        assertThat(events).hasSize(3);
+        assertThat(events).allSatisfy(event -> {
+            assertThat(event).contains("outcome=success", "userId=" + ADMIN_PERSON,
+                    "resourceType=attestation-catalog", "resourceId=" + TENANT_A,
+                    "credential_configuration_id=" + DOCTORID, "organization_id=" + ADMIN_ORG_ID);
+            assertThat(event).doesNotContain("userId=" + ADMIN_ORG_ID);
+        });
+        assertThat(events.get(0)).contains("action=create", "version=0");
+        assertThat(events.get(1)).contains("action=replace", "version=1", "default_days=36500", "default_days=100");
+        assertThat(events.get(2)).contains("action=disable", "version=2", "enabled=[true, false]");
+    }
+
+    @Test
+    void aRejectedChange_isNotAudited() {
+        String admin = administratorToken(TENANT_A, ADMIN_PERSON);
+        post(admin, CONTRACT_EXAMPLE).expectStatus().isCreated();
+        auditAppender.list.clear();
+
+        put(admin, DOCTORID_PATH, "\"7\"", CONTRACT_CONFIGURATION).expectStatus().isEqualTo(412);
+
+        assertThat(catalogAuditEvents()).isEmpty();
+    }
+
     // ---- AC-04: fields that are not in the schema ------------------------------------
 
     @ParameterizedTest
@@ -350,11 +401,23 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
 
     /** The tenant's administrator: administrator organization with Onboarding/Execute over the tenant's domain. */
     private String administratorToken(String tenant) {
+        return administratorToken(tenant, null);
+    }
+
+    /** The same, as a named person ({@code mandateeEmail}, which becomes the name of the authentication). */
+    private String administratorToken(String tenant, String mandateeEmail) {
         return mintUserAccessToken(tenant, ADMIN_ORG_ID, List.of(Map.of(
                 "type", "organization",
                 "domain", tenant,
                 "function", "Onboarding",
-                "action", List.of("Execute"))));
+                "action", List.of("Execute"))), mandateeEmail);
+    }
+
+    private List<String> catalogAuditEvents() {
+        return auditAppender.list.stream()
+                .map(ILoggingEvent::getFormattedMessage)
+                .filter(message -> message.startsWith("event=tenant.credential_catalog.entry.changed "))
+                .toList();
     }
 
     private void seedAdminOrganizationId(String tenant) {

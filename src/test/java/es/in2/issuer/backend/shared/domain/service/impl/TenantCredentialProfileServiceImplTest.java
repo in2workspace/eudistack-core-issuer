@@ -10,8 +10,10 @@ import es.in2.issuer.backend.shared.domain.exception.CatalogEntryAlreadyExistsEx
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
+import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntryChange;
 import es.in2.issuer.backend.shared.domain.model.enums.BindingType;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
+import es.in2.issuer.backend.shared.domain.service.CatalogEntryChangeAuditor;
 import es.in2.issuer.backend.shared.domain.service.CatalogEntryFiller;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.domain.spi.CatalogEntryPort;
@@ -41,6 +43,7 @@ import java.util.Set;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -62,6 +65,7 @@ class TenantCredentialProfileServiceImplTest {
     @Mock private CredentialProfileRegistry registry;
     @Mock private SchemaDeliveryCeiling schemaDeliveryCeiling;
     @Mock private TransactionalOperator transactionalOperator;
+    @Mock private CatalogEntryChangeAuditor changeAuditor;
 
     private TenantCredentialProfileServiceImpl service;
 
@@ -69,7 +73,8 @@ class TenantCredentialProfileServiceImplTest {
     void setUp() {
         service = new TenantCredentialProfileServiceImpl(catalogEntryPort,
                 new CatalogEntryFiller(registry, schemaDeliveryCeiling), registry, schemaDeliveryCeiling,
-                transactionalOperator);
+                transactionalOperator, changeAuditor);
+        when(changeAuditor.auditAll(any())).thenReturn(Mono.empty());
         // Pass-through transaction: return the wrapped Mono unchanged.
         when(transactionalOperator.transactional(any(Mono.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
@@ -652,6 +657,75 @@ class TenantCredentialProfileServiceImplTest {
         assertThat(updatedEntry(0).enabled()).isTrue();
     }
 
+    // ---- audit of the entries the alias changes (AC-12): one event per entry, none for an untouched one ----
+
+    @Test
+    void updateCatalog_auditsOneChangePerEntryWritten_afterCommit() {
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A"), "B", profile("B", "B"),
+                "C", profile("C", "C"), "D", profile("D", "D")));
+        when(catalogEntryPort.findAll()).thenReturn(Flux.just(
+                stored("A", true, 2, DeliveryMode.EMAIL),      // stays as it is
+                stored("B", true, 7, DeliveryMode.UI),         // left out: disabled
+                stored("C", false, 3, DeliveryMode.EMAIL)));   // listed: enabled
+        // D has no entry: created
+
+        StepVerifier.create(service.updateCatalog(Set.of("A", "C", "D"), Map.of("A", Set.of(DeliveryMode.EMAIL)))
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .verifyComplete();
+
+        List<CatalogEntryChange> changes = auditedChanges();
+        assertThat(changes).extracting(CatalogEntryChange::credentialConfigurationId, CatalogEntryChange::action)
+                .containsExactlyInAnyOrder(
+                        tuple("B", CatalogEntryChange.Action.DISABLE),
+                        tuple("C", CatalogEntryChange.Action.ENABLE),
+                        tuple("D", CatalogEntryChange.Action.CREATE));
+        CatalogEntryChange disabled = changes.stream()
+                .filter(c -> c.credentialConfigurationId().equals("B")).findFirst().orElseThrow();
+        assertThat(disabled.changes()).containsOnlyKeys("enabled");
+        assertThat(disabled.before().version()).isEqualTo(7);
+    }
+
+    @Test
+    void updateCatalog_reappliedWithSameValue_auditsNothing() {
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
+        when(catalogEntryPort.findAll()).thenReturn(Flux.just(stored("A", true, 1, DeliveryMode.EMAIL)));
+
+        StepVerifier.create(service.updateCatalog(Set.of("A"), Map.of("A", Set.of(DeliveryMode.EMAIL)))
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .verifyComplete();
+
+        assertThat(auditedChanges()).isEmpty();
+    }
+
+    @Test
+    void updateCatalog_entryChangedConcurrently_auditsOnlyTheWriteThatCommitted() {
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
+        when(catalogEntryPort.findAll())
+                .thenReturn(Flux.just(stored("A", false, 1, DeliveryMode.EMAIL)))
+                .thenReturn(Flux.just(stored("A", false, 2, DeliveryMode.EMAIL)));
+        doReturn(Mono.just(Optional.empty())).when(catalogEntryPort).updateIfVersion(any(), eq(1L));
+
+        StepVerifier.create(service.updateCatalog(Set.of("A"))
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .verifyComplete();
+
+        assertThat(auditedChanges()).hasSize(1);
+        assertThat(auditedChanges().getFirst().before().version()).isEqualTo(2);
+    }
+
+    @Test
+    void updateCatalog_writeFails_auditsNothing() {
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
+        doReturn(Mono.error(new RuntimeException("db down"))).when(catalogEntryPort).insert(any());
+
+        StepVerifier.create(service.updateCatalog(Set.of("A"))
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .expectError(RuntimeException.class)
+                .verify();
+
+        verify(changeAuditor, never()).auditAll(any());
+    }
+
     @Test
     void updateCatalog_success_invalidatesCache() {
         when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
@@ -692,6 +766,13 @@ class TenantCredentialProfileServiceImplTest {
     }
 
     // ---- helpers --------------------------------------------------------------
+
+    @SuppressWarnings("unchecked")
+    private List<CatalogEntryChange> auditedChanges() {
+        ArgumentCaptor<List<CatalogEntryChange>> changes = ArgumentCaptor.forClass(List.class);
+        verify(changeAuditor).auditAll(changes.capture());
+        return changes.getValue();
+    }
 
     private void verifyNothingWritten() {
         verify(catalogEntryPort, never()).insert(any());

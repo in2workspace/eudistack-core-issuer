@@ -15,6 +15,7 @@ import es.in2.issuer.backend.shared.domain.model.catalog.CatalogConfigurationInp
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogConfigurationInput.SubjectInput;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogConfigurationInput.ValidityInput;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
+import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntryChange;
 import es.in2.issuer.backend.shared.domain.model.catalog.ClaimPath;
 import es.in2.issuer.backend.shared.domain.model.catalog.CreateCatalogEntryCommand;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
@@ -24,6 +25,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -45,7 +47,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -71,6 +75,7 @@ class AttestationCatalogServiceTest {
     @Mock private CatalogEntryPort port;
     @Mock private TenantCredentialProfileService tenantCredentialProfileService;
     @Mock private TransactionalOperator transactionalOperator;
+    @Mock private CatalogEntryChangeAuditor changeAuditor;
 
     private AttestationCatalogService service;
 
@@ -79,7 +84,8 @@ class AttestationCatalogServiceTest {
         SchemaDeliveryCeiling ceiling = new SchemaDeliveryCeiling(REGISTRY);
         service = new AttestationCatalogService(port, new CatalogEntryFiller(REGISTRY, ceiling),
                 new CatalogEntryValidator(REGISTRY, ceiling), REGISTRY, tenantCredentialProfileService,
-                transactionalOperator);
+                transactionalOperator, changeAuditor);
+        when(changeAuditor.audit(any())).thenReturn(Mono.empty());
         when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -100,6 +106,46 @@ class AttestationCatalogServiceTest {
         verify(port).insert(inserted.capture());
         assertThat(inserted.getValue().validity()).isEqualTo(new CatalogEntry.Validity(36500, false, null));
         verify(tenantCredentialProfileService).invalidateCache(TENANT);
+    }
+
+    @Test
+    void create_auditsTheCreationAfterTheCommit() {
+        when(port.insert(any())).thenAnswer(inv -> Mono.just(stored(inv.getArgument(0), 0)));
+
+        StepVerifier.create(inTenant(service.create(createDoctorId()))).expectNextCount(1).verifyComplete();
+
+        InOrder order = inOrder(tenantCredentialProfileService, changeAuditor);
+        order.verify(tenantCredentialProfileService).invalidateCache(TENANT);
+        ArgumentCaptor<CatalogEntryChange> change = ArgumentCaptor.forClass(CatalogEntryChange.class);
+        order.verify(changeAuditor).audit(change.capture());
+        assertThat(change.getValue().action()).isEqualTo(CatalogEntryChange.Action.CREATE);
+        assertThat(change.getValue().before()).isNull();
+        assertThat(change.getValue().credentialConfigurationId()).isEqualTo(DOCTORID);
+        assertThat(change.getValue().version()).isZero();
+    }
+
+    @Test
+    void create_whenRejected_auditsNothing() {
+        StepVerifier.create(inTenant(service.create(new CreateCatalogEntryCommand(
+                        "https://registry.eudistack.net/schemas/nobody/1.0.0/dc+sd-jwt", doctorIdConfiguration().toInput()))))
+                .expectError(UnknownSchemaException.class)
+                .verify();
+
+        verify(changeAuditor, never()).audit(any());
+    }
+
+    @Test
+    void create_ofATypeWithoutDeclaredSchemaUri_auditsTheSyntheticOne() {
+        when(port.insert(any())).thenAnswer(inv -> Mono.just(stored(inv.getArgument(0), 0)));
+
+        StepVerifier.create(inTenant(service.create(new CreateCatalogEntryCommand(LEAR_SYNTHETIC_URI,
+                        doctorIdConfiguration().withSubject(null).withIdentifiers(List.of()).toInput()))))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        ArgumentCaptor<CatalogEntryChange> change = ArgumentCaptor.forClass(CatalogEntryChange.class);
+        verify(changeAuditor).audit(change.capture());
+        assertThat(change.getValue().after().schemaUri()).isEqualTo(LEAR_SYNTHETIC_URI);
     }
 
     @Test
@@ -256,6 +302,38 @@ class AttestationCatalogServiceTest {
     }
 
     @Test
+    void replace_auditsTheChangeFromTheStoredEntryAfterTheCommit() {
+        CatalogEntry current = filledDoctorId(3);
+        when(port.findById(DOCTORID)).thenReturn(Mono.just(current));
+        when(port.updateIfVersion(any(), eq(3L))).thenAnswer(inv ->
+                Mono.just(Optional.of(stored(inv.getArgument(0), 4))));
+
+        StepVerifier.create(inTenant(service.replace(DOCTORID, doctorIdConfiguration().withEnabled(false).toInput(), "\"3\"")))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        InOrder order = inOrder(tenantCredentialProfileService, changeAuditor);
+        order.verify(tenantCredentialProfileService).invalidateCache(TENANT);
+        ArgumentCaptor<CatalogEntryChange> change = ArgumentCaptor.forClass(CatalogEntryChange.class);
+        order.verify(changeAuditor).audit(change.capture());
+        assertThat(change.getValue().action()).isEqualTo(CatalogEntryChange.Action.REPLACE);
+        assertThat(change.getValue().before()).isEqualTo(current);
+        assertThat(change.getValue().after().version()).isEqualTo(4);
+        assertThat(change.getValue().changes()).containsKeys("enabled", "search_identifiers");
+    }
+
+    @Test
+    void replace_whenTheVersionIsStale_auditsNothing() {
+        when(port.findById(DOCTORID)).thenReturn(Mono.just(filledDoctorId(7)));
+
+        StepVerifier.create(inTenant(service.replace(DOCTORID, doctorIdConfiguration().toInput(), "\"6\"")))
+                .expectError(PreconditionFailedException.class)
+                .verify();
+
+        verify(changeAuditor, never()).audit(any());
+    }
+
+    @Test
     void replace_withoutIfMatch_isPreconditionRequired() {
         StepVerifier.create(inTenant(service.replace(DOCTORID, doctorIdConfiguration().toInput(), null)))
                 .expectError(PreconditionRequiredException.class)
@@ -368,6 +446,39 @@ class AttestationCatalogServiceTest {
                 .verifyComplete();
 
         verify(tenantCredentialProfileService).invalidateCache(TENANT);
+    }
+
+    @Test
+    void setEnabled_auditsDisablingAndEnablingAsTheirOwnActions() {
+        when(port.findById(DOCTORID)).thenReturn(Mono.just(filledDoctorId(1)));
+        when(port.updateIfVersion(any(), eq(1L))).thenAnswer(inv ->
+                Mono.just(Optional.of(stored(inv.getArgument(0), 2))));
+        StepVerifier.create(inTenant(service.setEnabled(DOCTORID, false, "\"1\""))).expectNextCount(1).verifyComplete();
+
+        CatalogEntry disabled = filledDoctorId(2).withEnabled(false);
+        when(port.findById(DOCTORID)).thenReturn(Mono.just(disabled));
+        when(port.updateIfVersion(any(), eq(2L))).thenAnswer(inv ->
+                Mono.just(Optional.of(stored(inv.getArgument(0), 3))));
+        StepVerifier.create(inTenant(service.setEnabled(DOCTORID, true, "\"2\""))).expectNextCount(1).verifyComplete();
+
+        ArgumentCaptor<CatalogEntryChange> change = ArgumentCaptor.forClass(CatalogEntryChange.class);
+        verify(changeAuditor, times(2)).audit(change.capture());
+        assertThat(change.getAllValues()).extracting(CatalogEntryChange::action)
+                .containsExactly(CatalogEntryChange.Action.DISABLE, CatalogEntryChange.Action.ENABLE);
+        assertThat(change.getAllValues().get(0).changes()).containsOnlyKeys("enabled");
+        assertThat(change.getAllValues().get(0).changes().get("enabled")).containsExactly(true, false);
+        assertThat(change.getAllValues().get(1).changes().get("enabled")).containsExactly(false, true);
+    }
+
+    @Test
+    void setEnabled_whenRejected_auditsNothing() {
+        when(port.findById(DOCTORID)).thenReturn(Mono.just(filledDoctorId(7)));
+
+        StepVerifier.create(inTenant(service.setEnabled(DOCTORID, false, "\"6\"")))
+                .expectError(PreconditionFailedException.class)
+                .verify();
+
+        verify(changeAuditor, never()).audit(any());
     }
 
     @Test
