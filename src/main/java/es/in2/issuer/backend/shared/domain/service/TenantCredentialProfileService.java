@@ -70,13 +70,14 @@ public interface TenantCredentialProfileService {
     /**
      * Replaces the set of enabled credential_configuration_ids for the current tenant.
      * Validates {@code enabledConfigurationIds ⊆ registry} (unknown ids ⇒ error, no write),
-     * performs an atomic transactional delete+insert, and invalidates the tenant cache
-     * only after a successful commit.
+     * enables the listed types and <em>disables</em> the rest in one transaction (EUD-266, D5:
+     * an entry is never deleted, so what the tenant configured on it survives), and invalidates
+     * the tenant cache only after a successful commit.
      *
-     * <p>An empty set wipes the tenant catalog, leaving nothing enabled. The admin API
+     * <p>An empty set disables every entry, leaving nothing enabled. The admin API
      * rejects it upfront (see {@code UpdateCredentialCatalogRequest}); it stays available
      * here as the reset primitive -- delegates to the 2-arg overload with an empty map, so
-     * it preserves no stored delivery modes for any type it (re)enables.
+     * it declares no delivery modes for any type it (re)enables.
      */
     default Mono<Void> updateCatalog(Set<String> enabledConfigurationIds) {
         return updateCatalog(enabledConfigurationIds, Map.of());
@@ -87,7 +88,8 @@ public interface TenantCredentialProfileService {
      * for each entry in {@code deliveryModesByConfigurationId}, its configured delivery
      * modes (validated against the schema ceiling -- AC-04). A {@code ccid} enabled but
      * absent from the map preserves its currently-stored delivery modes rather than
-     * clearing them (EC-01).
+     * clearing them (EC-01). A type without an entry gets one, completed from its type file, with the
+     * schema ceiling as modes when none are declared.
      */
     Mono<Void> updateCatalog(Set<String> enabledConfigurationIds, Map<String, Set<DeliveryMode>> deliveryModesByConfigurationId);
 

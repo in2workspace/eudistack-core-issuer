@@ -5,17 +5,21 @@ import es.in2.issuer.backend.shared.domain.exception.CredentialConfigurationNotE
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidDeliveryConfigException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
+import es.in2.issuer.backend.shared.domain.exception.UnsupportedBindingTypeException;
+import es.in2.issuer.backend.shared.domain.exception.CatalogEntryAlreadyExistsException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
+import es.in2.issuer.backend.shared.domain.model.enums.BindingType;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
+import es.in2.issuer.backend.shared.domain.service.CatalogEntryFiller;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.domain.spi.CatalogEntryPort;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
-import es.in2.issuer.backend.shared.infrastructure.repository.TenantCredentialProfileRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -32,15 +36,16 @@ import java.time.Instant;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -53,7 +58,6 @@ class TenantCredentialProfileServiceImplTest {
 
     private static final String TENANT = "demo";
 
-    @Mock private TenantCredentialProfileRepository repository;
     @Mock private CatalogEntryPort catalogEntryPort;
     @Mock private CredentialProfileRegistry registry;
     @Mock private SchemaDeliveryCeiling schemaDeliveryCeiling;
@@ -63,13 +67,24 @@ class TenantCredentialProfileServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new TenantCredentialProfileServiceImpl(repository, catalogEntryPort, registry, schemaDeliveryCeiling, transactionalOperator);
+        service = new TenantCredentialProfileServiceImpl(catalogEntryPort,
+                new CatalogEntryFiller(registry, schemaDeliveryCeiling), registry, schemaDeliveryCeiling,
+                transactionalOperator);
         // Pass-through transaction: return the wrapped Mono unchanged.
         when(transactionalOperator.transactional(any(Mono.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
         // Default ceiling: everything eligible (unbound type). Tests that care about a
         // narrower ceiling override this for their specific credential_configuration_id.
         when(schemaDeliveryCeiling.resolveEligibleModes(anyString())).thenReturn(EnumSet.allOf(DeliveryMode.class));
+        // Every type the tests mention has a file (the filler completes entries from it); no row exists
+        // unless a test says so.
+        when(registry.getByConfigurationId(anyString()))
+                .thenAnswer(inv -> profile(inv.getArgument(0), null));
+        when(registry.bindingTypeOf(anyString())).thenReturn(BindingType.KEY);
+        when(catalogEntryPort.findAll()).thenReturn(Flux.empty());
+        when(catalogEntryPort.insert(any())).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
+        when(catalogEntryPort.updateIfVersion(any(), anyLong()))
+                .thenAnswer(inv -> Mono.just(Optional.of(inv.getArgument(0))));
     }
 
     // ---- getCatalog -----------------------------------------------------------
@@ -379,7 +394,7 @@ class TenantCredentialProfileServiceImplTest {
                 .verifyComplete();
     }
 
-    // ---- updateCatalog --------------------------------------------------------
+    // ---- updateCatalog (the deprecated alias: disables instead of deleting, EUD-266 D5) ----------
 
     @Test
     void updateCatalog_unknownId_failsFastWithoutWriting() {
@@ -390,8 +405,7 @@ class TenantCredentialProfileServiceImplTest {
                 .expectError(UnknownCredentialConfigurationException.class)
                 .verify();
 
-        verify(repository, never()).deleteAll();
-        verify(repository, never()).upsert(anyString(), anyBoolean(), any(), any());
+        verifyNothingWritten();
     }
 
     @Test
@@ -403,8 +417,7 @@ class TenantCredentialProfileServiceImplTest {
                         .isEqualTo(HttpStatus.BAD_REQUEST))
                 .verify();
 
-        verify(repository, never()).deleteAll();
-        verify(repository, never()).upsert(anyString(), anyBoolean(), any(), any());
+        verifyNothingWritten();
     }
 
     /**
@@ -420,8 +433,7 @@ class TenantCredentialProfileServiceImplTest {
                 .expectError(InvalidDeliveryConfigException.class)
                 .verify();
 
-        verify(repository, never()).deleteAll();
-        verify(repository, never()).upsert(anyString(), anyBoolean(), any(), any());
+        verifyNothingWritten();
     }
 
     /**
@@ -443,102 +455,206 @@ class TenantCredentialProfileServiceImplTest {
                 .expectError(DeliveryModeNotEligibleException.class)
                 .verify();
 
-        verify(repository, never()).upsert(anyString(), anyBoolean(), any(), any());
+        verifyNothingWritten();
     }
 
     /**
-     * EC-08 + migrated from setEligibleModes_withinCeiling_persistsNormally (R-9):
-     * a set within the ceiling persists, canonicalized (sorted, deduplicated) before
-     * it reaches the repository.
+     * A type without an entry gets one, enabled, with the declared modes (EC-08: a set, so no duplicates)
+     * and the validity and subject of its type file.
      */
     @Test
-    void updateCatalog_withinCeiling_persistsCanonicalizedModes() {
+    void updateCatalog_typeWithoutEntry_insertsAnEnabledEntryFilledFromItsTypeFile() {
         when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
-        when(repository.upsert(eq("A"), eq(true), eq("email,ui"), any())).thenReturn(Mono.just(1));
-        when(repository.deleteAllByCredentialConfigurationIdNotIn(Set.of("A"))).thenReturn(Mono.just(0));
 
         StepVerifier.create(service.updateCatalog(Set.of("A"), Map.of("A", Set.of(DeliveryMode.UI, DeliveryMode.EMAIL)))
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
                 .verifyComplete();
 
-        verify(repository, times(1)).upsert(eq("A"), eq(true), eq("email,ui"), any());
+        ArgumentCaptor<CatalogEntry> inserted = ArgumentCaptor.forClass(CatalogEntry.class);
+        verify(catalogEntryPort).insert(inserted.capture());
+        assertThat(inserted.getValue().credentialConfigurationId()).isEqualTo("A");
+        assertThat(inserted.getValue().enabled()).isTrue();
+        assertThat(inserted.getValue().deliveryModes()).containsExactlyInAnyOrder(DeliveryMode.EMAIL, DeliveryMode.UI);
+        assertThat(inserted.getValue().validity()).isNotNull();
+        assertThat(inserted.getValue().isFilled()).isTrue();
+        verify(catalogEntryPort, never()).updateIfVersion(any(), anyLong());
     }
 
-    /**
-     * EC-03, migrated from setEligibleModes_reappliedWithSameValue_isIdempotent (R-9):
-     * reapplying the same update twice succeeds both times with the same persisted value.
-     */
     @Test
-    void updateCatalog_reappliedWithSameValue_isIdempotent() {
+    void updateCatalog_typeWithoutEntryAndWithoutModes_insertsItWithTheSchemaCeiling() {
         when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
-        when(repository.upsert(eq("A"), eq(true), eq("email"), any())).thenReturn(Mono.just(1));
-        when(repository.deleteAllByCredentialConfigurationIdNotIn(Set.of("A"))).thenReturn(Mono.just(0));
-
-        StepVerifier.create(service.updateCatalog(Set.of("A"), Map.of("A", Set.of(DeliveryMode.EMAIL)))
-                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
-                .verifyComplete();
-        StepVerifier.create(service.updateCatalog(Set.of("A"), Map.of("A", Set.of(DeliveryMode.EMAIL)))
-                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
-                .verifyComplete();
-
-        verify(repository, times(2)).upsert(eq("A"), eq(true), eq("email"), any());
-    }
-
-    /**
-     * EC-01: a ccid enabled but absent from the delivery-modes map preserves whatever is
-     * already stored -- signalled to the repository as a null value for COALESCE to keep.
-     */
-    @Test
-    void updateCatalog_omittingModesMapEntry_preservesExistingStoredModes() {
-        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
-        when(repository.upsert(eq("A"), eq(true), isNull(), any())).thenReturn(Mono.just(1));
-        when(repository.deleteAllByCredentialConfigurationIdNotIn(Set.of("A"))).thenReturn(Mono.just(0));
+        when(schemaDeliveryCeiling.resolveEligibleModes("A")).thenReturn(EnumSet.of(DeliveryMode.EMAIL, DeliveryMode.UI));
 
         StepVerifier.create(service.updateCatalog(Set.of("A"))
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
                 .verifyComplete();
 
-        verify(repository, times(1)).upsert(eq("A"), eq(true), isNull(), any());
+        ArgumentCaptor<CatalogEntry> inserted = ArgumentCaptor.forClass(CatalogEntry.class);
+        verify(catalogEntryPort).insert(inserted.capture());
+        assertThat(inserted.getValue().deliveryModes()).containsExactlyInAnyOrder(DeliveryMode.EMAIL, DeliveryMode.UI);
     }
 
-    /**
-     * EC-02: disabling a type prunes its row (and with it, its stored delivery modes).
-     */
+    /** D10: the alias creates rows too, so it refuses a type that needs a binding the catalog cannot offer. */
     @Test
-    void updateCatalog_disablingType_prunesRow() {
+    void updateCatalog_typeWithoutEntryThatNeedsAnUnsupportedBinding_failsWithoutInserting() {
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
+        when(registry.bindingTypeOf("A")).thenReturn(BindingType.UNSUPPORTED);
+        when(registry.schemaUriOf("A")).thenReturn("https://registry.eudistack.net/schemas/A");
+
+        StepVerifier.create(service.updateCatalog(Set.of("A"))
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .expectError(UnsupportedBindingTypeException.class)
+                .verify();
+
+        verify(catalogEntryPort, never()).insert(any());
+    }
+
+    /** EC-01: a ccid enabled but absent from the delivery-modes map keeps the modes already stored. */
+    @Test
+    void updateCatalog_omittingModesMapEntry_keepsTheStoredModes() {
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
+        when(catalogEntryPort.findAll()).thenReturn(Flux.just(stored("A", false, 3, DeliveryMode.EMAIL)));
+
+        StepVerifier.create(service.updateCatalog(Set.of("A"))
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .verifyComplete();
+
+        CatalogEntry updated = updatedEntry(3);
+        assertThat(updated.enabled()).isTrue();
+        assertThat(updated.deliveryModes()).containsExactly(DeliveryMode.EMAIL);
+        verify(catalogEntryPort, never()).insert(any());
+    }
+
+    @Test
+    void updateCatalog_declaredModes_replaceTheStoredOnes() {
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
+        when(catalogEntryPort.findAll()).thenReturn(Flux.just(stored("A", true, 0, DeliveryMode.EMAIL)));
+
+        StepVerifier.create(service.updateCatalog(Set.of("A"), Map.of("A", Set.of(DeliveryMode.UI)))
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .verifyComplete();
+
+        assertThat(updatedEntry(0).deliveryModes()).containsExactly(DeliveryMode.UI);
+    }
+
+    /** An entry saved with an explicit empty list (only a disabled one can be) reopens to the ceiling, never to nothing. */
+    @Test
+    void updateCatalog_enablingAnEntryStoredWithoutModes_reopensItToTheSchemaCeiling() {
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
+        when(schemaDeliveryCeiling.resolveEligibleModes("A")).thenReturn(EnumSet.of(DeliveryMode.EMAIL, DeliveryMode.UI));
+        when(catalogEntryPort.findAll()).thenReturn(Flux.just(stored("A", false, 5)));
+
+        StepVerifier.create(service.updateCatalog(Set.of("A"))
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .verifyComplete();
+
+        assertThat(updatedEntry(5).deliveryModes()).containsExactlyInAnyOrder(DeliveryMode.EMAIL, DeliveryMode.UI);
+    }
+
+    /** D5: a type left out of the list is disabled, its row and everything configured on it stay. */
+    @Test
+    void updateCatalog_typeLeftOut_isDisabledNotDeleted() {
         when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A"), "B", profile("B", "B")));
-        when(repository.upsert(eq("A"), eq(true), isNull(), any())).thenReturn(Mono.just(1));
-        when(repository.deleteAllByCredentialConfigurationIdNotIn(Set.of("A"))).thenReturn(Mono.just(1));
+        CatalogEntry a = stored("A", true, 2, DeliveryMode.EMAIL);
+        CatalogEntry b = stored("B", true, 7, DeliveryMode.UI);
+        when(catalogEntryPort.findAll()).thenReturn(Flux.just(a, b));
 
         StepVerifier.create(service.updateCatalog(Set.of("A"))
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
                 .verifyComplete();
 
-        verify(repository).deleteAllByCredentialConfigurationIdNotIn(Set.of("A"));
+        CatalogEntry disabled = updatedEntry(7);
+        assertThat(disabled.credentialConfigurationId()).isEqualTo("B");
+        assertThat(disabled.enabled()).isFalse();
+        assertThat(disabled).isEqualTo(b.withEnabled(false));
+        verify(catalogEntryPort, times(1)).updateIfVersion(any(), anyLong());
     }
 
-    /**
-     * The admin API rejects an empty set (400, see {@code UpdateCredentialCatalogRequest});
-     * at service level it remains the reset primitive and leaves nothing enabled.
-     */
+    /** At service level the empty set is the reset primitive: it disables everything, it deletes nothing. */
     @Test
-    void updateCatalog_emptySet_deletesAllNoUpsert() {
-        when(repository.deleteAll()).thenReturn(Mono.empty());
+    void updateCatalog_emptySet_disablesEveryEnabledEntry() {
+        when(catalogEntryPort.findAll()).thenReturn(Flux.just(
+                stored("A", true, 1, DeliveryMode.EMAIL), stored("B", false, 4, DeliveryMode.UI),
+                stored("C", true, 0, DeliveryMode.UI)));
 
         StepVerifier.create(service.updateCatalog(Set.of())
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
                 .verifyComplete();
 
-        verify(repository).deleteAll();
-        verify(repository, never()).upsert(anyString(), anyBoolean(), any(), any());
-        verify(repository, never()).deleteAllByCredentialConfigurationIdNotIn(any());
+        ArgumentCaptor<CatalogEntry> updated = ArgumentCaptor.forClass(CatalogEntry.class);
+        verify(catalogEntryPort, times(2)).updateIfVersion(updated.capture(), anyLong());
+        assertThat(updated.getAllValues()).extracting(CatalogEntry::credentialConfigurationId).containsExactly("A", "C");
+        assertThat(updated.getAllValues()).allSatisfy(entry -> assertThat(entry.enabled()).isFalse());
+        verify(catalogEntryPort, never()).insert(any());
+    }
+
+    /** EC-03: applying the same set twice writes nothing the second time, so the version is not bumped for nothing. */
+    @Test
+    void updateCatalog_reappliedWithSameValue_isIdempotent() {
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
+        when(catalogEntryPort.findAll()).thenReturn(Flux.just(stored("A", true, 1, DeliveryMode.EMAIL)));
+
+        StepVerifier.create(service.updateCatalog(Set.of("A"), Map.of("A", Set.of(DeliveryMode.EMAIL)))
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .verifyComplete();
+
+        verifyNothingWritten();
+    }
+
+    /** D13: an entry the platform seeded with only its id is completed in the same write that enables it. */
+    @Test
+    void updateCatalog_entryNotFilledYet_isCompletedFromTheTypeFileWhenItIsWritten() {
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
+        when(schemaDeliveryCeiling.resolveEligibleModes("A")).thenReturn(EnumSet.of(DeliveryMode.EMAIL, DeliveryMode.UI));
+        when(catalogEntryPort.findAll()).thenReturn(Flux.just(
+                new CatalogEntry("A", null, true, null, null, null, List.of(), 0, Instant.now(), Instant.now())));
+
+        StepVerifier.create(service.updateCatalog(Set.of("A"))
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .verifyComplete();
+
+        CatalogEntry updated = updatedEntry(0);
+        assertThat(updated.isFilled()).isTrue();
+        assertThat(updated.deliveryModes()).containsExactlyInAnyOrder(DeliveryMode.EMAIL, DeliveryMode.UI);
+    }
+
+    /** Another write got to the entry between the read and the update: the whole replacement runs again. */
+    @Test
+    void updateCatalog_entryChangedConcurrently_retriesFromTheRead() {
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
+        when(catalogEntryPort.findAll())
+                .thenReturn(Flux.just(stored("A", false, 1, DeliveryMode.EMAIL)))
+                .thenReturn(Flux.just(stored("A", false, 2, DeliveryMode.EMAIL)));
+        // doReturn: the default answer of setUp must not run against the matchers
+        doReturn(Mono.just(Optional.empty())).when(catalogEntryPort).updateIfVersion(any(), eq(1L));
+
+        StepVerifier.create(service.updateCatalog(Set.of("A"))
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .verifyComplete();
+
+        verify(catalogEntryPort, times(2)).findAll();
+        verify(catalogEntryPort).updateIfVersion(any(), eq(2L));
+    }
+
+    @Test
+    void updateCatalog_entryCreatedConcurrently_retriesAndUpdatesIt() {
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
+        when(catalogEntryPort.findAll())
+                .thenReturn(Flux.empty())
+                .thenReturn(Flux.just(stored("A", false, 0, DeliveryMode.EMAIL)));
+        doReturn(Mono.error(new CatalogEntryAlreadyExistsException("A", new RuntimeException())))
+                .when(catalogEntryPort).insert(any());
+
+        StepVerifier.create(service.updateCatalog(Set.of("A"))
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .verifyComplete();
+
+        assertThat(updatedEntry(0).enabled()).isTrue();
     }
 
     @Test
     void updateCatalog_success_invalidatesCache() {
         when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
-        when(repository.upsert(eq("A"), eq(true), isNull(), any())).thenReturn(Mono.just(1));
-        when(repository.deleteAllByCredentialConfigurationIdNotIn(Set.of("A"))).thenReturn(Mono.just(0));
         when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(row("A")));
 
         // Prime the cache for TENANT.
@@ -557,8 +673,7 @@ class TenantCredentialProfileServiceImplTest {
     @Test
     void updateCatalog_writeFails_doesNotInvalidateCache() {
         when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
-        when(repository.upsert(eq("A"), eq(true), isNull(), any()))
-                .thenReturn(Mono.error(new RuntimeException("db down")));
+        doReturn(Mono.error(new RuntimeException("db down"))).when(catalogEntryPort).insert(any());
         when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(row("A")));
 
         // Prime the cache.
@@ -577,6 +692,27 @@ class TenantCredentialProfileServiceImplTest {
     }
 
     // ---- helpers --------------------------------------------------------------
+
+    private void verifyNothingWritten() {
+        verify(catalogEntryPort, never()).insert(any());
+        verify(catalogEntryPort, never()).updateIfVersion(any(), anyLong());
+    }
+
+    /** The single entry written with {@code updateIfVersion} against {@code expectedVersion}. */
+    private CatalogEntry updatedEntry(long expectedVersion) {
+        ArgumentCaptor<CatalogEntry> updated = ArgumentCaptor.forClass(CatalogEntry.class);
+        verify(catalogEntryPort).updateIfVersion(updated.capture(), eq(expectedVersion));
+        return updated.getValue();
+    }
+
+    /**
+     * A filled entry as the adapter returns it: validity from a type file and, when it is not enabled,
+     * whatever {@code modes} it was saved with (none = an explicit empty list).
+     */
+    private static CatalogEntry stored(String configId, boolean enabled, long version, DeliveryMode... modes) {
+        return new CatalogEntry(configId, null, enabled, Set.of(modes), new CatalogEntry.Validity(365, true, 365),
+                null, List.of(), version, Instant.parse("2026-10-19T08:00:00Z"), Instant.parse("2026-10-19T08:00:00Z"));
+    }
 
     private static CredentialCatalogEntryDto entry(List<CredentialCatalogEntryDto> list, String id) {
         return list.stream().filter(e -> e.credentialConfigurationId().equals(id)).findFirst().orElseThrow();

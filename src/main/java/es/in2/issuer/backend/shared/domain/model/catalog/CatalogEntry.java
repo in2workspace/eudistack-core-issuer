@@ -63,6 +63,11 @@ public record CatalogEntry(
                 searchIdentifiers, version, created, updated);
     }
 
+    public CatalogEntry withDeliveryModes(Set<DeliveryMode> newDeliveryModes) {
+        return new CatalogEntry(credentialConfigurationId, schemaUri, enabled, newDeliveryModes, validity, subject,
+                searchIdentifiers, version, created, updated);
+    }
+
     public CatalogEntry withSchemaUri(String newSchemaUri) {
         return new CatalogEntry(credentialConfigurationId, newSchemaUri, enabled, deliveryModes, validity, subject,
                 searchIdentifiers, version, created, updated);

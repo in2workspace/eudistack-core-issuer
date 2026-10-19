@@ -17,7 +17,6 @@ import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileServic
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -33,7 +32,6 @@ import reactor.core.publisher.Mono;
 
 import java.util.List;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.SYSTEM_TENANT;
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.CREDENTIAL_CATALOG_PATH;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -66,7 +64,8 @@ class CredentialCatalogControllerTest {
     private AuditService auditService;
 
     // Required only because @WebFluxTest loads all @ControllerAdvice and WebFilter beans:
-    // Oidc4vciExceptionHandler depends on NonceService, IdempotencyFilter on IssuanceMetrics.
+    // Oidc4vciExceptionHandler depends on NonceService, IdempotencyFilter on IssuanceMetrics and
+    // AccessTokenService.
     @MockitoBean
     private NonceService nonceService;
 
@@ -76,23 +75,9 @@ class CredentialCatalogControllerTest {
     @MockitoBean
     private TenantRegistryService tenantRegistryService;
 
-    /**
-     * Default stub for the tenant-match gate (security review, EUD-169, S1): this slice test
-     * has no {@code TenantDomainWebFilter}, so the resolved tenant defaults to {@link
-     * SYSTEM_TENANT} ({@code TENANT_DOMAIN_CONTEXT_KEY}'s fallback, L2: aligned with the same
-     * sentinel TD-5 already adopted in {@code TenantCredentialProfileServiceImpl}, replacing
-     * the ad hoc {@code "unknown"} string this controller used to fall back to) -- matching it
-     * here keeps every pre-existing test passing without asserting anything about tenant
-     * matching. Tests that care about the mismatch override this per-test.
-     */
-    @BeforeEach
-    void stubTokenTenantMatchesDefault() {
-        when(accessTokenService.getTokenTenant(anyString())).thenReturn(Mono.just(SYSTEM_TENANT));
-    }
-
     @Test
     void getCatalog_asTenantAdmin_returns200WithEntries() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(catalogPdpService.authorizeRead(anyString()))
                 .thenReturn(Mono.just(admin()));
         when(tenantCredentialProfileService.getCatalog())
                 .thenReturn(Mono.just(List.of(
@@ -124,7 +109,7 @@ class CredentialCatalogControllerTest {
      */
     @Test
     void getCatalog_asLear_returns200AndReadsCatalog() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(catalogPdpService.authorizeRead(anyString()))
                 .thenReturn(Mono.just(lear()));
         when(tenantCredentialProfileService.getCatalog())
                 .thenReturn(Mono.just(List.of(
@@ -156,7 +141,7 @@ class CredentialCatalogControllerTest {
      */
     @Test
     void getCatalog_asLear_returns200WithDeliveryModesAndSchemaCeiling() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(catalogPdpService.authorizeRead(anyString()))
                 .thenReturn(Mono.just(lear()));
         when(tenantCredentialProfileService.getCatalog())
                 .thenReturn(Mono.just(List.of(
@@ -199,7 +184,7 @@ class CredentialCatalogControllerTest {
 
         when(tenantCredentialProfileService.getCatalog()).thenReturn(Mono.just(catalog));
 
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(catalogPdpService.authorizeRead(anyString()))
                 .thenReturn(Mono.just(admin()));
 
         byte[] adminBody = webTestClient.get()
@@ -211,7 +196,7 @@ class CredentialCatalogControllerTest {
                 .returnResult()
                 .getResponseBody();
 
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(catalogPdpService.authorizeRead(anyString()))
                 .thenReturn(Mono.just(lear()));
 
         byte[] learBody = webTestClient.get()
@@ -252,7 +237,7 @@ class CredentialCatalogControllerTest {
      */
     @Test
     void getCatalog_asReadOnlyAdmin_returns200() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(catalogPdpService.authorizeRead(anyString()))
                 .thenReturn(Mono.just(readOnlyAdmin()));
         when(tenantCredentialProfileService.getCatalog())
                 .thenReturn(Mono.just(List.of(
@@ -360,6 +345,81 @@ class CredentialCatalogControllerTest {
         verify(tenantCredentialProfileService, never()).updateCatalog(any(), any());
     }
 
+    /** AC-11, like the new API: the PDP decides before the body is read, so a malformed body is not a 400 for an operator. */
+    @ParameterizedTest
+    @ValueSource(strings = {"{this is not json", "{\"enabledConfigurationIds\":[]}", "{}"})
+    void updateCatalog_asLear_withAnyBody_returns403InsufficientPermission(String body) {
+        when(catalogPdpService.authorizeWrite(anyString()))
+                .thenReturn(Mono.error(new InsufficientPermissionException("denied")));
+
+        webTestClient.mutateWith(csrf())
+                .put()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
+                .exchange()
+                .expectStatus().isForbidden()
+                .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("insufficient_permission");
+
+        verify(tenantCredentialProfileService, never()).updateCatalog(any(), any());
+    }
+
+    // ---- RFC 9745: the alias is deprecated in favour of /api/v1/attestation-catalog ----
+
+    private static final String DEPRECATED_SINCE_2026_10_19 = "@1792368000";
+    private static final String SUCCESSOR_LINK = "</api/v1/attestation-catalog>; rel=\"successor-version\"";
+
+    @Test
+    void getCatalog_carriesTheDeprecationHeaders() {
+        when(catalogPdpService.authorizeRead(anyString())).thenReturn(Mono.just(admin()));
+        when(tenantCredentialProfileService.getCatalog()).thenReturn(Mono.just(List.of()));
+
+        webTestClient.get()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals("Deprecation", DEPRECATED_SINCE_2026_10_19)
+                .expectHeader().valueEquals("Link", SUCCESSOR_LINK);
+    }
+
+    @Test
+    void updateCatalog_carriesTheDeprecationHeaders() {
+        when(catalogPdpService.authorizeWrite(anyString())).thenReturn(Mono.just(admin()));
+        when(tenantCredentialProfileService.updateCatalog(any(), any())).thenReturn(Mono.empty());
+
+        webTestClient.mutateWith(csrf())
+                .put()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}")
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals("Deprecation", DEPRECATED_SINCE_2026_10_19)
+                .expectHeader().valueEquals("Link", SUCCESSOR_LINK);
+    }
+
+    @Test
+    void updateCatalog_denied_stillCarriesTheDeprecationHeaders() {
+        when(catalogPdpService.authorizeWrite(anyString()))
+                .thenReturn(Mono.error(new InsufficientPermissionException("denied")));
+
+        webTestClient.mutateWith(csrf())
+                .put()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}")
+                .exchange()
+                .expectStatus().isForbidden()
+                .expectHeader().valueEquals("Deprecation", DEPRECATED_SINCE_2026_10_19)
+                .expectHeader().valueEquals("Link", SUCCESSOR_LINK);
+    }
+
     @Test
     void updateCatalog_asReadOnlyAdmin_returns403() {
         when(catalogPdpService.authorizeWrite(anyString()))
@@ -408,7 +468,7 @@ class CredentialCatalogControllerTest {
      */
     @Test
     void getCatalog_asTenantAdmin_includesDeliveryModesAndSchemaCeiling() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(catalogPdpService.authorizeRead(anyString()))
                 .thenReturn(Mono.just(admin()));
         when(tenantCredentialProfileService.getCatalog())
                 .thenReturn(Mono.just(List.of(
@@ -478,7 +538,7 @@ class CredentialCatalogControllerTest {
     /** EUD-266: the alias answers its errors as {@code application/problem+json} with the path as instance. */
     @Test
     void getCatalog_tenantWithNothingEnabled_answersAProblemJson() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(catalogPdpService.authorizeRead(anyString()))
                 .thenReturn(Mono.just(admin()));
         when(tenantCredentialProfileService.getCatalog())
                 .thenReturn(Mono.error(new CredentialCatalogNotConfiguredException("No credential configuration enabled")));
@@ -568,7 +628,7 @@ class CredentialCatalogControllerTest {
 
     @Test
     void getCatalog_tenantWithNothingEnabled_returns404() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(catalogPdpService.authorizeRead(anyString()))
                 .thenReturn(Mono.just(admin()));
         when(tenantCredentialProfileService.getCatalog())
                 .thenReturn(Mono.error(
@@ -620,53 +680,23 @@ class CredentialCatalogControllerTest {
     }
 
     // --- Tenant-match tests (security review, EUD-169, S1) ---
+    // The tenant check and its audit live in CatalogPdpService now (CatalogPdpServiceImplTest); here only
+    // that a mismatch it reports reaches the client as tenant_mismatch and stops the read.
 
     @Test
-    void getCatalog_asLear_tenantMismatch_returns403AndAuditsBreach() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
-                .thenReturn(Mono.just(lear()));
-        when(accessTokenService.getTokenTenant(anyString()))
-                .thenReturn(Mono.just("other-tenant"));
+    void getCatalog_tenantMismatch_returns403AndDoesNotRead() {
+        when(catalogPdpService.authorizeRead(anyString()))
+                .thenReturn(Mono.error(new TenantMismatchException("Token tenant does not match")));
 
         webTestClient.get()
                 .uri(CREDENTIAL_CATALOG_PATH)
                 .header("Authorization", "Bearer token")
                 .exchange()
-                .expectStatus().isForbidden();
+                .expectStatus().isForbidden()
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("tenant_mismatch");
 
         verify(tenantCredentialProfileService, never()).getCatalog();
-        verify(auditService).auditFailure(
-                eq("tenant_isolation_breach"),
-                eq("org-1"),
-                anyString(),
-                any()
-        );
-    }
-
-    @Test
-    void getCatalog_asSysAdmin_tenantMismatch_returns403() {
-        // M2 (re-verification, reversed 2026-09-10): SysAdmin no longer bypasses
-        // requireTenantMatch -- see F2 in quality-report.md. Default stub from
-        // stubTokenTenantMatchesDefault() (SYSTEM_TENANT) would match the default
-        // resolved tenant too, so this test overrides it to force a genuine mismatch.
-        when(accessTokenService.getAuthorizationContext(anyString()))
-                .thenReturn(Mono.just(readOnlyAdmin()));
-        when(accessTokenService.getTokenTenant(anyString()))
-                .thenReturn(Mono.just("other-tenant"));
-
-        webTestClient.get()
-                .uri(CREDENTIAL_CATALOG_PATH)
-                .header("Authorization", "Bearer token")
-                .exchange()
-                .expectStatus().isForbidden();
-
-        verify(tenantCredentialProfileService, never()).getCatalog();
-        verify(auditService).auditFailure(
-                eq("tenant_isolation_breach"),
-                eq("org-1"),
-                anyString(),
-                any()
-        );
     }
 
     @Test

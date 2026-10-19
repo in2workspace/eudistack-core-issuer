@@ -2,19 +2,22 @@ package es.in2.issuer.backend.shared.domain.service.impl;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import es.in2.issuer.backend.shared.domain.exception.CatalogEntryAlreadyExistsException;
 import es.in2.issuer.backend.shared.domain.exception.CredentialCatalogNotConfiguredException;
 import es.in2.issuer.backend.shared.domain.exception.CredentialConfigurationNotEnabledException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidDeliveryConfigException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
+import es.in2.issuer.backend.shared.domain.exception.UnsupportedBindingTypeException;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
+import es.in2.issuer.backend.shared.domain.model.enums.BindingType;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
+import es.in2.issuer.backend.shared.domain.service.CatalogEntryFiller;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.shared.domain.spi.CatalogEntryPort;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
-import es.in2.issuer.backend.shared.infrastructure.repository.TenantCredentialProfileRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -23,10 +26,11 @@ import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.util.context.ContextView;
+import reactor.util.retry.Retry;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -41,21 +45,24 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
 
     private static final Duration CACHE_TTL = Duration.ofMinutes(5);
 
-    private final TenantCredentialProfileRepository repository;
+    /** A concurrent write to the same entry makes one of two alias writes retry; a handful is plenty. */
+    private static final int MAX_CONCURRENT_WRITE_RETRIES = 3;
+
     private final CatalogEntryPort catalogEntryPort;
+    private final CatalogEntryFiller catalogEntryFiller;
     private final CredentialProfileRegistry registry;
     private final SchemaDeliveryCeiling schemaDeliveryCeiling;
     private final TransactionalOperator transactionalOperator;
     private final Cache<String, Map<String, CatalogEntry>> cache;
 
     public TenantCredentialProfileServiceImpl(
-            TenantCredentialProfileRepository repository,
             CatalogEntryPort catalogEntryPort,
+            CatalogEntryFiller catalogEntryFiller,
             CredentialProfileRegistry registry,
             SchemaDeliveryCeiling schemaDeliveryCeiling,
             TransactionalOperator transactionalOperator) {
-        this.repository = repository;
         this.catalogEntryPort = catalogEntryPort;
+        this.catalogEntryFiller = catalogEntryFiller;
         this.registry = registry;
         this.schemaDeliveryCeiling = schemaDeliveryCeiling;
         this.transactionalOperator = transactionalOperator;
@@ -134,22 +141,86 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
 
         return validation.then(Mono.deferContextual(ctx -> {
             String tenant = requireTenant(ctx);
-            Instant now = Instant.now();
 
-            Mono<Void> write = enabledConfigurationIds.isEmpty()
-                    ? repository.deleteAll()
-                    : Flux.fromIterable(enabledConfigurationIds)
-                            .concatMap(id -> repository.upsert(id, true, canonicalModesOrNull(id, deliveryModesByConfigurationId), now))
-                            .then(repository.deleteAllByCredentialConfigurationIdNotIn(enabledConfigurationIds))
-                            .then();
+            // Re-run from the read when another write got to an entry first.
+            Mono<Void> write = transactionalOperator.transactional(
+                            Mono.defer(() -> replaceEnabledSet(enabledConfigurationIds, deliveryModesByConfigurationId)))
+                    .retryWhen(Retry.max(MAX_CONCURRENT_WRITE_RETRIES)
+                            .filter(ConcurrentEntryChange.class::isInstance));
 
-            return transactionalOperator.transactional(write)
-                    .doOnSuccess(v -> {
-                        cache.invalidate(tenant);
-                        log.info("Credential catalog updated for tenant '{}': {} type(s) enabled",
-                                tenant, enabledConfigurationIds.size());
-                    });
+            return write.doOnSuccess(v -> {
+                cache.invalidate(tenant);
+                log.info("Credential catalog updated for tenant '{}': {} type(s) enabled",
+                        tenant, enabledConfigurationIds.size());
+            });
         }));
+    }
+
+    /**
+     * What the deprecated alias does, now on the entries of the attestation catalog (EUD-266, D5): the
+     * listed types are enabled and the rest are <em>disabled</em>, never deleted, so what the tenant
+     * configured on them (validity, subject, search identifiers, modes) survives. Only entries that change
+     * are written, each with its version bumped; applying the same set twice writes nothing the second time.
+     *
+     * <p>A listed type keeps its stored delivery modes unless the request declares some (EC-01), and an
+     * entry that was saved with none (possible only for a disabled one) reopens to the schema ceiling,
+     * as it did before entries could hold an explicit empty list. A type without an entry gets one, with the
+     * values of its type file. An entry not completed yet is completed in the same write (D13).
+     */
+    private Mono<Void> replaceEnabledSet(Set<String> enabledConfigurationIds,
+                                         Map<String, Set<DeliveryMode>> deliveryModesByConfigurationId) {
+        return catalogEntryPort.findAll().collectList()
+                .flatMapMany(stored -> {
+                    Map<String, CatalogEntry> byId = new HashMap<>();
+                    stored.forEach(entry -> byId.put(entry.credentialConfigurationId(), entry));
+                    Flux<Void> enable = Flux.fromIterable(enabledConfigurationIds)
+                            .concatMap(id -> enable(byId.get(id), id, deliveryModesByConfigurationId.get(id)));
+                    Flux<Void> disable = Flux.fromIterable(stored)
+                            .filter(entry -> entry.enabled() && !enabledConfigurationIds.contains(entry.credentialConfigurationId()))
+                            .concatMap(this::disable);
+                    return enable.concatWith(disable);
+                })
+                .then();
+    }
+
+    private Mono<Void> enable(CatalogEntry stored, String credentialConfigurationId, Set<DeliveryMode> declaredModes) {
+        if (stored == null) {
+            return insertEnabled(credentialConfigurationId, declaredModes);
+        }
+        Set<DeliveryMode> modes = declaredModes != null ? declaredModes : storedOrCeilingModes(stored);
+        CatalogEntry target = catalogEntryFiller.fill(stored).withEnabled(true).withDeliveryModes(modes);
+        return target.equals(stored) ? Mono.empty() : write(stored, target);
+    }
+
+    private Mono<Void> disable(CatalogEntry stored) {
+        return write(stored, catalogEntryFiller.fill(stored).withEnabled(false));
+    }
+
+    /** A new entry for a type that had none: its type file's values, and the ceiling when no modes are declared. */
+    private Mono<Void> insertEnabled(String credentialConfigurationId, Set<DeliveryMode> declaredModes) {
+        if (registry.bindingTypeOf(credentialConfigurationId) == BindingType.UNSUPPORTED) {
+            return Mono.error(new UnsupportedBindingTypeException(registry.schemaUriOf(credentialConfigurationId)));
+        }
+        CatalogEntry entry = catalogEntryFiller.fill(new CatalogEntry(credentialConfigurationId, null, true,
+                declaredModes, null, null, List.of(), 0, null, null));
+        // Created by someone else since the read: start over and update it instead.
+        return catalogEntryPort.insert(entry)
+                .onErrorMap(CatalogEntryAlreadyExistsException.class, e -> new ConcurrentEntryChange())
+                .then();
+    }
+
+    /** Writes only if nobody changed the entry since it was read, otherwise the whole replacement starts over. */
+    private Mono<Void> write(CatalogEntry before, CatalogEntry after) {
+        return catalogEntryPort.updateIfVersion(after, before.version())
+                .flatMap(updated -> updated.isPresent()
+                        ? Mono.<Void>empty()
+                        : Mono.<Void>error(new ConcurrentEntryChange()));
+    }
+
+    private Set<DeliveryMode> storedOrCeilingModes(CatalogEntry stored) {
+        return stored.deliveryModes() == null || stored.deliveryModes().isEmpty()
+                ? schemaDeliveryCeiling.resolveEligibleModes(stored.credentialConfigurationId())
+                : stored.deliveryModes();
     }
 
     private void validateUpdateRequest(Set<String> enabledConfigurationIds, Map<String, Set<DeliveryMode>> deliveryModesByConfigurationId) {
@@ -179,11 +250,6 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
 
     private void validateWithinCeiling(Map<String, Set<DeliveryMode>> deliveryModesByConfigurationId) {
         deliveryModesByConfigurationId.forEach(schemaDeliveryCeiling::validateWithinCeiling);
-    }
-
-    private String canonicalModesOrNull(String credentialConfigurationId, Map<String, Set<DeliveryMode>> deliveryModesByConfigurationId) {
-        Set<DeliveryMode> declared = deliveryModesByConfigurationId.get(credentialConfigurationId);
-        return declared == null ? null : DeliveryMode.toCanonicalCsv(declared);
     }
 
     private CredentialCatalogEntryDto toEntryDto(String credentialConfigurationId, CredentialProfile profile, Map<String, Set<DeliveryMode>> modesMap) {
@@ -261,6 +327,13 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
             }
         }
         return profile.credentialConfigurationId();
+    }
+
+    /** Another write changed an entry between this one's read and its update. */
+    private static final class ConcurrentEntryChange extends RuntimeException {
+        ConcurrentEntryChange() {
+            super("A catalog entry was changed concurrently", null, false, false);
+        }
     }
 
 }
