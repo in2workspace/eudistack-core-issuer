@@ -57,4 +57,14 @@ public record CatalogEntry(
     public boolean isFilled() {
         return validity != null && deliveryModes != null;
     }
+
+    public CatalogEntry withEnabled(boolean newEnabled) {
+        return new CatalogEntry(credentialConfigurationId, schemaUri, newEnabled, deliveryModes, validity, subject,
+                searchIdentifiers, version, created, updated);
+    }
+
+    public CatalogEntry withSchemaUri(String newSchemaUri) {
+        return new CatalogEntry(credentialConfigurationId, newSchemaUri, enabled, deliveryModes, validity, subject,
+                searchIdentifiers, version, created, updated);
+    }
 }
