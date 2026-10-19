@@ -10,9 +10,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.test.StepVerifier;
+
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
@@ -98,62 +103,63 @@ class PayloadSchemaValidatorImplTest {
         return objectMapper.readTree(mandateJson);
     }
 
+    private static final String VALID_MANDATEE = """
+            { "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe" }""";
+    private static final String VALID_MANDATOR = """
+            { "organizationIdentifier": "VATES-A00000000", "email": "org@example.com" }""";
+
+    private static String mandatePayload(String mandatee, String mandator) {
+        return "{ \"mandatee\": " + mandatee + ", \"mandator\": " + mandator + ", \"power\": [{ \"type\": \"domain\" }] }";
+    }
+
+    static Stream<Arguments> conformingPayloads() {
+        return Stream.of(
+                Arguments.of("onlyRegisteredFields",
+                        mandatePayload(VALID_MANDATEE, VALID_MANDATOR)),
+                Arguments.of("mandateeAndMandatorIncludeIdField",
+                        mandatePayload(
+                                """
+                                { "id": "did:key:zMandatee", "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe" }""",
+                                """
+                                { "id": "did:elsi:VATES-A00000000", "organizationIdentifier": "VATES-A00000000", "email": "org@example.com" }""")),
+                Arguments.of("mandateeEmployeeIdIsEmptyString",
+                        mandatePayload(
+                                """
+                                { "employeeId": "", "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe" }""",
+                                VALID_MANDATOR))
+        );
+    }
+
+    static Stream<Arguments> nonConformingPayloads() {
+        return Stream.of(
+                Arguments.of("mandateeEmployeeIdIsNull", "employeeId",
+                        mandatePayload(
+                                """
+                                { "employeeId": null, "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe" }""",
+                                VALID_MANDATOR)),
+                Arguments.of("mandateeHasUnregisteredField", "mandatee",
+                        mandatePayload(
+                                """
+                                { "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe", "nationality": "ES" }""",
+                                VALID_MANDATOR)),
+                Arguments.of("mandatorUsesLegacyEmailAddressFieldName", "mandator",
+                        mandatePayload(
+                                VALID_MANDATEE,
+                                """
+                                { "organizationIdentifier": "VATES-A00000000", "emailAddress": "org@example.com" }"""))
+        );
+    }
+
     @Nested
     @DisplayName("validate: payload conforms to the mandate schema")
     class ValidPayload {
 
-        @Test
-        @DisplayName("validate_payloadUsesOnlyRegisteredFields_completesSuccessfully")
-        void validate_payloadUsesOnlyRegisteredFields_completesSuccessfully() throws Exception {
+        @ParameterizedTest(name = "validate_{0}_completesSuccessfully")
+        @MethodSource("es.in2.issuer.backend.shared.infrastructure.service.PayloadSchemaValidatorImplTest#conformingPayloads")
+        void validate_conformingPayload_completesSuccessfully(String scenario, String payloadJson) throws Exception {
             // Arrange
             mockMandateSchema();
-            JsonNode payload = payload("""
-                    {
-                      "mandatee": { "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe" },
-                      "mandator": { "organizationIdentifier": "VATES-A00000000", "email": "org@example.com" },
-                      "power": [{ "type": "domain" }]
-                    }
-                    """);
-
-            // Act
-            var result = payloadSchemaValidator.validate(CONFIG_ID, payload);
-
-            // Assert
-            StepVerifier.create(result).verifyComplete();
-        }
-
-        @Test
-        @DisplayName("validate_mandateeAndMandatorIncludeIdField_completesSuccessfully")
-        void validate_mandateeAndMandatorIncludeIdField_completesSuccessfully() throws Exception {
-            // Arrange
-            mockMandateSchema();
-            JsonNode payload = payload("""
-                    {
-                      "mandatee": { "id": "did:key:zMandatee", "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe" },
-                      "mandator": { "id": "did:elsi:VATES-A00000000", "organizationIdentifier": "VATES-A00000000", "email": "org@example.com" },
-                      "power": [{ "type": "domain" }]
-                    }
-                    """);
-
-            // Act
-            var result = payloadSchemaValidator.validate(CONFIG_ID, payload);
-
-            // Assert
-            StepVerifier.create(result).verifyComplete();
-        }
-
-        @Test
-        @DisplayName("validate_mandateeEmployeeIdIsEmptyString_completesSuccessfully")
-        void validate_mandateeEmployeeIdIsEmptyString_completesSuccessfully() throws Exception {
-            // Arrange
-            mockMandateSchema();
-            JsonNode payload = payload("""
-                    {
-                      "mandatee": { "employeeId": "", "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe" },
-                      "mandator": { "organizationIdentifier": "VATES-A00000000", "email": "org@example.com" },
-                      "power": [{ "type": "domain" }]
-                    }
-                    """);
+            JsonNode payload = payload(payloadJson);
 
             // Act
             var result = payloadSchemaValidator.validate(CONFIG_ID, payload);
@@ -167,18 +173,13 @@ class PayloadSchemaValidatorImplTest {
     @DisplayName("validate: payload carries fields outside the mandate schema")
     class InvalidPayload {
 
-        @Test
-        @DisplayName("validate_mandateeEmployeeIdIsNull_rejectsWithPayloadValidationException")
-        void validate_mandateeEmployeeIdIsNull_rejectsWithPayloadValidationException() throws Exception {
+        @ParameterizedTest(name = "validate_{0}_rejectsWithPayloadValidationException")
+        @MethodSource("es.in2.issuer.backend.shared.infrastructure.service.PayloadSchemaValidatorImplTest#nonConformingPayloads")
+        void validate_nonConformingPayload_rejectsWithPayloadValidationException(
+                String scenario, String violatedField, String payloadJson) throws Exception {
             // Arrange
             mockMandateSchema();
-            JsonNode payload = payload("""
-                    {
-                      "mandatee": { "employeeId": null, "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe" },
-                      "mandator": { "organizationIdentifier": "VATES-A00000000", "email": "org@example.com" },
-                      "power": [{ "type": "domain" }]
-                    }
-                    """);
+            JsonNode payload = payload(payloadJson);
 
             // Act
             var result = payloadSchemaValidator.validate(CONFIG_ID, payload);
@@ -189,61 +190,7 @@ class PayloadSchemaValidatorImplTest {
                         assertTrue(error instanceof PayloadValidationException);
                         var violations = ((PayloadValidationException) error).getViolations();
                         assertTrue(violations.stream()
-                                .anyMatch(v -> v.field().contains("employeeId")));
-                    })
-                    .verify();
-        }
-
-        @Test
-        @DisplayName("validate_mandateeHasUnregisteredField_rejectsWithPayloadValidationException")
-        void validate_mandateeHasUnregisteredField_rejectsWithPayloadValidationException() throws Exception {
-            // Arrange
-            mockMandateSchema();
-            JsonNode payload = payload("""
-                    {
-                      "mandatee": { "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe", "nationality": "ES" },
-                      "mandator": { "organizationIdentifier": "VATES-A00000000", "email": "org@example.com" },
-                      "power": [{ "type": "domain" }]
-                    }
-                    """);
-
-            // Act
-            var result = payloadSchemaValidator.validate(CONFIG_ID, payload);
-
-            // Assert
-            StepVerifier.create(result)
-                    .expectErrorSatisfies(error -> {
-                        assertTrue(error instanceof PayloadValidationException);
-                        var violations = ((PayloadValidationException) error).getViolations();
-                        assertTrue(violations.stream()
-                                .anyMatch(v -> v.field().contains("mandatee")));
-                    })
-                    .verify();
-        }
-
-        @Test
-        @DisplayName("validate_mandatorUsesLegacyEmailAddressFieldName_rejectsWithPayloadValidationException")
-        void validate_mandatorUsesLegacyEmailAddressFieldName_rejectsWithPayloadValidationException() throws Exception {
-            // Arrange
-            mockMandateSchema();
-            JsonNode payload = payload("""
-                    {
-                      "mandatee": { "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe" },
-                      "mandator": { "organizationIdentifier": "VATES-A00000000", "emailAddress": "org@example.com" },
-                      "power": [{ "type": "domain" }]
-                    }
-                    """);
-
-            // Act
-            var result = payloadSchemaValidator.validate(CONFIG_ID, payload);
-
-            // Assert
-            StepVerifier.create(result)
-                    .expectErrorSatisfies(error -> {
-                        assertTrue(error instanceof PayloadValidationException);
-                        var violations = ((PayloadValidationException) error).getViolations();
-                        assertTrue(violations.stream()
-                                .anyMatch(v -> v.field().contains("mandator")));
+                                .anyMatch(v -> v.field().contains(violatedField)));
                     })
                     .verify();
         }
