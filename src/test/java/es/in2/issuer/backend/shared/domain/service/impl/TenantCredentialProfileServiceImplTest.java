@@ -7,9 +7,10 @@ import es.in2.issuer.backend.shared.domain.exception.InvalidDeliveryConfigExcept
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
-import es.in2.issuer.backend.shared.domain.model.entities.TenantCredentialProfile;
+import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
+import es.in2.issuer.backend.shared.domain.spi.CatalogEntryPort;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.repository.TenantCredentialProfileRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,7 +33,6 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -54,6 +54,7 @@ class TenantCredentialProfileServiceImplTest {
     private static final String TENANT = "demo";
 
     @Mock private TenantCredentialProfileRepository repository;
+    @Mock private CatalogEntryPort catalogEntryPort;
     @Mock private CredentialProfileRegistry registry;
     @Mock private SchemaDeliveryCeiling schemaDeliveryCeiling;
     @Mock private TransactionalOperator transactionalOperator;
@@ -62,7 +63,7 @@ class TenantCredentialProfileServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new TenantCredentialProfileServiceImpl(repository, registry, schemaDeliveryCeiling, transactionalOperator);
+        service = new TenantCredentialProfileServiceImpl(repository, catalogEntryPort, registry, schemaDeliveryCeiling, transactionalOperator);
         // Pass-through transaction: return the wrapped Mono unchanged.
         when(transactionalOperator.transactional(any(Mono.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
@@ -78,7 +79,7 @@ class TenantCredentialProfileServiceImplTest {
         when(registry.getAllProfiles()).thenReturn(Map.of(
                 "A", profile("A", "Profile A"),
                 "B", profile("B", null)));
-        when(repository.findAllByEnabledTrue()).thenReturn(Flux.empty());
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.empty());
 
         StepVerifier.create(service.getCatalog()
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
@@ -93,7 +94,7 @@ class TenantCredentialProfileServiceImplTest {
     @Test
     void getCatalog_storedIdsUnknownToRegistry_notConfigured() {
         when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
-        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("RETIRED")));
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(row("RETIRED")));
 
         StepVerifier.create(service.getCatalog()
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
@@ -107,7 +108,7 @@ class TenantCredentialProfileServiceImplTest {
                 "A", profile("A", "A"),
                 "B", profile("B", "B"),
                 "C", profile("C", "C")));
-        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("A"), row("C")));
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(row("A"), row("C")));
 
         StepVerifier.create(service.getCatalog()
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
@@ -124,7 +125,7 @@ class TenantCredentialProfileServiceImplTest {
         when(registry.getAllProfiles()).thenReturn(Map.of(
                 "A", profile("A", "Profile A"),
                 "B", profile("B", null)));
-        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("A"), row("B")));
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(row("A"), row("B")));
 
         StepVerifier.create(service.getCatalog()
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
@@ -142,7 +143,7 @@ class TenantCredentialProfileServiceImplTest {
     @Test
     void getCatalog_enrichesWithDeliveryModesAndSchemaCeiling() {
         when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
-        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("A", "email")));
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(row("A", "email")));
         when(schemaDeliveryCeiling.resolveEligibleModes("A"))
                 .thenReturn(EnumSet.allOf(DeliveryMode.class));
 
@@ -165,7 +166,7 @@ class TenantCredentialProfileServiceImplTest {
         when(registry.getAllProfiles()).thenReturn(Map.of(
                 "A", profile("A", "A"),
                 "B", profile("B", "B")));
-        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("A")));
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(row("A")));
         when(schemaDeliveryCeiling.resolveEligibleModes("B"))
                 .thenReturn(EnumSet.of(DeliveryMode.EMAIL, DeliveryMode.UI));
 
@@ -185,7 +186,7 @@ class TenantCredentialProfileServiceImplTest {
     @Test
     void getCatalog_noExplicitConfig_offersEntireCeiling() {
         when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
-        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("A", null)));
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(row("A", null)));
         when(schemaDeliveryCeiling.resolveEligibleModes("A"))
                 .thenReturn(EnumSet.of(DeliveryMode.EMAIL, DeliveryMode.UI));
 
@@ -203,7 +204,7 @@ class TenantCredentialProfileServiceImplTest {
     @Test
     void getCatalog_configuredModesEqualCeiling_indistinguishableFromUnconfigured() {
         when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
-        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("A", "email,ui")));
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(row("A", "email,ui")));
         when(schemaDeliveryCeiling.resolveEligibleModes("A"))
                 .thenReturn(EnumSet.of(DeliveryMode.EMAIL, DeliveryMode.UI));
 
@@ -217,7 +218,7 @@ class TenantCredentialProfileServiceImplTest {
 
     @Test
     void isProfileAllowed_emptyTable_isFalse() {
-        when(repository.findAllByEnabledTrue()).thenReturn(Flux.empty());
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.empty());
 
         StepVerifier.create(service.isProfileAllowed("A")
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
@@ -228,7 +229,7 @@ class TenantCredentialProfileServiceImplTest {
     @Test
     void getAvailableProfiles_emptyTable_isEmpty() {
         when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
-        when(repository.findAllByEnabledTrue()).thenReturn(Flux.empty());
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.empty());
 
         StepVerifier.create(service.getAvailableProfiles()
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
@@ -241,7 +242,7 @@ class TenantCredentialProfileServiceImplTest {
         when(registry.getAllProfiles()).thenReturn(Map.of(
                 "A", profile("A", "A"),
                 "B", profile("B", "B")));
-        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("B")));
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(row("B")));
 
         StepVerifier.create(service.getAvailableProfiles()
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
@@ -259,7 +260,7 @@ class TenantCredentialProfileServiceImplTest {
 
     @Test
     void findConfiguredDeliveryModes_notConfigured_returnsEmptySet() {
-        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("A", null)));
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(row("A", null)));
 
         StepVerifier.create(service.findConfiguredDeliveryModes("A")
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
@@ -269,7 +270,7 @@ class TenantCredentialProfileServiceImplTest {
 
     @Test
     void findConfiguredDeliveryModes_configured_returnsStoredModes() {
-        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("A", "direct,email")));
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(row("A", "direct,email")));
 
         StepVerifier.create(service.findConfiguredDeliveryModes("A")
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
@@ -279,14 +280,14 @@ class TenantCredentialProfileServiceImplTest {
 
     /**
      * Security review (F6): a type that is not enabled at all (absent from
-     * findAllByEnabledTrue()) must not be collapsed into the same empty Set as "enabled but
+     * findAllByEnabled(true)) must not be collapsed into the same empty Set as "enabled but
      * unconfigured" (see the passing test above) -- DeliveryEligibilityResolver would default
      * that to the schema ceiling, letting an unenabled type inherit eligibility instead of
      * being refused.
      */
     @Test
     void findConfiguredDeliveryModes_notEnabledAtAll_errorsWithNotEnabled() {
-        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("A", "direct,email")));
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(row("A", "direct,email")));
 
         StepVerifier.create(service.findConfiguredDeliveryModes("unknown-or-not-enabled")
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
@@ -306,7 +307,7 @@ class TenantCredentialProfileServiceImplTest {
                         .isEqualTo(HttpStatus.BAD_REQUEST))
                 .verify();
 
-        verify(repository, never()).findAllByEnabledTrue();
+        verify(catalogEntryPort, never()).findAllByEnabled(true);
     }
 
     /**
@@ -315,7 +316,7 @@ class TenantCredentialProfileServiceImplTest {
      */
     @Test
     void twoTenants_haveIndependentEnabledIds() {
-        when(repository.findAllByEnabledTrue())
+        when(catalogEntryPort.findAllByEnabled(true))
                 .thenReturn(Flux.just(row("A")))
                 .thenReturn(Flux.just(row("B")));
 
@@ -328,7 +329,54 @@ class TenantCredentialProfileServiceImplTest {
                 .assertNext(ids -> assertThat(ids).containsExactly("B"))
                 .verifyComplete();
 
-        verify(repository, times(2)).findAllByEnabledTrue();
+        verify(catalogEntryPort, times(2)).findAllByEnabled(true);
+    }
+
+    // ---- catalog entries of the cache -----------------------------------------
+
+    @Test
+    void findEnabledEntry_enabled_returnsTheEntryWithItsConfiguration() {
+        CatalogEntry stored = new CatalogEntry("A", null, true, Set.of(DeliveryMode.EMAIL),
+                new CatalogEntry.Validity(36500, false, null), null, List.of(), 4, Instant.now(), Instant.now());
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(stored));
+
+        StepVerifier.create(service.findEnabledEntry("A")
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .expectNext(stored)
+                .verifyComplete();
+    }
+
+    @Test
+    void findEnabledEntry_notEnabled_isEmpty() {
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(row("A")));
+
+        StepVerifier.create(service.findEnabledEntry("DISABLED")
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .verifyComplete();
+    }
+
+    @Test
+    void getEnabledConfigurationIds_loadsOnlyTheEnabledEntries() {
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(row("A")));
+
+        service.getEnabledConfigurationIds().contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)).block();
+
+        verify(catalogEntryPort, never()).findAll();
+    }
+
+    @Test
+    void invalidateCache_makesTheNextReadReloadThatTenant() {
+        when(catalogEntryPort.findAllByEnabled(true))
+                .thenReturn(Flux.just(row("A")))
+                .thenReturn(Flux.just(row("B")));
+
+        service.getEnabledConfigurationIds().contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)).block();
+        service.invalidateCache(TENANT);
+
+        StepVerifier.create(service.getEnabledConfigurationIds()
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .assertNext(ids -> assertThat(ids).containsExactly("B"))
+                .verifyComplete();
     }
 
     // ---- updateCatalog --------------------------------------------------------
@@ -491,7 +539,7 @@ class TenantCredentialProfileServiceImplTest {
         when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
         when(repository.upsert(eq("A"), eq(true), isNull(), any())).thenReturn(Mono.just(1));
         when(repository.deleteAllByCredentialConfigurationIdNotIn(Set.of("A"))).thenReturn(Mono.just(0));
-        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("A")));
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(row("A")));
 
         // Prime the cache for TENANT.
         service.getEnabledConfigurationIds()
@@ -503,7 +551,7 @@ class TenantCredentialProfileServiceImplTest {
         service.getEnabledConfigurationIds()
                 .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)).block();
 
-        verify(repository, times(2)).findAllByEnabledTrue();
+        verify(catalogEntryPort, times(2)).findAllByEnabled(true);
     }
 
     @Test
@@ -511,7 +559,7 @@ class TenantCredentialProfileServiceImplTest {
         when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
         when(repository.upsert(eq("A"), eq(true), isNull(), any()))
                 .thenReturn(Mono.error(new RuntimeException("db down")));
-        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("A")));
+        when(catalogEntryPort.findAllByEnabled(true)).thenReturn(Flux.just(row("A")));
 
         // Prime the cache.
         service.getEnabledConfigurationIds()
@@ -525,7 +573,7 @@ class TenantCredentialProfileServiceImplTest {
         service.getEnabledConfigurationIds()
                 .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)).block();
 
-        verify(repository, times(1)).findAllByEnabledTrue();
+        verify(catalogEntryPort, times(1)).findAllByEnabled(true);
     }
 
     // ---- helpers --------------------------------------------------------------
@@ -534,12 +582,15 @@ class TenantCredentialProfileServiceImplTest {
         return list.stream().filter(e -> e.credentialConfigurationId().equals(id)).findFirst().orElseThrow();
     }
 
-    private static TenantCredentialProfile row(String configId) {
+    private static CatalogEntry row(String configId) {
         return row(configId, null);
     }
 
-    private static TenantCredentialProfile row(String configId, String deliveryModes) {
-        return new TenantCredentialProfile(UUID.randomUUID(), configId, true, Instant.now(), Instant.now(), deliveryModes);
+    /** An enabled entry; {@code deliveryModes} is the canonical CSV, {@code null} = row not filled yet. */
+    private static CatalogEntry row(String configId, String deliveryModes) {
+        return new CatalogEntry(configId, null, true,
+                deliveryModes == null ? null : DeliveryMode.parse(deliveryModes),
+                null, null, List.of(), 0, Instant.now(), Instant.now());
     }
 
     private static CredentialProfile profile(String id, String displayName) {

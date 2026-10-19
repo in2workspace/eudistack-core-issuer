@@ -6,12 +6,13 @@ import es.in2.issuer.backend.shared.domain.exception.CredentialCatalogNotConfigu
 import es.in2.issuer.backend.shared.domain.exception.CredentialConfigurationNotEnabledException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidDeliveryConfigException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
+import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
-import es.in2.issuer.backend.shared.domain.model.entities.TenantCredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
+import es.in2.issuer.backend.shared.domain.spi.CatalogEntryPort;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.repository.TenantCredentialProfileRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -41,17 +42,20 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
     private static final Duration CACHE_TTL = Duration.ofMinutes(5);
 
     private final TenantCredentialProfileRepository repository;
+    private final CatalogEntryPort catalogEntryPort;
     private final CredentialProfileRegistry registry;
     private final SchemaDeliveryCeiling schemaDeliveryCeiling;
     private final TransactionalOperator transactionalOperator;
-    private final Cache<String, Map<String, Set<DeliveryMode>>> cache;
+    private final Cache<String, Map<String, CatalogEntry>> cache;
 
     public TenantCredentialProfileServiceImpl(
             TenantCredentialProfileRepository repository,
+            CatalogEntryPort catalogEntryPort,
             CredentialProfileRegistry registry,
             SchemaDeliveryCeiling schemaDeliveryCeiling,
             TransactionalOperator transactionalOperator) {
         this.repository = repository;
+        this.catalogEntryPort = catalogEntryPort;
         this.registry = registry;
         this.schemaDeliveryCeiling = schemaDeliveryCeiling;
         this.transactionalOperator = transactionalOperator;
@@ -63,7 +67,7 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
 
     @Override
     public Mono<Set<String>> getEnabledConfigurationIds() {
-        return getTenantModesMap().map(Map::keySet);
+        return getEnabledEntries().map(Map::keySet);
     }
 
     @Override
@@ -84,19 +88,32 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
     public Mono<Set<DeliveryMode>> findConfiguredDeliveryModes(String credentialConfigurationId) {
         return Mono.deferContextual(ctx -> {
             requireTenant(ctx);
-            return getTenantModesMap()
-                    .flatMap(modesMap -> modesMap.containsKey(credentialConfigurationId)
-                            ? Mono.just(modesMap.get(credentialConfigurationId))
+            return getEnabledEntries()
+                    .flatMap(entries -> entries.containsKey(credentialConfigurationId)
+                            ? Mono.just(configuredModesOf(entries.get(credentialConfigurationId)))
                             : Mono.error(new CredentialConfigurationNotEnabledException(
                                     "Credential configuration id '" + credentialConfigurationId + "' is not enabled for this tenant")));
         });
     }
 
     @Override
+    public Mono<CatalogEntry> findEnabledEntry(String credentialConfigurationId) {
+        return getEnabledEntries().flatMap(entries -> Mono.justOrEmpty(entries.get(credentialConfigurationId)));
+    }
+
+    @Override
+    public void invalidateCache(String tenant) {
+        cache.invalidate(tenant);
+    }
+
+    @Override
     public Mono<List<CredentialCatalogEntryDto>> getCatalog() {
         return Mono.deferContextual(ctx -> {
             String tenant = requireTenant(ctx);
-            return getTenantModesMap()
+            return getEnabledEntries()
+                    .map(entries -> entries.values().stream()
+                            .collect(Collectors.toMap(CatalogEntry::credentialConfigurationId,
+                                    TenantCredentialProfileServiceImpl::configuredModesOf)))
                     .map(modesMap -> registry.getAllProfiles().entrySet().stream()
                             .map(entry -> toEntryDto(entry.getKey(), entry.getValue(), modesMap))
                             .sorted(Comparator.comparing(CredentialCatalogEntryDto::displayName))
@@ -185,35 +202,37 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
     }
 
     /**
-     * Loads (or reads from cache) the per-tenant map of enabled credential_configuration_id to
-     * its configured delivery modes. A present key with an empty value means "enabled, but no
-     * delivery modes explicitly configured" -- the sentinel that callers (this class'
-     * {@link #getCatalog()}, and {@code DeliveryEligibilityResolver} via
-     * {@link #findConfiguredDeliveryModes}) fall back to the schema ceiling for (AD-8); an
-     * absent key means "not enabled". {@code keySet()} of this map is exactly the enabled ids.
+     * Loads (or reads from cache) the per-tenant map of <em>enabled</em> catalog entries by
+     * credential_configuration_id; {@code keySet()} is exactly the enabled ids, which the OID4VCI
+     * metadata, {@code RequireCredentialProfileAllowedForTenantRule} and
+     * {@code DeliveryEligibilityResolver} rely on. A disabled entry is never loaded, so it cannot be
+     * issued nor advertised.
      */
-    private Mono<Map<String, Set<DeliveryMode>>> getTenantModesMap() {
+    private Mono<Map<String, CatalogEntry>> getEnabledEntries() {
         return Mono.deferContextual(ctx -> {
             String tenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, SYSTEM_TENANT);
-            Map<String, Set<DeliveryMode>> cached = cache.getIfPresent(tenant);
+            Map<String, CatalogEntry> cached = cache.getIfPresent(tenant);
             if (cached != null) {
                 return Mono.just(cached);
             }
 
-            return repository.findAllByEnabledTrue()
-                    .collect(Collectors.toMap(
-                            TenantCredentialProfile::credentialConfigurationId,
-                            row -> parseStoredModes(row.deliveryModes())))
+            return catalogEntryPort.findAllByEnabled(true)
+                    .collect(Collectors.toMap(CatalogEntry::credentialConfigurationId, entry -> entry))
                     .map(Map::copyOf)
-                    .doOnNext(modesMap -> {
-                        cache.put(tenant, modesMap);
-                        log.debug("Loaded {} enabled credential profiles for tenant '{}'", modesMap.size(), tenant);
+                    .doOnNext(entries -> {
+                        cache.put(tenant, entries);
+                        log.debug("Loaded {} enabled catalog entries for tenant '{}'", entries.size(), tenant);
                     });
         });
     }
 
-    private static Set<DeliveryMode> parseStoredModes(String csv) {
-        return (csv == null || csv.isBlank()) ? Set.of() : Set.copyOf(DeliveryMode.parse(csv));
+    /**
+     * The delivery modes the tenant configured. Empty means "not filled yet" (D13), the sentinel that
+     * callers resolve to the schema ceiling (AD-8): an enabled entry can never hold an explicit empty
+     * list (D14), so an empty list is not read as one.
+     */
+    private static Set<DeliveryMode> configuredModesOf(CatalogEntry entry) {
+        return entry.deliveryModes() == null ? Set.of() : entry.deliveryModes();
     }
 
     private static List<String> sortedValues(Set<DeliveryMode> modes) {

@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.domain.service;
 
+import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
@@ -52,6 +53,19 @@ public interface TenantCredentialProfileService {
      * treats as "default to the schema ceiling" (AD-8), never as "everything allowed".
      */
     Mono<Set<DeliveryMode>> findConfiguredDeliveryModes(String credentialConfigurationId);
+
+    /**
+     * Returns the cached catalog entry of an <em>enabled</em> credential_configuration_id of the current
+     * tenant, with the configuration the tenant gave it; empty when it is not enabled. A row that has
+     * not been filled yet (see {@link CatalogEntry#isFilled()}) comes back as stored.
+     */
+    Mono<CatalogEntry> findEnabledEntry(String credentialConfigurationId);
+
+    /**
+     * Drops the cached entries of {@code tenant} on this instance, so the next read goes to the
+     * database. Callers invoke it after the transaction that changed the catalog has committed.
+     */
+    void invalidateCache(String tenant);
 
     /**
      * Replaces the set of enabled credential_configuration_ids for the current tenant.

@@ -1,0 +1,226 @@
+package es.in2.issuer.backend.shared.domain.service;
+
+import es.in2.issuer.backend.shared.domain.exception.CatalogEntryNotFoundException;
+import es.in2.issuer.backend.shared.domain.exception.PreconditionFailedException;
+import es.in2.issuer.backend.shared.domain.exception.PreconditionRequiredException;
+import es.in2.issuer.backend.shared.domain.exception.TenantNotResolvedException;
+import es.in2.issuer.backend.shared.domain.model.catalog.CatalogConfigurationInput;
+import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
+import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntryETag;
+import es.in2.issuer.backend.shared.domain.model.catalog.CreateCatalogEntryCommand;
+import es.in2.issuer.backend.shared.domain.spi.CatalogEntryPort;
+import es.in2.issuer.backend.shared.domain.spi.CredentialProfileCatalog;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.reactive.TransactionalOperator;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.util.context.ContextView;
+
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
+
+/**
+ * The tenant's catalog of attestations, one entry per credential type with the configuration the
+ * tenant gave it (EUD-266, Attestation Catalogue API).
+ *
+ * <p>Writes are guarded by optimistic concurrency (FR-05): the version of the entry is its strong ETag,
+ * and a replace or an enable/disable carries it as {@code If-Match}. A missing {@code If-Match} (or
+ * {@code *}, which would match any version and defeat the guard, D16) is
+ * {@link PreconditionRequiredException}; one that does not match, weak ones included, is
+ * {@link PreconditionFailedException}. Every write runs in a transaction and drops the
+ * {@link TenantCredentialProfileService} cache of this instance once it has committed, so issuance and
+ * the OID4VCI metadata stop seeing what was disabled.
+ *
+ * <p>A row that predates the entry configuration (seeded while the issuer was running) is completed
+ * from its credential type file when it is read, and stored (D13). Entries are returned ready to
+ * present: the schema URI is the stored one or, while the type file declares none, the synthetic one.
+ *
+ * <p>Every operation needs a tenant in the Reactor context and fails with
+ * {@link TenantNotResolvedException} without it, instead of falling back to a default schema.
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class AttestationCatalogService {
+
+    private final CatalogEntryPort catalogEntryPort;
+    private final CatalogEntryFiller catalogEntryFiller;
+    private final CatalogEntryValidator catalogEntryValidator;
+    private final CredentialProfileCatalog credentialProfileCatalog;
+    private final TenantCredentialProfileService tenantCredentialProfileService;
+    private final TransactionalOperator transactionalOperator;
+
+    /** The entries of the tenant, only the enabled or only the disabled ones when {@code enabled} is given. */
+    public Flux<CatalogEntry> list(Boolean enabled) {
+        return Flux.deferContextual(ctx -> {
+            requireTenant(ctx);
+            Flux<CatalogEntry> rows = enabled == null
+                    ? catalogEntryPort.findAll()
+                    : catalogEntryPort.findAllByEnabled(enabled);
+            // Collected first: filling an entry writes, and must not compete with the open read for a connection.
+            return rows.collectList()
+                    .flatMapMany(Flux::fromIterable)
+                    .concatMap(this::fillOnRead)
+                    .map(this::withResolvedSchemaUri);
+        });
+    }
+
+    /** @throws CatalogEntryNotFoundException if the tenant has no such entry */
+    public Mono<CatalogEntry> get(String credentialConfigurationId) {
+        return Mono.deferContextual(ctx -> {
+            requireTenant(ctx);
+            return findExisting(credentialConfigurationId)
+                    .flatMap(this::fillOnRead)
+                    .map(this::withResolvedSchemaUri);
+        });
+    }
+
+    /**
+     * @throws es.in2.issuer.backend.shared.domain.exception.CatalogConfigurationException if the
+     *         configuration is not valid
+     * @throws es.in2.issuer.backend.shared.domain.exception.CatalogEntryAlreadyExistsException if the
+     *         schema already has an entry
+     */
+    public Mono<CatalogEntry> create(CreateCatalogEntryCommand command) {
+        return Mono.deferContextual(ctx -> {
+            String tenant = requireTenant(ctx);
+            CatalogEntry entry = catalogEntryValidator.validateForCreate(command);
+            return committed(tenant, catalogEntryPort.insert(entry))
+                    .doOnNext(created -> log.info("Catalog entry '{}' created for tenant '{}'",
+                            created.credentialConfigurationId(), tenant))
+                    .map(this::withResolvedSchemaUri);
+        });
+    }
+
+    /**
+     * Replaces the configuration of an entry; its schema does not change.
+     *
+     * @param ifMatch the {@code If-Match} header as received, {@code null} if absent
+     */
+    public Mono<CatalogEntry> replace(String credentialConfigurationId, CatalogConfigurationInput configuration,
+                                      String ifMatch) {
+        return Mono.deferContextual(ctx -> {
+            String tenant = requireTenant(ctx);
+            requireIfMatch(ifMatch);
+            Mono<CatalogEntry> replace = findExisting(credentialConfigurationId)
+                    .flatMap(current -> {
+                        requireCurrentVersion(ifMatch, current);
+                        CatalogEntry replacement =
+                                catalogEntryValidator.validateForReplace(credentialConfigurationId, configuration);
+                        return updateIfVersion(replacement, current.version());
+                    });
+            return committed(tenant, replace)
+                    .doOnNext(updated -> log.info("Catalog entry '{}' replaced for tenant '{}'",
+                            credentialConfigurationId, tenant))
+                    .map(this::withResolvedSchemaUri);
+        });
+    }
+
+    /**
+     * Enables or disables an entry. Enabling one without delivery modes is rejected.
+     *
+     * @param ifMatch the {@code If-Match} header as received, {@code null} if absent
+     */
+    public Mono<CatalogEntry> setEnabled(String credentialConfigurationId, boolean enabled, String ifMatch) {
+        return Mono.deferContextual(ctx -> {
+            String tenant = requireTenant(ctx);
+            requireIfMatch(ifMatch);
+            Mono<CatalogEntry> change = findExisting(credentialConfigurationId)
+                    .flatMap(current -> {
+                        requireCurrentVersion(ifMatch, current);
+                        // Filled in the same write: a row not configured yet leaves with its configuration (D13).
+                        CatalogEntry target = catalogEntryFiller.fill(current).withEnabled(enabled);
+                        if (enabled) {
+                            catalogEntryValidator.validateEnabling(target);
+                        }
+                        return updateIfVersion(target, current.version());
+                    });
+            return committed(tenant, change)
+                    .doOnNext(updated -> log.info("Catalog entry '{}' {} for tenant '{}'",
+                            credentialConfigurationId, enabled ? "enabled" : "disabled", tenant))
+                    .map(this::withResolvedSchemaUri);
+        });
+    }
+
+    // ---- persistence -----------------------------------------------------------
+
+    private Mono<CatalogEntry> findExisting(String credentialConfigurationId) {
+        return catalogEntryPort.findById(credentialConfigurationId)
+                .switchIfEmpty(Mono.error(() -> new CatalogEntryNotFoundException(credentialConfigurationId)));
+    }
+
+    /**
+     * Writes only if the version is still {@code expectedVersion}. When nothing is written the entry was
+     * either changed by someone else in between (412) or deleted (404): the re-read tells which.
+     */
+    private Mono<CatalogEntry> updateIfVersion(CatalogEntry entry, long expectedVersion) {
+        return catalogEntryPort.updateIfVersion(entry, expectedVersion)
+                .flatMap(updated -> updated.map(Mono::just).orElseGet(() ->
+                        findExisting(entry.credentialConfigurationId())
+                                .flatMap(current -> Mono.<CatalogEntry>error(staleVersion()))));
+    }
+
+    /**
+     * D13: completes a row that has not been configured yet from its credential type file and stores
+     * it. If someone else changed the row first, the current one is read again as it is.
+     */
+    private Mono<CatalogEntry> fillOnRead(CatalogEntry entry) {
+        CatalogEntry filled = catalogEntryFiller.fill(entry);
+        if (filled.equals(entry)) {
+            return Mono.just(entry);
+        }
+        return catalogEntryPort.updateIfVersion(filled, entry.version())
+                .flatMap(updated -> updated.map(Mono::just)
+                        .orElseGet(() -> catalogEntryPort.findById(entry.credentialConfigurationId())))
+                .doOnNext(stored -> log.info("Catalog entry '{}' completed from its credential type file",
+                        stored.credentialConfigurationId()));
+    }
+
+    /** Runs {@code operation} in a transaction and, once it has committed, drops this instance's cache. */
+    private Mono<CatalogEntry> committed(String tenant, Mono<CatalogEntry> operation) {
+        return transactionalOperator.transactional(operation)
+                .doOnSuccess(result -> tenantCredentialProfileService.invalidateCache(tenant));
+    }
+
+    // ---- preconditions ---------------------------------------------------------
+
+    private static void requireIfMatch(String ifMatch) {
+        if (ifMatch == null || ifMatch.isBlank()) {
+            throw new PreconditionRequiredException("The If-Match header is required: send the ETag of the entry");
+        }
+        if ("*".equals(ifMatch.strip())) {
+            throw new PreconditionRequiredException(
+                    "If-Match: * is not supported, it would overwrite any version: send the ETag of the entry");
+        }
+    }
+
+    private static void requireCurrentVersion(String ifMatch, CatalogEntry current) {
+        if (!CatalogEntryETag.matches(ifMatch, current.version())) {
+            throw staleVersion();
+        }
+    }
+
+    private static PreconditionFailedException staleVersion() {
+        return new PreconditionFailedException(
+                "If-Match does not match the current version of the entry: it was changed by someone else, read it again");
+    }
+
+    // ---- helpers ---------------------------------------------------------------
+
+    /** A stored entry shows the synthetic schema URI while its type file still declares no real one. */
+    private CatalogEntry withResolvedSchemaUri(CatalogEntry entry) {
+        return entry.schemaUri() != null
+                ? entry
+                : entry.withSchemaUri(credentialProfileCatalog.schemaUriOf(entry.credentialConfigurationId()));
+    }
+
+    /** Admin paths never fall back to a default schema when the tenant is missing. */
+    private static String requireTenant(ContextView ctx) {
+        String tenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
+        if (tenant.isBlank()) {
+            throw new TenantNotResolvedException("Tenant context not resolved");
+        }
+        return tenant;
+    }
+}
