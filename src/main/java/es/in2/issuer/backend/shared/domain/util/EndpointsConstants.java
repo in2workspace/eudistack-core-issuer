@@ -74,7 +74,6 @@ public class EndpointsConstants {
 
     // Issuance Endpoints
     public static final String ISSUANCE_PATH = "/issuance/**";
-    public static final String ISSUANCE_STATUS_CREDENTIALS = ISSUANCE_BASE_PATH+"/credentials/status/**";
     public static final String ISSUANCE_DEFERRED_CREDENTIALS = ISSUANCE_BASE_PATH + "/deferred-credentials";
 
     // Bootstrap Endpoint

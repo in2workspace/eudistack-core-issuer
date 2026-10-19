@@ -16,6 +16,7 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.SCHEMA_SUFFIX;
 
@@ -24,6 +25,9 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.SCHEMA_SUFFIX;
 @Order(1)
 @EnableConfigurationProperties({R2dbcProperties.class, FlywayProperties.class})
 public class TenantSchemaFlywayMigrator implements ApplicationRunner {
+
+    // Lowercase, starts with a letter, at most 63 chars (PostgreSQL identifier limit).
+    private static final Pattern SCHEMA_NAME_PATTERN = Pattern.compile("^[a-z][a-z0-9_-]{0,62}$");
 
     private final FlywayProperties flywayProperties;
     private final R2dbcProperties r2dbcProperties;
@@ -72,29 +76,25 @@ public class TenantSchemaFlywayMigrator implements ApplicationRunner {
 
     private void migrateTenantSchema(String jdbcUrl, String username, String password, String schema) {
         log.info("Migrating tenant schema: {}", schema);
-        try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password);
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("CREATE SCHEMA IF NOT EXISTS \"" + sanitizeSchemaName(schema) + "\"");
-        } catch (Exception e) {
-            throw new IllegalStateException("Failed to create schema: " + schema, e);
-        }
+
+        requireValidSchemaName(schema);
 
         Flyway.configure()
                 .dataSource(jdbcUrl, username, password)
                 .locations("classpath:db/tenant")
                 .defaultSchema(schema)
                 .schemas(schema)
+                .createSchemas(true)
                 .table("flyway_schema_history")
                 .baselineOnMigrate(true)
                 .load()
                 .migrate();
     }
 
-    private String sanitizeSchemaName(String schema) {
-        if (!schema.matches("^[a-zA-Z0-9_-]+$")) {
+    static void requireValidSchemaName(String schema) {
+        if (schema == null || !SCHEMA_NAME_PATTERN.matcher(schema).matches()) {
             throw new IllegalArgumentException("Invalid schema name: " + schema);
         }
-        return schema;
     }
 
 }

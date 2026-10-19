@@ -1,7 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.application.workflow.impl;
 
 import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialOfferExpiredException;
-import es.in2.issuer.backend.shared.domain.exception.CredentialAlreadyActiveException;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.domain.exception.CredentialOfferNotFoundException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferResult;
@@ -121,15 +120,15 @@ class CredentialOfferRefreshWorkflowImplTest {
     }
 
     @Test
-    void refreshCredentialOffer_WhenIssuanceIsActive_ShouldReturnCredentialAlreadyActive() {
+    void refreshCredentialOffer_WhenIssuanceIsValid_ShouldReturnGone() {
         Issuance issuance = buildIssuance(UUID.randomUUID(), CredentialStatusEnum.VALID, AUTHORIZATION_CODE);
 
         when(issuanceService.getIssuanceByCredentialOfferRefreshToken(CREDENTIAL_OFFER_REFRESH_TOKEN))
                 .thenReturn(Mono.just(issuance));
 
         StepVerifier.create(workflow.refreshCredentialOffer(CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL))
-                .expectErrorMatches(error -> error instanceof CredentialAlreadyActiveException
-                        && "The credential is already active."
+                .expectErrorMatches(error -> error instanceof CredentialOfferExpiredException
+                        && "This credential offer can no longer be refreshed"
                         .equals(error.getMessage()))
                 .verify();
 
@@ -138,15 +137,15 @@ class CredentialOfferRefreshWorkflowImplTest {
     }
 
     @Test
-    void refreshCredentialOffer_WhenIssuanceIsIssued_ShouldReturnCredentialAlreadyActive() {
+    void refreshCredentialOffer_WhenIssuanceIsIssued_ShouldReturnGone() {
         Issuance issuance = buildIssuance(UUID.randomUUID(), CredentialStatusEnum.ISSUED, AUTHORIZATION_CODE);
 
         when(issuanceService.getIssuanceByCredentialOfferRefreshToken(CREDENTIAL_OFFER_REFRESH_TOKEN))
                 .thenReturn(Mono.just(issuance));
 
         StepVerifier.create(workflow.refreshCredentialOffer(CREDENTIAL_OFFER_REFRESH_TOKEN, PUBLIC_ISSUER_BASE_URL))
-                .expectErrorMatches(error -> error instanceof CredentialAlreadyActiveException
-                        && "The credential is already active."
+                .expectErrorMatches(error -> error instanceof CredentialOfferExpiredException
+                        && "This credential offer can no longer be refreshed"
                         .equals(error.getMessage()))
                 .verify();
 
