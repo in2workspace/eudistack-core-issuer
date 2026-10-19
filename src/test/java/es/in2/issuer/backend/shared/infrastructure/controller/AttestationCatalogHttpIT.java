@@ -3,6 +3,8 @@ package es.in2.issuer.backend.shared.infrastructure.controller;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.fasterxml.jackson.databind.JsonNode;
+import es.in2.issuer.backend.support.ContractSchemas;
 import es.in2.issuer.backend.support.PostgresIntegrationBase;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,8 +17,12 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.reactive.server.EntityExchangeResult;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -31,7 +37,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * and Postgres: authentication and the {@code SecurityConfig} patterns of {@code /{id}}, the PDP, the
  * context path in {@code Location} and {@code instance} (D11), ETag and {@code If-Match}, the contract's
  * DoctorID v1 example (AC-02) on a type file that declares its schema URI, and the audit event of every change
- * with the person of the token (AC-12).
+ * with the person of the token (AC-12). Every response is also validated against the schemas of the
+ * contract ({@code CatalogEntry}, {@code Problem}), see {@link ContractSchemas}.
  *
  * <p>Uses the pre-registered {@code e2e-tenant-a}/{@code e2e-tenant-b} schemas ({@code TenantDomainWebFilter}
  * rejects an unregistered tenant), and empties the catalog of tenant A around each test.
@@ -110,6 +117,7 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                 .expectHeader().valueEquals(HttpHeaders.LOCATION, "/issuer" + DOCTORID_PATH)
                 .expectHeader().valueEquals(HttpHeaders.ETAG, "\"0\"")
                 .expectBody()
+                .consumeWith(conformsTo("CatalogEntry"))
                 .jsonPath("$.credential_configuration_id").isEqualTo(DOCTORID)
                 .jsonPath("$.schema_uri").isEqualTo(DOCTORID_URI)
                 .jsonPath("$.enabled").isEqualTo(true)
@@ -131,27 +139,38 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                 .expectStatus().isOk()
                 .expectHeader().valueEquals(HttpHeaders.ETAG, "\"0\"")
                 .expectBody()
+                .consumeWith(conformsTo("CatalogEntry"))
                 .jsonPath("$.validity.default_days").isEqualTo(36500)
                 .jsonPath("$.subject.fields[1][0]").isEqualTo("familyName")
                 .jsonPath("$.search_identifiers[0].field[0]").isEqualTo("personal_administrative_number");
+
+        get(admin, CATALOG + "?enabled=true")
+                .expectStatus().isOk()
+                .expectBody().consumeWith(conformsToEntries(1));
 
         // PUT /{id} with the ETag of the entry: new configuration, new ETag.
         String replacement = CONTRACT_CONFIGURATION.replace("36500", "100");
         put(admin, DOCTORID_PATH, "\"0\"", replacement)
                 .expectStatus().isOk()
                 .expectHeader().valueEquals(HttpHeaders.ETAG, "\"1\"")
-                .expectBody().jsonPath("$.validity.default_days").isEqualTo(100);
+                .expectBody()
+                .consumeWith(conformsTo("CatalogEntry"))
+                .jsonPath("$.validity.default_days").isEqualTo(100);
 
         // PATCH /{id} with the ETag that PUT returned, no GET in between.
         patch(admin, DOCTORID_PATH, "\"1\"", "{\"enabled\": false}")
                 .expectStatus().isOk()
                 .expectHeader().valueEquals(HttpHeaders.ETAG, "\"2\"")
-                .expectBody().jsonPath("$.enabled").isEqualTo(false);
+                .expectBody()
+                .consumeWith(conformsTo("CatalogEntry"))
+                .jsonPath("$.enabled").isEqualTo(false);
 
         // The disabled entry is listed under enabled=false and not under enabled=true.
         get(admin, CATALOG + "?enabled=false")
                 .expectStatus().isOk()
-                .expectBody().jsonPath("$.length()").isEqualTo(1).jsonPath("$[0].credential_configuration_id").isEqualTo(DOCTORID);
+                .expectBody()
+                .consumeWith(conformsToEntries(1))
+                .jsonPath("$.length()").isEqualTo(1).jsonPath("$[0].credential_configuration_id").isEqualTo(DOCTORID);
         get(admin, CATALOG + "?enabled=true")
                 .expectStatus().isOk()
                 .expectBody().json("[]", true);
@@ -167,6 +186,7 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                 .expectStatus().isEqualTo(412)
                 .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody()
+                .consumeWith(conformsTo("Problem"))
                 .jsonPath("$.type").isEqualTo("precondition_failed")
                 .jsonPath("$.instance").isEqualTo("/issuer" + DOCTORID_PATH);
     }
@@ -182,7 +202,9 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                 .bodyValue(CONTRACT_CONFIGURATION)
                 .exchange()
                 .expectStatus().isEqualTo(428)
-                .expectBody().jsonPath("$.type").isEqualTo("precondition_required");
+                .expectBody()
+                .consumeWith(conformsTo("Problem"))
+                .jsonPath("$.type").isEqualTo("precondition_required");
     }
 
     @Test
@@ -194,6 +216,7 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                 .expectStatus().isEqualTo(409)
                 .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody()
+                .consumeWith(conformsTo("Problem"))
                 .jsonPath("$.type").isEqualTo("catalog_entry_already_exists")
                 .jsonPath("$.instance").isEqualTo("/issuer" + CATALOG);
     }
@@ -204,6 +227,7 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                 .expectStatus().isNotFound()
                 .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody()
+                .consumeWith(conformsTo("Problem"))
                 .jsonPath("$.type").isEqualTo("catalog_entry_not_found")
                 .jsonPath("$.instance").isEqualTo("/issuer" + CATALOG + "/nothing.sd.1");
     }
@@ -219,6 +243,7 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
         String eTag = get(admin, DOCTORID_PATH)
                 .expectStatus().isOk()
                 .expectBody()
+                .consumeWith(conformsTo("CatalogEntry"))
                 .jsonPath("$.schema_uri").isEqualTo(DOCTORID_URI)
                 .jsonPath("$.enabled").isEqualTo(true)
                 .jsonPath("$.delivery_modes[0]").isEqualTo("email")
@@ -242,6 +267,22 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                 .expectBody()
                 .jsonPath("$.validity.default_days").isEqualTo(50)
                 .jsonPath("$.search_identifiers[0].field[0]").isEqualTo("personal_administrative_number");
+    }
+
+    // ---- the requests of the examples are themselves valid against the contract ----------
+
+    @Test
+    void contractExamples_conformToTheContractRequestSchemas() {
+        ContractSchemas.assertConforms("CatalogEntryCreate", CONTRACT_EXAMPLE);
+        ContractSchemas.assertConforms("CatalogEntryConfiguration", CONTRACT_CONFIGURATION);
+    }
+
+    /** Proves the validator setup enforces {@code unevaluatedProperties}: without it the checks above would be weak. */
+    @Test
+    void contractCreateSchema_rejectsAnUnknownTopLevelField() {
+        String withUnknownField = CONTRACT_EXAMPLE.replace("\"enabled\": true,", "\"enabled\": true, \"surprise\": 1,");
+
+        assertThat(ContractSchemas.validate("CatalogEntryCreate", withUnknownField)).isNotEmpty();
     }
 
     // ---- AC-12: the trail of every change -----------------------------------------------
@@ -292,6 +333,7 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                 .expectStatus().isBadRequest()
                 .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody()
+                .consumeWith(conformsTo("Problem"))
                 .jsonPath("$.type").isEqualTo("field_not_in_schema")
                 .jsonPath("$.detail").isEqualTo("Field [" + field + "] is not in the schema")
                 .jsonPath("$.instance").isEqualTo("/issuer" + CATALOG)
@@ -307,7 +349,8 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                     .header(X_TENANT_HEADER, TENANT_A)
                     .exchange()
                     .expectStatus().isUnauthorized()
-                    .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON);
+                    .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                    .expectBody().consumeWith(conformsTo("Problem"));
         }
     }
 
@@ -328,14 +371,20 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
             post(operator, body)
                     .expectStatus().isForbidden()
                     .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                    .expectBody().jsonPath("$.type").isEqualTo("insufficient_permission");
+                    .expectBody()
+                    .consumeWith(conformsTo("Problem"))
+                    .jsonPath("$.type").isEqualTo("insufficient_permission");
             put(operator, DOCTORID_PATH, "\"0\"", body)
                     .expectStatus().isForbidden()
-                    .expectBody().jsonPath("$.type").isEqualTo("insufficient_permission");
+                    .expectBody()
+                    .consumeWith(conformsTo("Problem"))
+                    .jsonPath("$.type").isEqualTo("insufficient_permission");
         }
         patch(operator, DOCTORID_PATH, "\"0\"", "{\"enabled\": false}")
                 .expectStatus().isForbidden()
-                .expectBody().jsonPath("$.type").isEqualTo("insufficient_permission");
+                .expectBody()
+                .consumeWith(conformsTo("Problem"))
+                .jsonPath("$.type").isEqualTo("insufficient_permission");
     }
 
     @Test
@@ -344,8 +393,21 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                 .expectStatus().isBadRequest()
                 .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody()
+                .consumeWith(conformsTo("Problem"))
                 .jsonPath("$.type").isEqualTo("BAD_REQUEST")
                 .jsonPath("$.instance").isEqualTo("/issuer" + CATALOG);
+    }
+
+    /** The BAD_REQUEST with violations, here for a top-level attribute the contract does not define. */
+    @Test
+    void administratorWithAnUnknownField_isBadRequestProblemWithViolations() {
+        post(administratorToken(TENANT_A), CONTRACT_EXAMPLE.replace("\"enabled\": true,", "\"enabled\": true, \"surprise\": 1,"))
+                .expectStatus().isBadRequest()
+                .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .consumeWith(conformsTo("Problem"))
+                .jsonPath("$.type").isEqualTo("BAD_REQUEST")
+                .jsonPath("$.violations[0].field").isEqualTo("surprise");
     }
 
     @Test
@@ -357,7 +419,9 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                 .exchange()
                 .expectStatus().isForbidden()
                 .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .expectBody().jsonPath("$.type").isEqualTo("tenant_mismatch");
+                .expectBody()
+                .consumeWith(conformsTo("Problem"))
+                .jsonPath("$.type").isEqualTo("tenant_mismatch");
     }
 
     // ---- helpers ----------------------------------------------------------------------
@@ -411,6 +475,30 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                 "domain", tenant,
                 "function", "Onboarding",
                 "action", List.of("Execute"))), mandateeEmail);
+    }
+
+    /** The body is a single response conforming to the contract schema {@code schemaName}. */
+    private static Consumer<EntityExchangeResult<byte[]>> conformsTo(String schemaName) {
+        return result -> ContractSchemas.assertConforms(schemaName, bodyOf(result));
+    }
+
+    /** The body is a list of exactly {@code size} entries, each conforming to {@code CatalogEntry}. */
+    private Consumer<EntityExchangeResult<byte[]>> conformsToEntries(int size) {
+        return result -> {
+            try {
+                JsonNode list = objectMapper.readTree(bodyOf(result));
+                assertThat(list.isArray()).isTrue();
+                assertThat(list.size()).isEqualTo(size);
+                list.forEach(entry -> ContractSchemas.assertConforms("CatalogEntry", entry.toString()));
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        };
+    }
+
+    private static String bodyOf(EntityExchangeResult<byte[]> result) {
+        assertThat(result.getResponseBody()).as("response body").isNotNull();
+        return new String(result.getResponseBody(), StandardCharsets.UTF_8);
     }
 
     private List<String> catalogAuditEvents() {
