@@ -3,6 +3,7 @@ package es.in2.issuer.backend.shared.domain.util.factory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialBuildResult;
 import es.in2.issuer.backend.statuslist.domain.util.factory.IssuerFactory;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
@@ -18,11 +19,13 @@ import java.time.Instant;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Component
@@ -34,28 +37,33 @@ public class GenericCredentialBuilder {
     private final AccessTokenService accessTokenService;
 
     private static final String DC_SD_JWT = "dc+sd-jwt";
+    private static final int DEFAULT_VALIDITY_DAYS = 365;
+    private static final String DEFAULT_SUBJECT_SEPARATOR = " ";
 
     /**
      * Builds an unsigned credential from a profile definition and input payload.
      * Dispatches by format: W3C VCDM for jwt_vc_json/cwt_vc, flat structure for dc+sd-jwt.
      * No issuer/cnf/credentialStatus — those are injected at signing time.
+     *
+     * <p>The validity and the subject come from the tenant's catalog {@code entry} (EUD-266). When
+     * {@code entry} is {@code null} or not filled yet (see {@link CatalogEntry#isFilled()}) they come
+     * from the credential type file, as before the entry carried them (D9).
      */
+    @SuppressWarnings("deprecation")
     public Mono<CredentialBuildResult> buildCredential(
             CredentialProfile profile,
-            JsonNode payload) {
+            JsonNode payload,
+            CatalogEntry entry) {
 
+        boolean entryConfigured = entry != null && entry.isFilled();
         Instant now = Instant.now();
-        String validFrom;
-        String validUntil;
-
-        if (profile.validityDays() > 0) {
-            validFrom = now.toString();
-            validUntil = now.plus(profile.validityDays(), ChronoUnit.DAYS).toString();
-        } else {
-            validFrom = payload.has("validFrom") ? payload.get("validFrom").asText() : now.toString();
-            validUntil = payload.has("validUntil") ? payload.get("validUntil").asText()
-                    : now.plus(365, ChronoUnit.DAYS).toString();
-        }
+        Validity validity = entryConfigured
+                ? entryValidity(entry.validity())
+                : typeFileValidity(profile.validityDays());
+        String validFrom = validity.requesterCanSetDates() && payload.has("validFrom")
+                ? payload.get("validFrom").asText() : now.toString();
+        String validUntil = validity.requesterCanSetDates() && payload.has("validUntil")
+                ? payload.get("validUntil").asText() : now.plus(validity.defaultDays(), ChronoUnit.DAYS).toString();
 
         String credentialJson;
         if (DC_SD_JWT.equals(profile.format()) && profile.sdJwt() != null) {
@@ -68,7 +76,9 @@ public class GenericCredentialBuilder {
             return Mono.error(new IllegalStateException("Failed to serialize credential"));
         }
 
-        String subject = extractSubject(profile, payload);
+        String subject = entryConfigured
+                ? extractSubject(entry.subject(), profile, credentialJson)
+                : extractSubject(profile, payload);
 
         return extractOrganizationIdentifier(profile, payload)
                 .map(orgId -> CredentialBuildResult.builder()
@@ -78,6 +88,24 @@ public class GenericCredentialBuilder {
                         .validFrom(Timestamp.from(parseInstant(validFrom)))
                         .validUntil(Timestamp.from(parseInstant(validUntil)))
                         .build());
+    }
+
+    /** {@code defaultDays} is the default validity; the requester's dates only count when allowed. */
+    private record Validity(int defaultDays, boolean requesterCanSetDates) {
+    }
+
+    /**
+     * {@code max_days} is not enforced here: bounding the requester's dates is EUD-254's.
+     */
+    private static Validity entryValidity(CatalogEntry.Validity validity) {
+        return new Validity(validity.defaultDays(), validity.requesterCanSetDates());
+    }
+
+    /** {@code validity_days > 0} fixes the validity and ignores the payload dates; otherwise 365 days, requester-settable. */
+    private static Validity typeFileValidity(int validityDays) {
+        return validityDays > 0
+                ? new Validity(validityDays, false)
+                : new Validity(DEFAULT_VALIDITY_DAYS, true);
     }
 
     /**
@@ -296,6 +324,35 @@ public class GenericCredentialBuilder {
         });
     }
 
+    /**
+     * Subject of a catalog entry (D2): the paths are resolved against the credential as built, before
+     * signing, so the rule is the same for every format. An entry without a subject has an empty one (D9).
+     * The type file's {@code last_segment_delimiter} still applies to the joined value (D3).
+     */
+    @SuppressWarnings("deprecation")
+    private String extractSubject(CatalogEntry.Subject subject, CredentialProfile profile, String credentialJson) {
+        if (subject == null) {
+            return "";
+        }
+
+        JsonNode credential;
+        try {
+            credential = objectMapper.readTree(credentialJson);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to read the built credential", e);
+        }
+
+        String separator = subject.separator() != null ? subject.separator() : DEFAULT_SUBJECT_SEPARATOR;
+        String result = subject.fields().stream()
+                .map(path -> resolveTextValue(credential, path.segments()))
+                .filter(v -> v != null && !v.isBlank())
+                .collect(Collectors.joining(separator));
+
+        CredentialProfile.SubjectExtraction extraction = profile.subjectExtraction();
+        return applyLastSegmentDelimiter(result, extraction != null ? extraction.lastSegmentDelimiter() : null);
+    }
+
+    @SuppressWarnings("deprecation")
     private String extractSubject(CredentialProfile profile, JsonNode payload) {
         CredentialProfile.SubjectExtraction extraction = profile.subjectExtraction();
         if (extraction == null || extraction.fields() == null || extraction.fields().isEmpty()) {
@@ -309,18 +366,21 @@ public class GenericCredentialBuilder {
 
         String result;
         if ("concat".equals(extraction.strategy())) {
-            String separator = extraction.separator() != null ? extraction.separator() : " ";
+            String separator = extraction.separator() != null ? extraction.separator() : DEFAULT_SUBJECT_SEPARATOR;
             result = String.join(separator, values);
         } else {
             result = values.isEmpty() ? "" : values.getFirst();
         }
 
-        if (!result.isEmpty() && extraction.lastSegmentDelimiter() != null) {
-            String[] parts = result.split(Pattern.quote(extraction.lastSegmentDelimiter()), -1);
-            result = parts[parts.length - 1];
-        }
+        return applyLastSegmentDelimiter(result, extraction.lastSegmentDelimiter());
+    }
 
-        return result;
+    private String applyLastSegmentDelimiter(String value, String delimiter) {
+        if (value.isEmpty() || delimiter == null) {
+            return value;
+        }
+        String[] parts = value.split(Pattern.quote(delimiter), -1);
+        return parts[parts.length - 1];
     }
 
     private Mono<String> extractOrganizationIdentifier(CredentialProfile profile, JsonNode payload) {
@@ -339,13 +399,19 @@ public class GenericCredentialBuilder {
     }
 
     private String resolveFieldValue(JsonNode node, String fieldPath) {
-        if (node == null || fieldPath == null) {
+        if (fieldPath == null) {
+            return null;
+        }
+        return resolveTextValue(node, Arrays.asList(fieldPath.split("\\.")));
+    }
+
+    private String resolveTextValue(JsonNode node, List<String> path) {
+        if (node == null) {
             return null;
         }
 
-        String[] parts = fieldPath.split("\\.");
         JsonNode current = node;
-        for (String part : parts) {
+        for (String part : path) {
             if (current == null || !current.has(part)) {
                 return null;
             }

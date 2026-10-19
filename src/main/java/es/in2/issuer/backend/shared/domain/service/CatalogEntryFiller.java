@@ -56,12 +56,14 @@ public class CatalogEntryFiller {
                 validity, subject, entry.searchIdentifiers(), entry.version(), entry.created(), entry.updated());
     }
 
+    @SuppressWarnings("deprecation")
     private static CatalogEntry.Validity validityOf(CredentialProfile profile) {
         return profile.validityDays() > 0
                 ? new CatalogEntry.Validity(profile.validityDays(), false, null)
                 : new CatalogEntry.Validity(DEFAULT_VALIDITY_DAYS, true, DEFAULT_VALIDITY_DAYS);
     }
 
+    @SuppressWarnings("deprecation")
     private static CatalogEntry.Subject subjectOf(CredentialProfile profile) {
         var fields = SubjectPathConverter.toClaimPaths(profile);
         if (fields.isEmpty()) {

@@ -10,6 +10,16 @@ import java.util.Set;
 
 @Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)
+/**
+ * A credential type file.
+ *
+ * @param validityDays      <b>Deprecated</b>: the validity now lives in the tenant's catalog entry (EUD-266). Only
+ *                          read to fill an entry that has none yet, and by the issuance fallback while it is unfilled.
+ * @param subjectExtraction <b>Deprecated</b>: the subject now lives in the tenant's catalog entry (EUD-266), with paths
+ *                          resolved against the built credential. Only read to fill an entry that has none yet, by the
+ *                          issuance fallback while it is unfilled, and for its {@code last_segment_delimiter}.
+ *                          Both fields leave the type files in a later story.
+ */
 public record CredentialProfile(
         @JsonProperty("credential_configuration_id") String credentialConfigurationId,
         @JsonProperty("schema_uri") String schemaUri,
@@ -20,11 +30,11 @@ public record CredentialProfile(
         @JsonProperty("credential_signing_alg_values_supported") Set<String> credentialSigningAlgValuesSupported,
         @JsonProperty("proof_types_supported") Map<String, ProofTypeConfig> proofTypesSupported,
         @JsonProperty("credential_metadata") CredentialMetadata credentialMetadata,
-        @JsonProperty("validity_days") int validityDays,
+        @Deprecated @JsonProperty("validity_days") int validityDays,
         @JsonProperty("issuer_type") IssuerType issuerType,
         @JsonProperty("cnf_required") boolean cnfRequired,
         @JsonProperty("description") String description,
-        @JsonProperty("subject_extraction") SubjectExtraction subjectExtraction,
+        @Deprecated @JsonProperty("subject_extraction") SubjectExtraction subjectExtraction,
         @JsonProperty("organization_extraction") OrganizationExtraction organizationExtraction,
         @JsonProperty("sd_jwt") SdJwtConfig sdJwt,
         @JsonProperty("credential_subject_strategy") String credentialSubjectStrategy,

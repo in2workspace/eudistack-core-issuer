@@ -29,6 +29,7 @@ public final class SubjectPathConverter {
     }
 
     /** One path per field of the type's {@code subject_extraction}; empty when it declares none. */
+    @SuppressWarnings("deprecation")
     public static List<ClaimPath> toClaimPaths(CredentialProfile profile) {
         CredentialProfile.SubjectExtraction extraction = profile.subjectExtraction();
         if (extraction == null || extraction.fields() == null) {
