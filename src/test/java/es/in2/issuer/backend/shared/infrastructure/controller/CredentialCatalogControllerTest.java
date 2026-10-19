@@ -3,11 +3,14 @@ package es.in2.issuer.backend.shared.infrastructure.controller;
 import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.domain.exception.CredentialCatalogNotConfiguredException;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
+import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidDeliveryConfigException;
+import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
 import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
 import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
+import es.in2.issuer.backend.shared.domain.policy.service.CatalogPdpService;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
@@ -52,6 +55,9 @@ class CredentialCatalogControllerTest {
 
     @MockitoBean
     private AccessTokenService accessTokenService;
+
+    @MockitoBean
+    private CatalogPdpService catalogPdpService;
 
     @MockitoBean
     private TenantCredentialProfileService tenantCredentialProfileService;
@@ -271,7 +277,7 @@ class CredentialCatalogControllerTest {
 
     @Test
     void updateCatalog_asTenantAdmin_returns200() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(catalogPdpService.authorizeWrite(anyString()))
                 .thenReturn(Mono.just(admin()));
         when(tenantCredentialProfileService.updateCatalog(any(), any()))
                 .thenReturn(Mono.empty());
@@ -300,7 +306,7 @@ class CredentialCatalogControllerTest {
 
     @Test
     void updateCatalog_serviceFails_auditsFailureNotSuccess() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(catalogPdpService.authorizeWrite(anyString()))
                 .thenReturn(Mono.just(admin()));
         when(tenantCredentialProfileService.updateCatalog(any(), any()))
                 .thenReturn(Mono.error(
@@ -335,8 +341,8 @@ class CredentialCatalogControllerTest {
 
     @Test
     void updateCatalog_asLear_returns403AndDoesNotWrite() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
-                .thenReturn(Mono.just(lear()));
+        when(catalogPdpService.authorizeWrite(anyString()))
+                .thenReturn(Mono.error(new InsufficientPermissionException("denied")));
 
         webTestClient.mutateWith(csrf())
                 .put()
@@ -347,15 +353,17 @@ class CredentialCatalogControllerTest {
                         "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}"
                 )
                 .exchange()
-                .expectStatus().isForbidden();
+                .expectStatus().isForbidden()
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("insufficient_permission");
 
         verify(tenantCredentialProfileService, never()).updateCatalog(any(), any());
     }
 
     @Test
     void updateCatalog_asReadOnlyAdmin_returns403() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
-                .thenReturn(Mono.just(readOnlyAdmin()));
+        when(catalogPdpService.authorizeWrite(anyString()))
+                .thenReturn(Mono.error(new InsufficientPermissionException("denied")));
 
         webTestClient.mutateWith(csrf())
                 .put()
@@ -366,14 +374,16 @@ class CredentialCatalogControllerTest {
                         "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}"
                 )
                 .exchange()
-                .expectStatus().isForbidden();
+                .expectStatus().isForbidden()
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("insufficient_permission");
 
         verify(tenantCredentialProfileService, never()).updateCatalog(any(), any());
     }
 
     @Test
     void updateCatalog_unknownId_returns400() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(catalogPdpService.authorizeWrite(anyString()))
                 .thenReturn(Mono.just(admin()));
         when(tenantCredentialProfileService.updateCatalog(any(), any()))
                 .thenReturn(Mono.error(
@@ -433,7 +443,7 @@ class CredentialCatalogControllerTest {
      */
     @Test
     void updateCatalog_directAboveSchemaCeiling_returns409() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(catalogPdpService.authorizeWrite(anyString()))
                 .thenReturn(Mono.just(admin()));
         when(tenantCredentialProfileService.updateCatalog(any(), any()))
                 .thenReturn(Mono.error(
@@ -487,7 +497,7 @@ class CredentialCatalogControllerTest {
      */
     @Test
     void updateCatalog_modesForNotEnabledType_returns400() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(catalogPdpService.authorizeWrite(anyString()))
                 .thenReturn(Mono.just(admin()));
         when(tenantCredentialProfileService.updateCatalog(any(), any()))
                 .thenReturn(Mono.error(
@@ -545,7 +555,7 @@ class CredentialCatalogControllerTest {
 
     @Test
     void updateCatalog_tooManyEnabledConfigurationIds_returns400WithoutCallingService() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(catalogPdpService.authorizeWrite(anyString()))
                 .thenReturn(Mono.just(admin()));
 
         String tooMany = java.util.stream.IntStream.rangeClosed(1, 65)
@@ -616,10 +626,10 @@ class CredentialCatalogControllerTest {
 
     @Test
     void updateCatalog_asTenantAdmin_tenantMismatch_returns403AndDoesNotWrite() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(catalogPdpService.authorizeWrite(anyString()))
                 .thenReturn(Mono.just(admin()));
-        when(accessTokenService.getTokenTenant(anyString()))
-                .thenReturn(Mono.just("other-tenant"));
+        when(catalogPdpService.authorizeWrite(anyString()))
+                .thenReturn(Mono.error(new TenantMismatchException("Token tenant does not match")));
 
         webTestClient.mutateWith(csrf())
                 .put()
@@ -630,33 +640,19 @@ class CredentialCatalogControllerTest {
                         "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}"
                 )
                 .exchange()
-                .expectStatus().isForbidden();
+                .expectStatus().isForbidden()
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("tenant_mismatch");
 
         verify(tenantCredentialProfileService, never()).updateCatalog(any(), any());
-        verify(auditService).auditFailure(
-                eq("tenant_isolation_breach"),
-                eq("org-1"),
-                anyString(),
-                any()
-        );
     }
 
     @Test
     void updateCatalog_asSysAdmin_tenantMismatch_returns403AndDoesNotWrite() {
         // M2 (re-verification, reversed 2026-09-10): SysAdmin no longer bypasses
         // requireTenantMatch -- see F2 in quality-report.md.
-        AuthorizationContext sysAdminActingCrossTenant =
-                new AuthorizationContext(
-                        "org-1",
-                        UserRole.SYSADMIN,
-                        false,
-                        "tenant"
-                );
-
-        when(accessTokenService.getAuthorizationContext(anyString()))
-                .thenReturn(Mono.just(sysAdminActingCrossTenant));
-        when(accessTokenService.getTokenTenant(anyString()))
-                .thenReturn(Mono.just("other-tenant"));
+        when(catalogPdpService.authorizeWrite(anyString()))
+                .thenReturn(Mono.error(new TenantMismatchException("Token tenant does not match")));
 
         webTestClient.mutateWith(csrf())
                 .put()
@@ -667,69 +663,17 @@ class CredentialCatalogControllerTest {
                         "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}"
                 )
                 .exchange()
-                .expectStatus().isForbidden();
+                .expectStatus().isForbidden()
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("tenant_mismatch");
 
         verify(tenantCredentialProfileService, never()).updateCatalog(any(), any());
-        verify(auditService).auditFailure(
-                eq("tenant_isolation_breach"),
-                eq("org-1"),
-                anyString(),
-                any()
-        );
     }
 
     // --- Authorization-denial audit tests (security review, EUD-169, F3) ---
 
-    @Test
-    void updateCatalog_asLear_deniedWriteIsAudited() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
-                .thenReturn(Mono.just(lear()));
-
-        webTestClient.mutateWith(csrf())
-                .put()
-                .uri(CREDENTIAL_CATALOG_PATH)
-                .header("Authorization", "Bearer token")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(
-                        "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}"
-                )
-                .exchange()
-                .expectStatus().isForbidden();
-
-        verify(auditService).auditFailure(
-                eq("authorization.deny"),
-                eq("org-1"),
-                anyString(),
-                any()
-        );
-    }
-
-    @Test
-    void updateCatalog_asReadOnlyAdmin_deniedWriteIsAudited() {
-        when(accessTokenService.getAuthorizationContext(anyString()))
-                .thenReturn(Mono.just(readOnlyAdmin()));
-
-        webTestClient.mutateWith(csrf())
-                .put()
-                .uri(CREDENTIAL_CATALOG_PATH)
-                .header("Authorization", "Bearer token")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(
-                        "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}"
-                )
-                .exchange()
-                .expectStatus().isForbidden();
-
-        verify(auditService).auditFailure(
-                eq("authorization.deny"),
-                eq("org-1"),
-                anyString(),
-                any()
-        );
-    }
-
     private void assertInvalidCatalogRequest(String requestBody) {
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        when(catalogPdpService.authorizeWrite(anyString()))
                 .thenReturn(Mono.just(admin()));
 
         webTestClient.mutateWith(csrf())

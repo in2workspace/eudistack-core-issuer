@@ -6,6 +6,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
 import es.in2.issuer.backend.shared.domain.model.dto.UpdateCredentialCatalogRequest;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
+import es.in2.issuer.backend.shared.domain.policy.service.CatalogPdpService;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
@@ -46,9 +47,9 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.CREDEN
  *         SysAdmin (including the cross-tenant read-only view from {@code platform}), or
  *         the tenant's operator ({@code LEAR}), who needs to discover a type's eligible
  *         delivery modes and schema ceiling before attempting to issue it.</li>
- *     <li><b>PUT</b> independently requires {@code isTenantAdmin()} <b>and</b>
- *         {@code canWrite()} — checked without delegating to the read gate, so relaxing the
- *         read side can never relax the write side as a side effect.</li>
+ *     <li><b>PUT</b> is authorized by {@link CatalogPdpService#authorizeWrite} (tenant
+ *         administrator with write access, EUD-266) — never delegating to the read gate, so
+ *         relaxing the read side can never relax the write side as a side effect.</li>
  * </ul>
  *
  *
@@ -68,6 +69,7 @@ public class CredentialCatalogController {
     private static final String AUDIT_EVENT_AUTHZ_DENY = "authorization.deny";
 
     private final AccessTokenService accessTokenService;
+    private final CatalogPdpService catalogPdpService;
     private final TenantCredentialProfileService tenantCredentialProfileService;
     private final AuditService auditService;
 
@@ -84,7 +86,7 @@ public class CredentialCatalogController {
     public Mono<Void> updateCatalog(
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
             @Valid @RequestBody UpdateCredentialCatalogRequest request) {
-        return authorizeTenantAdminWrite(authorizationHeader)
+        return catalogPdpService.authorizeWrite(authorizationHeader)
                 .flatMap(ctx -> Mono.deferContextual(reactorCtx -> {
                     String tenant = reactorCtx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, SYSTEM_TENANT);
                     return tenantCredentialProfileService.updateCatalog(
@@ -140,25 +142,6 @@ public class CredentialCatalogController {
                     return requireTenantMatch(ctx, authorizationHeader);
                 });
     }
-
-    /**
-     * Deliberately does not delegate to {@link #authorizeCatalogRead}: since AD-16 opened
-     * the read gate to the operator ({@code LEAR}), and a {@code LEAR} has
-     * {@code readOnly == false}, delegating would silently open the write path to the
-     * operator too. Checked independently, in one place, so relaxing the read side can
-     * never relax this one as a side effect.
-     */
-    private Mono<AuthorizationContext> authorizeTenantAdminWrite(String authorizationHeader) {
-        return accessTokenService.getAuthorizationContext(authorizationHeader)
-                .flatMap(ctx -> {
-                    if (!ctx.isTenantAdmin() || !ctx.canWrite()) {
-                        return auditDenyThenForbid(ctx, "write_catalog",
-                                "Tenant administrator role with write access required");
-                    }
-                    return requireTenantMatch(ctx, authorizationHeader);
-                });
-    }
-
 
     private Mono<AuthorizationContext> requireTenantMatch(AuthorizationContext ctx, String authorizationHeader) {
         return Mono.deferContextual(reactorCtx -> {

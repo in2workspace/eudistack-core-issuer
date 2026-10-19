@@ -72,6 +72,31 @@ public class PolicyContextFactory {
     }
 
     /**
+     * Creates a PolicyContext from a management token (tenant back-office APIs). Unlike
+     * {@link #fromTokenSimple}, it does not require the {@code credential_type} claim nor a
+     * resolvable profile: the caller is acting on the tenant, not presenting a credential, so
+     * {@code credentialType} and {@code profile} stay {@code null}.
+     */
+    public Mono<PolicyContext> fromManagementToken(String token, String tenantDomain) {
+        return Mono.fromCallable(() -> jwtService.parseJWT(token))
+                .flatMap(signedJWT -> {
+                    List<Power> powers = extractPowers(signedJWT.getPayload());
+                    String orgId = extractOrganizationId(signedJWT.getPayload());
+                    String tokenTenant = extractTokenTenant(signedJWT.getPayload());
+                    JsonNode credential = buildCredentialNode(signedJWT.getPayload());
+                    boolean isSysAdmin = hasSysAdminPower(powers);
+
+                    return Mono.zip(
+                            resolveTenantAdmin(orgId, powers, tenantDomain),
+                            resolveTenantType(tenantDomain)
+                    ).map(tuple -> new PolicyContext(
+                            orgId, powers, credential, null, null,
+                            isSysAdmin, tuple.getT1(), tenantDomain, tokenTenant, tuple.getT2()
+                    ));
+                });
+    }
+
+    /**
      * Creates a PolicyContext from a JWT token for IssuancePdpService.
      * Validates that the emitter's credential type is allowed to issue the target credential,
      * using the target profile's issuance_policy.required_emitter_config_ids.

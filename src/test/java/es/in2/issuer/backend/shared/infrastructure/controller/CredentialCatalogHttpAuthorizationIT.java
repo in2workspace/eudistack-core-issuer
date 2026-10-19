@@ -5,6 +5,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.reactive.server.WebTestClient;
+
+import java.util.List;
+import java.util.Map;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.SCHEMA_SUFFIX;
 import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
@@ -71,7 +75,36 @@ class CredentialCatalogHttpAuthorizationIT extends PostgresIntegrationBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("{\"enabledConfigurationIds\":[\"" + CONFIG_ID + "\"]}")
                 .exchange()
-                .expectStatus().isForbidden();
+                .expectStatus().isForbidden()
+                .expectBody().jsonPath("$.type").isEqualTo("insufficient_permission");
+    }
+
+    @Test
+    void tenantAdmin_writesOwnTenantCatalog_returns200() {
+        String token = mintAdminAccessToken(TENANT_A, TENANT_A);
+
+        putCatalog(token, TENANT_A)
+                .expectStatus().isOk();
+    }
+
+    /** The administrator organization with Onboarding/Execute over another domain is not the
+     *  tenant's administrator for the catalog write (D15): the power must carry the tenant's domain. */
+    @Test
+    void adminOrganizationWithPowerOnAnotherDomain_writes_returns403InsufficientPermission() {
+        String token = mintAdminAccessToken(TENANT_A, TENANT_B);
+
+        putCatalog(token, TENANT_A)
+                .expectStatus().isForbidden()
+                .expectBody().jsonPath("$.type").isEqualTo("insufficient_permission");
+    }
+
+    @Test
+    void tenantAdminTokenOfTenantA_writesTenantB_returns403TenantMismatch() {
+        String token = mintAdminAccessToken(TENANT_A, TENANT_A);
+
+        putCatalog(token, TENANT_B)
+                .expectStatus().isForbidden()
+                .expectBody().jsonPath("$.type").isEqualTo("tenant_mismatch");
     }
 
     /** NFR-S-169-04 (inter-tenant isolation, extended to the lowest-privilege role): a
@@ -90,6 +123,24 @@ class CredentialCatalogHttpAuthorizationIT extends PostgresIntegrationBase {
     }
 
     // ---- helpers ---------------------------------------------------------------
+
+    private String mintAdminAccessToken(String tenantClaim, String powerDomain) {
+        return mintUserAccessToken(tenantClaim, ADMIN_ORG_ID, List.of(Map.of(
+                "type", "organization",
+                "domain", powerDomain,
+                "function", "Onboarding",
+                "action", List.of("Execute"))));
+    }
+
+    private WebTestClient.ResponseSpec putCatalog(String token, String tenant) {
+        return webTestClient()
+                .put().uri(CREDENTIAL_CATALOG_PATH)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .header(X_TENANT_HEADER, tenant)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"enabledConfigurationIds\":[\"" + CONFIG_ID + "\"]}")
+                .exchange();
+    }
 
     private void seedAdminOrganizationId(String tenant) {
         String schema = tenant + SCHEMA_SUFFIX;
