@@ -207,4 +207,31 @@ class ErrorResponseFactoryTest {
         assertDoesNotThrow(() -> UUID.fromString(m3.instance()));
     }
 
+
+    @Test
+    void problemOf_usesTheRequestPathAsInstanceAndKeepsEverythingElse() {
+        ServerHttpRequest request = MockServerHttpRequest.get("/issuer/api/v1/attestation-catalog/doctorid.sd.1?x=1")
+                .contextPath("/issuer").build();
+        var violations = List.of(new GlobalErrorMessage.FieldViolation("enabled", "is required"));
+
+        GlobalErrorMessage problem = factory.problemOf(new IllegalStateException("boom"), request,
+                "BAD_REQUEST", "Bad Request", HttpStatus.BAD_REQUEST, "The request body is not valid", violations);
+
+        assertEquals("/issuer/api/v1/attestation-catalog/doctorid.sd.1", problem.instance());
+        assertEquals("BAD_REQUEST", problem.type());
+        assertEquals("Bad Request", problem.title());
+        assertEquals(400, problem.status());
+        assertEquals("The request body is not valid", problem.detail());
+        assertEquals(violations, problem.violations());
+    }
+
+    @Test
+    void problemOf_forAServerError_doesNotReplaceTheDetailWithTheExceptionMessage() {
+        GlobalErrorMessage problem = factory.problemOf(new IllegalStateException("password=hunter2"), mockRequest,
+                "INTERNAL_SERVER_ERROR", "Internal server error", HttpStatus.INTERNAL_SERVER_ERROR,
+                "An unexpected error occurred", null);
+
+        assertEquals("An unexpected error occurred", problem.detail());
+        assertNull(problem.violations());
+    }
 }

@@ -438,11 +438,11 @@ class CredentialCatalogControllerTest {
     }
 
     /**
-     * AC-04: rejecting a mode above the schema ceiling is a 409 conflict, not a 400 --
-     * distinct from the payload-shape errors below (ES-01..03).
+     * AC-04, changed by EUD-266 (D8): a mode above the schema ceiling is a 400 {@code BAD_REQUEST} with a
+     * violation, like in the attestation catalog API, no longer the 409 {@code delivery_mode_not_eligible}.
      */
     @Test
-    void updateCatalog_directAboveSchemaCeiling_returns409() {
+    void updateCatalog_directAboveSchemaCeiling_returns400BadRequestProblemWithAViolation() {
         when(catalogPdpService.authorizeWrite(anyString()))
                 .thenReturn(Mono.just(admin()));
         when(tenantCredentialProfileService.updateCatalog(any(), any()))
@@ -465,7 +465,52 @@ class CredentialCatalogControllerTest {
                                 + "{\"learcredential.employee.w3c.4\":[\"direct\"]}}"
                 )
                 .exchange()
-                .expectStatus().isEqualTo(409);
+                .expectStatus().isBadRequest()
+                .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("BAD_REQUEST")
+                .jsonPath("$.instance").isEqualTo(CREDENTIAL_CATALOG_PATH)
+                .jsonPath("$.violations[0].field").isEqualTo("deliveryModesByConfigurationId")
+                .jsonPath("$.violations[0].message").value(message ->
+                        assertThat(String.valueOf(message)).contains("'direct'", "learcredential.employee.w3c.4"));
+    }
+
+    /** EUD-266: the alias answers its errors as {@code application/problem+json} with the path as instance. */
+    @Test
+    void getCatalog_tenantWithNothingEnabled_answersAProblemJson() {
+        when(accessTokenService.getAuthorizationContext(anyString()))
+                .thenReturn(Mono.just(admin()));
+        when(tenantCredentialProfileService.getCatalog())
+                .thenReturn(Mono.error(new CredentialCatalogNotConfiguredException("No credential configuration enabled")));
+
+        webTestClient.get()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("credential_catalog_not_configured")
+                .jsonPath("$.instance").isEqualTo(CREDENTIAL_CATALOG_PATH);
+    }
+
+    @Test
+    void updateCatalog_withBeanValidationErrors_answersAProblemJsonWithViolations() {
+        when(catalogPdpService.authorizeWrite(anyString()))
+                .thenReturn(Mono.just(admin()));
+
+        webTestClient.mutateWith(csrf())
+                .put()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"enabledConfigurationIds\":[]}")
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("BAD_REQUEST")
+                .jsonPath("$.violations[0].field").isEqualTo("enabledConfigurationIds");
     }
 
     /**

@@ -48,6 +48,9 @@ public class SecurityConfig {
                         // CredentialCatalogController's own authorization (tenant-admin/SysAdmin
                         // write, tenant-admin/SysAdmin/operator read)
                         CREDENTIAL_CATALOG_PATH,
+                        // Attestation Catalogue API (EUD-266): the entry paths (/{id}) need their own pattern
+                        ATTESTATION_CATALOG_PATH,
+                        ATTESTATION_CATALOG_WILDCARD_PATH,
                         // OID4VCI paths
                         OAUTH_TOKEN_PATH,
                         OID4VCI_CREDENTIAL_PATH,
@@ -106,6 +109,9 @@ public class SecurityConfig {
                         // CredentialCatalogController's own authorization (tenant-admin/SysAdmin
                         // write, tenant-admin/SysAdmin/operator read)
                         CREDENTIAL_CATALOG_PATH,
+                        // Attestation Catalogue API (EUD-266): the entry paths (/{id}) need their own pattern
+                        ATTESTATION_CATALOG_PATH,
+                        ATTESTATION_CATALOG_WILDCARD_PATH,
                         // Public OID4VCI paths
                         CORS_OID4VCI_PATH,
                         VCI_PATH,

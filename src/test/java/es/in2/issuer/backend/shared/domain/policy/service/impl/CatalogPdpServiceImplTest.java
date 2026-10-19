@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -50,7 +51,58 @@ class CatalogPdpServiceImplTest {
     @BeforeEach
     void setUp() {
         pdp = new CatalogPdpServiceImpl(accessTokenService, policyContextFactory, auditService);
-        when(accessTokenService.getCleanBearerToken(HEADER)).thenReturn(Mono.just(TOKEN));
+        lenient().when(accessTokenService.getCleanBearerToken(HEADER)).thenReturn(Mono.just(TOKEN));
+    }
+
+    @Test
+    void authorizeRead_operatorOfTheTenant_returnsAuthorizationContext() {
+        AuthorizationContext authCtx = authorization(UserRole.LEAR, false);
+        givenReader(authCtx, TENANT);
+
+        StepVerifier.create(authorizeRead())
+                .expectNext(authCtx)
+                .verifyComplete();
+    }
+
+    @Test
+    void authorizeRead_sysAdminReadOnlyView_isAllowed() {
+        AuthorizationContext authCtx = authorization(UserRole.SYSADMIN, true);
+        givenReader(authCtx, TENANT);
+
+        StepVerifier.create(authorizeRead())
+                .expectNext(authCtx)
+                .verifyComplete();
+    }
+
+    @Test
+    void authorizeRead_tokenOfAnotherTenant_failsWithTenantMismatchAndAuditsBreach() {
+        givenReader(authorization(UserRole.LEAR, false), "tenant-b");
+
+        StepVerifier.create(authorizeRead())
+                .expectError(TenantMismatchException.class)
+                .verify();
+
+        verify(auditService).auditFailure(eq("tenant_isolation_breach"), eq(ORG), anyString(), any());
+    }
+
+    @Test
+    void authorizeRead_sysAdminWithTokenOfAnotherTenant_failsWithTenantMismatch() {
+        givenReader(authorization(UserRole.SYSADMIN, true), "tenant-b");
+
+        StepVerifier.create(authorizeRead())
+                .expectError(TenantMismatchException.class)
+                .verify();
+    }
+
+    @Test
+    void authorizeRead_tokenWithoutTenantClaim_failsWithTenantMismatch() {
+        when(accessTokenService.getAuthorizationContext(HEADER))
+                .thenReturn(Mono.just(authorization(UserRole.LEAR, false)));
+        when(accessTokenService.getTokenTenant(HEADER)).thenReturn(Mono.empty());
+
+        StepVerifier.create(authorizeRead())
+                .expectError(TenantMismatchException.class)
+                .verify();
     }
 
     @Test
@@ -156,6 +208,16 @@ class CatalogPdpServiceImplTest {
         StepVerifier.create(authorize())
                 .expectErrorSatisfies(e -> assertThat(e).isNotInstanceOf(UnauthorizedRoleException.class))
                 .verify();
+    }
+
+    private Mono<AuthorizationContext> authorizeRead() {
+        return pdp.authorizeRead(HEADER)
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT));
+    }
+
+    private void givenReader(AuthorizationContext authCtx, String tokenTenant) {
+        when(accessTokenService.getAuthorizationContext(HEADER)).thenReturn(Mono.just(authCtx));
+        when(accessTokenService.getTokenTenant(HEADER)).thenReturn(Mono.just(tokenTenant));
     }
 
     private Mono<AuthorizationContext> authorize() {

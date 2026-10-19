@@ -49,6 +49,26 @@ public class ErrorResponseFactory {
         return buildError(type, title, status, detail, ex, request, null);
     }
 
+    /**
+     * Builds an RFC 9457 problem whose {@code instance} is the request path as the client sent it
+     * (context path included), not a random identifier. Client errors are logged without a stack trace.
+     */
+    public GlobalErrorMessage problemOf(
+            Exception ex, ServerHttpRequest request,
+            String type, String title, HttpStatus status, String detail,
+            List<GlobalErrorMessage.FieldViolation> violations
+    ) {
+        String instance = request.getPath().value();
+        if (status.is5xxServerError()) {
+            log.error("problem instance={} status={} ex={} message={}",
+                    instance, status.value(), ex.getClass().getName(), ex.getMessage(), ex);
+        } else {
+            log.warn("problem instance={} status={} type={} ex={} message={}",
+                    instance, status.value(), type, ex.getClass().getSimpleName(), ex.getMessage());
+        }
+        return new GlobalErrorMessage(type, title, status.value(), detail, instance, violations);
+    }
+
     private String resolveDetail(Exception ex, String fallback) {
         String msg = ex.getMessage();
         return (msg == null || msg.isBlank()) ? fallback : msg;

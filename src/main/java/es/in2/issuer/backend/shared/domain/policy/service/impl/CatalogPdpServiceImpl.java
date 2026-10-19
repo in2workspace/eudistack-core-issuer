@@ -16,10 +16,12 @@ import reactor.core.publisher.Mono;
 
 import java.util.Map;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.SYSTEM_TENANT;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 /**
- * Writes to the catalog belong to the tenant's administrator: the administrator organization
+ * Reads of the catalog are open to every role that can read it ({@link AuthorizationContext#canReadCredentialCatalog()})
+ * of the token's own tenant. Writes to the catalog belong to the tenant's administrator: the administrator organization
  * ({@code admin_organization_id}) holding Onboarding/Execute over the tenant's domain
  * ({@link PolicyContext#tenantAdmin()}), or a SysAdmin. A SysAdmin on the {@code platform}
  * tenant only has a read-only view, so {@link AuthorizationContext#canWrite()} must hold too.
@@ -37,10 +39,50 @@ public class CatalogPdpServiceImpl implements CatalogPdpService {
     private static final String AUDIT_EVENT_AUTHZ_DENY = "authorization.deny";
     private static final String AUDIT_EVENT_TENANT_BREACH = "tenant_isolation_breach";
     private static final String ACTION_WRITE_CATALOG = "write_catalog";
+    private static final String ACTION_READ_CATALOG = "read_catalog";
+    static final String READ_DENY_DETAIL = "Tenant administrator, SysAdmin or operator role required";
 
     private final AccessTokenService accessTokenService;
     private final PolicyContextFactory policyContextFactory;
     private final AuditService auditService;
+
+    @Override
+    public Mono<AuthorizationContext> authorizeRead(String authorizationHeader) {
+        return accessTokenService.getAuthorizationContext(authorizationHeader)
+                .flatMap(authCtx -> {
+                    if (!authCtx.canReadCredentialCatalog()) {
+                        // Unreachable today: UserRole has exactly three values and all of them can read
+                        // (see AuthorizationContext#canReadCredentialCatalog). Audited so the denial of a
+                        // future fourth role is not silently invisible.
+                        return Mono.deferContextual(reactorCtx -> {
+                            auditService.auditFailure(AUDIT_EVENT_AUTHZ_DENY, authCtx.organizationIdentifier(),
+                                    "role_not_permitted",
+                                    Map.of("tenant", reactorCtx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, SYSTEM_TENANT),
+                                            "action", ACTION_READ_CATALOG));
+                            return Mono.<AuthorizationContext>error(new InsufficientPermissionException(READ_DENY_DETAIL));
+                        });
+                    }
+                    return requireTenantMatch(authCtx, authorizationHeader);
+                });
+    }
+
+    private Mono<AuthorizationContext> requireTenantMatch(AuthorizationContext authCtx, String authorizationHeader) {
+        return Mono.deferContextual(reactorCtx -> {
+            String tenantDomain = reactorCtx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, SYSTEM_TENANT);
+            return accessTokenService.getTokenTenant(authorizationHeader)
+                    .defaultIfEmpty("")
+                    .flatMap(tokenTenant -> {
+                        if (tokenTenant.isBlank() || !tokenTenant.equalsIgnoreCase(tenantDomain)) {
+                            auditService.auditFailure(AUDIT_EVENT_TENANT_BREACH, authCtx.organizationIdentifier(),
+                                    "token_tenant_mismatch",
+                                    Map.of("tokenTenant", tokenTenant, "resolvedTenant", tenantDomain));
+                            return Mono.<AuthorizationContext>error(new TenantMismatchException(
+                                    "Token tenant '" + tokenTenant + "' does not match tenant header '" + tenantDomain + "'"));
+                        }
+                        return Mono.just(authCtx);
+                    });
+        });
+    }
 
     @Override
     public Mono<AuthorizationContext> authorizeWrite(String authorizationHeader) {
