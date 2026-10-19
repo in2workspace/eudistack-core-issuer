@@ -1,0 +1,70 @@
+{
+  "credential_configuration_id": "doctorid.sd.1",
+  "description": "Verifiable Credential for licensed medical doctors",
+  "credential_metadata": {
+    "display": [
+      {
+        "name": "Doctor ID",
+        "locale": "en",
+        "description": "Verifiable Credential for licensed medical doctors"
+      },
+      {
+        "name": "Identificación Médica",
+        "locale": "es",
+        "description": "Credencial Verificable para médicos colegiados"
+      }
+    ],
+    "claims": [
+      { "path": ["givenName"],                      "display": [{ "name": "Given Name", "locale": "en" }, { "name": "Nombre", "locale": "es" }] },
+      { "path": ["familyName"],                     "display": [{ "name": "Family Name", "locale": "en" }, { "name": "Apellidos", "locale": "es" }] },
+      { "path": ["personal_administrative_number"], "display": [{ "name": "Registration Number", "locale": "en" }, { "name": "Número de Colegiado", "locale": "es" }] },
+      { "path": ["medical_board"],                  "display": [{ "name": "Medical Board", "locale": "en" }, { "name": "Colegio de Médicos", "locale": "es" }] },
+      { "path": ["medical_speciality"],             "display": [{ "name": "Medical Speciality", "locale": "en" }, { "name": "Especialidad", "locale": "es" }] },
+      { "path": ["legally_entitled"],               "display": [{ "name": "Legally Entitled to Practise", "locale": "en" }, { "name": "Habilitado para Ejercer", "locale": "es" }] }
+    ]
+  },
+  "subject_extraction": {
+    "strategy": "concat",
+    "fields": ["givenName", "familyName"],
+    "separator": " "
+  },
+  "validation": {
+    "schema_required": true,
+    "valid_from_path": "nbf",
+    "valid_until_path": "exp",
+    "issuer_id_path": "iss",
+    "mandator_org_id_path": null,
+    "revocation": {
+      "type": "TokenStatusList",
+      "status_path": "status"
+    }
+  },
+  "grant_eligibility": ["authorization_code"],
+  "token_claims_mapping": {
+    "subject_paths": ["personal_administrative_number"],
+    "id_token": {
+      "given_name": "givenName",
+      "family_name": "familyName",
+      "name": {
+        "strategy": "concat",
+        "paths": ["givenName", "familyName"],
+        "separator": " "
+      }
+    },
+    "access_token": {},
+    "id_token_embed": {
+      "givenName": "givenName",
+      "familyName": "familyName",
+      "personal_administrative_number": "personal_administrative_number",
+      "medical_board": "medical_board",
+      "medical_speciality": "medical_speciality",
+      "legally_entitled": "legally_entitled"
+    },
+    "access_token_embed": {
+      "personal_administrative_number": "personal_administrative_number",
+      "medical_speciality": "medical_speciality",
+      "legally_entitled": "legally_entitled"
+    },
+    "scope": "openid doctorid"
+  }
+}

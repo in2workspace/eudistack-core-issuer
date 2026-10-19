@@ -1,0 +1,37 @@
+{
+  "credential_configuration_id": "synthetic.zero-validity.sd.1",
+  "credential_format": "dc+sd-jwt",
+  "scope": "synthetic_zero-validity_sd_1",
+  "credential_definition": {
+    "context": [
+      "https://www.w3.org/ns/credentials/v2"
+    ],
+    "type": [
+      "VerifiableCredential",
+      "synthetic.zero-validity.sd.1"
+    ]
+  },
+  "issuer_type": "DETAILED",
+  "cnf_required": false,
+  "credential_subject_strategy": "direct",
+  "sd_jwt": {
+    "vct": "urn:synthetic:synthetic.zero-validity.sd.1",
+    "sd_alg": "sha-256",
+    "sd_claims": [
+      "name"
+    ]
+  },
+  "subject_extraction": {
+    "strategy": "field",
+    "fields": [
+      "name"
+    ]
+  },
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    }
+  },
+  "validity_days": 0
+}

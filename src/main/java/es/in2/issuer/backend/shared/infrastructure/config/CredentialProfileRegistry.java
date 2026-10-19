@@ -3,8 +3,10 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import es.in2.issuer.backend.shared.domain.model.catalog.ClaimPath;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfileBindingInvariant;
+import es.in2.issuer.backend.shared.domain.model.enums.BindingType;
 import es.in2.issuer.backend.shared.domain.spi.CredentialProfileCatalog;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,14 +21,21 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 @Slf4j
 @Component
 public class CredentialProfileRegistry implements CredentialProfileCatalog {
 
+    private static final String SYNTHETIC_SCHEMA_URI_BASE = "https://registry.eudistack.net/schemas/";
+    private static final Set<String> KEY_BINDING_METHODS = Set.of("jwk", "did:key");
+
     private final Map<String, CredentialProfile> byConfigurationId;
     private final Map<String, CredentialProfile> byCredentialType;
     private final Map<String, JsonNode> rawProfilesByConfigurationId;
+    private final Map<String, List<ClaimPath>> attributePathsByConfigurationId;
+    private final Map<String, String> configurationIdBySchemaUri;
 
     public CredentialProfileRegistry(
             ObjectMapper objectMapper,
@@ -36,6 +45,8 @@ public class CredentialProfileRegistry implements CredentialProfileCatalog {
         Map<String, CredentialProfile> configIdMap = new LinkedHashMap<>();
         Map<String, CredentialProfile> typeMap = new LinkedHashMap<>();
         Map<String, JsonNode> rawMap = new LinkedHashMap<>();
+        Map<String, List<ClaimPath>> pathsMap = new LinkedHashMap<>();
+        Map<String, String> schemaUriMap = new LinkedHashMap<>();
 
         try {
             Resource[] resources = resourcePatternResolver.getResources(profilesPattern);
@@ -60,7 +71,8 @@ public class CredentialProfileRegistry implements CredentialProfileCatalog {
             }
 
             for (Resource resource : coreResources) {
-                loadCoreWithOptionalProfile(objectMapper, resource, profileOverrides, configIdMap, typeMap, rawMap);
+                loadCoreWithOptionalProfile(objectMapper, resource, profileOverrides, configIdMap, typeMap, rawMap,
+                        pathsMap, schemaUriMap);
             }
         } catch (IOException e) {
             throw new IllegalStateException("Failed to load credential profiles from " + profilesPattern, e);
@@ -75,6 +87,8 @@ public class CredentialProfileRegistry implements CredentialProfileCatalog {
         this.byConfigurationId = Collections.unmodifiableMap(configIdMap);
         this.byCredentialType = Collections.unmodifiableMap(typeMap);
         this.rawProfilesByConfigurationId = Collections.unmodifiableMap(rawMap);
+        this.attributePathsByConfigurationId = Collections.unmodifiableMap(pathsMap);
+        this.configurationIdBySchemaUri = Collections.unmodifiableMap(schemaUriMap);
     }
 
     private JsonNode readJsonResource(ObjectMapper objectMapper, Resource resource) {
@@ -99,7 +113,9 @@ public class CredentialProfileRegistry implements CredentialProfileCatalog {
                                              Map<String, JsonNode> profileOverrides,
                                              Map<String, CredentialProfile> configIdMap,
                                              Map<String, CredentialProfile> typeMap,
-                                             Map<String, JsonNode> rawMap) {
+                                             Map<String, JsonNode> rawMap,
+                                             Map<String, List<ClaimPath>> pathsMap,
+                                             Map<String, String> schemaUriMap) {
         String filename = resource.getFilename();
         JsonNode coreJson = readJsonResource(objectMapper, resource);
         String configId = extractConfigurationId(coreJson, filename);
@@ -135,8 +151,16 @@ public class CredentialProfileRegistry implements CredentialProfileCatalog {
                 typeMap.put(credentialType, profile);
             }
 
+            String schemaUri = schemaUriOf(profile);
+            String previous = schemaUriMap.putIfAbsent(schemaUri, configId);
+            if (previous != null) {
+                throw new IllegalStateException("Credential profiles '" + previous + "' and '" + configId
+                        + "' declare the same schema_uri '" + schemaUri + "'");
+            }
+
             configIdMap.put(configId, profile);
             rawMap.put(configId, mergedJson);
+            pathsMap.put(configId, SchemaAttributePaths.of(mergedJson, profile.format()));
 
             log.info("Loaded credential profile '{}' (type: {}) from {}", configId, credentialType, filename);
         } catch (IOException e) {
@@ -147,6 +171,47 @@ public class CredentialProfileRegistry implements CredentialProfileCatalog {
     @Override
     public CredentialProfile getByConfigurationId(String credentialConfigurationId) {
         return byConfigurationId.get(credentialConfigurationId);
+    }
+
+    @Override
+    public List<ClaimPath> attributePaths(String credentialConfigurationId) {
+        requireLoaded(credentialConfigurationId);
+        return attributePathsByConfigurationId.get(credentialConfigurationId);
+    }
+
+    @Override
+    public Optional<String> resolveSchemaUri(String schemaUri) {
+        return Optional.ofNullable(configurationIdBySchemaUri.get(schemaUri));
+    }
+
+    @Override
+    public String schemaUriOf(String credentialConfigurationId) {
+        CredentialProfile profile = byConfigurationId.get(credentialConfigurationId);
+        return profile != null ? schemaUriOf(profile) : SYNTHETIC_SCHEMA_URI_BASE + credentialConfigurationId;
+    }
+
+    @Override
+    public BindingType bindingTypeOf(String credentialConfigurationId) {
+        Set<String> methods = requireLoaded(credentialConfigurationId).cryptographicBindingMethodsSupported();
+        if (methods == null || methods.isEmpty()) {
+            return BindingType.NONE;
+        }
+        return KEY_BINDING_METHODS.containsAll(methods) ? BindingType.KEY : BindingType.UNSUPPORTED;
+    }
+
+    private CredentialProfile requireLoaded(String credentialConfigurationId) {
+        CredentialProfile profile = byConfigurationId.get(credentialConfigurationId);
+        if (profile == null) {
+            throw new IllegalArgumentException("Unknown credential_configuration_id: " + credentialConfigurationId);
+        }
+        return profile;
+    }
+
+    private static String schemaUriOf(CredentialProfile profile) {
+        String declared = profile.schemaUri();
+        return declared != null && !declared.isBlank()
+                ? declared
+                : SYNTHETIC_SCHEMA_URI_BASE + profile.credentialConfigurationId();
     }
 
     public CredentialProfile getByCredentialType(String credentialType) {

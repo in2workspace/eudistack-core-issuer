@@ -12,6 +12,7 @@ import java.util.Set;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record CredentialProfile(
         @JsonProperty("credential_configuration_id") String credentialConfigurationId,
+        @JsonProperty("schema_uri") String schemaUri,
         @JsonProperty("credential_format") String format,
         @JsonProperty("scope") String scope,
         @JsonProperty("credential_definition") CredentialDefinition credentialDefinition,
