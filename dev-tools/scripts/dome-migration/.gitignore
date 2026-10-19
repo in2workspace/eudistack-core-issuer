@@ -1,0 +1,6 @@
+# Local secrets and outputs (contain credentials / SBX-PRD ids)
+.env
+reports/
+.venv/
+*.csv
+__pycache__/
