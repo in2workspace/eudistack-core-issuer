@@ -40,7 +40,7 @@ class PayloadSchemaValidatorImplTest {
                           "additionalProperties": false,
                           "properties": {
                             "id":         { "type": "string", "format": "uri" },
-                            "employeeId": { "type": ["string", "null"] },
+                            "employeeId": { "type": "string" },
                             "email":      { "type": "string" },
                             "firstName":  { "type": "string" },
                             "lastName":   { "type": "string" }
@@ -141,11 +141,58 @@ class PayloadSchemaValidatorImplTest {
             // Assert
             StepVerifier.create(result).verifyComplete();
         }
+
+        @Test
+        @DisplayName("validate_mandateeEmployeeIdIsEmptyString_completesSuccessfully")
+        void validate_mandateeEmployeeIdIsEmptyString_completesSuccessfully() throws Exception {
+            // Arrange
+            mockMandateSchema();
+            JsonNode payload = payload("""
+                    {
+                      "mandatee": { "employeeId": "", "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe" },
+                      "mandator": { "organizationIdentifier": "VATES-A00000000", "email": "org@example.com" },
+                      "power": [{ "type": "domain" }]
+                    }
+                    """);
+
+            // Act
+            var result = payloadSchemaValidator.validate(CONFIG_ID, payload);
+
+            // Assert
+            StepVerifier.create(result).verifyComplete();
+        }
     }
 
     @Nested
     @DisplayName("validate: payload carries fields outside the mandate schema")
     class InvalidPayload {
+
+        @Test
+        @DisplayName("validate_mandateeEmployeeIdIsNull_rejectsWithPayloadValidationException")
+        void validate_mandateeEmployeeIdIsNull_rejectsWithPayloadValidationException() throws Exception {
+            // Arrange
+            mockMandateSchema();
+            JsonNode payload = payload("""
+                    {
+                      "mandatee": { "employeeId": null, "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe" },
+                      "mandator": { "organizationIdentifier": "VATES-A00000000", "email": "org@example.com" },
+                      "power": [{ "type": "domain" }]
+                    }
+                    """);
+
+            // Act
+            var result = payloadSchemaValidator.validate(CONFIG_ID, payload);
+
+            // Assert
+            StepVerifier.create(result)
+                    .expectErrorSatisfies(error -> {
+                        assertTrue(error instanceof PayloadValidationException);
+                        var violations = ((PayloadValidationException) error).getViolations();
+                        assertTrue(violations.stream()
+                                .anyMatch(v -> v.field().contains("employeeId")));
+                    })
+                    .verify();
+        }
 
         @Test
         @DisplayName("validate_mandateeHasUnregisteredField_rejectsWithPayloadValidationException")

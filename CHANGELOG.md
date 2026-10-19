@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **LEAR Employee profiles: `mandatee.employeeId` no longer accepts `null`.** It is an optional text field, so an absent value is now sent as an empty string (`""`) instead of `null`. Applies to the `learcredential.employee.sd.1` and `learcredential.employee.w3c.4` profiles.
 - **`GET /api/v1/issuances/{id}` answers a malformed `id` with `404 Not Found`** (`CREDENTIAL_NOT_FOUND`, as for an unknown id) instead of a generic `500`, and no longer echoes the malformed value in the error message.
 - **Improved credential offer redemption flow**: the redemption of a credential offer now marks it as consumed instead of deleting it from the cache, and respects a logical expiry. This enables the OIDC4VCI endpoint to return `410 Gone` with specific error codes (`credential_offer_expired` or `credential_already_issued`) for a retention period, replacing generic errors and allowing for better UX in the wallet.
 - **I-03 — LEAR issuance policy denials now carry a stable `reason` code.** `RequireLearCredentialIssuanceRule` throws `LearIssuancePolicyException` (a subclass of `InsufficientPermissionException`, so status and `type` stay `403 insufficient_permission`), and the error body gains an optional `reason` member (`onboarding_delegation_same_org`, `on_behalf_requires_tenant_admin`, …). Clients can now explain which business rule rejected an on-behalf issuance instead of showing a generic error. Additive contract: the member is omitted for every other error.
