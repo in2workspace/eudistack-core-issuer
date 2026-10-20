@@ -3,6 +3,7 @@ package es.in2.issuer.backend.shared.domain.util.sdjwt;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Named;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
 import java.util.Map;
@@ -254,6 +256,25 @@ class SdJwtPayloadBuilderTest {
             assertThat(payload.has("validFrom")).isFalse();
             assertThat(result.disclosures()).extracting(Disclosure::claimName)
                     .doesNotContain("vct", "iss", "status", "validFrom", "validUntil");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"iss", "sub", "aud", "jti", "iat", "nbf", "exp", "vct", "cnf", "status",
+                "_sd", "_sd_alg", "validFrom", "validUntil"})
+        @DisplayName("build_reservedClaimInCredential_isNeverDisclosed")
+        void build_reservedClaimInCredential_isNeverDisclosed(String reservedName) throws JsonProcessingException {
+            // Arrange
+            ObjectNode credential = (ObjectNode) objectMapper.readTree(FLAT_CREDENTIAL.formatted(""));
+            credential.put(reservedName, "forged");
+            CredentialProfile profile = profile(List.of("givenName", "familyName"), false);
+
+            // Act
+            SdJwtPayloadBuilder.SdJwtComponents result =
+                    builder.build(objectMapper.writeValueAsString(credential), profile, null);
+
+            // Assert
+            assertThat(result.disclosures()).extracting(Disclosure::claimName)
+                    .containsExactlyInAnyOrder("givenName", "familyName");
         }
 
         @Test

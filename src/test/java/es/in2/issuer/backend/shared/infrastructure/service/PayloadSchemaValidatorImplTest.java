@@ -341,7 +341,8 @@ class PayloadSchemaValidatorImplTest {
         }
 
         @ParameterizedTest
-        @ValueSource(strings = {"iss", "vct", "cnf", "status", "iat", "exp"})
+        @ValueSource(strings = {"iss", "sub", "aud", "jti", "iat", "nbf", "exp", "vct", "cnf", "status",
+                "_sd", "_sd_alg", "validFrom", "validUntil"})
         @DisplayName("validate_additionalClaimUsesReservedName_rejectsWithPayloadValidationException")
         void validate_additionalClaimUsesReservedName_rejectsWithPayloadValidationException(String reservedName) throws Exception {
             // Arrange
