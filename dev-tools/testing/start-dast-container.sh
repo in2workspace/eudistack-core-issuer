@@ -23,5 +23,6 @@ docker run -d --name "${CONTAINER_NAME}" \
   -e SPRING_R2DBC_PASSWORD="${DAST_DB_PASSWORD}" \
   -e SPRING_FLYWAY_URL="jdbc:postgresql://${DAST_DB_HOST}:${DAST_DB_PORT}/${DAST_DB_NAME}" \
   -e CREDENTIAL_PROFILES_PATH=file:/etc/eudistack/schemas \
+  -e EMAIL_ASSETS_BASE_URL=https://assets.dast.example/assets/tenants \
   -v "${profiles_dir}:/etc/eudistack/schemas:ro" \
   "${CONTAINER_IMAGE}"
