@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`EMAIL_ASSETS_BASE_URL`**: tenant-assets root of the environment for the email images (`email-branding.assets-base-url`, default STG sandbox assets). Startup fails if it is blank or a social link `type` is not `github` / `linkedin`.
+- **`EMAIL_ASSETS_BASE_URL`**: tenant-assets root of the environment for the email images (`email-branding.assets-base-url`), required: no default, set per environment by `eudistack-platform-iac` and locally by `local-env/compose.yaml`. Startup fails if it is missing or blank or a social link `type` is not `github` / `linkedin`.
 - **`EMAIL_BRANDING_PATH`**: location of the email branding file (e.g. `file:/etc/eudistack/issuer/email-branding.yaml`). When set, it replaces the bundled `email-branding.yaml` entirely, so each environment configures its own links and image flags per tenant; unset, the bundled file is used.
 - **`environmentLabel` in `tenants-custom-domains.yaml`** (optional, per entry): short label (`SBX`, `Dev`, `Dev2`) prefixed as `[label] ` to the subject of the credential-offer email when the request arrives through that entry's issuer host. Carried to the email through the Reactor context by the new `EnvironmentLabelWebFilter`; absent in schedulers and on hosts without a label.
 - `TenantRegistryService.getDisplayName(schema)` (cached, falls back to the schema name) and an email preview generator (`./gradlew test --tests '*EmailPreviewGeneratorTest' -Demail.previews=true` writes `build/email-previews/*.html`).

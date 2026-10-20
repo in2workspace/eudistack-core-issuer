@@ -139,9 +139,11 @@ class EmailBrandingResolverImplTest {
             .withInitializer(new ConfigDataApplicationContextInitializer())
             .withUserConfiguration(PropertiesConfig.class);
 
+    private static final String ASSETS_ENV = "EMAIL_ASSETS_BASE_URL=https://sandbox.dev.eudistack.net/assets/tenants";
+
     @Test
     void binding_applicationYaml_bindsDefaultsAndDomeBlock() {
-        runner.withPropertyValues("spring.config.location=classpath:application.yml,classpath:email-branding.yaml")
+        runner.withPropertyValues("spring.config.location=classpath:application.yml,classpath:email-branding.yaml", ASSETS_ENV)
                 .run(ctx -> {
                     EmailBrandingProperties props = ctx.getBean(EmailBrandingProperties.class);
                     assertThat(props.assetsBaseUrl()).isEqualTo("https://sandbox.dev.eudistack.net/assets/tenants");
@@ -154,7 +156,7 @@ class EmailBrandingResolverImplTest {
 
     @Test
     void binding_withoutEmailBrandingPath_importsTheBundledFile() {
-        runner.withPropertyValues("spring.config.location=classpath:application.yml")
+        runner.withPropertyValues("spring.config.location=classpath:application.yml", ASSETS_ENV)
                 .run(ctx -> {
                     EmailBrandingProperties props = ctx.getBean(EmailBrandingProperties.class);
                     assertThat(props.defaults().supportUrl()).isEqualTo("https://docs.eudistack.net");
@@ -177,6 +179,7 @@ class EmailBrandingResolverImplTest {
 
         runner.withPropertyValues(
                         "spring.config.location=classpath:application.yml",
+                        ASSETS_ENV,
                         "EMAIL_BRANDING_PATH=file:" + file.toAbsolutePath())
                 .run(ctx -> {
                     EmailBrandingProperties props = ctx.getBean(EmailBrandingProperties.class);
@@ -187,7 +190,13 @@ class EmailBrandingResolverImplTest {
     }
 
     @Test
-    void binding_assetsBaseUrlProperty_overridesDefault() {
+    void binding_applicationYamlWithoutAssetsBaseUrlEnv_failsStartup() {
+        runner.withPropertyValues("spring.config.location=classpath:application.yml,classpath:email-branding.yaml")
+                .run(ctx -> assertThat(ctx).hasFailed());
+    }
+
+    @Test
+    void binding_assetsBaseUrlEnv_bindsAssetsBaseUrl() {
         runner.withPropertyValues(
                         "spring.config.location=classpath:application.yml,classpath:email-branding.yaml",
                         "EMAIL_ASSETS_BASE_URL=https://sandbox.eudistack.net/assets/tenants")
