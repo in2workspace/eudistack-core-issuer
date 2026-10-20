@@ -2,6 +2,7 @@ package es.in2.issuer.backend.shared.infrastructure.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import es.in2.issuer.backend.shared.domain.exception.PayloadValidationException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
@@ -10,6 +11,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.test.StepVerifier;
@@ -37,7 +40,7 @@ class PayloadSchemaValidatorImplTest {
                       "properties": {
                         "mandatee": {
                           "type": "object",
-                          "additionalProperties": false,
+                          "additionalProperties": true,
                           "properties": {
                             "id":         { "type": "string", "format": "uri" },
                             "employeeId": { "type": ["string", "null"] },
@@ -49,7 +52,7 @@ class PayloadSchemaValidatorImplTest {
                         "mandator": {
                           "type": "object",
                           "required": ["organizationIdentifier"],
-                          "additionalProperties": false,
+                          "additionalProperties": true,
                           "properties": {
                             "id":                     { "type": "string", "format": "uri" },
                             "commonName":             { "type": "string" },
@@ -144,18 +147,70 @@ class PayloadSchemaValidatorImplTest {
     }
 
     @Nested
-    @DisplayName("validate: payload carries fields outside the mandate schema")
-    class InvalidPayload {
+    @DisplayName("validate: payload carries additional business attributes")
+    class AdditionalAttributes {
 
         @Test
-        @DisplayName("validate_mandateeHasUnregisteredField_rejectsWithPayloadValidationException")
-        void validate_mandateeHasUnregisteredField_rejectsWithPayloadValidationException() throws Exception {
+        @DisplayName("validate_mandateeHasUndeclaredAttribute_completesSuccessfully")
+        void validate_mandateeHasUndeclaredAttribute_completesSuccessfully() throws Exception {
             // Arrange
             mockMandateSchema();
             JsonNode payload = payload("""
                     {
-                      "mandatee": { "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe", "nationality": "ES" },
+                      "mandatee": { "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe", "externalReference": "REF-1" },
                       "mandator": { "organizationIdentifier": "VATES-A00000000", "email": "org@example.com" },
+                      "power": [{ "type": "domain" }]
+                    }
+                    """);
+
+            // Act
+            var result = payloadSchemaValidator.validate(CONFIG_ID, payload);
+
+            // Assert
+            StepVerifier.create(result).verifyComplete();
+        }
+    }
+
+    @Nested
+    @DisplayName("validate: payload breaks the mandate schema")
+    class InvalidPayload {
+
+        @Test
+        @DisplayName("validate_mandatorMissesRequiredOrganizationIdentifier_rejectsWithPayloadValidationException")
+        void validate_mandatorMissesRequiredOrganizationIdentifier_rejectsWithPayloadValidationException() throws Exception {
+            // Arrange
+            mockMandateSchema();
+            JsonNode payload = payload("""
+                    {
+                      "mandatee": { "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe" },
+                      "mandator": { "email": "org@example.com" },
+                      "power": [{ "type": "domain" }]
+                    }
+                    """);
+
+            // Act
+            var result = payloadSchemaValidator.validate(CONFIG_ID, payload);
+
+            // Assert
+            StepVerifier.create(result)
+                    .expectErrorSatisfies(error -> {
+                        assertTrue(error instanceof PayloadValidationException);
+                        var violations = ((PayloadValidationException) error).getViolations();
+                        assertTrue(violations.stream()
+                                .anyMatch(v -> v.field().contains("mandator")));
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("validate_mandateeEmailHasWrongDataType_rejectsWithPayloadValidationException")
+        void validate_mandateeEmailHasWrongDataType_rejectsWithPayloadValidationException() throws Exception {
+            // Arrange
+            mockMandateSchema();
+            JsonNode payload = payload("""
+                    {
+                      "mandatee": { "email": 42, "firstName": "Jane", "lastName": "Doe" },
+                      "mandator": { "organizationIdentifier": "VATES-A00000000" },
                       "power": [{ "type": "domain" }]
                     }
                     """);
@@ -173,22 +228,89 @@ class PayloadSchemaValidatorImplTest {
                     })
                     .verify();
         }
+    }
+
+    @Nested
+    @DisplayName("validate: SD-JWT profile with claims at the root")
+    class SdJwtDirectProfile {
+
+        private static final String SD_CONFIG_ID = "doctorid.sd.1";
+
+        private static final String RAW_DOCTOR_PROFILE = """
+                {
+                  "credential_configuration_id": "doctorid.sd.1",
+                  "type": "object",
+                  "required": ["givenName", "familyName", "personal_administrative_number", "medical_speciality"],
+                  "additionalProperties": true,
+                  "properties": {
+                    "givenName": { "type": "string" },
+                    "familyName": { "type": "string" },
+                    "personal_administrative_number": { "type": "string", "pattern": "^[0-9]{9}$" },
+                    "medical_speciality": { "type": "array", "items": { "type": "string" } },
+                    "legally_entitled": { "type": "boolean" }
+                  }
+                }
+                """;
+
+        private static final String VALID_DOCTOR = """
+                {
+                  "givenName": "Jane",
+                  "familyName": "Doe",
+                  "personal_administrative_number": "282801234",
+                  "medical_speciality": ["Cardiology"]
+                }
+                """;
+
+        private void mockDoctorSchema() throws Exception {
+            when(credentialProfileRegistry.getRawProfile(SD_CONFIG_ID))
+                    .thenReturn(objectMapper.readTree(RAW_DOCTOR_PROFILE));
+            when(credentialProfileRegistry.getByConfigurationId(SD_CONFIG_ID))
+                    .thenReturn(CredentialProfile.builder()
+                            .credentialConfigurationId(SD_CONFIG_ID)
+                            .format("dc+sd-jwt")
+                            .credentialSubjectStrategy("direct")
+                            .build());
+        }
 
         @Test
-        @DisplayName("validate_mandatorUsesLegacyEmailAddressFieldName_rejectsWithPayloadValidationException")
-        void validate_mandatorUsesLegacyEmailAddressFieldName_rejectsWithPayloadValidationException() throws Exception {
+        @DisplayName("validate_allMandatoryClaimsPresent_completesSuccessfully")
+        void validate_allMandatoryClaimsPresent_completesSuccessfully() throws Exception {
             // Arrange
-            mockMandateSchema();
-            JsonNode payload = payload("""
-                    {
-                      "mandatee": { "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe" },
-                      "mandator": { "organizationIdentifier": "VATES-A00000000", "emailAddress": "org@example.com" },
-                      "power": [{ "type": "domain" }]
-                    }
-                    """);
+            mockDoctorSchema();
+            JsonNode payload = payload(VALID_DOCTOR);
 
             // Act
-            var result = payloadSchemaValidator.validate(CONFIG_ID, payload);
+            var result = payloadSchemaValidator.validate(SD_CONFIG_ID, payload);
+
+            // Assert
+            StepVerifier.create(result).verifyComplete();
+        }
+
+        @Test
+        @DisplayName("validate_undeclaredBusinessClaim_completesSuccessfully")
+        void validate_undeclaredBusinessClaim_completesSuccessfully() throws Exception {
+            // Arrange
+            mockDoctorSchema();
+            ObjectNode payload = (ObjectNode) payload(VALID_DOCTOR);
+            payload.put("externalReference", "REF-1");
+
+            // Act
+            var result = payloadSchemaValidator.validate(SD_CONFIG_ID, payload);
+
+            // Assert
+            StepVerifier.create(result).verifyComplete();
+        }
+
+        @Test
+        @DisplayName("validate_mandatoryClaimMissing_rejectsWithPayloadValidationException")
+        void validate_mandatoryClaimMissing_rejectsWithPayloadValidationException() throws Exception {
+            // Arrange
+            mockDoctorSchema();
+            ObjectNode payload = (ObjectNode) payload(VALID_DOCTOR);
+            payload.remove("medical_speciality");
+
+            // Act
+            var result = payloadSchemaValidator.validate(SD_CONFIG_ID, payload);
 
             // Assert
             StepVerifier.create(result)
@@ -196,7 +318,48 @@ class PayloadSchemaValidatorImplTest {
                         assertTrue(error instanceof PayloadValidationException);
                         var violations = ((PayloadValidationException) error).getViolations();
                         assertTrue(violations.stream()
-                                .anyMatch(v -> v.field().contains("mandator")));
+                                .anyMatch(v -> v.message().contains("medical_speciality")));
+                    })
+                    .verify();
+        }
+
+        @Test
+        @DisplayName("validate_declaredClaimHasWrongDataType_rejectsWithPayloadValidationException")
+        void validate_declaredClaimHasWrongDataType_rejectsWithPayloadValidationException() throws Exception {
+            // Arrange
+            mockDoctorSchema();
+            ObjectNode payload = (ObjectNode) payload(VALID_DOCTOR);
+            payload.put("legally_entitled", "yes");
+
+            // Act
+            var result = payloadSchemaValidator.validate(SD_CONFIG_ID, payload);
+
+            // Assert
+            StepVerifier.create(result)
+                    .expectError(PayloadValidationException.class)
+                    .verify();
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"iss", "sub", "aud", "jti", "iat", "nbf", "exp", "vct", "cnf", "status",
+                "_sd", "_sd_alg", "validFrom", "validUntil"})
+        @DisplayName("validate_additionalClaimUsesReservedName_rejectsWithPayloadValidationException")
+        void validate_additionalClaimUsesReservedName_rejectsWithPayloadValidationException(String reservedName) throws Exception {
+            // Arrange
+            mockDoctorSchema();
+            ObjectNode payload = (ObjectNode) payload(VALID_DOCTOR);
+            payload.put(reservedName, "forged");
+
+            // Act
+            var result = payloadSchemaValidator.validate(SD_CONFIG_ID, payload);
+
+            // Assert
+            StepVerifier.create(result)
+                    .expectErrorSatisfies(error -> {
+                        assertTrue(error instanceof PayloadValidationException);
+                        var violations = ((PayloadValidationException) error).getViolations();
+                        assertTrue(violations.stream()
+                                .anyMatch(v -> v.field().equals("$." + reservedName)));
                     })
                     .verify();
         }

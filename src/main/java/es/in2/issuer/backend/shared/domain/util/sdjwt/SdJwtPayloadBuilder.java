@@ -43,11 +43,18 @@ public class SdJwtPayloadBuilder {
                     String leafName = claimPath.contains(".")
                             ? claimPath.substring(claimPath.lastIndexOf('.') + 1)
                             : claimPath;
-                    Object claimValue = objectMapper.convertValue(claimNode, Object.class);
-                    Disclosure disclosure = Disclosure.create(leafName, claimValue);
-                    disclosures.add(disclosure);
-                    sdDigests.add(disclosure.digest());
+                    addDisclosure(leafName, claimNode, disclosures, sdDigests);
                 }
+            }
+
+            // The profile's sd_claims are a minimum: in a flat profile (only top-level claims) any extra
+            // business attribute is also selectively disclosable
+            if (isFlatProfile(sdJwtConfig.sdClaims())) {
+                credential.fieldNames().forEachRemaining(name -> {
+                    if (!SdJwtReservedClaims.isReserved(name) && !sdJwtConfig.sdClaims().contains(name)) {
+                        addDisclosure(name, credential.get(name), disclosures, sdDigests);
+                    }
+                });
             }
 
             // Build the final payload
@@ -95,6 +102,16 @@ public class SdJwtPayloadBuilder {
         } catch (Exception e) {
             throw new RuntimeException("Failed to build SD-JWT payload", e);
         }
+    }
+
+    private boolean isFlatProfile(List<String> sdClaims) {
+        return !sdClaims.isEmpty() && sdClaims.stream().noneMatch(claim -> claim.contains("."));
+    }
+
+    private void addDisclosure(String claimName, JsonNode claimNode, List<Disclosure> disclosures, List<String> sdDigests) {
+        Disclosure disclosure = Disclosure.create(claimName, objectMapper.convertValue(claimNode, Object.class));
+        disclosures.add(disclosure);
+        sdDigests.add(disclosure.digest());
     }
 
     /**
