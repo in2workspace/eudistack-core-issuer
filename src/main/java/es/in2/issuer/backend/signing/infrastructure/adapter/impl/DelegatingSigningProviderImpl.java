@@ -2,6 +2,7 @@ package es.in2.issuer.backend.signing.infrastructure.adapter.impl;
 
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
 import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
@@ -39,10 +40,10 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
     public Mono<SigningResult> sign(SigningRequest request) {
 
         return Mono.justOrEmpty(request.remoteSignature())
-                .switchIfEmpty(loadTenantRemoteSignature())
-                .flatMap(remoteSignatureDto ->
-                        sign(request, remoteSignatureDto)
-                                .onErrorMap(DelegatingSigningProviderImpl::classify));
+                .map(ActiveSigningConfig::qtsp)
+                .switchIfEmpty(Mono.defer(this::loadActiveSigningConfig))
+                .flatMap(config -> sign(request, config)
+                        .onErrorMap(DelegatingSigningProviderImpl::classify));
     }
 
     /**
@@ -58,9 +59,9 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
         return new SigningException(SigningFailureReason.SERVICE_UNAVAILABLE, error.getMessage(), error);
     }
 
-    private Mono<RemoteSignatureDto> loadTenantRemoteSignature() {
+    private Mono<ActiveSigningConfig> loadActiveSigningConfig() {
 
-        return tenantSigningConfigService.getRemoteSignature()
+        return tenantSigningConfigService.getActiveSigningConfig()
                 .switchIfEmpty(Mono.error(
                         new SigningException(
                                 SigningFailureReason.NO_CONFIGURATION,
@@ -70,6 +71,21 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
                                         """
                         )
                 ));
+    }
+
+    private Mono<SigningResult> sign(SigningRequest request, ActiveSigningConfig config) {
+
+        return switch (config.modality()) {
+            case QTSP -> sign(request, config.qtsp());
+            case OWN_KEY -> signWithOwnKey();
+        };
+    }
+
+    // TODO(EUD-289): placeholder, B3 replaces it with the KMS signing provider.
+    private Mono<SigningResult> signWithOwnKey() {
+
+        return Mono.error(new SigningException(
+                SigningFailureReason.KEY_UNUSABLE, "own-key signing not available yet"));
     }
 
     private Mono<SigningResult> sign(

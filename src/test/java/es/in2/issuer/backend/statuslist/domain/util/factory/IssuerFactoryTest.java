@@ -60,7 +60,8 @@ class IssuerFactoryTest {
                 .serialNumber("SN")
                 .build();
 
-        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.just(cfg));
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig.qtsp(cfg)));
         when(issuerCertificateService.resolveRemoteDetailedIssuer(cfg))
                 .thenReturn(Mono.just(expected));
 
@@ -77,7 +78,8 @@ class IssuerFactoryTest {
                 .id("issuer-id")
                 .build();
 
-        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.just(cfg));
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig.qtsp(cfg)));
         when(issuerCertificateService.resolveRemoteDetailedIssuer(cfg))
                 .thenReturn(Mono.just(detailed));
 
@@ -91,7 +93,8 @@ class IssuerFactoryTest {
     @Test
     void createDetailedIssuer_Remote_Error_PropagatesError() {
         RemoteSignatureException ex = new RemoteSignatureException("boom");
-        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.just(cfg));
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig.qtsp(cfg)));
         when(issuerCertificateService.resolveRemoteDetailedIssuer(cfg))
                 .thenReturn(Mono.error(ex));
 
@@ -104,7 +107,8 @@ class IssuerFactoryTest {
 
     @Test
     void createDetailedIssuer_Remote_RecoverableErrors_ThenRetryExhausted() {
-        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.just(cfg));
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig.qtsp(cfg)));
         when(issuerCertificateService.resolveRemoteDetailedIssuer(cfg))
                 .thenReturn(Mono.error(new TimeoutException("t1")))
                 .thenReturn(Mono.error(new TimeoutException("t2")))
@@ -123,7 +127,7 @@ class IssuerFactoryTest {
 
     @Test
     void createDetailedIssuer_failsIfTenantHasNoSigningConfig() {
-        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
+        when(tenantSigningConfigService.getActiveSigningConfig()).thenReturn(Mono.empty());
 
         StepVerifier.create(issuerFactory.createDetailedIssuer())
                 .expectErrorSatisfies(err -> {
@@ -135,5 +139,24 @@ class IssuerFactoryTest {
                 .verify();
 
         verify(issuerCertificateService, never()).resolveRemoteDetailedIssuer(any());
+    }
+
+    @Test
+    void createDetailedIssuer_ownKeyModality_failsWithKeyUnusablePlaceholder_withoutCallingQtsp() {
+        var ownKey = new es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig(
+                "arn:aws:kms:eu-west-1:111122223333:key/k", "ES256", java.util.List.of("MIIB-leaf"),
+                null, null, null, null, null, "a".repeat(64));
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig.ownKey(ownKey)));
+
+        StepVerifier.create(issuerFactory.createDetailedIssuer())
+                .expectErrorSatisfies(err -> {
+                    assertInstanceOf(SigningException.class, err);
+                    assertEquals(es.in2.issuer.backend.signing.domain.model.SigningFailureReason.KEY_UNUSABLE,
+                            ((SigningException) err).getReason());
+                })
+                .verify();
+
+        verifyNoInteractions(issuerCertificateService);
     }
 }

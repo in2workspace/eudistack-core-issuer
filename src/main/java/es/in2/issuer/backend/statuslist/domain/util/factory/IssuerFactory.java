@@ -4,6 +4,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.service.IssuerCertificateService;
 import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
@@ -25,15 +26,28 @@ public class IssuerFactory {
 
     public Mono<DetailedIssuer> createDetailedIssuer() {
         log.debug("IssuerFactory: createDetailedIssuer");
-        return tenantSigningConfigService.getRemoteSignature()
+        return tenantSigningConfigService.getActiveSigningConfig()
                 .switchIfEmpty(Mono.error(new SigningException(SigningFailureReason.NO_CONFIGURATION,
                         "No remote signature configuration available for this tenant. " +
                         "Seed tenant_signing_config for the active tenant.")))
-                .flatMap(issuerCertificateService::resolveRemoteDetailedIssuer)
+                .flatMap(this::resolveIssuer)
                 .retryWhen(buildRetrySpec())
                 .doOnError(err ->
                         log.error("Error during remote issuer creation: {}", err.getMessage(), err)
                 );
+    }
+
+    private Mono<DetailedIssuer> resolveIssuer(ActiveSigningConfig config) {
+        return switch (config.modality()) {
+            case QTSP -> issuerCertificateService.resolveRemoteDetailedIssuer(config.qtsp());
+            case OWN_KEY -> resolveOwnKeyIssuer();
+        };
+    }
+
+    // TODO(EUD-289): placeholder, B4 replaces it with the issuer identity read from the stored certificate.
+    private Mono<DetailedIssuer> resolveOwnKeyIssuer() {
+        return Mono.error(new SigningException(
+                SigningFailureReason.KEY_UNUSABLE, "own-key signing not available yet"));
     }
 
     public Mono<SimpleIssuer> createSimpleIssuer() {

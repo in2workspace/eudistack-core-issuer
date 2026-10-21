@@ -3,6 +3,8 @@ package es.in2.issuer.backend.signing.infrastructure.adapter.impl;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
+import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
+import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
@@ -50,6 +52,10 @@ class DelegatingSigningProviderImplTest {
                 .build();
     }
 
+    private static ActiveSigningConfig qtsp(String operation) {
+        return ActiveSigningConfig.qtsp(cfgWithOperation(operation));
+    }
+
     private static RemoteSignatureDto cfgWithOperation(String operation) {
         return new RemoteSignatureDto(
                 "provider",
@@ -74,8 +80,8 @@ class DelegatingSigningProviderImplTest {
         when(signingProviderResolver.resolveFromValue(operation))
                 .thenReturn(signHashProvider);
 
-        when(tenantSigningConfigService.getRemoteSignature())
-                .thenReturn(Mono.just(cfgWithOperation(operation)));
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(qtsp(operation)));
 
         SigningResult expected = new SigningResult(SigningType.JADES, "jwt");
         when(signHashProvider.sign(any())).thenReturn(Mono.just(expected));
@@ -98,8 +104,8 @@ class DelegatingSigningProviderImplTest {
         String operation = "sign-doc";
         when(signingProviderResolver.resolveFromValue(operation))
                 .thenReturn(signDocProvider);
-        when(tenantSigningConfigService.getRemoteSignature())
-                .thenReturn(Mono.just(cfgWithOperation(operation)));
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(qtsp(operation)));
 
         SigningResult expected = new SigningResult(SigningType.JADES, "signed-via-doc");
         when(signDocProvider.sign(any())).thenReturn(Mono.just(expected));
@@ -114,7 +120,7 @@ class DelegatingSigningProviderImplTest {
 
     @Test
     void sign_returnsError_whenTenantHasNoRemoteSignatureConfigured() {
-        when(tenantSigningConfigService.getRemoteSignature()).thenReturn(Mono.empty());
+        when(tenantSigningConfigService.getActiveSigningConfig()).thenReturn(Mono.empty());
 
         StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
                 .expectErrorSatisfies(ex -> {
@@ -129,8 +135,8 @@ class DelegatingSigningProviderImplTest {
 
     @Test
     void sign_returnsError_whenSigningOperationIsNull() {
-        when(tenantSigningConfigService.getRemoteSignature())
-                .thenReturn(Mono.just(cfgWithOperation(null)));
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(qtsp(null)));
 
         StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
                 .expectErrorSatisfies(ex -> {
@@ -147,8 +153,8 @@ class DelegatingSigningProviderImplTest {
         String operation = "unknown-op";
         when(signingProviderResolver.resolveFromValue(operation))
                 .thenThrow(new SigningException("No SigningProvider for operation '" + operation + "'"));
-        when(tenantSigningConfigService.getRemoteSignature())
-                .thenReturn(Mono.just(cfgWithOperation(operation)));
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(qtsp(operation)));
 
         StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
                 .expectErrorSatisfies(ex -> {
@@ -166,8 +172,8 @@ class DelegatingSigningProviderImplTest {
         when(signingProviderResolver.resolveFromValue(operation))
                 .thenReturn(signHashProvider);
 
-        when(tenantSigningConfigService.getRemoteSignature())
-                .thenReturn(Mono.just(cfgWithOperation(operation)));
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(qtsp(operation)));
 
         when(signHashProvider.sign(any()))
                 .thenReturn(Mono.error(new SigningException("delegate failed")));
@@ -184,8 +190,8 @@ class DelegatingSigningProviderImplTest {
 
     private void givenSignHashFailsWith(Throwable error) {
         when(signingProviderResolver.resolveFromValue("sign-hash")).thenReturn(signHashProvider);
-        when(tenantSigningConfigService.getRemoteSignature())
-                .thenReturn(Mono.just(cfgWithOperation("sign-hash")));
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(qtsp("sign-hash")));
         when(signHashProvider.sign(any())).thenReturn(Mono.error(error));
     }
 
@@ -238,5 +244,38 @@ class DelegatingSigningProviderImplTest {
                             es.in2.issuer.backend.signing.domain.util.SigningFailureReasons.of(ex));
                 })
                 .verify();
+    }
+
+    @Test
+    void sign_ownKeyModality_failsWithKeyUnusablePlaceholder_andNeverTouchesQtspProviders() {
+        var ownKey = new OwnKeySigningConfig("arn:aws:kms:eu-west-1:111122223333:key/k", "ES256",
+                java.util.List.of("MIIB-leaf"), null, null, null, null, null, "a".repeat(64));
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(ActiveSigningConfig.ownKey(ownKey)));
+
+        StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
+                .expectErrorSatisfies(ex -> {
+                    assertInstanceOf(SigningException.class, ex);
+                    assertEquals(SigningFailureReason.KEY_UNUSABLE, ((SigningException) ex).getReason());
+                })
+                .verify();
+
+        verifyNoInteractions(signingProviderResolver, signHashProvider, signDocProvider);
+    }
+
+    @Test
+    void sign_requestWithRemoteSignature_skipsConfigLookup() {
+        when(signingProviderResolver.resolveFromValue("sign-hash")).thenReturn(signHashProvider);
+        when(signHashProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "jwt")));
+        var request = SigningRequest.builder()
+                .type(SigningType.JADES)
+                .data("{}")
+                .context(new SigningContext("token", "issuanceId", "email@example.com"))
+                .remoteSignature(cfgWithOperation("sign-hash"))
+                .build();
+
+        StepVerifier.create(delegatingSigningProvider.sign(request)).expectNextCount(1).verifyComplete();
+
+        verifyNoInteractions(tenantSigningConfigService);
     }
 }
