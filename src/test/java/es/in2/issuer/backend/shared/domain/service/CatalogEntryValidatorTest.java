@@ -99,6 +99,16 @@ class CatalogEntryValidatorTest {
     }
 
     @Test
+    void validateForCreate_withTwoIdentifiersOfTheSameName_acceptsThem() {
+        CatalogEntry entry = validator.validateForCreate(create(DOCTORID_URI, doctorId().withIdentifiers(List.of(
+                identifier("colegiado", "personal_administrative_number"),
+                identifier("colegiado", "medical_board")))));
+
+        assertThat(entry.searchIdentifiers()).extracting(CatalogEntry.SearchIdentifier::name)
+                .containsExactly("colegiado", "colegiado");
+    }
+
+    @Test
     void validateForReplace_returnsTheEntryOfTheGivenType() {
         CatalogEntry entry = validator.validateForReplace(DOCTORID, doctorId().withEnabled(false).toInput());
 
@@ -257,10 +267,7 @@ class CatalogEntryValidatorTest {
                 Arguments.of("identifier with an empty path (minItems)", (UnaryOperator<Input>) in -> in.withIdentifiers(List.of(
                         new SearchIdentifierInput("colegiado", List.of(), null))), List.of("search_identifiers[0].field")),
                 Arguments.of("identifier without a path", (UnaryOperator<Input>) in -> in.withIdentifiers(List.of(
-                        new SearchIdentifierInput("colegiado", null, null))), List.of("search_identifiers[0].field")),
-                Arguments.of("duplicated identifier names (D17)", (UnaryOperator<Input>) in -> in.withIdentifiers(List.of(
-                        identifier("colegiado", "personal_administrative_number"),
-                        identifier("colegiado", "medical_board"))), List.of("search_identifiers[1].name")));
+                        new SearchIdentifierInput("colegiado", null, null))), List.of("search_identifiers[0].field")));
     }
 
     @ParameterizedTest(name = "{0}")
@@ -331,13 +338,12 @@ class CatalogEntryValidatorTest {
     @Test
     void validateForCreate_withAShapeErrorAndABusinessError_answersBadRequest() {
         CatalogConfigurationException thrown = catchBusiness(() -> validator.validateForCreate(create(DOCTORID_URI,
-                doctorId().withIdentifiers(List.of(
-                                identifier("dni", "nationalId"),
-                                identifier("dni", "nationalId")))
+                doctorId().withIdentifiers(List.of(identifier("dni", "nationalId")))
+                        .withEnabled(null)
                         .withValidity(new ValidityInput(400, true, 365, null)))));
 
         assertThat(thrown.code()).isEqualTo("BAD_REQUEST");
-        assertThat(thrown.violations()).extracting(Violation::field).containsExactly("search_identifiers[1].name");
+        assertThat(thrown.violations()).extracting(Violation::field).containsExactly("enabled");
     }
 
     @Test

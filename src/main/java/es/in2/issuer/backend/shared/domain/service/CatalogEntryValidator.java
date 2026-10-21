@@ -33,8 +33,8 @@ import java.util.stream.Collectors;
  * against the schema of its credential type (EUD-266), and turns it into a {@link CatalogEntry}.
  *
  * <p>One error type per response, never a mix. First the <em>shape</em>: everything that is about the
- * format of the body (missing or malformed members, unknown fields, repeated delivery modes or
- * identifier names, a delivery mode above the schema ceiling) is reported together as
+ * format of the body (missing or malformed members, unknown fields, repeated delivery modes, a delivery
+ * mode above the schema ceiling) is reported together as
  * {@code BAD_REQUEST}, and validation stops. Then the business rules, in a fixed order:
  * {@code unknown_schema}, {@code unsupported_binding_type}, {@code field_not_in_schema},
  * {@code invalid_validity}, {@code no_delivery_mode}. The first rule with violations decides the error
@@ -192,7 +192,6 @@ public class CatalogEntryValidator {
         if (identifiers == null) {
             return;
         }
-        Set<String> names = new HashSet<>();
         for (int i = 0; i < identifiers.size(); i++) {
             SearchIdentifierInput identifier = identifiers.get(i);
             String prefix = "search_identifiers[" + i + "]";
@@ -205,8 +204,6 @@ public class CatalogEntryValidator {
                 out.add(new Violation(prefix + ".name", REQUIRED));
             } else if (!IDENTIFIER_NAME.matcher(identifier.name()).matches()) {
                 out.add(new Violation(prefix + ".name", "must match " + IDENTIFIER_NAME.pattern()));
-            } else if (!names.add(identifier.name())) {
-                out.add(new Violation(prefix + ".name", DUPLICATED));
             }
             validatePath(identifier.field(), prefix + ".field", out);
         }
