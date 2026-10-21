@@ -37,6 +37,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
@@ -683,6 +684,102 @@ class AttestationCatalogControllerTest {
                         .exchange(),
                 400, "BAD_REQUEST", ATTESTATION_CATALOG_PATH)
                 .jsonPath("$.violations[0].field").isEqualTo("validity.default_days");
+    }
+
+    // ---- the scalars are not coerced (EUD-169 contract: boolean and integer) ------------------
+
+    static Stream<Arguments> scalarsOfTheWrongType() {
+        return Stream.of(
+                Arguments.of("\"enabled\": \"true\"", "enabled"),
+                Arguments.of("\"enabled\": 1", "enabled"),
+                Arguments.of("\"enabled\": 0.0", "enabled"),
+                Arguments.of("\"enabled\": [true]", "enabled"),
+                Arguments.of("\"validity\": {\"default_days\": \"30\", \"requester_can_set_dates\": false}",
+                        "validity.default_days"),
+                Arguments.of("\"validity\": {\"default_days\": 30.5, \"requester_can_set_dates\": false}",
+                        "validity.default_days"),
+                Arguments.of("\"validity\": {\"default_days\": 3e1, \"requester_can_set_dates\": false}",
+                        "validity.default_days"),
+                Arguments.of("\"validity\": {\"default_days\": true, \"requester_can_set_dates\": false}",
+                        "validity.default_days"),
+                Arguments.of("\"validity\": {\"default_days\": 99999999999, \"requester_can_set_dates\": false}",
+                        "validity.default_days"),
+                Arguments.of("\"validity\": {\"default_days\": 30, \"requester_can_set_dates\": \"false\"}",
+                        "validity.requester_can_set_dates"),
+                Arguments.of("\"validity\": {\"default_days\": 30, \"requester_can_set_dates\": 0}",
+                        "validity.requester_can_set_dates"),
+                Arguments.of("\"validity\": {\"default_days\": 30, \"requester_can_set_dates\": true, \"max_days\": \"60\"}",
+                        "validity.max_days"),
+                Arguments.of("\"validity\": {\"default_days\": 30, \"requester_can_set_dates\": true, \"max_days\": 60.5}",
+                        "validity.max_days"));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("scalarsOfTheWrongType")
+    void create_withAScalarOfTheWrongType_isBadRequestNamingTheField(String member, String field) {
+        assertProblem(webTestClient.mutateWith(csrf()).post().uri(ATTESTATION_CATALOG_PATH)
+                        .header("Authorization", BEARER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue(createBodyWith(replacing(member)))
+                        .exchange(),
+                400, "BAD_REQUEST", ATTESTATION_CATALOG_PATH)
+                .jsonPath("$.violations[0].field").isEqualTo(field);
+        verify(service, never()).create(any());
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("scalarsOfTheWrongType")
+    void replace_withAScalarOfTheWrongType_isBadRequestNamingTheField(String member, String field) {
+        assertProblem(webTestClient.mutateWith(csrf()).put().uri(ENTRY_PATH)
+                        .header("Authorization", BEARER)
+                        .header("If-Match", "\"1\"")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue("{" + replacing(member) + "}")
+                        .exchange(),
+                400, "BAD_REQUEST", ENTRY_PATH)
+                .jsonPath("$.violations[0].field").isEqualTo(field);
+        verify(service, never()).replace(anyString(), any(), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"true\"", "\"false\"", "1", "0", "1.5", "[true]"})
+    void patch_withAnEnabledThatIsNotABoolean_isBadRequestNamingTheField(String value) {
+        assertProblem(webTestClient.mutateWith(csrf()).patch().uri(ENTRY_PATH)
+                        .header("Authorization", BEARER)
+                        .header("If-Match", "\"1\"")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue("{\"enabled\": " + value + "}")
+                        .exchange(),
+                400, "BAD_REQUEST", ENTRY_PATH)
+                .jsonPath("$.violations[0].field").isEqualTo("enabled");
+        verify(service, never()).setEnabled(anyString(), org.mockito.ArgumentMatchers.anyBoolean(), any());
+    }
+
+    @Test
+    void create_withTheScalarsAsTheContractTypesThem_isAccepted() {
+        when(service.create(any())).thenReturn(Mono.just(doctorId(0)));
+
+        webTestClient.mutateWith(csrf()).post().uri(ATTESTATION_CATALOG_PATH)
+                .header("Authorization", BEARER)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(createBodyWith(ENABLED, MODES,
+                        "\"validity\": {\"default_days\": 30, \"requester_can_set_dates\": true, \"max_days\": 60}"))
+                .exchange()
+                .expectStatus().isCreated();
+
+        ArgumentCaptor<CreateCatalogEntryCommand> command = ArgumentCaptor.forClass(CreateCatalogEntryCommand.class);
+        verify(service).create(command.capture());
+        assertThat(command.getValue().configuration().validity())
+                .extracting("defaultDays", "requesterCanSetDates", "maxDays")
+                .containsExactly(30, true, 60);
+    }
+
+    /** The configuration of the contract's DoctorID example, but for the member that replaces its namesake. */
+    private static String replacing(String member) {
+        String name = member.substring(0, member.indexOf(':')).strip();
+        return Stream.of(ENABLED, MODES, VALIDITY, SUBJECT, IDENTIFIERS)
+                .map(own -> own.startsWith(name) ? member : own)
+                .collect(java.util.stream.Collectors.joining(", "));
     }
 
     @Test

@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.shared.infrastructure.controller.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogConfigurationInput;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogConfigurationInput.SearchIdentifierInput;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogConfigurationInput.SubjectInput;
@@ -18,11 +19,17 @@ import java.util.List;
  * The top level is closed only on create: a client that reads an entry, changes it and sends it back whole
  * (with its {@code credential_configuration_id}, {@code schema_uri}, {@code created} and {@code updated})
  * must not get a 400 on replace.
+ *
+ * <p>The scalars are strict, as the contract types them: a {@code boolean} is only {@code true} or
+ * {@code false} and an {@code integer} only a whole JSON number ({@link StrictBooleanDeserializer},
+ * {@link StrictIntegerDeserializer}), instead of what Jackson would coerce ({@code "true"}, {@code "30"},
+ * {@code 30.5}).
  */
 @Getter
 @Setter
 public class CatalogEntryConfigurationRequest extends UnknownFieldsCollector {
 
+    @JsonDeserialize(using = StrictBooleanDeserializer.class)
     private Boolean enabled;
 
     @JsonProperty("delivery_modes")
@@ -62,12 +69,15 @@ public class CatalogEntryConfigurationRequest extends UnknownFieldsCollector {
     public static class ValidityRequest extends UnknownFieldsCollector {
 
         @JsonProperty("default_days")
+        @JsonDeserialize(using = StrictIntegerDeserializer.class)
         private Integer defaultDays;
 
         @JsonProperty("requester_can_set_dates")
+        @JsonDeserialize(using = StrictBooleanDeserializer.class)
         private Boolean requesterCanSetDates;
 
         @JsonProperty("max_days")
+        @JsonDeserialize(using = StrictIntegerDeserializer.class)
         private Integer maxDays;
 
         ValidityInput toInput() {

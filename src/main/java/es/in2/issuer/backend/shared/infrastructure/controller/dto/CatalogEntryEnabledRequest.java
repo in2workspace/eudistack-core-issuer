@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.controller.dto;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import es.in2.issuer.backend.shared.domain.exception.CatalogConfigurationException;
 import es.in2.issuer.backend.shared.domain.exception.CatalogConfigurationException.Violation;
 import lombok.Getter;
@@ -13,6 +14,7 @@ import java.util.List;
 @Setter
 public class CatalogEntryEnabledRequest extends UnknownFieldsCollector {
 
+    @JsonDeserialize(using = StrictBooleanDeserializer.class)
     private Boolean enabled;
 
     /**
