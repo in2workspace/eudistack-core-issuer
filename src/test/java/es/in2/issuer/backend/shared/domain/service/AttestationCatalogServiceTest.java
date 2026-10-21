@@ -86,6 +86,7 @@ class AttestationCatalogServiceTest {
                 new CatalogEntryValidator(REGISTRY, ceiling), REGISTRY, tenantCredentialProfileService,
                 transactionalOperator, changeAuditor);
         when(changeAuditor.audit(any())).thenReturn(Mono.empty());
+        when(changeAuditor.auditDenied(any(), any(), any())).thenReturn(Mono.empty());
         when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -118,10 +119,10 @@ class AttestationCatalogServiceTest {
         order.verify(tenantCredentialProfileService).invalidateCache(TENANT);
         ArgumentCaptor<CatalogEntryChange> change = ArgumentCaptor.forClass(CatalogEntryChange.class);
         order.verify(changeAuditor).audit(change.capture());
-        assertThat(change.getValue().action()).isEqualTo(CatalogEntryChange.Action.CREATE);
+        assertThat(change.getValue().operation()).isEqualTo(CatalogEntryChange.Operation.CREATE);
         assertThat(change.getValue().before()).isNull();
         assertThat(change.getValue().credentialConfigurationId()).isEqualTo(DOCTORID);
-        assertThat(change.getValue().version()).isZero();
+        assertThat(change.getValue().after().version()).isZero();
     }
 
     @Test
@@ -192,6 +193,63 @@ class AttestationCatalogServiceTest {
                 .verify();
 
         verify(tenantCredentialProfileService, never()).invalidateCache(any());
+    }
+
+    // ---- denied creates (CatalogEntryChanged, InvalidConfiguration) --------------
+
+    @Test
+    void create_withAnUnknownSchema_auditsADeniedCreateWithoutTheEntry() {
+        StepVerifier.create(inTenant(service.create(new CreateCatalogEntryCommand(
+                        "https://registry.eudistack.net/schemas/nobody/1.0.0/dc+sd-jwt", doctorIdConfiguration().toInput()))))
+                .expectError(UnknownSchemaException.class)
+                .verify();
+
+        verify(changeAuditor).auditDenied(CatalogEntryChange.Operation.CREATE, null, "InvalidConfiguration");
+    }
+
+    @Test
+    void create_withAFieldNotInTheSchema_auditsADeniedCreateOfTheResolvedEntry() {
+        StepVerifier.create(inTenant(service.create(new CreateCatalogEntryCommand(DOCTORID_URI,
+                        doctorIdConfiguration().withIdentifiers(List.of(identifier("dni", "nationalId"))).toInput()))))
+                .expectError(CatalogConfigurationException.class)
+                .verify();
+
+        verify(changeAuditor).auditDenied(CatalogEntryChange.Operation.CREATE, DOCTORID, "InvalidConfiguration");
+    }
+
+    @Test
+    void create_ofATypeWithAnUnsupportedBinding_auditsADeniedCreateOfThatType() {
+        StepVerifier.create(inTenant(service.create(new CreateCatalogEntryCommand(
+                        "https://registry.eudistack.net/schemas/synthetic.biometric-binding.sd.1",
+                        doctorIdConfiguration().withSubject(null).withIdentifiers(List.of()).toInput()))))
+                .expectError(UnsupportedBindingTypeException.class)
+                .verify();
+
+        verify(changeAuditor).auditDenied(CatalogEntryChange.Operation.CREATE,
+                "synthetic.biometric-binding.sd.1", "InvalidConfiguration");
+    }
+
+    @Test
+    void create_withABodyOfTheWrongShape_auditsNoDeniedEvent() {
+        CatalogConfigurationInput withoutEnabled = new CatalogConfigurationInput(null, List.of("email", "ui"),
+                new ValidityInput(36500, false, null, null), null, List.of(), null);
+
+        StepVerifier.create(inTenant(service.create(new CreateCatalogEntryCommand(DOCTORID_URI, withoutEnabled))))
+                .expectErrorSatisfies(e -> assertThat(((CatalogConfigurationException) e).code()).isEqualTo("BAD_REQUEST"))
+                .verify();
+
+        verify(changeAuditor, never()).auditDenied(any(), any(), any());
+    }
+
+    @Test
+    void create_ofASchemaThatAlreadyHasAnEntry_auditsNoDeniedEvent() {
+        when(port.insert(any())).thenReturn(Mono.error(new CatalogEntryAlreadyExistsException(DOCTORID, null)));
+
+        StepVerifier.create(inTenant(service.create(createDoctorId())))
+                .expectError(CatalogEntryAlreadyExistsException.class)
+                .verify();
+
+        verify(changeAuditor, never()).auditDenied(any(), any(), any());
     }
 
     // ---- get and list ----------------------------------------------------------
@@ -316,7 +374,7 @@ class AttestationCatalogServiceTest {
         order.verify(tenantCredentialProfileService).invalidateCache(TENANT);
         ArgumentCaptor<CatalogEntryChange> change = ArgumentCaptor.forClass(CatalogEntryChange.class);
         order.verify(changeAuditor).audit(change.capture());
-        assertThat(change.getValue().action()).isEqualTo(CatalogEntryChange.Action.REPLACE);
+        assertThat(change.getValue().operation()).isEqualTo(CatalogEntryChange.Operation.UPDATE);
         assertThat(change.getValue().before()).isEqualTo(current);
         assertThat(change.getValue().after().version()).isEqualTo(4);
         assertThat(change.getValue().changes()).containsKeys("enabled", "search_identifiers");
@@ -432,6 +490,18 @@ class AttestationCatalogServiceTest {
                 .verify();
 
         verify(port, never()).updateIfVersion(any(), anyLong());
+        verify(changeAuditor).auditDenied(CatalogEntryChange.Operation.UPDATE, DOCTORID, "InvalidConfiguration");
+    }
+
+    @Test
+    void replace_whenTheVersionIsStale_auditsNoDeniedEvent() {
+        when(port.findById(DOCTORID)).thenReturn(Mono.just(filledDoctorId(7)));
+
+        StepVerifier.create(inTenant(service.replace(DOCTORID, doctorIdConfiguration().toInput(), "\"6\"")))
+                .expectError(PreconditionFailedException.class)
+                .verify();
+
+        verify(changeAuditor, never()).auditDenied(any(), any(), any());
     }
 
     /** A replacement is always complete, so there is nothing to answer 404 for after writing: it is refused before. */
@@ -481,8 +551,8 @@ class AttestationCatalogServiceTest {
 
         ArgumentCaptor<CatalogEntryChange> change = ArgumentCaptor.forClass(CatalogEntryChange.class);
         verify(changeAuditor, times(2)).audit(change.capture());
-        assertThat(change.getAllValues()).extracting(CatalogEntryChange::action)
-                .containsExactly(CatalogEntryChange.Action.DISABLE, CatalogEntryChange.Action.ENABLE);
+        assertThat(change.getAllValues()).extracting(CatalogEntryChange::operation)
+                .containsExactly(CatalogEntryChange.Operation.DISABLE, CatalogEntryChange.Operation.ENABLE);
         assertThat(change.getAllValues().get(0).changes()).containsOnlyKeys("enabled");
         assertThat(change.getAllValues().get(0).changes().get("enabled")).containsExactly(true, false);
         assertThat(change.getAllValues().get(1).changes().get("enabled")).containsExactly(false, true);
@@ -511,6 +581,18 @@ class AttestationCatalogServiceTest {
                 .verify();
 
         verify(port, never()).updateIfVersion(any(), anyLong());
+        verify(changeAuditor).auditDenied(CatalogEntryChange.Operation.ENABLE, DOCTORID, "InvalidConfiguration");
+    }
+
+    @Test
+    void setEnabled_ofAnUnknownId_auditsNoDeniedEvent() {
+        when(port.findById("nobody")).thenReturn(Mono.empty());
+
+        StepVerifier.create(inTenant(service.setEnabled("nobody", true, "\"0\"")))
+                .expectError(CatalogEntryNotFoundException.class)
+                .verify();
+
+        verify(changeAuditor, never()).auditDenied(any(), any(), any());
     }
 
     @Test

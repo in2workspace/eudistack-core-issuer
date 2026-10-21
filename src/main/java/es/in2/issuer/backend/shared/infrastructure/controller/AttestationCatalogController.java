@@ -1,10 +1,15 @@
 package es.in2.issuer.backend.shared.infrastructure.controller;
 
 import es.in2.issuer.backend.shared.domain.exception.CatalogEntryNotFoundException;
+import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
+import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
+import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntryChange;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntryETag;
+import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.policy.service.CatalogPdpService;
 import es.in2.issuer.backend.shared.domain.service.AttestationCatalogService;
+import es.in2.issuer.backend.shared.domain.service.CatalogEntryChangeAuditor;
 import es.in2.issuer.backend.shared.infrastructure.controller.dto.CatalogEntryConfigurationRequest;
 import es.in2.issuer.backend.shared.infrastructure.controller.dto.CatalogEntryCreateRequest;
 import es.in2.issuer.backend.shared.infrastructure.controller.dto.CatalogEntryEnabledRequest;
@@ -46,6 +51,10 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ATTEST
  * body already decoded by Spring would answer 400 to an operator who sent a malformed one, instead of
  * {@code insufficient_permission}.
  *
+ * <p>A write the PDP denies is also audited as a denied {@code CatalogEntryChanged} (reason
+ * {@code PolicyDenied}), with the operation and the entry when they are known before the body is read: a
+ * create does not know its entry yet, and a PATCH does not know whether it enables or disables.
+ *
  * <p>The mappings declare no {@code consumes} nor {@code produces}: a content type or {@code Accept} the
  * mapping refused would fail before this controller is chosen and escape the problem+json advice, while one
  * refused when the body is read or written is answered by it.
@@ -67,6 +76,7 @@ public class AttestationCatalogController {
 
     private final CatalogPdpService catalogPdpService;
     private final AttestationCatalogService attestationCatalogService;
+    private final CatalogEntryChangeAuditor changeAuditor;
 
     @GetMapping
     public Mono<List<CatalogEntryResponse>> list(
@@ -84,7 +94,7 @@ public class AttestationCatalogController {
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
             @RequestBody Mono<CatalogEntryCreateRequest> body,
             ServerHttpRequest request) {
-        return catalogPdpService.authorizeWrite(authorizationHeader)
+        return authorizeWrite(authorizationHeader, CatalogEntryChange.Operation.CREATE, null)
                 .then(body)
                 .flatMap(entry -> attestationCatalogService.create(entry.toCommand()))
                 .map(AttestationCatalogController::requirePresentable)
@@ -110,7 +120,7 @@ public class AttestationCatalogController {
             @PathVariable("id") String credentialConfigurationId,
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
             @RequestBody Mono<CatalogEntryConfigurationRequest> body) {
-        return catalogPdpService.authorizeWrite(authorizationHeader)
+        return authorizeWrite(authorizationHeader, CatalogEntryChange.Operation.UPDATE, credentialConfigurationId)
                 .then(body)
                 .flatMap(configuration -> attestationCatalogService.replace(
                         credentialConfigurationId, configuration.toInputIgnoringUnknownFields(), ifMatch))
@@ -124,12 +134,23 @@ public class AttestationCatalogController {
             @PathVariable("id") String credentialConfigurationId,
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) String ifMatch,
             @RequestBody Mono<CatalogEntryEnabledRequest> body) {
-        return catalogPdpService.authorizeWrite(authorizationHeader)
+        return authorizeWrite(authorizationHeader, null, credentialConfigurationId)
                 .then(body)
                 .flatMap(change -> attestationCatalogService.setEnabled(
                         credentialConfigurationId, change.requireEnabled(), ifMatch))
                 .map(AttestationCatalogController::requirePresentable)
                 .map(AttestationCatalogController::ok);
+    }
+
+    /** The PDP's decision; a denial is audited, with what the controller knows of the write, and passed on. */
+    private Mono<AuthorizationContext> authorizeWrite(String authorizationHeader,
+                                                      CatalogEntryChange.Operation operation,
+                                                      String credentialConfigurationId) {
+        return catalogPdpService.authorizeWrite(authorizationHeader)
+                .onErrorResume(e -> e instanceof InsufficientPermissionException || e instanceof TenantMismatchException,
+                        e -> changeAuditor.auditDenied(operation, credentialConfigurationId,
+                                        CatalogEntryChangeAuditor.POLICY_DENIED)
+                                .then(Mono.error(e)));
     }
 
     private static ResponseEntity<CatalogEntryResponse> ok(CatalogEntry entry) {

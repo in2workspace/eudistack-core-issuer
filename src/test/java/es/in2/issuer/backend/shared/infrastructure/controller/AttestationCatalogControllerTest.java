@@ -15,6 +15,7 @@ import es.in2.issuer.backend.shared.domain.exception.UnknownSchemaException;
 import es.in2.issuer.backend.shared.domain.exception.UnsupportedBindingTypeException;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogConfigurationInput;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
+import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntryChange;
 import es.in2.issuer.backend.shared.domain.model.catalog.ClaimPath;
 import es.in2.issuer.backend.shared.domain.model.catalog.CreateCatalogEntryCommand;
 import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
@@ -24,6 +25,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.policy.service.CatalogPdpService;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AttestationCatalogService;
+import es.in2.issuer.backend.shared.domain.service.CatalogEntryChangeAuditor;
 import es.in2.issuer.backend.shared.domain.service.CatalogEntryValidator;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
@@ -90,6 +92,9 @@ class AttestationCatalogControllerTest {
     @MockitoBean
     private AttestationCatalogService service;
 
+    @MockitoBean
+    private CatalogEntryChangeAuditor changeAuditor;
+
     // Required only because @WebFluxTest loads every @ControllerAdvice and WebFilter bean:
     // Oidc4vciExceptionHandler needs NonceService, IdempotencyFilter needs IssuanceMetrics and AccessTokenService.
     @MockitoBean
@@ -109,6 +114,7 @@ class AttestationCatalogControllerTest {
         AuthorizationContext administrator = new AuthorizationContext("org-1", UserRole.TENANT_ADMIN, false, "tenant");
         when(catalogPdpService.authorizeRead(anyString())).thenReturn(Mono.just(administrator));
         when(catalogPdpService.authorizeWrite(anyString())).thenReturn(Mono.just(administrator));
+        when(changeAuditor.auditDenied(any(), any(), any())).thenReturn(Mono.empty());
     }
 
     // ---- GET / ------------------------------------------------------------------
@@ -556,6 +562,86 @@ class AttestationCatalogControllerTest {
                         .bodyValue("{this is not json")
                         .exchange(),
                 403, "insufficient_permission", ATTESTATION_CATALOG_PATH);
+    }
+
+    // ---- a write the PDP denies is audited as denied ------------------------------------
+
+    @Test
+    void replace_deniedByThePdp_auditsADeniedUpdateOfTheEntry() {
+        when(catalogPdpService.authorizeWrite(anyString()))
+                .thenReturn(Mono.error(new InsufficientPermissionException("Only the tenant administrator can modify the catalog")));
+
+        webTestClient.mutateWith(csrf()).put().uri(ENTRY_PATH)
+                .header("Authorization", BEARER)
+                .header("If-Match", "\"1\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{}")
+                .exchange()
+                .expectStatus().isForbidden();
+
+        verify(changeAuditor).auditDenied(CatalogEntryChange.Operation.UPDATE, ID, "PolicyDenied");
+    }
+
+    @Test
+    void create_deniedByThePdp_auditsADeniedCreateWithoutTheEntry() {
+        when(catalogPdpService.authorizeWrite(anyString()))
+                .thenReturn(Mono.error(new InsufficientPermissionException("Only the tenant administrator can modify the catalog")));
+
+        webTestClient.mutateWith(csrf()).post().uri(ATTESTATION_CATALOG_PATH)
+                .header("Authorization", BEARER)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{}")
+                .exchange()
+                .expectStatus().isForbidden();
+
+        verify(changeAuditor).auditDenied(CatalogEntryChange.Operation.CREATE, null, "PolicyDenied");
+    }
+
+    @Test
+    void patch_deniedByThePdp_auditsADeniedWriteWithoutTheOperationBecauseTheBodyIsNotRead() {
+        when(catalogPdpService.authorizeWrite(anyString()))
+                .thenReturn(Mono.error(new InsufficientPermissionException("Only the tenant administrator can modify the catalog")));
+
+        webTestClient.mutateWith(csrf()).patch().uri(ENTRY_PATH)
+                .header("Authorization", BEARER)
+                .header("If-Match", "\"1\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"enabled\": false}")
+                .exchange()
+                .expectStatus().isForbidden();
+
+        verify(changeAuditor).auditDenied(null, ID, "PolicyDenied");
+    }
+
+    @Test
+    void write_withATokenOfAnotherTenant_isAlsoAuditedAsDenied() {
+        when(catalogPdpService.authorizeWrite(anyString()))
+                .thenReturn(Mono.error(new TenantMismatchException("Token tenant 'a' does not match tenant header 'b'")));
+
+        webTestClient.mutateWith(csrf()).put().uri(ENTRY_PATH)
+                .header("Authorization", BEARER)
+                .header("If-Match", "\"1\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{}")
+                .exchange()
+                .expectStatus().isForbidden();
+
+        verify(changeAuditor).auditDenied(CatalogEntryChange.Operation.UPDATE, ID, "PolicyDenied");
+    }
+
+    @Test
+    void write_withAnInvalidToken_isNotAuditedAsDenied() {
+        when(catalogPdpService.authorizeWrite(anyString())).thenReturn(Mono.error(new InvalidTokenException()));
+
+        webTestClient.mutateWith(csrf()).put().uri(ENTRY_PATH)
+                .header("Authorization", BEARER)
+                .header("If-Match", "\"1\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{}")
+                .exchange()
+                .expectStatus().isUnauthorized();
+
+        verify(changeAuditor, never()).auditDenied(any(), any(), any());
     }
 
     // ---- bodies that cannot be read, once the caller is allowed ----------------------

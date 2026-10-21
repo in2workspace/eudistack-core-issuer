@@ -61,29 +61,98 @@ class CatalogEntryChangeAuditorTest {
     /** AC-12: the event says which person did it; the organization is only a detail. */
     @Test
     void audit_recordsThePersonOfTheTokenAsUser_notTheOrganization() {
-        StepVerifier.create(asPersonInTenant(auditor.audit(CatalogEntryChange.replaced(entry(true, 3), entry(false, 4)))))
+        StepVerifier.create(asPersonInTenant(auditor.audit(CatalogEntryChange.updated(entry(true, 3), entry(false, 4)))))
                 .verifyComplete();
 
         ArgumentCaptor<Map<String, Object>> details = detailsCaptor();
-        verify(auditService).auditSuccess(eq("tenant.credential_catalog.entry.changed"), eq(PERSON),
+        verify(auditService).auditSuccess(eq("CatalogEntryChanged"), eq(PERSON),
                 eq("attestation-catalog"), eq(TENANT), details.capture());
         assertThat(details.getValue()).containsEntry("organization_id", ORGANIZATION);
         assertThat(details.getValue().values()).doesNotContain(PERSON);
     }
 
     @Test
-    void audit_carriesTheActionTheEntryTheChangesAndTheNewVersion() {
-        StepVerifier.create(asPersonInTenant(auditor.audit(CatalogEntryChange.between(entry(true, 3), entry(false, 4)))))
+    void audit_ofAnUpdate_carriesTheOperationTheEntryAndTheChanges() {
+        StepVerifier.create(asPersonInTenant(auditor.audit(CatalogEntryChange.updated(entry(true, 3), entry(false, 4)))))
                 .verifyComplete();
 
         ArgumentCaptor<Map<String, Object>> details = detailsCaptor();
         verify(auditService).auditSuccess(anyString(), anyString(), anyString(), anyString(), details.capture());
         assertThat(details.getValue()).containsExactly(
-                Map.entry("action", "disable"),
+                Map.entry("operation", "Update"),
                 Map.entry("credential_configuration_id", DOCTORID),
                 Map.entry("organization_id", ORGANIZATION),
-                Map.entry("changes", Map.of("enabled", Arrays.asList(true, false))),
-                Map.entry("version", 4L));
+                Map.entry("changes", Map.of("enabled", Arrays.asList(true, false))));
+    }
+
+    @Test
+    void audit_ofAnEnable_hasNoChangesNorVersion() {
+        StepVerifier.create(asPersonInTenant(auditor.audit(CatalogEntryChange.between(entry(false, 3), entry(true, 4)))))
+                .verifyComplete();
+
+        ArgumentCaptor<Map<String, Object>> details = detailsCaptor();
+        verify(auditService).auditSuccess(anyString(), anyString(), anyString(), anyString(), details.capture());
+        assertThat(details.getValue()).containsExactly(
+                Map.entry("operation", "Enable"),
+                Map.entry("credential_configuration_id", DOCTORID),
+                Map.entry("organization_id", ORGANIZATION));
+    }
+
+    @Test
+    void audit_ofADisable_isNamedDisable() {
+        StepVerifier.create(asPersonInTenant(auditor.audit(CatalogEntryChange.between(entry(true, 3), entry(false, 4)))))
+                .verifyComplete();
+
+        ArgumentCaptor<Map<String, Object>> details = detailsCaptor();
+        verify(auditService).auditSuccess(anyString(), anyString(), anyString(), anyString(), details.capture());
+        assertThat(details.getValue()).containsEntry("operation", "Disable").doesNotContainKey("changes");
+    }
+
+    @Test
+    void audit_ofACreate_hasNoChanges() {
+        StepVerifier.create(asPersonInTenant(auditor.audit(CatalogEntryChange.created(entry(true, 0)))))
+                .verifyComplete();
+
+        ArgumentCaptor<Map<String, Object>> details = detailsCaptor();
+        verify(auditService).auditSuccess(anyString(), anyString(), anyString(), anyString(), details.capture());
+        assertThat(details.getValue()).containsEntry("operation", "Create").doesNotContainKeys("changes", "version");
+    }
+
+    // ---- denied writes ---------------------------------------------------------
+
+    @Test
+    void auditDenied_recordsThePersonTheReasonAndWhatIsKnown() {
+        StepVerifier.create(asPersonInTenant(auditor.auditDenied(
+                        CatalogEntryChange.Operation.UPDATE, DOCTORID, CatalogEntryChangeAuditor.POLICY_DENIED)))
+                .verifyComplete();
+
+        ArgumentCaptor<Map<String, Object>> details = detailsCaptor();
+        verify(auditService).auditFailure(eq("CatalogEntryChanged"), eq(PERSON), eq("PolicyDenied"), details.capture());
+        assertThat(details.getValue()).containsExactly(
+                Map.entry("operation", "Update"),
+                Map.entry("credential_configuration_id", DOCTORID),
+                Map.entry("organization_id", ORGANIZATION));
+    }
+
+    @Test
+    void auditDenied_leavesOutWhatIsNotKnown() {
+        StepVerifier.create(asPersonInTenant(auditor.auditDenied(
+                        null, null, CatalogEntryChangeAuditor.INVALID_CONFIGURATION)))
+                .verifyComplete();
+
+        ArgumentCaptor<Map<String, Object>> details = detailsCaptor();
+        verify(auditService).auditFailure(anyString(), anyString(), eq("InvalidConfiguration"), details.capture());
+        assertThat(details.getValue()).containsOnlyKeys("organization_id");
+    }
+
+    @Test
+    void auditDenied_whenTheAuditChannelFails_doesNotFail() {
+        doThrow(new IllegalStateException("audit down")).when(auditService)
+                .auditFailure(anyString(), any(), anyString(), any());
+
+        StepVerifier.create(asPersonInTenant(auditor.auditDenied(
+                        CatalogEntryChange.Operation.CREATE, null, CatalogEntryChangeAuditor.POLICY_DENIED)))
+                .verifyComplete();
     }
 
     @Test

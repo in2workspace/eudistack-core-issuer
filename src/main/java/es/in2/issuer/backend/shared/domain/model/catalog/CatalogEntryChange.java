@@ -13,17 +13,18 @@ import java.util.Objects;
  * version. Both sides show the schema URI the way the API presents it, so a type file that declares none
  * does not make the URI look like it changed.
  */
-public record CatalogEntryChange(Action action, CatalogEntry before, CatalogEntry after) {
+public record CatalogEntryChange(Operation operation, CatalogEntry before, CatalogEntry after) {
 
-    public enum Action {
-        CREATE("create"),
-        REPLACE("replace"),
-        ENABLE("enable"),
-        DISABLE("disable");
+    /** The {@code operation} of the {@code CatalogEntryChanged} audit event (EUD-244), spelled as it documents it. */
+    public enum Operation {
+        CREATE("Create"),
+        UPDATE("Update"),
+        ENABLE("Enable"),
+        DISABLE("Disable");
 
         private final String value;
 
-        Action(String value) {
+        Operation(String value) {
             this.value = value;
         }
 
@@ -33,24 +34,24 @@ public record CatalogEntryChange(Action action, CatalogEntry before, CatalogEntr
     }
 
     public CatalogEntryChange {
-        Objects.requireNonNull(action, "action");
+        Objects.requireNonNull(operation, "operation");
         Objects.requireNonNull(after, "after");
     }
 
     public static CatalogEntryChange created(CatalogEntry after) {
-        return new CatalogEntryChange(Action.CREATE, null, after);
+        return new CatalogEntryChange(Operation.CREATE, null, after);
     }
 
-    public static CatalogEntryChange replaced(CatalogEntry before, CatalogEntry after) {
-        return new CatalogEntryChange(Action.REPLACE, before, after);
+    public static CatalogEntryChange updated(CatalogEntry before, CatalogEntry after) {
+        return new CatalogEntryChange(Operation.UPDATE, before, after);
     }
 
-    /** The action is the one the entry went through: enabled, disabled, or else its configuration replaced. */
+    /** The operation is the one the entry went through: enabled, disabled, or else updated. */
     public static CatalogEntryChange between(CatalogEntry before, CatalogEntry after) {
-        Action action = before.enabled() == after.enabled()
-                ? Action.REPLACE
-                : after.enabled() ? Action.ENABLE : Action.DISABLE;
-        return new CatalogEntryChange(action, before, after);
+        Operation operation = before.enabled() == after.enabled()
+                ? Operation.UPDATE
+                : after.enabled() ? Operation.ENABLE : Operation.DISABLE;
+        return new CatalogEntryChange(operation, before, after);
     }
 
     public String credentialConfigurationId() {
@@ -60,11 +61,6 @@ public record CatalogEntryChange(Action action, CatalogEntry before, CatalogEntr
     /** {@code true} when no field differs: nothing was changed. */
     public boolean isEmpty() {
         return changes().isEmpty();
-    }
-
-    /** The version the change left the entry at. */
-    public long version() {
-        return after.version();
     }
 
     /**

@@ -17,14 +17,19 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.SYSTEM_TENANT;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 /**
- * Records, for every committed change to an entry of the attestation catalog, one
- * {@code tenant.credential_catalog.entry.changed} audit event (EUD-266, AC-12): who changed it, which entry,
- * what was done and what changed field by field.
+ * Records the changes to the entries of the attestation catalog as {@code CatalogEntryChanged} audit events
+ * (EUD-266, AC-12), the name and the {@code details} of the EUD-244 audit catalogue: {@code operation}
+ * ({@code Create}, {@code Update}, {@code Enable} or {@code Disable}), {@code credential_configuration_id}
+ * and, only for an {@code Update}, {@code changes}, the fields that differ with their old and new value.
+ * One event per committed change; and one {@code Denied} event, with its reason, for a write the catalog
+ * refused ({@link #POLICY_DENIED}, {@link #INVALID_CONFIGURATION}).
  *
  * <p>"Who" is the person behind the request, the principal of the reactive security context (as
  * {@code RevocationWorkflow} resolves its actor), and not the administrator organization, which goes in the
- * details as {@code organization_id}. Both are read from the security context of the request, so the callers
- * only hand over the changes and call this once the transaction has committed.
+ * details as {@code organization_id}. That field is the one that is not in the EUD-244 catalogue: this log is
+ * not its envelope, and without it nothing says which organization the person acted for (the email is masked).
+ * Both are read from the security context of the request, so the callers only hand over what happened and
+ * call this once the transaction has committed.
  *
  * <p>Best-effort: the change is already committed and cannot be undone, so a failure to resolve the
  * identity or to write the event is logged and never fails the request.
@@ -34,9 +39,14 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 @RequiredArgsConstructor
 public class CatalogEntryChangeAuditor {
 
-    static final String EVENT = "tenant.credential_catalog.entry.changed";
+    static final String EVENT = "CatalogEntryChanged";
     static final String RESOURCE_TYPE = "attestation-catalog";
     static final String UNKNOWN = "unknown";
+
+    /** The caller is not allowed to write the catalog. */
+    public static final String POLICY_DENIED = "PolicyDenied";
+    /** The write was rejected for a business reason: the configuration is not valid for the schema. */
+    public static final String INVALID_CONFIGURATION = "InvalidConfiguration";
 
     private final AuditService auditService;
     private final AccessTokenService accessTokenService;
@@ -64,13 +74,43 @@ public class CatalogEntryChangeAuditor {
                 });
     }
 
+    /**
+     * A {@code Denied} event for a write that was refused. {@code operation} and
+     * {@code credentialConfigurationId} are left out of the details when they are not known at that point
+     * (a create knows its entry only once the schema resolves; an enable or a disable is told apart only by
+     * the body, which is not read before the caller is authorized).
+     *
+     * @param reason {@link #POLICY_DENIED} or {@link #INVALID_CONFIGURATION}
+     */
+    public Mono<Void> auditDenied(CatalogEntryChange.Operation operation, String credentialConfigurationId,
+                                  String reason) {
+        return Mono.zip(resolveActor(), resolveOrganization())
+                .doOnNext(who -> {
+                    Map<String, Object> details = new LinkedHashMap<>();
+                    if (operation != null) {
+                        details.put("operation", operation.value());
+                    }
+                    if (credentialConfigurationId != null) {
+                        details.put("credential_configuration_id", credentialConfigurationId);
+                    }
+                    details.put("organization_id", who.getT2());
+                    auditService.auditFailure(EVENT, who.getT1(), reason, details);
+                })
+                .then()
+                .onErrorResume(e -> {
+                    log.warn("Catalog audit: could not record a denied {}, error={}", reason, e.toString());
+                    return Mono.empty();
+                });
+    }
+
     private static Map<String, Object> details(CatalogEntryChange change, String organizationId) {
         Map<String, Object> details = new LinkedHashMap<>();
-        details.put("action", change.action().value());
+        details.put("operation", change.operation().value());
         details.put("credential_configuration_id", change.credentialConfigurationId());
         details.put("organization_id", organizationId);
-        details.put("changes", change.changes());
-        details.put("version", change.version());
+        if (change.operation() == CatalogEntryChange.Operation.UPDATE) {
+            details.put("changes", change.changes());
+        }
         return details;
     }
 

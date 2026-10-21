@@ -51,7 +51,7 @@ class CatalogEntryChangeTest {
                 new CatalogEntry.Validity(100, true, 200), full.subject(), full.searchIdentifiers(), 4,
                 Instant.now(), Instant.now());
 
-        Map<String, List<Object>> changes = CatalogEntryChange.replaced(before, after).changes();
+        Map<String, List<Object>> changes = CatalogEntryChange.updated(before, after).changes();
 
         assertThat(changes).containsOnlyKeys("delivery_modes", "validity");
         assertThat(changes.get("delivery_modes")).containsExactly(List.of("email", "ui"), List.of("ui"));
@@ -73,28 +73,27 @@ class CatalogEntryChangeTest {
     }
 
     @Test
-    void between_derivesTheActionFromTheEnabledFlag() {
-        assertThat(CatalogEntryChange.between(entry(true, 1), entry(false, 2)).action())
-                .isEqualTo(CatalogEntryChange.Action.DISABLE);
-        assertThat(CatalogEntryChange.between(entry(false, 1), entry(true, 2)).action())
-                .isEqualTo(CatalogEntryChange.Action.ENABLE);
-        assertThat(CatalogEntryChange.between(entry(true, 1), entry(true, 2)).action())
-                .isEqualTo(CatalogEntryChange.Action.REPLACE);
+    void between_derivesTheOperationFromTheEnabledFlag() {
+        assertThat(CatalogEntryChange.between(entry(true, 1), entry(false, 2)).operation())
+                .isEqualTo(CatalogEntryChange.Operation.DISABLE);
+        assertThat(CatalogEntryChange.between(entry(false, 1), entry(true, 2)).operation())
+                .isEqualTo(CatalogEntryChange.Operation.ENABLE);
+        assertThat(CatalogEntryChange.between(entry(true, 1), entry(true, 2)).operation())
+                .isEqualTo(CatalogEntryChange.Operation.UPDATE);
     }
 
     @Test
-    void actionValues_areTheOnesTheAuditEventDocuments() {
-        assertThat(CatalogEntryChange.Action.values())
-                .extracting(CatalogEntryChange.Action::value)
-                .containsExactly("create", "replace", "enable", "disable");
+    void operationValues_areTheOnesTheAuditEventDocuments() {
+        assertThat(CatalogEntryChange.Operation.values())
+                .extracting(CatalogEntryChange.Operation::value)
+                .containsExactly("Create", "Update", "Enable", "Disable");
     }
 
     @Test
-    void versionAndId_comeFromTheEntryAsStored() {
-        CatalogEntryChange change = CatalogEntryChange.replaced(entry(true, 3), entry(true, 4));
+    void credentialConfigurationId_comesFromTheEntryAsStored() {
+        CatalogEntryChange change = CatalogEntryChange.updated(entry(true, 3), entry(true, 4));
 
         assertThat(change.credentialConfigurationId()).isEqualTo(DOCTORID);
-        assertThat(change.version()).isEqualTo(4);
     }
 
     private static CatalogEntry entry(boolean enabled, long version) {

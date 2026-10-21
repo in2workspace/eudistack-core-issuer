@@ -674,11 +674,11 @@ class TenantCredentialProfileServiceImplTest {
                 .verifyComplete();
 
         List<CatalogEntryChange> changes = auditedChanges();
-        assertThat(changes).extracting(CatalogEntryChange::credentialConfigurationId, CatalogEntryChange::action)
+        assertThat(changes).extracting(CatalogEntryChange::credentialConfigurationId, CatalogEntryChange::operation)
                 .containsExactlyInAnyOrder(
-                        tuple("B", CatalogEntryChange.Action.DISABLE),
-                        tuple("C", CatalogEntryChange.Action.ENABLE),
-                        tuple("D", CatalogEntryChange.Action.CREATE));
+                        tuple("B", CatalogEntryChange.Operation.DISABLE),
+                        tuple("C", CatalogEntryChange.Operation.ENABLE),
+                        tuple("D", CatalogEntryChange.Operation.CREATE));
         CatalogEntryChange disabled = changes.stream()
                 .filter(c -> c.credentialConfigurationId().equals("B")).findFirst().orElseThrow();
         assertThat(disabled.changes()).containsOnlyKeys("enabled");

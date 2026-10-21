@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.domain.service;
 
+import es.in2.issuer.backend.shared.domain.exception.CatalogConfigurationException;
 import es.in2.issuer.backend.shared.domain.exception.CatalogEntryNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.PreconditionFailedException;
 import es.in2.issuer.backend.shared.domain.exception.PreconditionRequiredException;
@@ -19,6 +20,8 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.util.context.ContextView;
 
+import java.util.function.Supplier;
+
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 /**
@@ -32,7 +35,8 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  * {@link PreconditionFailedException}. Every write runs in a transaction and drops the
  * {@link TenantCredentialProfileService} cache of this instance once it has committed, so issuance and
  * the OID4VCI metadata stop seeing what was disabled. Once committed, each change is also audited, one
- * event per entry (AC-12, see {@link CatalogEntryChangeAuditor}).
+ * event per entry (AC-12, see {@link CatalogEntryChangeAuditor}). A write rejected for a business reason
+ * (a {@link CatalogConfigurationException} with a business code) is audited as denied, too.
  *
  * <p>A row that predates the entry configuration (seeded while the issuer was running) is completed
  * from its credential type file when it is read, and stored (D13). Entries are returned ready to
@@ -86,7 +90,7 @@ public class AttestationCatalogService {
      *         schema already has an entry
      */
     public Mono<CatalogEntry> create(CreateCatalogEntryCommand command) {
-        return Mono.deferContextual(ctx -> {
+        Mono<CatalogEntry> create = Mono.deferContextual(ctx -> {
             String tenant = requireTenant(ctx);
             CatalogEntry entry = catalogEntryValidator.validateForCreate(command);
             return committed(tenant, catalogEntryPort.insert(entry).map(this::createdChange))
@@ -95,6 +99,9 @@ public class AttestationCatalogService {
                     .map(CatalogEntryChange::after)
                     .map(this::withResolvedSchemaUri);
         });
+        // The entry of a create is known only if its schema resolves.
+        return auditIfInvalid(create, CatalogEntryChange.Operation.CREATE,
+                () -> credentialProfileCatalog.resolveSchemaUri(command.schemaUri()).orElse(null));
     }
 
     /**
@@ -104,7 +111,7 @@ public class AttestationCatalogService {
      */
     public Mono<CatalogEntry> replace(String credentialConfigurationId, CatalogConfigurationInput configuration,
                                       String ifMatch) {
-        return Mono.deferContextual(ctx -> {
+        Mono<CatalogEntry> update = Mono.deferContextual(ctx -> {
             String tenant = requireTenant(ctx);
             requireIfMatch(ifMatch);
             Mono<CatalogEntryChange> replace = findExisting(credentialConfigurationId)
@@ -112,13 +119,13 @@ public class AttestationCatalogService {
                         requireCurrentVersion(ifMatch, current);
                         CatalogEntry replacement =
                                 catalogEntryValidator.validateForReplace(credentialConfigurationId, configuration);
-                        if (change(CatalogEntryChange.Action.REPLACE, current, replacement).isEmpty()) {
+                        if (change(CatalogEntryChange.Operation.UPDATE, current, replacement).isEmpty()) {
                             // The configuration it already has: nothing is written, so its version and ETag
                             // stay as they are and there is no change to audit.
-                            return Mono.just(change(CatalogEntryChange.Action.REPLACE, current, current));
+                            return Mono.just(change(CatalogEntryChange.Operation.UPDATE, current, current));
                         }
                         return updateIfVersion(replacement, current.version())
-                                .map(updated -> change(CatalogEntryChange.Action.REPLACE, current, updated));
+                                .map(updated -> change(CatalogEntryChange.Operation.UPDATE, current, updated));
                     });
             return committed(tenant, replace)
                     .doOnNext(change -> log.info(change.isEmpty()
@@ -128,6 +135,7 @@ public class AttestationCatalogService {
                     .map(CatalogEntryChange::after)
                     .map(this::withResolvedSchemaUri);
         });
+        return auditIfInvalid(update, CatalogEntryChange.Operation.UPDATE, () -> credentialConfigurationId);
     }
 
     /**
@@ -136,12 +144,12 @@ public class AttestationCatalogService {
      * @param ifMatch the {@code If-Match} header as received, {@code null} if absent
      */
     public Mono<CatalogEntry> setEnabled(String credentialConfigurationId, boolean enabled, String ifMatch) {
-        return Mono.deferContextual(ctx -> {
+        CatalogEntryChange.Operation operation =
+                enabled ? CatalogEntryChange.Operation.ENABLE : CatalogEntryChange.Operation.DISABLE;
+        Mono<CatalogEntry> toggle = Mono.deferContextual(ctx -> {
             String tenant = requireTenant(ctx);
             requireIfMatch(ifMatch);
-            CatalogEntryChange.Action action =
-                    enabled ? CatalogEntryChange.Action.ENABLE : CatalogEntryChange.Action.DISABLE;
-            Mono<CatalogEntryChange> toggle = findExisting(credentialConfigurationId)
+            Mono<CatalogEntryChange> toggled = findExisting(credentialConfigurationId)
                     .flatMap(current -> {
                         requireCurrentVersion(ifMatch, current);
                         // Filled in the same write: a row not configured yet leaves with its configuration (D13).
@@ -155,14 +163,15 @@ public class AttestationCatalogService {
                             catalogEntryValidator.validateEnabling(target);
                         }
                         return updateIfVersion(target, current.version())
-                                .map(updated -> change(action, current, updated));
+                                .map(updated -> change(operation, current, updated));
                     });
-            return committed(tenant, toggle)
-                    .doOnNext(change -> log.info("Catalog entry '{}' {} for tenant '{}'",
+            return committed(tenant, toggled)
+                    .doOnNext(done -> log.info("Catalog entry '{}' {} for tenant '{}'",
                             credentialConfigurationId, enabled ? "enabled" : "disabled", tenant))
                     .map(CatalogEntryChange::after)
                     .map(this::withResolvedSchemaUri);
         });
+        return auditIfInvalid(toggle, operation, () -> credentialConfigurationId);
     }
 
     // ---- persistence -----------------------------------------------------------
@@ -214,6 +223,27 @@ public class AttestationCatalogService {
                 });
     }
 
+    /**
+     * Passes {@code write} through, and when it is rejected for a business reason (a
+     * {@link CatalogConfigurationException} with a code other than {@code BAD_REQUEST}:
+     * {@code unknown_schema}, {@code unsupported_binding_type}, {@code field_not_in_schema},
+     * {@code invalid_validity}, {@code no_delivery_mode}) records a denied {@code InvalidConfiguration} event. A body of the wrong shape is not audited, and neither are the
+     * 404, 409, 412 and 428, which are not the catalog refusing a configuration.
+     *
+     * @param credentialConfigurationId the entry the write is about, {@code null} when it is not known
+     */
+    private <T> Mono<T> auditIfInvalid(Mono<T> write, CatalogEntryChange.Operation operation,
+                                       Supplier<String> credentialConfigurationId) {
+        return write.onErrorResume(CatalogConfigurationException.class, e -> {
+            if (CatalogConfigurationException.BAD_REQUEST.equals(e.code())) {
+                return Mono.error(e);
+            }
+            return changeAuditor.auditDenied(operation, credentialConfigurationId.get(),
+                            CatalogEntryChangeAuditor.INVALID_CONFIGURATION)
+                    .then(Mono.error(e));
+        });
+    }
+
     // ---- preconditions ---------------------------------------------------------
 
     private static void requireIfMatch(String ifMatch) {
@@ -243,8 +273,8 @@ public class AttestationCatalogService {
         return CatalogEntryChange.created(withResolvedSchemaUri(created));
     }
 
-    private CatalogEntryChange change(CatalogEntryChange.Action action, CatalogEntry before, CatalogEntry after) {
-        return new CatalogEntryChange(action, withResolvedSchemaUri(before), withResolvedSchemaUri(after));
+    private CatalogEntryChange change(CatalogEntryChange.Operation operation, CatalogEntry before, CatalogEntry after) {
+        return new CatalogEntryChange(operation, withResolvedSchemaUri(before), withResolvedSchemaUri(after));
     }
 
     /** A stored entry shows the synthetic schema URI while its type file still declares no real one. */

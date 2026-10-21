@@ -317,9 +317,10 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                     "credential_configuration_id=" + DOCTORID, "organization_id=" + ADMIN_ORG_ID);
             assertThat(event).doesNotContain("userId=" + ADMIN_ORG_ID);
         });
-        assertThat(events.get(0)).contains("action=create", "version=0");
-        assertThat(events.get(1)).contains("action=replace", "version=1", "default_days=36500", "default_days=100");
-        assertThat(events.get(2)).contains("action=disable", "version=2", "enabled=[true, false]");
+        assertThat(events.get(0)).contains("operation=Create").doesNotContain("changes=", "version=");
+        assertThat(events.get(1)).contains("operation=Update", "default_days=36500", "default_days=100")
+                .doesNotContain("version=");
+        assertThat(events.get(2)).contains("operation=Disable").doesNotContain("changes=", "version=");
     }
 
     @Test
@@ -329,6 +330,38 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
         auditAppender.list.clear();
 
         put(admin, DOCTORID_PATH, "\"7\"", CONTRACT_CONFIGURATION).expectStatus().isEqualTo(412);
+
+        assertThat(catalogAuditEvents()).isEmpty();
+    }
+
+    @Test
+    void aWriteTheCatalogRefusesForItsConfiguration_isAuditedAsDeniedInvalidConfiguration() {
+        String admin = administratorToken(TENANT_A, ADMIN_PERSON);
+        String body = CONTRACT_EXAMPLE.replace(
+                "{ \"name\": \"colegiado\", \"field\": [\"personal_administrative_number\"] } ]",
+                "{ \"name\": \"dni\", \"field\": [\"nationalId\"] } ]");
+
+        post(admin, body).expectStatus().isBadRequest();
+
+        assertThat(catalogAuditEvents()).singleElement().satisfies(event -> assertThat(event).contains(
+                "outcome=failure", "userId=" + ADMIN_PERSON, "reason=InvalidConfiguration", "operation=Create",
+                "credential_configuration_id=" + DOCTORID, "organization_id=" + ADMIN_ORG_ID));
+    }
+
+    @Test
+    void aWriteOfAnOperator_isAuditedAsDeniedPolicyDenied() {
+        String operator = mintOperatorAccessToken(TENANT_A, OPERATOR_ORG_ID);
+
+        put(operator, DOCTORID_PATH, "\"0\"", CONTRACT_CONFIGURATION).expectStatus().isForbidden();
+
+        assertThat(catalogAuditEvents()).singleElement().satisfies(event -> assertThat(event).contains(
+                "outcome=failure", "reason=PolicyDenied", "operation=Update",
+                "credential_configuration_id=" + DOCTORID, "organization_id=" + OPERATOR_ORG_ID));
+    }
+
+    @Test
+    void aBodyOfTheWrongShape_isNotAudited() {
+        post(administratorToken(TENANT_A, ADMIN_PERSON), "{this is not json").expectStatus().isBadRequest();
 
         assertThat(catalogAuditEvents()).isEmpty();
     }
@@ -518,7 +551,7 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
     private List<String> catalogAuditEvents() {
         return auditAppender.list.stream()
                 .map(ILoggingEvent::getFormattedMessage)
-                .filter(message -> message.startsWith("event=tenant.credential_catalog.entry.changed "))
+                .filter(message -> message.startsWith("event=CatalogEntryChanged "))
                 .toList();
     }
 
