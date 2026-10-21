@@ -567,7 +567,22 @@ class AttestationCatalogControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .bodyValue("{this is not json")
                         .exchange(),
-                400, "BAD_REQUEST", ATTESTATION_CATALOG_PATH);
+                400, "BAD_REQUEST", ATTESTATION_CATALOG_PATH)
+                .jsonPath("$.violations[0].field").isEqualTo("body")
+                .jsonPath("$.violations[0].message").isEqualTo("is not valid JSON");
+        verify(service, never()).create(any());
+    }
+
+    @Test
+    void create_withAListInsteadOfAnObject_isAViolationOnTheBody() {
+        assertProblem(webTestClient.mutateWith(csrf()).post().uri(ATTESTATION_CATALOG_PATH)
+                        .header("Authorization", BEARER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue("[]")
+                        .exchange(),
+                400, "BAD_REQUEST", ATTESTATION_CATALOG_PATH)
+                .jsonPath("$.violations[0].field").isEqualTo("body")
+                .jsonPath("$.violations[0].message").isEqualTo("has an invalid value");
         verify(service, never()).create(any());
     }
 

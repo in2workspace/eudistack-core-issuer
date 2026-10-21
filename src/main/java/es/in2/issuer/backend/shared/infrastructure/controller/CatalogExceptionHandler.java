@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.controller;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import es.in2.issuer.backend.shared.domain.exception.CatalogConfigurationException;
 import es.in2.issuer.backend.shared.domain.exception.CatalogEntryAlreadyExistsException;
@@ -51,6 +52,9 @@ import java.util.stream.Stream;
 @Order(1)
 @RequiredArgsConstructor
 public class CatalogExceptionHandler {
+
+    /** The violation field of a body that cannot be read as a whole. */
+    private static final String BODY = "body";
 
     private final ErrorResponseFactory errors;
 
@@ -232,27 +236,36 @@ public class CatalogExceptionHandler {
     /**
      * When Jackson rejected a value of the body (a string where a number goes, an object where a list goes)
      * the violation names it by its path, as the API spells it ({@code validity.default_days},
-     * {@code search_identifiers[0]}). Nothing of Jackson's own message is sent. Null when the body was not
-     * even JSON, or the failure was not about the body.
+     * {@code search_identifiers[0]}). A body that is not JSON at all, or whose value has no path (a list
+     * where the object goes), is a violation on {@code body}. Nothing of Jackson's own message is sent.
+     * Null when the failure was not about the body.
      */
     private static List<FieldViolation> decodingViolations(Throwable ex) {
         for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
-            if (cause instanceof JsonMappingException mapping && !mapping.getPath().isEmpty()) {
-                StringBuilder field = new StringBuilder();
-                for (JsonMappingException.Reference step : mapping.getPath()) {
-                    if (step.getFieldName() != null) {
-                        field.append(field.isEmpty() ? "" : ".").append(step.getFieldName());
-                    } else if (step.getIndex() >= 0) {
-                        field.append('[').append(step.getIndex()).append(']');
-                    }
-                }
-                return field.isEmpty() ? null : List.of(new FieldViolation(field.toString(), "has an invalid value"));
+            if (cause instanceof JsonMappingException mapping) {
+                String field = apiPath(mapping);
+                return List.of(new FieldViolation(field.isEmpty() ? BODY : field, "has an invalid value"));
+            }
+            if (cause instanceof JsonProcessingException) {
+                return List.of(new FieldViolation(BODY, "is not valid JSON"));
             }
             if (cause.getCause() == cause) {
                 break;
             }
         }
         return null;
+    }
+
+    private static String apiPath(JsonMappingException mapping) {
+        StringBuilder field = new StringBuilder();
+        for (JsonMappingException.Reference step : mapping.getPath()) {
+            if (step.getFieldName() != null) {
+                field.append(field.isEmpty() ? "" : ".").append(step.getFieldName());
+            } else if (step.getIndex() >= 0) {
+                field.append('[').append(step.getIndex()).append(']');
+            }
+        }
+        return field.toString();
     }
 
     /** {@code field_not_in_schema} to {@code Field not in schema}. */
