@@ -19,6 +19,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.test.StepVerifier;
 
+import java.io.File;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -351,6 +352,66 @@ class PayloadSchemaValidatorImplTest {
                         var violations = ((PayloadValidationException) error).getViolations();
                         assertTrue(violations.stream()
                                 .anyMatch(v -> v.field().equals("$." + reservedName)));
+                    })
+                    .verify();
+        }
+    }
+
+    @Nested
+    @DisplayName("validate: shipped LEAR Employee profiles")
+    class ShippedEmployeeProfiles {
+
+        private static final String PROFILES_DIR = "dev-tools/credentials/profiles/";
+
+        private void mockShippedProfile(String configId) throws Exception {
+            JsonNode rawProfile = objectMapper.readTree(new File(PROFILES_DIR + configId + ".json"));
+            when(credentialProfileRegistry.getRawProfile(configId)).thenReturn(rawProfile);
+            when(credentialProfileRegistry.getByConfigurationId(configId))
+                    .thenReturn(CredentialProfile.builder()
+                            .credentialConfigurationId(configId)
+                            .format(rawProfile.get("credential_format").asText())
+                            .build());
+        }
+
+        private JsonNode payloadWithEmployeeId(String employeeIdJson) throws Exception {
+            return payload(mandatePayload(
+                    """
+                    { "employeeId": %s, "email": "jane.doe@example.com", "firstName": "Jane", "lastName": "Doe" }"""
+                            .formatted(employeeIdJson),
+                    VALID_MANDATOR));
+        }
+
+        @ParameterizedTest(name = "validate_{0}_employeeIdIsEmptyString_completesSuccessfully")
+        @ValueSource(strings = {"learcredential.employee.sd.1", "learcredential.employee.w3c.4"})
+        void validate_shippedProfileEmployeeIdIsEmptyString_completesSuccessfully(String configId) throws Exception {
+            // Arrange
+            mockShippedProfile(configId);
+            JsonNode payload = payloadWithEmployeeId("\"\"");
+
+            // Act
+            var result = payloadSchemaValidator.validate(configId, payload);
+
+            // Assert
+            StepVerifier.create(result).verifyComplete();
+        }
+
+        @ParameterizedTest(name = "validate_{0}_employeeIdIsNull_rejectsWithPayloadValidationException")
+        @ValueSource(strings = {"learcredential.employee.sd.1", "learcredential.employee.w3c.4"})
+        void validate_shippedProfileEmployeeIdIsNull_rejectsWithPayloadValidationException(String configId) throws Exception {
+            // Arrange
+            mockShippedProfile(configId);
+            JsonNode payload = payloadWithEmployeeId("null");
+
+            // Act
+            var result = payloadSchemaValidator.validate(configId, payload);
+
+            // Assert
+            StepVerifier.create(result)
+                    .expectErrorSatisfies(error -> {
+                        assertTrue(error instanceof PayloadValidationException);
+                        var violations = ((PayloadValidationException) error).getViolations();
+                        assertTrue(violations.stream()
+                                .anyMatch(v -> v.field().contains("employeeId")));
                     })
                     .verify();
         }
