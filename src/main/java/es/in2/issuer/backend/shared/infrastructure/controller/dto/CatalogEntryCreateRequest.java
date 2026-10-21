@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.shared.infrastructure.controller.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import es.in2.issuer.backend.shared.domain.model.catalog.CreateCatalogEntryCommand;
 import lombok.Getter;
 import lombok.Setter;
@@ -11,6 +12,7 @@ import lombok.Setter;
 public class CatalogEntryCreateRequest extends CatalogEntryConfigurationRequest {
 
     @JsonProperty("schema_uri")
+    @JsonDeserialize(using = StrictStringDeserializer.class)
     private String schemaUri;
 
     public CreateCatalogEntryCommand toCommand() {

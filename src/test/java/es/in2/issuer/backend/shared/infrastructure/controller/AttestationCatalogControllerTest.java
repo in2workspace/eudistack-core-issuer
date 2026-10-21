@@ -686,7 +686,7 @@ class AttestationCatalogControllerTest {
                 .jsonPath("$.violations[0].field").isEqualTo("validity.default_days");
     }
 
-    // ---- the scalars are not coerced (EUD-169 contract: boolean and integer) ------------------
+    // ---- the scalars are not coerced (EUD-169 contract: boolean, integer and string) ----------
 
     static Stream<Arguments> scalarsOfTheWrongType() {
         return Stream.of(
@@ -711,7 +711,16 @@ class AttestationCatalogControllerTest {
                 Arguments.of("\"validity\": {\"default_days\": 30, \"requester_can_set_dates\": true, \"max_days\": \"60\"}",
                         "validity.max_days"),
                 Arguments.of("\"validity\": {\"default_days\": 30, \"requester_can_set_dates\": true, \"max_days\": 60.5}",
-                        "validity.max_days"));
+                        "validity.max_days"),
+                Arguments.of("\"delivery_modes\": [\"email\", 1]", "delivery_modes[1]"),
+                Arguments.of("\"delivery_modes\": [true]", "delivery_modes[0]"),
+                Arguments.of("\"subject\": {\"fields\": [[\"givenName\"], [\"familyName\", 2]]}", "subject.fields[1][1]"),
+                Arguments.of("\"subject\": {\"fields\": [[\"givenName\"]], \"separator\": 1}", "subject.separator"),
+                Arguments.of("\"subject\": {\"fields\": [[\"givenName\"]], \"separator\": false}", "subject.separator"),
+                Arguments.of("\"search_identifiers\": [{\"name\": 7, \"field\": [\"personal_administrative_number\"]}]",
+                        "search_identifiers[0].name"),
+                Arguments.of("\"search_identifiers\": [{\"name\": \"colegiado\", \"field\": [1.5]}]",
+                        "search_identifiers[0].field[0]"));
     }
 
     @ParameterizedTest(name = "{0}")
@@ -739,6 +748,19 @@ class AttestationCatalogControllerTest {
                 400, "BAD_REQUEST", ENTRY_PATH)
                 .jsonPath("$.violations[0].field").isEqualTo(field);
         verify(service, never()).replace(anyString(), any(), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1", "true", "{}"})
+    void create_withASchemaUriThatIsNotAString_isBadRequestNamingTheField(String value) {
+        assertProblem(webTestClient.mutateWith(csrf()).post().uri(ATTESTATION_CATALOG_PATH)
+                        .header("Authorization", BEARER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue("{\"schema_uri\": " + value + ", " + CONFIGURATION + "}")
+                        .exchange(),
+                400, "BAD_REQUEST", ATTESTATION_CATALOG_PATH)
+                .jsonPath("$.violations[0].field").isEqualTo("schema_uri");
+        verify(service, never()).create(any());
     }
 
     @ParameterizedTest

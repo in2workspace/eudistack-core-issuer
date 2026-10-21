@@ -21,9 +21,9 @@ import java.util.List;
  * must not get a 400 on replace.
  *
  * <p>The scalars are strict, as the contract types them: a {@code boolean} is only {@code true} or
- * {@code false} and an {@code integer} only a whole JSON number ({@link StrictBooleanDeserializer},
- * {@link StrictIntegerDeserializer}), instead of what Jackson would coerce ({@code "true"}, {@code "30"},
- * {@code 30.5}).
+ * {@code false}, an {@code integer} only a whole JSON number and a {@code string} only a JSON string
+ * ({@link StrictBooleanDeserializer}, {@link StrictIntegerDeserializer}, {@link StrictStringDeserializer}),
+ * instead of what Jackson would coerce ({@code "true"}, {@code "30"}, {@code 30.5}, {@code 1} as {@code "1"}).
  */
 @Getter
 @Setter
@@ -33,6 +33,7 @@ public class CatalogEntryConfigurationRequest extends UnknownFieldsCollector {
     private Boolean enabled;
 
     @JsonProperty("delivery_modes")
+    @JsonDeserialize(contentUsing = StrictStringDeserializer.class)
     private List<String> deliveryModes;
 
     private ValidityRequest validity;
@@ -89,8 +90,10 @@ public class CatalogEntryConfigurationRequest extends UnknownFieldsCollector {
     @Setter
     public static class SubjectRequest extends UnknownFieldsCollector {
 
+        @JsonDeserialize(contentUsing = StrictStringListDeserializer.class)
         private List<List<String>> fields;
 
+        @JsonDeserialize(using = StrictStringDeserializer.class)
         private String separator;
 
         SubjectInput toInput() {
@@ -102,8 +105,10 @@ public class CatalogEntryConfigurationRequest extends UnknownFieldsCollector {
     @Setter
     public static class SearchIdentifierRequest extends UnknownFieldsCollector {
 
+        @JsonDeserialize(using = StrictStringDeserializer.class)
         private String name;
 
+        @JsonDeserialize(contentUsing = StrictStringDeserializer.class)
         private List<String> field;
 
         SearchIdentifierInput toInput() {
