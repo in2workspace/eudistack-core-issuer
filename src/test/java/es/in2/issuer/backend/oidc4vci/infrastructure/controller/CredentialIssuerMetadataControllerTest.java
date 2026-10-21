@@ -6,6 +6,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.Credenti
 import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
+import es.in2.issuer.backend.shared.infrastructure.config.tenantconfig.TenantCustomDomainsLoader;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import org.junit.jupiter.api.Test;
@@ -48,6 +49,9 @@ class CredentialIssuerMetadataControllerTest {
 
     @MockitoBean
     private TenantRegistryService tenantRegistryService;
+
+    @MockitoBean
+    private TenantCustomDomainsLoader tenantCustomDomainsLoader;
 
     @MockitoBean
     private es.in2.issuer.backend.shared.domain.spi.UrlResolver urlResolver;
