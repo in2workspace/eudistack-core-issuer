@@ -334,7 +334,7 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
         assertThat(events).allSatisfy(event -> {
             assertThat(event).contains("outcome=success", "userId=" + ADMIN_PERSON,
                     "resourceType=attestation-catalog", "resourceId=" + TENANT_A,
-                    "credential_configuration_id=" + DOCTORID, "organization_id=" + ADMIN_ORG_ID);
+                    "credential_configuration_id=" + DOCTORID, "organization=" + ADMIN_ORG_ID);
             assertThat(event).doesNotContain("userId=" + ADMIN_ORG_ID);
         });
         assertThat(events.get(0)).contains("operation=Create").doesNotContain("changes=", "version=");
@@ -365,7 +365,7 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
 
         assertThat(catalogAuditEvents()).singleElement().satisfies(event -> assertThat(event).contains(
                 "outcome=failure", "userId=" + ADMIN_PERSON, "reason=InvalidConfiguration", "operation=Create",
-                "credential_configuration_id=" + DOCTORID, "organization_id=" + ADMIN_ORG_ID));
+                "credential_configuration_id=" + DOCTORID, "organization=" + ADMIN_ORG_ID));
     }
 
     @Test
@@ -376,7 +376,7 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
 
         assertThat(catalogAuditEvents()).singleElement().satisfies(event -> assertThat(event).contains(
                 "outcome=failure", "reason=PolicyDenied", "operation=Update",
-                "credential_configuration_id=" + DOCTORID, "organization_id=" + OPERATOR_ORG_ID));
+                "credential_configuration_id=" + DOCTORID, "organization=" + OPERATOR_ORG_ID));
     }
 
     @Test

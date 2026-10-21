@@ -22,16 +22,24 @@ public class AuditServiceImpl implements AuditService {
     @Override
     public void auditSuccess(String event, String userId, String resourceType, String resourceId,
                              Map<String, Object> details) {
+        auditSuccess(event, userId, null, resourceType, resourceId, details);
+    }
+
+    @Override
+    public void auditSuccess(String event, String userId, String organization, String resourceType,
+                             String resourceId, Map<String, Object> details) {
         try {
             MDC.put("audit.event", event);
             MDC.put("audit.outcome", "success");
             if (userId != null) MDC.put("audit.userId", userId);
+            if (organization != null) MDC.put("audit.organization", organization);
             if (resourceType != null) MDC.put("audit.resourceType", resourceType);
             if (resourceId != null) MDC.put("audit.resourceId", resourceId);
 
-            AUDIT.info("event={} outcome=success userId={} resourceType={} resourceId={} {}",
+            AUDIT.info("event={} outcome=success userId={}{} resourceType={} resourceId={} {}",
                     event,
                     formatValue(userId != null ? userId : "system"),
+                    organizationField(organization),
                     formatValue(resourceType != null ? resourceType : ""),
                     formatValue(resourceId != null ? resourceId : ""),
                     formatDetails(details));
@@ -43,19 +51,32 @@ public class AuditServiceImpl implements AuditService {
     @Override
     public void auditFailure(String event, String userId, String reason,
                              Map<String, Object> details) {
+        auditFailure(event, userId, null, reason, details);
+    }
+
+    @Override
+    public void auditFailure(String event, String userId, String organization, String reason,
+                             Map<String, Object> details) {
         try {
             MDC.put("audit.event", event);
             MDC.put("audit.outcome", "failure");
             if (userId != null) MDC.put("audit.userId", userId);
+            if (organization != null) MDC.put("audit.organization", organization);
 
-            AUDIT.warn("event={} outcome=failure userId={} reason={} {}",
+            AUDIT.warn("event={} outcome=failure userId={}{} reason={} {}",
                     event,
                     formatValue(userId != null ? userId : "system"),
+                    organizationField(organization),
                     formatValue(reason != null ? reason : ""),
                     formatDetails(details));
         } finally {
             clearAuditMdc();
         }
+    }
+
+    /** {@code " organization=<value>"}, or nothing for the events that carry no organization. */
+    private static String organizationField(String organization) {
+        return organization == null ? "" : " organization=" + formatValue(organization);
     }
 
     @Override
@@ -126,6 +147,7 @@ public class AuditServiceImpl implements AuditService {
         MDC.remove("audit.event");
         MDC.remove("audit.outcome");
         MDC.remove("audit.userId");
+        MDC.remove("audit.organization");
         MDC.remove("audit.resourceType");
         MDC.remove("audit.resourceId");
     }

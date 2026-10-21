@@ -25,9 +25,10 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  * refused ({@link #POLICY_DENIED}, {@link #INVALID_CONFIGURATION}).
  *
  * <p>"Who" is the person behind the request, the principal of the reactive security context (as
- * {@code RevocationWorkflow} resolves its actor), and not the administrator organization, which goes in the
- * details as {@code organization_id}. That field is the one that is not in the EUD-244 catalogue: this log is
- * not its envelope, and without it nothing says which organization the person acted for (the email is masked).
+ * {@code RevocationWorkflow} resolves its actor), and not the administrator organization. The organization
+ * is recorded next to the person and not in the details, as the canonical {@code organization} of the EUD-244
+ * audit record: the details carry only the fields the catalogue declares, and without the organization nothing
+ * would say whom the person acted for (the email is masked in the logs).
  * Both are read from the security context of the request, so the callers only hand over what happened and
  * call this once the transaction has committed.
  *
@@ -64,8 +65,8 @@ public class CatalogEntryChangeAuditor {
                     String tenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, SYSTEM_TENANT);
                     return Mono.zip(resolveActor(), resolveOrganization())
                             .doOnNext(who -> changes.forEach(change ->
-                                    auditService.auditSuccess(EVENT, who.getT1(), RESOURCE_TYPE, tenant,
-                                            details(change, who.getT2()))))
+                                    auditService.auditSuccess(EVENT, who.getT1(), who.getT2(), RESOURCE_TYPE,
+                                            tenant, details(change))))
                             .then();
                 })
                 .onErrorResume(e -> {
@@ -93,8 +94,7 @@ public class CatalogEntryChangeAuditor {
                     if (credentialConfigurationId != null) {
                         details.put("credential_configuration_id", credentialConfigurationId);
                     }
-                    details.put("organization_id", who.getT2());
-                    auditService.auditFailure(EVENT, who.getT1(), reason, details);
+                    auditService.auditFailure(EVENT, who.getT1(), who.getT2(), reason, details);
                 })
                 .then()
                 .onErrorResume(e -> {
@@ -103,11 +103,10 @@ public class CatalogEntryChangeAuditor {
                 });
     }
 
-    private static Map<String, Object> details(CatalogEntryChange change, String organizationId) {
+    private static Map<String, Object> details(CatalogEntryChange change) {
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("operation", change.operation().value());
         details.put("credential_configuration_id", change.credentialConfigurationId());
-        details.put("organization_id", organizationId);
         if (change.operation() == CatalogEntryChange.Operation.UPDATE) {
             details.put("changes", change.changes());
         }
