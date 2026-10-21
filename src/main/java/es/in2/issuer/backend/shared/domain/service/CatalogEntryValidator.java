@@ -47,7 +47,6 @@ import java.util.stream.Collectors;
 public class CatalogEntryValidator {
 
     private static final Pattern IDENTIFIER_NAME = Pattern.compile("^[a-z0-9_]{1,50}$");
-    private static final int MAX_SEPARATOR_LENGTH = 16;
     private static final String DEFAULT_SEPARATOR = " ";
     private static final String REQUIRED = "is required";
     private static final String UNKNOWN_FIELD = "is not a known field";
@@ -181,9 +180,6 @@ public class CatalogEntryValidator {
             for (int i = 0; i < subject.fields().size(); i++) {
                 validatePath(subject.fields().get(i), "subject.fields[" + i + "]", out);
             }
-        }
-        if (subject.separator() != null && subject.separator().length() > MAX_SEPARATOR_LENGTH) {
-            out.add(new Violation("subject.separator", "must have at most " + MAX_SEPARATOR_LENGTH + " characters"));
         }
     }
 

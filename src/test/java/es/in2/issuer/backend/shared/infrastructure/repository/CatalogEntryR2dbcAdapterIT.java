@@ -80,6 +80,21 @@ class CatalogEntryR2dbcAdapterIT extends PostgresIntegrationBase {
         assertThat(stored.searchIdentifiers()).isEmpty();
     }
 
+    /** The contract gives {@code subject.separator} no maximum length (V16). */
+    @Test
+    void insert_ofASubjectWithALongSeparator_roundTripsItWhole() {
+        String separator = " - ".repeat(40);
+        CatalogEntry entry = new CatalogEntry(DOCTORID, DOCTORID_URI, true, Set.of(DeliveryMode.EMAIL),
+                new CatalogEntry.Validity(365, false, null),
+                new CatalogEntry.Subject(List.of(ClaimPath.of("givenName"), ClaimPath.of("familyName")), separator),
+                List.of(), 0, null, null);
+
+        CatalogEntry stored = inTenant(port.insert(entry)).block();
+
+        assertThat(stored.subject().separator()).isEqualTo(separator).hasSize(120);
+        assertThat(inTenant(port.findById(DOCTORID)).block().subject().separator()).isEqualTo(separator);
+    }
+
     @Test
     void insert_ofTheSameCredentialConfigurationId_failsWithEntryAlreadyExists() {
         inTenant(port.insert(doctorId())).block();

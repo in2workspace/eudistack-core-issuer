@@ -92,6 +92,17 @@ class CatalogEntryValidatorTest {
         assertThat(entry.subject().separator()).isEqualTo(" ");
     }
 
+    /** The contract gives {@code subject.separator} no maximum length. */
+    @Test
+    void validateForCreate_withALongSeparator_keepsItWhole() {
+        String separator = " - ".repeat(40);
+
+        CatalogEntry entry = validator.validateForCreate(create(DOCTORID_URI, doctorId().withSubject(
+                new SubjectInput(List.of(List.of("givenName"), List.of("familyName")), separator, null))));
+
+        assertThat(entry.subject().separator()).isEqualTo(separator).hasSize(120);
+    }
+
     @Test
     void validateForCreate_aDisabledEntryMayHaveNoDeliveryMode() {
         assertThatCode(() -> validator.validateForCreate(create(DOCTORID_URI,
@@ -255,9 +266,6 @@ class CatalogEntryValidatorTest {
                 Arguments.of("subject path with a blank segment", (UnaryOperator<Input>) in -> in.withSubject(
                         new SubjectInput(List.of(List.of("givenName", " ")), " ", null)),
                         List.of("subject.fields[0][1]")),
-                Arguments.of("subject separator too long", (UnaryOperator<Input>) in -> in.withSubject(
-                        new SubjectInput(List.of(List.of("givenName")), "12345678901234567", null)),
-                        List.of("subject.separator")),
                 Arguments.of("identifier name outside the pattern", (UnaryOperator<Input>) in -> in.withIdentifiers(List.of(
                         identifier("Colegiado", "personal_administrative_number"))), List.of("search_identifiers[0].name")),
                 Arguments.of("identifier name longer than 50", (UnaryOperator<Input>) in -> in.withIdentifiers(List.of(

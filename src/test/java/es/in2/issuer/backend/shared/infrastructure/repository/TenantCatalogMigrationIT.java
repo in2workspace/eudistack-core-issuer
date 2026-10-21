@@ -8,6 +8,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.flyway.FlywayProperties;
 import org.springframework.boot.autoconfigure.r2dbc.R2dbcProperties;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.List;
@@ -18,9 +19,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Proves {@code V15__Add_entry_config_to_tenant_credential_profile.sql} against a real Postgres:
- * the new columns, the validity and delivery-mode {@code CHECK}s (D14), and the unique index on
- * {@code schema_uri}. Each test migrates its own unregistered tenant schema, so it neither
+ * Proves {@code V15__Add_entry_config_to_tenant_credential_profile.sql} and
+ * {@code V16__Widen_subject_separator_of_tenant_credential_profile.sql} against a real Postgres:
+ * the new columns, the validity and delivery-mode {@code CHECK}s (D14), the unique index on
+ * {@code schema_uri} and the unlimited {@code subject_separator}. Each test migrates its own unregistered tenant schema, so it neither
  * depends on nor disturbs the schemas the application migrated at start-up.
  */
 class TenantCatalogMigrationIT extends PostgresIntegrationBase {
@@ -67,6 +69,44 @@ class TenantCatalogMigrationIT extends PostgresIntegrationBase {
                 .containsEntry("enabled", true)
                 .containsEntry("validity_default_days", null)
                 .containsEntry("version", 0L);
+    }
+
+    @Test
+    void migration_makesTheSubjectSeparatorUnlimitedText() {
+        String tenant = "catalog-separator";
+        migrate(tenant, null);
+        String separator = " | ".repeat(100);
+
+        databaseClient.sql("INSERT INTO " + table(tenant) + " (credential_configuration_id, subject_separator) "
+                        + "VALUES ('doctorid.sd.1', '" + separator + "')")
+                .then().block();
+
+        Map<String, Object> row = databaseClient.sql("SELECT subject_separator FROM " + table(tenant)).fetch().one().block();
+        assertThat(row).containsEntry("subject_separator", separator);
+        assertThat(databaseClient.sql("SELECT data_type FROM information_schema.columns "
+                        + "WHERE table_schema = '" + schemaOf(tenant) + "' AND table_name = 'tenant_credential_profile' "
+                        + "AND column_name = 'subject_separator'").fetch().one().block())
+                .containsEntry("data_type", "text");
+    }
+
+    @Test
+    void migration_fromV15_widensTheSeparatorAndKeepsTheOnesAlreadyStored() {
+        String tenant = "catalog-separator-from-v15";
+        migrate(tenant, "15");
+        databaseClient.sql("INSERT INTO " + table(tenant) + " (credential_configuration_id, subject_separator) "
+                        + "VALUES ('doctorid.sd.1', ' - ')")
+                .then().block();
+        assertThatThrownBy(() -> databaseClient.sql("UPDATE " + table(tenant) + " SET subject_separator = '"
+                        + "x".repeat(17) + "'").then().block())
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("subject_separator");
+
+        migrate(tenant, null);
+
+        assertThat(databaseClient.sql("SELECT subject_separator FROM " + table(tenant)).fetch().one().block())
+                .containsEntry("subject_separator", " - ");
+        databaseClient.sql("UPDATE " + table(tenant) + " SET subject_separator = '" + "x".repeat(17) + "'")
+                .then().block();
     }
 
     @Test
