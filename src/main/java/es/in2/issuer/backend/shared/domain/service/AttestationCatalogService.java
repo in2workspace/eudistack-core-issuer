@@ -92,6 +92,7 @@ public class AttestationCatalogService {
             return committed(tenant, catalogEntryPort.insert(entry).map(this::createdChange))
                     .doOnNext(created -> log.info("Catalog entry '{}' created for tenant '{}'",
                             created.credentialConfigurationId(), tenant))
+                    .map(CatalogEntryChange::after)
                     .map(this::withResolvedSchemaUri);
         });
     }
@@ -111,12 +112,20 @@ public class AttestationCatalogService {
                         requireCurrentVersion(ifMatch, current);
                         CatalogEntry replacement =
                                 catalogEntryValidator.validateForReplace(credentialConfigurationId, configuration);
+                        if (change(CatalogEntryChange.Action.REPLACE, current, replacement).isEmpty()) {
+                            // The configuration it already has: nothing is written, so its version and ETag
+                            // stay as they are and there is no change to audit.
+                            return Mono.just(change(CatalogEntryChange.Action.REPLACE, current, current));
+                        }
                         return updateIfVersion(replacement, current.version())
                                 .map(updated -> change(CatalogEntryChange.Action.REPLACE, current, updated));
                     });
             return committed(tenant, replace)
-                    .doOnNext(updated -> log.info("Catalog entry '{}' replaced for tenant '{}'",
+                    .doOnNext(change -> log.info(change.isEmpty()
+                                    ? "Catalog entry '{}' left unchanged for tenant '{}'"
+                                    : "Catalog entry '{}' replaced for tenant '{}'",
                             credentialConfigurationId, tenant))
+                    .map(CatalogEntryChange::after)
                     .map(this::withResolvedSchemaUri);
         });
     }
@@ -149,8 +158,9 @@ public class AttestationCatalogService {
                                 .map(updated -> change(action, current, updated));
                     });
             return committed(tenant, toggle)
-                    .doOnNext(updated -> log.info("Catalog entry '{}' {} for tenant '{}'",
+                    .doOnNext(change -> log.info("Catalog entry '{}' {} for tenant '{}'",
                             credentialConfigurationId, enabled ? "enabled" : "disabled", tenant))
+                    .map(CatalogEntryChange::after)
                     .map(this::withResolvedSchemaUri);
         });
     }
@@ -191,12 +201,17 @@ public class AttestationCatalogService {
 
     /**
      * Runs {@code operation} in a transaction and, once it has committed, drops this instance's cache and
-     * audits the change. Emits the entry as stored.
+     * audits the change. An empty change wrote nothing, so neither is needed. Emits the change.
      */
-    private Mono<CatalogEntry> committed(String tenant, Mono<CatalogEntryChange> operation) {
+    private Mono<CatalogEntryChange> committed(String tenant, Mono<CatalogEntryChange> operation) {
         return transactionalOperator.transactional(operation)
-                .doOnSuccess(result -> tenantCredentialProfileService.invalidateCache(tenant))
-                .flatMap(change -> changeAuditor.audit(change).thenReturn(change.after()));
+                .flatMap(change -> {
+                    if (change.isEmpty()) {
+                        return Mono.just(change);
+                    }
+                    tenantCredentialProfileService.invalidateCache(tenant);
+                    return changeAuditor.audit(change).thenReturn(change);
+                });
     }
 
     // ---- preconditions ---------------------------------------------------------

@@ -323,6 +323,24 @@ class AttestationCatalogServiceTest {
     }
 
     @Test
+    void replace_withTheConfigurationItAlreadyHas_writesAndAuditsNothing() {
+        CatalogEntry current = new CatalogEntry(DOCTORID, DOCTORID_URI, true,
+                Set.of(DeliveryMode.EMAIL, DeliveryMode.UI), new CatalogEntry.Validity(36500, false, null),
+                new CatalogEntry.Subject(List.of(ClaimPath.of("givenName"), ClaimPath.of("familyName")), " "),
+                List.of(new CatalogEntry.SearchIdentifier("colegiado", ClaimPath.of("personal_administrative_number"))),
+                3, Instant.now(), Instant.now());
+        when(port.findById(DOCTORID)).thenReturn(Mono.just(current));
+
+        StepVerifier.create(inTenant(service.replace(DOCTORID, doctorIdConfiguration().toInput(), "\"3\"")))
+                .assertNext(entry -> assertThat(entry.version()).isEqualTo(3))
+                .verifyComplete();
+
+        verify(port, never()).updateIfVersion(any(), anyLong());
+        verify(tenantCredentialProfileService, never()).invalidateCache(any());
+        verify(changeAuditor, never()).audit(any());
+    }
+
+    @Test
     void replace_whenTheVersionIsStale_auditsNothing() {
         when(port.findById(DOCTORID)).thenReturn(Mono.just(filledDoctorId(7)));
 

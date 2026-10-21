@@ -180,7 +180,7 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
     void replace_withAStaleETag_isPreconditionFailedWithTheContextPathInTheInstance() {
         String admin = administratorToken(TENANT_A);
         post(admin, CONTRACT_EXAMPLE).expectStatus().isCreated();
-        put(admin, DOCTORID_PATH, "\"0\"", CONTRACT_CONFIGURATION).expectStatus().isOk();
+        patch(admin, DOCTORID_PATH, "\"0\"", "{\"enabled\": false}").expectStatus().isOk();
 
         put(admin, DOCTORID_PATH, "\"0\"", CONTRACT_CONFIGURATION)
                 .expectStatus().isEqualTo(412)
@@ -189,6 +189,20 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                 .consumeWith(conformsTo("Problem"))
                 .jsonPath("$.type").isEqualTo("precondition_failed")
                 .jsonPath("$.instance").isEqualTo("/issuer" + DOCTORID_PATH);
+    }
+
+    @Test
+    void replace_withTheConfigurationItAlreadyHas_keepsItsETag() {
+        String admin = administratorToken(TENANT_A);
+        post(admin, CONTRACT_EXAMPLE).expectStatus().isCreated();
+
+        put(admin, DOCTORID_PATH, "\"0\"", CONTRACT_CONFIGURATION)
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.ETAG, "\"0\"");
+        // The ETag is still the current one: a real change made with it is accepted.
+        patch(admin, DOCTORID_PATH, "\"0\"", "{\"enabled\": false}")
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.ETAG, "\"1\"");
     }
 
     @Test

@@ -57,6 +57,11 @@ public record CatalogEntryChange(Action action, CatalogEntry before, CatalogEntr
         return after.credentialConfigurationId();
     }
 
+    /** {@code true} when no field differs: nothing was changed. */
+    public boolean isEmpty() {
+        return changes().isEmpty();
+    }
+
     /** The version the change left the entry at. */
     public long version() {
         return after.version();
