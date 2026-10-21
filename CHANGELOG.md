@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (EUD-289)
+
+- **EUD-289 — Pure crypto utilities for own-key signing**: SPKI SHA-256 fingerprint of a certificate or DER public key, ES256 signature verification against a certificate, and certificate predicates (P-256, self-signed, validity window, key correspondence). They are not wired into the signing flow yet.
+
 ### Added (EUD-301)
 
 - **EUD-301 — Additional business attributes in SD-JWT VC issuance**: attributes that a profile's `sd_claims` does not list are no longer dropped silently; they are issued as selectively disclosable claims.
