@@ -12,11 +12,17 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.KmsOwnKeySigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.SigningAuditor;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningProviderResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
+
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 /**
  * Routes signing requests by the active tenant's signing modality: to the CSC operation configured for its QTSP,
@@ -28,6 +34,10 @@ import reactor.core.publisher.Mono;
  * row for the active tenant, a {@link SigningException} is thrown. Seed
  * the row via {@code seed-tenants[.stg].sql} or via the per-tenant config
  * management service (future EUDI-090).
+ *
+ * <p>This is the single choke point of signing: every attempt, for either modality, is recorded
+ * through {@link SigningAuditor} (EUD-289 AC-19), including those that fail before a configuration
+ * is resolved (modality and provider then read {@code unknown}).
  */
 @Slf4j
 @Service
@@ -37,15 +47,51 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
     private final TenantSigningConfigService tenantSigningConfigService;
     private final SigningProviderResolver signingProviderResolver;
     private final KmsOwnKeySigningProvider kmsOwnKeySigningProvider;
+    private final SigningAuditor signingAuditor;
 
     @Override
     public Mono<SigningResult> sign(SigningRequest request) {
 
-        return Mono.justOrEmpty(request.remoteSignature())
-                .map(ActiveSigningConfig::qtsp)
-                .switchIfEmpty(Mono.defer(this::loadActiveSigningConfig))
-                .flatMap(config -> sign(request, config)
-                        .onErrorMap(DelegatingSigningProviderImpl::classify));
+        return Mono.deferContextual(ctx -> {
+            String tenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, SigningAuditor.UNKNOWN);
+            long startNanos = System.nanoTime();
+            AtomicReference<ActiveSigningConfig> resolved = new AtomicReference<>();
+
+            return Mono.justOrEmpty(request.remoteSignature())
+                    .map(ActiveSigningConfig::qtsp)
+                    .switchIfEmpty(Mono.defer(this::loadActiveSigningConfig))
+                    .doOnNext(resolved::set)
+                    .flatMap(config -> sign(request, config)
+                            .onErrorMap(DelegatingSigningProviderImpl::classify))
+                    .doOnNext(result -> signingAuditor.success(SigningAuditor.SIGN_EVENT,
+                            attempt(tenant, request, resolved.get(), startNanos)))
+                    .doOnError(error -> signingAuditor.failure(SigningAuditor.SIGN_EVENT,
+                            attempt(tenant, request, resolved.get(), startNanos), error));
+        });
+    }
+
+    /** Audit data of one attempt: classification only, never the payload, tokens or key reference. */
+    private static SigningAuditor.Attempt attempt(String tenant, SigningRequest request,
+                                                  ActiveSigningConfig config, long startNanos) {
+        String object = request.typ() == null ? String.valueOf(request.type())
+                : request.type() + "/" + request.typ();
+        String issuanceId = request.context() == null ? null : request.context().issuanceId();
+        String modality = SigningAuditor.UNKNOWN;
+        String provider = SigningAuditor.UNKNOWN;
+        if (config != null) {
+            switch (config.modality()) {
+                case QTSP -> {
+                    modality = SigningAuditor.QTSP_MODALITY;
+                    provider = config.qtsp().provider();
+                }
+                case OWN_KEY -> {
+                    modality = SigningAuditor.OWN_KEY_MODALITY;
+                    provider = SigningAuditor.KMS_PROVIDER;
+                }
+            }
+        }
+        long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+        return new SigningAuditor.Attempt(tenant, object, issuanceId, modality, provider, durationMs);
     }
 
     /**

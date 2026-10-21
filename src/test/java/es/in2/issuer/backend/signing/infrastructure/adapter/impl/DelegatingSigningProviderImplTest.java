@@ -13,6 +13,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.KmsOwnKeySigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.SigningAuditor;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningProviderResolver;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -45,6 +46,9 @@ class DelegatingSigningProviderImplTest {
 
     @Mock
     private KmsOwnKeySigningProvider kmsOwnKeySigningProvider;
+
+    @Mock
+    private SigningAuditor signingAuditor;
 
     @InjectMocks
     private DelegatingSigningProviderImpl delegatingSigningProvider;

@@ -6,8 +6,10 @@ import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
+import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
 import es.in2.issuer.backend.signing.infrastructure.adapter.KmsOwnKeySigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.SigningAuditor;
 import es.in2.issuer.backend.signing.infrastructure.properties.SigningSelfTestProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +19,9 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
@@ -28,7 +33,8 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  * scheduler after {@link ApplicationReadyEvent}, each tenant has a timeout, and every error is
  * swallowed. QTSP tenants are skipped: no QTSP is called at startup. The probe goes through
  * {@link KmsOwnKeySigningProvider}, which verifies the signature against the stored certificate.
- * The probe payload and the signature are never logged.
+ * The probe payload and the signature are never logged. Each own-key tenant's outcome is also
+ * recorded in the audit trail (event {@code signing.self_test}).
  */
 @Slf4j
 @Component
@@ -42,6 +48,7 @@ public class OwnKeySigningSelfTest {
     private final TenantRegistryService tenantRegistryService;
     private final TenantSigningConfigService tenantSigningConfigService;
     private final KmsOwnKeySigningProvider kmsOwnKeySigningProvider;
+    private final SigningAuditor signingAuditor;
     private final SigningSelfTestProperties properties;
 
     @EventListener(ApplicationReadyEvent.class)
@@ -71,24 +78,41 @@ public class OwnKeySigningSelfTest {
     }
 
     private Mono<Void> selfTest(String tenant) {
+        long startNanos = System.nanoTime();
+        AtomicReference<String> modality = new AtomicReference<>(SigningAuditor.UNKNOWN);
         return Mono.defer(tenantSigningConfigService::getActiveSigningConfig)
+                .doOnNext(config -> modality.set(config.modality() == SigningModality.OWN_KEY
+                        ? SigningAuditor.OWN_KEY_MODALITY : SigningAuditor.QTSP_MODALITY))
                 .filter(config -> config.modality() == SigningModality.OWN_KEY)
-                .flatMap(config -> probe(tenant, config))
+                .flatMap(this::probe)
                 .timeout(properties.tenantTimeout())
-                .doOnError(e -> log.warn("own-key signing self-test failed tenant={} reason={}",
-                        tenant, SigningFailureReasons.of(e)))
+                .doOnNext(result -> {
+                    log.info("own-key signing self-test passed tenant={}", tenant);
+                    signingAuditor.success(SigningAuditor.SELF_TEST_EVENT,
+                            attempt(tenant, modality.get(), startNanos));
+                })
+                .doOnError(e -> {
+                    log.warn("own-key signing self-test failed tenant={} reason={}",
+                            tenant, SigningFailureReasons.of(e));
+                    signingAuditor.failure(SigningAuditor.SELF_TEST_EVENT,
+                            attempt(tenant, modality.get(), startNanos), e);
+                })
                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
-                .onErrorResume(e -> Mono.empty());
+                .onErrorResume(e -> Mono.empty())
+                .then();
     }
 
-    private Mono<Void> probe(String tenant, ActiveSigningConfig config) {
+    private Mono<SigningResult> probe(ActiveSigningConfig config) {
         SigningRequest request = SigningRequest.builder()
                 .type(SigningType.JADES)
                 .data(PROBE_PAYLOAD)
                 .typ(PROBE_TYP)
                 .build();
-        return kmsOwnKeySigningProvider.sign(request, config.ownKey())
-                .doOnNext(result -> log.info("own-key signing self-test passed tenant={}", tenant))
-                .then();
+        return kmsOwnKeySigningProvider.sign(request, config.ownKey());
+    }
+
+    private static SigningAuditor.Attempt attempt(String tenant, String modality, long startNanos) {
+        return new SigningAuditor.Attempt(tenant, "self-test", null, modality, SigningAuditor.KMS_PROVIDER,
+                TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos));
     }
 }
