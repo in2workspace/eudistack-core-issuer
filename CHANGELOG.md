@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added (EUD-289)
 
 - **EUD-289 — Pure crypto utilities for own-key signing**: SPKI SHA-256 fingerprint of a certificate or DER public key, ES256 signature verification against a certificate, and certificate predicates (P-256, self-signed, validity window, key correspondence). They are not wired into the signing flow yet.
+- **EUD-289 — KMS signing port and adapter**: `KmsSigningPort` (digest-only ECDSA_SHA_256 `Sign` and `GetPublicKey`) with an AWS KMS async-client adapter, its own Reactor retry policy (3 retries with backoff on throttling, service errors and timeouts; none on disabled, invalid-state or access-denied keys) and a classified failure reason. Disabled by default (`issuer.signing.kms.enabled=false`) and not wired into the signing flow yet.
 
 ### Added (EUD-301)
 
