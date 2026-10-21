@@ -111,7 +111,7 @@ class CredentialOfferEndpointIntegrationTest {
     @Test
     void getCredentialOffer_consumedOffer_returns410AndDoesNotResendTxCode() {
         String nonce = storeOffer("1234");
-        when(emailService.sendTxCodeNotification(anyString(), anyString(), anyString())).thenReturn(Mono.empty());
+        when(emailService.sendTxCodeNotification(anyString(), anyString())).thenReturn(Mono.empty());
 
         client.get().uri(PATH, nonce).exchange().expectStatus().isOk();
 
@@ -123,7 +123,7 @@ class CredentialOfferEndpointIntegrationTest {
                 .jsonPath("$.status").isEqualTo(410)
                 .jsonPath("$.detail").isEqualTo("The credential offer has already been used.");
 
-        verify(emailService, times(1)).sendTxCodeNotification("holder@example.com", "email.tx-code", "1234");
+        verify(emailService, times(1)).sendTxCodeNotification("holder@example.com", "1234");
     }
 
     @Test

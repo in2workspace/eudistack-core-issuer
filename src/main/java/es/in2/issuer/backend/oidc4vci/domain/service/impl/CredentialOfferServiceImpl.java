@@ -126,7 +126,6 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                                                       String publicWalletBaseUrl) {
         return emailService.sendCredentialOfferEmail(
                 emailInfo.email(),
-                CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
                 buildWalletDeepLink(credentialOfferUri, publicWalletBaseUrl),
                 refreshUrl,
                 emailInfo.organization(),
