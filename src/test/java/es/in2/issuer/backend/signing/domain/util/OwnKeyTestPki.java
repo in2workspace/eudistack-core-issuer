@@ -121,6 +121,16 @@ public final class OwnKeyTestPki {
         }
     }
 
+    /** A valid leaf certificate issued by the root for an externally held public key (e.g. a KMS key). */
+    public X509Certificate certificateFor(java.security.PublicKey publicKey) {
+        try {
+            return issue(name("Sello de pruebas"), rootKeyPair, name("Raiz de pruebas"), publicKey,
+                    "2024-01-01T00:00:00Z", "2099-01-01T00:00:00Z");
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not issue the certificate", e);
+        }
+    }
+
     private Leaf leafSignedByRoot(KeyPair leafKeyPair, String notBefore, String notAfter) throws Exception {
         X509Certificate certificate = issue(name("Sello de pruebas"), rootKeyPair, name("Raiz de pruebas"),
                 leafKeyPair.getPublic(), notBefore, notAfter);

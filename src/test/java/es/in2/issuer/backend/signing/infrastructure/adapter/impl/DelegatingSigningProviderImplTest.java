@@ -12,6 +12,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.KmsOwnKeySigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningProviderResolver;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,6 +24,8 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -39,6 +42,9 @@ class DelegatingSigningProviderImplTest {
 
     @Mock
     private SigningProvider signDocProvider;
+
+    @Mock
+    private KmsOwnKeySigningProvider kmsOwnKeySigningProvider;
 
     @InjectMocks
     private DelegatingSigningProviderImpl delegatingSigningProvider;
@@ -246,21 +252,57 @@ class DelegatingSigningProviderImplTest {
                 .verify();
     }
 
+    private static OwnKeySigningConfig ownKey(String keyRef) {
+        return new OwnKeySigningConfig(keyRef, "ES256", java.util.List.of("MIIB-leaf"),
+                null, null, null, null, null, "a".repeat(64));
+    }
+
     @Test
-    void sign_ownKeyModality_failsWithKeyUnusablePlaceholder_andNeverTouchesQtspProviders() {
-        var ownKey = new OwnKeySigningConfig("arn:aws:kms:eu-west-1:111122223333:key/k", "ES256",
-                java.util.List.of("MIIB-leaf"), null, null, null, null, null, "a".repeat(64));
+    void sign_ownKeyModality_delegatesToKmsProvider_andNeverTouchesQtspProviders() {
+        var ownKey = ownKey("arn:aws:kms:eu-west-1:111122223333:key/k");
+        var expected = new SigningResult(SigningType.JADES, "own-key-jws");
+        var request = jadesRequest();
         when(tenantSigningConfigService.getActiveSigningConfig())
                 .thenReturn(Mono.just(ActiveSigningConfig.ownKey(ownKey)));
+        when(kmsOwnKeySigningProvider.sign(request, ownKey)).thenReturn(Mono.just(expected));
 
-        StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
-                .expectErrorSatisfies(ex -> {
-                    assertInstanceOf(SigningException.class, ex);
-                    assertEquals(SigningFailureReason.KEY_UNUSABLE, ((SigningException) ex).getReason());
-                })
-                .verify();
+        StepVerifier.create(delegatingSigningProvider.sign(request))
+                .expectNext(expected)
+                .verifyComplete();
 
         verifyNoInteractions(signingProviderResolver, signHashProvider, signDocProvider);
+    }
+
+    @Test
+    void sign_ownKeyModality_kmsReasonReachesTheCallerUnchanged() {
+        var ownKey = ownKey("arn:aws:kms:eu-west-1:111122223333:key/k");
+        var kms = new KmsSigningException(SigningFailureReason.SERVICE_UNAVAILABLE, "kms down");
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(ActiveSigningConfig.ownKey(ownKey)));
+        when(kmsOwnKeySigningProvider.sign(any(), eq(ownKey))).thenReturn(Mono.error(kms));
+
+        StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
+                .expectErrorSatisfies(ex -> assertSame(kms, ex))
+                .verify();
+    }
+
+    @Test
+    void sign_twoTenants_eachResolvesItsOwnConfigurationAndKeyRef() {
+        var tenantA = ownKey("arn:aws:kms:eu-west-1:111122223333:key/tenant-a");
+        var tenantB = ownKey("arn:aws:kms:eu-west-1:111122223333:key/tenant-b");
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.deferContextual(ctx -> Mono.just(ActiveSigningConfig.ownKey(
+                        "a".equals(ctx.get(TENANT_DOMAIN_CONTEXT_KEY)) ? tenantA : tenantB))));
+        when(kmsOwnKeySigningProvider.sign(any(), any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "jws")));
+
+        StepVerifier.create(delegatingSigningProvider.sign(jadesRequest())
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "a"))).expectNextCount(1).verifyComplete();
+        StepVerifier.create(delegatingSigningProvider.sign(jadesRequest())
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "b"))).expectNextCount(1).verifyComplete();
+
+        var captor = ArgumentCaptor.forClass(OwnKeySigningConfig.class);
+        verify(kmsOwnKeySigningProvider, times(2)).sign(any(), captor.capture());
+        assertEquals(java.util.List.of(tenantA, tenantB), captor.getAllValues());
     }
 
     @Test

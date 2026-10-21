@@ -11,6 +11,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.KmsOwnKeySigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningProviderResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,8 +19,8 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 /**
- * Routes signing requests to the CSC operation configured for the active
- * tenant's QTSP. Reads signing config per-tenant from the database (via
+ * Routes signing requests by the active tenant's signing modality: to the CSC operation configured for its QTSP,
+ * or to the KMS own-key provider. Reads signing config per-tenant from the database (via
  * {@link TenantSigningConfigService}) and injects it into the {@link
  * SigningRequest} before delegating.
  *
@@ -35,6 +36,7 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
 
     private final TenantSigningConfigService tenantSigningConfigService;
     private final SigningProviderResolver signingProviderResolver;
+    private final KmsOwnKeySigningProvider kmsOwnKeySigningProvider;
 
     @Override
     public Mono<SigningResult> sign(SigningRequest request) {
@@ -77,15 +79,8 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
 
         return switch (config.modality()) {
             case QTSP -> sign(request, config.qtsp());
-            case OWN_KEY -> signWithOwnKey();
+            case OWN_KEY -> kmsOwnKeySigningProvider.sign(request, config.ownKey());
         };
-    }
-
-    // TODO(EUD-289): placeholder, B3 replaces it with the KMS signing provider.
-    private Mono<SigningResult> signWithOwnKey() {
-
-        return Mono.error(new SigningException(
-                SigningFailureReason.KEY_UNUSABLE, "own-key signing not available yet"));
     }
 
     private Mono<SigningResult> sign(
