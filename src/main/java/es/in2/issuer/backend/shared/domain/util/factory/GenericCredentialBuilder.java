@@ -48,6 +48,11 @@ public class GenericCredentialBuilder {
      * <p>The validity and the subject come from the tenant's catalog {@code entry} (EUD-266). When
      * {@code entry} is {@code null} or not filled yet (see {@link CatalogEntry#isFilled()}) they come
      * from the credential type file, as before the entry carried them (D9).
+     *
+     * <p>The credential is valid from now for the default number of days. The payload's
+     * {@code validFrom} / {@code validUntil} are always ignored, whatever {@code requester_can_set_dates}
+     * says: the EUD-254 contract states that today they are ignored. {@code requester_can_set_dates} and
+     * {@code max_days} are stored and returned by the catalog but not applied until EUD-254 point 6.
      */
     @SuppressWarnings("deprecation")
     public Mono<CredentialBuildResult> buildCredential(
@@ -57,13 +62,9 @@ public class GenericCredentialBuilder {
 
         boolean entryConfigured = entry != null && entry.isFilled();
         Instant now = Instant.now();
-        Validity validity = entryConfigured
-                ? entryValidity(entry.validity())
-                : typeFileValidity(profile.validityDays());
-        String validFrom = validity.requesterCanSetDates() && payload.has("validFrom")
-                ? payload.get("validFrom").asText() : now.toString();
-        String validUntil = validity.requesterCanSetDates() && payload.has("validUntil")
-                ? payload.get("validUntil").asText() : now.plus(validity.defaultDays(), ChronoUnit.DAYS).toString();
+        int validityDays = entryConfigured ? entry.validity().defaultDays() : typeFileValidityDays(profile.validityDays());
+        String validFrom = now.toString();
+        String validUntil = now.plus(validityDays, ChronoUnit.DAYS).toString();
 
         String credentialJson;
         if (DC_SD_JWT.equals(profile.format()) && profile.sdJwt() != null) {
@@ -90,22 +91,9 @@ public class GenericCredentialBuilder {
                         .build());
     }
 
-    /** {@code defaultDays} is the default validity; the requester's dates only count when allowed. */
-    private record Validity(int defaultDays, boolean requesterCanSetDates) {
-    }
-
-    /**
-     * {@code max_days} is not enforced here: bounding the requester's dates is EUD-254's.
-     */
-    private static Validity entryValidity(CatalogEntry.Validity validity) {
-        return new Validity(validity.defaultDays(), validity.requesterCanSetDates());
-    }
-
-    /** {@code validity_days > 0} fixes the validity and ignores the payload dates; otherwise 365 days, requester-settable. */
-    private static Validity typeFileValidity(int validityDays) {
-        return validityDays > 0
-                ? new Validity(validityDays, false)
-                : new Validity(DEFAULT_VALIDITY_DAYS, true);
+    /** The type file's {@code validity_days}, or 365 days when it is 0 or missing. */
+    private static int typeFileValidityDays(int validityDays) {
+        return validityDays > 0 ? validityDays : DEFAULT_VALIDITY_DAYS;
     }
 
     /**

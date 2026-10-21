@@ -93,8 +93,12 @@ class GenericCredentialBuilderEntryConfigTest {
         assertThat(result.credentialDataSet()).doesNotContain(PAST_FROM, PAST_UNTIL);
     }
 
+    /**
+     * EUD-254 («today `validFrom` / `validUntil` are ignored and the default validity of the type applies»):
+     * {@code requester_can_set_dates} and {@code max_days} are stored but not applied at issuance yet.
+     */
     @Test
-    void buildCredential_requesterDatesAllowedAndInsideMaxDays_areHonoured() {
+    void buildCredential_requesterDatesAllowed_areStillIgnored() {
         CatalogEntry entry = configured(new CatalogEntry.Validity(30, true, 60), null);
         Instant from = Instant.now().plus(1, ChronoUnit.DAYS).truncatedTo(ChronoUnit.SECONDS);
         Instant until = from.plus(45, ChronoUnit.DAYS);
@@ -102,32 +106,10 @@ class GenericCredentialBuilderEntryConfigTest {
 
         CredentialBuildResult result = build(DOCTORID, payload, entry);
 
-        assertThat(result.validFrom().toInstant()).isEqualTo(from);
-        assertThat(result.validUntil().toInstant()).isEqualTo(until);
-    }
-
-    /** {@code max_days} is not checked at issuance: bounding the requester's dates is EUD-254's. */
-    @Test
-    void buildCredential_requesterDatesAllowedBeyondMaxDays_areStillHonoured() {
-        CatalogEntry entry = configured(new CatalogEntry.Validity(30, true, 60), null);
-        Instant from = Instant.now().truncatedTo(ChronoUnit.SECONDS);
-        Instant until = from.plus(400, ChronoUnit.DAYS);
-        JsonNode payload = doctorPayload().put("validFrom", from.toString()).put("validUntil", until.toString());
-
-        CredentialBuildResult result = build(DOCTORID, payload, entry);
-
-        assertThat(result.validUntil().toInstant()).isEqualTo(until);
-    }
-
-    @Test
-    void buildCredential_requesterCanSetOnlyTheEnd_startsNowAndKeepsTheRequestedEnd() {
-        CatalogEntry entry = configured(new CatalogEntry.Validity(30, true, 60), null);
-        Instant until = Instant.now().plus(10, ChronoUnit.DAYS).truncatedTo(ChronoUnit.SECONDS);
-
-        CredentialBuildResult result = build(DOCTORID, doctorPayload().put("validUntil", until.toString()), entry);
-
         assertThat(result.validFrom().toInstant()).isCloseTo(Instant.now(), within(1, ChronoUnit.MINUTES));
-        assertThat(result.validUntil().toInstant()).isEqualTo(until);
+        assertThat(result.validUntil().toInstant())
+                .isCloseTo(Instant.now().plus(30, ChronoUnit.DAYS), within(1, ChronoUnit.MINUTES));
+        assertThat(result.credentialDataSet()).doesNotContain(from.toString(), until.toString());
     }
 
     @Test

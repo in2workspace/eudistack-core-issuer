@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -69,7 +70,7 @@ class GenericCredentialBuilderTest {
     }
 
     @Test
-    void buildCredential_shouldUsePayloadDatesWhenValidityDaysIsZero() {
+    void buildCredential_whenValidityDaysIsZero_ignoresThePayloadDatesAndAppliesTheDefault365Days() {
         CredentialProfile profile = labelProfile();
         String fixedFrom = "2025-01-01T00:00:00Z";
         String fixedUntil = "2026-01-01T00:00:00Z";
@@ -82,8 +83,9 @@ class GenericCredentialBuilderTest {
 
         StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .assertNext(result -> {
-                    assertThat(result.credentialDataSet()).contains(fixedFrom);
-                    assertThat(result.credentialDataSet()).contains(fixedUntil);
+                    assertThat(result.validFrom().toInstant()).isCloseTo(Instant.now(), within(1, ChronoUnit.MINUTES));
+                    assertThat(result.validUntil().toInstant())
+                            .isCloseTo(Instant.now().plus(365, ChronoUnit.DAYS), within(1, ChronoUnit.MINUTES));
                 })
                 .verifyComplete();
     }
