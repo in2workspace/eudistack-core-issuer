@@ -206,6 +206,26 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
     }
 
     @Test
+    void patch_withTheStateTheEntryAlreadyHas_keepsItsETagAndAuditsNothing() {
+        String admin = administratorToken(TENANT_A);
+        post(admin, CONTRACT_EXAMPLE).expectStatus().isCreated();
+        auditAppender.list.clear();
+
+        patch(admin, DOCTORID_PATH, "\"0\"", "{\"enabled\": true}")
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.ETAG, "\"0\"");
+        assertThat(catalogAuditEvents()).isEmpty();
+        // The ETag is still the current one: a real change made with it is accepted.
+        patch(admin, DOCTORID_PATH, "\"0\"", "{\"enabled\": false}")
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.ETAG, "\"1\"");
+        patch(admin, DOCTORID_PATH, "\"1\"", "{\"enabled\": false}")
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.ETAG, "\"1\"");
+        assertThat(catalogAuditEvents()).hasSize(1);
+    }
+
+    @Test
     void replace_withoutIfMatch_isPreconditionRequiredNotBadRequest() {
         String admin = administratorToken(TENANT_A);
         post(admin, CONTRACT_EXAMPLE).expectStatus().isCreated();

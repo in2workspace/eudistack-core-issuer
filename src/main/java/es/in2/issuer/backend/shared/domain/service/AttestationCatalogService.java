@@ -162,12 +162,25 @@ public class AttestationCatalogService {
                         if (enabled) {
                             catalogEntryValidator.validateEnabling(target);
                         }
+                        if (target.equals(current)) {
+                            // Already as asked, and nothing to fill in: nothing is written, so its version and
+                            // ETag stay as they are and there is no change to audit. A row that still needs
+                            // its configuration filled in (D13) is not equal to its target, and is written.
+                            return Mono.just(change(operation, current, current));
+                        }
                         return updateIfVersion(target, current.version())
                                 .map(updated -> change(operation, current, updated));
                     });
             return committed(tenant, toggled)
-                    .doOnNext(done -> log.info("Catalog entry '{}' {} for tenant '{}'",
-                            credentialConfigurationId, enabled ? "enabled" : "disabled", tenant))
+                    .doOnNext(done -> {
+                        if (done.isEmpty()) {
+                            log.info("Catalog entry '{}' left unchanged for tenant '{}'",
+                                    credentialConfigurationId, tenant);
+                        } else {
+                            log.info("Catalog entry '{}' {} for tenant '{}'",
+                                    credentialConfigurationId, enabled ? "enabled" : "disabled", tenant);
+                        }
+                    })
                     .map(CatalogEntryChange::after)
                     .map(this::withResolvedSchemaUri);
         });

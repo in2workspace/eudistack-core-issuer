@@ -596,6 +596,56 @@ class AttestationCatalogServiceTest {
     }
 
     @Test
+    void setEnabled_toTheStateTheEntryAlreadyHas_writesAndAuditsNothing() {
+        when(port.findById(DOCTORID)).thenReturn(Mono.just(filledDoctorId(3)));
+
+        StepVerifier.create(inTenant(service.setEnabled(DOCTORID, true, "\"3\"")))
+                .assertNext(entry -> {
+                    assertThat(entry.enabled()).isTrue();
+                    assertThat(entry.version()).isEqualTo(3);
+                })
+                .verifyComplete();
+
+        verify(port, never()).updateIfVersion(any(), anyLong());
+        verify(tenantCredentialProfileService, never()).invalidateCache(any());
+        verify(changeAuditor, never()).audit(any());
+    }
+
+    @Test
+    void setEnabled_disablingADisabledEntry_writesAndAuditsNothing() {
+        CatalogEntry disabled = filledDoctorId(5).withEnabled(false);
+        when(port.findById(DOCTORID)).thenReturn(Mono.just(disabled));
+
+        StepVerifier.create(inTenant(service.setEnabled(DOCTORID, false, "\"5\"")))
+                .assertNext(entry -> assertThat(entry.version()).isEqualTo(5))
+                .verifyComplete();
+
+        verify(port, never()).updateIfVersion(any(), anyLong());
+        verify(changeAuditor, never()).audit(any());
+    }
+
+    /** The state is the one asked for, but the row still lacks its configuration: filling it is a change to the row. */
+    @Test
+    void setEnabled_toTheStateARowNotConfiguredYetAlreadyHas_stillWritesItsConfiguration() {
+        CatalogEntry seeded = new CatalogEntry(DOCTORID, null, false, null, null, null, List.of(), 0,
+                Instant.now(), Instant.now());
+        when(port.findById(DOCTORID)).thenReturn(Mono.just(seeded));
+        when(port.updateIfVersion(any(), eq(0L))).thenAnswer(inv ->
+                Mono.just(Optional.of(stored(inv.getArgument(0), 1))));
+
+        StepVerifier.create(inTenant(service.setEnabled(DOCTORID, false, "\"0\"")))
+                .assertNext(entry -> {
+                    assertThat(entry.enabled()).isFalse();
+                    assertThat(entry.isFilled()).isTrue();
+                    assertThat(entry.version()).isEqualTo(1);
+                })
+                .verifyComplete();
+
+        verify(port).updateIfVersion(any(), eq(0L));
+        verify(changeAuditor).audit(any());
+    }
+
+    @Test
     void setEnabled_enablingARowNotConfiguredYet_completesItInTheSameWrite() {
         CatalogEntry seeded = new CatalogEntry(DOCTORID, null, false, null, null, null, List.of(), 0,
                 Instant.now(), Instant.now());
