@@ -2,6 +2,8 @@ package es.in2.issuer.backend.signing.infrastructure.adapter.impl;
 
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
+import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
@@ -118,6 +120,7 @@ class DelegatingSigningProviderImplTest {
                 .expectErrorSatisfies(ex -> {
                     assertInstanceOf(SigningException.class, ex);
                     assertTrue(ex.getMessage().contains("No remote signature configuration"));
+                    assertEquals(SigningFailureReason.NO_CONFIGURATION, ((SigningException) ex).getReason());
                 })
                 .verify();
 
@@ -177,5 +180,63 @@ class DelegatingSigningProviderImplTest {
                 .verify();
 
         verify(signHashProvider).sign(any());
+    }
+
+    private void givenSignHashFailsWith(Throwable error) {
+        when(signingProviderResolver.resolveFromValue("sign-hash")).thenReturn(signHashProvider);
+        when(tenantSigningConfigService.getRemoteSignature())
+                .thenReturn(Mono.just(cfgWithOperation("sign-hash")));
+        when(signHashProvider.sign(any())).thenReturn(Mono.error(error));
+    }
+
+    @Test
+    void sign_recoverableFailure_isClassifiedAsServiceUnavailable() {
+        var recoverable = new SigningException("Signing failed", new java.net.ConnectException("refused"));
+        givenSignHashFailsWith(recoverable);
+
+        StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
+                .expectErrorSatisfies(ex -> {
+                    assertEquals(SigningFailureReason.SERVICE_UNAVAILABLE, ((SigningException) ex).getReason());
+                    assertSame(recoverable, ex.getCause());
+                    assertEquals("Signing failed", ex.getMessage());
+                })
+                .verify();
+    }
+
+    @Test
+    void sign_recoverableNonSigningFailure_isWrappedAsServiceUnavailable() {
+        givenSignHashFailsWith(new java.util.concurrent.TimeoutException("slow"));
+
+        StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
+                .expectErrorSatisfies(ex -> {
+                    assertInstanceOf(SigningException.class, ex);
+                    assertEquals(SigningFailureReason.SERVICE_UNAVAILABLE, ((SigningException) ex).getReason());
+                })
+                .verify();
+    }
+
+    @Test
+    void sign_failureWithKmsReason_isKeptUnchanged() {
+        var kms = new KmsSigningException(SigningFailureReason.KEY_UNUSABLE, "disabled",
+                new java.net.ConnectException("irrelevant"));
+        givenSignHashFailsWith(kms);
+
+        StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
+                .expectErrorSatisfies(ex -> assertSame(kms, ex))
+                .verify();
+    }
+
+    @Test
+    void sign_unknownFailure_staysUnchangedAndReadsAsOther() {
+        var unknown = new IllegalStateException("boom");
+        givenSignHashFailsWith(unknown);
+
+        StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
+                .expectErrorSatisfies(ex -> {
+                    assertSame(unknown, ex);
+                    assertEquals(SigningFailureReason.OTHER,
+                            es.in2.issuer.backend.signing.domain.util.SigningFailureReasons.of(ex));
+                })
+                .verify();
     }
 }

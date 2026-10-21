@@ -129,6 +129,8 @@ class IssuerFactoryTest {
                 .expectErrorSatisfies(err -> {
                     assertInstanceOf(SigningException.class, err);
                     assertTrue(err.getMessage().contains("No remote signature configuration"));
+                    assertEquals(es.in2.issuer.backend.signing.domain.model.SigningFailureReason.NO_CONFIGURATION,
+                            ((SigningException) err).getReason());
                 })
                 .verify();
 

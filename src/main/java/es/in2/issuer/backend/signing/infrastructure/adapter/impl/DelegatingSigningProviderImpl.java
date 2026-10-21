@@ -2,6 +2,9 @@ package es.in2.issuer.backend.signing.infrastructure.adapter.impl;
 
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
+import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
+import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
@@ -38,7 +41,21 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
         return Mono.justOrEmpty(request.remoteSignature())
                 .switchIfEmpty(loadTenantRemoteSignature())
                 .flatMap(remoteSignatureDto ->
-                        sign(request, remoteSignatureDto));
+                        sign(request, remoteSignatureDto)
+                                .onErrorMap(DelegatingSigningProviderImpl::classify));
+    }
+
+    /**
+     * Coarse reason for QTSP-path failures (EUD-289 D-7): a reason already carried in the cause
+     * chain is kept; otherwise a recoverable (transient) failure is {@code SERVICE_UNAVAILABLE}.
+     * Anything else stays as it is and reads as {@code OTHER}.
+     */
+    private static Throwable classify(Throwable error) {
+        if (SigningFailureReasons.of(error) != SigningFailureReason.OTHER
+                || !QtspRetryPolicy.isRecoverable(error)) {
+            return error;
+        }
+        return new SigningException(SigningFailureReason.SERVICE_UNAVAILABLE, error.getMessage(), error);
     }
 
     private Mono<RemoteSignatureDto> loadTenantRemoteSignature() {
@@ -46,6 +63,7 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
         return tenantSigningConfigService.getRemoteSignature()
                 .switchIfEmpty(Mono.error(
                         new SigningException(
+                                SigningFailureReason.NO_CONFIGURATION,
                                 """
                                         No remote signature configuration available for this tenant.
                                         Seed tenant_signing_config for the active tenant.

@@ -4,6 +4,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.service.IssuerCertificateService;
 import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
 import lombok.RequiredArgsConstructor;
@@ -25,7 +26,7 @@ public class IssuerFactory {
     public Mono<DetailedIssuer> createDetailedIssuer() {
         log.debug("IssuerFactory: createDetailedIssuer");
         return tenantSigningConfigService.getRemoteSignature()
-                .switchIfEmpty(Mono.error(new SigningException(
+                .switchIfEmpty(Mono.error(new SigningException(SigningFailureReason.NO_CONFIGURATION,
                         "No remote signature configuration available for this tenant. " +
                         "Seed tenant_signing_config for the active tenant.")))
                 .flatMap(issuerCertificateService::resolveRemoteDetailedIssuer)

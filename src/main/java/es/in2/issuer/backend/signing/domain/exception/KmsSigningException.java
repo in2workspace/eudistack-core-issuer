@@ -7,19 +7,11 @@ import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
  */
 public class KmsSigningException extends SigningException {
 
-    private final SigningFailureReason reason;
-
     public KmsSigningException(SigningFailureReason reason, String message) {
-        super(message);
-        this.reason = reason;
+        super(reason, message);
     }
 
     public KmsSigningException(SigningFailureReason reason, String message, Throwable cause) {
-        super(message, cause);
-        this.reason = reason;
-    }
-
-    public SigningFailureReason getReason() {
-        return reason;
+        super(reason, message, cause);
     }
 }
