@@ -141,22 +141,54 @@ class IssuerFactoryTest {
         verify(issuerCertificateService, never()).resolveRemoteDetailedIssuer(any());
     }
 
-    @Test
-    void createDetailedIssuer_ownKeyModality_failsWithKeyUnusablePlaceholder_withoutCallingQtsp() {
-        var ownKey = new es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig(
+
+    private static es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig ownKeyConfig() {
+        return new es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig(
                 "arn:aws:kms:eu-west-1:111122223333:key/k", "ES256", java.util.List.of("MIIB-leaf"),
                 null, null, null, null, null, "a".repeat(64));
+    }
+
+    @Test
+    void createDetailedIssuer_ownKeyModality_usesStoredCertificate_withoutCallingQtsp() {
+        var ownKey = ownKeyConfig();
+        DetailedIssuer expected = DetailedIssuer.builder().id("did:elsi:VATES-Q0000000X").build();
         when(tenantSigningConfigService.getActiveSigningConfig())
                 .thenReturn(Mono.just(es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig.ownKey(ownKey)));
+        when(issuerCertificateService.resolveOwnKeyDetailedIssuer(ownKey)).thenReturn(Mono.just(expected));
 
         StepVerifier.create(issuerFactory.createDetailedIssuer())
-                .expectErrorSatisfies(err -> {
-                    assertInstanceOf(SigningException.class, err);
-                    assertEquals(es.in2.issuer.backend.signing.domain.model.SigningFailureReason.KEY_UNUSABLE,
-                            ((SigningException) err).getReason());
-                })
+                .expectNext(expected)
+                .verifyComplete();
+
+        verify(issuerCertificateService).resolveOwnKeyDetailedIssuer(ownKey);
+        verifyNoMoreInteractions(issuerCertificateService);
+    }
+
+    @Test
+    void createSimpleIssuer_ownKeyModality_usesTheStoredCertificateIdentity() {
+        var ownKey = ownKeyConfig();
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig.ownKey(ownKey)));
+        when(issuerCertificateService.resolveOwnKeyDetailedIssuer(ownKey))
+                .thenReturn(Mono.just(DetailedIssuer.builder().id("did:elsi:VATES-Q0000000X").build()));
+
+        StepVerifier.create(issuerFactory.createSimpleIssuer())
+                .assertNext(simple -> assertEquals("did:elsi:VATES-Q0000000X", simple.getId()))
+                .verifyComplete();
+    }
+
+    @Test
+    void createDetailedIssuer_ownKeyModality_doesNotRetryAFailure() {
+        var ownKey = ownKeyConfig();
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig.ownKey(ownKey)));
+        when(issuerCertificateService.resolveOwnKeyDetailedIssuer(ownKey))
+                .thenReturn(Mono.error(new TimeoutException("never retried")));
+
+        StepVerifier.create(issuerFactory.createDetailedIssuer())
+                .expectError(TimeoutException.class)
                 .verify();
 
-        verifyNoInteractions(issuerCertificateService);
+        verify(issuerCertificateService, times(1)).resolveOwnKeyDetailedIssuer(ownKey);
     }
 }

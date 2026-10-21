@@ -31,7 +31,6 @@ public class IssuerFactory {
                         "No remote signature configuration available for this tenant. " +
                         "Seed tenant_signing_config for the active tenant.")))
                 .flatMap(this::resolveIssuer)
-                .retryWhen(buildRetrySpec())
                 .doOnError(err ->
                         log.error("Error during remote issuer creation: {}", err.getMessage(), err)
                 );
@@ -39,15 +38,11 @@ public class IssuerFactory {
 
     private Mono<DetailedIssuer> resolveIssuer(ActiveSigningConfig config) {
         return switch (config.modality()) {
-            case QTSP -> issuerCertificateService.resolveRemoteDetailedIssuer(config.qtsp());
-            case OWN_KEY -> resolveOwnKeyIssuer();
+            // Only the QTSP call is retried: the own-key identity is read from the stored certificate.
+            case QTSP -> issuerCertificateService.resolveRemoteDetailedIssuer(config.qtsp())
+                    .retryWhen(buildRetrySpec());
+            case OWN_KEY -> issuerCertificateService.resolveOwnKeyDetailedIssuer(config.ownKey());
         };
-    }
-
-    // TODO(EUD-289): placeholder, B4 replaces it with the issuer identity read from the stored certificate.
-    private Mono<DetailedIssuer> resolveOwnKeyIssuer() {
-        return Mono.error(new SigningException(
-                SigningFailureReason.KEY_UNUSABLE, "own-key signing not available yet"));
     }
 
     public Mono<SimpleIssuer> createSimpleIssuer() {

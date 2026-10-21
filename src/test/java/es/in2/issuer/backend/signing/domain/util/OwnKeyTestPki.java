@@ -19,13 +19,13 @@ import java.util.Date;
  * key material is versioned. Every instance generates a fresh root CA and its leaves.
  * All names are fictitious.
  */
-final class OwnKeyTestPki {
+public final class OwnKeyTestPki {
 
-    static final String ORGANIZATION_IDENTIFIER = "VATES-Q0000000X";
+    public static final String ORGANIZATION_IDENTIFIER = "VATES-Q0000000X";
 
     /** A certificate together with the key pair it was issued for. */
-    record Leaf(X509Certificate certificate, KeyPair keyPair) {
-        byte[] publicKeyDer() {
+    public record Leaf(X509Certificate certificate, KeyPair keyPair) {
+        public byte[] publicKeyDer() {
             return keyPair.getPublic().getEncoded();
         }
     }
@@ -39,7 +39,7 @@ final class OwnKeyTestPki {
     private final Leaf selfSignedLeaf;
     private final KeyPair unrelatedP256KeyPair;
 
-    OwnKeyTestPki() {
+    public OwnKeyTestPki() {
         try {
             rootKeyPair = generateEc();
             rootCertificate = issue(name("Raiz de pruebas"), rootKeyPair, name("Raiz de pruebas"),
@@ -59,42 +59,42 @@ final class OwnKeyTestPki {
         }
     }
 
-    X509Certificate rootCertificate() {
+    public X509Certificate rootCertificate() {
         return rootCertificate;
     }
 
     /** P-256 leaf issued by the root, valid until 2099. */
-    Leaf validP256Leaf() {
+    public Leaf validP256Leaf() {
         return validP256Leaf;
     }
 
     /** RSA-2048 leaf issued by the root. */
-    Leaf rsaLeaf() {
+    public Leaf rsaLeaf() {
         return rsaLeaf;
     }
 
     /** P-384 leaf issued by the root. */
-    Leaf p384Leaf() {
+    public Leaf p384Leaf() {
         return p384Leaf;
     }
 
     /** P-256 leaf valid only on 2025-01-01..2025-01-02. */
-    Leaf expiredLeaf() {
+    public Leaf expiredLeaf() {
         return expiredLeaf;
     }
 
     /** P-256 certificate that names itself as issuer and is signed with its own key. */
-    Leaf selfSignedLeaf() {
+    public Leaf selfSignedLeaf() {
         return selfSignedLeaf;
     }
 
     /** SPKI DER of a P-256 key that does not belong to {@link #validP256Leaf()}. */
-    byte[] unrelatedPublicKeyDer() {
+    public byte[] unrelatedPublicKeyDer() {
         return unrelatedP256KeyPair.getPublic().getEncoded();
     }
 
     /** A leaf whose issuer name matches the root but whose signature was made by another key. */
-    X509Certificate forgedSelfIssuedCertificate() {
+    public X509Certificate forgedSelfIssuedCertificate() {
         try {
             KeyPair attacker = generateEc();
             X500Name subject = name("Raiz de pruebas");
@@ -102,6 +102,22 @@ final class OwnKeyTestPki {
                     "2024-01-01T00:00:00Z", "2099-01-01T00:00:00Z");
         } catch (Exception e) {
             throw new IllegalStateException("Could not build the forged certificate", e);
+        }
+    }
+
+    /** P-256 leaf whose subject and issuer names carry no organizationIdentifier (signed with the root key). */
+    public Leaf leafWithoutOrganizationIdentifier() {
+        try {
+            KeyPair keyPair = generateEc();
+            X500Name subject = new X500NameBuilder(BCStyle.INSTANCE)
+                    .addRDN(BCStyle.C, "ES")
+                    .addRDN(BCStyle.O, "CGCOM PRUEBAS (ficticio)")
+                    .addRDN(BCStyle.CN, "Sello sin identificador")
+                    .build();
+            return new Leaf(issue(subject, rootKeyPair, subject, keyPair.getPublic(),
+                    "2024-01-01T00:00:00Z", "2099-01-01T00:00:00Z"), keyPair);
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not build the leaf without organizationIdentifier", e);
         }
     }
 
