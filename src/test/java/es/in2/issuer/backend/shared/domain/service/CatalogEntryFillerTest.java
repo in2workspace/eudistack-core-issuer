@@ -71,17 +71,16 @@ class CatalogEntryFillerTest {
         assertThat(filled.deliveryModes()).containsExactlyInAnyOrder(DeliveryMode.values());
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"synthetic.zero-validity.sd.1", "synthetic.missing-validity.sd.1"})
-    void fill_ofATypeWithZeroOrMissingValidityDays_givesThe365DayRequesterSettableDefault(String ccid) {
-        CatalogEntry filled = filler.fill(unfilled(ccid));
+    @Test
+    void fill_takesTheValidityDaysOfTheTypeFile_withoutRequesterDates() {
+        CatalogEntry filled = filler.fill(unfilled("learcredential.employee.sd.1"));
 
-        assertThat(filled.validity()).isEqualTo(new CatalogEntry.Validity(365, true, 365));
+        assertThat(filled.validity()).isEqualTo(new CatalogEntry.Validity(365, false, null));
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"doctorid.sd.1", "learcredential.employee.sd.1", "learcredential.employee.w3c.4",
-            "gx.labelcredential.w3c.2", "synthetic.zero-validity.sd.1"})
+            "gx.labelcredential.w3c.2"})
     void fill_producesSubjectPathsThatAreAllAttributesOfTheSchema(String ccid) {
         CatalogEntry filled = filler.fill(unfilled(ccid));
 

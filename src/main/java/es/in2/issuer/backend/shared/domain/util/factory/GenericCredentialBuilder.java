@@ -37,7 +37,6 @@ public class GenericCredentialBuilder {
     private final AccessTokenService accessTokenService;
 
     private static final String DC_SD_JWT = "dc+sd-jwt";
-    private static final int DEFAULT_VALIDITY_DAYS = 365;
     private static final String DEFAULT_SUBJECT_SEPARATOR = " ";
 
     /**
@@ -62,7 +61,7 @@ public class GenericCredentialBuilder {
 
         boolean entryConfigured = entry != null && entry.isFilled();
         Instant now = Instant.now();
-        int validityDays = entryConfigured ? entry.validity().defaultDays() : typeFileValidityDays(profile.validityDays());
+        int validityDays = entryConfigured ? entry.validity().defaultDays() : profile.validityDays();
         String validFrom = now.toString();
         String validUntil = now.plus(validityDays, ChronoUnit.DAYS).toString();
 
@@ -89,11 +88,6 @@ public class GenericCredentialBuilder {
                         .validFrom(Timestamp.from(parseInstant(validFrom)))
                         .validUntil(Timestamp.from(parseInstant(validUntil)))
                         .build());
-    }
-
-    /** The type file's {@code validity_days}, or 365 days when it is 0 or missing. */
-    private static int typeFileValidityDays(int validityDays) {
-        return validityDays > 0 ? validityDays : DEFAULT_VALIDITY_DAYS;
     }
 
     /**

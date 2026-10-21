@@ -111,6 +111,7 @@ class CredentialProfileRegistryTest {
                 {
                   "credential_configuration_id": "learcredential.employee.w3c.4",
                   "credential_format": "jwt_vc_json",
+                  "validity_days": 365,
                   "credential_definition": {
                     "type": ["VerifiableCredential", "learcredential.employee.w3c.4"]
                   },

@@ -70,27 +70,6 @@ class GenericCredentialBuilderTest {
     }
 
     @Test
-    void buildCredential_whenValidityDaysIsZero_ignoresThePayloadDatesAndAppliesTheDefault365Days() {
-        CredentialProfile profile = labelProfile();
-        String fixedFrom = "2025-01-01T00:00:00Z";
-        String fixedUntil = "2026-01-01T00:00:00Z";
-
-        JsonNode payload = objectMapper.createObjectNode()
-                .put("validFrom", fixedFrom)
-                .put("validUntil", fixedUntil);
-
-        when(accessTokenService.getOrganizationIdFromCurrentSession()).thenReturn(Mono.just("ORG-123"));
-
-        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload, null))
-                .assertNext(result -> {
-                    assertThat(result.validFrom().toInstant()).isCloseTo(Instant.now(), within(1, ChronoUnit.MINUTES));
-                    assertThat(result.validUntil().toInstant())
-                            .isCloseTo(Instant.now().plus(365, ChronoUnit.DAYS), within(1, ChronoUnit.MINUTES));
-                })
-                .verifyComplete();
-    }
-
-    @Test
     void buildCredential_shouldUseSessionOrganizationExtraction() {
         CredentialProfile profile = labelProfile();
         JsonNode payload = objectMapper.createObjectNode();
@@ -649,7 +628,7 @@ class GenericCredentialBuilderTest {
                         .context(List.of("https://www.w3.org/ns/credentials/v2"))
                         .type(List.of("gx.labelcredential.w3c.2", "VerifiableCredential"))
                         .build())
-                .validityDays(0)
+                .validityDays(365)
                 .issuerType(CredentialProfile.IssuerType.SIMPLE)
                 .cnfRequired(false)
                 .credentialSubjectStrategy("direct")

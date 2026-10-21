@@ -105,6 +105,28 @@ class CredentialProfileRegistryCatalogTest {
                 .hasMessageContaining("binding_type");
     }
 
+    // ---- validity --------------------------------------------------------------
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"validity_days\": 0,", "\"validity_days\": -1,", ""})
+    void startup_failsWhenTheValidityDaysAreMissingOrBelowOne(String validityMember) {
+        String json = """
+                {
+                  "credential_configuration_id": "sample.sd.1",
+                  "credential_format": "dc+sd-jwt",
+                  "credential_definition": {"type": ["VerifiableCredential", "sample.sd.1"]},
+                  %s
+                  "issuer_type": "DETAILED"
+                }
+                """.formatted(validityMember);
+
+        assertThatThrownBy(() -> new CredentialProfileRegistry(OBJECT_MAPPER, resolverOf("sample.sd.1.json", json),
+                "classpath:catalog-profiles"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("sample.sd.1")
+                .hasMessageContaining("validity_days");
+    }
+
     @Test
     void bindingTypeOf_ofAnUnknownType_isRejected() {
         assertThatThrownBy(() -> registry.bindingTypeOf("unknown.type"))
@@ -233,13 +255,19 @@ class CredentialProfileRegistryCatalogTest {
                   "credential_format": "dc+sd-jwt",
                   "credential_definition": {"type": ["VerifiableCredential", "%s"]},
                   "issuer_type": "DETAILED",
+                  "validity_days": 365,
                   %s
                 }
                 """.formatted(ccid, ccid, extraMembers);
+        return new CredentialProfileRegistry(OBJECT_MAPPER, resolverOf(ccid + ".json", json), "classpath:catalog-profiles");
+    }
+
+    /** A resolver that finds one type file, {@code filename}, with {@code json} as its content. */
+    private static ResourcePatternResolver resolverOf(String filename, String json) {
         Resource file = new ByteArrayResource(json.getBytes(StandardCharsets.UTF_8)) {
             @Override
             public String getFilename() {
-                return ccid + ".json";
+                return filename;
             }
         };
         ResourcePatternResolver resolver = mock(ResourcePatternResolver.class);
@@ -248,7 +276,7 @@ class CredentialProfileRegistryCatalogTest {
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
-        return new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:catalog-profiles");
+        return resolver;
     }
 
     private static Resource typeFile(String filename, String ccid) {
@@ -258,7 +286,8 @@ class CredentialProfileRegistryCatalogTest {
                   "schema_uri": "https://registry.eudistack.net/schemas/clash/1.0.0/dc+sd-jwt",
                   "credential_format": "dc+sd-jwt",
                   "credential_definition": {"type": ["VerifiableCredential", "%s"]},
-                  "issuer_type": "DETAILED"
+                  "issuer_type": "DETAILED",
+                  "validity_days": 365
                 }
                 """.formatted(ccid, ccid);
         return new ByteArrayResource(json.getBytes(StandardCharsets.UTF_8)) {

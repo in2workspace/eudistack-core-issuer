@@ -23,9 +23,6 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class CatalogEntryFiller {
 
-    /** What the builder used to give a type without {@code validity_days}: 365 days, requester-settable. */
-    static final int DEFAULT_VALIDITY_DAYS = 365;
-
     private static final String DEFAULT_SEPARATOR = " ";
 
     private final CredentialProfileCatalog credentialProfileCatalog;
@@ -56,11 +53,10 @@ public class CatalogEntryFiller {
                 validity, subject, entry.searchIdentifiers(), entry.version(), entry.created(), entry.updated());
     }
 
+    /** The registry only loads types that state their {@code validity_days} (at least 1). */
     @SuppressWarnings("deprecation")
     private static CatalogEntry.Validity validityOf(CredentialProfile profile) {
-        return profile.validityDays() > 0
-                ? new CatalogEntry.Validity(profile.validityDays(), false, null)
-                : new CatalogEntry.Validity(DEFAULT_VALIDITY_DAYS, true, DEFAULT_VALIDITY_DAYS);
+        return new CatalogEntry.Validity(profile.validityDays(), false, null);
     }
 
     @SuppressWarnings("deprecation")

@@ -142,6 +142,7 @@ public class CredentialProfileRegistry implements CredentialProfileCatalog {
             // the service from starting, naming the profile and the offending field.
             CredentialProfileBindingInvariant.validate(profile);
             bindingTypeOf(profile);
+            requireValidityDays(profile, filename);
 
             String credentialType = profile.credentialType();
             if (typeMap.containsKey(credentialType)) {
@@ -165,6 +166,19 @@ public class CredentialProfileRegistry implements CredentialProfileCatalog {
             log.info("Loaded credential profile '{}' (type: {}) from {}", configId, credentialType, filename);
         } catch (IOException e) {
             throw new IllegalStateException("Failed to parse credential profile from " + filename, e);
+        }
+    }
+
+    /**
+     * A catalog entry takes its default validity from its type file, and the contract admits no entry
+     * without one ({@code default_days >= 1}): a type that does not state it stops the service from
+     * starting instead of being issued with a validity nobody chose (EUD-266, D12).
+     */
+    @SuppressWarnings("deprecation")
+    private static void requireValidityDays(CredentialProfile profile, String filename) {
+        if (profile.validityDays() < 1) {
+            throw new IllegalStateException("Credential profile '" + profile.credentialConfigurationId() + "' in "
+                    + filename + " has no validity_days: declare it with a value of at least 1");
         }
     }
 
