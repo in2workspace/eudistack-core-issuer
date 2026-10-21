@@ -20,6 +20,7 @@ import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorRespons
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage.FieldViolation;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.MethodParameter;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.codec.DecodingException;
 import org.springframework.http.HttpStatus;
@@ -27,6 +28,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.support.WebExchangeBindException;
 import org.springframework.web.server.ResponseStatusException;
@@ -153,8 +155,12 @@ public class CatalogExceptionHandler {
     @ExceptionHandler(ServerWebInputException.class)
     public Mono<ResponseEntity<GlobalErrorMessage>> handleServerWebInput(
             ServerWebInputException ex, ServerHttpRequest request) {
+        List<FieldViolation> violations = decodingViolations(ex);
+        if (violations == null && isMissingBody(ex)) {
+            violations = List.of(new FieldViolation(BODY, "is required"));
+        }
         return problem(ex, request, CatalogConfigurationException.BAD_REQUEST, HttpStatus.BAD_REQUEST.getReasonPhrase(),
-                HttpStatus.BAD_REQUEST, ex.getReason(), decodingViolations(ex));
+                HttpStatus.BAD_REQUEST, ex.getReason(), violations);
     }
 
     @ExceptionHandler(DecodingException.class)
@@ -254,6 +260,18 @@ public class CatalogExceptionHandler {
             }
         }
         return null;
+    }
+
+    /**
+     * Spring's failure for an empty body that is required: about the {@code @RequestBody} parameter, with
+     * the reason {@code No request body} (Spring has no constant for it; its cause is a non-Jackson
+     * {@code DecodingException}). A missing header or a query or path parameter of the wrong type is about
+     * another parameter, and a body that failed to decode has another reason.
+     */
+    private static boolean isMissingBody(ServerWebInputException ex) {
+        MethodParameter parameter = ex.getMethodParameter();
+        return parameter != null && parameter.hasParameterAnnotation(RequestBody.class)
+                && "No request body".equals(ex.getReason());
     }
 
     private static String apiPath(JsonMappingException mapping) {

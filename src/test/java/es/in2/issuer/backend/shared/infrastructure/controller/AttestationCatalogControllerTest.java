@@ -177,7 +177,8 @@ class AttestationCatalogControllerTest {
                 .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody()
                 .jsonPath("$.type").isEqualTo("BAD_REQUEST")
-                .jsonPath("$.instance").isEqualTo(ATTESTATION_CATALOG_PATH);
+                .jsonPath("$.instance").isEqualTo(ATTESTATION_CATALOG_PATH)
+                .jsonPath("$.violations").doesNotExist();
     }
 
     /** A row whose type file is gone and that was never completed has nothing the contract could show. */
@@ -691,7 +692,31 @@ class AttestationCatalogControllerTest {
                         .header("If-Match", "\"1\"")
                         .contentType(MediaType.APPLICATION_JSON)
                         .exchange(),
-                400, "BAD_REQUEST", ENTRY_PATH);
+                400, "BAD_REQUEST", ENTRY_PATH)
+                .jsonPath("$.violations[0].field").isEqualTo("body")
+                .jsonPath("$.violations[0].message").isEqualTo("is required");
+    }
+
+    @Test
+    void create_withoutBody_isAViolationOnTheBody() {
+        assertProblem(webTestClient.mutateWith(csrf()).post().uri(ATTESTATION_CATALOG_PATH)
+                        .header("Authorization", BEARER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .exchange(),
+                400, "BAD_REQUEST", ATTESTATION_CATALOG_PATH)
+                .jsonPath("$.violations[0].field").isEqualTo("body")
+                .jsonPath("$.violations[0].message").isEqualTo("is required");
+    }
+
+    @Test
+    void patch_withoutBody_isAViolationOnTheBody() {
+        assertProblem(webTestClient.mutateWith(csrf()).patch().uri(ENTRY_PATH)
+                        .header("Authorization", BEARER)
+                        .header("If-Match", "\"1\"")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .exchange(),
+                400, "BAD_REQUEST", ENTRY_PATH)
+                .jsonPath("$.violations[0].field").isEqualTo("body");
     }
 
     @Test

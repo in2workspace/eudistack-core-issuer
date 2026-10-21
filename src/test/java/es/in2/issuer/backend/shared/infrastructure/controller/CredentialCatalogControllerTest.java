@@ -573,6 +573,25 @@ class CredentialCatalogControllerTest {
                 .jsonPath("$.violations[0].field").isEqualTo("enabledConfigurationIds");
     }
 
+    @Test
+    void updateCatalog_withoutBody_answersAViolationOnTheBody() {
+        when(catalogPdpService.authorizeWrite(anyString()))
+                .thenReturn(Mono.just(admin()));
+
+        webTestClient.mutateWith(csrf())
+                .put()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("BAD_REQUEST")
+                .jsonPath("$.violations[0].field").isEqualTo("body")
+                .jsonPath("$.violations[0].message").isEqualTo("is required");
+    }
+
     /**
      * ES-01 / ES-02 / F3: invalid delivery-mode configurations are rejected with 400
      * before the service is reached.
