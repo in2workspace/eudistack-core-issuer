@@ -19,6 +19,10 @@ import java.util.Set;
  *                          resolved against the built credential. Only read to fill an entry that has none yet, by the
  *                          issuance fallback while it is unfilled, and for its {@code last_segment_delimiter}.
  *                          Both fields leave the type files in a later story.
+ * @param bindingType       optional holder binding of the type: {@code key}, {@code none}, {@code claim} or
+ *                          {@code biometric}, as {@code bindingType} of the Attestation Registry (EUD-256).
+ *                          When absent it is derived from the binding fields (see
+ *                          {@code CredentialProfileCatalog#bindingTypeOf}).
  */
 public record CredentialProfile(
         @JsonProperty("credential_configuration_id") String credentialConfigurationId,
@@ -33,6 +37,7 @@ public record CredentialProfile(
         @Deprecated @JsonProperty("validity_days") int validityDays,
         @JsonProperty("issuer_type") IssuerType issuerType,
         @JsonProperty("cnf_required") boolean cnfRequired,
+        @JsonProperty("binding_type") String bindingType,
         @JsonProperty("description") String description,
         @Deprecated @JsonProperty("subject_extraction") SubjectExtraction subjectExtraction,
         @JsonProperty("organization_extraction") OrganizationExtraction organizationExtraction,

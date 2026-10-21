@@ -29,7 +29,6 @@ import java.util.Set;
 public class CredentialProfileRegistry implements CredentialProfileCatalog {
 
     private static final String SYNTHETIC_SCHEMA_URI_BASE = "https://registry.eudistack.net/schemas/";
-    private static final Set<String> KEY_BINDING_METHODS = Set.of("jwk", "did:key");
 
     private final Map<String, CredentialProfile> byConfigurationId;
     private final Map<String, CredentialProfile> byCredentialType;
@@ -142,6 +141,7 @@ public class CredentialProfileRegistry implements CredentialProfileCatalog {
             // contradict one another used to surface as a 500 on its first issuance. Now it stops
             // the service from starting, naming the profile and the offending field.
             CredentialProfileBindingInvariant.validate(profile);
+            bindingTypeOf(profile);
 
             String credentialType = profile.credentialType();
             if (typeMap.containsKey(credentialType)) {
@@ -192,11 +192,19 @@ public class CredentialProfileRegistry implements CredentialProfileCatalog {
 
     @Override
     public BindingType bindingTypeOf(String credentialConfigurationId) {
-        Set<String> methods = requireLoaded(credentialConfigurationId).cryptographicBindingMethodsSupported();
-        if (methods == null || methods.isEmpty()) {
-            return BindingType.NONE;
+        return bindingTypeOf(requireLoaded(credentialConfigurationId));
+    }
+
+    /** An explicit {@code binding_type} wins; otherwise any declared binding method or {@code cnf_required} means a key. */
+    private static BindingType bindingTypeOf(CredentialProfile profile) {
+        if (profile.bindingType() != null) {
+            return BindingType.fromValue(profile.bindingType()).orElseThrow(() -> new IllegalStateException(
+                    "Credential profile '" + profile.credentialConfigurationId() + "' declares binding_type '"
+                            + profile.bindingType() + "', expected one of key, none, claim, biometric"));
         }
-        return KEY_BINDING_METHODS.containsAll(methods) ? BindingType.KEY : BindingType.UNSUPPORTED;
+        Set<String> methods = profile.cryptographicBindingMethodsSupported();
+        boolean declaresMethods = methods != null && !methods.isEmpty();
+        return declaresMethods || profile.cnfRequired() ? BindingType.KEY : BindingType.NONE;
     }
 
     private CredentialProfile requireLoaded(String credentialConfigurationId) {

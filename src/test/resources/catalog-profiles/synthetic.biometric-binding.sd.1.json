@@ -1,21 +1,22 @@
 {
-  "credential_configuration_id": "synthetic.x509-binding.sd.1",
+  "credential_configuration_id": "synthetic.biometric-binding.sd.1",
   "credential_format": "dc+sd-jwt",
-  "scope": "synthetic_x509-binding_sd_1",
+  "scope": "synthetic_biometric-binding_sd_1",
   "credential_definition": {
     "context": [
       "https://www.w3.org/ns/credentials/v2"
     ],
     "type": [
       "VerifiableCredential",
-      "synthetic.x509-binding.sd.1"
+      "synthetic.biometric-binding.sd.1"
     ]
   },
   "issuer_type": "DETAILED",
-  "cnf_required": true,
+  "cnf_required": false,
+  "binding_type": "biometric",
   "credential_subject_strategy": "direct",
   "sd_jwt": {
-    "vct": "urn:synthetic:synthetic.x509-binding.sd.1",
+    "vct": "urn:synthetic:synthetic.biometric-binding.sd.1",
     "sd_alg": "sha-256",
     "sd_claims": [
       "name"
@@ -33,15 +34,5 @@
       "type": "string"
     }
   },
-  "validity_days": 30,
-  "cryptographic_binding_methods_supported": [
-    "x509"
-  ],
-  "proof_types_supported": {
-    "jwt": {
-      "proof_signing_alg_values_supported": [
-        "ES256"
-      ]
-    }
-  }
+  "validity_days": 30
 }

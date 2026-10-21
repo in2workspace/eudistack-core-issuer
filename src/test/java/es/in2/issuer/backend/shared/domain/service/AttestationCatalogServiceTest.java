@@ -176,7 +176,7 @@ class AttestationCatalogServiceTest {
     @Test
     void create_ofATypeWithAnUnsupportedBinding_isUnsupportedBindingType() {
         StepVerifier.create(inTenant(service.create(new CreateCatalogEntryCommand(
-                        "https://registry.eudistack.net/schemas/synthetic.x509-binding.sd.1",
+                        "https://registry.eudistack.net/schemas/synthetic.biometric-binding.sd.1",
                         doctorIdConfiguration().withSubject(null).withIdentifiers(List.of()).toInput()))))
                 .expectErrorSatisfies(e -> assertThat(e).isInstanceOf(UnsupportedBindingTypeException.class)
                         .extracting(x -> ((CatalogConfigurationException) x).code()).isEqualTo("unsupported_binding_type"))

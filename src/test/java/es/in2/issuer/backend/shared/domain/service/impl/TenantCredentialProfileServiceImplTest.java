@@ -503,7 +503,7 @@ class TenantCredentialProfileServiceImplTest {
     @Test
     void updateCatalog_typeWithoutEntryThatNeedsAnUnsupportedBinding_failsWithoutInserting() {
         when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
-        when(registry.bindingTypeOf("A")).thenReturn(BindingType.UNSUPPORTED);
+        when(registry.bindingTypeOf("A")).thenReturn(BindingType.CLAIM);
         when(registry.schemaUriOf("A")).thenReturn("https://registry.eudistack.net/schemas/A");
 
         StepVerifier.create(service.updateCatalog(Set.of("A"))

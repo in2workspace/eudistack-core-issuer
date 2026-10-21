@@ -12,7 +12,6 @@ import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
 import es.in2.issuer.backend.shared.domain.model.catalog.ClaimPath;
 import es.in2.issuer.backend.shared.domain.model.catalog.CreateCatalogEntryCommand;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
-import es.in2.issuer.backend.shared.domain.model.enums.BindingType;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.spi.CredentialProfileCatalog;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
@@ -80,7 +79,7 @@ public class CatalogEntryValidator {
         failIfAny(shape);
 
         String id = credentialConfigurationId.orElseThrow(() -> new UnknownSchemaException(schemaUri));
-        if (credentialProfileCatalog.bindingTypeOf(id) == BindingType.UNSUPPORTED) {
+        if (!credentialProfileCatalog.bindingTypeOf(id).isSupported()) {
             throw new UnsupportedBindingTypeException(schemaUri);
         }
         return validateBusinessRules(assemble(id, command.configuration()));

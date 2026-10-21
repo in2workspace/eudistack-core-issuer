@@ -12,7 +12,6 @@ import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntryChange;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
-import es.in2.issuer.backend.shared.domain.model.enums.BindingType;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.service.CatalogEntryChangeAuditor;
 import es.in2.issuer.backend.shared.domain.service.CatalogEntryFiller;
@@ -207,7 +206,7 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
 
     /** A new entry for a type that had none: its type file's values, and the ceiling when no modes are declared. */
     private Mono<CatalogEntryChange> insertEnabled(String credentialConfigurationId, Set<DeliveryMode> declaredModes) {
-        if (registry.bindingTypeOf(credentialConfigurationId) == BindingType.UNSUPPORTED) {
+        if (!registry.bindingTypeOf(credentialConfigurationId).isSupported()) {
             return Mono.error(new UnsupportedBindingTypeException(registry.schemaUriOf(credentialConfigurationId)));
         }
         CatalogEntry entry = catalogEntryFiller.fill(new CatalogEntry(credentialConfigurationId, null, true,

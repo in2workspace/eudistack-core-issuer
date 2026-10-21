@@ -8,6 +8,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.BindingType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
@@ -44,13 +45,64 @@ class CredentialProfileRegistryCatalogTest {
 
     @ParameterizedTest
     @CsvSource({
-            "doctorid.sd.1,              KEY",
+            "doctorid.sd.1,               KEY",
             "learcredential.employee.sd.1, KEY",
-            "gx.labelcredential.w3c.2,   NONE",
-            "synthetic.x509-binding.sd.1, UNSUPPORTED"
+            "gx.labelcredential.w3c.2,    NONE",
+            "synthetic.biometric-binding.sd.1, BIOMETRIC"
     })
-    void bindingTypeOf_translatesTheDeclaredBindingMethods(String ccid, BindingType expected) {
+    void bindingTypeOf_ofTheFixtures_followsTheTypeFile(String ccid, BindingType expected) {
         assertThat(registry.bindingTypeOf(ccid)).isEqualTo(expected);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"jwk", "did:key", "x509"})
+    void bindingTypeOf_withoutBindingType_aDeclaredBindingMethodIsAKey(String method) {
+        CredentialProfileRegistry registry = registryOf("""
+                "cryptographic_binding_methods_supported": ["%s"],
+                "proof_types_supported": {"jwt": {"proof_signing_alg_values_supported": ["ES256"]}}
+                """.formatted(method));
+
+        assertThat(registry.bindingTypeOf("sample.sd.1")).isEqualTo(BindingType.KEY);
+    }
+
+    @Test
+    void bindingTypeOf_withoutBindingType_cnfRequiredWithoutMethodsIsAKey() {
+        CredentialProfileRegistry registry = registryOf("\"cnf_required\": true", "learcredential.machine.sd.1");
+
+        assertThat(registry.bindingTypeOf("learcredential.machine.sd.1")).isEqualTo(BindingType.KEY);
+    }
+
+    @Test
+    void bindingTypeOf_withoutBindingTypeMethodsOrCnf_isNone() {
+        assertThat(registryOf("\"issuer_type\": \"DETAILED\"").bindingTypeOf("sample.sd.1"))
+                .isEqualTo(BindingType.NONE);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"claim, CLAIM", "biometric, BIOMETRIC", "none, NONE", "key, KEY"})
+    void bindingTypeOf_anExplicitBindingType_isUsed(String declared, BindingType expected) {
+        CredentialProfileRegistry registry = registryOf("\"binding_type\": \"" + declared + "\"");
+
+        assertThat(registry.bindingTypeOf("sample.sd.1")).isEqualTo(expected);
+    }
+
+    @Test
+    void bindingTypeOf_anExplicitBindingType_winsOverTheDerivation() {
+        CredentialProfileRegistry registry = registryOf("""
+                "binding_type": "claim",
+                "cryptographic_binding_methods_supported": ["jwk"],
+                "proof_types_supported": {"jwt": {"proof_signing_alg_values_supported": ["ES256"]}}
+                """);
+
+        assertThat(registry.bindingTypeOf("sample.sd.1")).isEqualTo(BindingType.CLAIM);
+    }
+
+    @Test
+    void startup_failsWhenTheBindingTypeIsNotOneOfTheKnownValues() {
+        assertThatThrownBy(() -> registryOf("\"binding_type\": \"x509\""))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("sample.sd.1")
+                .hasMessageContaining("binding_type");
     }
 
     @Test
@@ -167,6 +219,36 @@ class CredentialProfileRegistryCatalogTest {
     void attributePaths_ofAnUnknownType_isRejected() {
         assertThatThrownBy(() -> registry.attributePaths("unknown.type"))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static CredentialProfileRegistry registryOf(String extraMembers) {
+        return registryOf(extraMembers, "sample.sd.1");
+    }
+
+    /** A registry with one type, {@code ccid}, whose file carries {@code extraMembers} (JSON members, without a trailing comma). */
+    private static CredentialProfileRegistry registryOf(String extraMembers, String ccid) {
+        String json = """
+                {
+                  "credential_configuration_id": "%s",
+                  "credential_format": "dc+sd-jwt",
+                  "credential_definition": {"type": ["VerifiableCredential", "%s"]},
+                  "issuer_type": "DETAILED",
+                  %s
+                }
+                """.formatted(ccid, ccid, extraMembers);
+        Resource file = new ByteArrayResource(json.getBytes(StandardCharsets.UTF_8)) {
+            @Override
+            public String getFilename() {
+                return ccid + ".json";
+            }
+        };
+        ResourcePatternResolver resolver = mock(ResourcePatternResolver.class);
+        try {
+            when(resolver.getResources(anyString())).thenReturn(new Resource[] {file});
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+        return new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:catalog-profiles");
     }
 
     private static Resource typeFile(String filename, String ccid) {

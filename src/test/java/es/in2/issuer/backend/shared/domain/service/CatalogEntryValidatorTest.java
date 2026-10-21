@@ -40,7 +40,7 @@ class CatalogEntryValidatorTest {
     private static final String DOCTORID = "doctorid.sd.1";
     private static final String DOCTORID_URI = "https://registry.eudistack.net/schemas/doctorid/1.0.0/dc+sd-jwt";
     private static final String LEAR_URI = "https://registry.eudistack.net/schemas/learcredential.employee.sd.1";
-    private static final String X509_URI = "https://registry.eudistack.net/schemas/synthetic.x509-binding.sd.1";
+    private static final String BIOMETRIC_URI = "https://registry.eudistack.net/schemas/synthetic.biometric-binding.sd.1";
     private static final String GX_URI = "https://registry.eudistack.net/schemas/gx.labelcredential.w3c.2";
 
     private static final CredentialProfileRegistry REGISTRY = new CredentialProfileRegistry(
@@ -149,10 +149,10 @@ class CatalogEntryValidatorTest {
                         "no_delivery_mode", "An enabled entry needs at least one delivery mode",
                         List.of("delivery_modes")),
                 // AC-13
-                Arguments.of("AC-13 unsupported binding", X509_URI,
+                Arguments.of("AC-13 unsupported binding (biometric)", BIOMETRIC_URI,
                         (UnaryOperator<Input>) in -> in.withSubject(null).withIdentifiers(List.of()).withModes(List.of("email")),
                         "unsupported_binding_type",
-                        "The schema '" + X509_URI + "' requires claim or biometric binding; only key and none are supported",
+                        "The schema '" + BIOMETRIC_URI + "' requires claim or biometric binding; only key and none are supported",
                         List.of("schema_uri")),
                 Arguments.of("unknown schema", "https://registry.eudistack.net/schemas/nobody/1.0.0/dc+sd-jwt",
                         (UnaryOperator<Input>) in -> in,
@@ -177,7 +177,7 @@ class CatalogEntryValidatorTest {
 
     @Test
     void validateForCreate_unsupportedBindingType_isItsOwnException() {
-        assertThatThrownBy(() -> validator.validateForCreate(create(X509_URI,
+        assertThatThrownBy(() -> validator.validateForCreate(create(BIOMETRIC_URI,
                 doctorId().withSubject(null).withIdentifiers(List.of()).withModes(List.of("email")))))
                 .isInstanceOf(UnsupportedBindingTypeException.class);
     }
@@ -364,7 +364,7 @@ class CatalogEntryValidatorTest {
 
     @Test
     void validateForCreate_withUnsupportedBindingAndFieldNotInSchema_answersUnsupportedBinding() {
-        CatalogConfigurationException thrown = catchBusiness(() -> validator.validateForCreate(create(X509_URI,
+        CatalogConfigurationException thrown = catchBusiness(() -> validator.validateForCreate(create(BIOMETRIC_URI,
                 doctorId().withModes(List.of("email")))));
 
         assertThat(thrown.code()).isEqualTo("unsupported_binding_type");

@@ -41,9 +41,10 @@ public interface CredentialProfileCatalog {
     String schemaUriOf(String credentialConfigurationId);
 
     /**
-     * Translates {@code cryptographic_binding_methods_supported} of the credential type: none declared
-     * is {@link BindingType#NONE}; {@code jwk} and {@code did:key} are {@link BindingType#KEY}; any
-     * other method makes the type {@link BindingType#UNSUPPORTED}.
+     * The holder binding of the credential type: the {@code binding_type} its file declares or, when
+     * it declares none, {@link BindingType#KEY} if it declares any
+     * {@code cryptographic_binding_methods_supported} or {@code cnf_required: true}, and
+     * {@link BindingType#NONE} otherwise.
      *
      * @throws IllegalArgumentException if the credential type is not loaded
      */
