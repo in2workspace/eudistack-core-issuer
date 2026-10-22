@@ -9,6 +9,9 @@ import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTran
 import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
 import es.in2.issuer.backend.shared.domain.exception.NoCredentialFoundException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
@@ -17,7 +20,9 @@ import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
+import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -26,7 +31,9 @@ import org.junit.jupiter.params.provider.CsvSource;
 import static org.junit.jupiter.api.Assertions.*;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -34,6 +41,7 @@ import reactor.test.StepVerifier;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -60,8 +68,20 @@ class IssuanceServiceImplTest {
     @Mock
     private TenantRegistryService tenantRegistryService;
 
+    @Mock
+    private TransactionalOperator transactionalOperator;
+
+    @Spy
+    private RecordingAuditTrail auditTrail = new RecordingAuditTrail();
+
     @InjectMocks
     private IssuanceServiceImpl issuanceService;
+
+    @BeforeEach
+    void passTransactionsThrough() {
+        lenient().when(transactionalOperator.transactional(any(Mono.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+    }
 
     // ADMIN_ORG_ID is used as an organization identifier fixture in assertions below;
     // no stub needed since admin_organization_id is now resolved via TenantConfigService
@@ -345,6 +365,90 @@ class IssuanceServiceImplTest {
     }
 
     // ---------- Admin bypass tests use boolean sysAdmin parameter ----------
+
+    @Test
+    void getIssuanceDetail_found_stagesIssuanceDetailAccessedWithTheHolderInClear() throws Exception {
+        // Arrange
+        UUID issuanceId = UUID.randomUUID();
+        String credentialDataSet = "{\"vc\":{}}";
+        Issuance issuance = new Issuance();
+        issuance.setIssuanceId(issuanceId);
+        issuance.setCredentialDataSet(credentialDataSet);
+        issuance.setCredentialStatus(CredentialStatusEnum.VALID);
+        issuance.setSubject("Jane Doe");
+        issuance.setEmail("jane@example.com");
+        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), any(String.class)))
+                .thenReturn(Mono.just(issuance));
+        when(objectMapper.readTree(credentialDataSet)).thenReturn(new ObjectMapper().readTree(credentialDataSet));
+
+        // Act
+        Mono<CredentialDetails> detail = issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
+                new AuthorizationContext("org-123", UserRole.LEAR, false, "multi-org"), issuanceId.toString());
+
+        // Assert
+        StepVerifier.create(detail).expectNextCount(1).verifyComplete();
+        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditEventType.ISSUANCE_DETAIL_ACCESSED, entry.type());
+        assertEquals(AuditResult.SUCCESS, entry.result());
+        assertEquals("issuance:" + issuanceId, entry.resource());
+        assertEquals(Map.of("name", "Jane Doe", "email", "jane@example.com"), entry.details().get("holder"));
+    }
+
+    @Test
+    void getIssuanceDetail_notFound_stagesDeniedIssuanceNotFoundAndKeepsTheError() {
+        // Arrange
+        UUID issuanceId = UUID.randomUUID();
+        when(issuancePort.findByIssuanceIdAndOrganizationIdentifier(any(UUID.class), any(String.class)))
+                .thenReturn(Mono.empty());
+
+        // Act
+        Mono<CredentialDetails> detail = issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
+                new AuthorizationContext("org-123", UserRole.LEAR, false, "multi-org"), issuanceId.toString());
+
+        // Assert
+        StepVerifier.create(detail).expectError(NoCredentialFoundException.class).verify();
+        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditResult.DENIED, entry.result());
+        assertEquals("IssuanceNotFound", entry.reason());
+    }
+
+    @Test
+    void getIssuanceDetail_malformedId_stagesNothingBecauseThereIsNoProcessToPointAt() {
+        // Arrange & Act
+        Mono<CredentialDetails> detail = issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
+                new AuthorizationContext("org-123", UserRole.LEAR, false, "multi-org"), "not-a-uuid");
+
+        // Assert
+        StepVerifier.create(detail).expectError(NoCredentialFoundException.class).verify();
+        assertTrue(auditTrail.all().isEmpty());
+    }
+
+    @Test
+    void getAllIssuancesVisibleFor_organization_stagesIssuanceQueriedWithTheReturnedCount() {
+        // Arrange
+        Issuance first = issuanceWithStatus(CredentialStatusEnum.VALID);
+        first.setCredentialDataSet("{}");
+        Issuance second = issuanceWithStatus(CredentialStatusEnum.DRAFT);
+        second.setCredentialDataSet("{}");
+        when(issuancePort.findAllByOrganizationIdentifier("org-123")).thenReturn(Flux.just(first, second));
+        try {
+            when(objectMapper.readTree("{}")).thenReturn(new ObjectMapper().readTree("{}"));
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+
+        // Act
+        Mono<IssuanceList> list = issuanceService.getAllIssuancesVisibleFor(
+                new AuthorizationContext("org-123", UserRole.LEAR, false, "multi-org"));
+
+        // Assert
+        StepVerifier.create(list).expectNextCount(1).verifyComplete();
+        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditEventType.ISSUANCE_QUERIED, entry.type());
+        assertEquals(AuditResult.SUCCESS, entry.result());
+        assertEquals(2, entry.details().get("returned_count"));
+        assertEquals(Map.of(), entry.details().get("filters"));
+    }
 
     @Test
     void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldReturnCredentialDetails_forRegularOrg() throws Exception {
@@ -1189,6 +1293,92 @@ class IssuanceServiceImplTest {
 
         StepVerifier.create(issuanceService.withdrawIssuance(issuance.getIssuanceId().toString())).verifyComplete();
         assertEquals(CredentialStatusEnum.WITHDRAWN, issuance.getCredentialStatus());
+    }
+
+    @Test
+    void withdrawIssuance_draft_stagesIssuanceWithdrawnInTheTransactionOfTheChange() {
+        // Arrange
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.DRAFT);
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        when(issuancePort.save(issuance)).thenReturn(Mono.just(issuance));
+
+        // Act
+        Mono<Void> withdrawn = issuanceService.withdrawIssuance(issuance.getIssuanceId().toString());
+
+        // Assert
+        StepVerifier.create(withdrawn).verifyComplete();
+        AuditEntry entry = auditTrail.staged().getFirst();
+        assertEquals(AuditEventType.ISSUANCE_WITHDRAWN, entry.type());
+        assertEquals(AuditResult.SUCCESS, entry.result());
+        assertEquals("issuance:" + issuance.getIssuanceId(), entry.resource());
+        assertTrue(entry.details().isEmpty());
+        assertTrue(auditTrail.stagedInNewTransaction().isEmpty());
+    }
+
+    @Test
+    void withdrawIssuance_issuanceNotInDraft_stagesDeniedInvalidStatusAndKeepsTheError() {
+        // Arrange
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.VALID);
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+
+        // Act
+        Mono<Void> withdrawn = issuanceService.withdrawIssuance(issuance.getIssuanceId().toString());
+
+        // Assert
+        StepVerifier.create(withdrawn).expectError(InvalidCredentialStatusTransitionException.class).verify();
+        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditEventType.ISSUANCE_WITHDRAWN, entry.type());
+        assertEquals(AuditResult.DENIED, entry.result());
+        assertEquals("InvalidStatus", entry.reason());
+        assertTrue(auditTrail.staged().isEmpty());
+    }
+
+    @Test
+    void withdrawIssuance_saveLosesARace_stagesNothingBecauseTheConflictHasNoCatalogueReason() {
+        // Arrange
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.DRAFT);
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        when(issuancePort.save(issuance)).thenReturn(Mono.error(staleVersion(issuance.getIssuanceId())));
+
+        // Act
+        Mono<Void> withdrawn = issuanceService.withdrawIssuance(issuance.getIssuanceId().toString());
+
+        // Assert
+        StepVerifier.create(withdrawn).expectErrorMatches(error -> isConflictDuring(error, "withdrawIssuance")).verify();
+        assertTrue(auditTrail.all().isEmpty());
+    }
+
+    @Test
+    void archiveIssuance_withdrawnProcess_stagesIssuanceArchivedInTheTransactionOfTheChange() {
+        // Arrange
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.WITHDRAWN);
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+        when(issuancePort.save(issuance)).thenReturn(Mono.just(issuance));
+
+        // Act
+        Mono<Void> archived = issuanceService.archiveIssuance(issuance.getIssuanceId().toString());
+
+        // Assert
+        StepVerifier.create(archived).verifyComplete();
+        AuditEntry entry = auditTrail.staged().getFirst();
+        assertEquals(AuditEventType.ISSUANCE_ARCHIVED, entry.type());
+        assertEquals(AuditResult.SUCCESS, entry.result());
+    }
+
+    @Test
+    void archiveIssuance_processStillInDraft_stagesDeniedInvalidStatus() {
+        // Arrange
+        Issuance issuance = issuanceWithStatus(CredentialStatusEnum.DRAFT);
+        when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
+
+        // Act
+        Mono<Void> archived = issuanceService.archiveIssuance(issuance.getIssuanceId().toString());
+
+        // Assert
+        StepVerifier.create(archived).expectError(InvalidCredentialStatusTransitionException.class).verify();
+        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditEventType.ISSUANCE_ARCHIVED, entry.type());
+        assertEquals("InvalidStatus", entry.reason());
     }
 
     @Test

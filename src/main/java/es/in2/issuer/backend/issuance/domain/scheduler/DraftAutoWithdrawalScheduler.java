@@ -1,14 +1,18 @@
 package es.in2.issuer.backend.issuance.domain.scheduler;
 
+import es.in2.issuer.backend.shared.domain.model.audit.AuditSource;
+import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.issuance.infrastructure.config.properties.IssuanceProperties;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
+import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -26,6 +30,8 @@ public class DraftAutoWithdrawalScheduler {
     private final IssuanceService issuanceService;
     private final IssuanceProperties issuanceProperties;
     private final TenantRegistryService tenantRegistryService;
+    private final AuditTrailPort auditTrail;
+    private final TransactionalOperator transactionalOperator;
 
     @Scheduled(cron = "${issuance.cleanup-cron}")
     public Mono<Void> withdrawStaleDrafts() {
@@ -36,13 +42,16 @@ public class DraftAutoWithdrawalScheduler {
         return tenantRegistryService.getActiveTenantSchemas()
                 .flatMapMany(Flux::fromIterable)
                 .flatMap(tenant ->
-                        issuanceService.findStaleDrafts(cutoff)
+                        auditTrail.asSystem(tenant, AuditSource.ISSUER, issuanceService.findStaleDrafts(cutoff)
                                 .flatMap(issuance -> {
                                     log.info("Withdrawing stale DRAFT issuance: {} in tenant {}", issuance.getIssuanceId(), tenant);
                                     issuance.setCredentialStatus(CredentialStatusEnum.WITHDRAWN);
-                                    return issuanceService.updateIssuance(issuance);
+                                    String issuanceId = issuance.getIssuanceId().toString();
+                                    return auditTrail.withCorrelationId(issuanceId, transactionalOperator.transactional(
+                                            issuanceService.updateIssuance(issuance)
+                                                    .then(Mono.defer(() -> auditTrail.stage(IssuanceAuditEvents.withdrawn(issuanceId))))));
                                 })
-                                .then()
+                                .then())
                                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
                                 .onErrorResume(e -> {
                                     log.warn("Scheduler skipped tenant '{}': {}", tenant, e.getMessage());
