@@ -1,5 +1,9 @@
 package es.in2.issuer.backend.shared.infrastructure.adapter.email;
 
+import com.google.zxing.BinaryBitmap;
+import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
+import com.google.zxing.common.HybridBinarizer;
+import com.google.zxing.qrcode.QRCodeReader;
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
 import es.in2.issuer.backend.shared.domain.model.dto.EmailBranding;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
@@ -22,6 +26,8 @@ import org.thymeleaf.context.Context;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -60,6 +66,8 @@ class EmailServiceImplTest {
                 .thenReturn(Mono.just("noreply@example.com"));
         lenient().when(tenantConfigService.getStringOrDefault("issuer.default_lang", ""))
                 .thenReturn(Mono.just("en"));
+        // Tenant without a wallet by default; the EUD-305 tests below configure one when they need it.
+        lenient().when(tenantConfigService.getString(WALLET_URL_KEY)).thenReturn(Mono.empty());
         lenient().when(emailBrandingResolver.resolve()).thenReturn(Mono.just(BRANDING));
         lenient().when(tenantRegistryService.getDisplayName("dome")).thenReturn(Mono.just("DOME Marketplace"));
         lenient().when(translationService.getLocaleOrDefault(anyString())).thenReturn("en");
@@ -154,29 +162,66 @@ class EmailServiceImplTest {
         assertNull(ctxCaptor.getValue().getVariable("txCode"));
     }
 
-    /**
-     * EUD-305: the link is decided by the caller (wallet link or standard form); the email service
-     * renders it as given and no longer requires {@code issuer.wallet_url}.
-     */
+    // ── EUD-305: the email builds the wallet link; the button and the QR carry it ──
+
     @Test
-    void sendCredentialOfferEmail_withStandardOfferUri_rendersItAsGivenWithoutReadingWalletUrl() {
-        MimeMessage mimeMessage = mock(MimeMessage.class);
-        when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq("credential-offer-email"), any(Context.class))).thenReturn("htmlContent");
-        String standardOfferUri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fcredential-offer%2Fnonce";
+    void sendCredentialOfferEmail_withWalletUrl_buttonAndQrOpenTheWallet() throws Exception {
+        when(tenantConfigService.getString(WALLET_URL_KEY)).thenReturn(Mono.just("https://wallet.example.com/wallet"));
 
-        StepVerifier.create(emailService.sendCredentialOfferEmail(
-                "to@example.com", standardOfferUri,
-                "https://example.com/reissue", "ACME Corp", null
-        )).verifyComplete();
+        SentOffer sent = sendAndCapture("credential-offer-email",
+                emailService.sendCredentialOfferEmail("to@example.com", STANDARD_OFFER_URI,
+                        "https://example.com/reissue", "ACME Corp", null));
 
-        verify(javaMailSender).send(mimeMessage);
-        ArgumentCaptor<Context> ctxCaptor = ArgumentCaptor.forClass(Context.class);
-        verify(templateEngine).process(eq("credential-offer-email"), ctxCaptor.capture());
-        assertEquals(standardOfferUri, ctxCaptor.getValue().getVariable("credentialOfferLink"));
-        assertNull(ctxCaptor.getValue().getVariable("walletInstallUrl"));
-        verify(tenantConfigService, never()).getStringOrThrow("issuer.wallet_url");
-        verify(tenantConfigService, never()).getString("issuer.wallet_url");
+        String walletLink = "https://wallet.example.com/wallet/protocol/callback?credential_offer_uri=" + ENCODED_OFFER_URL;
+        assertEquals(walletLink, sent.context().getVariable("walletLink"));
+        assertEquals(walletLink, sent.qrContent());
+    }
+
+    @Test
+    void sendCredentialOfferEmail_withoutWalletUrl_buttonAndQrCarryTheStandardOffer() throws Exception {
+        SentOffer sent = sendAndCapture("credential-offer-email",
+                emailService.sendCredentialOfferEmail("to@example.com", STANDARD_OFFER_URI,
+                        "https://example.com/reissue", "ACME Corp", null));
+
+        assertEquals(STANDARD_OFFER_URI, sent.context().getVariable("walletLink"));
+        assertEquals(STANDARD_OFFER_URI, sent.qrContent());
+        assertNull(sent.context().getVariable("walletInstallUrl"));
+    }
+
+    @Test
+    void sendCredentialOfferEmail_withTrailingSlashWalletUrl_doesNotDoubleTheSlash() throws Exception {
+        when(tenantConfigService.getString(WALLET_URL_KEY)).thenReturn(Mono.just("https://wallet.example.com/wallet/"));
+
+        SentOffer sent = sendAndCapture("credential-offer-email",
+                emailService.sendCredentialOfferEmail("to@example.com", STANDARD_OFFER_URI,
+                        "https://example.com/reissue", "ACME Corp", null));
+
+        assertEquals("https://wallet.example.com/wallet/protocol/callback?credential_offer_uri=" + ENCODED_OFFER_URL,
+                sent.context().getVariable("walletLink"));
+    }
+
+    @Test
+    void sendCredentialOfferEmail_withBlankWalletUrl_buttonCarriesTheStandardOffer() throws Exception {
+        when(tenantConfigService.getString(WALLET_URL_KEY)).thenReturn(Mono.just("  "));
+
+        SentOffer sent = sendAndCapture("credential-offer-email",
+                emailService.sendCredentialOfferEmail("to@example.com", STANDARD_OFFER_URI,
+                        "https://example.com/reissue", "ACME Corp", null));
+
+        assertEquals(STANDARD_OFFER_URI, sent.context().getVariable("walletLink"));
+    }
+
+    @Test
+    void sendBrandedCredentialOfferEmail_withWalletUrl_qrOpensTheWallet() throws Exception {
+        when(tenantConfigService.getString(WALLET_URL_KEY)).thenReturn(Mono.just("https://kpmg.example.com/wallet"));
+
+        SentOffer sent = sendAndCapture("credential-offer-email-v2",
+                emailService.sendBrandedCredentialOfferEmail("user@kpmg.com", "email.activation.subject",
+                                STANDARD_OFFER_URI, "https://example.com/reissue", "KPMG Spain")
+                        .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "kpmg")));
+
+        assertEquals("https://kpmg.example.com/wallet/protocol/callback?credential_offer_uri=" + ENCODED_OFFER_URL,
+                sent.qrContent());
     }
 
     @Test
@@ -321,7 +366,7 @@ class EmailServiceImplTest {
         assertEquals("KPMG Spain", ctx.getVariable("organization"));
         assertEquals("cid:qr-credential-offer.png", ctx.getVariable("qrImageCid"));
         assertEquals(reissueUrl, ctx.getVariable("reissueUrl"));
-        assertEquals(credentialOfferLink, ctx.getVariable("credentialOfferLink"));
+        assertEquals(credentialOfferLink, ctx.getVariable("walletLink"));
     }
 
     @Test
@@ -341,6 +386,34 @@ class EmailServiceImplTest {
     }
 
     // --- Subjects, branding and the KPMG path (email-ui-refactor) -----------------------------------
+
+    private static final String WALLET_URL_KEY = "issuer.wallet_url";
+    private static final String ENCODED_OFFER_URL =
+            "https%3A%2F%2Fissuer.example.com%2Fissuer%2Foid4vci%2Fv1%2Fcredential-offer%2Fnonce";
+    private static final String STANDARD_OFFER_URI =
+            "openid-credential-offer://?credential_offer_uri=" + ENCODED_OFFER_URL;
+
+    private record SentOffer(Context context, String qrContent) {}
+
+    /** Sends through a real MIME message and returns the template context and the decoded QR. */
+    private SentOffer sendAndCapture(String template, Mono<Void> send) throws Exception {
+        MimeMessage mimeMessage = new MimeMessage((Session) null);
+        when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq(template), any(Context.class))).thenReturn("<p>body</p>");
+
+        StepVerifier.create(send).verifyComplete();
+        mimeMessage.saveChanges();
+
+        ArgumentCaptor<Context> ctxCaptor = ArgumentCaptor.forClass(Context.class);
+        verify(templateEngine).process(eq(template), ctxCaptor.capture());
+        MimeMultipart mixed = (MimeMultipart) mimeMessage.getContent();
+        MimeMultipart related = (MimeMultipart) mixed.getBodyPart(0).getContent();
+        BufferedImage qr = ImageIO.read(related.getBodyPart(1).getInputStream());
+        String qrContent = new QRCodeReader()
+                .decode(new BinaryBitmap(new HybridBinarizer(new BufferedImageLuminanceSource(qr))))
+                .getText();
+        return new SentOffer(ctxCaptor.getValue(), qrContent);
+    }
 
     private static final String OFFER_DEEP_LINK =
             "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fexample.com";
@@ -497,7 +570,7 @@ class EmailServiceImplTest {
         Context ctx = ctxCaptor.getValue();
         assertNull(ctx.getVariable("branding"));
         assertNull(ctx.getVariable("tenantDisplayName"));
-        assertEquals(OFFER_DEEP_LINK, ctx.getVariable("credentialOfferLink"));
+        assertEquals(OFFER_DEEP_LINK, ctx.getVariable("walletLink"));
         assertNull(ctx.getVariable("walletInstallUrl"));
         verifyNoInteractions(emailBrandingResolver, tenantRegistryService);
     }
