@@ -1,10 +1,9 @@
 package es.in2.issuer.backend.signing.domain.model;
 
 /**
- * Why a signing operation failed. Names follow EUD-289 notas-tecnicas §4.
- *
- * <p>Provisional: the final contract (and whether this enum is the carrier) is decided
- * in phase B (decision D-7).
+ * Why a signing operation failed. Names follow the EUD-251 design (§9.4). {@code OTHER} is the
+ * fallback for failures that are not classified yet; the design's {@code CREDENTIALS_REJECTED}
+ * is not here because nothing in the current signing paths produces it.
  */
 public enum SigningFailureReason {
     NO_CONFIGURATION,
@@ -12,6 +11,6 @@ public enum SigningFailureReason {
     UNSUPPORTED_ALGORITHM,
     CERTIFICATE_INVALID,
     INVALID_RESPONSE,
-    SERVICE_UNAVAILABLE,
+    PROVIDER_UNAVAILABLE,
     OTHER
 }

@@ -125,11 +125,11 @@ class DelegatingSigningProviderImplAuditTest {
         when(configService.getActiveSigningConfig()).thenReturn(Mono.just(qtsp()));
         when(resolver.resolveFromValue("sign-hash")).thenReturn(qtspProvider);
         when(qtspProvider.sign(any())).thenReturn(Mono.error(
-                new SigningException(SigningFailureReason.SERVICE_UNAVAILABLE, "qtsp down: client-secret")));
+                new SigningException(SigningFailureReason.PROVIDER_UNAVAILABLE, "qtsp down: client-secret")));
 
         StepVerifier.create(signAs("sandbox")).expectError(SigningException.class).verify();
 
-        var details = failureDetails("SERVICE_UNAVAILABLE");
+        var details = failureDetails("PROVIDER_UNAVAILABLE");
         assertThat(details).containsEntry("modality", "qtsp").containsEntry("provider", "namirial")
                 .containsEntry("outcome", "failure").containsKey("durationMs");
         assertNoForbiddenData(details);

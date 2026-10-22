@@ -195,11 +195,11 @@ class TenantSigningConfigServiceImplTest {
     }
 
     @Test
-    void cacheProperties_defaultIs30Seconds_andNonPositiveIsRejected() {
+    void cacheProperties_defaultIs5Minutes_andNonPositiveIsRejected() {
         assertThat(new org.springframework.boot.context.properties.bind.Binder(
                 new org.springframework.boot.context.properties.source.MapConfigurationPropertySource())
                 .bindOrCreate("issuer.signing", SigningConfigCacheProperties.class).configCacheTtl())
-                .isEqualTo(Duration.ofSeconds(30));
+                .isEqualTo(Duration.ofMinutes(5));
         assertThat(new org.springframework.boot.context.properties.bind.Binder(
                 new org.springframework.boot.context.properties.source.MapConfigurationPropertySource(
                         java.util.Map.of("issuer.signing.config-cache-ttl", "5s")))

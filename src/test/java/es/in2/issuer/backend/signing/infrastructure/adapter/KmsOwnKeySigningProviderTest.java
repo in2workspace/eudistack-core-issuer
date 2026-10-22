@@ -213,7 +213,7 @@ class KmsOwnKeySigningProviderTest {
     @Test
     void sign_kmsReasonFromThePort_reachesTheCallerUnchanged() {
         for (SigningFailureReason reason : List.of(SigningFailureReason.KEY_UNUSABLE,
-                SigningFailureReason.SERVICE_UNAVAILABLE)) {
+                SigningFailureReason.PROVIDER_UNAVAILABLE)) {
             var failure = new KmsSigningException(reason, "kms failed");
             KmsSigningPort failing = new FakeKms(PKI.validP256Leaf().keyPair()) {
                 @Override

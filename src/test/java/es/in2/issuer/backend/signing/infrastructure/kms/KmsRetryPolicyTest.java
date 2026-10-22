@@ -27,29 +27,29 @@ import java.util.stream.Stream;
 
 import static es.in2.issuer.backend.signing.domain.model.SigningFailureReason.KEY_UNUSABLE;
 import static es.in2.issuer.backend.signing.domain.model.SigningFailureReason.OTHER;
-import static es.in2.issuer.backend.signing.domain.model.SigningFailureReason.SERVICE_UNAVAILABLE;
+import static es.in2.issuer.backend.signing.domain.model.SigningFailureReason.PROVIDER_UNAVAILABLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class KmsRetryPolicyTest {
 
     static Stream<Arguments> classificationTable() {
         return Stream.of(
-                Arguments.of("throttling by error code", serviceError(400, "ThrottlingException"), SERVICE_UNAVAILABLE, true),
-                Arguments.of("throttling by status 429", serviceError(429, "SomethingElse"), SERVICE_UNAVAILABLE, true),
-                Arguments.of("KmsInternalException", KmsInternalException.builder().message("x").build(), SERVICE_UNAVAILABLE, true),
-                Arguments.of("DependencyTimeoutException", DependencyTimeoutException.builder().message("x").build(), SERVICE_UNAVAILABLE, true),
-                Arguments.of("KeyUnavailableException", KeyUnavailableException.builder().message("x").build(), SERVICE_UNAVAILABLE, true),
-                Arguments.of("5xx service error", serviceError(503, "ServiceUnavailable"), SERVICE_UNAVAILABLE, true),
-                Arguments.of("ApiCallTimeoutException", ApiCallTimeoutException.create(1000), SERVICE_UNAVAILABLE, true),
-                Arguments.of("ApiCallAttemptTimeoutException", ApiCallAttemptTimeoutException.create(1000), SERVICE_UNAVAILABLE, true),
-                Arguments.of("Reactor TimeoutException", new TimeoutException("timeout"), SERVICE_UNAVAILABLE, true),
-                Arguments.of("IOException", new IOException("reset"), SERVICE_UNAVAILABLE, true),
+                Arguments.of("throttling by error code", serviceError(400, "ThrottlingException"), PROVIDER_UNAVAILABLE, true),
+                Arguments.of("throttling by status 429", serviceError(429, "SomethingElse"), PROVIDER_UNAVAILABLE, true),
+                Arguments.of("KmsInternalException", KmsInternalException.builder().message("x").build(), PROVIDER_UNAVAILABLE, true),
+                Arguments.of("DependencyTimeoutException", DependencyTimeoutException.builder().message("x").build(), PROVIDER_UNAVAILABLE, true),
+                Arguments.of("KeyUnavailableException", KeyUnavailableException.builder().message("x").build(), PROVIDER_UNAVAILABLE, true),
+                Arguments.of("5xx service error", serviceError(503, "ServiceUnavailable"), PROVIDER_UNAVAILABLE, true),
+                Arguments.of("ApiCallTimeoutException", ApiCallTimeoutException.create(1000), PROVIDER_UNAVAILABLE, true),
+                Arguments.of("ApiCallAttemptTimeoutException", ApiCallAttemptTimeoutException.create(1000), PROVIDER_UNAVAILABLE, true),
+                Arguments.of("Reactor TimeoutException", new TimeoutException("timeout"), PROVIDER_UNAVAILABLE, true),
+                Arguments.of("IOException", new IOException("reset"), PROVIDER_UNAVAILABLE, true),
                 Arguments.of("SdkClientException caused by IOException",
                         SdkClientException.builder().message("Unable to execute HTTP request").cause(new ConnectException("refused")).build(),
-                        SERVICE_UNAVAILABLE, true),
+                        PROVIDER_UNAVAILABLE, true),
                 Arguments.of("retryable cause behind CompletionException",
                         new CompletionException(new RuntimeException("wrapper", serviceError(400, "ThrottlingException"))),
-                        SERVICE_UNAVAILABLE, true),
+                        PROVIDER_UNAVAILABLE, true),
                 Arguments.of("DisabledException", DisabledException.builder().message("x").build(), KEY_UNUSABLE, false),
                 Arguments.of("KmsInvalidStateException", KmsInvalidStateException.builder().message("x").build(), KEY_UNUSABLE, false),
                 Arguments.of("NotFoundException", NotFoundException.builder().message("x").build(), KEY_UNUSABLE, false),
@@ -73,10 +73,10 @@ class KmsRetryPolicyTest {
 
     @Test
     void classifyAndIsRetryable_alreadyClassifiedSigningException_keepsReasonAndIsNotRetried() {
-        KmsSigningException exhausted = new KmsSigningException(SERVICE_UNAVAILABLE, "gave up", serviceError(400, "ThrottlingException"));
+        KmsSigningException exhausted = new KmsSigningException(PROVIDER_UNAVAILABLE, "gave up", serviceError(400, "ThrottlingException"));
         KmsSigningException invalid = new KmsSigningException(SigningFailureReason.INVALID_RESPONSE, "empty");
 
-        assertThat(KmsRetryPolicy.classify(exhausted)).isEqualTo(SERVICE_UNAVAILABLE);
+        assertThat(KmsRetryPolicy.classify(exhausted)).isEqualTo(PROVIDER_UNAVAILABLE);
         assertThat(KmsRetryPolicy.isRetryable(exhausted)).isFalse();
         assertThat(KmsRetryPolicy.classify(invalid)).isEqualTo(SigningFailureReason.INVALID_RESPONSE);
         assertThat(KmsRetryPolicy.isRetryable(invalid)).isFalse();

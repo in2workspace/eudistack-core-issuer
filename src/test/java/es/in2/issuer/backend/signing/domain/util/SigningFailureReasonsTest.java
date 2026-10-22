@@ -26,10 +26,10 @@ class SigningFailureReasonsTest {
 
     @Test
     void of_genericSigningWrapperAroundClassifiedCause_returnsCauseReason() {
-        var kms = new KmsSigningException(SigningFailureReason.SERVICE_UNAVAILABLE, "throttled");
+        var kms = new KmsSigningException(SigningFailureReason.PROVIDER_UNAVAILABLE, "throttled");
         var wrapper = new SigningException("Signing failed", kms);
 
-        assertThat(SigningFailureReasons.of(wrapper)).isEqualTo(SigningFailureReason.SERVICE_UNAVAILABLE);
+        assertThat(SigningFailureReasons.of(wrapper)).isEqualTo(SigningFailureReason.PROVIDER_UNAVAILABLE);
     }
 
     @Test

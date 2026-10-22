@@ -40,7 +40,7 @@ public final class KmsRetryPolicy {
     private KmsRetryPolicy() {}
 
     private enum Kind {
-        TRANSIENT(SigningFailureReason.SERVICE_UNAVAILABLE),
+        TRANSIENT(SigningFailureReason.PROVIDER_UNAVAILABLE),
         KEY_UNUSABLE(SigningFailureReason.KEY_UNUSABLE),
         UNKNOWN(SigningFailureReason.OTHER);
 
@@ -65,7 +65,7 @@ public final class KmsRetryPolicy {
     /**
      * Backoff retry for {@code maxRetries} retries (so {@code maxRetries + 1} attempts) over
      * retryable failures only. When retries run out the result is a
-     * {@link KmsSigningException} with {@code SERVICE_UNAVAILABLE}.
+     * {@link KmsSigningException} with {@code PROVIDER_UNAVAILABLE}.
      */
     public static Retry retrySpec(KmsSigningProperties properties, String operation, String keyRef) {
         int maxRetries = properties.maxRetries();
@@ -77,7 +77,7 @@ public final class KmsRetryPolicy {
                         "Retrying KMS {}. keyRef={} attempt={} of {}, reason={}",
                         operation, KmsKeyRefs.forLog(keyRef), rs.totalRetries() + 1, maxRetries, describe(rs.failure())))
                 .onRetryExhaustedThrow((spec, signal) -> new KmsSigningException(
-                        SigningFailureReason.SERVICE_UNAVAILABLE,
+                        SigningFailureReason.PROVIDER_UNAVAILABLE,
                         "KMS " + operation + " unavailable after " + signal.totalRetries()
                                 + " retries, last=" + describe(signal.failure()),
                         signal.failure()));

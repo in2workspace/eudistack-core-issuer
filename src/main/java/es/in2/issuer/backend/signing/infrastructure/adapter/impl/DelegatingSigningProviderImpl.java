@@ -96,7 +96,7 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
 
     /**
      * Coarse reason for QTSP-path failures (EUD-289 D-7): a reason already carried in the cause
-     * chain is kept; otherwise a recoverable (transient) failure is {@code SERVICE_UNAVAILABLE}.
+     * chain is kept; otherwise a recoverable (transient) failure is {@code PROVIDER_UNAVAILABLE}.
      * Anything else stays as it is and reads as {@code OTHER}.
      */
     private static Throwable classify(Throwable error) {
@@ -104,7 +104,7 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
                 || !QtspRetryPolicy.isRecoverable(error)) {
             return error;
         }
-        return new SigningException(SigningFailureReason.SERVICE_UNAVAILABLE, error.getMessage(), error);
+        return new SigningException(SigningFailureReason.PROVIDER_UNAVAILABLE, error.getMessage(), error);
     }
 
     private Mono<ActiveSigningConfig> loadActiveSigningConfig() {

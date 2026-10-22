@@ -7,11 +7,12 @@ import java.time.Duration;
 import java.util.Objects;
 
 /**
- * Cache of the per-tenant active signing configuration (EUD-289 D-5, provisional).
+ * Cache of the per-tenant active signing configuration. The default keeps the 5 minutes the
+ * EUD-251 design (AD-5) retains.
  */
 @ConfigurationProperties(prefix = "issuer.signing")
 public record SigningConfigCacheProperties(
-        @DefaultValue("30s") Duration configCacheTtl
+        @DefaultValue("5m") Duration configCacheTtl
 ) {
     public SigningConfigCacheProperties {
         Objects.requireNonNull(configCacheTtl, "issuer.signing.config-cache-ttl is required");

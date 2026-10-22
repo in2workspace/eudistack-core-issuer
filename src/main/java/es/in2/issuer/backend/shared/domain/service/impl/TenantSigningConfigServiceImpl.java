@@ -49,7 +49,8 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
                                    SigningConfigCacheProperties cacheProperties,
                                    Ticker ticker) {
         this.repository = repository;
-        // TODO(EUD-289): D-5 decided provisionally (option C, short TTL), pending confirmation. During the TTL an instance can keep using a replaced or withdrawn configuration (AC-15, EC-02). See notas-tecnicas.md §5, "Nota de D-5".
+        // EUD-251 design AD-5: during the TTL (5 min by default) an instance can keep using a replaced
+        // or withdrawn configuration. Accepted deviation from AC-15 and EC-02, see the design §16.
         this.configCache = Caffeine.newBuilder()
                 .expireAfterWrite(cacheProperties.configCacheTtl())
                 .ticker(ticker)

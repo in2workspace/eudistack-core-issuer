@@ -82,7 +82,7 @@ class KmsSigningAdapterTest {
 
         StepVerifier.withVirtualTime(() -> adapter.sign(KEY_REF, DIGEST))
                 .thenAwait(WAIT_ALL_RETRIES)
-                .expectErrorSatisfies(ex -> assertReason(ex, SigningFailureReason.SERVICE_UNAVAILABLE))
+                .expectErrorSatisfies(ex -> assertReason(ex, SigningFailureReason.PROVIDER_UNAVAILABLE))
                 .verify();
 
         verify(client, times(4)).sign(any(SignRequest.class));
@@ -134,7 +134,7 @@ class KmsSigningAdapterTest {
                 .thenAwait(Duration.ofSeconds(2))
                 .then(() -> verify(client, times(2)).sign(any(SignRequest.class)))
                 .thenAwait(WAIT_ALL_RETRIES)
-                .expectErrorSatisfies(ex -> assertReason(ex, SigningFailureReason.SERVICE_UNAVAILABLE))
+                .expectErrorSatisfies(ex -> assertReason(ex, SigningFailureReason.PROVIDER_UNAVAILABLE))
                 .verify();
 
         verify(client, times(4)).sign(any(SignRequest.class));

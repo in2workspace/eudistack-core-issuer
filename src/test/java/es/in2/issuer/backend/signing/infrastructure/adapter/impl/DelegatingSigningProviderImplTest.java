@@ -212,7 +212,7 @@ class DelegatingSigningProviderImplTest {
 
         StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
                 .expectErrorSatisfies(ex -> {
-                    assertEquals(SigningFailureReason.SERVICE_UNAVAILABLE, ((SigningException) ex).getReason());
+                    assertEquals(SigningFailureReason.PROVIDER_UNAVAILABLE, ((SigningException) ex).getReason());
                     assertSame(recoverable, ex.getCause());
                     assertEquals("Signing failed", ex.getMessage());
                 })
@@ -226,7 +226,7 @@ class DelegatingSigningProviderImplTest {
         StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
                 .expectErrorSatisfies(ex -> {
                     assertInstanceOf(SigningException.class, ex);
-                    assertEquals(SigningFailureReason.SERVICE_UNAVAILABLE, ((SigningException) ex).getReason());
+                    assertEquals(SigningFailureReason.PROVIDER_UNAVAILABLE, ((SigningException) ex).getReason());
                 })
                 .verify();
     }
@@ -279,7 +279,7 @@ class DelegatingSigningProviderImplTest {
     @Test
     void sign_ownKeyModality_kmsReasonReachesTheCallerUnchanged() {
         var ownKey = ownKey("arn:aws:kms:eu-west-1:111122223333:key/k");
-        var kms = new KmsSigningException(SigningFailureReason.SERVICE_UNAVAILABLE, "kms down");
+        var kms = new KmsSigningException(SigningFailureReason.PROVIDER_UNAVAILABLE, "kms down");
         when(tenantSigningConfigService.getActiveSigningConfig())
                 .thenReturn(Mono.just(ActiveSigningConfig.ownKey(ownKey)));
         when(kmsOwnKeySigningProvider.sign(any(), eq(ownKey))).thenReturn(Mono.error(kms));
