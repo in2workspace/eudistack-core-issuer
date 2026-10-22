@@ -19,7 +19,7 @@ class StoredCertificateInfoTest {
 
     static OwnKeySigningConfig configOf(List<String> chain) {
         return new OwnKeySigningConfig("arn:aws:kms:eu-west-1:111122223333:key/k", "ES256", chain,
-                null, null, null, null, null, "a".repeat(64));
+                "a".repeat(64));
     }
 
     static String b64(X509Certificate certificate) {

@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.signing.domain.model;
 
-import java.time.Instant;
 import java.util.List;
 
 /**
@@ -16,11 +15,6 @@ public record OwnKeySigningConfig(
         String kmsKeyRef,
         String algorithm,
         List<String> certificateChain,
-        String certificateSubject,
-        String certificateIssuer,
-        String certificateSerial,
-        Instant certificateNotBefore,
-        Instant certificateNotAfter,
         String spkiSha256
 ) {
     public static final String ES256 = "ES256";

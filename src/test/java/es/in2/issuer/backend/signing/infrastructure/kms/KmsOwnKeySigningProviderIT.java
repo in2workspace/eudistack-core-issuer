@@ -11,7 +11,6 @@ import es.in2.issuer.backend.signing.domain.service.impl.HashGeneratorServiceImp
 import es.in2.issuer.backend.signing.domain.service.impl.JadesHeaderBuilderServiceImpl;
 import es.in2.issuer.backend.signing.domain.spi.KmsSigningPort;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
-import es.in2.issuer.backend.signing.domain.util.PublicKeyFingerprints;
 import es.in2.issuer.backend.signing.infrastructure.adapter.KmsOwnKeySigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningProperties;
 import es.in2.issuer.backend.signing.infrastructure.properties.KmsSigningProperties;
@@ -27,15 +26,19 @@ import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.services.kms.KmsAsyncClient;
 import software.amazon.awssdk.services.kms.model.CreateKeyRequest;
+import software.amazon.awssdk.services.kms.model.GetPublicKeyRequest;
 import software.amazon.awssdk.services.kms.model.KeySpec;
 import software.amazon.awssdk.services.kms.model.KeyUsageType;
 
 import java.security.KeyFactory;
+import java.security.MessageDigest;
+import java.security.cert.X509Certificate;
 import java.security.interfaces.ECPublicKey;
 import java.security.spec.X509EncodedKeySpec;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.HexFormat;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -81,12 +84,13 @@ class KmsOwnKeySigningProviderIT {
                         .build())
                 .get().keyMetadata().keyId();
         KmsSigningPort adapter = new KmsSigningAdapter(client, properties);
-        byte[] spki = adapter.publicKey(keyId).block(Duration.ofSeconds(30));
+        byte[] spki = client.getPublicKey(GetPublicKeyRequest.builder().keyId(keyId).build())
+                .get().publicKey().asByteArray();
         ECPublicKey kmsPublicKey = (ECPublicKey) KeyFactory.getInstance("EC").generatePublic(new X509EncodedKeySpec(spki));
         var certificate = new OwnKeyTestPki().certificateFor(kmsPublicKey);
         var config = new OwnKeySigningConfig(keyId, "ES256",
                 List.of(Base64.getEncoder().encodeToString(certificate.getEncoded())),
-                null, null, null, null, null, PublicKeyFingerprints.spkiSha256(certificate));
+                spkiSha256Hex(certificate));
 
         @SuppressWarnings("unchecked")
         ObjectProvider<KmsSigningPort> port = mock(ObjectProvider.class);
@@ -103,5 +107,10 @@ class KmsOwnKeySigningProviderIT {
 
         assertThat(result).isNotNull();
         assertThat(SignedJWT.parse(result.data()).verify(new ECDSAVerifier(kmsPublicKey))).isTrue();
+    }
+
+    private static String spkiSha256Hex(X509Certificate certificate) throws Exception {
+        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(certificate.getPublicKey().getEncoded()));
     }
 }

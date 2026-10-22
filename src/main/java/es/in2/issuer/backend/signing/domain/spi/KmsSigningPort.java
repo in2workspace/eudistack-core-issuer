@@ -16,10 +16,4 @@ public interface KmsSigningPort {
      * @return the ECDSA signature, ASN.1 DER encoded
      */
     Mono<byte[]> sign(String keyRef, byte[] sha256Digest);
-
-    /**
-     * @param keyRef key identifier understood by the KMS
-     * @return the public key as DER SubjectPublicKeyInfo
-     */
-    Mono<byte[]> publicKey(String keyRef);
 }

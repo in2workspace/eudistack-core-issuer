@@ -48,21 +48,6 @@ public record TenantSigningConfig(
         @Column("own_key_certificate_chain")
         String ownKeyCertificateChain,
 
-        @Column("own_key_cert_subject")
-        String ownKeyCertSubject,
-
-        @Column("own_key_cert_issuer")
-        String ownKeyCertIssuer,
-
-        @Column("own_key_cert_serial")
-        String ownKeyCertSerial,
-
-        @Column("own_key_cert_not_before")
-        Instant ownKeyCertNotBefore,
-
-        @Column("own_key_cert_not_after")
-        Instant ownKeyCertNotAfter,
-
         @Column("own_key_spki_sha256")
         String ownKeySpkiSha256,
 

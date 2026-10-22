@@ -8,8 +8,6 @@ import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.kms.KmsAsyncClient;
-import software.amazon.awssdk.services.kms.model.GetPublicKeyRequest;
-import software.amazon.awssdk.services.kms.model.GetPublicKeyResponse;
 import software.amazon.awssdk.services.kms.model.MessageType;
 import software.amazon.awssdk.services.kms.model.SignRequest;
 import software.amazon.awssdk.services.kms.model.SignResponse;
@@ -23,7 +21,6 @@ import software.amazon.awssdk.services.kms.model.SigningAlgorithmSpec;
 public class KmsSigningAdapter implements KmsSigningPort {
 
     private static final String OP_SIGN = "Sign";
-    private static final String OP_GET_PUBLIC_KEY = "GetPublicKey";
 
     private final KmsAsyncClient client;
     private final KmsSigningProperties properties;
@@ -48,17 +45,6 @@ public class KmsSigningAdapter implements KmsSigningPort {
                 .onErrorMap(ex -> failure(OP_SIGN, keyRef, ex));
     }
 
-    @Override
-    public Mono<byte[]> publicKey(String keyRef) {
-        return Mono.fromFuture(() -> client.getPublicKey(GetPublicKeyRequest.builder()
-                        .keyId(keyRef)
-                        .build()))
-                .timeout(properties.callTimeout())
-                .map(this::validPublicKey)
-                .retryWhen(KmsRetryPolicy.retrySpec(properties, OP_GET_PUBLIC_KEY, keyRef))
-                .onErrorMap(ex -> failure(OP_GET_PUBLIC_KEY, keyRef, ex));
-    }
-
     private byte[] validSignature(SignResponse response) {
         if (response.signature() == null || response.signature().asByteArrayUnsafe().length == 0) {
             throw new KmsSigningException(SigningFailureReason.INVALID_RESPONSE,
@@ -69,14 +55,6 @@ public class KmsSigningAdapter implements KmsSigningPort {
                     "KMS Sign returned an unexpected signing algorithm: " + response.signingAlgorithmAsString());
         }
         return response.signature().asByteArray();
-    }
-
-    private byte[] validPublicKey(GetPublicKeyResponse response) {
-        if (response.publicKey() == null || response.publicKey().asByteArrayUnsafe().length == 0) {
-            throw new KmsSigningException(SigningFailureReason.INVALID_RESPONSE,
-                    "KMS GetPublicKey returned an empty public key");
-        }
-        return response.publicKey().asByteArray();
     }
 
     private KmsSigningException failure(String operation, String keyRef, Throwable error) {

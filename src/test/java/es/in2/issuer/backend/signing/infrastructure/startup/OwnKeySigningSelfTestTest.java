@@ -70,7 +70,7 @@ class OwnKeySigningSelfTestTest {
 
     private static OwnKeySigningConfig ownKey() {
         return new OwnKeySigningConfig("arn:aws:kms:eu-west-1:111122223333:key/secret-ref", "ES256",
-                List.of("MIIB-leaf"), null, null, null, null, null, "a".repeat(64));
+                List.of("MIIB-leaf"), "a".repeat(64));
     }
 
     private static ActiveSigningConfig qtsp() {

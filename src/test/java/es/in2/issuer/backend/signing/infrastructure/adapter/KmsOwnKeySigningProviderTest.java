@@ -67,11 +67,6 @@ class KmsOwnKeySigningProviderTest {
                 return Mono.error(e);
             }
         }
-
-        @Override
-        public Mono<byte[]> publicKey(String keyRef) {
-            return Mono.just(signingKey.getPublic().getEncoded());
-        }
     }
 
     private FakeKms kms;
@@ -98,7 +93,7 @@ class KmsOwnKeySigningProviderTest {
         try {
             return new OwnKeySigningConfig(KEY_REF, "ES256",
                     List.of(Base64.getEncoder().encodeToString(leaf.certificate().getEncoded())),
-                    null, null, null, null, null, "a".repeat(64));
+                    "a".repeat(64));
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }

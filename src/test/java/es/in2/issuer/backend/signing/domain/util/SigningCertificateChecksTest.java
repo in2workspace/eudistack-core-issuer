@@ -74,35 +74,6 @@ class SigningCertificateChecksTest {
     }
 
     @Test
-    void matchesPublicKey_certificateKey_returnsTrue() {
-        var leaf = pki.validP256Leaf();
-
-        assertThat(SigningCertificateChecks.matchesPublicKey(leaf.certificate(), leaf.publicKeyDer())).isTrue();
-    }
-
-    @Test
-    void matchesPublicKey_rsaCertificateKey_returnsTrue() {
-        var leaf = pki.rsaLeaf();
-
-        assertThat(SigningCertificateChecks.matchesPublicKey(leaf.certificate(), leaf.publicKeyDer())).isTrue();
-    }
-
-    @Test
-    void matchesPublicKey_unrelatedKey_returnsFalse() {
-        assertThat(SigningCertificateChecks.matchesPublicKey(
-                pki.validP256Leaf().certificate(), pki.unrelatedPublicKeyDer())).isFalse();
-    }
-
-    @Test
-    void matchesPublicKey_malformedDer_throws() {
-        var certificate = pki.validP256Leaf().certificate();
-        byte[] garbage = {0x01, 0x02};
-
-        assertThatThrownBy(() -> SigningCertificateChecks.matchesPublicKey(certificate, garbage))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
     void checks_nullArguments_throw() {
         var certificate = pki.validP256Leaf().certificate();
 
@@ -113,10 +84,6 @@ class SigningCertificateChecksTest {
         assertThatThrownBy(() -> SigningCertificateChecks.isValidAt(null, Instant.now()))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> SigningCertificateChecks.isValidAt(certificate, null))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> SigningCertificateChecks.matchesPublicKey(null, new byte[1]))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> SigningCertificateChecks.matchesPublicKey(certificate, null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

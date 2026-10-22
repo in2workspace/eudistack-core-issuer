@@ -57,13 +57,13 @@ class TenantSigningConfigServiceImplTest {
                 "{\"url\":\"https://qtsp.test\",\"credentialId\":\"cred-1\",\"credentialPwd\":\"pwd\","
                         + "\"clientId\":\"cid\",\"clientSecret\":\"secret\",\"certCacheTtl\":\"PT10M\"}",
                 null, null, "qtsp", "active", null, null,
-                null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null);
     }
 
     private static TenantSigningConfig ownKeyRow(String algorithm, String chainJson, String keyRef) {
         return new TenantSigningConfig(UUID.randomUUID(), "aws-kms", null, null, null, null,
                 "own_key", "active", null, null,
-                keyRef, algorithm, chainJson, "CN=leaf", "CN=ca", "01A", NOT_BEFORE, NOT_AFTER, SPKI, null, null);
+                keyRef, algorithm, chainJson, SPKI, null, null);
     }
 
     private Mono<ActiveSigningConfig> load(String tenant) {
@@ -86,7 +86,7 @@ class TenantSigningConfigServiceImplTest {
     }
 
     @Test
-    void getActiveSigningConfig_ownKeyRow_mapsChainAndMetadataWithoutQtspDto() {
+    void getActiveSigningConfig_ownKeyRow_mapsChainAndSpkiWithoutQtspDto() {
         when(repository.findFirstByStatusOrderByCreatedAtDesc("active"))
                 .thenReturn(Mono.just(ownKeyRow("ES256", "[\"MIIB-leaf\",\"MIIB-intermediate\"]", KMS_REF)));
 
@@ -98,11 +98,6 @@ class TenantSigningConfigServiceImplTest {
                     assertThat(ownKey.kmsKeyRef()).isEqualTo(KMS_REF);
                     assertThat(ownKey.algorithm()).isEqualTo("ES256");
                     assertThat(ownKey.certificateChain()).containsExactly("MIIB-leaf", "MIIB-intermediate");
-                    assertThat(ownKey.certificateSubject()).isEqualTo("CN=leaf");
-                    assertThat(ownKey.certificateIssuer()).isEqualTo("CN=ca");
-                    assertThat(ownKey.certificateSerial()).isEqualTo("01A");
-                    assertThat(ownKey.certificateNotBefore()).isEqualTo(NOT_BEFORE);
-                    assertThat(ownKey.certificateNotAfter()).isEqualTo(NOT_AFTER);
                     assertThat(ownKey.spkiSha256()).isEqualTo(SPKI);
                 })
                 .verifyComplete();
@@ -156,7 +151,7 @@ class TenantSigningConfigServiceImplTest {
         TenantSigningConfig row = qtspRow();
         var unknown = new TenantSigningConfig(row.id(), row.provider(), row.cscApiVersion(),
                 row.providerSpecificConfig(), null, null, "hsm", "active", null, null,
-                null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null);
         when(repository.findFirstByStatusOrderByCreatedAtDesc("active")).thenReturn(Mono.just(unknown));
 
         StepVerifier.create(load("t1"))

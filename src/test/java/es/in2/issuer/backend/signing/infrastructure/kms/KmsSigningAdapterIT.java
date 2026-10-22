@@ -19,6 +19,7 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.services.kms.KmsAsyncClient;
 import software.amazon.awssdk.services.kms.model.CreateKeyRequest;
 import software.amazon.awssdk.services.kms.model.DisableKeyRequest;
+import software.amazon.awssdk.services.kms.model.GetPublicKeyRequest;
 import software.amazon.awssdk.services.kms.model.KeySpec;
 import software.amazon.awssdk.services.kms.model.KeyUsageType;
 import software.amazon.awssdk.services.kms.model.SignRequest;
@@ -76,7 +77,8 @@ class KmsSigningAdapterIT {
         byte[] digest = MessageDigest.getInstance("SHA-256").digest(message);
 
         byte[] der = adapter.sign(keyId, digest).block(Duration.ofSeconds(30));
-        byte[] spki = adapter.publicKey(keyId).block(Duration.ofSeconds(30));
+        byte[] spki = plainClient.getPublicKey(GetPublicKeyRequest.builder().keyId(keyId).build())
+                .get().publicKey().asByteArray();
 
         PublicKey publicKey = KeyFactory.getInstance("EC").generatePublic(new X509EncodedKeySpec(spki));
         Signature overDigest = Signature.getInstance("NONEwithECDSA");

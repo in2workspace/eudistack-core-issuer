@@ -69,18 +69,6 @@ public final class SigningCertificateChecks {
                 && !at.isAfter(certificate.getNotAfter().toInstant());
     }
 
-    /**
-     * {@code true} if the certificate's public key is the key encoded in {@code spkiDer}
-     * (compared by SPKI SHA-256, see {@link PublicKeyFingerprints}).
-     *
-     * @throws IllegalArgumentException if the certificate is null or {@code spkiDer} is not a valid SPKI
-     */
-    public static boolean matchesPublicKey(X509Certificate certificate, byte[] spkiDer) {
-        requireCertificate(certificate);
-        return PublicKeyFingerprints.spkiSha256(certificate)
-                .equals(PublicKeyFingerprints.spkiSha256(spkiDer));
-    }
-
     private static void requireCertificate(X509Certificate certificate) {
         if (certificate == null) {
             throw new IllegalArgumentException("Certificate is required");

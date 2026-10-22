@@ -11,8 +11,8 @@
 --   per tenant schema (partial unique index).
 -- * own-key block: no secrets, only the KMS key ARN, the certificate chain as
 --   the exact JWS `x5c` value (JSONB array of base64 DER certificates, leaf
---   first, root excluded), certificate metadata and the SPKI SHA-256
---   (lowercase hex, same as PublicKeyFingerprints) used for uniqueness checks.
+--   first, root excluded; identity and validity are read from it) and the
+--   SPKI SHA-256 (lowercase hex) used for uniqueness checks.
 --
 -- Existing rows: the newest one (created_at, then id) stays qtsp/active; any
 -- older row (seeds run without a unique constraint and have left duplicates in
@@ -31,11 +31,6 @@ ALTER TABLE tenant_signing_config
     ADD COLUMN IF NOT EXISTS own_key_kms_key_ref        VARCHAR(2048),
     ADD COLUMN IF NOT EXISTS own_key_algorithm          VARCHAR(20),
     ADD COLUMN IF NOT EXISTS own_key_certificate_chain  JSONB,
-    ADD COLUMN IF NOT EXISTS own_key_cert_subject       VARCHAR(1000),
-    ADD COLUMN IF NOT EXISTS own_key_cert_issuer        VARCHAR(1000),
-    ADD COLUMN IF NOT EXISTS own_key_cert_serial        VARCHAR(128),
-    ADD COLUMN IF NOT EXISTS own_key_cert_not_before    TIMESTAMPTZ,
-    ADD COLUMN IF NOT EXISTS own_key_cert_not_after     TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS own_key_spki_sha256        CHAR(64),
     ADD COLUMN IF NOT EXISTS own_key_loaded_at          TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS own_key_deleted_at         TIMESTAMPTZ;

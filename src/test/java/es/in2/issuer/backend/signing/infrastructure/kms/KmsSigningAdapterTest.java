@@ -12,8 +12,6 @@ import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.kms.KmsAsyncClient;
 import software.amazon.awssdk.services.kms.model.DisabledException;
-import software.amazon.awssdk.services.kms.model.GetPublicKeyRequest;
-import software.amazon.awssdk.services.kms.model.GetPublicKeyResponse;
 import software.amazon.awssdk.services.kms.model.KmsInvalidStateException;
 import software.amazon.awssdk.services.kms.model.MessageType;
 import software.amazon.awssdk.services.kms.model.NotFoundException;
@@ -37,7 +35,6 @@ class KmsSigningAdapterTest {
     private static final String KEY_REF = "alias/cgcom-test";
     private static final byte[] DIGEST = new byte[32];
     private static final byte[] SIGNATURE = {0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x02};
-    private static final byte[] SPKI = {0x30, 0x03, 0x01, 0x02, 0x03};
     private static final Duration WAIT_ALL_RETRIES = Duration.ofMinutes(3);
 
     private KmsAsyncClient client;
@@ -198,40 +195,6 @@ class KmsSigningAdapterTest {
                 .verify();
 
         verify(client, times(1)).sign(any(SignRequest.class));
-    }
-
-    @Test
-    void publicKey_ok_returnsSpkiDer() {
-        GetPublicKeyResponse response = GetPublicKeyResponse.builder().publicKey(SdkBytes.fromByteArray(SPKI)).build();
-        when(client.getPublicKey(any(GetPublicKeyRequest.class))).thenReturn(CompletableFuture.completedFuture(response));
-
-        StepVerifier.withVirtualTime(() -> adapter.publicKey(KEY_REF))
-                .expectNextMatches(spki -> java.util.Arrays.equals(spki, SPKI))
-                .verifyComplete();
-    }
-
-    @Test
-    void publicKey_emptyKey_failsInvalidResponse() {
-        GetPublicKeyResponse response = GetPublicKeyResponse.builder().publicKey(SdkBytes.fromByteArray(new byte[0])).build();
-        when(client.getPublicKey(any(GetPublicKeyRequest.class))).thenReturn(CompletableFuture.completedFuture(response));
-
-        StepVerifier.withVirtualTime(() -> adapter.publicKey(KEY_REF))
-                .expectErrorSatisfies(ex -> assertReason(ex, SigningFailureReason.INVALID_RESPONSE))
-                .verify();
-    }
-
-    @Test
-    void publicKey_throttledOnceThenOk_retries() {
-        GetPublicKeyResponse response = GetPublicKeyResponse.builder().publicKey(SdkBytes.fromByteArray(SPKI)).build();
-        when(client.getPublicKey(any(GetPublicKeyRequest.class)))
-                .thenReturn(failed(throttling()), CompletableFuture.completedFuture(response));
-
-        StepVerifier.withVirtualTime(() -> adapter.publicKey(KEY_REF))
-                .thenAwait(WAIT_ALL_RETRIES)
-                .expectNextCount(1)
-                .verifyComplete();
-
-        verify(client, times(2)).getPublicKey(any(GetPublicKeyRequest.class));
     }
 
     private void assertNotRetried(Throwable failure) {

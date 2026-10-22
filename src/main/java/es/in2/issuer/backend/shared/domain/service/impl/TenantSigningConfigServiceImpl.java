@@ -109,11 +109,6 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
                     row.ownKeyKmsKeyRef(),
                     row.ownKeyAlgorithm(),
                     chain,
-                    row.ownKeyCertSubject(),
-                    row.ownKeyCertIssuer(),
-                    row.ownKeyCertSerial(),
-                    row.ownKeyCertNotBefore(),
-                    row.ownKeyCertNotAfter(),
                     row.ownKeySpkiSha256());
         } catch (IllegalArgumentException | JsonProcessingException e) {
             log.error("Active own-key signing config of tenant '{}' is invalid: {}",
