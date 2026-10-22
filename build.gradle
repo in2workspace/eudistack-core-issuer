@@ -57,7 +57,7 @@ dependencies {
     implementation 'com.networknt:json-schema-validator:1.5.6'
 
     // --- Serialization ---
-    implementation 'com.upokecenter:cbor:4.5.4'
+    implementation 'com.upokecenter:cbor:4.5.6'
     implementation 'org.apache.commons:commons-compress:1.28.0'
     implementation 'io.github.ehn-digital-green-development:base45:0.0.3'
 
