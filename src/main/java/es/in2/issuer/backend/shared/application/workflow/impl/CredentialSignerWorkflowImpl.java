@@ -7,16 +7,19 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.upokecenter.cbor.CBORObject;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.Base45Exception;
+import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.domain.util.sdjwt.Disclosure;
 import es.in2.issuer.backend.shared.domain.util.sdjwt.SdJwtPayloadBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
+import es.in2.issuer.backend.signing.domain.audit.SigningAuditEvents.SignedObject;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.audit.SignatureAttemptRecorder;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +46,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
     private final GenericCredentialBuilder genericCredentialBuilder;
     private final CredentialProfileRegistry credentialProfileRegistry;
     private final SdJwtPayloadBuilder sdJwtPayloadBuilder;
+    private final SignatureAttemptRecorder signatureAttemptRecorder;
 
     @Observed(name = "issuance.sign-credential", contextualName = "issuance-sign-credential")
     @Override
@@ -82,8 +86,9 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                         .typ(VC_JWT_TYP)
                         .build();
 
-                return delegatingSigningProvider.sign(signingRequest)
-                        .map(SigningResult::data);
+                return signatureAttemptRecorder.record(IssuanceAuditEvents.resourceOf(issuanceId),
+                        SignedObject.ATTESTATION,
+                        delegatingSigningProvider.sign(signingRequest).map(SigningResult::data));
 
 
             } else if (format.equals(CWT_VC)) {
@@ -108,8 +113,9 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                 .data(cborBase64)
                 .context(new SigningContext(token, issuanceId, email))
                 .build();
-        return delegatingSigningProvider.sign(signingRequest)
-                .map(SigningResult::data)
+        return signatureAttemptRecorder.record(IssuanceAuditEvents.resourceOf(issuanceId),
+                        SignedObject.ATTESTATION,
+                        delegatingSigningProvider.sign(signingRequest).map(SigningResult::data))
                 .map(Base64.getDecoder()::decode);
     }
 
@@ -140,9 +146,11 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                             .context(new SigningContext(token, issuanceId, email))
                             .typ(DC_SD_JWT)
                             .build();
-                    return delegatingSigningProvider.sign(signingRequest)
-                            .map(result -> {
-                                StringBuilder sb = new StringBuilder(result.data());
+                    return signatureAttemptRecorder.record(IssuanceAuditEvents.resourceOf(issuanceId),
+                                    SignedObject.ATTESTATION,
+                                    delegatingSigningProvider.sign(signingRequest).map(SigningResult::data))
+                            .map(signedJws -> {
+                                StringBuilder sb = new StringBuilder(signedJws);
                                 for (Disclosure d : components.disclosures()) {
                                     sb.append('~').append(d.encoded());
                                 }
