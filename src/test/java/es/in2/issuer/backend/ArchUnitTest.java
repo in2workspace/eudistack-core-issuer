@@ -42,6 +42,8 @@ class ArchUnitTest {
                     BASE_PACKAGE + ".shared.infrastructure.config.RateLimitFilter",
                     BASE_PACKAGE + ".shared.infrastructure.config.FlywayConfig",
                     BASE_PACKAGE + ".shared.infrastructure.config.IdempotencyFilter",
+                    // Environment label (email-ui-refactor): WebFilter discovered via component scanning
+                    BASE_PACKAGE + ".shared.infrastructure.config.EnvironmentLabelWebFilter",
                     BASE_PACKAGE + ".shared.infrastructure.config.PayloadSizeLimitFilter",
                     // Domain classes used only within a single bounded context (pending refactoring)
                     BASE_PACKAGE + ".shared.domain.exception.MissingEmailOwnerException",

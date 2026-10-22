@@ -15,6 +15,7 @@ import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
+import es.in2.issuer.backend.shared.infrastructure.config.tenantconfig.TenantCustomDomainsLoader;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import org.junit.jupiter.api.Test;
@@ -74,6 +75,9 @@ class CredentialCatalogControllerTest {
 
     @MockitoBean
     private TenantRegistryService tenantRegistryService;
+
+    @MockitoBean
+    private TenantCustomDomainsLoader tenantCustomDomainsLoader;
 
     @Test
     void getCatalog_asTenantAdmin_returns200WithEntries() {

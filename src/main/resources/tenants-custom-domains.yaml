@@ -9,7 +9,13 @@
 #   id        - tenant identifier (must match the X-Tenant / tenantDomain value)
 #   issuer    - canonical public issuer base URL (informational; not used in URL resolution)
 #   verifiers - canonical public verifier base URLs (used by expectedVerifierBaseUrls()); list, at least one required
-#   wallet    - canonical public wallet base URL (for future use)
+#   environmentLabel - optional; short label of a non-production environment (e.g. SBX, Dev, Dev2),
+#               prefixed as "[label] " to the subject of the credential-offer email when the request
+#               arrives through this entry's issuer host. Omit it in production.
+#
+# Any other field (e.g. a legacy `wallet`) is ignored: the issuer does not
+# resolve wallet URLs (EUD-305). The wallet used in credential offer emails is
+# the tenant config key `issuer.wallet_url`.
 #
 # Path configurable via: app.tenant-custom-domains.path
 # Override via APP_TENANTS_CUSTOM_DOMAINS_PATH to load an external file.

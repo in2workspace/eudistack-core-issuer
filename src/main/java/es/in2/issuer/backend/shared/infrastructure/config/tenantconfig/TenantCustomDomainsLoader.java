@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config.tenantconfig;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
@@ -35,7 +36,7 @@ public class TenantCustomDomainsLoader {
     private final ResourceLoader resourceLoader;
     private final String configPath;
     private Map<String, TenantEntry> entries = Map.of();
-    private Map<String, String> walletUrlByIssuerHost = Map.of();
+    private Map<String, String> environmentLabelByIssuerHost = Map.of();
 
     public TenantCustomDomainsLoader(
             ResourceLoader resourceLoader,
@@ -59,22 +60,16 @@ public class TenantCustomDomainsLoader {
             List<TenantEntry> tenants = data.tenants() != null ? data.tenants() : List.of();
             validate(tenants);
             Map<String, TenantEntry> index = new HashMap<>();
-            Map<String, String> walletIndex = new HashMap<>();
+            Map<String, String> labelIndex = new HashMap<>();
             for (TenantEntry entry : tenants) {
                 TenantEntry previous = index.putIfAbsent(entry.id(), entry);
                 if (previous != null) {
                     throw new IllegalArgumentException("Duplicate tenant id '" + entry.id() + "'");
                 }
-                String issuerHost = hostOf(entry.issuer());
-                if (issuerHost != null && entry.wallet() != null) {
-                    String prevWallet = walletIndex.putIfAbsent(issuerHost, entry.wallet());
-                    if (prevWallet != null) {
-                        throw new IllegalArgumentException("Duplicate issuer host '" + issuerHost + "'");
-                    }
-                }
+                indexEnvironmentLabel(entry, labelIndex);
             }
             this.entries = Map.copyOf(index);
-            this.walletUrlByIssuerHost = Map.copyOf(walletIndex);
+            this.environmentLabelByIssuerHost = Map.copyOf(labelIndex);
             log.info("Loaded {} tenant custom domain(s) from '{}'", entries.size(), configPath);
         } catch (IllegalArgumentException e) {
             throw new IllegalStateException(
@@ -112,22 +107,26 @@ public class TenantCustomDomainsLoader {
     }
 
     /**
-     * Returns the configured wallet base URL for the entry whose {@code issuer}
-     * URL has the given host, or {@link Optional#empty()} if no entry matches.
-     *
-     * <p>Used to build the credential-offer wallet deep-link. In non-canonical
-     * deployments the wallet runs on a separate host (e.g.
-     * {@code wallet.dome-marketplace.org}) that cannot be derived from the
-     * issuer request origin, so it MUST be read from this registry, matched by
-     * the host the request actually arrived through. In canonical (path-based)
-     * deployments the host is absent from the registry and callers fall back to
-     * origin-based resolution.
+     * Returns the environment label (e.g. {@code SBX}, {@code Dev}) configured for the entry whose
+     * {@code issuer} URL has the given host, or {@link Optional#empty()} if the host is unknown or
+     * its entry has no {@code environmentLabel}. Matched by request host because several domains
+     * can map to one tenant.
      */
-    public Optional<String> findWalletUrlByIssuerHost(String issuerHost) {
+    public Optional<String> findEnvironmentLabelByIssuerHost(String issuerHost) {
         if (issuerHost == null || issuerHost.isBlank()) {
             return Optional.empty();
         }
-        return Optional.ofNullable(walletUrlByIssuerHost.get(issuerHost));
+        return Optional.ofNullable(environmentLabelByIssuerHost.get(issuerHost));
+    }
+
+    private static void indexEnvironmentLabel(TenantEntry entry, Map<String, String> labelIndex) {
+        String issuerHost = hostOf(entry.issuer());
+        if (issuerHost == null) {
+            return;
+        }
+        if (entry.environmentLabel() != null && !entry.environmentLabel().isBlank()) {
+            labelIndex.putIfAbsent(issuerHost, entry.environmentLabel().trim());
+        }
     }
 
     private static String hostOf(String url) {
@@ -143,7 +142,6 @@ public class TenantCustomDomainsLoader {
                 throw new IllegalArgumentException("A tenant entry has a blank id");
             }
             validateUrl("issuer", entry.id(), entry.issuer());
-            validateUrl("wallet", entry.id(), entry.wallet());
             validateVerifiers(entry.id(), entry.verifiers());
         }
     }
@@ -175,10 +173,17 @@ public class TenantCustomDomainsLoader {
             @JsonProperty("tenants") List<TenantEntry> tenants
     ) {}
 
+    /**
+     * Unknown fields are ignored (EUD-305): the issuer no longer resolves wallets, but the file
+     * still carries a {@code wallet} field where other consumers read it (the local nginx
+     * entrypoint routes the wallet host from it), and a registry not yet cleaned up must not
+     * stop the issuer from starting.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record TenantEntry(
             @JsonProperty("id")        String id,
             @JsonProperty("issuer")    String issuer,
             @JsonProperty("verifiers") List<String> verifiers,
-            @JsonProperty("wallet")    String wallet
+            @JsonProperty("environmentLabel") String environmentLabel
     ) {}
 }

@@ -17,14 +17,12 @@ import reactor.test.StepVerifier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class CredentialOfferRefreshControllerTest {
 
     private static final String PUBLIC_BASE_URL = "https://test.example/issuer";
-    private static final String PUBLIC_WALLET_URL = "https://test.example/wallet";
     private static final String FRONTEND_URL = "https://test.example/issuer";
 
     @Mock
@@ -65,8 +63,7 @@ class CredentialOfferRefreshControllerTest {
         String token = "valid-token";
         ServerWebExchange exchange = newExchange();
         when(urlResolver.publicIssuerBaseUrl(any(ServerWebExchange.class))).thenReturn(PUBLIC_BASE_URL);
-        when(urlResolver.publicWalletBaseUrl(any(ServerWebExchange.class))).thenReturn(PUBLIC_WALLET_URL);
-        when(credentialOfferRefreshWorkflow.refreshCredentialOffer(eq(token), eq(PUBLIC_BASE_URL), eq(PUBLIC_WALLET_URL)))
+        when(credentialOfferRefreshWorkflow.refreshCredentialOffer(token, PUBLIC_BASE_URL))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(controller.refreshCredentialOffer(token, exchange))
@@ -78,8 +75,7 @@ class CredentialOfferRefreshControllerTest {
         String token = "invalid-token";
         ServerWebExchange exchange = newExchange();
         when(urlResolver.publicIssuerBaseUrl(any(ServerWebExchange.class))).thenReturn(PUBLIC_BASE_URL);
-        when(urlResolver.publicWalletBaseUrl(any(ServerWebExchange.class))).thenReturn(PUBLIC_WALLET_URL);
-        when(credentialOfferRefreshWorkflow.refreshCredentialOffer(eq(token), eq(PUBLIC_BASE_URL), eq(PUBLIC_WALLET_URL)))
+        when(credentialOfferRefreshWorkflow.refreshCredentialOffer(token, PUBLIC_BASE_URL))
                 .thenReturn(Mono.error(new RuntimeException("Token not found")));
 
         StepVerifier.create(controller.refreshCredentialOffer(token, exchange))

@@ -31,6 +31,7 @@ import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.spi.CredentialProfileCatalog;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
+import es.in2.issuer.backend.shared.infrastructure.config.tenantconfig.TenantCustomDomainsLoader;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -109,6 +110,9 @@ class AttestationCatalogControllerTest {
 
     @MockitoBean
     private TenantRegistryService tenantRegistryService;
+
+    @MockitoBean
+    private TenantCustomDomainsLoader tenantCustomDomainsLoader;
 
     @BeforeEach
     void allowEverything() {

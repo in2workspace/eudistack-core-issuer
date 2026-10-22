@@ -62,7 +62,6 @@ class DirectDeliveryCeilingTest {
     private static final String BEARER_TOKEN = "Bearer operator-access-token";
     private static final String TENANT = "sandbox";
     private static final String PUBLIC_ISSUER_BASE_URL = "https://issuer.example.com";
-    private static final String PUBLIC_WALLET_BASE_URL = "https://issuer.example.com/wallet";
 
     // The one real profile fixture on the test classpath (src/test/resources/credentials/profiles):
     // learcredential.employee.w3c.4, which declares proof_types_supported and is therefore bound
@@ -134,7 +133,6 @@ class DirectDeliveryCeilingTest {
 
         UrlResolver urlResolver = mock(UrlResolver.class);
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
 
         IssuanceController controller = new IssuanceController(
                 issuanceWorkflow,
