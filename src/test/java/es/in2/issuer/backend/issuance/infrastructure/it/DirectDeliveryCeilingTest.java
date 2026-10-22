@@ -26,6 +26,8 @@ import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
+import es.in2.issuer.backend.shared.infrastructure.audit.IssuanceCompletionRecorder;
+import es.in2.issuer.backend.shared.infrastructure.service.NoOpAuditTrailAdapter;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +36,7 @@ import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.core.io.support.ResourcePatternResolver;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import org.springframework.web.server.WebFilter;
 import reactor.core.publisher.Mono;
 
@@ -126,7 +129,10 @@ class DirectDeliveryCeilingTest {
                 deliveryEligibilityResolver,
                 issuanceProperties,
                 schemaDeliveryCeiling,
-                holderDidFallbackAuditor
+                holderDidFallbackAuditor,
+                new NoOpAuditTrailAdapter(),
+                mock(IssuanceCompletionRecorder.class),
+                mock(TransactionalOperator.class)
         );
 
         UrlResolver urlResolver = mock(UrlResolver.class);

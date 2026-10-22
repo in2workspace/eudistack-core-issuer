@@ -1,7 +1,11 @@
 package es.in2.issuer.backend.shared.application.workflow.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
+import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.domain.util.sdjwt.SdJwtPayloadBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
@@ -10,6 +14,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.audit.SignatureAttemptRecorder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -20,7 +25,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.net.ConnectException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Base64;
 import java.util.Collections;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 
@@ -49,8 +59,63 @@ class CredentialSignerWorkflowImplTest {
     @Mock
     private SdJwtPayloadBuilder sdJwtPayloadBuilder;
 
+    private final RecordingAuditTrail auditTrail = new RecordingAuditTrail();
+
+    @Spy
+    private SignatureAttemptRecorder signatureAttemptRecorder = new SignatureAttemptRecorder(auditTrail);
+
     @InjectMocks
     private CredentialSignerWorkflowImpl credentialSignerWorkflow;
+
+    @Test
+    void signCredential_jwtVcJsonSignedWithACertificate_stagesSignatureRequestedWithTheFingerprintOfTheSigningCertificate() throws Exception {
+        // Arrange
+        byte[] certificate = "certificate-der".getBytes(StandardCharsets.UTF_8);
+        String header = Base64.getUrlEncoder().withoutPadding().encodeToString(
+                ("{\"alg\":\"ES256\",\"x5c\":[\"" + Base64.getEncoder().encodeToString(certificate) + "\"]}")
+                        .getBytes(StandardCharsets.UTF_8));
+        String signedCredential = header + ".payload.signature";
+        CredentialProfile profile = buildProfile("learcredential.employee.w3c.4");
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4")).thenReturn(profile);
+        when(genericCredentialBuilder.buildJwtPayload(eq(profile), eq("enrichedData"), any())).thenReturn(Mono.just("{}"));
+        when(delegatingSigningProvider.sign(any()))
+                .thenReturn(Mono.just(new SigningResult(SigningType.JADES, signedCredential)));
+        String expectedHash = "sha256:" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(certificate));
+
+        // Act
+        Mono<String> signed = credentialSignerWorkflow.signCredential(
+                token, "enrichedData", "learcredential.employee.w3c.4", JWT_VC_JSON, Collections.emptyMap(), issuanceId, email);
+
+        // Assert
+        StepVerifier.create(signed).expectNext(signedCredential).verifyComplete();
+        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditEventType.SIGNATURE_REQUESTED, entry.type());
+        assertEquals(AuditResult.SUCCESS, entry.result());
+        assertEquals("issuance:" + issuanceId, entry.resource());
+        assertEquals("Attestation", entry.details().get("signed_object"));
+        assertEquals("ES256", entry.details().get("signature_algorithm"));
+        assertEquals(expectedHash, entry.details().get("signing_certificate"));
+    }
+
+    @Test
+    void signCredential_providerUnreachable_stagesSignatureRequestedFailureAndKeepsTheError() {
+        // Arrange
+        CredentialProfile profile = buildProfile("learcredential.employee.w3c.4");
+        ConnectException original = new ConnectException("refused");
+        when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4")).thenReturn(profile);
+        when(genericCredentialBuilder.buildJwtPayload(eq(profile), eq("enrichedData"), any())).thenReturn(Mono.just("{}"));
+        when(delegatingSigningProvider.sign(any())).thenReturn(Mono.error(original));
+
+        // Act
+        Mono<String> signed = credentialSignerWorkflow.signCredential(
+                token, "enrichedData", "learcredential.employee.w3c.4", JWT_VC_JSON, Collections.emptyMap(), issuanceId, email);
+
+        // Assert
+        StepVerifier.create(signed).expectErrorMatches(error -> error == original).verify();
+        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditResult.FAILURE, entry.result());
+        assertEquals("ProviderUnavailable", entry.reason());
+    }
 
     private final String token = "some-token";
     private final String issuanceId = "d290f1ee-6c54-4b01-90e6-d701748f0851";

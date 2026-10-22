@@ -4,6 +4,10 @@ import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.Proofs;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
+import es.in2.issuer.backend.shared.infrastructure.audit.IssuanceCompletionRecorder;
+import es.in2.issuer.backend.shared.infrastructure.service.NoOpAuditTrailAdapter;
+import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
+import es.in2.issuer.backend.signing.domain.service.IssuerCertificateService;
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidOrMissingProofException;
 import es.in2.issuer.backend.shared.domain.exception.ProofValidationException;
@@ -96,6 +100,10 @@ class Oid4VciCredentialWorkflowImplBranchesTest {
     private CredentialIssuedLogger credentialIssuedLogger;
     @Mock
     private AuditService auditService;
+    @Mock
+    private TenantSigningConfigService tenantSigningConfigService;
+    @Mock
+    private IssuerCertificateService issuerCertificateService;
 
     private Oid4VciCredentialWorkflowImpl workflow;
 
@@ -105,7 +113,8 @@ class Oid4VciCredentialWorkflowImplBranchesTest {
                 credentialSignerWorkflow, proofValidationService, issuanceService,
                 credentialIssuerMetadataService, genericCredentialBuilder, credentialProfileRegistry,
                 statusListWorkflow, enrichmentCacheStore, notificationCacheStore, credentialIssuedLogger,
-                new HolderDidFallbackAuditor(auditService), auditService);
+                new HolderDidFallbackAuditor(auditService), auditService, new NoOpAuditTrailAdapter(),
+                new IssuanceCompletionRecorder(new NoOpAuditTrailAdapter(), tenantSigningConfigService, issuerCertificateService));
         lenient().when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL))
                 .thenReturn(Mono.just(metadataWithProofTypes(Map.of("jwt",
                         CredentialProfile.ProofTypeConfig.builder()

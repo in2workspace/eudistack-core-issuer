@@ -2,12 +2,18 @@ package es.in2.issuer.backend.statuslist.application;
 
 import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
+import es.in2.issuer.backend.shared.domain.exception.UnauthorizedRoleException;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
+import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.policy.service.StatusListPdpService;
+import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.statuslist.domain.spi.StatusListProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,9 +22,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -26,7 +34,10 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -51,6 +62,12 @@ class RevocationWorkflowTest {
     @Mock
     private AuditService auditService;
 
+    @Mock
+    private TransactionalOperator transactionalOperator;
+
+    @Spy
+    private RecordingAuditTrail auditTrail = new RecordingAuditTrail();
+
     @InjectMocks
     private RevocationWorkflow revocationWorkflow;
 
@@ -68,6 +85,183 @@ class RevocationWorkflowTest {
         mockProcedure.setCredentialType("learcredential.employee.w3c.4");
         mockProcedure.setEmail("to@example.com");
         mockProcedure.setOrganizationIdentifier("VATES-A15456585");
+        mockProcedure.setSubject("Jane Doe");
+        lenient().when(transactionalOperator.transactional(any(Mono.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+    }
+
+    private void arrangeRevocationThatPassesValidation() {
+        when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure)).thenReturn(Mono.empty());
+    }
+
+    @Test
+    void revoke_AcceptedRequest_ShouldStageOneRevocationSuccessWithTheReasonAndTheRequestCorrelation() {
+        // Arrange
+        arrangeRevocationThatPassesValidation();
+        when(statusListProvider.revoke(ISSUANCE_ID, CLEAN_TOKEN, "https://issuer.example.com")).thenReturn(Mono.empty());
+        when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure)).thenReturn(Mono.empty());
+        when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(Mono.empty());
+
+        // Act
+        Mono<Void> revoked = revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "key compromised", "https://issuer.example.com");
+
+        // Assert
+        StepVerifier.create(revoked).verifyComplete();
+        assertEquals(1, auditTrail.all().size());
+        AuditEntry entry = auditTrail.staged().getFirst();
+        assertEquals(AuditEventType.REVOCATION, entry.type());
+        assertEquals(AuditResult.SUCCESS, entry.result());
+        assertEquals("Request", entry.details().get("revocation_origin"));
+        assertEquals("key compromised", entry.details().get("revocation_reason"));
+        assertEquals(List.of(PROCESS_ID), auditTrail.correlationIds());
+    }
+
+    @Test
+    void revokeSystem_WalletNotification_ShouldStageRevocationWithOriginWalletNotificationAndNoReason() {
+        // Arrange
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure)).thenReturn(Mono.empty());
+        when(statusListProvider.revoke(ISSUANCE_ID, null, "https://issuer.example.com")).thenReturn(Mono.empty());
+        when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure)).thenReturn(Mono.empty());
+        when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(Mono.empty());
+
+        // Act
+        Mono<Void> revoked = revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, null, SYSTEM_ACTOR, "https://issuer.example.com");
+
+        // Assert
+        StepVerifier.create(revoked).verifyComplete();
+        AuditEntry entry = auditTrail.staged().getFirst();
+        assertEquals("WalletNotification", entry.details().get("revocation_origin"));
+        assertFalse(entry.details().containsKey("revocation_reason"));
+        assertTrue(auditTrail.correlationIds().isEmpty());
+    }
+
+    @Test
+    void revokeSystem_RevocationInstructionQueue_ShouldStageNothingBecauseTheCatalogueHasNoOriginForIt() {
+        // Arrange
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure)).thenReturn(Mono.empty());
+        when(statusListProvider.revoke(ISSUANCE_ID, null, "https://issuer.example.com")).thenReturn(Mono.empty());
+        when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure)).thenReturn(Mono.empty());
+        when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+        when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(Mono.empty());
+
+        // Act
+        Mono<Void> revoked = revocationWorkflow.revokeSystem(
+                PROCESS_ID, ISSUANCE_ID, null, RevocationWorkflow.ACTOR_REVOCATION_INSTRUCTION, "https://issuer.example.com");
+
+        // Assert
+        StepVerifier.create(revoked).verifyComplete();
+        assertTrue(auditTrail.all().isEmpty());
+    }
+
+    @Test
+    void revoke_UnknownIssuance_ShouldStageDeniedIssuanceNotFoundWithoutHolder() {
+        // Arrange
+        when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.empty());
+
+        // Act
+        Mono<Void> revoked = revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "mistake", "https://issuer.example.com");
+
+        // Assert
+        StepVerifier.create(revoked).expectError(IssuanceNotFoundException.class).verify();
+        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditResult.DENIED, entry.result());
+        assertEquals("IssuanceNotFound", entry.reason());
+        assertEquals("mistake", entry.details().get("revocation_reason"));
+        assertFalse(entry.details().containsKey("holder"));
+    }
+
+    @Test
+    void revoke_ProcessAlreadyRevoked_ShouldStageDeniedAlreadyRevokedWithHolder() {
+        // Arrange
+        mockProcedure.setCredentialStatus(CredentialStatusEnum.REVOKED);
+        arrangeRevocationThatPassesValidationWith(new InvalidStatusException("already revoked"));
+
+        // Act
+        Mono<Void> revoked = revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "again", "https://issuer.example.com");
+
+        // Assert
+        StepVerifier.create(revoked).expectError(InvalidStatusException.class).verify();
+        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals("AlreadyRevoked", entry.reason());
+        assertEquals(Map.of("name", "Jane Doe", "email", "to@example.com"), entry.details().get("holder"));
+    }
+
+    @Test
+    void revoke_ProcessNotInValidStatus_ShouldStageDeniedNotRevocable() {
+        // Arrange
+        mockProcedure.setCredentialStatus(CredentialStatusEnum.DRAFT);
+        arrangeRevocationThatPassesValidationWith(new InvalidStatusException("draft"));
+
+        // Act
+        Mono<Void> revoked = revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "reason", "https://issuer.example.com");
+
+        // Assert
+        StepVerifier.create(revoked).expectError(InvalidStatusException.class).verify();
+        assertEquals("NotRevocable", auditTrail.stagedInNewTransaction().getFirst().reason());
+    }
+
+    @Test
+    void revoke_RequesterWithoutTheRole_ShouldStageDeniedPolicyDenied() {
+        // Arrange
+        arrangeRevocationThatPassesValidationWith(new UnauthorizedRoleException("no role"));
+
+        // Act
+        Mono<Void> revoked = revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "reason", "https://issuer.example.com");
+
+        // Assert
+        StepVerifier.create(revoked).expectError(UnauthorizedRoleException.class).verify();
+        assertEquals("PolicyDenied", auditTrail.stagedInNewTransaction().getFirst().reason());
+    }
+
+    @Test
+    void revoke_StatusListCannotBeMarked_ShouldStageFailureStatusListUnavailable() {
+        // Arrange
+        arrangeRevocationThatPassesValidation();
+        when(statusListProvider.revoke(ISSUANCE_ID, CLEAN_TOKEN, "https://issuer.example.com"))
+                .thenReturn(Mono.error(new IllegalStateException("status list down")));
+        // The chain is assembled before it is subscribed, so these are built but never run.
+        when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure)).thenReturn(Mono.empty());
+        when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
+
+        // Act
+        Mono<Void> revoked = revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "reason", "https://issuer.example.com");
+
+        // Assert
+        StepVerifier.create(revoked).expectError(IllegalStateException.class).verify();
+        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditResult.FAILURE, entry.result());
+        assertEquals("StatusListUnavailable", entry.reason());
+        assertTrue(auditTrail.staged().isEmpty());
+    }
+
+    @Test
+    void revoke_FailureWithoutCatalogueReason_ShouldStageNothingAndKeepTheError() {
+        // Arrange
+        arrangeRevocationThatPassesValidationWith(new RuntimeException("Validation failed"));
+
+        // Act
+        Mono<Void> revoked = revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "reason", "https://issuer.example.com");
+
+        // Assert
+        StepVerifier.create(revoked).expectError(RuntimeException.class).verify();
+        assertTrue(auditTrail.all().isEmpty());
+    }
+
+    private void arrangeRevocationThatPassesValidationWith(RuntimeException validationError) {
+        when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure))
+                .thenReturn(Mono.error(validationError));
     }
 
     @Test

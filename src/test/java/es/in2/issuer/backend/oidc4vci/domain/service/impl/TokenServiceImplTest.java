@@ -9,8 +9,12 @@ import es.in2.issuer.backend.oidc4vci.domain.model.ClientAttestationHeaders;
 import es.in2.issuer.backend.shared.domain.service.ClientAttestationValidationService;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndRefreshToken;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndTxCode;
+import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.DpopValidationService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
@@ -28,11 +32,13 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.time.Instant;
+import java.util.List;
 
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.CLIENT_CREDENTIALS_GRANT_TYPE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.GRANT_TYPE;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -84,6 +90,8 @@ class TokenServiceImplTest {
     private static final ClientAttestationHeaders NO_CLIENT_ATTESTATION =
             new ClientAttestationHeaders(null, null);
 
+    private final RecordingAuditTrail auditTrail = new RecordingAuditTrail();
+
     private TokenServiceImpl tokenService;
     private IssuanceIdAndTxCode testIssuanceIdAndTxCode;
 
@@ -103,7 +111,8 @@ class TokenServiceImplTest {
                 issuanceMetrics,
                 issuerStateCacheStore,
                 apiClientAuthenticationService,
-                clientAttestationValidationService
+                clientAttestationValidationService,
+                auditTrail
         );
 
         testIssuanceIdAndTxCode = new IssuanceIdAndTxCode(
@@ -247,6 +256,12 @@ class TokenServiceImplTest {
                 .verify();
 
         verify(txCodeCacheStore).get(TEST_PRE_AUTHORIZED_CODE);
+        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditEventType.ISSUANCE_ATTEMPT_FAILED, entry.type());
+        assertEquals(AuditResult.DENIED, entry.result());
+        assertEquals("InvalidTransactionCode", entry.reason());
+        assertEquals("issuance:" + TEST_CREDENTIAL_ISSUANCE_ID, entry.resource());
+        assertEquals(List.of(TEST_CREDENTIAL_ISSUANCE_ID), auditTrail.correlationIds());
     }
 
     @Test

@@ -31,8 +31,11 @@ class ArchUnitTest {
                     BASE_PACKAGE + ".shared.infrastructure.config.SwaggerConfig",
                     BASE_PACKAGE + ".shared.infrastructure.config.TenantDomainWebFilter",
                     BASE_PACKAGE + ".shared.infrastructure.config.IssuerBaseUrlWebFilter",
+                    // String constants are inlined by the compiler, so no class shows a dependency on them
+                    BASE_PACKAGE + ".shared.domain.model.audit.AuditSource",
                     // Spring-managed beans discovered via component scanning (no direct class references)
                     BASE_PACKAGE + ".shared.infrastructure.service.AuditServiceImpl",
+                    BASE_PACKAGE + ".shared.infrastructure.service.NoOpAuditTrailAdapter",
                     BASE_PACKAGE + ".shared.infrastructure.config.health.SigningServiceHealthIndicator",
                     BASE_PACKAGE + ".shared.infrastructure.config.health.SmtpHealthIndicator",
                     BASE_PACKAGE + ".shared.infrastructure.config.health.VerifierHealthIndicator",
