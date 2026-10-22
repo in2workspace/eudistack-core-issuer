@@ -189,11 +189,11 @@ class IssuanceWorkflowImplTest {
         when(genericCredentialBuilder.buildCredential(profile, payload, entry))
                 .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
-        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any(), any()))
+        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
         when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
 
-        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL, WALLET_URL)))
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL)))
                 .assertNext(response -> assertNotNull(response.credentialOfferUri()))
                 .verifyComplete();
 
