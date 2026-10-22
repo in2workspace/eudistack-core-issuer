@@ -61,7 +61,7 @@ class IssuanceCompletionRecorderTest {
         issuerIs("ACME SL", "VATES-A1");
 
         // Act
-        StepVerifier.create(recorder.record(ISSUANCE_ID,
+        StepVerifier.create(recorder.recordCompletion(ISSUANCE_ID,
                 completion(new WalletInteraction("oid4vci", "authorization_code", "dc+sd-jwt")), signedJws())).verifyComplete();
 
         // Assert
@@ -80,7 +80,7 @@ class IssuanceCompletionRecorderTest {
         issuerIs("ACME SL", "VATES-A1");
 
         // Act
-        StepVerifier.create(recorder.record(ISSUANCE_ID, completion(null), signedJws())).verifyComplete();
+        StepVerifier.create(recorder.recordCompletion(ISSUANCE_ID, completion(null), signedJws())).verifyComplete();
 
         // Assert
         AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
@@ -95,7 +95,7 @@ class IssuanceCompletionRecorderTest {
         String signed = signedJws();
 
         // Act
-        StepVerifier.create(recorder.record(ISSUANCE_ID, completion(null), signed)).verifyComplete();
+        StepVerifier.create(recorder.recordCompletion(ISSUANCE_ID, completion(null), signed)).verifyComplete();
 
         // Assert
         AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
@@ -107,7 +107,7 @@ class IssuanceCompletionRecorderTest {
     @Test
     void record_signatureWithoutAJwsHeader_stagesNothing() {
         // Arrange & Act
-        StepVerifier.create(recorder.record(ISSUANCE_ID, completion(null), "base45-cose-value")).verifyComplete();
+        StepVerifier.create(recorder.recordCompletion(ISSUANCE_ID, completion(null), "base45-cose-value")).verifyComplete();
 
         // Assert
         assertTrue(auditTrail.all().isEmpty());
@@ -119,7 +119,7 @@ class IssuanceCompletionRecorderTest {
         issuerIs(null, null);
 
         // Act
-        StepVerifier.create(recorder.record(ISSUANCE_ID, completion(null), signedJws())).verifyComplete();
+        StepVerifier.create(recorder.recordCompletion(ISSUANCE_ID, completion(null), signedJws())).verifyComplete();
 
         // Assert
         assertTrue(auditTrail.all().isEmpty());
@@ -132,7 +132,7 @@ class IssuanceCompletionRecorderTest {
         when(certificateService.resolveRemoteDetailedIssuer(signingConfig)).thenReturn(Mono.error(new IllegalStateException("qtsp down")));
 
         // Act
-        StepVerifier.create(recorder.record(ISSUANCE_ID, completion(null), signedJws())).verifyComplete();
+        StepVerifier.create(recorder.recordCompletion(ISSUANCE_ID, completion(null), signedJws())).verifyComplete();
 
         // Assert
         assertTrue(auditTrail.all().isEmpty());
@@ -146,6 +146,6 @@ class IssuanceCompletionRecorderTest {
                 new IssuanceCompletionRecorder(new RecordingAuditTrail().failingOnNewTransaction(), signingConfigService, certificateService);
 
         // Act & Assert
-        StepVerifier.create(brokenRecorder.record(ISSUANCE_ID, completion(null), signedJws())).verifyComplete();
+        StepVerifier.create(brokenRecorder.recordCompletion(ISSUANCE_ID, completion(null), signedJws())).verifyComplete();
     }
 }

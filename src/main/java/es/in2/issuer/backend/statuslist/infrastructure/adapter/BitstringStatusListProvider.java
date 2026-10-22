@@ -457,7 +457,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
                         typ = VC_JWT_TYP;
                     }
 
-                    return signatureAttemptRecorder.record(StatusListAuditEvents.listResource(saved.id()),
+                    return signatureAttemptRecorder.recordAttempt(StatusListAuditEvents.listResource(saved.id()),
                             SignedObject.STATUS_LIST, statusListSigner.sign(payload, token, saved.id(), typ));
                 });
     }

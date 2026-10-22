@@ -32,7 +32,7 @@ public class SignatureAttemptRecorder {
      * @param resource the object the signature is for, {@code <kind>:<id>}
      * @param signing  the signing attempt; it emits the signed value, a compact JWS for the JADES format
      */
-    public Mono<String> record(String resource, SignedObject signedObject, Mono<String> signing) {
+    public Mono<String> recordAttempt(String resource, SignedObject signedObject, Mono<String> signing) {
         return Mono.defer(() -> {
             long startedAt = System.nanoTime();
             return signing

@@ -33,7 +33,7 @@ public interface AuditTrailPort {
      * channel must not undo or hide the operation. The adapter reports the failure itself.
      */
     default Mono<Void> stageBestEffort(AuditEntry entry) {
-        return stageInNewTransaction(entry).onErrorResume(auditError -> Mono.empty());
+        return stageInNewTransaction(entry).onErrorResume(_ -> Mono.empty());
     }
 
     /** Runs {@code flow} with the given correlation id, which replaces the one of the request. */

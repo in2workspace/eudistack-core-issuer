@@ -38,7 +38,7 @@ class SignatureAttemptRecorderTest {
         Mono<String> signing = Mono.just(signedJws());
 
         // Act
-        Mono<String> recorded = recorder.record(RESOURCE, SignedObject.STATUS_LIST, signing);
+        Mono<String> recorded = recorder.recordAttempt(RESOURCE, SignedObject.STATUS_LIST, signing);
 
         // Assert
         StepVerifier.create(recorded).expectNextCount(1).verifyComplete();
@@ -58,7 +58,7 @@ class SignatureAttemptRecorderTest {
         Mono<String> signing = Mono.just("base64-cose-bytes");
 
         // Act
-        Mono<String> recorded = recorder.record("issuance:1", SignedObject.ATTESTATION, signing);
+        Mono<String> recorded = recorder.recordAttempt("issuance:1", SignedObject.ATTESTATION, signing);
 
         // Assert
         StepVerifier.create(recorded).expectNext("base64-cose-bytes").verifyComplete();
@@ -71,7 +71,7 @@ class SignatureAttemptRecorderTest {
         Mono<String> signing = Mono.error(new NoActiveSigningConfigurationException("no config"));
 
         // Act
-        Mono<String> recorded = recorder.record("issuance:1", SignedObject.ATTESTATION, signing);
+        Mono<String> recorded = recorder.recordAttempt("issuance:1", SignedObject.ATTESTATION, signing);
 
         // Assert
         StepVerifier.create(recorded).expectError(NoActiveSigningConfigurationException.class).verify();
@@ -87,7 +87,7 @@ class SignatureAttemptRecorderTest {
         Mono<String> signing = Mono.error(new RuntimeException("signing failed", new SocketTimeoutException("timeout")));
 
         // Act
-        Mono<String> recorded = recorder.record("issuance:1", SignedObject.ATTESTATION, signing);
+        Mono<String> recorded = recorder.recordAttempt("issuance:1", SignedObject.ATTESTATION, signing);
 
         // Assert
         StepVerifier.create(recorded).expectError(RuntimeException.class).verify();
@@ -101,7 +101,7 @@ class SignatureAttemptRecorderTest {
                 new RemoteSignatureUnauthorizedException("Unauthorized: Invalid credentials")));
 
         // Act
-        Mono<String> recorded = recorder.record("issuance:1", SignedObject.ATTESTATION, signing);
+        Mono<String> recorded = recorder.recordAttempt("issuance:1", SignedObject.ATTESTATION, signing);
 
         // Assert
         StepVerifier.create(recorded).expectError(RuntimeException.class).verify();
@@ -114,7 +114,7 @@ class SignatureAttemptRecorderTest {
         SignatureAttemptRecorder brokenRecorder = new SignatureAttemptRecorder(new RecordingAuditTrail().failingOnNewTransaction());
 
         // Act
-        Mono<String> recorded = brokenRecorder.record(RESOURCE, SignedObject.STATUS_LIST, Mono.just(signedJws()));
+        Mono<String> recorded = brokenRecorder.recordAttempt(RESOURCE, SignedObject.STATUS_LIST, Mono.just(signedJws()));
 
         // Assert
         StepVerifier.create(recorded).expectNextCount(1).verifyComplete();

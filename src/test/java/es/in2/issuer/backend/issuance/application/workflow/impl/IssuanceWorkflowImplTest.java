@@ -125,7 +125,7 @@ class IssuanceWorkflowImplTest {
         // narrower eligible set override this stub explicitly for their credential_configuration_id.
         lenient().when(deliveryEligibilityResolver.resolveEligibleModes(anyString()))
                 .thenReturn(Mono.just(EnumSet.allOf(DeliveryMode.class)));
-        lenient().when(issuanceCompletionRecorder.record(anyString(), any(), anyString())).thenReturn(Mono.empty());
+        lenient().when(issuanceCompletionRecorder.recordCompletion(anyString(), any(), anyString())).thenReturn(Mono.empty());
         // The transaction itself is not under test here: the operator hands the flow back unchanged.
         lenient().when(transactionalOperator.transactional(any(Mono.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -701,7 +701,7 @@ class IssuanceWorkflowImplTest {
                 .expectNextCount(1)
                 .verifyComplete();
 
-        verify(issuanceCompletionRecorder).record(anyString(), argThat(completion ->
+        verify(issuanceCompletionRecorder).recordCompletion(anyString(), argThat(completion ->
                 CONFIG_ID.equals(completion.attestationType())
                         && "direct".equals(completion.deliveryMethod())
                         && EMAIL.equals(completion.holder().email())

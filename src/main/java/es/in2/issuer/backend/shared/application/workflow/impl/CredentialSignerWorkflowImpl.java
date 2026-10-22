@@ -86,7 +86,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                         .typ(VC_JWT_TYP)
                         .build();
 
-                return signatureAttemptRecorder.record(IssuanceAuditEvents.resourceOf(issuanceId),
+                return signatureAttemptRecorder.recordAttempt(IssuanceAuditEvents.resourceOf(issuanceId),
                         SignedObject.ATTESTATION,
                         delegatingSigningProvider.sign(signingRequest).map(SigningResult::data));
 
@@ -113,7 +113,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                 .data(cborBase64)
                 .context(new SigningContext(token, issuanceId, email))
                 .build();
-        return signatureAttemptRecorder.record(IssuanceAuditEvents.resourceOf(issuanceId),
+        return signatureAttemptRecorder.recordAttempt(IssuanceAuditEvents.resourceOf(issuanceId),
                         SignedObject.ATTESTATION,
                         delegatingSigningProvider.sign(signingRequest).map(SigningResult::data))
                 .map(Base64.getDecoder()::decode);
@@ -146,7 +146,7 @@ public class CredentialSignerWorkflowImpl implements CredentialSignerWorkflow {
                             .context(new SigningContext(token, issuanceId, email))
                             .typ(DC_SD_JWT)
                             .build();
-                    return signatureAttemptRecorder.record(IssuanceAuditEvents.resourceOf(issuanceId),
+                    return signatureAttemptRecorder.recordAttempt(IssuanceAuditEvents.resourceOf(issuanceId),
                                     SignedObject.ATTESTATION,
                                     delegatingSigningProvider.sign(signingRequest).map(SigningResult::data))
                             .map(signedJws -> {
