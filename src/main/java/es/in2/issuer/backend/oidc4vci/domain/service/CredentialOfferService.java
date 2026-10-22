@@ -8,19 +8,20 @@ import java.time.Instant;
 public interface CredentialOfferService {
 
     /**
+     * Creates the offer and delivers it through the requested modes. The returned
+     * {@code credentialOfferUri} (modes that return one, i.e. {@code ui}) is the standard OID4VCI
+     * form {@code openid-credential-offer://?credential_offer_uri=...}, never converted: the issuer
+     * does not know the client's wallet (EUD-305). Only the email, which EUDIStack presents itself,
+     * links to a wallet, and only when the tenant configures one ({@code issuer.wallet_url}).
+     *
      * @param publicIssuerBaseUrl public base URL of this issuer resolved by
      *                            the caller via
      *                            {@link es.in2.issuer.backend.shared.domain.spi.UrlResolver}.
-     * @param publicWalletBaseUrl public base URL of the wallet PWA resolved by
-     *                            the caller via
-     *                            {@link es.in2.issuer.backend.shared.domain.spi.UrlResolver#publicWalletBaseUrl}.
-     *                            Used as the base of the deep-link embedded in credential-offer emails
-     *                            so the wallet URL always matches the domain the user accessed the issuer from.
      */
     Mono<CredentialOfferResult> createAndDeliverCredentialOffer(
             String issuanceId, String credentialConfigurationId, String grantType,
             String email, String delivery, String credentialOfferRefreshToken,
-            String publicIssuerBaseUrl, String publicWalletBaseUrl);
+            String publicIssuerBaseUrl);
 
     /** When an offer created now stops being redeemable. */
     Instant newOfferExpiry();

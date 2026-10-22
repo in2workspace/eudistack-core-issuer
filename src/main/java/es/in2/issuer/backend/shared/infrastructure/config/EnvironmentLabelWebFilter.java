@@ -16,8 +16,8 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.PROMET
 /**
  * Stores the environment label of the request host (e.g. {@code SBX}) in the Reactor context so
  * the credential-offer email can prefix its subject without threading a parameter through the
- * issuance flow. The host is matched exactly as the wallet URL is
- * ({@link TenantCustomDomainsLoader#findWalletUrlByIssuerHost}). Requests whose host has no label
+ * issuance flow. The host is matched exactly against the issuer host of each registry entry
+ * ({@link TenantCustomDomainsLoader#findEnvironmentLabelByIssuerHost}). Requests whose host has no label
  * (canonical hosts, production) pass through untouched.
  */
 @Component

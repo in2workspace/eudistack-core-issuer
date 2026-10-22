@@ -71,7 +71,7 @@ final class EmailTemplateTestSupport {
         Context ctx = baseContext(locale, branding, "Tenant");
         ctx.setVariable("organization", "ACME Corp");
         ctx.setVariable("qrImageCid", "cid:qr-credential-offer.png");
-        ctx.setVariable("walletDeepLink", "https://wallet.example.com/callback?credential_offer_uri=abc");
+        ctx.setVariable("credentialOfferLink", "https://wallet.example.com/callback?credential_offer_uri=abc");
         ctx.setVariable("reissueUrl", "https://issuer.example.com/credential-offer-refresh/token");
         if (txCode != null) {
             ctx.setVariable("txCode", txCode);
