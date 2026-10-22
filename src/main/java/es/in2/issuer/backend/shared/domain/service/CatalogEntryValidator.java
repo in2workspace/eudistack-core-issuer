@@ -204,7 +204,10 @@ public class CatalogEntryValidator {
         }
     }
 
-    /** A claim path is required, has at least one segment, and no blank segment. */
+    /**
+     * A claim path is required, has at least one segment, and every segment is a string. A blank segment
+     * is a string, so it is not a shape error: it is {@code field_not_in_schema} (A12).
+     */
     private void validatePath(List<String> path, String field, List<Violation> out) {
         if (path == null) {
             out.add(new Violation(field, REQUIRED));
@@ -212,8 +215,8 @@ public class CatalogEntryValidator {
             out.add(new Violation(field, "must have at least one segment"));
         } else {
             for (int i = 0; i < path.size(); i++) {
-                if (path.get(i) == null || path.get(i).isBlank()) {
-                    out.add(new Violation(field + "[" + i + "]", "must not be blank"));
+                if (path.get(i) == null) {
+                    out.add(new Violation(field + "[" + i + "]", "must be a string"));
                 }
             }
         }

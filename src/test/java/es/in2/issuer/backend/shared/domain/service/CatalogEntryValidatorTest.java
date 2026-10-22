@@ -21,6 +21,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.function.UnaryOperator;
@@ -149,6 +150,16 @@ class CatalogEntryValidatorTest {
                                 .withIdentifiers(List.of(identifier("dni", "nationalId"))),
                         "field_not_in_schema", "Fields [firstName], [nationalId] are not in the schema",
                         List.of("subject.fields[0]", "search_identifiers[0].field")),
+                // A12: a blank segment is a string, so the path is well formed and points at no attribute
+                Arguments.of("AC-04 empty segment", DOCTORID_URI,
+                        (UnaryOperator<Input>) in -> in.withIdentifiers(List.of(identifier("colegiado", ""))),
+                        "field_not_in_schema", "Field [\"\"] is not in the schema",
+                        List.of("search_identifiers[0].field")),
+                Arguments.of("AC-04 blank segment", DOCTORID_URI,
+                        (UnaryOperator<Input>) in -> in.withSubject(new SubjectInput(
+                                List.of(List.of("givenName", " ")), " ", null)),
+                        "field_not_in_schema", "Field [givenName, \" \"] is not in the schema",
+                        List.of("subject.fields[0]")),
                 // AC-05
                 Arguments.of("AC-05 default above maximum", DOCTORID_URI,
                         (UnaryOperator<Input>) in -> in.withValidity(new ValidityInput(400, true, 365, null)),
@@ -263,8 +274,8 @@ class CatalogEntryValidatorTest {
                         new SubjectInput(List.of(), " ", null)), List.of("subject.fields")),
                 Arguments.of("subject with an empty path (minItems)", (UnaryOperator<Input>) in -> in.withSubject(
                         new SubjectInput(List.of(List.of()), " ", null)), List.of("subject.fields[0]")),
-                Arguments.of("subject path with a blank segment", (UnaryOperator<Input>) in -> in.withSubject(
-                        new SubjectInput(List.of(List.of("givenName", " ")), " ", null)),
+                Arguments.of("subject path with a null segment", (UnaryOperator<Input>) in -> in.withSubject(
+                        new SubjectInput(List.of(Arrays.asList("givenName", null)), " ", null)),
                         List.of("subject.fields[0][1]")),
                 Arguments.of("identifier name outside the pattern", (UnaryOperator<Input>) in -> in.withIdentifiers(List.of(
                         identifier("Colegiado", "personal_administrative_number"))), List.of("search_identifiers[0].name")),

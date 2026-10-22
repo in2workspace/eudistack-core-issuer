@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SubjectPathConverterTest {
 
@@ -93,6 +94,16 @@ class SubjectPathConverterTest {
         assertThat(SubjectPathConverter.toClaimPaths(profile(SD_JWT, "direct", null))).isEmpty();
         assertThat(SubjectPathConverter.toClaimPaths(profile(SD_JWT, "direct",
                 new CredentialProfile.SubjectExtraction("concat", null, " ", null)))).isEmpty();
+    }
+
+    @Test
+    void toClaimPaths_ofAFieldWithAnEmptySegment_isRejected() {
+        CredentialProfile profile = profile(SD_JWT, "direct",
+                new CredentialProfile.SubjectExtraction("concat", List.of("givenName..familyName"), " ", null));
+
+        assertThatThrownBy(() -> SubjectPathConverter.toClaimPaths(profile))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("test.type.1");
     }
 
     private static CredentialProfile profile(String format, String strategy,

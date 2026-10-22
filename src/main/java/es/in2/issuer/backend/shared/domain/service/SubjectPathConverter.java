@@ -28,7 +28,12 @@ public final class SubjectPathConverter {
     private SubjectPathConverter() {
     }
 
-    /** One path per field of the type's {@code subject_extraction}; empty when it declares none. */
+    /**
+     * One path per field of the type's {@code subject_extraction}; empty when it declares none.
+     *
+     * @throws IllegalArgumentException if a field has a blank segment ({@code a..b}, {@code .a}): the type
+     *         file is wrong. A catalog request may carry a blank segment, but a type file may not.
+     */
     @SuppressWarnings("deprecation")
     public static List<ClaimPath> toClaimPaths(CredentialProfile profile) {
         CredentialProfile.SubjectExtraction extraction = profile.subjectExtraction();
@@ -37,8 +42,17 @@ public final class SubjectPathConverter {
         }
         List<String> prefix = prefixOf(profile);
         return extraction.fields().stream()
-                .map(field -> new ClaimPath(prefixed(prefix, Arrays.asList(field.split("\\.")))))
+                .map(field -> new ClaimPath(prefixed(prefix, segmentsOf(profile, field))))
                 .toList();
+    }
+
+    private static List<String> segmentsOf(CredentialProfile profile, String field) {
+        List<String> segments = Arrays.asList(field.split("\\."));
+        if (segments.stream().anyMatch(String::isBlank)) {
+            throw new IllegalArgumentException("subject_extraction of '" + profile.credentialConfigurationId()
+                    + "' has a field with an empty segment: '" + field + "'");
+        }
+        return segments;
     }
 
     private static List<String> prefixOf(CredentialProfile profile) {
