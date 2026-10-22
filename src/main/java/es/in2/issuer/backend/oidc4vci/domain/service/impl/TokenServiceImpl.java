@@ -12,6 +12,7 @@ import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenResponse;
 import es.in2.issuer.backend.oidc4vci.domain.service.TokenService;
 import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
+import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndRefreshToken;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceIdAndTxCode;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
@@ -20,6 +21,7 @@ import es.in2.issuer.backend.shared.domain.service.DpopValidationService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
 import es.in2.issuer.backend.shared.domain.service.PkceVerifier;
 import es.in2.issuer.backend.shared.domain.service.RefreshTokenService;
+import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import io.micrometer.observation.annotation.Observed;
@@ -64,6 +66,7 @@ public class TokenServiceImpl implements TokenService {
     private final TransientStore<String> issuerStateCacheStore;
     private final ApiClientAuthenticationService apiClientAuthenticationService;
     private final ClientAttestationValidationService clientAttestationValidationService;
+    private final AuditTrailPort auditTrail;
 
     @Override
     @Observed(name = "oid4vci.token", contextualName = "oid4vci-handle-token")
@@ -168,7 +171,10 @@ public class TokenServiceImpl implements TokenService {
                         return Mono.empty();
                     }
                     log.warn("Invalid tx_code for pre-authorized code");
-                    return Mono.error(OAuthTokenException.invalidGrant("Invalid tx code"));
+                    return auditTrail.withCorrelationId(data.issuanceId(), auditTrail.stageBestEffort(
+                                    IssuanceAuditEvents.attemptFailed(data.issuanceId(), "InvalidTransactionCode",
+                                            null, null, null)))
+                            .then(Mono.error(OAuthTokenException.invalidGrant("Invalid tx code")));
                 });
     }
 

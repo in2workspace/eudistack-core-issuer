@@ -4,6 +4,8 @@ import es.in2.issuer.backend.oidc4vci.application.workflow.HandleNotificationWor
 import es.in2.issuer.backend.oidc4vci.domain.exception.InvalidNotificationIdException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.InvalidNotificationRequestException;
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationEvent;
 import es.in2.issuer.backend.shared.domain.model.dto.NotificationRequest;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
@@ -11,17 +13,21 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import io.micrometer.observation.annotation.Observed;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 
@@ -35,6 +41,8 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
     private final TransientStore<String> enrichmentCacheStore;
     private final AuditService auditService;
     private final EmailService emailService;
+    private final AuditTrailPort auditTrail;
+    private final TransactionalOperator transactionalOperator;
 
     public HandleNotificationWorkflowImpl(
             IssuanceService issuanceService,
@@ -42,7 +50,9 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
             @Qualifier("notificationCacheStore") TransientStore<String> notificationCacheStore,
             @Qualifier("enrichmentCacheStore") TransientStore<String> enrichmentCacheStore,
             AuditService auditService,
-            EmailService emailService
+            EmailService emailService,
+            AuditTrailPort auditTrail,
+            TransactionalOperator transactionalOperator
     ) {
         this.issuanceService = issuanceService;
         this.revocationWorkflow = revocationWorkflow;
@@ -50,6 +60,8 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
         this.enrichmentCacheStore = enrichmentCacheStore;
         this.auditService = auditService;
         this.emailService = emailService;
+        this.auditTrail = auditTrail;
+        this.transactionalOperator = transactionalOperator;
     }
 
     @Override
@@ -78,7 +90,8 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
                             })
                             .flatMap(issuanceId ->
                                     issuanceService.getIssuanceById(issuanceId)
-                                            .flatMap(proc -> handleEvent(processId, proc, event, eventDescription, publicIssuerBaseUrl))
+                                            .flatMap(proc -> auditTrail.withCorrelationId(issuanceId,
+                                                    handleEvent(processId, proc, event, eventDescription, publicIssuerBaseUrl)))
                             );
                 })
                 .onErrorResume(InvalidNotificationRequestException.class, e -> {
@@ -128,15 +141,23 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
         log.info("[{}] credential_accepted: persisting enriched data and transitioning to ISSUED for issuanceId={}",
                 processId, issuanceId);
 
-        return enrichmentCacheStore.get(issuanceId)
-                .flatMap(enrichedDataSet ->
-                        issuanceService.updateCredentialDataSetByIssuanceId(
-                                issuanceId, enrichedDataSet, issuance.getCredentialFormat())
-                )
-                .doOnSuccess(v -> log.info("[{}] credential_accepted: issuanceId={} transitioned to ISSUED",
-                        processId, issuanceId))
-                .then(activateIfReady(processId, issuance))
+        AtomicBoolean auditFailed = new AtomicBoolean();
+        return transactionalOperator.transactional(enrichmentCacheStore.get(issuanceId)
+                        .flatMap(enrichedDataSet ->
+                                issuanceService.updateCredentialDataSetByIssuanceId(
+                                        issuanceId, enrichedDataSet, issuance.getCredentialFormat())
+                        )
+                        .doOnSuccess(v -> log.info("[{}] credential_accepted: issuanceId={} transitioned to ISSUED",
+                                processId, issuanceId))
+                        .then(activateIfReady(processId, issuance))
+                        .then(Mono.defer(() -> auditTrail.stage(notificationReceived(issuance, NotificationEvent.CREDENTIAL_ACCEPTED, false))
+                                .doOnError(e -> auditFailed.set(true)))))
                 .onErrorResume(e -> {
+                    // A transition that was rolled back because its audit entry could not be staged must not
+                    // be answered as a success: the wallet would believe the credential was accepted.
+                    if (auditFailed.get()) {
+                        return Mono.error(e);
+                    }
                     log.warn("[{}] credential_accepted: failed to persist enriched data for issuanceId={}: {}",
                             processId, issuanceId, e.getMessage());
                     return Mono.empty();
@@ -177,7 +198,9 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
                                 processId, issuanceId, e);
                     }
                     return Mono.empty();
-                });
+                })
+                .then(Mono.defer(() -> auditTrail.stageBestEffort(
+                        notificationReceived(issuance, NotificationEvent.CREDENTIAL_FAILURE, false))));
     }
 
     /**
@@ -188,14 +211,27 @@ public class HandleNotificationWorkflowImpl implements HandleNotificationWorkflo
         log.info("[{}] credential_deleted: withdrawing issuanceId={}", processId, issuanceId);
 
         return issuanceService.withdrawIssuance(issuanceId)
-                .then(revokeCredentialFromDecoded(processId, issuance, publicIssuerBaseUrl))
-                .doOnSuccess(v -> log.info("[{}] credential_deleted: issuanceId={} withdrawn and status list entry revoked",
-                        processId, issuanceId))
+                .then(Mono.defer(() -> revokeCredentialFromDecoded(processId, issuance, publicIssuerBaseUrl)
+                        .thenReturn(true)
+                        .doOnSuccess(revoked -> log.info("[{}] credential_deleted: issuanceId={} withdrawn and status list entry revoked",
+                                processId, issuanceId))
+                        .onErrorResume(e -> {
+                            log.warn("[{}] credential_deleted: error processing issuanceId={}: {}",
+                                    processId, issuanceId, e.getMessage());
+                            return Mono.just(false);
+                        })
+                        .flatMap(revoked -> auditTrail.stageBestEffort(
+                                notificationReceived(issuance, NotificationEvent.CREDENTIAL_DELETED, revoked)))))
                 .onErrorResume(e -> {
                     log.warn("[{}] credential_deleted: error processing issuanceId={}: {}",
                             processId, issuanceId, e.getMessage());
                     return Mono.empty();
                 });
+    }
+
+    private AuditEntry notificationReceived(Issuance issuance, NotificationEvent event, boolean revoked) {
+        return IssuanceAuditEvents.notificationReceived(
+                issuance.getIssuanceId().toString(), event.name().toLowerCase(Locale.ROOT), revoked);
     }
 
     private Mono<Void> revokeCredentialFromDecoded(String processId, Issuance issuance, String publicIssuerBaseUrl) {

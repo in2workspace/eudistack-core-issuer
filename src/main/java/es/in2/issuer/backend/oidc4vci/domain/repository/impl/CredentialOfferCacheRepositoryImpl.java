@@ -12,6 +12,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.CREDENTIAL_OFFER_CACHE_EXPIRATION_TIME;
 import static es.in2.issuer.backend.shared.domain.util.Utils.generateCustomNonce;
@@ -29,10 +30,15 @@ public class CredentialOfferCacheRepositoryImpl implements CredentialOfferCacheR
     @Override
     public Mono<String> saveCredentialOffer(CredentialOfferData credentialOfferData) {
         CredentialOfferData withExpiry = credentialOfferData.toBuilder()
-                .expiresAt(clock.instant().plus(CREDENTIAL_OFFER_LIFETIME))
+                .expiresAt(newOfferExpiry())
                 .consumed(false)
                 .build();
         return generateCustomNonce().flatMap(nonce -> cacheStore.add(nonce, withExpiry));
+    }
+
+    @Override
+    public Instant newOfferExpiry() {
+        return clock.instant().plus(CREDENTIAL_OFFER_LIFETIME);
     }
 
     /**

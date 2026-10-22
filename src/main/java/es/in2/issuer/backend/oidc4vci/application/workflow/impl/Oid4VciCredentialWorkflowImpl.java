@@ -12,6 +12,12 @@ import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialResponse;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents;
+import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Completion;
+import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.WalletInteraction;
+import es.in2.issuer.backend.shared.domain.model.audit.IssuedAttributeNames;
+import es.in2.issuer.backend.shared.infrastructure.audit.IssuanceCompletionRecorder;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.HolderCnfJson;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
@@ -25,10 +31,12 @@ import es.in2.issuer.backend.shared.domain.service.CredentialIssuerMetadataServi
 import es.in2.issuer.backend.shared.domain.service.HolderDidFallbackAuditor;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.ProofValidationService;
+import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.shared.domain.util.DidKeyDerivation;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
+import es.in2.issuer.backend.signing.domain.exception.NoActiveSigningConfigurationException;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
@@ -43,6 +51,7 @@ import java.time.Instant;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -52,6 +61,12 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 @Slf4j
 @Service
 public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow {
+
+    private static final String WALLET_PROTOCOL = "oid4vci";
+    private static final String REASON_INVALID_PROOF = "InvalidProofOfPossession";
+    private static final String REASON_STATUS_LIST_UNAVAILABLE = "StatusListUnavailable";
+    private static final String REASON_SIGNING_FAILED = "SigningFailed";
+    private static final String REASON_INVALID_CONFIGURATION = "InvalidConfiguration";
 
     private final CredentialSignerWorkflow credentialSignerWorkflow;
     private final ProofValidationService proofValidationService;
@@ -65,6 +80,8 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
     private final CredentialIssuedLogger credentialIssuedLogger;
     private final HolderDidFallbackAuditor holderDidFallbackAuditor;
     private final AuditService auditService;
+    private final AuditTrailPort auditTrail;
+    private final IssuanceCompletionRecorder issuanceCompletionRecorder;
 
     public Oid4VciCredentialWorkflowImpl(
             CredentialSignerWorkflow credentialSignerWorkflow,
@@ -78,7 +95,9 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             @Qualifier("notificationCacheStore") TransientStore<String> notificationCacheStore,
             CredentialIssuedLogger credentialIssuedLogger,
             HolderDidFallbackAuditor holderDidFallbackAuditor,
-            AuditService auditService
+            AuditService auditService,
+            AuditTrailPort auditTrail,
+            IssuanceCompletionRecorder issuanceCompletionRecorder
     ) {
         this.credentialSignerWorkflow = credentialSignerWorkflow;
         this.proofValidationService = proofValidationService;
@@ -92,6 +111,8 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         this.credentialIssuedLogger = credentialIssuedLogger;
         this.holderDidFallbackAuditor = holderDidFallbackAuditor;
         this.auditService = auditService;
+        this.auditTrail = auditTrail;
+        this.issuanceCompletionRecorder = issuanceCompletionRecorder;
     }
 
     /**
@@ -121,7 +142,8 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             AtomicReference<String> configurationId =
                     new AtomicReference<>(knownRequestedConfigurationId(credentialRequest));
 
-            return buildCredentialPipeline(processId, credentialRequest, accessTokenContext, publicIssuerBaseUrl, issuanceId, configurationId)
+            return auditTrail.withCorrelationId(issuanceId, buildCredentialPipeline(
+                            processId, credentialRequest, accessTokenContext, publicIssuerBaseUrl, issuanceId, configurationId))
                     .doOnSuccess(response -> {
                         if (response != null) {
                             credentialIssuedLogger.logIssued(configurationId.get());
@@ -188,7 +210,8 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                     log.info("[{}] Processing credential request: issuanceId={}, type={}, format={}",
                             processId, issuanceId, proc.getCredentialType(), proc.getCredentialFormat());
 
-                    return validateAndDetermineBindingInfo(proc, metadata, credentialRequest)
+                    return auditTrail.stageOnError(validateAndDetermineBindingInfo(proc, metadata, credentialRequest),
+                                    error -> proofRefusal(error, proc))
                             .defaultIfEmpty(new BindingInfo(null, null))
                             .flatMap(bindingInfo -> enrichAndSign(processId, proc, bindingInfo, accessTokenContext.rawToken(), publicIssuerBaseUrl));
                 });
@@ -317,6 +340,8 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         String issuanceId = proc.getIssuanceId().toString();
         String credentialType = proc.getCredentialType();
         String email = proc.getEmail();
+        // Read before the delivery attempt is stamped on the issuance below.
+        boolean firstDelivery = isFirstDelivery(proc);
 
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(credentialType);
         if (profile == null) {
@@ -343,8 +368,11 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         StatusListFormat statusFormat = DC_SD_JWT.equals(credentialFormat)
                 ? StatusListFormat.TOKEN_JWT : StatusListFormat.BITSTRING_VC;
 
+        // Which stage failed, for the audit entry: the status list and the signature are the two the catalogue names.
+        AtomicReference<String> failedStage = new AtomicReference<>();
+
         // Step 1: Bind issuer to the credential dataSet (in memory, NOT persisted)
-        return genericCredentialBuilder.bindIssuer(profile, proc.getCredentialDataSet(), issuanceId, email)
+        Mono<CredentialResponse> pipeline = genericCredentialBuilder.bindIssuer(profile, proc.getCredentialDataSet(), issuanceId, email)
                 .map(enrichedDataSet -> {
                     // Inject derived holder DID into mandatee.id when proof supplied a did:key-bound
                     // subject, or -- an AD-8 exempt type never takes the proof path (F2, S2) -- derive it
@@ -357,6 +385,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                 })
                 // Step 2: Allocate status list entry and inject credentialStatus
                 .flatMap(enrichedDataSet -> statusListWorkflow.allocateEntry(StatusPurpose.REVOCATION, statusFormat, issuanceId, token, publicIssuerBaseUrl)
+                        .doOnError(error -> failedStage.set(REASON_STATUS_LIST_UNAVAILABLE))
                         .map(entry -> {
                             CredentialStatus status = CredentialStatus.fromStatusListEntry(entry);
                             return genericCredentialBuilder.injectCredentialStatus(
@@ -368,8 +397,11 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                         enrichmentCacheStore.add(issuanceId, enrichedWithStatus)
                                 // Step 4: Sign using enriched data directly (no DB read)
                                 .then(credentialSignerWorkflow.signCredential(
-                                        token, enrichedWithStatus, credentialType,
-                                        credentialFormat, cnf, issuanceId, email))
+                                                token, enrichedWithStatus, credentialType,
+                                                credentialFormat, cnf, issuanceId, email)
+                                        .doOnError(error -> failedStage.set(
+                                                error instanceof NoActiveSigningConfigurationException
+                                                        ? REASON_INVALID_CONFIGURATION : REASON_SIGNING_FAILED)))
                 )
                 .flatMap(signedCredential -> {
                     // Step 5: Generate notification_id and cache mapping
@@ -381,6 +413,9 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                                 issuance.setDeliveryAttemptedAt(Instant.now());
                                 return issuanceService.updateIssuance(issuance);
                             })
+                            .then(Mono.defer(() -> firstDelivery
+                                    ? recordCompletion(proc, credentialFormat, signedCredential)
+                                    : Mono.<Void>empty()))
                             .thenReturn(CredentialResponse.builder()
                                     .credentials(List.of(CredentialResponse.Credential.builder()
                                             .credential(signedCredential)
@@ -389,6 +424,45 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                                     .build());
                 })
                 .doOnSuccess(resp -> log.info("[{}] Credential signed successfully for issuanceId={}", processId, issuanceId));
+
+        return auditTrail.stageOnError(pipeline, error -> Optional.ofNullable(failedStage.get())
+                .map(reason -> IssuanceAuditEvents.attemptFailed(issuanceId, reason, credentialType,
+                        deliveryMethodOf(proc), holderOf(proc))));
+    }
+
+    private static boolean isFirstDelivery(Issuance proc) {
+        return proc.getCredentialStatus() == CredentialStatusEnum.DRAFT && proc.getDeliveryAttemptedAt() == null;
+    }
+
+    /**
+     * The credential leaves the Issuer here, without waiting for the wallet's notification. Only its first
+     * delivery is reported: a request served again, before or after the wallet accepted it, is not a new
+     * issuance. Two first requests racing each other may still both report.
+     */
+    private Mono<Void> recordCompletion(Issuance proc, String credentialFormat, String signedCredential) {
+        return issuanceCompletionRecorder.record(proc.getIssuanceId().toString(),
+                new Completion(proc.getCredentialType(), deliveryMethodOf(proc), holderOf(proc),
+                        IssuedAttributeNames.of(proc.getCredentialDataSet()),
+                        IssuanceAuditEvents.instantOf(proc.getValidFrom()), IssuanceAuditEvents.instantOf(proc.getValidUntil()),
+                        new WalletInteraction(WALLET_PROTOCOL, proc.getGrantType(), credentialFormat)),
+                signedCredential);
+    }
+
+    /** A key proof the Issuer cannot accept is the only refusal of the credential request with its own reason. */
+    private Optional<AuditEntry> proofRefusal(Throwable error, Issuance proc) {
+        if (!(error instanceof InvalidOrMissingProofException || error instanceof ProofValidationException)) {
+            return Optional.empty();
+        }
+        return Optional.of(IssuanceAuditEvents.attemptFailed(proc.getIssuanceId().toString(), REASON_INVALID_PROOF,
+                proc.getCredentialType(), deliveryMethodOf(proc), holderOf(proc)));
+    }
+
+    private static String deliveryMethodOf(Issuance proc) {
+        return proc.getDelivery() == null ? null : IssuanceAuditEvents.deliveryMethodOf(proc.getDelivery());
+    }
+
+    private static IssuanceAuditEvents.Holder holderOf(Issuance proc) {
+        return new IssuanceAuditEvents.Holder(null, proc.getSubject(), proc.getEmail());
     }
 
     private static String firstNonBlank(String... candidates) {

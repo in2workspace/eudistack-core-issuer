@@ -3,6 +3,8 @@ package es.in2.issuer.backend.oidc4vci.domain.service;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferResult;
 import reactor.core.publisher.Mono;
 
+import java.time.Instant;
+
 public interface CredentialOfferService {
 
     /**
@@ -19,4 +21,7 @@ public interface CredentialOfferService {
             String issuanceId, String credentialConfigurationId, String grantType,
             String email, String delivery, String credentialOfferRefreshToken,
             String publicIssuerBaseUrl, String publicWalletBaseUrl);
+
+    /** When an offer created now stops being redeemable. */
+    Instant newOfferExpiry();
 }

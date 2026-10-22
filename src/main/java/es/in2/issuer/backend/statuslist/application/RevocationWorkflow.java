@@ -4,12 +4,19 @@ import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
 import es.in2.issuer.backend.shared.domain.exception.UnauthorizedRoleException;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Holder;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
+import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.policy.service.StatusListPdpService;
+import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
+import es.in2.issuer.backend.statuslist.domain.audit.RevocationAuditEvents;
+import es.in2.issuer.backend.statuslist.domain.audit.RevocationAuditEvents.Origin;
+import es.in2.issuer.backend.statuslist.domain.exception.StatusListIndexNotFoundException;
 import es.in2.issuer.backend.statuslist.domain.spi.StatusListProvider;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
@@ -18,11 +25,13 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static es.in2.issuer.backend.statuslist.domain.util.Constants.REVOKED;
@@ -50,6 +59,8 @@ public class RevocationWorkflow {
     private final IssuanceService issuanceService;
     private final EmailService emailService;
     private final AuditService auditService;
+    private final AuditTrailPort auditTrail;
+    private final TransactionalOperator transactionalOperator;
 
     private record RevocationContext(String token, Issuance issuance) { }
 
@@ -68,7 +79,7 @@ public class RevocationWorkflow {
         requireNonNullParam(bearerToken, "bearerToken");
         requireNonNullParam(issuanceId, "issuanceId");
         requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
-        return resolveActor()
+        return auditTrail.withCorrelationId(processId, resolveActor()
                 .flatMap(actor ->
                         accessTokenService.getCleanBearerToken(bearerToken)
                                 .flatMap(token -> revokeInternal(
@@ -80,9 +91,10 @@ public class RevocationWorkflow {
                                         (pid, t, issuance) -> statusListPdpService.validateRevokeCredential(pid, t, issuance),
                                         "revokeCredential",
                                         publicIssuerBaseUrl,
-                                        null
+                                        null,
+                                        Optional.of(Origin.REQUEST)
                                 ))
-                );
+                ));
     }
 
     /**
@@ -118,8 +130,14 @@ public class RevocationWorkflow {
                 (pid, t, issuance) -> statusListPdpService.validateRevokeCredentialSystem(pid, issuance),
                 "revokeSystemCredential",
                 publicIssuerBaseUrl,
-                tenantSource
+                tenantSource,
+                auditOriginOf(actor)
         );
+    }
+
+    /** Only a revocation caused by a wallet notification has an origin in the catalogue besides a request. */
+    private static Optional<Origin> auditOriginOf(String actor) {
+        return ACTOR_OID4VCI_NOTIFICATION.equals(actor) ? Optional.of(Origin.WALLET_NOTIFICATION) : Optional.empty();
     }
 
     private Mono<String> resolveActor() {
@@ -213,7 +231,8 @@ public class RevocationWorkflow {
             RevocationValidator validator,
             String action,
             String publicIssuerBaseUrl,
-            String tenantSource
+            String tenantSource,
+            Optional<Origin> auditOrigin
     ) {
         requireNonNullParam(processId, "processId");
         requireNonNullParam(issuanceId, "issuanceId");
@@ -222,6 +241,7 @@ public class RevocationWorkflow {
 
         String tokenValue = token.orElse(null);
         AtomicReference<Issuance> issuanceRef = new AtomicReference<>();
+        AtomicBoolean statusListFailed = new AtomicBoolean();
         // issuanceId is boundary-validated as a well-formed UUID on both callers (the operator
         // DTO's @Pattern and the queue mapper's UUID.fromString) by the time it reaches here,
         // but this method's log statements are a shared sink for both paths. quoteIfNeeded
@@ -231,7 +251,7 @@ public class RevocationWorkflow {
         // RevocationAuditDetails.quoteIfNeeded).
         String safeIssuanceId = RevocationAuditDetails.quoteIfNeeded(issuanceId, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH);
 
-        return Mono.defer(() -> {
+        Mono<Void> revocation = Mono.defer(() -> {
                     log.info("processId={} action={} status=started issuanceId={}", processId, action, safeIssuanceId);
                     return issuanceService.getIssuanceById(issuanceId)
                             .switchIfEmpty(Mono.defer(() -> {
@@ -256,12 +276,16 @@ public class RevocationWorkflow {
                 })
                 .flatMap(ctx ->
                         statusListProvider.revoke(issuanceId, ctx.token, publicIssuerBaseUrl)
-                                .then(issuanceService.updateIssuanceStatusToRevoked(ctx.issuance)
-                                        .doOnSuccess(v -> log.info(
-                                                "processId={} action={} step=issuanceUpdated issuanceId={}",
-                                                processId, action, safeIssuanceId
-                                        ))
-                                )
+                                .doOnError(e -> statusListFailed.set(!(e instanceof StatusListIndexNotFoundException)))
+                                .then(transactionalOperator.transactional(
+                                        issuanceService.updateIssuanceStatusToRevoked(ctx.issuance)
+                                                .doOnSuccess(v -> log.info(
+                                                        "processId={} action={} step=issuanceUpdated issuanceId={}",
+                                                        processId, action, safeIssuanceId
+                                                ))
+                                                .then(Mono.defer(() -> stageApplied(
+                                                        auditOrigin, issuanceId, reason, ctx.issuance)))
+                                ))
                                 .then(issuanceService.extractCredentialId(ctx.issuance)
                                         .defaultIfEmpty(issuanceId)
                                         .flatMap(credentialId -> emailService.sendCredentialStatusChangeNotification(
@@ -297,5 +321,45 @@ public class RevocationWorkflow {
                     );
                     safeAuditFailure(actor, issuanceRef.get(), issuanceId, reason, processId, action, e, tenantSource);
                 });
+
+        return auditTrail.stageOnError(revocation,
+                error -> refusalOf(error, auditOrigin, issuanceId, reason, issuanceRef.get(), statusListFailed.get()));
+    }
+
+    private Mono<Void> stageApplied(Optional<Origin> auditOrigin, String issuanceId, String reason, Issuance issuance) {
+        return auditOrigin
+                .map(origin -> auditTrail.stage(RevocationAuditEvents.applied(
+                        issuanceId, origin, reason, holderOf(issuance))))
+                .orElseGet(Mono::empty);
+    }
+
+    /**
+     * The catalogue entry for a revocation that was refused, or empty when the failure has no reason in
+     * the catalogue (a persistence error, say): the business failure stands and no reason is invented.
+     */
+    private Optional<AuditEntry> refusalOf(Throwable error, Optional<Origin> auditOrigin, String issuanceId,
+                                           String reason, Issuance issuance, boolean statusListFailed) {
+        return auditOrigin.flatMap(origin -> catalogueReasonOf(error, issuance, statusListFailed)
+                .map(catalogueReason -> RevocationAuditEvents.refused(
+                        issuanceId, origin, catalogueReason, reason, holderOf(issuance))));
+    }
+
+    private Optional<String> catalogueReasonOf(Throwable error, Issuance issuance, boolean statusListFailed) {
+        if (error instanceof IssuanceNotFoundException) {
+            return Optional.of("IssuanceNotFound");
+        }
+        if (error instanceof InvalidStatusException) {
+            boolean alreadyRevoked = issuance != null && issuance.getCredentialStatus() == CredentialStatusEnum.REVOKED;
+            return Optional.of(alreadyRevoked ? "AlreadyRevoked" : "NotRevocable");
+        }
+        if (error instanceof UnauthorizedRoleException || error instanceof TenantMismatchException) {
+            return Optional.of("PolicyDenied");
+        }
+        return statusListFailed ? Optional.of("StatusListUnavailable") : Optional.empty();
+    }
+
+    /** The holder is only reported once the process was resolved; an unknown process has none to give. */
+    private static Holder holderOf(Issuance issuance) {
+        return issuance == null ? null : new Holder(null, issuance.getSubject(), issuance.getEmail());
     }
 }
