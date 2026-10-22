@@ -440,7 +440,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
      * issuance. Two first requests racing each other may still both report.
      */
     private Mono<Void> recordCompletion(Issuance proc, String credentialFormat, String signedCredential) {
-        return issuanceCompletionRecorder.record(proc.getIssuanceId().toString(),
+        return issuanceCompletionRecorder.recordCompletion(proc.getIssuanceId().toString(),
                 new Completion(proc.getCredentialType(), deliveryMethodOf(proc), holderOf(proc),
                         IssuedAttributeNames.of(proc.getCredentialDataSet()),
                         IssuanceAuditEvents.instantOf(proc.getValidFrom()), IssuanceAuditEvents.instantOf(proc.getValidUntil()),

@@ -24,7 +24,7 @@ public class ExternalSystemAccessRecorder {
 
     private final AuditTrailPort auditTrail;
 
-    public <T> Mono<T> record(ExternalSystemTarget target, String operation, Mono<T> call) {
+    public <T> Mono<T> recordAccess(ExternalSystemTarget target, String operation, Mono<T> call) {
         return Mono.defer(() -> {
             long startedAt = System.nanoTime();
             return call

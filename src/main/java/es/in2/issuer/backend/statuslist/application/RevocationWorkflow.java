@@ -281,7 +281,7 @@ public class RevocationWorkflow {
                                         issuanceService.updateIssuanceStatusToRevoked(ctx.issuance)
                                                 .doOnSuccess(v -> log.info(
                                                         "processId={} action={} step=issuanceUpdated issuanceId={}",
-                                                        processId, action, safeIssuanceId
+                                                        processId, action, ctx.issuance.getIssuanceId()
                                                 ))
                                                 .then(Mono.defer(() -> stageApplied(
                                                         auditOrigin, issuanceId, reason, ctx.issuance)))

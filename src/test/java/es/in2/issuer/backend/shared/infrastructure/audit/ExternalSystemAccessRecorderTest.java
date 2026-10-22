@@ -28,7 +28,7 @@ class ExternalSystemAccessRecorderTest {
         Mono<String> call = Mono.just("sent");
 
         // Act
-        Mono<String> recorded = recorder.record(MAIL, "credential-offer-email", call);
+        Mono<String> recorded = recorder.recordAccess(MAIL, "credential-offer-email", call);
 
         // Assert
         StepVerifier.create(recorded).expectNext("sent").verifyComplete();
@@ -51,7 +51,7 @@ class ExternalSystemAccessRecorderTest {
         Mono<Void> call = Mono.empty();
 
         // Act
-        Mono<Void> recorded = recorder.record(MAIL, "tx-code-email", call);
+        Mono<Void> recorded = recorder.recordAccess(MAIL, "tx-code-email", call);
 
         // Assert
         StepVerifier.create(recorded).verifyComplete();
@@ -65,7 +65,7 @@ class ExternalSystemAccessRecorderTest {
         Mono<String> call = Mono.error(original);
 
         // Act
-        Mono<String> recorded = recorder.record(MAIL, "credential-offer-email", call);
+        Mono<String> recorded = recorder.recordAccess(MAIL, "credential-offer-email", call);
 
         // Assert
         StepVerifier.create(recorded).expectErrorMatches(error -> error == original).verify();
@@ -80,7 +80,7 @@ class ExternalSystemAccessRecorderTest {
         ExternalSystemTarget qtsp = ExternalSystemTarget.qtsp("qtsp.example.com", "OAuthClientCredentials");
 
         // Act
-        Mono<String> recorded = recorder.record(qtsp, "signatures/signHash", Mono.just("signature"));
+        Mono<String> recorded = recorder.recordAccess(qtsp, "signatures/signHash", Mono.just("signature"));
 
         // Assert
         StepVerifier.create(recorded).expectNext("signature").verifyComplete();
@@ -96,7 +96,7 @@ class ExternalSystemAccessRecorderTest {
         ExternalSystemAccessRecorder brokenRecorder = new ExternalSystemAccessRecorder(brokenTrail);
 
         // Act
-        Mono<String> recorded = brokenRecorder.record(MAIL, "credential-offer-email", Mono.just("sent"));
+        Mono<String> recorded = brokenRecorder.recordAccess(MAIL, "credential-offer-email", Mono.just("sent"));
 
         // Assert
         StepVerifier.create(recorded).expectNext("sent").verifyComplete();
@@ -110,7 +110,7 @@ class ExternalSystemAccessRecorderTest {
         IllegalStateException original = new IllegalStateException("smtp down");
 
         // Act
-        Mono<String> recorded = brokenRecorder.record(MAIL, "credential-offer-email", Mono.error(original));
+        Mono<String> recorded = brokenRecorder.recordAccess(MAIL, "credential-offer-email", Mono.error(original));
 
         // Assert
         StepVerifier.create(recorded).expectErrorMatches(error -> error == original).verify();

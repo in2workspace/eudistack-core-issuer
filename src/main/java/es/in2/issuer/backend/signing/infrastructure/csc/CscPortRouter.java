@@ -97,7 +97,7 @@ public class CscPortRouter implements CscPort {
 
     /** Every call to the QTSP is an access to a third party, whichever protocol version makes it. */
     private <T> Mono<T> audited(RemoteSignatureDto cfg, String operation, Mono<T> call) {
-        return accessRecorder.record(qtspOf(cfg), operation, call);
+        return accessRecorder.recordAccess(qtspOf(cfg), operation, call);
     }
 
     private static ExternalSystemTarget qtspOf(RemoteSignatureDto cfg) {

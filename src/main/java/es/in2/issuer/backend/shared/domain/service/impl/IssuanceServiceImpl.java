@@ -283,10 +283,10 @@ public class IssuanceServiceImpl implements IssuanceService {
                 issuancePort.findByIssuanceId(UUID.fromString(issuanceId))
                         .flatMap(issuance -> {
                             validateTransition(issuance.getCredentialStatus(), CredentialStatusEnum.WITHDRAWN);
-                            log.debug("Withdrawing issuance: {}", issuanceId);
+                            log.debug("Withdrawing issuance: {}", issuance.getIssuanceId());
                             issuance.setCredentialStatus(CredentialStatusEnum.WITHDRAWN);
                             return issuancePort.save(issuance)
-                                    .doOnSuccess(result -> log.info("Issuance withdrawn: {}", issuanceId))
+                                    .doOnSuccess(result -> log.info("Issuance withdrawn: {}", issuance.getIssuanceId()))
                                     .onErrorMap(ConcurrentIssuanceUpdateException.class,
                                             e -> concurrentUpdateConflict(issuance.getIssuanceId(), "withdrawIssuance", e))
                                     .then(Mono.defer(() -> auditTrail.stage(IssuanceAuditEvents.withdrawn(issuanceId))));
@@ -301,10 +301,10 @@ public class IssuanceServiceImpl implements IssuanceService {
                 issuancePort.findByIssuanceId(UUID.fromString(issuanceId))
                         .flatMap(issuance -> {
                             validateTransition(issuance.getCredentialStatus(), CredentialStatusEnum.ARCHIVED);
-                            log.debug("Archiving issuance: {}", issuanceId);
+                            log.debug("Archiving issuance: {}", issuance.getIssuanceId());
                             issuance.setCredentialStatus(CredentialStatusEnum.ARCHIVED);
                             return issuancePort.save(issuance)
-                                    .doOnSuccess(result -> log.info("Issuance archived: {}", issuanceId))
+                                    .doOnSuccess(result -> log.info("Issuance archived: {}", issuance.getIssuanceId()))
                                     .onErrorMap(ConcurrentIssuanceUpdateException.class,
                                             e -> concurrentUpdateConflict(issuance.getIssuanceId(), "archiveIssuance", e))
                                     .then(Mono.defer(() -> auditTrail.stage(IssuanceAuditEvents.archived(issuanceId))));

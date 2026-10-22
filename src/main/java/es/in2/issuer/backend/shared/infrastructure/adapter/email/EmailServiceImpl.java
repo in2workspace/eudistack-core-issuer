@@ -187,7 +187,7 @@ public class EmailServiceImpl implements EmailService {
         return resolveSetup(branded)
                 .flatMap(setup -> Mono.fromCallable(() -> buildMessage(template, to, setup, subject, content))
                         .subscribeOn(Schedulers.boundedElastic()))
-                .flatMap(mimeMessage -> externalSystemAccessRecorder.record(mailProvider(), template,
+                .flatMap(mimeMessage -> externalSystemAccessRecorder.recordAccess(mailProvider(), template,
                         Mono.<Void>fromRunnable(() -> javaMailSender.send(mimeMessage))
                                 .subscribeOn(Schedulers.boundedElastic())))
                 .then();

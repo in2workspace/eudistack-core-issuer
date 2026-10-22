@@ -526,7 +526,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                                                 "ProcessId: {} - Direct issuance saved: {} status={}",
                                                                                 processId, saved.getIssuanceId(), finalStatus))
                                                                         .onErrorMap(DeliveryStageFailure.wrapUnlessAlready(DeliveryErrorCode.PERSISTENCE_FAILED))
-                                                                        .then(Mono.defer(() -> issuanceCompletionRecorder.record(
+                                                                        .then(Mono.defer(() -> issuanceCompletionRecorder.recordCompletion(
                                                                                 issuanceId.toString(),
                                                                                 directCompletion(configId, request, buildResult),
                                                                                 signedCredential)))

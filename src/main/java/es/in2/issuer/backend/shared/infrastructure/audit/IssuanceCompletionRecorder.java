@@ -37,7 +37,7 @@ public class IssuanceCompletionRecorder {
     private final TenantSigningConfigService tenantSigningConfigService;
     private final IssuerCertificateService issuerCertificateService;
 
-    public Mono<Void> record(String issuanceId, Completion completion, String signedCredential) {
+    public Mono<Void> recordCompletion(String issuanceId, Completion completion, String signedCredential) {
         return Mono.defer(() -> JwsHeaderFingerprint.of(signedCredential)
                 .map(proof -> tenantSigningConfigService.getRemoteSignature()
                         .flatMap(issuerCertificateService::resolveRemoteDetailedIssuer)
