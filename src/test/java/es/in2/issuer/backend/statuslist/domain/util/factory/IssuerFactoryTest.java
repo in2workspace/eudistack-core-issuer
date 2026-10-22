@@ -144,8 +144,7 @@ class IssuerFactoryTest {
 
     private static es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig ownKeyConfig() {
         return new es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig(
-                "arn:aws:kms:eu-west-1:111122223333:key/k", "ES256", java.util.List.of("MIIB-leaf"),
-                "a".repeat(64));
+                "arn:aws:kms:eu-west-1:111122223333:key/k", "ES256", java.util.List.of("MIIB-leaf"));
     }
 
     @Test

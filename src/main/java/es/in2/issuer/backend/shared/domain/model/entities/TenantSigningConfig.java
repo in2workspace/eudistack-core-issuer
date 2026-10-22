@@ -48,9 +48,6 @@ public record TenantSigningConfig(
         @Column("own_key_certificate_chain")
         String ownKeyCertificateChain,
 
-        @Column("own_key_spki_sha256")
-        String ownKeySpkiSha256,
-
         @Column("own_key_loaded_at")
         Instant ownKeyLoadedAt,
 

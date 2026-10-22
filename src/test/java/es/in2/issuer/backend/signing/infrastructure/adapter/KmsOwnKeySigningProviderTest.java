@@ -92,8 +92,7 @@ class KmsOwnKeySigningProviderTest {
     private static OwnKeySigningConfig configFor(OwnKeyTestPki.Leaf leaf) {
         try {
             return new OwnKeySigningConfig(KEY_REF, "ES256",
-                    List.of(Base64.getEncoder().encodeToString(leaf.certificate().getEncoded())),
-                    "a".repeat(64));
+                    List.of(Base64.getEncoder().encodeToString(leaf.certificate().getEncoded())));
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }

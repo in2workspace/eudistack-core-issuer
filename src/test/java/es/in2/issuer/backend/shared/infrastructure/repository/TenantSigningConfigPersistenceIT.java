@@ -45,9 +45,8 @@ class TenantSigningConfigPersistenceIT extends PostgresIntegrationBase {
 
     private void insertActiveOwnKey() {
         exec("INSERT INTO " + TABLE + " (provider, modality, status, own_key_kms_key_ref, own_key_algorithm, "
-                + "own_key_certificate_chain, own_key_spki_sha256)  VALUES ('aws-kms', 'own_key', 'active', "
-                + "'arn:aws:kms:eu-west-1:111122223333:key/k', 'ES256', '[\"MIIB-leaf\",\"MIIB-int\"]'::jsonb, "
-                + "'" + "b".repeat(64) + "')");
+                + "own_key_certificate_chain) VALUES ('aws-kms', 'own_key', 'active', "
+                + "'arn:aws:kms:eu-west-1:111122223333:key/k', 'ES256', '[\"MIIB-leaf\",\"MIIB-int\"]'::jsonb)");
     }
 
     @Test
@@ -76,7 +75,7 @@ class TenantSigningConfigPersistenceIT extends PostgresIntegrationBase {
     }
 
     @Test
-    void getActiveSigningConfig_ownKeyRow_roundTripsChainAndSpki() {
+    void getActiveSigningConfig_ownKeyRow_roundTripsChain() {
         insertWithdrawnQtsp();
         insertActiveOwnKey();
 
@@ -87,6 +86,5 @@ class TenantSigningConfigPersistenceIT extends PostgresIntegrationBase {
         assertThat(config).isNotNull();
         assertThat(config.modality()).isEqualTo(SigningModality.OWN_KEY);
         assertThat(config.ownKey().certificateChain()).containsExactly("MIIB-leaf", "MIIB-int");
-        assertThat(config.ownKey().spkiSha256()).isEqualTo("b".repeat(64));
     }
 }

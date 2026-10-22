@@ -154,8 +154,7 @@ class IssuerCertificateServiceImplTest {
     void resolveOwnKeyDetailedIssuer_buildsIdentityFromStoredCertificate_withoutCallingTheQtsp() throws Exception {
         var leaf = new OwnKeyTestPki().validP256Leaf().certificate();
         var config = new OwnKeySigningConfig("arn:aws:kms:eu-west-1:111122223333:key/k", "ES256",
-                List.of(Base64.getEncoder().encodeToString(leaf.getEncoded())),
-                "a".repeat(64));
+                List.of(Base64.getEncoder().encodeToString(leaf.getEncoded())));
 
         StepVerifier.create(issuerCertificateService.resolveOwnKeyDetailedIssuer(config))
                 .assertNext(i -> {
@@ -175,8 +174,7 @@ class IssuerCertificateServiceImplTest {
     void resolveOwnKeyDetailedIssuer_withoutOrganizationIdentifier_failsLikeTheQtspPath() throws Exception {
         var leaf = new OwnKeyTestPki().leafWithoutOrganizationIdentifier().certificate();
         var config = new OwnKeySigningConfig("arn:aws:kms:eu-west-1:111122223333:key/k", "ES256",
-                List.of(Base64.getEncoder().encodeToString(leaf.getEncoded())),
-                "a".repeat(64));
+                List.of(Base64.getEncoder().encodeToString(leaf.getEncoded())));
 
         StepVerifier.create(issuerCertificateService.resolveOwnKeyDetailedIssuer(config))
                 .expectError(es.in2.issuer.backend.signing.domain.exception.OrganizationIdentifierNotFoundException.class)

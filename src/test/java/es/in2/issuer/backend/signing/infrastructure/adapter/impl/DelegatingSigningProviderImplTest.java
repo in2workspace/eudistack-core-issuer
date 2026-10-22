@@ -257,8 +257,7 @@ class DelegatingSigningProviderImplTest {
     }
 
     private static OwnKeySigningConfig ownKey(String keyRef) {
-        return new OwnKeySigningConfig(keyRef, "ES256", java.util.List.of("MIIB-leaf"),
-                "a".repeat(64));
+        return new OwnKeySigningConfig(keyRef, "ES256", java.util.List.of("MIIB-leaf"));
     }
 
     @Test

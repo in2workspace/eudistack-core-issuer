@@ -72,8 +72,7 @@ class DelegatingSigningProviderImplAuditTest {
     }
 
     private static ActiveSigningConfig ownKey() {
-        return ActiveSigningConfig.ownKey(new OwnKeySigningConfig(KEY_REF, "ES256", List.of("MIIB-leaf"),
-                "a".repeat(64)));
+        return ActiveSigningConfig.ownKey(new OwnKeySigningConfig(KEY_REF, "ES256", List.of("MIIB-leaf")));
     }
 
     private Mono<SigningResult> signAs(String tenant) {

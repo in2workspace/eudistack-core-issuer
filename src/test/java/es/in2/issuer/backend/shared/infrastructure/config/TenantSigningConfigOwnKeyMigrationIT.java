@@ -32,7 +32,6 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
             + "VALUES ('digitel', 'v2', '{\"k\":\"v\"}'::jsonb) ON CONFLICT DO NOTHING";
     private static final String KMS_REF = "'arn:aws:kms:eu-west-1:111122223333:key/k'";
     private static final String CHAIN = "'[\"MIIB-leaf\",\"MIIB-intermediate\"]'::jsonb";
-    private static final String SPKI = "'" + "a".repeat(64) + "'";
 
     @Autowired private FlywayProperties flywayProperties;
     @Autowired private R2dbcProperties r2dbcProperties;
@@ -123,36 +122,29 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
     void ownKeyRow_withoutKmsRef_isRejected() {
         String schema = migratedSchemaWithOneActiveRow("tsc-nokms");
 
-        assertOwnKeyInsertRejected(schema, "NULL", "'ES256'", CHAIN, SPKI);
+        assertOwnKeyInsertRejected(schema, "NULL", "'ES256'", CHAIN);
     }
 
     @Test
     void ownKeyRow_withoutAlgorithm_isRejected() {
         String schema = migratedSchemaWithOneActiveRow("tsc-noalg");
 
-        assertOwnKeyInsertRejected(schema, KMS_REF, "NULL", CHAIN, SPKI);
+        assertOwnKeyInsertRejected(schema, KMS_REF, "NULL", CHAIN);
     }
 
     @Test
     void ownKeyRow_withoutChain_isRejected() {
         String schema = migratedSchemaWithOneActiveRow("tsc-nochain");
 
-        assertOwnKeyInsertRejected(schema, KMS_REF, "'ES256'", "NULL", SPKI);
+        assertOwnKeyInsertRejected(schema, KMS_REF, "'ES256'", "NULL");
     }
 
     @Test
     void ownKeyRow_withEmptyOrNonArrayChain_isRejected() {
         String schema = migratedSchemaWithOneActiveRow("tsc-badchain");
 
-        assertOwnKeyInsertRejected(schema, KMS_REF, "'ES256'", "'[]'::jsonb", SPKI);
-        assertOwnKeyInsertRejected(schema, KMS_REF, "'ES256'", "'{\"a\":1}'::jsonb", SPKI);
-    }
-
-    @Test
-    void ownKeyRow_withoutSpki_isRejected() {
-        String schema = migratedSchemaWithOneActiveRow("tsc-nospki");
-
-        assertOwnKeyInsertRejected(schema, KMS_REF, "'ES256'", CHAIN, "NULL");
+        assertOwnKeyInsertRejected(schema, KMS_REF, "'ES256'", "'[]'::jsonb");
+        assertOwnKeyInsertRejected(schema, KMS_REF, "'ES256'", "'{\"a\":1}'::jsonb");
     }
 
     @Test
@@ -201,12 +193,12 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
     }
 
     private void assertOwnKeyInsertRejected(String schema, String kmsRef, String algorithm,
-                                            String chain, String spki) {
+                                            String chain) {
         String sql = "INSERT INTO \"" + schema + "\".tenant_signing_config "
                 + "(provider, modality, status, withdrawn_at, own_key_kms_key_ref, own_key_algorithm, "
-                + "own_key_certificate_chain, own_key_spki_sha256) "
+                + "own_key_certificate_chain) "
                 + "VALUES ('aws-kms', 'own_key', 'withdrawn', now(), "
-                + kmsRef + ", " + algorithm + ", " + chain + ", " + spki + ")";
+                + kmsRef + ", " + algorithm + ", " + chain + ")";
         assertThatThrownBy(() -> exec(sql))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("chk_tenant_signing_config_own_key_required");
@@ -215,9 +207,9 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
     private String ownKeyInsert(String schema, String status, String withdrawnAt) {
         return "INSERT INTO \"" + schema + "\".tenant_signing_config "
                 + "(provider, modality, status, withdrawn_at, own_key_kms_key_ref, own_key_algorithm, "
-                + "own_key_certificate_chain, own_key_spki_sha256) "
+                + "own_key_certificate_chain) "
                 + "VALUES ('aws-kms', 'own_key', '" + status + "', " + withdrawnAt
-                + ", " + KMS_REF + ", 'ES256', " + CHAIN + ", " + SPKI + ")";
+                + ", " + KMS_REF + ", 'ES256', " + CHAIN + ")";
     }
 
     private String migratedSchemaWithOneActiveRow(String tenant) {

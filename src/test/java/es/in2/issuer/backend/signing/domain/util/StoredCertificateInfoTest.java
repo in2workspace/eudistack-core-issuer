@@ -18,8 +18,7 @@ class StoredCertificateInfoTest {
     private final OwnKeyTestPki pki = new OwnKeyTestPki();
 
     static OwnKeySigningConfig configOf(List<String> chain) {
-        return new OwnKeySigningConfig("arn:aws:kms:eu-west-1:111122223333:key/k", "ES256", chain,
-                "a".repeat(64));
+        return new OwnKeySigningConfig("arn:aws:kms:eu-west-1:111122223333:key/k", "ES256", chain);
     }
 
     static String b64(X509Certificate certificate) {
