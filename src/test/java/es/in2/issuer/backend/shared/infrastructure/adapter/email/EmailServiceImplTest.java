@@ -1,11 +1,16 @@
 package es.in2.issuer.backend.shared.infrastructure.adapter.email;
 
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
 import es.in2.issuer.backend.shared.domain.model.dto.EmailBranding;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.service.TranslationService;
 import es.in2.issuer.backend.shared.domain.spi.EmailBrandingResolver;
+import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
+import es.in2.issuer.backend.shared.infrastructure.audit.ExternalSystemAccessRecorder;
 import jakarta.mail.Session;
 import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
@@ -16,12 +21,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.net.ConnectException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -48,13 +55,15 @@ class EmailServiceImplTest {
             "https://assets.example.com/dome/email/header-bg.png",
             "https://support.example.com", "https://kb.example.com", List.of());
 
+    private final RecordingAuditTrail auditTrail = new RecordingAuditTrail();
+
     private EmailServiceImpl emailService;
 
     @BeforeEach
     void setUpLenient() {
         emailService = new EmailServiceImpl(
                 javaMailSender, templateEngine, tenantConfigService, translationService,
-                emailBrandingResolver, tenantRegistryService
+                emailBrandingResolver, tenantRegistryService, new ExternalSystemAccessRecorder(auditTrail)
         );
         lenient().when(tenantConfigService.getStringOrThrow("issuer.mail_from"))
                 .thenReturn(Mono.just("noreply@example.com"));
@@ -81,6 +90,57 @@ class EmailServiceImplTest {
                 .verifyComplete();
 
         verify(javaMailSender).send(mimeMessage);
+    }
+
+    @Test
+    void sendTxCodeNotification_mailSent_stagesAMailProviderAccessWithTheTemplateAsOperation() {
+        // Arrange
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("tx-code-email"), any(Context.class))).thenReturn("htmlContent");
+
+        // Act
+        Mono<Void> sent = emailService.sendTxCodeNotification("to@example.com", "1234");
+
+        // Assert
+        StepVerifier.create(sent).verifyComplete();
+        assertEquals(1, auditTrail.stagedInNewTransaction().size());
+        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditEventType.EXTERNAL_SYSTEM_ACCESS, entry.type());
+        assertEquals(AuditResult.SUCCESS, entry.result());
+        assertEquals("MailProvider", entry.details().get("system_type"));
+        assertEquals("tx-code-email", entry.details().get("operation"));
+    }
+
+    @Test
+    void sendTxCodeNotification_mailServerUnreachable_stagesAFailureAndStillFailsTheSend() {
+        // Arrange
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("tx-code-email"), any(Context.class))).thenReturn("htmlContent");
+        doThrow(new MailSendException("failed", new ConnectException("refused"))).when(javaMailSender).send(mimeMessage);
+
+        // Act
+        Mono<Void> sent = emailService.sendTxCodeNotification("to@example.com", "1234");
+
+        // Assert
+        StepVerifier.create(sent).expectError(EmailCommunicationException.class).verify();
+        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditResult.FAILURE, entry.result());
+        assertEquals("Unreachable", entry.reason());
+    }
+
+    @Test
+    void sendTxCodeNotification_messageCannotBeBuilt_stagesNoAccessBecauseNothingWasSent() {
+        // Arrange
+        when(javaMailSender.createMimeMessage()).thenThrow(new IllegalStateException("no session"));
+
+        // Act
+        Mono<Void> sent = emailService.sendTxCodeNotification("to@example.com", "1234");
+
+        // Assert
+        StepVerifier.create(sent).expectError(EmailCommunicationException.class).verify();
+        assertTrue(auditTrail.all().isEmpty());
     }
 
     @Test

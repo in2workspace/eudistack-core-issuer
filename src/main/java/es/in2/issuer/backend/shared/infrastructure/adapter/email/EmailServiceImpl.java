@@ -6,18 +6,22 @@ import com.google.zxing.client.j2se.MatrixToImageWriter;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.qrcode.QRCodeWriter;
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
+import es.in2.issuer.backend.shared.domain.model.audit.ExternalSystemTarget;
 import es.in2.issuer.backend.shared.domain.model.dto.EmailBranding;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.service.TranslationService;
 import es.in2.issuer.backend.shared.domain.spi.EmailBrandingResolver;
+import es.in2.issuer.backend.shared.infrastructure.audit.ExternalSystemAccessRecorder;
+import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import io.micrometer.observation.annotation.Observed;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeTypeUtils;
@@ -50,6 +54,8 @@ public class EmailServiceImpl implements EmailService {
     private static final String CREDENTIAL_FAILURE_SUBJECT_KEY = "email.credential-failure.subject";
     private static final String DEFAULT_STATUS_SUBJECT_KEY = "email.default-status.subject";
 
+    private static final String UNKNOWN_MAIL_PROVIDER = "mail-provider";
+
     private static final String ICONS_PATH = "email/icons/";
     private static final Map<String, byte[]> ICONS = new ConcurrentHashMap<>();
 
@@ -76,6 +82,7 @@ public class EmailServiceImpl implements EmailService {
     private final TranslationService translationService;
     private final EmailBrandingResolver emailBrandingResolver;
     private final TenantRegistryService tenantRegistryService;
+    private final ExternalSystemAccessRecorder externalSystemAccessRecorder;
 
     public EmailServiceImpl(
             JavaMailSender javaMailSender,
@@ -83,7 +90,8 @@ public class EmailServiceImpl implements EmailService {
             TenantConfigService tenantConfigService,
             TranslationService translationService,
             EmailBrandingResolver emailBrandingResolver,
-            TenantRegistryService tenantRegistryService
+            TenantRegistryService tenantRegistryService,
+            ExternalSystemAccessRecorder externalSystemAccessRecorder
     ) {
         this.javaMailSender = javaMailSender;
         this.templateEngine = templateEngine;
@@ -91,6 +99,7 @@ public class EmailServiceImpl implements EmailService {
         this.translationService = translationService;
         this.emailBrandingResolver = emailBrandingResolver;
         this.tenantRegistryService = tenantRegistryService;
+        this.externalSystemAccessRecorder = externalSystemAccessRecorder;
     }
 
     @Override
@@ -178,33 +187,50 @@ public class EmailServiceImpl implements EmailService {
     private Mono<Void> send(String template, String to, boolean branded,
                             Function<SendSetup, String> subject, ContentBuilder content) {
         return resolveSetup(branded)
-                .flatMap(setup -> Mono.fromCallable(() -> {
-                    MimeMessage mimeMessage = javaMailSender.createMimeMessage();
-                    MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
-                    helper.setFrom(setup.mailFrom());
-                    helper.setTo(to);
-                    // The subject carries admin-configured values (tenant display name, environment label).
-                    helper.setSubject(subject.apply(setup).replaceAll("[\\r\\n]+", " "));
-
-                    Context context = createLocalizedContext(setup.locale());
-                    Map<String, byte[]> inlinePngs = new LinkedHashMap<>();
-                    setup.branding().ifPresent(branding -> {
-                        context.setVariable("branding", branding);
-                        context.setVariable("tenantDisplayName", setup.tenantDisplayName());
-                        branding.socialLinks().forEach(link -> addIcon(inlinePngs, link.type()));
-                    });
-                    content.apply(context, inlinePngs, setup);
-
-                    // Inline parts must follow setText: otherwise the image becomes the first part of
-                    // multipart/related and clients (Outlook, Gmail) show it as the body and the HTML as an attachment.
-                    helper.setText(templateEngine.process(template, context), true);
-                    for (Map.Entry<String, byte[]> inline : inlinePngs.entrySet()) {
-                        helper.addInline(inline.getKey(), new ByteArrayResource(inline.getValue()), MimeTypeUtils.IMAGE_PNG_VALUE);
-                    }
-                    javaMailSender.send(mimeMessage);
-                    return null;
-                }).subscribeOn(Schedulers.boundedElastic()))
+                .flatMap(setup -> Mono.fromCallable(() -> buildMessage(template, to, setup, subject, content))
+                        .subscribeOn(Schedulers.boundedElastic()))
+                .flatMap(mimeMessage -> externalSystemAccessRecorder.record(mailProvider(), template,
+                        Mono.<Void>fromRunnable(() -> javaMailSender.send(mimeMessage))
+                                .subscribeOn(Schedulers.boundedElastic())))
                 .then();
+    }
+
+    private MimeMessage buildMessage(String template, String to, SendSetup setup,
+                                     Function<SendSetup, String> subject, ContentBuilder content)
+            throws MessagingException {
+        MimeMessage mimeMessage = javaMailSender.createMimeMessage();
+        MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, UTF_8);
+        helper.setFrom(setup.mailFrom());
+        helper.setTo(to);
+        // The subject carries admin-configured values (tenant display name, environment label).
+        helper.setSubject(subject.apply(setup).replaceAll("[\\r\\n]+", " "));
+
+        Context context = createLocalizedContext(setup.locale());
+        Map<String, byte[]> inlinePngs = new LinkedHashMap<>();
+        setup.branding().ifPresent(branding -> {
+            context.setVariable("branding", branding);
+            context.setVariable("tenantDisplayName", setup.tenantDisplayName());
+            branding.socialLinks().forEach(link -> addIcon(inlinePngs, link.type()));
+        });
+        content.apply(context, inlinePngs, setup);
+
+        // Inline parts must follow setText: otherwise the image becomes the first part of
+        // multipart/related and clients (Outlook, Gmail) show it as the body and the HTML as an attachment.
+        helper.setText(templateEngine.process(template, context), true);
+        for (Map.Entry<String, byte[]> inline : inlinePngs.entrySet()) {
+            helper.addInline(inline.getKey(), new ByteArrayResource(inline.getValue()), MimeTypeUtils.IMAGE_PNG_VALUE);
+        }
+        return mimeMessage;
+    }
+
+    /** The SMTP server the sender is configured for, as the audit event names it. */
+    private ExternalSystemTarget mailProvider() {
+        if (javaMailSender instanceof JavaMailSenderImpl smtp && smtp.getHost() != null) {
+            boolean authenticated = smtp.getUsername() != null && !smtp.getUsername().isBlank();
+            return ExternalSystemTarget.mailProvider(smtp.getHost(),
+                    authenticated ? ExternalSystemTarget.AUTHENTICATION_BASIC : ExternalSystemTarget.AUTHENTICATION_NONE);
+        }
+        return ExternalSystemTarget.mailProvider(UNKNOWN_MAIL_PROVIDER, ExternalSystemTarget.AUTHENTICATION_NONE);
     }
 
     private Mono<SendSetup> resolveSetup(boolean branded) {
