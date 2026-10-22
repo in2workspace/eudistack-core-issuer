@@ -59,7 +59,7 @@ public class KmsSigningAdapter implements KmsSigningPort {
 
     private KmsSigningException failure(String operation, String keyRef, Throwable error) {
         KmsSigningException ex = KmsRetryPolicy.toSigningException(error, operation);
-        log.error("KMS {} failed. keyRef={} reason={}", operation, keyRef, ex.getReason());
+        log.error("KMS {} failed. keyRef={} reason={}", operation, KmsKeyRefs.forLog(keyRef), ex.getReason());
         return ex;
     }
 }

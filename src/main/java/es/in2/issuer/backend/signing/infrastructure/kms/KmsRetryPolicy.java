@@ -75,7 +75,7 @@ public final class KmsRetryPolicy {
                 .filter(KmsRetryPolicy::isRetryable)
                 .doBeforeRetry(rs -> log.warn(
                         "Retrying KMS {}. keyRef={} attempt={} of {}, reason={}",
-                        operation, keyRef, rs.totalRetries() + 1, maxRetries, describe(rs.failure())))
+                        operation, KmsKeyRefs.forLog(keyRef), rs.totalRetries() + 1, maxRetries, describe(rs.failure())))
                 .onRetryExhaustedThrow((spec, signal) -> new KmsSigningException(
                         SigningFailureReason.SERVICE_UNAVAILABLE,
                         "KMS " + operation + " unavailable after " + signal.totalRetries()

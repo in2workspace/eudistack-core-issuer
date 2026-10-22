@@ -19,6 +19,7 @@ import es.in2.issuer.backend.signing.domain.util.JwsSignatureEncoder;
 import es.in2.issuer.backend.signing.domain.util.SigningCertificateChecks;
 import es.in2.issuer.backend.signing.domain.util.StoredCertificateInfo;
 import es.in2.issuer.backend.signing.infrastructure.csc.CertificateQualificationUtils;
+import es.in2.issuer.backend.signing.infrastructure.kms.KmsKeyRefs;
 import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -126,7 +127,7 @@ public class KmsOwnKeySigningProvider {
     }
 
     private KmsSigningException invalidSignature(String tenant, OwnKeySigningConfig config) {
-        log.error("invalid KMS signature tenant={} keyRef={}", tenant, config.kmsKeyRef());
+        log.error("invalid KMS signature tenant={} keyRef={}", tenant, KmsKeyRefs.forLog(config.kmsKeyRef()));
         return new KmsSigningException(SigningFailureReason.INVALID_RESPONSE,
                 "The signature returned by KMS does not verify with the stored certificate");
     }
