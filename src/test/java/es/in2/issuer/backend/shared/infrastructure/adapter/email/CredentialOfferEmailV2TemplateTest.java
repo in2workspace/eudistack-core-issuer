@@ -35,11 +35,11 @@ class CredentialOfferEmailV2TemplateTest {
         templateEngine.setMessageSource(messageSource);
     }
 
-    private Context buildContext(Locale locale, String organization, String credentialOfferLink, String reissueUrl) {
+    private Context buildContext(Locale locale, String organization, String walletLink, String reissueUrl) {
         Context ctx = new Context(locale);
         ctx.setVariable("organization", organization);
         ctx.setVariable("qrImageCid", "cid:qr-credential-offer.png");
-        ctx.setVariable("credentialOfferLink", credentialOfferLink);
+        ctx.setVariable("walletLink", walletLink);
         ctx.setVariable("reissueUrl", reissueUrl);
         return ctx;
     }
@@ -115,10 +115,10 @@ class CredentialOfferEmailV2TemplateTest {
 
     @Test
     void render_reissueUrl_appearsInHrefAttribute() {
-        String credentialOfferLink = "https://wallet.example.com/callback?credential_offer_uri=https%3A%2F%2Fexample.com";
+        String walletLink = "https://wallet.example.com/callback?credential_offer_uri=https%3A%2F%2Fexample.com";
         String reissueUrl = "https://issuer.example.com/credential-offer/refresh/mytoken";
 
-        Context ctx = buildContext(Locale.ENGLISH, "TestOrg", credentialOfferLink, reissueUrl);
+        Context ctx = buildContext(Locale.ENGLISH, "TestOrg", walletLink, reissueUrl);
 
         String html = templateEngine.process("credential-offer-email-v2", ctx);
 

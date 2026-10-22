@@ -29,6 +29,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -44,6 +46,8 @@ public class EmailServiceImpl implements EmailService {
 
     private static final String MAIL_FROM_KEY = "issuer.mail_from";
     private static final String DEFAULT_LANG_KEY = "issuer.default_lang";
+    /** Base URL of the tenant's wallet for the offer email button (EUD-305); optional, supplied by the client. */
+    private static final String WALLET_URL_KEY = "issuer.wallet_url";
 
     private static final String CREDENTIAL_OFFER_SUBJECT_KEY = "email.credential-offer.subject";
     private static final String TX_CODE_SUBJECT_KEY = "email.tx-code.subject";
@@ -106,27 +110,29 @@ public class EmailServiceImpl implements EmailService {
 
     @Observed(name = "issuance.send-email", contextualName = "issuance-send-email")
     @Override
-    public Mono<Void> sendCredentialOfferEmail(String to, String credentialOfferLink, String reissueUrl,
+    public Mono<Void> sendCredentialOfferEmail(String to, String credentialOfferUri, String reissueUrl,
                                                String organization, String txCode) {
-        return send("credential-offer-email", to, true,
-                this::offerSubject,
-                (context, inlinePngs, setup) -> {
-                    fillOfferContext(context, inlinePngs, credentialOfferLink, reissueUrl, organization);
-                    if (txCode != null) {
-                        context.setVariable("txCode", txCode);
-                    }
-                });
+        return resolveWalletLink(credentialOfferUri)
+                .flatMap(walletLink -> send("credential-offer-email", to, true,
+                        this::offerSubject,
+                        (context, inlinePngs, setup) -> {
+                            fillOfferContext(context, inlinePngs, walletLink, reissueUrl, organization);
+                            if (txCode != null) {
+                                context.setVariable("txCode", txCode);
+                            }
+                        }));
     }
 
     @Observed(name = "issuance.send-email", contextualName = "issuance-send-email")
     @Override
-    public Mono<Void> sendBrandedCredentialOfferEmail(String to, String subject, String credentialOfferLink,
+    public Mono<Void> sendBrandedCredentialOfferEmail(String to, String subject, String credentialOfferUri,
                                                       String reissueUrl, String organization) {
         // KPMG path: own template and subject, no branding variables.
-        return send("credential-offer-email-v2", to, false,
-                setup -> translationService.translateWithLocale(subject, setup.locale()),
-                (context, inlinePngs, setup) ->
-                        fillOfferContext(context, inlinePngs, credentialOfferLink, reissueUrl, organization));
+        return resolveWalletLink(credentialOfferUri)
+                .flatMap(walletLink -> send("credential-offer-email-v2", to, false,
+                        setup -> translationService.translateWithLocale(subject, setup.locale()),
+                        (context, inlinePngs, setup) ->
+                                fillOfferContext(context, inlinePngs, walletLink, reissueUrl, organization)));
     }
 
     @Override
@@ -238,19 +244,40 @@ public class EmailServiceImpl implements EmailService {
     }
 
     /**
-     * @param credentialOfferLink what the button and the QR carry, decided by the caller: a link to
-     *                            the tenant's wallet, or the standard {@code openid-credential-offer://}
-     *                            form when the tenant configures none (EUD-305).
+     * The button and the QR carry the same {@code walletLink}: the tenant's wallet when it is
+     * configured, so the QR opens from the phone camera, or the standard offer otherwise (EUD-305).
      */
-    private void fillOfferContext(Context context, Map<String, byte[]> inlinePngs, String credentialOfferLink,
+    private void fillOfferContext(Context context, Map<String, byte[]> inlinePngs, String walletLink,
                                   String reissueUrl, String organization) {
-        byte[] qrImageBytes = generateQrCodeImage(credentialOfferLink, 300, 300);
+        byte[] qrImageBytes = generateQrCodeImage(walletLink, 300, 300);
 
         context.setVariable("organization", organization);
         context.setVariable("qrImageCid", "cid:qr-credential-offer.png");
-        context.setVariable("credentialOfferLink", credentialOfferLink);
+        context.setVariable("walletLink", walletLink);
         context.setVariable("reissueUrl", reissueUrl);
         inlinePngs.put("qr-credential-offer.png", qrImageBytes);
+    }
+
+    /**
+     * What the button and the QR carry: the tenant's wallet when the tenant configures one
+     * ({@code issuer.wallet_url}), otherwise the standard offer itself. There is no default wallet,
+     * and a missing key never stops the email.
+     */
+    private Mono<String> resolveWalletLink(String credentialOfferUri) {
+        return tenantConfigService.getString(WALLET_URL_KEY)
+                .filter(walletUrl -> !walletUrl.isBlank())
+                .map(walletUrl -> buildWalletLink(credentialOfferUri, walletUrl.strip()))
+                .defaultIfEmpty(credentialOfferUri);
+    }
+
+    /** Reuses the already-encoded https offer URL after {@code credential_offer_uri=}, so it is not encoded twice. */
+    private static String buildWalletLink(String credentialOfferUri, String walletUrl) {
+        String encodedHttpsUrl = credentialOfferUri.startsWith(CREDENTIAL_OFFER_PREFIX)
+                ? credentialOfferUri.substring(CREDENTIAL_OFFER_PREFIX.length())
+                : URLEncoder.encode(credentialOfferUri, StandardCharsets.UTF_8);
+        String walletBase = walletUrl.endsWith("/") ? walletUrl.substring(0, walletUrl.length() - 1) : walletUrl;
+
+        return walletBase + WALLET_PROTOCOL_CALLBACK + "?" + CREDENTIAL_OFFER_URI_PARAMETER + "=" + encodedHttpsUrl;
     }
 
     /** Common icon shipped in {@code email/icons/}, referenced by the templates as {@code cid:icon-<name>.png}. */
