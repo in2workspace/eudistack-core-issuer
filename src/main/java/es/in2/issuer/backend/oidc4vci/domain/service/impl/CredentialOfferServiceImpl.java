@@ -133,7 +133,6 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                                                       CredentialOfferEmailNotificationInfo emailInfo) {
         return emailService.sendCredentialOfferEmail(
                 emailInfo.email(),
-                CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
                 credentialOfferLink,
                 refreshUrl,
                 emailInfo.organization(),

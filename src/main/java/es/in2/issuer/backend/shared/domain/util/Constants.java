@@ -119,6 +119,8 @@ public final class Constants {
     // MULTI-TENANCY
     public static final String X_TENANT_HEADER = "X-Tenant";
     public static final String TENANT_DOMAIN_CONTEXT_KEY = "tenantDomain";
+    // Environment label of the request host (e.g. "SBX"); absent on canonical hosts and in schedulers.
+    public static final String ENVIRONMENT_LABEL_CONTEXT_KEY = "environmentLabel";
     public static final String PLATFORM_TENANT = "platform";
     // Sentinel used when no tenant is present in the Reactor Context (system operations,
     // schedulers, misrouted requests). Mirrors TenantAwareConnectionFactoryDecorator's

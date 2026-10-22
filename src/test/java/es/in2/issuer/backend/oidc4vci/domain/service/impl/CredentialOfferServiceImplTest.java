@@ -92,7 +92,7 @@ class CredentialOfferServiceImplTest {
         stubFrontendUrl();
         when(tenantConfigService.getString(WALLET_URL_KEY))
                 .thenReturn(Mono.just("https://wallet.example.com/wallet"));
-        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), anyString(), isNull()))
+        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), isNull()))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
@@ -102,7 +102,7 @@ class CredentialOfferServiceImplTest {
                 .assertNext(result -> assertThat(result.credentialOfferUri()).isEqualTo(STANDARD_OFFER_URI))
                 .verifyComplete();
 
-        verify(emailService).sendCredentialOfferEmail(eq("test@example.com"), anyString(),
+        verify(emailService).sendCredentialOfferEmail(eq("test@example.com"),
                 eq("https://wallet.example.com/wallet/protocol/callback?credential_offer_uri=" + ENCODED_OFFER_URL),
                 anyString(), eq("TestOrg"), isNull());
     }
@@ -117,7 +117,7 @@ class CredentialOfferServiceImplTest {
         stubFrontendUrl();
         when(tenantConfigService.getString(WALLET_URL_KEY))
                 .thenReturn(Mono.just("https://wallet.example.com/wallet"));
-        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), anyString(), isNull()))
+        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), isNull()))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
@@ -130,7 +130,7 @@ class CredentialOfferServiceImplTest {
                 })
                 .verifyComplete();
 
-        verify(emailService).sendCredentialOfferEmail(eq("test@example.com"), anyString(),
+        verify(emailService).sendCredentialOfferEmail(eq("test@example.com"),
                 eq("https://wallet.example.com/wallet/protocol/callback?credential_offer_uri=" + ENCODED_OFFER_URL),
                 eq("https://frontend.example.com/issuer/credential-offer-refresh/refresh-token"),
                 eq("TestOrg"), isNull());
@@ -144,7 +144,7 @@ class CredentialOfferServiceImplTest {
         stubFrontendUrl();
         when(tenantConfigService.getString(WALLET_URL_KEY))
                 .thenReturn(Mono.just("https://wallet.example.com/wallet/"));
-        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), anyString(), isNull()))
+        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), isNull()))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
@@ -154,7 +154,7 @@ class CredentialOfferServiceImplTest {
                 .expectNextCount(1)
                 .verifyComplete();
 
-        verify(emailService).sendCredentialOfferEmail(anyString(), anyString(),
+        verify(emailService).sendCredentialOfferEmail(anyString(),
                 eq("https://wallet.example.com/wallet/protocol/callback?credential_offer_uri=" + ENCODED_OFFER_URL),
                 anyString(), anyString(), isNull());
     }
@@ -166,7 +166,7 @@ class CredentialOfferServiceImplTest {
         stubEmailInfo("test-issuance-id");
         stubFrontendUrl();
         when(tenantConfigService.getString(WALLET_URL_KEY)).thenReturn(Mono.empty());
-        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), anyString(), isNull()))
+        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), isNull()))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
@@ -179,7 +179,7 @@ class CredentialOfferServiceImplTest {
                 })
                 .verifyComplete();
 
-        verify(emailService).sendCredentialOfferEmail(eq("test@example.com"), anyString(),
+        verify(emailService).sendCredentialOfferEmail(eq("test@example.com"),
                 eq(STANDARD_OFFER_URI), anyString(), eq("TestOrg"), isNull());
     }
 
@@ -191,7 +191,7 @@ class CredentialOfferServiceImplTest {
         stubEmailInfo("test-issuance-id");
         stubFrontendUrl();
         when(tenantConfigService.getString(WALLET_URL_KEY)).thenReturn(Mono.just("  "));
-        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), anyString(), isNull()))
+        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), isNull()))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
@@ -200,7 +200,7 @@ class CredentialOfferServiceImplTest {
                 .assertNext(result -> assertThat(result.credentialOfferUri()).isNull())
                 .verifyComplete();
 
-        verify(emailService).sendCredentialOfferEmail(eq("test@example.com"), anyString(),
+        verify(emailService).sendCredentialOfferEmail(eq("test@example.com"),
                 eq(STANDARD_OFFER_URI), anyString(), eq("TestOrg"), isNull());
     }
 
@@ -260,7 +260,7 @@ class CredentialOfferServiceImplTest {
                 eq("user@kpmg.com"), anyString(),
                 argThat(url -> url.startsWith("https://kpmg.eudistack.net/wallet/protocol/callback?credential_offer_uri=")),
                 anyString(), eq("KPMG"));
-        verify(emailService, never()).sendCredentialOfferEmail(any(), any(), any(), any(), any(), any());
+        verify(emailService, never()).sendCredentialOfferEmail(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -274,7 +274,7 @@ class CredentialOfferServiceImplTest {
                 .thenReturn(Mono.just("nonce"));
         when(issuanceService.findCredentialOfferEmailInfoByIssuanceId("issuance-sandbox"))
                 .thenReturn(Mono.just(new CredentialOfferEmailNotificationInfo("user@sandbox.com", "Sandbox Org")));
-        when(emailService.sendCredentialOfferEmail(any(), any(), any(), any(), any(), isNull()))
+        when(emailService.sendCredentialOfferEmail(any(), any(), any(), any(), isNull()))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
@@ -286,7 +286,7 @@ class CredentialOfferServiceImplTest {
                 .verifyComplete();
 
         verify(emailService).sendCredentialOfferEmail(
-                eq("user@sandbox.com"), any(),
+                eq("user@sandbox.com"),
                 argThat(url -> url.startsWith("https://sandbox.eudistack.net/wallet/protocol/callback?credential_offer_uri=")),
                 any(), eq("Sandbox Org"), isNull());
         verify(emailService, never()).sendBrandedCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), anyString());

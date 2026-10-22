@@ -20,6 +20,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
+import es.in2.issuer.backend.shared.infrastructure.config.tenantconfig.TenantCustomDomainsLoader;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
@@ -87,6 +88,9 @@ class IssuanceControllerTest {
 
     @MockitoBean
     private TenantRegistryService tenantRegistryService;
+
+    @MockitoBean
+    private TenantCustomDomainsLoader tenantCustomDomainsLoader;
 
     @MockitoBean
     private UrlResolver urlResolver;

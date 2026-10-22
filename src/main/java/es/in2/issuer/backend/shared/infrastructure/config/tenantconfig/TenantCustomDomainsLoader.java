@@ -36,6 +36,7 @@ public class TenantCustomDomainsLoader {
     private final ResourceLoader resourceLoader;
     private final String configPath;
     private Map<String, TenantEntry> entries = Map.of();
+    private Map<String, String> environmentLabelByIssuerHost = Map.of();
 
     public TenantCustomDomainsLoader(
             ResourceLoader resourceLoader,
@@ -59,13 +60,16 @@ public class TenantCustomDomainsLoader {
             List<TenantEntry> tenants = data.tenants() != null ? data.tenants() : List.of();
             validate(tenants);
             Map<String, TenantEntry> index = new HashMap<>();
+            Map<String, String> labelIndex = new HashMap<>();
             for (TenantEntry entry : tenants) {
                 TenantEntry previous = index.putIfAbsent(entry.id(), entry);
                 if (previous != null) {
                     throw new IllegalArgumentException("Duplicate tenant id '" + entry.id() + "'");
                 }
+                indexEnvironmentLabel(entry, labelIndex);
             }
             this.entries = Map.copyOf(index);
+            this.environmentLabelByIssuerHost = Map.copyOf(labelIndex);
             log.info("Loaded {} tenant custom domain(s) from '{}'", entries.size(), configPath);
         } catch (IllegalArgumentException e) {
             throw new IllegalStateException(
@@ -100,6 +104,36 @@ public class TenantCustomDomainsLoader {
     public Optional<List<String>> findVerifierUrls(String tenantId) {
         TenantEntry entry = entries.get(tenantId);
         return entry != null ? Optional.of(entry.verifiers()) : Optional.empty();
+    }
+
+    /**
+     * Returns the environment label (e.g. {@code SBX}, {@code Dev}) configured for the entry whose
+     * {@code issuer} URL has the given host, or {@link Optional#empty()} if the host is unknown or
+     * its entry has no {@code environmentLabel}. Matched by request host because several domains
+     * can map to one tenant.
+     */
+    public Optional<String> findEnvironmentLabelByIssuerHost(String issuerHost) {
+        if (issuerHost == null || issuerHost.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(environmentLabelByIssuerHost.get(issuerHost));
+    }
+
+    private static void indexEnvironmentLabel(TenantEntry entry, Map<String, String> labelIndex) {
+        String issuerHost = hostOf(entry.issuer());
+        if (issuerHost == null) {
+            return;
+        }
+        if (entry.environmentLabel() != null && !entry.environmentLabel().isBlank()) {
+            labelIndex.putIfAbsent(issuerHost, entry.environmentLabel().trim());
+        }
+    }
+
+    private static String hostOf(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        return URI.create(url).getHost();
     }
 
     private static void validate(List<TenantEntry> tenants) {
@@ -149,6 +183,7 @@ public class TenantCustomDomainsLoader {
     public record TenantEntry(
             @JsonProperty("id")        String id,
             @JsonProperty("issuer")    String issuer,
-            @JsonProperty("verifiers") List<String> verifiers
+            @JsonProperty("verifiers") List<String> verifiers,
+            @JsonProperty("environmentLabel") String environmentLabel
     ) {}
 }
