@@ -53,13 +53,12 @@ public class IssuanceController {
             ServerWebExchange exchange) {
         String processId = UUID.randomUUID().toString();
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
-        String publicWalletBaseUrl = urlResolver.publicWalletBaseUrl(exchange);
         // X-Id-Token and Authorization are not interchangeable: the first is an optional identity
         // assertion read by the PDP, the second the caller's bearer credential. Direct delivery signs
         // inside this request and needs the latter -- reading the former for it made every direct
         // issuance of a profile that requires no X-Id-Token fail on a null token (EUD-168).
         return issuanceWorkflow.issueCredential(processId, request, idToken, authorizationHeader,
-                        publicIssuerBaseUrl, publicWalletBaseUrl)
+                        publicIssuerBaseUrl)
                 .map(this::toResponseEntity);
     }
 
