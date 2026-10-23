@@ -32,6 +32,8 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
             + "VALUES ('digitel', 'v2', '{\"k\":\"v\"}'::jsonb) ON CONFLICT DO NOTHING";
     private static final String KMS_REF = "'arn:aws:kms:eu-west-1:111122223333:key/k'";
     private static final String CHAIN = "'[\"MIIB-leaf\",\"MIIB-intermediate\"]'::jsonb";
+    private static final String MIGRATION = "migration";
+    private static final String OPERATOR = "'operator@example.invalid'";
 
     @Autowired private FlywayProperties flywayProperties;
     @Autowired private R2dbcProperties r2dbcProperties;
@@ -49,6 +51,8 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
         assertThat(newest.get("status")).isEqualTo("active");
         assertThat(newest.get("modality")).isEqualTo("qtsp");
         assertThat(newest.get("withdrawn_at")).isNull();
+        assertThat(newest.get("withdrawn_by")).isNull();
+        assertThat(newest.get("activated_by")).isEqualTo(MIGRATION);
         assertThat(((OffsetDateTime) newest.get("activated_at")).toInstant())
                 .isEqualTo(((OffsetDateTime) newest.get("created_at")).toInstant());
         for (String olderId : List.of(ID_1, ID_3)) {
@@ -56,6 +60,8 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
             assertThat(older.get("status")).isEqualTo("withdrawn");
             assertThat(older.get("modality")).isEqualTo("qtsp");
             assertThat(older.get("withdrawn_at")).isNotNull();
+            assertThat(older.get("withdrawn_by")).isEqualTo(MIGRATION);
+            assertThat(older.get("activated_by")).isEqualTo(MIGRATION);
             assertThat(((OffsetDateTime) older.get("activated_at")).toInstant())
                     .isEqualTo(((OffsetDateTime) older.get("created_at")).toInstant());
         }
@@ -95,6 +101,7 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
         exec(String.format(SEED_STATEMENT, schema));
         assertThat(scalar(schema, "SELECT status || '/' || modality FROM \"%s\".tenant_signing_config"))
                 .isEqualTo("active/qtsp");
+        assertThat(scalar(schema, "SELECT activated_by IS NULL FROM \"%s\".tenant_signing_config")).isEqualTo("true");
     }
 
     @Test
@@ -140,6 +147,13 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
     }
 
     @Test
+    void ownKeyRow_withoutActivatedBy_isRejected() {
+        String schema = migratedSchemaWithOneActiveRow("tsc-noactor");
+
+        assertOwnKeyInsertRejected(schema, KMS_REF, "'ES256'", CHAIN, "NULL");
+    }
+
+    @Test
     void ownKeyRow_withEmptyOrNonArrayChain_isRejected() {
         String schema = migratedSchemaWithOneActiveRow("tsc-badchain");
 
@@ -161,7 +175,8 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
     void validOwnKeyRow_isAcceptedAsActiveAfterWithdrawingTheOther() {
         String schema = migratedSchemaWithOneActiveRow("tsc-ownkey-swap");
 
-        exec("UPDATE \"" + schema + "\".tenant_signing_config SET status = 'withdrawn', withdrawn_at = now()");
+        exec("UPDATE \"" + schema + "\".tenant_signing_config SET status = 'withdrawn', withdrawn_at = now(), "
+                + "withdrawn_by = " + OPERATOR);
         exec(ownKeyInsert(schema, "active", "NULL"));
 
         assertThat(scalar(schema, "SELECT provider || '/' || status FROM \"%s\".tenant_signing_config "
@@ -173,9 +188,19 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
         String schema = migratedSchemaWithOneActiveRow("tsc-nowithdrawn");
 
         assertThatThrownBy(() -> exec("UPDATE \"" + schema + "\".tenant_signing_config "
-                + "SET status = 'withdrawn'"))
+                + "SET status = 'withdrawn', withdrawn_by = " + OPERATOR))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("chk_tenant_signing_config_withdrawn_at");
+    }
+
+    @Test
+    void withdrawnRow_withoutWithdrawnBy_isRejected() {
+        String schema = migratedSchemaWithOneActiveRow("tsc-nowithdrawnby");
+
+        assertThatThrownBy(() -> exec("UPDATE \"" + schema + "\".tenant_signing_config "
+                + "SET status = 'withdrawn', withdrawn_at = now()"))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_tenant_signing_config_withdrawn_by");
     }
 
     @Test
@@ -183,7 +208,8 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
         String schema = migratedSchemaWithOneActiveRow("tsc-enum");
 
         assertThatThrownBy(() -> exec("INSERT INTO \"" + schema + "\".tenant_signing_config "
-                + "(provider, modality, status, withdrawn_at) VALUES ('x', 'hsm', 'withdrawn', now())"))
+                + "(provider, modality, status, withdrawn_at, withdrawn_by) "
+                + "VALUES ('x', 'hsm', 'withdrawn', now(), " + OPERATOR + ")"))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("chk_tenant_signing_config_modality");
         assertThatThrownBy(() -> exec("INSERT INTO \"" + schema + "\".tenant_signing_config "
@@ -194,10 +220,15 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
 
     private void assertOwnKeyInsertRejected(String schema, String kmsRef, String algorithm,
                                             String chain) {
+        assertOwnKeyInsertRejected(schema, kmsRef, algorithm, chain, OPERATOR);
+    }
+
+    private void assertOwnKeyInsertRejected(String schema, String kmsRef, String algorithm,
+                                            String chain, String activatedBy) {
         String sql = "INSERT INTO \"" + schema + "\".tenant_signing_config "
-                + "(provider, modality, status, withdrawn_at, own_key_kms_key_ref, own_key_algorithm, "
-                + "own_key_certificate_chain) "
-                + "VALUES ('aws-kms', 'own_key', 'withdrawn', now(), "
+                + "(provider, modality, status, activated_by, withdrawn_at, withdrawn_by, own_key_kms_key_ref, "
+                + "own_key_algorithm, own_key_certificate_chain) "
+                + "VALUES ('aws-kms', 'own_key', 'withdrawn', " + activatedBy + ", now(), " + OPERATOR + ", "
                 + kmsRef + ", " + algorithm + ", " + chain + ")";
         assertThatThrownBy(() -> exec(sql))
                 .isInstanceOf(DataIntegrityViolationException.class)
@@ -205,11 +236,12 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
     }
 
     private String ownKeyInsert(String schema, String status, String withdrawnAt) {
+        String withdrawnBy = "NULL".equals(withdrawnAt) ? "NULL" : OPERATOR;
         return "INSERT INTO \"" + schema + "\".tenant_signing_config "
-                + "(provider, modality, status, withdrawn_at, own_key_kms_key_ref, own_key_algorithm, "
-                + "own_key_certificate_chain) "
-                + "VALUES ('aws-kms', 'own_key', '" + status + "', " + withdrawnAt
-                + ", " + KMS_REF + ", 'ES256', " + CHAIN + ")";
+                + "(provider, modality, status, activated_by, withdrawn_at, withdrawn_by, own_key_kms_key_ref, "
+                + "own_key_algorithm, own_key_certificate_chain) "
+                + "VALUES ('aws-kms', 'own_key', '" + status + "', " + OPERATOR + ", " + withdrawnAt + ", "
+                + withdrawnBy + ", " + KMS_REF + ", 'ES256', " + CHAIN + ")";
     }
 
     private String migratedSchemaWithOneActiveRow(String tenant) {

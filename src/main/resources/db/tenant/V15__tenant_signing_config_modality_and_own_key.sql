@@ -9,6 +9,10 @@
 -- * status: 'active' or 'withdrawn'. Rows are never deleted: a replaced or
 --   withdrawn configuration stays as history. At most one row is 'active'
 --   per tenant schema (partial unique index).
+-- * activated_by / withdrawn_by: who activated and withdrew the row ('migration'
+--   for the rows this migration activates or withdraws). Required for withdrawn
+--   rows and for own_key rows, which only the onboarding tool writes. QTSP rows
+--   inserted by the seeds leave activated_by (and activated_at) empty.
 -- * own-key block: no secrets, only the KMS key ARN, the certificate chain as
 --   the exact JWS `x5c` value (JSONB array of base64 DER certificates, leaf
 --   first, root excluded; identity, validity and the public key are read from it).
@@ -26,7 +30,9 @@ ALTER TABLE tenant_signing_config
     ADD COLUMN IF NOT EXISTS modality                   VARCHAR(20) NOT NULL DEFAULT 'qtsp',
     ADD COLUMN IF NOT EXISTS status                     VARCHAR(20) NOT NULL DEFAULT 'active',
     ADD COLUMN IF NOT EXISTS activated_at               TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS activated_by               VARCHAR(200),
     ADD COLUMN IF NOT EXISTS withdrawn_at               TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS withdrawn_by               VARCHAR(200),
     ADD COLUMN IF NOT EXISTS own_key_kms_key_ref        VARCHAR(2048),
     ADD COLUMN IF NOT EXISTS own_key_algorithm          VARCHAR(20),
     ADD COLUMN IF NOT EXISTS own_key_certificate_chain  JSONB,
@@ -37,8 +43,11 @@ ALTER TABLE tenant_signing_config
 UPDATE tenant_signing_config t
 SET status       = CASE WHEN r.rn = 1 THEN 'active' ELSE 'withdrawn' END,
     activated_at = COALESCE(t.activated_at, t.created_at),
+    activated_by = COALESCE(t.activated_by, 'migration'),
     withdrawn_at = CASE WHEN r.rn = 1 THEN t.withdrawn_at
-                        ELSE COALESCE(t.withdrawn_at, now()) END
+                        ELSE COALESCE(t.withdrawn_at, now()) END,
+    withdrawn_by = CASE WHEN r.rn = 1 THEN t.withdrawn_by
+                        ELSE COALESCE(t.withdrawn_by, 'migration') END
 FROM (
     SELECT id, ROW_NUMBER() OVER (ORDER BY created_at DESC, id DESC) AS rn
     FROM tenant_signing_config
@@ -70,7 +79,8 @@ BEGIN
         ALTER TABLE tenant_signing_config
             ADD CONSTRAINT chk_tenant_signing_config_own_key_required
             CHECK (modality <> 'own_key' OR (
-                own_key_kms_key_ref IS NOT NULL
+                activated_by IS NOT NULL
+                AND own_key_kms_key_ref IS NOT NULL
                 AND own_key_algorithm IS NOT NULL
                 AND own_key_certificate_chain IS NOT NULL
                 AND jsonb_typeof(own_key_certificate_chain) = 'array'
@@ -83,6 +93,14 @@ BEGIN
         ALTER TABLE tenant_signing_config
             ADD CONSTRAINT chk_tenant_signing_config_withdrawn_at
             CHECK (status <> 'withdrawn' OR withdrawn_at IS NOT NULL);
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conname = 'chk_tenant_signing_config_withdrawn_by'
+                     AND conrelid = 'tenant_signing_config'::regclass) THEN
+        ALTER TABLE tenant_signing_config
+            ADD CONSTRAINT chk_tenant_signing_config_withdrawn_by
+            CHECK (status <> 'withdrawn' OR withdrawn_by IS NOT NULL);
     END IF;
 END $$;
 

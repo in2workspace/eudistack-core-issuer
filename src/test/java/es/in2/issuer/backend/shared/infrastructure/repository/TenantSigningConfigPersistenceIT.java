@@ -39,14 +39,14 @@ class TenantSigningConfigPersistenceIT extends PostgresIntegrationBase {
 
     private void insertWithdrawnQtsp() {
         exec("INSERT INTO " + TABLE + " (provider, csc_api_version, provider_specific_config, status, withdrawn_at, "
-                + "created_at) VALUES ('old', 'v2', '{\"url\":\"https://old.test\"}'::jsonb, 'withdrawn', now(), "
-                + "now() + interval '1 hour')");
+                + "withdrawn_by, created_at) VALUES ('old', 'v2', '{\"url\":\"https://old.test\"}'::jsonb, 'withdrawn', "
+                + "now(), 'operator@example.invalid', now() + interval '1 hour')");
     }
 
     private void insertActiveOwnKey() {
-        exec("INSERT INTO " + TABLE + " (provider, modality, status, own_key_kms_key_ref, own_key_algorithm, "
-                + "own_key_certificate_chain) VALUES ('aws-kms', 'own_key', 'active', "
-                + "'arn:aws:kms:eu-west-1:111122223333:key/k', 'ES256', '[\"MIIB-leaf\",\"MIIB-int\"]'::jsonb)");
+        exec("INSERT INTO " + TABLE + " (provider, modality, status, activated_by, own_key_kms_key_ref, "
+                + "own_key_algorithm, own_key_certificate_chain) VALUES ('aws-kms', 'own_key', 'active', "
+                + "'operator@example.invalid', 'arn:aws:kms:eu-west-1:111122223333:key/k', 'ES256', '[\"MIIB-leaf\",\"MIIB-int\"]'::jsonb)");
     }
 
     @Test
