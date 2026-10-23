@@ -326,8 +326,7 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
         patch(admin, DOCTORID_PATH, "\"1\"", "{\"enabled\": false}").expectStatus().isOk();
 
         List<String> events = catalogAuditEvents();
-        assertThat(events).hasSize(3);
-        assertThat(events).allSatisfy(event -> {
+        assertThat(events).hasSize(3).allSatisfy(event -> {
             assertThat(event).contains("outcome=success", "userId=" + ADMIN_PERSON,
                     "resourceType=attestation-catalog", "resourceId=" + TENANT_A,
                     "credential_configuration_id=" + DOCTORID, "organization=" + ADMIN_ORG_ID);

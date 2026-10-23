@@ -57,19 +57,19 @@ class CredentialProfileRegistryCatalogTest {
     @ParameterizedTest
     @ValueSource(strings = {"jwk", "did:key", "x509"})
     void bindingTypeOf_withoutBindingType_aDeclaredBindingMethodIsAKey(String method) {
-        CredentialProfileRegistry registry = registryOf("""
+        CredentialProfileRegistry custom = registryOf("""
                 "cryptographic_binding_methods_supported": ["%s"],
                 "proof_types_supported": {"jwt": {"proof_signing_alg_values_supported": ["ES256"]}}
                 """.formatted(method));
 
-        assertThat(registry.bindingTypeOf("sample.sd.1")).isEqualTo(BindingType.KEY);
+        assertThat(custom.bindingTypeOf("sample.sd.1")).isEqualTo(BindingType.KEY);
     }
 
     @Test
     void bindingTypeOf_withoutBindingType_cnfRequiredWithoutMethodsIsAKey() {
-        CredentialProfileRegistry registry = registryOf("\"cnf_required\": true", "learcredential.machine.sd.1");
+        CredentialProfileRegistry custom = registryOf("\"cnf_required\": true", "learcredential.machine.sd.1");
 
-        assertThat(registry.bindingTypeOf("learcredential.machine.sd.1")).isEqualTo(BindingType.KEY);
+        assertThat(custom.bindingTypeOf("learcredential.machine.sd.1")).isEqualTo(BindingType.KEY);
     }
 
     @Test
@@ -81,20 +81,20 @@ class CredentialProfileRegistryCatalogTest {
     @ParameterizedTest
     @CsvSource({"claim, CLAIM", "biometric, BIOMETRIC", "none, NONE", "key, KEY"})
     void bindingTypeOf_anExplicitBindingType_isUsed(String declared, BindingType expected) {
-        CredentialProfileRegistry registry = registryOf("\"binding_type\": \"" + declared + "\"");
+        CredentialProfileRegistry custom = registryOf("\"binding_type\": \"" + declared + "\"");
 
-        assertThat(registry.bindingTypeOf("sample.sd.1")).isEqualTo(expected);
+        assertThat(custom.bindingTypeOf("sample.sd.1")).isEqualTo(expected);
     }
 
     @Test
     void bindingTypeOf_anExplicitBindingType_winsOverTheDerivation() {
-        CredentialProfileRegistry registry = registryOf("""
+        CredentialProfileRegistry custom = registryOf("""
                 "binding_type": "claim",
                 "cryptographic_binding_methods_supported": ["jwk"],
                 "proof_types_supported": {"jwt": {"proof_signing_alg_values_supported": ["ES256"]}}
                 """);
 
-        assertThat(registry.bindingTypeOf("sample.sd.1")).isEqualTo(BindingType.CLAIM);
+        assertThat(custom.bindingTypeOf("sample.sd.1")).isEqualTo(BindingType.CLAIM);
     }
 
     @Test
@@ -209,8 +209,8 @@ class CredentialProfileRegistryCatalogTest {
                 ClaimPath.of("mandate", "mandatee", "lastName"),
                 ClaimPath.of("mandate", "mandator", "organizationIdentifier"),
                 ClaimPath.of("mandate", "power"));
-        assertThat(paths).doesNotContain(ClaimPath.of("mandate"), ClaimPath.of("mandate", "mandatee"));
-        assertThat(paths).doesNotContain(ClaimPath.of("mandate", "power", "domain"));
+        assertThat(paths).doesNotContain(ClaimPath.of("mandate"), ClaimPath.of("mandate", "mandatee"),
+                ClaimPath.of("mandate", "power", "domain"));
     }
 
     @Test
@@ -220,9 +220,9 @@ class CredentialProfileRegistryCatalogTest {
         assertThat(paths).contains(
                 ClaimPath.of("credentialSubject", "id"),
                 ClaimPath.of("credentialSubject", "mandate", "mandatee", "firstName"),
-                ClaimPath.of("credentialSubject", "mandate", "power"));
-        assertThat(paths).allMatch(path -> path.segments().getFirst().equals("credentialSubject"));
-        assertThat(paths).doesNotContain(ClaimPath.of("validFrom"), ClaimPath.of("issuer", "id"));
+                ClaimPath.of("credentialSubject", "mandate", "power"))
+                .allMatch(path -> path.segments().getFirst().equals("credentialSubject"))
+                .doesNotContain(ClaimPath.of("validFrom"), ClaimPath.of("issuer", "id"));
     }
 
     @Test
@@ -232,9 +232,9 @@ class CredentialProfileRegistryCatalogTest {
         assertThat(paths).contains(
                 ClaimPath.of("credentialSubject", "id"),
                 ClaimPath.of("credentialSubject", "gx:labelLevel"),
-                ClaimPath.of("credentialSubject", "gx:compliantCredentials"));
-        assertThat(paths).allMatch(path -> path.segments().getFirst().equals("credentialSubject"));
-        assertThat(paths).doesNotContain(ClaimPath.of("credentialStatus", "id"), ClaimPath.of("issuer"));
+                ClaimPath.of("credentialSubject", "gx:compliantCredentials"))
+                .allMatch(path -> path.segments().getFirst().equals("credentialSubject"))
+                .doesNotContain(ClaimPath.of("credentialStatus", "id"), ClaimPath.of("issuer"));
     }
 
     @Test

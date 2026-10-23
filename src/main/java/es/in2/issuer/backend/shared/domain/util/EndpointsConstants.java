@@ -37,7 +37,7 @@ public class EndpointsConstants {
     // Attestation Catalogue API (EUD-266): one entry per credential type of the tenant, by id.
     // Authorization (read: tenant access; write: CatalogPdpService) is enforced in
     // AttestationCatalogController, not by these paths.
-    public static final String ATTESTATION_CATALOG_PATH = "/api/v1/attestation-catalog";
+    public static final String ATTESTATION_CATALOG_PATH = "/api/v1/attestation-catalog"; // NOSONAR java:S1075 - fixed by the EUD-169 OpenAPI contract, not configurable
     public static final String ATTESTATION_CATALOG_WILDCARD_PATH = ATTESTATION_CATALOG_PATH + "/**";
 
     // Unattended issuance intake (EUD-2/EUD-75, US-02). Path is a placeholder

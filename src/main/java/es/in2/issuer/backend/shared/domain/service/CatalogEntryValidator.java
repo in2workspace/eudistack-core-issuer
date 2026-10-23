@@ -52,6 +52,7 @@ public class CatalogEntryValidator {
     private static final String UNKNOWN_FIELD = "is not a known field";
     private static final String DUPLICATED = "is duplicated";
     private static final String AT_LEAST_ONE = "must be at least 1";
+    private static final String VALIDITY_DEFAULT_DAYS = "validity.default_days";
 
     private final CredentialProfileCatalog credentialProfileCatalog;
     private final SchemaDeliveryCeiling schemaDeliveryCeiling;
@@ -153,9 +154,9 @@ public class CatalogEntryValidator {
         }
         unknownFields(validity.unknownFields(), "validity.", out);
         if (validity.defaultDays() == null) {
-            out.add(new Violation("validity.default_days", REQUIRED));
+            out.add(new Violation(VALIDITY_DEFAULT_DAYS, REQUIRED));
         } else if (validity.defaultDays() < 1) {
-            out.add(new Violation("validity.default_days", AT_LEAST_ONE));
+            out.add(new Violation(VALIDITY_DEFAULT_DAYS, AT_LEAST_ONE));
         }
         if (validity.requesterCanSetDates() == null) {
             out.add(new Violation("validity.requester_can_set_dates", REQUIRED));
@@ -237,9 +238,7 @@ public class CatalogEntryValidator {
                 .collect(Collectors.toCollection(() -> EnumSet.noneOf(DeliveryMode.class)));
         ValidityInput validity = input.validity();
         // D9: an entry saved without a subject has an empty subject, it never goes back to the type file.
-        CatalogEntry.Subject subject = input.subject() == null ? null : new CatalogEntry.Subject(
-                input.subject().fields().stream().map(ClaimPath::new).toList(),
-                input.subject().separator() != null ? input.subject().separator() : DEFAULT_SEPARATOR);
+        CatalogEntry.Subject subject = input.subject() == null ? null : subjectOf(input.subject());
         List<CatalogEntry.SearchIdentifier> identifiers = input.searchIdentifiers() == null
                 ? List.of()
                 : input.searchIdentifiers().stream()
@@ -249,6 +248,11 @@ public class CatalogEntryValidator {
                 input.enabled(), modes,
                 new CatalogEntry.Validity(validity.defaultDays(), validity.requesterCanSetDates(), validity.maxDays()),
                 subject, identifiers, 0, null, null);
+    }
+
+    private static CatalogEntry.Subject subjectOf(SubjectInput subject) {
+        String separator = subject.separator() != null ? subject.separator() : DEFAULT_SEPARATOR;
+        return new CatalogEntry.Subject(subject.fields().stream().map(ClaimPath::new).toList(), separator);
     }
 
     /** Only a schema URI the type file declares is stored; the synthetic fallback never is (D1). */
@@ -269,7 +273,7 @@ public class CatalogEntryValidator {
             throw new CatalogConfigurationException(GlobalErrorTypes.INVALID_VALIDITY.getCode(),
                     "The default validity (" + validity.defaultDays() + " days) is above the maximum ("
                             + validity.maxDays() + " days)",
-                    List.of(new Violation("validity.default_days", "is above validity.max_days")));
+                    List.of(new Violation(VALIDITY_DEFAULT_DAYS, "is above validity.max_days")));
         }
         if (entry.enabled() && entry.deliveryModes().isEmpty()) {
             throw noDeliveryMode();

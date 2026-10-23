@@ -19,6 +19,12 @@ import java.util.stream.Collectors;
 public class AuditServiceImpl implements AuditService {
 
     private static final Logger AUDIT = LoggerFactory.getLogger("AUDIT");
+    private static final String MDC_EVENT = "audit.event";
+    private static final String MDC_OUTCOME = "audit.outcome";
+    private static final String MDC_USER_ID = "audit.userId";
+    private static final String MDC_ORGANIZATION = "audit.organization";
+    private static final String MDC_RESOURCE_TYPE = "audit.resourceType";
+    private static final String MDC_RESOURCE_ID = "audit.resourceId";
 
     @Override
     public void auditSuccess(String event, String userId, String resourceType, String resourceId,
@@ -30,12 +36,12 @@ public class AuditServiceImpl implements AuditService {
     public void auditSuccess(String event, String userId, String organization, String resourceType,
                              String resourceId, Map<String, Object> details) {
         try {
-            MDC.put("audit.event", event);
-            MDC.put("audit.outcome", "success");
-            if (userId != null) MDC.put("audit.userId", userId);
-            if (organization != null) MDC.put("audit.organization", organization);
-            if (resourceType != null) MDC.put("audit.resourceType", resourceType);
-            if (resourceId != null) MDC.put("audit.resourceId", resourceId);
+            MDC.put(MDC_EVENT, event);
+            MDC.put(MDC_OUTCOME, "success");
+            if (userId != null) MDC.put(MDC_USER_ID, userId);
+            if (organization != null) MDC.put(MDC_ORGANIZATION, organization);
+            if (resourceType != null) MDC.put(MDC_RESOURCE_TYPE, resourceType);
+            if (resourceId != null) MDC.put(MDC_RESOURCE_ID, resourceId);
 
             AUDIT.info("event={} outcome=success userId={}{} resourceType={} resourceId={} {}",
                     event,
@@ -59,10 +65,10 @@ public class AuditServiceImpl implements AuditService {
     public void auditFailure(String event, String userId, String organization, String reason,
                              Map<String, Object> details) {
         try {
-            MDC.put("audit.event", event);
-            MDC.put("audit.outcome", "failure");
-            if (userId != null) MDC.put("audit.userId", userId);
-            if (organization != null) MDC.put("audit.organization", organization);
+            MDC.put(MDC_EVENT, event);
+            MDC.put(MDC_OUTCOME, "failure");
+            if (userId != null) MDC.put(MDC_USER_ID, userId);
+            if (organization != null) MDC.put(MDC_ORGANIZATION, organization);
 
             AUDIT.warn("event={} outcome=failure userId={}{} reason={} {}",
                     event,
@@ -84,11 +90,11 @@ public class AuditServiceImpl implements AuditService {
     public void auditAttempted(String event, String userId, String resourceType, String resourceId,
                                Map<String, Object> details) {
         try {
-            MDC.put("audit.event", event);
-            MDC.put("audit.outcome", "attempted");
-            if (userId != null) MDC.put("audit.userId", userId);
-            if (resourceType != null) MDC.put("audit.resourceType", resourceType);
-            if (resourceId != null) MDC.put("audit.resourceId", resourceId);
+            MDC.put(MDC_EVENT, event);
+            MDC.put(MDC_OUTCOME, "attempted");
+            if (userId != null) MDC.put(MDC_USER_ID, userId);
+            if (resourceType != null) MDC.put(MDC_RESOURCE_TYPE, resourceType);
+            if (resourceId != null) MDC.put(MDC_RESOURCE_ID, resourceId);
 
             // R1 (EUD-225 /code-review, 2026-08-18): this used to wrap the placeholder in a
             // literal "details=\"{}\"" -- an outer quoting layer that does not compose with
@@ -114,7 +120,7 @@ public class AuditServiceImpl implements AuditService {
             boolean hasFailure = trace.hasFailure();
             String resultsField = formatResults(trace.results());
 
-            MDC.put("audit.event", DeliveryTrace.EVENT_NAME);
+            MDC.put(MDC_EVENT, DeliveryTrace.EVENT_NAME);
             MDC.put("tenant.id", trace.tenantId());
 
             if (hasFailure) {
@@ -145,12 +151,12 @@ public class AuditServiceImpl implements AuditService {
     }
 
     private void clearAuditMdc() {
-        MDC.remove("audit.event");
-        MDC.remove("audit.outcome");
-        MDC.remove("audit.userId");
-        MDC.remove("audit.organization");
-        MDC.remove("audit.resourceType");
-        MDC.remove("audit.resourceId");
+        MDC.remove(MDC_EVENT);
+        MDC.remove(MDC_OUTCOME);
+        MDC.remove(MDC_USER_ID);
+        MDC.remove(MDC_ORGANIZATION);
+        MDC.remove(MDC_RESOURCE_TYPE);
+        MDC.remove(MDC_RESOURCE_ID);
     }
 
     // F15 (EUD-225 /verify): escaped at this sink, not only by the caller -- AuditServiceImpl

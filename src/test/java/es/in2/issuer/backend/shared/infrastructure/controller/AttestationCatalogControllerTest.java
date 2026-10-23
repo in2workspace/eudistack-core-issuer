@@ -955,7 +955,8 @@ class AttestationCatalogControllerTest {
     private static CatalogEntryValidator validatorOf(Optional<String> resolvedId) {
         CredentialProfileCatalog catalog = mock(CredentialProfileCatalog.class);
         when(catalog.resolveSchemaUri(anyString())).thenReturn(resolvedId);
-        when(catalog.getByConfigurationId(ID)).thenReturn(mock(CredentialProfile.class));
+        CredentialProfile profile = mock(CredentialProfile.class);
+        when(catalog.getByConfigurationId(ID)).thenReturn(profile);
         SchemaDeliveryCeiling ceiling = mock(SchemaDeliveryCeiling.class);
         when(ceiling.resolveEligibleModes(ID)).thenReturn(Set.of(DeliveryMode.values()));
         return new CatalogEntryValidator(catalog, ceiling);

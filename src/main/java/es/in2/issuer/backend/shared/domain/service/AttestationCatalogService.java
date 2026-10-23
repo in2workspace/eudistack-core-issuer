@@ -150,41 +150,45 @@ public class AttestationCatalogService {
             String tenant = requireTenant(ctx);
             requireIfMatch(ifMatch);
             Mono<CatalogEntryChange> toggled = findExisting(credentialConfigurationId)
-                    .flatMap(current -> {
-                        requireCurrentVersion(ifMatch, current);
-                        // Filled in the same write: a row not configured yet leaves with its configuration (D13).
-                        CatalogEntry target = catalogEntryFiller.fill(current).withEnabled(enabled);
-                        if (!target.isFilled()) {
-                            // Its type file is not loaded, so it cannot be completed: it does not exist for the
-                            // API (see get), and writing it only to answer 404 would change it for nothing.
-                            return Mono.<CatalogEntryChange>error(new CatalogEntryNotFoundException(credentialConfigurationId));
-                        }
-                        if (enabled) {
-                            catalogEntryValidator.validateEnabling(target);
-                        }
-                        if (target.equals(current)) {
-                            // Already as asked, and nothing to fill in: nothing is written, so its version and
-                            // ETag stay as they are and there is no change to audit. A row that still needs
-                            // its configuration filled in (D13) is not equal to its target, and is written.
-                            return Mono.just(change(operation, current, current));
-                        }
-                        return updateIfVersion(target, current.version())
-                                .map(updated -> change(operation, current, updated));
-                    });
+                    .flatMap(current -> toggle(current, enabled, operation, ifMatch));
             return committed(tenant, toggled)
-                    .doOnNext(done -> {
-                        if (done.isEmpty()) {
-                            log.info("Catalog entry '{}' left unchanged for tenant '{}'",
-                                    credentialConfigurationId, tenant);
-                        } else {
-                            log.info("Catalog entry '{}' {} for tenant '{}'",
-                                    credentialConfigurationId, enabled ? "enabled" : "disabled", tenant);
-                        }
-                    })
+                    .doOnNext(done -> logToggled(done, enabled, tenant))
                     .map(CatalogEntryChange::after)
                     .map(this::withResolvedSchemaUri);
         });
         return auditIfInvalid(toggle, operation, () -> credentialConfigurationId);
+    }
+
+    private Mono<CatalogEntryChange> toggle(CatalogEntry current, boolean enabled,
+                                            CatalogEntryChange.Operation operation, String ifMatch) {
+        requireCurrentVersion(ifMatch, current);
+        // Filled in the same write: a row not configured yet leaves with its configuration (D13).
+        CatalogEntry target = catalogEntryFiller.fill(current).withEnabled(enabled);
+        if (!target.isFilled()) {
+            // Its type file is not loaded, so it cannot be completed: it does not exist for the
+            // API (see get), and writing it only to answer 404 would change it for nothing.
+            return Mono.error(new CatalogEntryNotFoundException(current.credentialConfigurationId()));
+        }
+        if (enabled) {
+            catalogEntryValidator.validateEnabling(target);
+        }
+        if (target.equals(current)) {
+            // Already as asked, and nothing to fill in: nothing is written, so its version and
+            // ETag stay as they are and there is no change to audit. A row that still needs
+            // its configuration filled in (D13) is not equal to its target, and is written.
+            return Mono.just(change(operation, current, current));
+        }
+        return updateIfVersion(target, current.version())
+                .map(updated -> change(operation, current, updated));
+    }
+
+    private static void logToggled(CatalogEntryChange done, boolean enabled, String tenant) {
+        if (done.isEmpty()) {
+            log.info("Catalog entry '{}' left unchanged for tenant '{}'", done.credentialConfigurationId(), tenant);
+        } else {
+            log.info("Catalog entry '{}' {} for tenant '{}'",
+                    done.credentialConfigurationId(), enabled ? "enabled" : "disabled", tenant);
+        }
     }
 
     // ---- persistence -----------------------------------------------------------

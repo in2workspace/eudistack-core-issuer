@@ -46,6 +46,7 @@ public class CatalogEntryR2dbcAdapter implements CatalogEntryPort {
             version, created_at, updated_at""";
 
     private static final String SELECT = "SELECT " + COLUMNS + " FROM tenant_credential_profile";
+    private static final String ENABLED = "enabled";
 
     private final DatabaseClient databaseClient;
     private final ObjectMapper objectMapper;
@@ -60,7 +61,7 @@ public class CatalogEntryR2dbcAdapter implements CatalogEntryPort {
     @Override
     public Flux<CatalogEntry> findAllByEnabled(boolean enabled) {
         return databaseClient.sql(SELECT + " WHERE enabled = :enabled ORDER BY credential_configuration_id")
-                .bind("enabled", enabled)
+                .bind(ENABLED, enabled)
                 .map((row, metadata) -> toEntry(row))
                 .all();
     }
@@ -123,7 +124,7 @@ public class CatalogEntryR2dbcAdapter implements CatalogEntryPort {
         CatalogEntry.Validity validity = entry.validity();
         CatalogEntry.Subject subject = entry.subject();
         spec = bindNullable(spec, "schemaUri", entry.schemaUri(), String.class)
-                .bind("enabled", entry.enabled());
+                .bind(ENABLED, entry.enabled());
         spec = bindNullable(spec, "deliveryModes", toCsv(entry.deliveryModes()), String.class);
         spec = bindNullable(spec, "validityDefaultDays", validity == null ? null : validity.defaultDays(), Integer.class)
                 .bind("validityRequesterDates", validity != null && validity.requesterCanSetDates());
@@ -145,10 +146,8 @@ public class CatalogEntryR2dbcAdapter implements CatalogEntryPort {
         return modes.isEmpty() ? "" : DeliveryMode.toCanonicalCsv(modes);
     }
 
+    /** A row not configured yet has no delivery modes ({@code null}), which is not the same as none. */
     private static Set<DeliveryMode> fromCsv(String csv) {
-        if (csv == null) {
-            return null;
-        }
         return csv.isEmpty() ? Set.of() : DeliveryMode.parse(csv);
     }
 
@@ -184,6 +183,7 @@ public class CatalogEntryR2dbcAdapter implements CatalogEntryPort {
 
     private CatalogEntry toEntry(Row row) {
         Integer defaultDays = row.get("validity_default_days", Integer.class);
+        String deliveryModes = row.get("delivery_modes", String.class);
         CatalogEntry.Validity validity = defaultDays == null ? null : new CatalogEntry.Validity(
                 defaultDays,
                 Boolean.TRUE.equals(row.get("validity_requester_dates", Boolean.class)),
@@ -191,8 +191,8 @@ public class CatalogEntryR2dbcAdapter implements CatalogEntryPort {
         return new CatalogEntry(
                 row.get("credential_configuration_id", String.class),
                 row.get("schema_uri", String.class),
-                Boolean.TRUE.equals(row.get("enabled", Boolean.class)),
-                fromCsv(row.get("delivery_modes", String.class)),
+                Boolean.TRUE.equals(row.get(ENABLED, Boolean.class)),
+                deliveryModes == null ? null : fromCsv(deliveryModes),
                 validity,
                 toSubject(row.get("subject_fields", String.class), row.get("subject_separator", String.class)),
                 toSearchIdentifiers(row.get("search_identifiers", String.class)),

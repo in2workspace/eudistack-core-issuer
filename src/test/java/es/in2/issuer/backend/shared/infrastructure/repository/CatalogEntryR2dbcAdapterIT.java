@@ -13,7 +13,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.flyway.FlywayProperties;
 import org.springframework.boot.autoconfigure.r2dbc.R2dbcProperties;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.util.context.Context;
 
@@ -99,7 +98,8 @@ class CatalogEntryR2dbcAdapterIT extends PostgresIntegrationBase {
     void insert_ofTheSameCredentialConfigurationId_failsWithEntryAlreadyExists() {
         inTenant(port.insert(doctorId())).block();
 
-        assertThatThrownBy(() -> inTenant(port.insert(doctorId())).block())
+        Mono<CatalogEntry> again = inTenant(port.insert(doctorId()));
+        assertThatThrownBy(again::block)
                 .isInstanceOf(CatalogEntryAlreadyExistsException.class);
     }
 
@@ -108,7 +108,8 @@ class CatalogEntryR2dbcAdapterIT extends PostgresIntegrationBase {
         inTenant(port.insert(doctorId())).block();
         CatalogEntry sameSchema = withId(doctorId(), "doctorid.sd.2");
 
-        assertThatThrownBy(() -> inTenant(port.insert(sameSchema)).block())
+        Mono<CatalogEntry> insert = inTenant(port.insert(sameSchema));
+        assertThatThrownBy(insert::block)
                 .isInstanceOf(CatalogEntryAlreadyExistsException.class);
     }
 
@@ -220,10 +221,6 @@ class CatalogEntryR2dbcAdapterIT extends PostgresIntegrationBase {
 
     private static <T> Mono<T> inTenant(Mono<T> mono) {
         return mono.contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT));
-    }
-
-    private static <T> Flux<T> inTenant(Flux<T> flux) {
-        return flux.contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT));
     }
 
     private static CatalogEntry doctorId() {

@@ -36,6 +36,7 @@ import org.springframework.web.server.ServerWebInputException;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Locale;
 import java.util.stream.Stream;
 
@@ -155,10 +156,10 @@ public class CatalogExceptionHandler {
     @ExceptionHandler(ServerWebInputException.class)
     public Mono<ResponseEntity<GlobalErrorMessage>> handleServerWebInput(
             ServerWebInputException ex, ServerHttpRequest request) {
-        List<FieldViolation> violations = decodingViolations(ex);
-        if (violations == null && isMissingBody(ex)) {
-            violations = List.of(new FieldViolation(BODY, "is required"));
-        }
+        List<FieldViolation> violations = decodingViolations(ex)
+                .or(() -> isMissingBody(ex) ? Optional.of(List.of(new FieldViolation(BODY, "is required")))
+                        : Optional.empty())
+                .orElse(null);
         return problem(ex, request, CatalogConfigurationException.BAD_REQUEST, HttpStatus.BAD_REQUEST.getReasonPhrase(),
                 HttpStatus.BAD_REQUEST, ex.getReason(), violations);
     }
@@ -166,7 +167,7 @@ public class CatalogExceptionHandler {
     @ExceptionHandler(DecodingException.class)
     public Mono<ResponseEntity<GlobalErrorMessage>> handleDecoding(DecodingException ex, ServerHttpRequest request) {
         return problem(ex, request, CatalogConfigurationException.BAD_REQUEST, HttpStatus.BAD_REQUEST.getReasonPhrase(),
-                HttpStatus.BAD_REQUEST, "The request body could not be read", decodingViolations(ex));
+                HttpStatus.BAD_REQUEST, "The request body could not be read", decodingViolations(ex).orElse(null));
     }
 
     @ExceptionHandler(ResponseStatusException.class)
@@ -244,22 +245,22 @@ public class CatalogExceptionHandler {
      * the violation names it by its path, as the API spells it ({@code validity.default_days},
      * {@code search_identifiers[0]}). A body that is not JSON at all, or whose value has no path (a list
      * where the object goes), is a violation on {@code body}. Nothing of Jackson's own message is sent.
-     * Null when the failure was not about the body.
+     * Empty when the failure was not about the body.
      */
-    private static List<FieldViolation> decodingViolations(Throwable ex) {
+    private static Optional<List<FieldViolation>> decodingViolations(Throwable ex) {
         for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
             if (cause instanceof JsonMappingException mapping) {
                 String field = apiPath(mapping);
-                return List.of(new FieldViolation(field.isEmpty() ? BODY : field, "has an invalid value"));
+                return Optional.of(List.of(new FieldViolation(field.isEmpty() ? BODY : field, "has an invalid value")));
             }
             if (cause instanceof JsonProcessingException) {
-                return List.of(new FieldViolation(BODY, "is not valid JSON"));
+                return Optional.of(List.of(new FieldViolation(BODY, "is not valid JSON")));
             }
             if (cause.getCause() == cause) {
                 break;
             }
         }
-        return null;
+        return Optional.empty();
     }
 
     /**

@@ -60,9 +60,14 @@ public class CatalogEntryConfigurationRequest extends UnknownFieldsCollector {
                 validity == null ? null : validity.toInput(),
                 subject == null ? null : subject.toInput(),
                 searchIdentifiers == null ? null : searchIdentifiers.stream()
-                        .map(identifier -> identifier == null ? null : identifier.toInput())
+                        .map(CatalogEntryConfigurationRequest::inputOf)
                         .toList(),
                 topLevelUnknownFields);
+    }
+
+    /** A {@code null} item stays {@code null}: the validator reports it at its position. */
+    private static SearchIdentifierInput inputOf(SearchIdentifierRequest identifier) {
+        return identifier == null ? null : identifier.toInput();
     }
 
     @Getter

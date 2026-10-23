@@ -54,12 +54,12 @@ public class CatalogEntryFiller {
     }
 
     /** The registry only loads types that state their {@code validity_days} (at least 1). */
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("removal")
     private static CatalogEntry.Validity validityOf(CredentialProfile profile) {
         return new CatalogEntry.Validity(profile.validityDays(), false, null);
     }
 
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("removal")
     private static CatalogEntry.Subject subjectOf(CredentialProfile profile) {
         var fields = SubjectPathConverter.toClaimPaths(profile);
         if (fields.isEmpty()) {

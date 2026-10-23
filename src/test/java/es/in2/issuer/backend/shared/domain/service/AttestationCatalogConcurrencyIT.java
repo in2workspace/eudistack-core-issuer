@@ -21,7 +21,6 @@ import org.springframework.boot.autoconfigure.r2dbc.R2dbcProperties;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.server.ResponseStatusException;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Signal;
 import reactor.core.scheduler.Schedulers;
@@ -82,7 +81,8 @@ class AttestationCatalogConcurrencyIT extends PostgresIntegrationBase {
         CatalogEntry first = inTenant(service.replace(DOCTORID, doctorId(true, 100), eTag)).block();
 
         assertThat(first.version()).isEqualTo(created.version() + 1);
-        assertThatThrownBy(() -> inTenant(service.replace(DOCTORID, doctorId(true, 200), eTag)).block())
+        Mono<CatalogEntry> second = inTenant(service.replace(DOCTORID, doctorId(true, 200), eTag));
+        assertThatThrownBy(second::block)
                 .isInstanceOf(PreconditionFailedException.class);
         assertThat(inTenant(service.get(DOCTORID)).block().validity().defaultDays()).isEqualTo(100);
     }
@@ -125,7 +125,8 @@ class AttestationCatalogConcurrencyIT extends PostgresIntegrationBase {
                         + "(credential_configuration_id, schema_uri) VALUES ('other.type', '" + DOCTORID_URI + "')")
                 .then().block();
 
-        assertThatThrownBy(() -> inTenant(service.create(doctorIdCreate(true))).block())
+        Mono<CatalogEntry> create = inTenant(service.create(doctorIdCreate(true)));
+        assertThatThrownBy(create::block)
                 .isInstanceOf(CatalogEntryAlreadyExistsException.class);
     }
 
@@ -143,7 +144,8 @@ class AttestationCatalogConcurrencyIT extends PostgresIntegrationBase {
         assertThat(disabled.enabled()).isFalse();
         assertThat(advertisedConfigurations()).doesNotContain(DOCTORID);
         assertThat(isAllowedToIssue(DOCTORID)).isFalse();
-        assertThatThrownBy(() -> inTenant(credentialProfileAllowedRule.evaluate(null, DOCTORID)).block())
+        Mono<Void> issuanceCheck = inTenant(credentialProfileAllowedRule.evaluate(null, DOCTORID));
+        assertThatThrownBy(issuanceCheck::block)
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("is not enabled for this tenant");
         assertThat(inTenant(service.list(true).collectList()).block()).isEmpty();
@@ -204,10 +206,6 @@ class AttestationCatalogConcurrencyIT extends PostgresIntegrationBase {
 
     private static <T> Mono<T> inTenant(Mono<T> mono) {
         return mono.contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT));
-    }
-
-    private static <T> Flux<T> inTenant(Flux<T> flux) {
-        return flux.contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT));
     }
 
     private static CreateCatalogEntryCommand doctorIdCreate(boolean enabled) {

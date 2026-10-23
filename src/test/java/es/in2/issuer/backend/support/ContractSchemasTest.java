@@ -75,8 +75,7 @@ class ContractSchemasTest {
                 ContractSchemas.validate("CatalogEntryCreate", VALID_CREATE.replace("\"enabled\": true,",
                         "\"enabled\": true, \"surprise\": 1,"));
 
-        assertThat(violations).isNotEmpty();
-        assertThat(violations).anySatisfy(v -> assertThat(v.getMessage()).contains("surprise"));
+        assertThat(violations).isNotEmpty().anySatisfy(v -> assertThat(v.getMessage()).contains("surprise"));
     }
 
     @Test

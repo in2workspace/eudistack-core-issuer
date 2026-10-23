@@ -151,8 +151,8 @@ class CatalogPdpServiceImplTest {
 
     @Test
     void authorizeWrite_adminOrganizationWithPowerOnAnotherDomain_isDenied() {
-        // AccessTokenService does not check the power's domain and says TENANT_ADMIN;
-        // the PDP does (PolicyContext.tenantAdmin requires domain == tenant).
+        // AccessTokenService does not check the power's domain and says TENANT_ADMIN, but the PDP does:
+        // PolicyContext.tenantAdmin requires the power's domain to be the tenant.
         givenContexts(authorization(UserRole.TENANT_ADMIN, false), policy(false, false, TENANT));
 
         StepVerifier.create(authorize())

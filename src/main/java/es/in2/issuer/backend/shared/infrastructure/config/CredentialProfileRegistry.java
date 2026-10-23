@@ -41,11 +41,8 @@ public class CredentialProfileRegistry implements CredentialProfileCatalog {
             ResourcePatternResolver resourcePatternResolver,
             @Value("${credential.profiles.path:classpath:credentials/profiles}") String profilesBasePath) {
         String profilesPattern = profilesBasePath + "/**/*.json";
-        Map<String, CredentialProfile> configIdMap = new LinkedHashMap<>();
-        Map<String, CredentialProfile> typeMap = new LinkedHashMap<>();
-        Map<String, JsonNode> rawMap = new LinkedHashMap<>();
-        Map<String, List<ClaimPath>> pathsMap = new LinkedHashMap<>();
-        Map<String, String> schemaUriMap = new LinkedHashMap<>();
+        LoadedProfiles loaded = LoadedProfiles.empty();
+        Map<String, CredentialProfile> configIdMap = loaded.configIdMap();
 
         try {
             Resource[] resources = resourcePatternResolver.getResources(profilesPattern);
@@ -70,8 +67,7 @@ public class CredentialProfileRegistry implements CredentialProfileCatalog {
             }
 
             for (Resource resource : coreResources) {
-                loadCoreWithOptionalProfile(objectMapper, resource, profileOverrides, configIdMap, typeMap, rawMap,
-                        pathsMap, schemaUriMap);
+                loadCoreWithOptionalProfile(objectMapper, resource, profileOverrides, loaded);
             }
         } catch (IOException e) {
             throw new IllegalStateException("Failed to load credential profiles from " + profilesPattern, e);
@@ -84,10 +80,23 @@ public class CredentialProfileRegistry implements CredentialProfileCatalog {
         }
 
         this.byConfigurationId = Collections.unmodifiableMap(configIdMap);
-        this.byCredentialType = Collections.unmodifiableMap(typeMap);
-        this.rawProfilesByConfigurationId = Collections.unmodifiableMap(rawMap);
-        this.attributePathsByConfigurationId = Collections.unmodifiableMap(pathsMap);
-        this.configurationIdBySchemaUri = Collections.unmodifiableMap(schemaUriMap);
+        this.byCredentialType = Collections.unmodifiableMap(loaded.typeMap());
+        this.rawProfilesByConfigurationId = Collections.unmodifiableMap(loaded.rawMap());
+        this.attributePathsByConfigurationId = Collections.unmodifiableMap(loaded.pathsMap());
+        this.configurationIdBySchemaUri = Collections.unmodifiableMap(loaded.schemaUriMap());
+    }
+
+    /** The maps the type files are loaded into, by configuration id, credential type and schema URI. */
+    private record LoadedProfiles(Map<String, CredentialProfile> configIdMap,
+                                  Map<String, CredentialProfile> typeMap,
+                                  Map<String, JsonNode> rawMap,
+                                  Map<String, List<ClaimPath>> pathsMap,
+                                  Map<String, String> schemaUriMap) {
+
+        static LoadedProfiles empty() {
+            return new LoadedProfiles(new LinkedHashMap<>(), new LinkedHashMap<>(), new LinkedHashMap<>(),
+                    new LinkedHashMap<>(), new LinkedHashMap<>());
+        }
     }
 
     private JsonNode readJsonResource(ObjectMapper objectMapper, Resource resource) {
@@ -109,12 +118,10 @@ public class CredentialProfileRegistry implements CredentialProfileCatalog {
     }
 
     private void loadCoreWithOptionalProfile(ObjectMapper objectMapper, Resource resource,
-                                             Map<String, JsonNode> profileOverrides,
-                                             Map<String, CredentialProfile> configIdMap,
-                                             Map<String, CredentialProfile> typeMap,
-                                             Map<String, JsonNode> rawMap,
-                                             Map<String, List<ClaimPath>> pathsMap,
-                                             Map<String, String> schemaUriMap) {
+                                             Map<String, JsonNode> profileOverrides, LoadedProfiles loaded) {
+        Map<String, CredentialProfile> configIdMap = loaded.configIdMap();
+        Map<String, CredentialProfile> typeMap = loaded.typeMap();
+        Map<String, String> schemaUriMap = loaded.schemaUriMap();
         String filename = resource.getFilename();
         JsonNode coreJson = readJsonResource(objectMapper, resource);
         String configId = extractConfigurationId(coreJson, filename);
@@ -160,8 +167,8 @@ public class CredentialProfileRegistry implements CredentialProfileCatalog {
             }
 
             configIdMap.put(configId, profile);
-            rawMap.put(configId, mergedJson);
-            pathsMap.put(configId, SchemaAttributePaths.of(mergedJson, profile.format()));
+            loaded.rawMap().put(configId, mergedJson);
+            loaded.pathsMap().put(configId, SchemaAttributePaths.of(mergedJson, profile.format()));
 
             log.info("Loaded credential profile '{}' (type: {}) from {}", configId, credentialType, filename);
         } catch (IOException e) {
@@ -174,7 +181,7 @@ public class CredentialProfileRegistry implements CredentialProfileCatalog {
      * without one ({@code default_days >= 1}): a type that does not state it stops the service from
      * starting instead of being issued with a validity nobody chose (EUD-266, D12).
      */
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("removal")
     private static void requireValidityDays(CredentialProfile profile, String filename) {
         if (profile.validityDays() < 1) {
             throw new IllegalStateException("Credential profile '" + profile.credentialConfigurationId() + "' in "

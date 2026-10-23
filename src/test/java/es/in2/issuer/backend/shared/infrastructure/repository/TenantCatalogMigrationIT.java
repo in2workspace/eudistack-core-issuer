@@ -10,6 +10,7 @@ import org.springframework.boot.autoconfigure.flyway.FlywayProperties;
 import org.springframework.boot.autoconfigure.r2dbc.R2dbcProperties;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
+import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.Map;
@@ -96,8 +97,9 @@ class TenantCatalogMigrationIT extends PostgresIntegrationBase {
         databaseClient.sql("INSERT INTO " + table(tenant) + " (credential_configuration_id, subject_separator) "
                         + "VALUES ('doctorid.sd.1', ' - ')")
                 .then().block();
-        assertThatThrownBy(() -> databaseClient.sql("UPDATE " + table(tenant) + " SET subject_separator = '"
-                        + "x".repeat(17) + "'").then().block())
+        Mono<Void> tooLong = databaseClient.sql("UPDATE " + table(tenant) + " SET subject_separator = '"
+                + "x".repeat(17) + "'").then();
+        assertThatThrownBy(tooLong::block)
                 .isInstanceOf(DataAccessException.class)
                 .hasMessageContaining("subject_separator");
 
@@ -180,8 +182,8 @@ class TenantCatalogMigrationIT extends PostgresIntegrationBase {
         migrate(tenant, null);
         insertRow(tenant, "doctorid.sd.1", "false", "''", "NULL");
 
-        assertThatThrownBy(() -> databaseClient.sql("UPDATE " + table(tenant) + " SET enabled = true")
-                .then().block())
+        Mono<Void> enable = databaseClient.sql("UPDATE " + table(tenant) + " SET enabled = true").then();
+        assertThatThrownBy(enable::block)
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("chk_tcp_enabled_has_delivery_mode");
     }

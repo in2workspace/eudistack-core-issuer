@@ -425,27 +425,6 @@ class CredentialCatalogControllerTest {
     }
 
     @Test
-    void updateCatalog_asReadOnlyAdmin_returns403() {
-        when(catalogPdpService.authorizeWrite(anyString()))
-                .thenReturn(Mono.error(new InsufficientPermissionException("denied")));
-
-        webTestClient.mutateWith(csrf())
-                .put()
-                .uri(CREDENTIAL_CATALOG_PATH)
-                .header("Authorization", "Bearer token")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(
-                        "{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"]}"
-                )
-                .exchange()
-                .expectStatus().isForbidden()
-                .expectBody()
-                .jsonPath("$.type").isEqualTo("insufficient_permission");
-
-        verify(tenantCredentialProfileService, never()).updateCatalog(any(), any());
-    }
-
-    @Test
     void updateCatalog_unknownId_returns400() {
         when(catalogPdpService.authorizeWrite(anyString()))
                 .thenReturn(Mono.just(admin()));

@@ -199,14 +199,18 @@ class CatalogEntryValidatorTest {
 
     @Test
     void validateForCreate_unsupportedBindingType_isItsOwnException() {
-        assertThatThrownBy(() -> validator.validateForCreate(create(BIOMETRIC_URI,
-                doctorId().withSubject(null).withIdentifiers(List.of()).withModes(List.of("email")))))
+        var command = create(BIOMETRIC_URI,
+                doctorId().withSubject(null).withIdentifiers(List.of()).withModes(List.of("email")));
+
+        assertThatThrownBy(() -> validator.validateForCreate(command))
                 .isInstanceOf(UnsupportedBindingTypeException.class);
     }
 
     @Test
     void validateForCreate_unknownSchema_isItsOwnException() {
-        assertThatThrownBy(() -> validator.validateForCreate(create("https://example.org/nope", doctorId())))
+        var command = create("https://example.org/nope", doctorId());
+
+        assertThatThrownBy(() -> validator.validateForCreate(command))
                 .isInstanceOf(UnknownSchemaException.class);
     }
 
@@ -221,7 +225,9 @@ class CatalogEntryValidatorTest {
 
     @Test
     void validateForReplace_ofATypeThatIsNoLongerLoaded_isRejectedAsUnknownSchema() {
-        assertThatThrownBy(() -> validator.validateForReplace("removed.type.1", doctorId().toInput()))
+        var input = doctorId().toInput();
+
+        assertThatThrownBy(() -> validator.validateForReplace("removed.type.1", input))
                 .isInstanceOf(UnknownSchemaException.class);
     }
 

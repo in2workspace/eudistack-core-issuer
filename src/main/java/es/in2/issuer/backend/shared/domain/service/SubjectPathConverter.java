@@ -34,7 +34,7 @@ public final class SubjectPathConverter {
      * @throws IllegalArgumentException if a field has a blank segment ({@code a..b}, {@code .a}): the type
      *         file is wrong. A catalog request may carry a blank segment, but a type file may not.
      */
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("removal")
     public static List<ClaimPath> toClaimPaths(CredentialProfile profile) {
         CredentialProfile.SubjectExtraction extraction = profile.subjectExtraction();
         if (extraction == null || extraction.fields() == null) {

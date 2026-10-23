@@ -14,7 +14,7 @@ public class CatalogConfigurationException extends RuntimeException {
     public static final String BAD_REQUEST = "BAD_REQUEST";
 
     private final String code;
-    private final List<Violation> violations;
+    private final transient List<Violation> violations;
 
     public CatalogConfigurationException(String code, String detail, List<Violation> violations) {
         super(detail);

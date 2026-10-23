@@ -53,7 +53,7 @@ public class GenericCredentialBuilder {
      * says: the EUD-254 contract states that today they are ignored. {@code requester_can_set_dates} and
      * {@code max_days} are stored and returned by the catalog but not applied until EUD-254 point 6.
      */
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("removal")
     public Mono<CredentialBuildResult> buildCredential(
             CredentialProfile profile,
             JsonNode payload,
@@ -311,7 +311,7 @@ public class GenericCredentialBuilder {
      * signing, so the rule is the same for every format. An entry without a subject has an empty one (D9).
      * The type file's {@code last_segment_delimiter} still applies to the joined value (D3).
      */
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("removal")
     private String extractSubject(CatalogEntry.Subject subject, CredentialProfile profile, String credentialJson) {
         if (subject == null) {
             return "";
@@ -334,7 +334,7 @@ public class GenericCredentialBuilder {
         return applyLastSegmentDelimiter(result, extraction != null ? extraction.lastSegmentDelimiter() : null);
     }
 
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("removal")
     private String extractSubject(CredentialProfile profile, JsonNode payload) {
         CredentialProfile.SubjectExtraction extraction = profile.subjectExtraction();
         if (extraction == null || extraction.fields() == null || extraction.fields().isEmpty()) {

@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+@SuppressWarnings("removal") // it still checks the deprecated validity_days and subject_extraction are loaded
 class CredentialProfileRegistryTest {
 
     // Mirrors the application mapper (IssuerApiApplication): a profile may carry members the
