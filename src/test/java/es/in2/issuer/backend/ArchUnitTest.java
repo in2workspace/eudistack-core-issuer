@@ -86,7 +86,13 @@ class ArchUnitTest {
                     // wired by Spring DI through that interface — no direct class reference to
                     // the concrete adapter exists in source, same situation as the other
                     // component-scanning-discovered beans above.
-                    BASE_PACKAGE + ".shared.infrastructure.repository.IssuanceR2dbcAdapter");
+                    BASE_PACKAGE + ".shared.infrastructure.repository.IssuanceR2dbcAdapter",
+                    // EUD-266: CatalogEntryR2dbcAdapter implements CatalogEntryPort and is wired by
+                    // Spring DI through that interface, like IssuanceR2dbcAdapter above.
+                    BASE_PACKAGE + ".shared.infrastructure.repository.CatalogEntryR2dbcAdapter",
+                    // EUD-266: ApplicationRunner discovered by component scanning (no direct class
+                    // references), like TenantSchemaFlywayMigrator above.
+                    BASE_PACKAGE + ".shared.infrastructure.config.TenantCatalogConfigBackfill");
 
     // EUDISTACK-650 (H-05) scopes the hexagonal fix to Issuance only. These domain entities
     // have the exact same Spring Data leakage (@Table/@Id/@Column, or a direct

@@ -281,6 +281,36 @@ class PolicyContextFactoryTest {
 
     // --- fromTokenForIssuance ---
 
+    // --- fromManagementToken ---
+
+    @Test
+    void fromManagementToken_withoutCredentialTypeClaim_resolvesTenantAdmin() {
+        SignedJWT signedJWT = mock(SignedJWT.class);
+        Payload payload = mock(Payload.class);
+
+        when(jwtService.parseJWT(TOKEN)).thenReturn(signedJWT);
+        when(signedJWT.getPayload()).thenReturn(payload);
+        when(jwtService.getClaimFromPayload(payload, "credential_type"))
+                .thenThrow(new RuntimeException("The 'credential_type' claim is missing"));
+        when(jwtService.getClaimFromPayload(payload, "power"))
+                .thenReturn("[{\"function\":\"Onboarding\",\"action\":\"Execute\",\"domain\":\"DOME\",\"type\":\"organization\"}]");
+        when(jwtService.getClaimFromPayload(payload, "mandator"))
+                .thenReturn("{\"organizationIdentifier\":\"" + ADMIN_ORG_ID + "\"}");
+        when(jwtService.getClaimFromPayload(payload, "tenant")).thenReturn("\"DOME\"");
+
+        StepVerifier.create(factory.fromManagementToken(TOKEN, "DOME"))
+                .assertNext(ctx -> {
+                    assertThat(ctx.tenantAdmin()).isTrue();
+                    assertThat(ctx.sysAdmin()).isFalse();
+                    assertThat(ctx.credentialType()).isNull();
+                    assertThat(ctx.profile()).isNull();
+                    assertThat(ctx.tokenTenant()).isEqualTo("DOME");
+                    assertThat(ctx.tenantDomain()).isEqualTo("DOME");
+                })
+                .verifyComplete();
+        verifyNoInteractions(credentialProfileRegistry);
+    }
+
     @Test
     void fromTokenForIssuance_createsContextWithPowers() {
         SignedJWT signedJWT = mock(SignedJWT.class);

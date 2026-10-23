@@ -31,7 +31,14 @@ public class EndpointsConstants {
     // of the per-tenant enabled credential configuration ids and their delivery modes --
     // authorization (tenant-admin/SysAdmin write, tenant-admin/SysAdmin/operator read) is
     // enforced in CredentialCatalogController, not by this path.
+    // Deprecated alias of ATTESTATION_CATALOG_PATH (EUD-266, RFC 9745): kept for the portal.
     public static final String CREDENTIAL_CATALOG_PATH = "/api/v1/backoffice/credential-catalog";
+
+    // Attestation Catalogue API (EUD-266): one entry per credential type of the tenant, by id.
+    // Authorization (read: tenant access; write: CatalogPdpService) is enforced in
+    // AttestationCatalogController, not by these paths.
+    public static final String ATTESTATION_CATALOG_PATH = "/api/v1/attestation-catalog"; // NOSONAR java:S1075 - fixed by the EUD-169 OpenAPI contract, not configurable
+    public static final String ATTESTATION_CATALOG_WILDCARD_PATH = ATTESTATION_CATALOG_PATH + "/**";
 
     // Unattended issuance intake (EUD-2/EUD-75, US-02). Path is a placeholder
     // pending EUD-74 (US-01, the intake endpoint itself) — coordinate before

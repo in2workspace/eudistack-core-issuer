@@ -49,7 +49,7 @@ class GenericCredentialBuilderTest {
         CredentialProfile profile = employeeProfile();
         JsonNode payload = mandatePayload();
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .assertNext(result -> {
                     assertThat(result.subject()).isEqualTo("John Doe");
                     assertThat(result.organizationIdentifier()).isEqualTo("VATES-B12345678");
@@ -69,33 +69,13 @@ class GenericCredentialBuilderTest {
     }
 
     @Test
-    void buildCredential_shouldUsePayloadDatesWhenValidityDaysIsZero() {
-        CredentialProfile profile = labelProfile();
-        String fixedFrom = "2025-01-01T00:00:00Z";
-        String fixedUntil = "2026-01-01T00:00:00Z";
-
-        JsonNode payload = objectMapper.createObjectNode()
-                .put("validFrom", fixedFrom)
-                .put("validUntil", fixedUntil);
-
-        when(accessTokenService.getOrganizationIdFromCurrentSession()).thenReturn(Mono.just("ORG-123"));
-
-        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
-                .assertNext(result -> {
-                    assertThat(result.credentialDataSet()).contains(fixedFrom);
-                    assertThat(result.credentialDataSet()).contains(fixedUntil);
-                })
-                .verifyComplete();
-    }
-
-    @Test
     void buildCredential_shouldUseSessionOrganizationExtraction() {
         CredentialProfile profile = labelProfile();
         JsonNode payload = objectMapper.createObjectNode();
 
         when(accessTokenService.getOrganizationIdFromCurrentSession()).thenReturn(Mono.just("SESSION-ORG-ID"));
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .assertNext(result ->
                         assertThat(result.organizationIdentifier()).isEqualTo("SESSION-ORG-ID"))
                 .verifyComplete();
@@ -106,7 +86,7 @@ class GenericCredentialBuilderTest {
         CredentialProfile profile = employeeProfile();
         JsonNode payload = mandatePayload();
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .assertNext(result ->
                         assertThat(result.subject()).isEqualTo("John Doe"))
                 .verifyComplete();
@@ -125,7 +105,7 @@ class GenericCredentialBuilderTest {
         payloadRoot.set("mandate", mandateNode);
         JsonNode payload = payloadRoot;
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .assertNext(result ->
                         assertThat(result.subject()).isEqualTo("api.example.com"))
                 .verifyComplete();
@@ -136,7 +116,7 @@ class GenericCredentialBuilderTest {
         CredentialProfile profile = employeeProfile();
         JsonNode payload = mandatePayload();
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .assertNext(result ->
                         assertThat(result.credentialDataSet()).contains("\"description\""))
                 .verifyComplete();
@@ -322,7 +302,7 @@ class GenericCredentialBuilderTest {
         CredentialProfile profile = employeeProfile();
         JsonNode payload = mandatePayload();
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .assertNext(result -> {
                     try {
                         JsonNode credential = objectMapper.readTree(result.credentialDataSet());
@@ -370,7 +350,7 @@ class GenericCredentialBuilderTest {
         payload.set("mandator", objectMapper.createObjectNode()
                 .put("organizationIdentifier", "VATES-DIRECT123"));
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .assertNext(result -> {
                     try {
                         JsonNode credential = objectMapper.readTree(result.credentialDataSet());
@@ -404,7 +384,7 @@ class GenericCredentialBuilderTest {
         payload.set("mandator", objectMapper.createObjectNode()
                 .put("organizationIdentifier", "VATES-ALICE123"));
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .assertNext(result -> {
                     try {
                         JsonNode credential = objectMapper.readTree(result.credentialDataSet());
@@ -441,7 +421,7 @@ class GenericCredentialBuilderTest {
         payload.set("mandator", objectMapper.createObjectNode()
                 .put("organizationIdentifier", "VATES-DIRECT123"));
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .assertNext(result -> {
                     try {
                         JsonNode credential = objectMapper.readTree(result.credentialDataSet());
@@ -462,7 +442,7 @@ class GenericCredentialBuilderTest {
         CredentialProfile profile = w3cProfileWithoutDescription();
         JsonNode payload = mandatePayload();
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .assertNext(result -> {
                     try {
                         JsonNode credential = objectMapper.readTree(result.credentialDataSet());
@@ -487,7 +467,7 @@ class GenericCredentialBuilderTest {
         payload.put("validFrom", "2020-01-01T00:00:00Z");
         payload.put("validUntil", "2021-01-01T00:00:00Z");
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .assertNext(result -> {
                     try {
                         JsonNode credential = objectMapper.readTree(result.credentialDataSet());
@@ -647,7 +627,7 @@ class GenericCredentialBuilderTest {
                         .context(List.of("https://www.w3.org/ns/credentials/v2"))
                         .type(List.of("gx.labelcredential.w3c.2", "VerifiableCredential"))
                         .build())
-                .validityDays(0)
+                .validityDays(365)
                 .issuerType(CredentialProfile.IssuerType.SIMPLE)
                 .cnfRequired(false)
                 .credentialSubjectStrategy("direct")
@@ -675,7 +655,7 @@ class GenericCredentialBuilderTest {
 
         when(accessTokenService.getOrganizationIdFromCurrentSession()).thenReturn(Mono.just("VATES-B12345678"));
 
-        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload))
+        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .assertNext(result -> {
                     assertThat(result.subject()).isEqualTo("44419ccd-6e93-4a8f-8825-25bd4b9f67EE");
                     assertThat(result.organizationIdentifier()).isEqualTo("VATES-B12345678");

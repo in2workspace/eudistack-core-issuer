@@ -68,7 +68,11 @@ public class CorsConfig {
         CorsConfiguration apiConfig = new CorsConfiguration();
         apiConfig.setAllowedOrigins(corsOriginsLoader.loadOrigins());
         apiConfig.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        apiConfig.setAllowedHeaders(List.of("Content-Type", "Authorization"));
+        // If-Match: the catalog entries use optimistic concurrency (EUD-266). The response headers are
+        // exposed so a cross-origin front can read the new ETag, the Location of a created entry and the
+        // deprecation notice of the legacy catalog alias.
+        apiConfig.setAllowedHeaders(List.of("Content-Type", "Authorization", "If-Match"));
+        apiConfig.setExposedHeaders(List.of("ETag", "Location", "Deprecation", "Link"));
         apiConfig.setAllowCredentials(false);
         apiConfig.setMaxAge(1800L);
         return apiConfig;

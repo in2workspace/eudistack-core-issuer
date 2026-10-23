@@ -133,6 +133,16 @@ public abstract class PostgresIntegrationBase {
      */
     protected String mintUserAccessToken(String tenantClaim, String organizationIdentifier,
                                          List<Map<String, Object>> powers) {
+        return mintUserAccessToken(tenantClaim, organizationIdentifier, powers, null);
+    }
+
+    /**
+     * {@link #mintUserAccessToken(String, String, List)} for a named person: {@code mandateeEmail} goes where
+     * {@code JWTService#resolvePrincipal} reads it ({@code vc.credentialSubject.mandate.mandatee.email}), so it
+     * becomes the {@code Authentication} name. Without it the principal is {@code anonymous}.
+     */
+    protected String mintUserAccessToken(String tenantClaim, String organizationIdentifier,
+                                         List<Map<String, Object>> powers, String mandateeEmail) {
         long now = Instant.now().getEpochSecond();
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("iss", "http://localhost:" + port + "/issuer");
@@ -143,6 +153,10 @@ public abstract class PostgresIntegrationBase {
         mandator.put("organizationIdentifier", organizationIdentifier);
         payload.set("power", objectMapper.valueToTree(powers));
         payload.put("tenant", tenantClaim);
+        if (mandateeEmail != null) {
+            payload.putObject("vc").putObject("credentialSubject").putObject("mandate")
+                    .putObject("mandatee").put("email", mandateeEmail);
+        }
         return jwtService.issueJWT(payload.toString());
     }
 

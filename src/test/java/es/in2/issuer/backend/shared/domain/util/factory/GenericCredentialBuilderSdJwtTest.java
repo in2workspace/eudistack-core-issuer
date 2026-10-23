@@ -53,7 +53,7 @@ class GenericCredentialBuilderSdJwtTest {
         CredentialProfile profile = sdJwtProfile(null).build();
         JsonNode payload = mandatePayload();
 
-        StepVerifier.create(builder.buildCredential(profile, payload))
+        StepVerifier.create(builder.buildCredential(profile, payload, null))
                 .assertNext(result -> {
                     JsonNode credential = read(result.credentialDataSet());
                     assertThat(credential.path("vct").asText()).isEqualTo("urn:eudi:lear:1");
@@ -71,7 +71,7 @@ class GenericCredentialBuilderSdJwtTest {
         CredentialProfile profile = sdJwtProfile("direct").build();
         ObjectNode payload = objectMapper.createObjectNode().put("givenName", "Ada").put("familyName", "Lovelace");
 
-        StepVerifier.create(builder.buildCredential(profile, payload))
+        StepVerifier.create(builder.buildCredential(profile, payload, null))
                 .assertNext(result -> {
                     JsonNode credential = read(result.credentialDataSet());
                     assertThat(credential.path("givenName").asText()).isEqualTo("Ada");
@@ -89,7 +89,7 @@ class GenericCredentialBuilderSdJwtTest {
                         List.of("https://www.w3.org/ns/credentials/v2"), List.of("VerifiableCredential")))
                 .build();
 
-        StepVerifier.create(builder.buildCredential(profile, mandatePayload()))
+        StepVerifier.create(builder.buildCredential(profile, mandatePayload(), null))
                 .assertNext(result -> assertThat(read(result.credentialDataSet()).has("credentialSubject")).isTrue())
                 .verifyComplete();
     }
@@ -100,7 +100,7 @@ class GenericCredentialBuilderSdJwtTest {
     void buildCredential_withoutExtractionConfig_returnsEmptySubjectAndOrg() {
         CredentialProfile profile = sdJwtProfile(null).build();
 
-        StepVerifier.create(builder.buildCredential(profile, mandatePayload()))
+        StepVerifier.create(builder.buildCredential(profile, mandatePayload(), null))
                 .assertNext(result -> {
                     assertThat(result.subject()).isEmpty();
                     assertThat(result.organizationIdentifier()).isEmpty();
@@ -124,7 +124,7 @@ class GenericCredentialBuilderSdJwtTest {
                                                                 String expectedSubject) {
         CredentialProfile profile = sdJwtProfile(null).subjectExtraction(extraction).build();
 
-        StepVerifier.create(builder.buildCredential(profile, mandatePayload()))
+        StepVerifier.create(builder.buildCredential(profile, mandatePayload(), null))
                 .assertNext(result -> assertThat(result.subject()).isEqualTo(expectedSubject))
                 .verifyComplete();
     }
@@ -143,7 +143,7 @@ class GenericCredentialBuilderSdJwtTest {
                 .organizationExtraction(new CredentialProfile.OrganizationExtraction("field", field))
                 .build();
 
-        StepVerifier.create(builder.buildCredential(profile, mandatePayload()))
+        StepVerifier.create(builder.buildCredential(profile, mandatePayload(), null))
                 .assertNext(result -> assertThat(result.organizationIdentifier()).isEqualTo(expectedOrg))
                 .verifyComplete();
     }

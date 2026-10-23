@@ -10,8 +10,23 @@ import java.util.Set;
 
 @Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)
+/**
+ * A credential type file.
+ *
+ * @param validityDays      <b>Deprecated</b>: the validity now lives in the tenant's catalog entry (EUD-266). Only
+ *                          read to fill an entry that has none yet, and by the issuance fallback while it is unfilled.
+ * @param subjectExtraction <b>Deprecated</b>: the subject now lives in the tenant's catalog entry (EUD-266), with paths
+ *                          resolved against the built credential. Only read to fill an entry that has none yet, by the
+ *                          issuance fallback while it is unfilled, and for its {@code last_segment_delimiter}.
+ *                          Both fields leave the type files in a later story.
+ * @param bindingType       optional holder binding of the type: {@code key}, {@code none}, {@code claim} or
+ *                          {@code biometric}, as {@code bindingType} of the Attestation Registry (EUD-256).
+ *                          When absent it is derived from the binding fields (see
+ *                          {@code CredentialProfileCatalog#bindingTypeOf}).
+ */
 public record CredentialProfile(
         @JsonProperty("credential_configuration_id") String credentialConfigurationId,
+        @JsonProperty("schema_uri") String schemaUri,
         @JsonProperty("credential_format") String format,
         @JsonProperty("scope") String scope,
         @JsonProperty("credential_definition") CredentialDefinition credentialDefinition,
@@ -19,11 +34,12 @@ public record CredentialProfile(
         @JsonProperty("credential_signing_alg_values_supported") Set<String> credentialSigningAlgValuesSupported,
         @JsonProperty("proof_types_supported") Map<String, ProofTypeConfig> proofTypesSupported,
         @JsonProperty("credential_metadata") CredentialMetadata credentialMetadata,
-        @JsonProperty("validity_days") int validityDays,
+        @Deprecated(since = "3.12.0", forRemoval = true) @JsonProperty("validity_days") int validityDays,
         @JsonProperty("issuer_type") IssuerType issuerType,
         @JsonProperty("cnf_required") boolean cnfRequired,
+        @JsonProperty("binding_type") String bindingType,
         @JsonProperty("description") String description,
-        @JsonProperty("subject_extraction") SubjectExtraction subjectExtraction,
+        @Deprecated(since = "3.12.0", forRemoval = true) @JsonProperty("subject_extraction") SubjectExtraction subjectExtraction,
         @JsonProperty("organization_extraction") OrganizationExtraction organizationExtraction,
         @JsonProperty("sd_jwt") SdJwtConfig sdJwt,
         @JsonProperty("credential_subject_strategy") String credentialSubjectStrategy,
