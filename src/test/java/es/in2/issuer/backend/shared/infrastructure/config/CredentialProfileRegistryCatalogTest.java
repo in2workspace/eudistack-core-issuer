@@ -120,8 +120,9 @@ class CredentialProfileRegistryCatalogTest {
                 }
                 """.formatted(validityMember);
 
-        assertThatThrownBy(() -> new CredentialProfileRegistry(OBJECT_MAPPER, resolverOf("sample.sd.1.json", json),
-                "classpath:catalog-profiles"))
+        ResourcePatternResolver resolver = resolverOf("sample.sd.1.json", json);
+
+        assertThatThrownBy(() -> new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:catalog-profiles"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("sample.sd.1")
                 .hasMessageContaining("validity_days");
@@ -208,8 +209,8 @@ class CredentialProfileRegistryCatalogTest {
                 ClaimPath.of("mandate", "mandatee", "firstName"),
                 ClaimPath.of("mandate", "mandatee", "lastName"),
                 ClaimPath.of("mandate", "mandator", "organizationIdentifier"),
-                ClaimPath.of("mandate", "power"));
-        assertThat(paths).doesNotContain(ClaimPath.of("mandate"), ClaimPath.of("mandate", "mandatee"),
+                ClaimPath.of("mandate", "power"))
+                .doesNotContain(ClaimPath.of("mandate"), ClaimPath.of("mandate", "mandatee"),
                 ClaimPath.of("mandate", "power", "domain"));
     }
 
