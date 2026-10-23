@@ -9,7 +9,6 @@ import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
-import es.in2.issuer.backend.signing.infrastructure.properties.SigningConfigCacheProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -48,7 +47,7 @@ class TenantSigningConfigServiceImplTest {
     @BeforeEach
     void setUp() {
         service = new TenantSigningConfigServiceImpl(repository, new ObjectMapper(),
-                new SigningConfigCacheProperties(Duration.ofSeconds(30)), ticker);
+                Duration.ofSeconds(30), ticker);
     }
 
     private static TenantSigningConfig qtspRow() {
@@ -195,17 +194,15 @@ class TenantSigningConfigServiceImplTest {
     }
 
     @Test
-    void cacheProperties_defaultIs5Minutes_andNonPositiveIsRejected() {
-        assertThat(new org.springframework.boot.context.properties.bind.Binder(
-                new org.springframework.boot.context.properties.source.MapConfigurationPropertySource())
-                .bindOrCreate("issuer.signing", SigningConfigCacheProperties.class).configCacheTtl())
-                .isEqualTo(Duration.ofMinutes(5));
-        assertThat(new org.springframework.boot.context.properties.bind.Binder(
-                new org.springframework.boot.context.properties.source.MapConfigurationPropertySource(
-                        java.util.Map.of("issuer.signing.config-cache-ttl", "5s")))
-                .bindOrCreate("issuer.signing", SigningConfigCacheProperties.class).configCacheTtl())
-                .isEqualTo(Duration.ofSeconds(5));
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new SigningConfigCacheProperties(Duration.ZERO))
+    void cacheTtl_defaultIs5Minutes_andNonPositiveIsRejected() throws NoSuchMethodException {
+        var ttl = TenantSigningConfigServiceImpl.class.getConstructor(
+                        TenantSigningConfigRepository.class, ObjectMapper.class, Duration.class)
+                .getParameters()[2].getAnnotation(org.springframework.beans.factory.annotation.Value.class);
+        assertThat(ttl.value()).isEqualTo("${issuer.signing.config-cache-ttl:5m}");
+        assertThat(org.springframework.boot.convert.ApplicationConversionService.getSharedInstance()
+                .convert("5m", Duration.class)).isEqualTo(Duration.ofMinutes(5));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new TenantSigningConfigServiceImpl(
+                        repository, new ObjectMapper(), Duration.ZERO, ticker))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

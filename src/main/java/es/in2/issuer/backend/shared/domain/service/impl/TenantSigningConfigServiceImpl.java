@@ -16,12 +16,13 @@ import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
-import es.in2.issuer.backend.signing.infrastructure.properties.SigningConfigCacheProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.List;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
@@ -40,19 +41,22 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
     @Autowired
     public TenantSigningConfigServiceImpl(TenantSigningConfigRepository repository,
                                           ObjectMapper objectMapper,
-                                          SigningConfigCacheProperties cacheProperties) {
-        this(repository, objectMapper, cacheProperties, Ticker.systemTicker());
+                                          @Value("${issuer.signing.config-cache-ttl:5m}") Duration configCacheTtl) {
+        this(repository, objectMapper, configCacheTtl, Ticker.systemTicker());
     }
 
     TenantSigningConfigServiceImpl(TenantSigningConfigRepository repository,
                                    ObjectMapper objectMapper,
-                                   SigningConfigCacheProperties cacheProperties,
+                                   Duration configCacheTtl,
                                    Ticker ticker) {
+        if (configCacheTtl == null || configCacheTtl.isZero() || configCacheTtl.isNegative()) {
+            throw new IllegalArgumentException("issuer.signing.config-cache-ttl must be positive");
+        }
         this.repository = repository;
         // EUD-251 design AD-5: during the TTL (5 min by default) an instance can keep using a replaced
         // or withdrawn configuration. Accepted deviation from AC-15 and EC-02, see the design §16.
         this.configCache = Caffeine.newBuilder()
-                .expireAfterWrite(cacheProperties.configCacheTtl())
+                .expireAfterWrite(configCacheTtl)
                 .ticker(ticker)
                 .maximumSize(50)
                 .build();
