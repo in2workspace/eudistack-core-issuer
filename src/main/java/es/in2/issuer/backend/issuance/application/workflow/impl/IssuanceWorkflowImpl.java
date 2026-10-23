@@ -63,6 +63,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private final IssuanceService issuanceService;
     private final CredentialOfferService credentialOfferService;
     private final IssuancePdpService issuancePdpService;
+    private final IssuancePayloadNormalizer issuancePayloadNormalizer;
     private final PayloadSchemaValidator payloadSchemaValidator;
     private final CredentialProfileRegistry credentialProfileRegistry;
     private final IssuanceMetrics issuanceMetrics;
@@ -91,9 +92,10 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         return requireResolvedTenant()
                 .then(Mono.defer(() -> validateRequest(request, idToken)))
-                .then(Mono.defer(() -> payloadSchemaValidator.validate(configId, request.payload())))
-                .then(Mono.defer(() -> issuancePdpService.authorize(configId, request.payload(), idToken)))
-                .then(Mono.defer(() -> performIssuanceFlow(processId, request, bearerToken, publicIssuerBaseUrl, delivery)))
+                .then(Mono.fromSupplier(() -> normalized(request)))
+                .flatMap(normalizedRequest -> payloadSchemaValidator.validate(configId, normalizedRequest.payload())
+                        .then(Mono.defer(() -> issuancePdpService.authorize(configId, normalizedRequest.payload(), idToken)))
+                        .then(Mono.defer(() -> performIssuanceFlow(processId, normalizedRequest, bearerToken, publicIssuerBaseUrl, delivery))))
                 .transformDeferredContextual((flow, ctx) -> {
                     String tenant = ctx.hasKey(TENANT_DOMAIN_CONTEXT_KEY) ? ctx.get(TENANT_DOMAIN_CONTEXT_KEY) : null;
                     return flow
@@ -164,8 +166,14 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         return Mono.fromCallable(() -> keepOnlyOid4vciDeliveryModes(delivery))
                 .flatMap(safeDelivery -> validateRequest(request, null)
-                        .then(Mono.defer(() -> payloadSchemaValidator.validate(request.credentialConfigurationId(), request.payload())))
-                        .then(Mono.defer(() -> performIssuanceFlow(processId, request, token, publicIssuerBaseUrl, safeDelivery))));
+                        .then(Mono.fromSupplier(() -> normalized(request)))
+                        .flatMap(normalizedRequest -> payloadSchemaValidator.validate(normalizedRequest.credentialConfigurationId(), normalizedRequest.payload())
+                                .then(Mono.defer(() -> performIssuanceFlow(processId, normalizedRequest, token, publicIssuerBaseUrl, safeDelivery)))));
+    }
+
+    private IssuanceRequest normalized(IssuanceRequest request) {
+        return request.withPayload(
+                issuancePayloadNormalizer.normalize(request.credentialConfigurationId(), request.payload()));
     }
 
     private Mono<Void> validateRequest(IssuanceRequest request, String idToken) {
