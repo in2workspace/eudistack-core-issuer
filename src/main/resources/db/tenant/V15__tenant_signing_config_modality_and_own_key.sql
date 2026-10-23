@@ -5,7 +5,9 @@
 -- no separate own_key table).
 --
 -- * modality: 'qtsp' (remote CSC provider, current behaviour) or 'own_key'.
---   For own_key rows `provider` holds 'aws-kms' (the column stays NOT NULL).
+--   For own_key rows `provider` holds 'aws-kms' (the column stays NOT NULL),
+--   and only for them. A qtsp row needs provider_specific_config. Existing qtsp
+--   rows without it make this migration fail: fix them before deploying.
 -- * status: 'active' or 'withdrawn'. Rows are never deleted: a replaced or
 --   withdrawn configuration stays as history. At most one row is 'active'
 --   per tenant schema (partial unique index).
@@ -85,6 +87,22 @@ BEGIN
                 AND own_key_certificate_chain IS NOT NULL
                 AND jsonb_typeof(own_key_certificate_chain) = 'array'
                 AND jsonb_array_length(own_key_certificate_chain) > 0));
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conname = 'chk_tenant_signing_config_qtsp_required'
+                     AND conrelid = 'tenant_signing_config'::regclass) THEN
+        ALTER TABLE tenant_signing_config
+            ADD CONSTRAINT chk_tenant_signing_config_qtsp_required
+            CHECK (modality <> 'qtsp' OR provider_specific_config IS NOT NULL);
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conname = 'chk_tenant_signing_config_provider_modality'
+                     AND conrelid = 'tenant_signing_config'::regclass) THEN
+        ALTER TABLE tenant_signing_config
+            ADD CONSTRAINT chk_tenant_signing_config_provider_modality
+            CHECK ((modality = 'own_key') = (provider = 'aws-kms'));
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint

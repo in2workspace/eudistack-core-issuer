@@ -32,6 +32,7 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
             + "VALUES ('digitel', 'v2', '{\"k\":\"v\"}'::jsonb) ON CONFLICT DO NOTHING";
     private static final String KMS_REF = "'arn:aws:kms:eu-west-1:111122223333:key/k'";
     private static final String CHAIN = "'[\"MIIB-leaf\",\"MIIB-intermediate\"]'::jsonb";
+    private static final String QTSP_CONFIG = "'{\"k\":\"v\"}'::jsonb";
     private static final String MIGRATION = "migration";
     private static final String OPERATOR = "'operator@example.invalid'";
 
@@ -105,13 +106,54 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
     }
 
     @Test
+    void migration_withLegacyRowWithoutProviderConfig_fails() {
+        String schema = createSchemaAndMigrateTo("tsc-legacy-nocfg", "14");
+        exec("INSERT INTO \"" + schema + "\".tenant_signing_config (provider) VALUES ('digitel')");
+
+        assertThatThrownBy(() -> migrateFully(schema))
+                .hasMessageContaining("chk_tenant_signing_config_qtsp_required");
+    }
+
+    @Test
     void secondActiveRow_isRejectedByUniqueIndex() {
         String schema = migratedSchemaWithOneActiveRow("tsc-unique");
 
-        assertThatThrownBy(() -> exec("INSERT INTO \"" + schema + "\".tenant_signing_config (provider) "
-                + "VALUES ('digitel')"))
+        assertThatThrownBy(() -> exec("INSERT INTO \"" + schema + "\".tenant_signing_config "
+                + "(provider, provider_specific_config) VALUES ('digitel', " + QTSP_CONFIG + ")"))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("idx_tenant_signing_config_single_active");
+    }
+
+    @Test
+    void qtspRow_withoutProviderConfig_isRejected() {
+        String schema = migratedSchemaWithOneActiveRow("tsc-noqtspcfg");
+
+        assertThatThrownBy(() -> exec("INSERT INTO \"" + schema + "\".tenant_signing_config "
+                + "(provider, status, withdrawn_at, withdrawn_by) "
+                + "VALUES ('digitel', 'withdrawn', now(), " + OPERATOR + ")"))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_tenant_signing_config_qtsp_required");
+    }
+
+    @Test
+    void qtspRow_withAwsKmsProvider_isRejected() {
+        String schema = migratedSchemaWithOneActiveRow("tsc-qtspkms");
+
+        assertThatThrownBy(() -> exec("INSERT INTO \"" + schema + "\".tenant_signing_config "
+                + "(provider, provider_specific_config, status, withdrawn_at, withdrawn_by) "
+                + "VALUES ('aws-kms', " + QTSP_CONFIG + ", 'withdrawn', now(), " + OPERATOR + ")"))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_tenant_signing_config_provider_modality");
+    }
+
+    @Test
+    void ownKeyRow_withQtspProvider_isRejected() {
+        String schema = migratedSchemaWithOneActiveRow("tsc-ownkeyqtsp");
+
+        assertThatThrownBy(() -> exec(ownKeyInsert(schema, "withdrawn", "now()")
+                .replace("'aws-kms'", "'digitel'")))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_tenant_signing_config_provider_modality");
     }
 
     @Test
@@ -213,7 +255,7 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("chk_tenant_signing_config_modality");
         assertThatThrownBy(() -> exec("INSERT INTO \"" + schema + "\".tenant_signing_config "
-                + "(provider, status) VALUES ('x', 'pending')"))
+                + "(provider, provider_specific_config, status) VALUES ('x', " + QTSP_CONFIG + ", 'pending')"))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("chk_tenant_signing_config_status");
     }
@@ -276,8 +318,9 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
     }
 
     private void insertLegacy(String schema, String id, String createdAt) {
-        exec("INSERT INTO \"" + schema + "\".tenant_signing_config (id, provider, created_at, updated_at) "
-                + "VALUES ('" + id + "', 'digitel', '" + createdAt + "', '" + createdAt + "')");
+        exec("INSERT INTO \"" + schema + "\".tenant_signing_config "
+                + "(id, provider, provider_specific_config, created_at, updated_at) "
+                + "VALUES ('" + id + "', 'digitel', " + QTSP_CONFIG + ", '" + createdAt + "', '" + createdAt + "')");
     }
 
     private void exec(String sql) {
