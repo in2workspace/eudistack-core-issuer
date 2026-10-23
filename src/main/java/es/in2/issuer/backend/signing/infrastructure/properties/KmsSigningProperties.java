@@ -36,4 +36,12 @@ public record KmsSigningProperties(
                     "issuer.signing.kms.region is required when issuer.signing.kms.enabled=true");
         }
     }
+
+    /**
+     * Upper bound of one signing call with all its retries: every attempt times out and every wait
+     * is the longest one ({@code maxBackoff} caps the backoff after jitter).
+     */
+    public Duration worstCaseSigningDuration() {
+        return callTimeout.multipliedBy(maxRetries + 1L).plus(maxBackoff.multipliedBy(maxRetries));
+    }
 }

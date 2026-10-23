@@ -11,7 +11,7 @@ import es.in2.issuer.backend.signing.domain.service.JadesHeaderBuilderService;
 import es.in2.issuer.backend.signing.domain.service.JwsSignHashService;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.domain.spi.SigningRequestValidator;
-import es.in2.issuer.backend.signing.infrastructure.model.CscSignType;
+import es.in2.issuer.backend.signing.domain.model.SigningProviderType;
 import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningProperties;
 import es.in2.issuer.backend.signing.domain.spi.CscPort;
 import lombok.RequiredArgsConstructor;
@@ -33,8 +33,8 @@ public class CscSignHashSigningProvider implements SigningProvider {
     private final CscSigningProperties cscSigningProperties;
 
     @Override
-    public CscSignType supportedProvider() {
-        return CscSignType.CSC_SIGN_HASH;
+    public SigningProviderType supportedProvider() {
+        return SigningProviderType.CSC_SIGN_HASH;
     }
 
     @Override

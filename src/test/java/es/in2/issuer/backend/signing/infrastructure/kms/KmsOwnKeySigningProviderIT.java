@@ -98,7 +98,7 @@ class KmsOwnKeySigningProviderIT {
                 Clock.systemUTC());
 
         var result = provider.sign(SigningRequest.builder()
-                .type(SigningType.JADES).data("{\"vct\":\"test\"}").typ("dc+sd-jwt").build(), config)
+                .type(SigningType.JADES).data("{\"vct\":\"test\"}").typ("dc+sd-jwt").ownKey(config).build())
                 .block(Duration.ofSeconds(30));
 
         assertThat(result).isNotNull();

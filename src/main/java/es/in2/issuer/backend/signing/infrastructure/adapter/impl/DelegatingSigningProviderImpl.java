@@ -3,7 +3,9 @@ package es.in2.issuer.backend.signing.infrastructure.adapter.impl;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
+import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
+import es.in2.issuer.backend.signing.domain.model.SigningProviderType;
 import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
 import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
@@ -11,7 +13,6 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
-import es.in2.issuer.backend.signing.infrastructure.adapter.KmsOwnKeySigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningAuditor;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningProviderResolver;
 import lombok.RequiredArgsConstructor;
@@ -25,9 +26,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 /**
- * Routes signing requests by the active tenant's signing modality: to the CSC operation configured for its QTSP,
- * or to the KMS own-key provider. Reads signing config per-tenant from the database (via
- * {@link TenantSigningConfigService}) and injects it into the {@link
+ * Routes signing requests by the active tenant's signing modality, through {@link SigningProviderResolver}:
+ * to the CSC operation configured for its QTSP, or to the KMS own-key provider. Reads signing config
+ * per-tenant from the database (via {@link TenantSigningConfigService}) and injects it into the {@link
  * SigningRequest} before delegating.
  *
  * <p>There is no global fallback: if {@code tenant_signing_config} has no
@@ -46,7 +47,6 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
 
     private final TenantSigningConfigService tenantSigningConfigService;
     private final SigningProviderResolver signingProviderResolver;
-    private final KmsOwnKeySigningProvider kmsOwnKeySigningProvider;
     private final SigningAuditor signingAuditor;
 
     @Override
@@ -125,7 +125,8 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
 
         return switch (config.modality()) {
             case QTSP -> sign(request, config.qtsp());
-            case OWN_KEY -> kmsOwnKeySigningProvider.sign(request, config.ownKey());
+            case OWN_KEY -> signingProviderResolver.resolve(SigningProviderType.AWS_KMS)
+                    .sign(withOwnKey(request, config.ownKey()));
         };
     }
 
@@ -164,6 +165,17 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
                             """
             );
         }
+    }
+
+    private static SigningRequest withOwnKey(SigningRequest original, OwnKeySigningConfig ownKey) {
+
+        return SigningRequest.builder()
+                .type(original.type())
+                .data(original.data())
+                .context(original.context())
+                .typ(original.typ())
+                .ownKey(ownKey)
+                .build();
     }
 
     private static SigningRequest enrich(

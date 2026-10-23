@@ -1,7 +1,7 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter;
 
+import es.in2.issuer.backend.signing.domain.model.SigningProviderType;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
-import es.in2.issuer.backend.signing.infrastructure.model.CscSignType;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -13,30 +13,31 @@ import java.util.Map;
 @Service
 public class SigningProviderResolver {
 
-    private final Map<CscSignType, SigningProvider> providersByCscSignType;
+    private final Map<SigningProviderType, SigningProvider> providersByType;
 
     public SigningProviderResolver(List<SigningProvider> signingProviders) {
 
-        this.providersByCscSignType =
+        this.providersByType =
                 buildProviderMap(signingProviders);
 
         log.info(
                 "Signing providers registered: {}",
-                providersByCscSignType.keySet()
+                providersByType.keySet()
         );
     }
 
+    /** Provider of the CSC operation ({@code signingOperation}) of a QTSP configuration. */
     public SigningProvider resolveFromValue(String value) {
 
-        CscSignType cscSignType = CscSignType.fromValue(value);
+        SigningProviderType providerType = SigningProviderType.fromCscOperation(value);
 
-        return resolve(cscSignType);
+        return resolve(providerType);
     }
 
-    private SigningProvider resolve(CscSignType provider) {
+    public SigningProvider resolve(SigningProviderType provider) {
 
         SigningProvider signingProvider =
-                providersByCscSignType.get(provider);
+                providersByType.get(provider);
 
         if (signingProvider == null) {
             throw new IllegalArgumentException(
@@ -47,26 +48,26 @@ public class SigningProviderResolver {
         return signingProvider;
     }
 
-    private Map<CscSignType, SigningProvider> buildProviderMap(
+    private Map<SigningProviderType, SigningProvider> buildProviderMap(
             List<SigningProvider> signingProviders
     ) {
 
-        Map<CscSignType, SigningProvider> providerMap =
-                new EnumMap<>(CscSignType.class);
+        Map<SigningProviderType, SigningProvider> providerMap =
+                new EnumMap<>(SigningProviderType.class);
 
         for (SigningProvider signingProvider : signingProviders) {
 
-            CscSignType cscSignType = signingProvider.supportedProvider();
+            SigningProviderType providerType = signingProvider.supportedProvider();
 
                 SigningProvider previous =
                         providerMap.putIfAbsent(
-                                cscSignType,
+                                providerType,
                                 signingProvider
                         );
 
                 if (previous != null) {
                     throw duplicatedProviderException(
-                            cscSignType,
+                            providerType,
                             previous,
                             signingProvider
                     );
@@ -77,7 +78,7 @@ public class SigningProviderResolver {
     }
 
     private IllegalStateException duplicatedProviderException(
-            CscSignType provider,
+            SigningProviderType provider,
             SigningProvider previous,
             SigningProvider current
     ) {

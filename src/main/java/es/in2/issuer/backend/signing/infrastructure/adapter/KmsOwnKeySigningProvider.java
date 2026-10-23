@@ -6,6 +6,7 @@ import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
+import es.in2.issuer.backend.signing.domain.model.SigningProviderType;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
@@ -13,6 +14,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.service.HashGeneratorService;
 import es.in2.issuer.backend.signing.domain.service.JadesHeaderBuilderService;
 import es.in2.issuer.backend.signing.domain.spi.KmsSigningPort;
+import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.domain.util.Base64UrlUtils;
 import es.in2.issuer.backend.signing.domain.util.Es256SignatureVerifier;
 import es.in2.issuer.backend.signing.domain.util.JwsSignatureEncoder;
@@ -37,10 +39,9 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 /**
  * Signs a JAdES JWS with the tenant's own ES256 key held in KMS (EUD-289).
  *
- * <p>It does not implement {@link es.in2.issuer.backend.signing.domain.spi.SigningProvider}: that
- * interface is keyed by the CSC operation ({@code CscSignType}) and resolved from the QTSP
- * configuration, whereas this provider is selected by the tenant's signing modality and takes the
- * own-key configuration explicitly. {@code DelegatingSigningProviderImpl} chooses between the two.
+ * <p>Registered in {@code SigningProviderResolver} as {@link SigningProviderType#AWS_KMS}, next to the
+ * CSC providers. {@code DelegatingSigningProviderImpl} resolves it for the own-key modality and puts
+ * the tenant's own-key configuration in {@link SigningRequest#ownKey()}.
  *
  * <p>No user token is used: the KMS authorizes with the issuer's runtime role (AC-04).
  * The returned signature is always verified against the stored leaf certificate first, so a
@@ -49,7 +50,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class KmsOwnKeySigningProvider {
+public class KmsOwnKeySigningProvider implements SigningProvider {
 
     private static final String UNKNOWN_TENANT = "unknown";
 
@@ -60,10 +61,20 @@ public class KmsOwnKeySigningProvider {
     private final CscSigningProperties cscSigningProperties;
     private final Clock clock;
 
-    public Mono<SigningResult> sign(SigningRequest request, OwnKeySigningConfig config) {
+    @Override
+    public SigningProviderType supportedProvider() {
+        return SigningProviderType.AWS_KMS;
+    }
+
+    @Override
+    public Mono<SigningResult> sign(SigningRequest request) {
         return Mono.deferContextual(ctx -> {
             String tenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, UNKNOWN_TENANT);
-            return signAs(tenant, request, config);
+            if (request.ownKey() == null) {
+                return Mono.error(new SigningException(SigningFailureReason.NO_CONFIGURATION,
+                        "The signing request carries no own-key configuration"));
+            }
+            return signAs(tenant, request, request.ownKey());
         });
     }
 

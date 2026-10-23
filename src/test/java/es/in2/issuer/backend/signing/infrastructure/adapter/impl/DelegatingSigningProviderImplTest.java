@@ -6,13 +6,13 @@ import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
 import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
+import es.in2.issuer.backend.signing.domain.model.SigningProviderType;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
-import es.in2.issuer.backend.signing.infrastructure.adapter.KmsOwnKeySigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningAuditor;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningProviderResolver;
 import org.junit.jupiter.api.Test;
@@ -26,7 +26,6 @@ import reactor.test.StepVerifier;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -45,7 +44,7 @@ class DelegatingSigningProviderImplTest {
     private SigningProvider signDocProvider;
 
     @Mock
-    private KmsOwnKeySigningProvider kmsOwnKeySigningProvider;
+    private SigningProvider kmsProvider;
 
     @Mock
     private SigningAuditor signingAuditor;
@@ -267,13 +266,20 @@ class DelegatingSigningProviderImplTest {
         var request = jadesRequest();
         when(tenantSigningConfigService.getActiveSigningConfig())
                 .thenReturn(Mono.just(ActiveSigningConfig.ownKey(ownKey)));
-        when(kmsOwnKeySigningProvider.sign(request, ownKey)).thenReturn(Mono.just(expected));
+        when(signingProviderResolver.resolve(SigningProviderType.AWS_KMS)).thenReturn(kmsProvider);
+        when(kmsProvider.sign(any())).thenReturn(Mono.just(expected));
 
         StepVerifier.create(delegatingSigningProvider.sign(request))
                 .expectNext(expected)
                 .verifyComplete();
 
-        verifyNoInteractions(signingProviderResolver, signHashProvider, signDocProvider);
+        var captor = ArgumentCaptor.forClass(SigningRequest.class);
+        verify(kmsProvider).sign(captor.capture());
+        assertEquals(ownKey, captor.getValue().ownKey());
+        assertNull(captor.getValue().remoteSignature());
+        assertEquals(request.data(), captor.getValue().data());
+        verify(signingProviderResolver, never()).resolveFromValue(any());
+        verifyNoInteractions(signHashProvider, signDocProvider);
     }
 
     @Test
@@ -282,7 +288,8 @@ class DelegatingSigningProviderImplTest {
         var kms = new KmsSigningException(SigningFailureReason.PROVIDER_UNAVAILABLE, "kms down");
         when(tenantSigningConfigService.getActiveSigningConfig())
                 .thenReturn(Mono.just(ActiveSigningConfig.ownKey(ownKey)));
-        when(kmsOwnKeySigningProvider.sign(any(), eq(ownKey))).thenReturn(Mono.error(kms));
+        when(signingProviderResolver.resolve(SigningProviderType.AWS_KMS)).thenReturn(kmsProvider);
+        when(kmsProvider.sign(any())).thenReturn(Mono.error(kms));
 
         StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
                 .expectErrorSatisfies(ex -> assertSame(kms, ex))
@@ -296,16 +303,18 @@ class DelegatingSigningProviderImplTest {
         when(tenantSigningConfigService.getActiveSigningConfig())
                 .thenReturn(Mono.deferContextual(ctx -> Mono.just(ActiveSigningConfig.ownKey(
                         "a".equals(ctx.get(TENANT_DOMAIN_CONTEXT_KEY)) ? tenantA : tenantB))));
-        when(kmsOwnKeySigningProvider.sign(any(), any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "jws")));
+        when(signingProviderResolver.resolve(SigningProviderType.AWS_KMS)).thenReturn(kmsProvider);
+        when(kmsProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "jws")));
 
         StepVerifier.create(delegatingSigningProvider.sign(jadesRequest())
                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "a"))).expectNextCount(1).verifyComplete();
         StepVerifier.create(delegatingSigningProvider.sign(jadesRequest())
                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "b"))).expectNextCount(1).verifyComplete();
 
-        var captor = ArgumentCaptor.forClass(OwnKeySigningConfig.class);
-        verify(kmsOwnKeySigningProvider, times(2)).sign(any(), captor.capture());
-        assertEquals(java.util.List.of(tenantA, tenantB), captor.getAllValues());
+        var captor = ArgumentCaptor.forClass(SigningRequest.class);
+        verify(kmsProvider, times(2)).sign(captor.capture());
+        assertEquals(java.util.List.of(tenantA, tenantB),
+                captor.getAllValues().stream().map(SigningRequest::ownKey).toList());
     }
 
     @Test

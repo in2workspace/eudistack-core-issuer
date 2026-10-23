@@ -12,7 +12,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
-import es.in2.issuer.backend.signing.infrastructure.adapter.KmsOwnKeySigningProvider;
+import es.in2.issuer.backend.signing.domain.model.SigningProviderType;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningAuditor;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningProviderResolver;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
@@ -47,13 +47,13 @@ class DelegatingSigningProviderImplAuditTest {
     private final TenantSigningConfigService configService = mock(TenantSigningConfigService.class);
     private final SigningProviderResolver resolver = mock(SigningProviderResolver.class);
     private final SigningProvider qtspProvider = mock(SigningProvider.class);
-    private final KmsOwnKeySigningProvider kmsProvider = mock(KmsOwnKeySigningProvider.class);
+    private final SigningProvider kmsProvider = mock(SigningProvider.class);
     private DelegatingSigningProviderImpl delegating;
 
     @BeforeEach
     void setUp() {
-        delegating = new DelegatingSigningProviderImpl(configService, resolver, kmsProvider,
-                new SigningAuditor(auditService));
+        when(resolver.resolve(SigningProviderType.AWS_KMS)).thenReturn(kmsProvider);
+        delegating = new DelegatingSigningProviderImpl(configService, resolver, new SigningAuditor(auditService));
     }
 
     private static SigningRequest request() {
@@ -138,7 +138,7 @@ class DelegatingSigningProviderImplAuditTest {
     @Test
     void sign_ownKeySuccess_auditsSuccessWithKmsProvider() {
         when(configService.getActiveSigningConfig()).thenReturn(Mono.just(ownKey()));
-        when(kmsProvider.sign(any(), any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "jws-value")));
+        when(kmsProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "jws-value")));
 
         StepVerifier.create(signAs("kpmg")).expectNextCount(1).verifyComplete();
 
@@ -148,13 +148,13 @@ class DelegatingSigningProviderImplAuditTest {
                 .containsEntry("provider", "aws-kms")
                 .containsEntry("outcome", "success");
         assertNoForbiddenData(details);
-        verifyNoInteractions(resolver);
+        verifyNoInteractions(qtspProvider);
     }
 
     @Test
     void sign_ownKeyInvalidSignature_auditsInvalidResponse() {
         when(configService.getActiveSigningConfig()).thenReturn(Mono.just(ownKey()));
-        when(kmsProvider.sign(any(), any())).thenReturn(Mono.error(new KmsSigningException(
+        when(kmsProvider.sign(any())).thenReturn(Mono.error(new KmsSigningException(
                 SigningFailureReason.INVALID_RESPONSE, "does not verify, key " + KEY_REF)));
 
         StepVerifier.create(signAs("kpmg")).expectError(KmsSigningException.class).verify();
@@ -178,7 +178,7 @@ class DelegatingSigningProviderImplAuditTest {
     @Test
     void sign_withoutTenantInContext_auditsUnknownTenant() {
         when(configService.getActiveSigningConfig()).thenReturn(Mono.just(ownKey()));
-        when(kmsProvider.sign(any(), any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "jws-value")));
+        when(kmsProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "jws-value")));
 
         StepVerifier.create(delegating.sign(request())).expectNextCount(1).verifyComplete();
 
@@ -188,7 +188,7 @@ class DelegatingSigningProviderImplAuditTest {
     @Test
     void sign_requestWithoutTypOrContext_auditsTypeOnlyAndNoIssuanceId() {
         when(configService.getActiveSigningConfig()).thenReturn(Mono.just(ownKey()));
-        when(kmsProvider.sign(any(), any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "jws-value")));
+        when(kmsProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "jws-value")));
         var bare = SigningRequest.builder().type(SigningType.JADES).data(PAYLOAD).build();
 
         StepVerifier.create(delegating.sign(bare)).expectNextCount(1).verifyComplete();
@@ -200,7 +200,7 @@ class DelegatingSigningProviderImplAuditTest {
     void sign_auditServiceThrowing_neverBreaksSigning() {
         var expected = new SigningResult(SigningType.JADES, "jws-value");
         when(configService.getActiveSigningConfig()).thenReturn(Mono.just(ownKey()));
-        when(kmsProvider.sign(any(), any())).thenReturn(Mono.just(expected));
+        when(kmsProvider.sign(any())).thenReturn(Mono.just(expected));
         doThrow(new IllegalStateException("audit down")).when(auditService)
                 .auditSuccess(any(), any(), any(), any(), any());
 
@@ -210,7 +210,7 @@ class DelegatingSigningProviderImplAuditTest {
     @Test
     void sign_auditServiceThrowingOnFailure_keepsTheOriginalError() {
         when(configService.getActiveSigningConfig()).thenReturn(Mono.just(ownKey()));
-        when(kmsProvider.sign(any(), any())).thenReturn(Mono.error(
+        when(kmsProvider.sign(any())).thenReturn(Mono.error(
                 new KmsSigningException(SigningFailureReason.KEY_UNUSABLE, "disabled")));
         doThrow(new IllegalStateException("audit down")).when(auditService).auditFailure(any(), any(), any(), any());
 

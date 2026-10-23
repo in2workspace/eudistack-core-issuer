@@ -17,6 +17,7 @@ import es.in2.issuer.backend.signing.infrastructure.adapter.KmsOwnKeySigningProv
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningAuditor;
 import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
+import es.in2.issuer.backend.signing.infrastructure.properties.KmsSigningProperties;
 import es.in2.issuer.backend.signing.infrastructure.properties.SigningSelfTestProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,6 +50,8 @@ class OwnKeySigningSelfTestTest {
     private final TenantSigningConfigService configService = mock(TenantSigningConfigService.class);
     private final KmsOwnKeySigningProvider kmsProvider = mock(KmsOwnKeySigningProvider.class);
     private final SigningAuditor auditor = mock(SigningAuditor.class);
+    private final KmsSigningProperties kmsProperties = new KmsSigningProperties(false, null, null,
+            Duration.ofSeconds(10), 3, Duration.ofSeconds(1), Duration.ofSeconds(5));
     private final Logger logger = (Logger) LoggerFactory.getLogger(OwnKeySigningSelfTest.class);
     private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
 
@@ -65,7 +68,7 @@ class OwnKeySigningSelfTestTest {
 
     private OwnKeySigningSelfTest selfTest(boolean enabled) {
         return new OwnKeySigningSelfTest(registry, configService, kmsProvider, auditor,
-                new SigningSelfTestProperties(enabled, Duration.ofSeconds(5)));
+                new SigningSelfTestProperties(enabled, Duration.ofSeconds(5)), kmsProperties);
     }
 
     private static OwnKeySigningConfig ownKey() {
@@ -95,7 +98,7 @@ class OwnKeySigningSelfTestTest {
                 "good", ActiveSigningConfig.ownKey(ownKey()),
                 "bad", ActiveSigningConfig.ownKey(ownKey())));
         Set<String> probed = new HashSet<>();
-        when(kmsProvider.sign(any(SigningRequest.class), any(OwnKeySigningConfig.class)))
+        when(kmsProvider.sign(any(SigningRequest.class)))
                 .thenReturn(Mono.deferContextual(ctx -> {
                     String tenant = ctx.get(TENANT_DOMAIN_CONTEXT_KEY);
                     probed.add(tenant);
@@ -129,12 +132,13 @@ class OwnKeySigningSelfTestTest {
     void run_probeIsAFixedJadesPayloadWithJwtTyp() {
         when(registry.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("t")));
         configsByTenant(Map.of("t", ActiveSigningConfig.ownKey(ownKey())));
-        when(kmsProvider.sign(any(), any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "x")));
+        when(kmsProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "x")));
 
         StepVerifier.create(selfTest(true).run()).verifyComplete();
 
         var captor = ArgumentCaptor.forClass(SigningRequest.class);
-        verify(kmsProvider).sign(captor.capture(), any());
+        verify(kmsProvider).sign(captor.capture());
+        assertThat(captor.getValue().ownKey()).isEqualTo(ownKey());
         assertThat(captor.getValue().type()).isEqualTo(SigningType.JADES);
         assertThat(captor.getValue().typ()).isEqualTo("JWT");
         assertThat(captor.getValue().data()).isEqualTo(OwnKeySigningSelfTest.PROBE_PAYLOAD);
@@ -175,7 +179,7 @@ class OwnKeySigningSelfTestTest {
                         ? Mono.<ActiveSigningConfig>error(
                                 new SigningException(SigningFailureReason.NO_CONFIGURATION, "corrupt"))
                         : Mono.just(ActiveSigningConfig.ownKey(ownKey()))));
-        when(kmsProvider.sign(any(), any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "x")));
+        when(kmsProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "x")));
 
         StepVerifier.create(selfTest(true).run()).verifyComplete();
 
@@ -188,13 +192,28 @@ class OwnKeySigningSelfTestTest {
     void run_slowProbe_timesOutAsFailure_withoutError() {
         when(registry.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("slow")));
         configsByTenant(Map.of("slow", ActiveSigningConfig.ownKey(ownKey())));
-        when(kmsProvider.sign(any(), any())).thenReturn(Mono.never());
+        when(kmsProvider.sign(any())).thenReturn(Mono.never());
         var slowSelfTest = new OwnKeySigningSelfTest(registry, configService, kmsProvider, auditor,
-                new SigningSelfTestProperties(true, Duration.ofMillis(50)));
+                new SigningSelfTestProperties(true, Duration.ofMillis(50)), kmsProperties);
 
         StepVerifier.create(slowSelfTest.run()).verifyComplete();
 
-        assertThat(messages(Level.WARN)).hasSize(1);
+        assertThat(messages(Level.WARN))
+                .containsExactly("own-key signing self-test failed tenant=slow reason=PROVIDER_UNAVAILABLE");
+        var error = ArgumentCaptor.forClass(Throwable.class);
+        verify(auditor).failure(eq(SigningAuditor.SELF_TEST_EVENT), any(), error.capture());
+        assertThat(SigningFailureReasons.of(error.getValue())).isEqualTo(SigningFailureReason.PROVIDER_UNAVAILABLE);
+    }
+
+    @Test
+    void tenantTimeout_unset_coversTheWorstKmsCallWithItsRetries() {
+        var derived = new OwnKeySigningSelfTest(registry, configService, kmsProvider, auditor,
+                new SigningSelfTestProperties(true, null), kmsProperties);
+
+        // 4 attempts of 10 s, 3 waits of at most 5 s, plus the 5 s margin.
+        assertThat(kmsProperties.worstCaseSigningDuration()).isEqualTo(Duration.ofSeconds(55));
+        assertThat(derived.tenantTimeout()).isEqualTo(Duration.ofSeconds(60));
+        assertThat(selfTest(true).tenantTimeout()).isEqualTo(Duration.ofSeconds(5));
     }
 
     @Test
@@ -220,7 +239,7 @@ class OwnKeySigningSelfTestTest {
     void run_auditorThrowing_isSwallowed() {
         when(registry.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("t")));
         configsByTenant(Map.of("t", ActiveSigningConfig.ownKey(ownKey())));
-        when(kmsProvider.sign(any(), any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "x")));
+        when(kmsProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "x")));
         org.mockito.Mockito.doThrow(new IllegalStateException("audit down")).when(auditor).success(any(), any());
 
         StepVerifier.create(selfTest(true).run()).verifyComplete();
