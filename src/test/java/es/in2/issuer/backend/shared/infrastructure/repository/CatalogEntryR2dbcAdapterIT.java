@@ -210,10 +210,10 @@ class CatalogEntryR2dbcAdapterIT extends PostgresIntegrationBase {
     void reads_areScopedToTheTenantInTheReactorContext() {
         inTenant(port.insert(doctorId())).block();
 
-        List<CatalogEntry> otherTenant = port.findAll().collectList()
+        CatalogEntry seenFromOtherTenant = port.findById(DOCTORID)
                 .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, "e2e-tenant-b")).block();
 
-        assertThat(otherTenant).extracting(CatalogEntry::credentialConfigurationId).doesNotContain(DOCTORID);
+        assertThat(seenFromOtherTenant).isNull();
     }
 
     // ---- helpers ---------------------------------------------------------------

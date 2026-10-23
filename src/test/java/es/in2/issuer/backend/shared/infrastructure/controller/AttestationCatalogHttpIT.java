@@ -85,14 +85,10 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
     }
 
     @BeforeEach
-    void seedTenants() {
+    void setUp() {
         seedAdminOrganizationId(TENANT_A);
         seedAdminOrganizationId(TENANT_B);
         emptyCatalog(TENANT_A);
-    }
-
-    @BeforeEach
-    void attachAuditAppender() {
         auditAppender = new ListAppender<>();
         auditAppender.start();
         ((Logger) LoggerFactory.getLogger("AUDIT")).addAppender(auditAppender);

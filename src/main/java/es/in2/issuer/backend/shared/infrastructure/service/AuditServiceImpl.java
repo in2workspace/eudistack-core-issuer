@@ -3,6 +3,7 @@ package es.in2.issuer.backend.shared.infrastructure.service;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryTrace;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -13,11 +14,11 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class AuditServiceImpl implements AuditService {
 
     private static final Logger AUDIT = LoggerFactory.getLogger("AUDIT");
-    private static final Logger LOG = LoggerFactory.getLogger(AuditServiceImpl.class);
 
     @Override
     public void auditSuccess(String event, String userId, String resourceType, String resourceId,
@@ -126,7 +127,7 @@ public class AuditServiceImpl implements AuditService {
         } catch (RuntimeException e) {
             // Best-effort (ES-03/ES-04): the delivery already happened, a broken audit channel
             // must never surface as a failure of the caller. Log locally so the signal isn't lost.
-            LOG.warn("Failed to emit delivery audit trace for processId={}",
+            log.warn("Failed to emit delivery audit trace for processId={}",
                     trace != null ? trace.processId() : "unknown", e);
         } finally {
             clearAuditMdc();
