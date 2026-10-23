@@ -4,6 +4,8 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
+import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.service.IssuerCertificateService;
 import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
 import lombok.RequiredArgsConstructor;
@@ -24,15 +26,23 @@ public class IssuerFactory {
 
     public Mono<DetailedIssuer> createDetailedIssuer() {
         log.debug("IssuerFactory: createDetailedIssuer");
-        return tenantSigningConfigService.getRemoteSignature()
-                .switchIfEmpty(Mono.error(new SigningException(
+        return tenantSigningConfigService.getActiveSigningConfig()
+                .switchIfEmpty(Mono.error(new SigningException(SigningFailureReason.NO_CONFIGURATION,
                         "No remote signature configuration available for this tenant. " +
                         "Seed tenant_signing_config for the active tenant.")))
-                .flatMap(issuerCertificateService::resolveRemoteDetailedIssuer)
-                .retryWhen(buildRetrySpec())
+                .flatMap(this::resolveIssuer)
                 .doOnError(err ->
                         log.error("Error during remote issuer creation: {}", err.getMessage(), err)
                 );
+    }
+
+    private Mono<DetailedIssuer> resolveIssuer(ActiveSigningConfig config) {
+        return switch (config.modality()) {
+            // Only the QTSP call is retried: the own-key identity is read from the stored certificate.
+            case QTSP -> issuerCertificateService.resolveRemoteDetailedIssuer(config.qtsp())
+                    .retryWhen(buildRetrySpec());
+            case OWN_KEY -> issuerCertificateService.resolveOwnKeyDetailedIssuer(config.ownKey());
+        };
     }
 
     public Mono<SimpleIssuer> createSimpleIssuer() {

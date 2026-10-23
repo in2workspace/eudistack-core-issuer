@@ -7,7 +7,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.service.SignDocService;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.domain.spi.SigningRequestValidator;
-import es.in2.issuer.backend.signing.infrastructure.model.CscSignType;
+import es.in2.issuer.backend.signing.domain.model.SigningProviderType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -21,8 +21,8 @@ public class CscSignDocSigningProvider implements SigningProvider {
     private final SignDocService signDocService;
 
     @Override
-    public CscSignType supportedProvider() {
-        return CscSignType.CSC_SIGN_DOC;
+    public SigningProviderType supportedProvider() {
+        return SigningProviderType.CSC_SIGN_DOC;
     }
 
     @Override

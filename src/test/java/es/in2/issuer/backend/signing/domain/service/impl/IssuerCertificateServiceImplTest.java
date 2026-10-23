@@ -1,6 +1,8 @@
 package es.in2.issuer.backend.signing.domain.service.impl;
 
+import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
+import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
 import es.in2.issuer.backend.signing.domain.spi.CscPort;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import org.junit.jupiter.api.Test;
@@ -146,5 +148,38 @@ class IssuerCertificateServiceImplTest {
         StepVerifier.create(issuerCertificateService.resolveRemoteDetailedIssuer(cfg))
                 .expectErrorMatches(e -> e.getMessage().contains("Credentials mismatch"))
                 .verify();
+    }
+
+    @Test
+    void resolveOwnKeyDetailedIssuer_buildsIdentityFromStoredCertificate_withoutCallingTheQtsp() throws Exception {
+        var leaf = new OwnKeyTestPki().validP256Leaf().certificate();
+        var config = new OwnKeySigningConfig("arn:aws:kms:eu-west-1:111122223333:key/k", "ES256",
+                List.of(Base64.getEncoder().encodeToString(leaf.getEncoded())));
+
+        StepVerifier.create(issuerCertificateService.resolveOwnKeyDetailedIssuer(config))
+                .assertNext(i -> {
+                    assertThat(i.id()).isEqualTo("did:elsi:VATES-Q0000000X");
+                    assertThat(i.organizationIdentifier()).isEqualTo("VATES-Q0000000X");
+                    assertThat(i.organization()).isEqualTo("CGCOM PRUEBAS (ficticio)");
+                    assertThat(i.country()).isEqualTo("ES");
+                    assertThat(i.commonName()).isEqualTo("Sello de pruebas");
+                    assertThat(i.serialNumber()).isEqualTo(leaf.getSerialNumber().toString(16).toUpperCase());
+                })
+                .verifyComplete();
+
+        verifyNoInteractions(cscPort);
+    }
+
+    @Test
+    void resolveOwnKeyDetailedIssuer_withoutOrganizationIdentifier_failsLikeTheQtspPath() throws Exception {
+        var leaf = new OwnKeyTestPki().leafWithoutOrganizationIdentifier().certificate();
+        var config = new OwnKeySigningConfig("arn:aws:kms:eu-west-1:111122223333:key/k", "ES256",
+                List.of(Base64.getEncoder().encodeToString(leaf.getEncoded())));
+
+        StepVerifier.create(issuerCertificateService.resolveOwnKeyDetailedIssuer(config))
+                .expectError(es.in2.issuer.backend.signing.domain.exception.OrganizationIdentifierNotFoundException.class)
+                .verify();
+
+        verifyNoInteractions(cscPort);
     }
 }

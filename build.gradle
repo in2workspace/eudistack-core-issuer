@@ -66,6 +66,13 @@ dependencies {
     implementation 'com.nimbusds:oauth2-oidc-sdk:11.21.1'
     implementation 'org.bouncycastle:bcprov-jdk18on:1.84'
 
+    // --- AWS KMS (EUD-289: own-key signing; async Netty client only, so the Apache sync client is excluded) ---
+    implementation platform('software.amazon.awssdk:bom:2.55.12')
+    implementation('software.amazon.awssdk:kms') {
+        exclude group: 'software.amazon.awssdk', module: 'apache-client'
+        exclude group: 'software.amazon.awssdk', module: 'apache5-client'
+    }
+
     // --- Email ---
     implementation 'org.springframework.boot:spring-boot-starter-mail'
     implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
@@ -121,6 +128,7 @@ dependencies {
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
     testImplementation 'org.testcontainers:rabbitmq'
+    testImplementation 'org.testcontainers:localstack'
     testImplementation 'org.awaitility:awaitility'
 }
 

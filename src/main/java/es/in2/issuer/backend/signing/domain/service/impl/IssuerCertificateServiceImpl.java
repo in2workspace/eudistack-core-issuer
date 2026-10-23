@@ -3,11 +3,13 @@ package es.in2.issuer.backend.signing.domain.service.impl;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.signing.domain.exception.OrganizationIdentifierNotFoundException;
+import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.dto.CacheEntry;
 import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.service.IssuerCertificateService;
 import es.in2.issuer.backend.signing.domain.spi.CscPort;
+import es.in2.issuer.backend.signing.domain.util.StoredCertificateInfo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -83,6 +85,12 @@ public class IssuerCertificateServiceImpl implements IssuerCertificateService {
                             .flatMap(token -> requestCertificateInfo(cfg, token, cfg.credentialId()))
                             .flatMap(this::extractIssuerFromCertificateInfo);
                 });
+    }
+
+    @Override
+    public Mono<DetailedIssuer> resolveOwnKeyDetailedIssuer(OwnKeySigningConfig cfg) {
+        // qualifiedSeal is irrelevant to the issuer identity, so it is not computed here.
+        return Mono.defer(() -> extractIssuerFromCertificateInfo(StoredCertificateInfo.from(cfg, false)));
     }
 
     private Mono<DetailedIssuer> extractIssuerFromCertificateInfo(CertificateInfo certInfo) {

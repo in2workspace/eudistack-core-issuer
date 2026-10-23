@@ -1,20 +1,21 @@
 package es.in2.issuer.backend.shared.domain.service;
 
-import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
+import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import reactor.core.publisher.Mono;
 
 /**
  * Resolves signing configuration for the current tenant from the
  * {@code tenant_signing_config} table (via search_path). No global fallback:
- * tenants without a row will cause a downstream signing error.
+ * tenants without an active row will cause a downstream signing error.
  */
 public interface TenantSigningConfigService {
 
     /**
-     * Returns the remote signature configuration for the current tenant,
-     * or {@code Mono.empty()} if the tenant has no row in
-     * {@code tenant_signing_config}.
+     * Returns the active signing configuration (QTSP or own key) of the current tenant, or
+     * {@code Mono.empty()} if the tenant has no active row in {@code tenant_signing_config}.
+     * Fails with a {@code SigningException} (reason {@code NO_CONFIGURATION}) when the active
+     * row is corrupt.
      */
-    Mono<RemoteSignatureDto> getRemoteSignature();
+    Mono<ActiveSigningConfig> getActiveSigningConfig();
 
 }
