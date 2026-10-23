@@ -131,7 +131,7 @@ public class AttestationCatalogService {
                     .doOnNext(change -> log.info(change.isEmpty()
                                     ? "Catalog entry '{}' left unchanged for tenant '{}'"
                                     : "Catalog entry '{}' replaced for tenant '{}'",
-                            credentialConfigurationId, tenant))
+                            change.credentialConfigurationId(), tenant))
                     .map(CatalogEntryChange::after)
                     .map(this::withResolvedSchemaUri);
         });
