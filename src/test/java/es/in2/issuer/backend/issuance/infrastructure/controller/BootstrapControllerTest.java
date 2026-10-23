@@ -39,7 +39,6 @@ import static org.mockito.Mockito.when;
 class BootstrapControllerTest {
 
     private static final String PUBLIC_BASE_URL = "https://test.example/issuer";
-    private static final String PUBLIC_WALLET_URL = "https://test.example/wallet";
 
     @Mock
     private BootstrapTokenService bootstrapTokenService;
@@ -72,19 +71,18 @@ class BootstrapControllerTest {
     @Test
     void shouldReturnCreatedWhenValidTokenAndTenantInContext() {
         String token = "valid-bootstrap-token";
-        String credentialOfferUri = "openid-credential-offer://example.com/offer";
+        // The standard OID4VCI form, unconverted (EUD-305): empty authority, the offer URL in the query.
+        String credentialOfferUri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fsandbox.example.com%2Fissuer%2Foid4vci%2Fv1%2Fcredential-offer%2Fnonce";
         BootstrapRequest request = buildRequest();
         ServerWebExchange exchange = newExchange();
 
         when(bootstrapTokenService.consumeIfValid(token)).thenReturn(true);
         when(urlResolver.publicIssuerBaseUrl(exchange)).thenReturn(PUBLIC_BASE_URL);
-        when(urlResolver.publicWalletBaseUrl(exchange)).thenReturn(PUBLIC_WALLET_URL);
         when(issuanceWorkflow.issueCredentialWithoutAuthorization(
                 anyString(),
                 any(IssuanceRequest.class),
                 eq(token),
-                eq(PUBLIC_BASE_URL),
-                eq(PUBLIC_WALLET_URL)))
+                eq(PUBLIC_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .credentialOfferUri(credentialOfferUri)
                         .build()));
@@ -113,8 +111,7 @@ class BootstrapControllerTest {
                 eq(processIdCaptor.getValue()),
                 issuanceRequestCaptor.capture(),
                 eq(token),
-                eq(PUBLIC_BASE_URL),
-                eq(PUBLIC_WALLET_URL));
+                eq(PUBLIC_BASE_URL));
 
         IssuanceRequest forwarded = issuanceRequestCaptor.getValue();
 
@@ -131,13 +128,11 @@ class BootstrapControllerTest {
 
         when(bootstrapTokenService.consumeIfValid(token)).thenReturn(true);
         when(urlResolver.publicIssuerBaseUrl(exchange)).thenReturn(PUBLIC_BASE_URL);
-        when(urlResolver.publicWalletBaseUrl(exchange)).thenReturn(PUBLIC_WALLET_URL);
         when(issuanceWorkflow.issueCredentialWithoutAuthorization(
                 anyString(),
                 any(IssuanceRequest.class),
                 eq(token),
-                eq(PUBLIC_BASE_URL),
-                eq(PUBLIC_WALLET_URL)))
+                eq(PUBLIC_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .credentialOfferUri(null)
                         .build()));
@@ -182,7 +177,6 @@ class BootstrapControllerTest {
                 anyString(),
                 any(IssuanceRequest.class),
                 anyString(),
-                anyString(),
                 anyString());
     }
 
@@ -210,7 +204,6 @@ class BootstrapControllerTest {
                 anyString(),
                 any(IssuanceRequest.class),
                 anyString(),
-                anyString(),
                 anyString());
     }
 
@@ -235,7 +228,6 @@ class BootstrapControllerTest {
         verify(issuanceWorkflow, never()).issueCredentialWithoutAuthorization(
                 anyString(),
                 any(IssuanceRequest.class),
-                anyString(),
                 anyString(),
                 anyString());
     }

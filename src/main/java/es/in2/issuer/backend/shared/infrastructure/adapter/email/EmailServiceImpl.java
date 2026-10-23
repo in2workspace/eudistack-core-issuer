@@ -106,29 +106,27 @@ public class EmailServiceImpl implements EmailService {
 
     @Observed(name = "issuance.send-email", contextualName = "issuance-send-email")
     @Override
-    public Mono<Void> sendCredentialOfferEmail(String to, String walletDeepLink, String reissueUrl,
+    public Mono<Void> sendCredentialOfferEmail(String to, String credentialOfferLink, String reissueUrl,
                                                String organization, String txCode) {
-        return tenantConfigService.getStringOrThrow("issuer.wallet_url")
-                .flatMap(walletUrl -> send("credential-offer-email", to, true,
-                        this::offerSubject,
-                        (context, inlinePngs, setup) -> {
-                            fillOfferContext(context, inlinePngs, walletDeepLink, reissueUrl, organization, walletUrl);
-                            if (txCode != null) {
-                                context.setVariable("txCode", txCode);
-                            }
-                        }));
+        return send("credential-offer-email", to, true,
+                this::offerSubject,
+                (context, inlinePngs, setup) -> {
+                    fillOfferContext(context, inlinePngs, credentialOfferLink, reissueUrl, organization);
+                    if (txCode != null) {
+                        context.setVariable("txCode", txCode);
+                    }
+                });
     }
 
     @Observed(name = "issuance.send-email", contextualName = "issuance-send-email")
     @Override
-    public Mono<Void> sendBrandedCredentialOfferEmail(String to, String subject, String walletDeepLink,
+    public Mono<Void> sendBrandedCredentialOfferEmail(String to, String subject, String credentialOfferLink,
                                                       String reissueUrl, String organization) {
         // KPMG path: own template and subject, no branding variables.
-        return tenantConfigService.getStringOrThrow("issuer.wallet_url")
-                .flatMap(walletUrl -> send("credential-offer-email-v2", to, false,
-                        setup -> translationService.translateWithLocale(subject, setup.locale()),
-                        (context, inlinePngs, setup) ->
-                                fillOfferContext(context, inlinePngs, walletDeepLink, reissueUrl, organization, walletUrl)));
+        return send("credential-offer-email-v2", to, false,
+                setup -> translationService.translateWithLocale(subject, setup.locale()),
+                (context, inlinePngs, setup) ->
+                        fillOfferContext(context, inlinePngs, credentialOfferLink, reissueUrl, organization));
     }
 
     @Override
@@ -239,14 +237,18 @@ public class EmailServiceImpl implements EmailService {
                 CREDENTIAL_OFFER_SUBJECT_KEY, setup.locale(), setup.tenantDisplayName());
     }
 
-    private void fillOfferContext(Context context, Map<String, byte[]> inlinePngs, String walletDeepLink,
-                                  String reissueUrl, String organization, String walletUrl) {
-        byte[] qrImageBytes = generateQrCodeImage(walletDeepLink, 300, 300);
+    /**
+     * @param credentialOfferLink what the button and the QR carry, decided by the caller: a link to
+     *                            the tenant's wallet, or the standard {@code openid-credential-offer://}
+     *                            form when the tenant configures none (EUD-305).
+     */
+    private void fillOfferContext(Context context, Map<String, byte[]> inlinePngs, String credentialOfferLink,
+                                  String reissueUrl, String organization) {
+        byte[] qrImageBytes = generateQrCodeImage(credentialOfferLink, 300, 300);
 
         context.setVariable("organization", organization);
         context.setVariable("qrImageCid", "cid:qr-credential-offer.png");
-        context.setVariable("walletDeepLink", walletDeepLink);
-        context.setVariable("walletInstallUrl", walletUrl.endsWith("/") ? walletUrl : walletUrl + "/");
+        context.setVariable("credentialOfferLink", credentialOfferLink);
         context.setVariable("reissueUrl", reissueUrl);
         inlinePngs.put("qr-credential-offer.png", qrImageBytes);
     }
