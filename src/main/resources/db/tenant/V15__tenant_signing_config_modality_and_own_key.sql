@@ -10,11 +10,14 @@
 --   rows without it make this migration fail: fix them before deploying.
 -- * status: 'active' or 'withdrawn'. Rows are never deleted: a replaced or
 --   withdrawn configuration stays as history. At most one row is 'active'
---   per tenant schema (partial unique index).
+--   per tenant schema (partial unique index). withdrawn_at and withdrawn_by
+--   are set exactly on withdrawn rows.
+-- * activated_at defaults to now(): there is no pending state, a row is active
+--   from its insertion.
 -- * activated_by / withdrawn_by: who activated and withdrew the row ('migration'
---   for the rows this migration activates or withdraws). Required for withdrawn
---   rows and for own_key rows, which only the onboarding tool writes. QTSP rows
---   inserted by the seeds leave activated_by (and activated_at) empty.
+--   for the rows this migration activates or withdraws, 'seed' for the seeds).
+--   activated_by is required only for own_key rows, which only the onboarding
+--   tool writes.
 -- * own-key block: no secrets, only the KMS key ARN, the certificate chain as
 --   the exact JWS `x5c` value (JSONB array of base64 DER certificates, leaf
 --   first, root excluded; identity, validity and the public key are read from it).
@@ -56,6 +59,10 @@ FROM (
 ) r
 WHERE t.id = r.id
   AND t.activated_at IS NULL;
+
+-- Only after the data migration: a default on ADD COLUMN would fill the existing
+-- rows with the migration time instead of their created_at.
+ALTER TABLE tenant_signing_config ALTER COLUMN activated_at SET DEFAULT now();
 
 DO $$
 BEGIN
@@ -110,7 +117,7 @@ BEGIN
                      AND conrelid = 'tenant_signing_config'::regclass) THEN
         ALTER TABLE tenant_signing_config
             ADD CONSTRAINT chk_tenant_signing_config_withdrawn_at
-            CHECK (status <> 'withdrawn' OR withdrawn_at IS NOT NULL);
+            CHECK ((status = 'withdrawn') = (withdrawn_at IS NOT NULL));
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint
@@ -118,7 +125,7 @@ BEGIN
                      AND conrelid = 'tenant_signing_config'::regclass) THEN
         ALTER TABLE tenant_signing_config
             ADD CONSTRAINT chk_tenant_signing_config_withdrawn_by
-            CHECK (status <> 'withdrawn' OR withdrawn_by IS NOT NULL);
+            CHECK ((status = 'withdrawn') = (withdrawn_by IS NOT NULL));
     END IF;
 END $$;
 

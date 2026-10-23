@@ -103,6 +103,8 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
         assertThat(scalar(schema, "SELECT status || '/' || modality FROM \"%s\".tenant_signing_config"))
                 .isEqualTo("active/qtsp");
         assertThat(scalar(schema, "SELECT activated_by IS NULL FROM \"%s\".tenant_signing_config")).isEqualTo("true");
+        assertThat(scalar(schema, "SELECT activated_at IS NOT NULL FROM \"%s\".tenant_signing_config"))
+                .isEqualTo("true");
     }
 
     @Test
@@ -241,6 +243,25 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
 
         assertThatThrownBy(() -> exec("UPDATE \"" + schema + "\".tenant_signing_config "
                 + "SET status = 'withdrawn', withdrawn_at = now()"))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_tenant_signing_config_withdrawn_by");
+    }
+
+    @Test
+    void activeRow_withWithdrawnAt_isRejected() {
+        String schema = migratedSchemaWithOneActiveRow("tsc-activewithdrawnat");
+
+        assertThatThrownBy(() -> exec("UPDATE \"" + schema + "\".tenant_signing_config SET withdrawn_at = now()"))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_tenant_signing_config_withdrawn_at");
+    }
+
+    @Test
+    void activeRow_withWithdrawnBy_isRejected() {
+        String schema = migratedSchemaWithOneActiveRow("tsc-activewithdrawnby");
+
+        assertThatThrownBy(() -> exec("UPDATE \"" + schema + "\".tenant_signing_config "
+                + "SET withdrawn_by = " + OPERATOR))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("chk_tenant_signing_config_withdrawn_by");
     }
