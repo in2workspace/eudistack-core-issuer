@@ -37,6 +37,7 @@ import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -234,7 +235,7 @@ class IssuanceWorkflowImplTest {
 
         // Assert
         StepVerifier.create(result)
-                .assertNext(response -> assertNotNull(response))
+                .assertNext(Assertions::assertNotNull)
                 .verifyComplete();
 
         verify(payloadSchemaValidator).validate(CONFIG_ID, normalized);
@@ -267,7 +268,7 @@ class IssuanceWorkflowImplTest {
 
         // Assert
         StepVerifier.create(result)
-                .assertNext(response -> assertNotNull(response))
+                .assertNext(Assertions::assertNotNull)
                 .verifyComplete();
 
         verify(payloadSchemaValidator).validate(CONFIG_ID, normalized);
