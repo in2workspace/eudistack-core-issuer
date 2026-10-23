@@ -26,6 +26,7 @@ import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
 import es.in2.issuer.backend.shared.domain.service.HolderDidFallbackAuditor;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.service.IssuancePayloadNormalizer;
 import es.in2.issuer.backend.shared.domain.service.PayloadSchemaValidator;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
@@ -36,6 +37,7 @@ import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -87,6 +89,7 @@ class IssuanceWorkflowImplTest {
     @Mock private IssuanceService issuanceService;
     @Mock private CredentialOfferService credentialOfferService;
     @Mock private IssuancePdpService issuancePdpService;
+    @Mock private IssuancePayloadNormalizer issuancePayloadNormalizer;
     @Mock private PayloadSchemaValidator payloadSchemaValidator;
     @Mock private CredentialProfileRegistry credentialProfileRegistry;
     @Mock private IssuanceMetrics issuanceMetrics;
@@ -111,6 +114,10 @@ class IssuanceWorkflowImplTest {
         // Permissive by default (equivalent to "no tenant configuration, ceiling wide open") so the
         // pre-existing tests keep exercising what they were written for; tests that care about a
         // narrower eligible set override this stub explicitly for their credential_configuration_id.
+        // Identity by default: the normalizer has its own tests; here only the tests about what the
+        // workflow does with its result override it.
+        lenient().when(issuancePayloadNormalizer.normalize(anyString(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
         lenient().when(deliveryEligibilityResolver.resolveEligibleModes(anyString()))
                 .thenReturn(Mono.just(EnumSet.allOf(DeliveryMode.class)));
         // Identity by default (F2): bindHolderDid only matters to the tests asserting on
@@ -199,6 +206,73 @@ class IssuanceWorkflowImplTest {
                 .verifyComplete();
 
         verifyNoInteractions(issuancePdpService);
+    }
+
+    @Test
+    void issueCredentialShouldValidateAuthorizeAndBuildWithTheNormalizedPayload() throws Exception {
+        // Arrange
+        UUID issuanceId = UUID.randomUUID();
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode received = mapper.readTree("{\"mandator\":{\"organizationIdentifier\":\"VATES-A1\",\"serialNumber\":null}}");
+        JsonNode normalized = mapper.readTree("{\"mandator\":{\"organizationIdentifier\":\"VATES-A1\"}}");
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, received, "email", EMAIL, null);
+        CredentialProfile profile = profileWithoutCnf();
+        Issuance savedIssuance = Issuance.builder().issuanceId(issuanceId).credentialOfferRefreshToken("refresh-token").build();
+
+        when(issuancePayloadNormalizer.normalize(CONFIG_ID, received)).thenReturn(normalized);
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, normalized)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(CONFIG_ID, normalized, "id-token")).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(profile, normalized))
+                .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
+        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        // Act
+        var result = withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL));
+
+        // Assert
+        StepVerifier.create(result)
+                .assertNext(Assertions::assertNotNull)
+                .verifyComplete();
+
+        verify(payloadSchemaValidator).validate(CONFIG_ID, normalized);
+        verify(issuancePdpService).authorize(CONFIG_ID, normalized, "id-token");
+        verify(genericCredentialBuilder).buildCredential(profile, normalized);
+    }
+
+    @Test
+    void issueCredentialWithoutAuthorizationShouldValidateAndBuildWithTheNormalizedPayload() throws Exception {
+        // Arrange
+        UUID issuanceId = UUID.randomUUID();
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode received = mapper.readTree("{\"mandator\":{\"organizationIdentifier\":\"VATES-A1\",\"serialNumber\":\"\"}}");
+        JsonNode normalized = mapper.readTree("{\"mandator\":{\"organizationIdentifier\":\"VATES-A1\"}}");
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, received, "email", EMAIL, null);
+        CredentialProfile profile = profileWithoutCnf();
+        Issuance savedIssuance = Issuance.builder().issuanceId(issuanceId).credentialOfferRefreshToken("refresh-token").build();
+
+        when(issuancePayloadNormalizer.normalize(CONFIG_ID, received)).thenReturn(normalized);
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, normalized)).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(profile, normalized))
+                .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
+        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
+
+        // Act
+        var result = workflow.issueCredentialWithoutAuthorization("p", request, "bootstrap-token", BASE_URL);
+
+        // Assert
+        StepVerifier.create(result)
+                .assertNext(Assertions::assertNotNull)
+                .verifyComplete();
+
+        verify(payloadSchemaValidator).validate(CONFIG_ID, normalized);
+        verify(genericCredentialBuilder).buildCredential(profile, normalized);
     }
 
     // --- New tests ---

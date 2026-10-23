@@ -18,6 +18,7 @@ import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
 import es.in2.issuer.backend.shared.domain.service.DeliveryEligibilityResolver;
 import es.in2.issuer.backend.shared.domain.service.HolderDidFallbackAuditor;
+import es.in2.issuer.backend.shared.domain.service.IssuancePayloadNormalizer;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.PayloadSchemaValidator;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
@@ -89,6 +90,7 @@ class DirectDeliveryCeilingTest {
 
         payloadSchemaValidator = mock(PayloadSchemaValidator.class);
         issuancePdpService = mock(IssuancePdpService.class);
+        IssuancePayloadNormalizer issuancePayloadNormalizer = mock(IssuancePayloadNormalizer.class);
         issuanceService = mock(IssuanceService.class);
         credentialOfferService = mock(CredentialOfferService.class);
         credentialSignerWorkflow = mock(CredentialSignerWorkflow.class);
@@ -110,11 +112,13 @@ class DirectDeliveryCeilingTest {
         // I/O boundaries this test stubs, not the rule under test.
         when(payloadSchemaValidator.validate(any(), any())).thenReturn(Mono.empty());
         when(issuancePdpService.authorize(any(), any(), any())).thenReturn(Mono.empty());
+        when(issuancePayloadNormalizer.normalize(any(), any())).thenAnswer(invocation -> invocation.getArgument(1));
 
         IssuanceWorkflowImpl issuanceWorkflow = new IssuanceWorkflowImpl(
                 issuanceService,
                 credentialOfferService,
                 issuancePdpService,
+                issuancePayloadNormalizer,
                 payloadSchemaValidator,
                 credentialProfileRegistry,
                 issuanceMetrics,
