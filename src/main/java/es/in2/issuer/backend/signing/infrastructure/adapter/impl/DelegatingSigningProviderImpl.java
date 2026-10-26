@@ -85,6 +85,10 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
     /**
      * Reads the tenant's configuration again and signs once more with it: the replacement when the key
      * was replaced, {@code NO_CONFIGURATION} when it was withdrawn. A second failure is not retried.
+     *
+     * <p>Within a {@code SigningConfigScope} the payload was built with the old configuration, so a
+     * replacement is not signed here: the reload fails with {@code SigningConfigurationChangedException}
+     * and the scope runs the request again with the new one (EUD-289 M4).
      */
     private Mono<SigningResult> reloadAndSign(SigningRequest request, AtomicReference<ActiveSigningConfig> resolved) {
         log.info("Own key not usable, reloading the signing configuration");

@@ -12,6 +12,7 @@ import es.in2.issuer.backend.oidc4vci.domain.model.CredentialIssuerMetadata;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.CredentialRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.dto.Proofs;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
+import es.in2.issuer.backend.signing.domain.exception.SigningConfigurationChangedException;
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.UnknownCredentialIdentifierException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
@@ -198,6 +199,52 @@ class Oid4VciCredentialWorkflowImplTest {
 
         verify(credentialIssuedLogger).logIssued(CREDENTIAL_TYPE);
         verify(credentialIssuedLogger, never()).logFailed(any(), any());
+    }
+
+    /** EUD-289 M4: the signing configuration changed after bindIssuer, so the issuer is bound again. */
+    @Test
+    void createCredentialResponse_signingConfigurationChanges_bindsTheIssuerAgainAndSignsOnce() {
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+        CredentialProfile profile = buildProfile(false);
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialConfigurationId(CREDENTIAL_TYPE)
+                .format(JWT_VC_JSON)
+                .build();
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN)
+                .issuanceId(ISSUANCE_ID)
+                .build();
+        StatusListEntry statusEntry = new StatusListEntry(
+                "https://issuer.example/status/1#42", "BitstringStatusListEntry",
+                StatusPurpose.REVOCATION, "42", "https://issuer.example/status/1");
+        String enrichedDataSet = "{\"enriched\":true}";
+        String enrichedWithStatus = "{\"enriched\":true,\"credentialStatus\":{}}";
+
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL))
+                .thenReturn(Mono.just(buildMetadata(null)));
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(profile);
+        when(genericCredentialBuilder.bindIssuer(eq(profile), eq(CREDENTIAL_DATA_SET), eq(ISSUANCE_ID), anyString()))
+                .thenReturn(Mono.just(enrichedDataSet));
+        when(statusListWorkflow.allocateEntry(any(), any(), eq(ISSUANCE_ID), anyString(), eq(PUBLIC_BASE_URL)))
+                .thenReturn(Mono.just(statusEntry));
+        when(genericCredentialBuilder.injectCredentialStatus(eq(enrichedDataSet), any(CredentialStatus.class), eq(JWT_VC_JSON)))
+                .thenReturn(enrichedWithStatus);
+        when(enrichmentCacheStore.add(eq(ISSUANCE_ID), eq(enrichedWithStatus)))
+                .thenReturn(Mono.just(enrichedWithStatus));
+        when(credentialSignerWorkflow.signCredential(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.error(new SigningConfigurationChangedException()))
+                .thenReturn(Mono.just("signed-jwt-vc"));
+        when(notificationCacheStore.add(anyString(), eq(ISSUANCE_ID))).thenReturn(Mono.just(ISSUANCE_ID));
+        when(issuanceService.updateIssuance(any(Issuance.class))).thenReturn(Mono.just(issuance));
+
+        StepVerifier.create(workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL))
+                .assertNext(resp -> assertThat(resp.credentials().getFirst().credential()).isEqualTo("signed-jwt-vc"))
+                .verifyComplete();
+
+        verify(genericCredentialBuilder, times(2))
+                .bindIssuer(eq(profile), eq(CREDENTIAL_DATA_SET), eq(ISSUANCE_ID), anyString());
+        verify(notificationCacheStore, times(1)).add(anyString(), eq(ISSUANCE_ID));
     }
 
     @Test

@@ -4,10 +4,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Ticker;
 import es.in2.issuer.backend.shared.domain.model.entities.TenantSigningConfig;
 import es.in2.issuer.backend.shared.infrastructure.repository.TenantSigningConfigRepository;
+import es.in2.issuer.backend.signing.domain.exception.SigningConfigurationChangedException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
+import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +20,7 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
@@ -220,5 +223,96 @@ class TenantSigningConfigServiceImplTest {
                 .verifyComplete();
 
         verify(repository, times(2)).findFirstByStatusOrderByCreatedAtDesc("active");
+    }
+
+    // --- One configuration per request (EUD-289 M4) ---
+
+    private static <T> Mono<T> inTenant(Mono<T> mono, String tenant) {
+        return mono.contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant));
+    }
+
+    @Test
+    void withinScope_laterReadsReuseTheFirst_evenWhenTheCacheExpiresInBetween() {
+        when(repository.findFirstByStatusOrderByCreatedAtDesc("active"))
+                .thenReturn(Mono.just(ownKeyRow("ES256", "[\"MIIB-leaf\"]", KMS_REF)))
+                .thenReturn(Mono.just(qtspRow()));
+
+        Mono<List<ActiveSigningConfig>> twoReads = SigningConfigScope.run(() -> service.getActiveSigningConfig()
+                .flatMap(first -> {
+                    nanos.addAndGet(Duration.ofSeconds(31).toNanos());
+                    return service.getActiveSigningConfig().map(second -> List.of(first, second));
+                }));
+
+        StepVerifier.create(inTenant(twoReads, "t1"))
+                .assertNext(reads -> {
+                    assertThat(reads.get(0).modality()).isEqualTo(SigningModality.OWN_KEY);
+                    assertThat(reads.get(1)).isSameAs(reads.get(0));
+                })
+                .verifyComplete();
+        verify(repository, times(1)).findFirstByStatusOrderByCreatedAtDesc("active");
+    }
+
+    @Test
+    void withinScope_eachTenantKeepsItsOwnConfiguration() {
+        when(repository.findFirstByStatusOrderByCreatedAtDesc("active"))
+                .thenReturn(Mono.just(ownKeyRow("ES256", "[\"MIIB-leaf\"]", KMS_REF)))
+                .thenReturn(Mono.just(qtspRow()));
+
+        Mono<List<SigningModality>> reads = SigningConfigScope.run(() -> inTenant(service.getActiveSigningConfig(), "t1")
+                .flatMap(t1 -> inTenant(service.getActiveSigningConfig(), "t2")
+                        .flatMap(t2 -> inTenant(service.getActiveSigningConfig(), "t1")
+                                .map(t1Again -> List.of(t1.modality(), t2.modality(), t1Again.modality())))));
+
+        StepVerifier.create(reads)
+                .assertNext(modalities -> assertThat(modalities)
+                        .containsExactly(SigningModality.OWN_KEY, SigningModality.QTSP, SigningModality.OWN_KEY))
+                .verifyComplete();
+    }
+
+    @Test
+    void withinScope_reloadFindingAnotherConfiguration_failsAndTheScopeRunsAgainWithTheNewOne() {
+        when(repository.findFirstByStatusOrderByCreatedAtDesc("active"))
+                .thenReturn(Mono.just(ownKeyRow("ES256", "[\"MIIB-leaf\"]", KMS_REF)))
+                .thenReturn(Mono.just(qtspRow()));
+        List<Throwable> reloadErrors = new ArrayList<>();
+
+        Mono<SigningModality> request = SigningConfigScope.run(() -> service.getActiveSigningConfig()
+                .flatMap(payloadConfig -> service.reloadActiveSigningConfig()
+                        .doOnError(reloadErrors::add)
+                        .map(signingConfig -> {
+                            assertThat(signingConfig).isEqualTo(payloadConfig);
+                            return signingConfig.modality();
+                        })));
+
+        StepVerifier.create(inTenant(request, "t1"))
+                .expectNext(SigningModality.QTSP)
+                .verifyComplete();
+        assertThat(reloadErrors).singleElement().isInstanceOf(SigningConfigurationChangedException.class);
+        // First run: read and reload. Second run: the read hits the refreshed cache, the reload reads again.
+        verify(repository, times(3)).findFirstByStatusOrderByCreatedAtDesc("active");
+    }
+
+    @Test
+    void withinScope_reloadFindingTheSameConfiguration_returnsIt() {
+        when(repository.findFirstByStatusOrderByCreatedAtDesc("active"))
+                .thenReturn(Mono.just(ownKeyRow("ES256", "[\"MIIB-leaf\"]", KMS_REF)));
+
+        Mono<Boolean> request = SigningConfigScope.run(() -> service.getActiveSigningConfig()
+                .flatMap(payloadConfig -> service.reloadActiveSigningConfig().map(payloadConfig::equals)));
+
+        StepVerifier.create(inTenant(request, "t1")).expectNext(true).verifyComplete();
+        verify(repository, times(2)).findFirstByStatusOrderByCreatedAtDesc("active");
+    }
+
+    @Test
+    void withinScope_reloadFindingNoConfiguration_isEmpty() {
+        when(repository.findFirstByStatusOrderByCreatedAtDesc("active"))
+                .thenReturn(Mono.just(ownKeyRow("ES256", "[\"MIIB-leaf\"]", KMS_REF)))
+                .thenReturn(Mono.empty());
+
+        Mono<ActiveSigningConfig> request = SigningConfigScope.run(() -> service.getActiveSigningConfig()
+                .then(service.reloadActiveSigningConfig()));
+
+        StepVerifier.create(inTenant(request, "t1")).verifyComplete();
     }
 }

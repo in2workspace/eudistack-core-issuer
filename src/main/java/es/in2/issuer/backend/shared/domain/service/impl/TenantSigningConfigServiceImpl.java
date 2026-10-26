@@ -10,20 +10,24 @@ import com.github.benmanes.caffeine.cache.Ticker;
 import es.in2.issuer.backend.shared.domain.model.entities.TenantSigningConfig;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.shared.infrastructure.repository.TenantSigningConfigRepository;
+import es.in2.issuer.backend.signing.domain.exception.SigningConfigurationChangedException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
+import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
+import reactor.util.context.ContextView;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
@@ -66,28 +70,57 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
     @Override
     public Mono<ActiveSigningConfig> getActiveSigningConfig() {
         return Mono.deferContextual(ctx -> {
-            String tenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "unknown");
+            String tenant = tenantOf(ctx);
+            Optional<SigningConfigScope.Pins> pins = SigningConfigScope.current(ctx);
 
-            ActiveSigningConfig cached = configCache.getIfPresent(tenant);
-            if (cached != null) {
-                return Mono.just(cached);
+            Optional<ActiveSigningConfig> pinned = pins.flatMap(p -> p.get(tenant));
+            if (pinned.isPresent()) {
+                return Mono.just(pinned.get());
             }
 
-            return repository.findFirstByStatusOrderByCreatedAtDesc(ACTIVE_STATUS)
-                    .map(row -> toActiveSigningConfig(tenant, row))
-                    .doOnNext(config -> {
-                        configCache.put(tenant, config);
-                        log.debug("Loaded active signing config for '{}': modality {}", tenant, config.modality());
-                    });
+            Mono<ActiveSigningConfig> config = cachedOrLoad(tenant);
+            return pins.map(p -> config.map(c -> p.pinIfAbsent(tenant, c))).orElse(config);
         });
     }
 
+    /**
+     * Within a {@link SigningConfigScope}, a reload that finds another configuration than the one the
+     * request already used fails with {@link SigningConfigurationChangedException}, so the scope runs the
+     * request again instead of signing with a configuration its payload does not match (EUD-289 M4).
+     */
     @Override
     public Mono<ActiveSigningConfig> reloadActiveSigningConfig() {
         return Mono.deferContextual(ctx -> {
-            configCache.invalidate(ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "unknown"));
-            return getActiveSigningConfig();
+            String tenant = tenantOf(ctx);
+            configCache.invalidate(tenant);
+
+            Optional<ActiveSigningConfig> pinned = SigningConfigScope.current(ctx).flatMap(p -> p.get(tenant));
+            if (pinned.isEmpty()) {
+                return getActiveSigningConfig();
+            }
+            return cachedOrLoad(tenant)
+                    .flatMap(fresh -> fresh.equals(pinned.get())
+                            ? Mono.just(fresh)
+                            : Mono.error(new SigningConfigurationChangedException()));
         });
+    }
+
+    private static String tenantOf(ContextView ctx) {
+        return ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "unknown");
+    }
+
+    private Mono<ActiveSigningConfig> cachedOrLoad(String tenant) {
+        ActiveSigningConfig cached = configCache.getIfPresent(tenant);
+        if (cached != null) {
+            return Mono.just(cached);
+        }
+
+        return repository.findFirstByStatusOrderByCreatedAtDesc(ACTIVE_STATUS)
+                .map(row -> toActiveSigningConfig(tenant, row))
+                .doOnNext(config -> {
+                    configCache.put(tenant, config);
+                    log.debug("Loaded active signing config for '{}': modality {}", tenant, config.modality());
+                });
     }
 
     private ActiveSigningConfig toActiveSigningConfig(String tenant, TenantSigningConfig row) {

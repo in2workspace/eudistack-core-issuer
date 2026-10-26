@@ -15,6 +15,9 @@ public interface TenantSigningConfigService {
      * {@code Mono.empty()} if the tenant has no active row in {@code tenant_signing_config}.
      * Fails with a {@code SigningException} (reason {@code NO_CONFIGURATION}) when the active
      * row is corrupt.
+     *
+     * <p>Within a {@code SigningConfigScope}, every read after the first returns the configuration of
+     * the first one (EUD-289 M4).
      */
     Mono<ActiveSigningConfig> getActiveSigningConfig();
 
@@ -22,6 +25,10 @@ public interface TenantSigningConfigService {
      * Like {@link #getActiveSigningConfig()}, but discards this instance's cached configuration of the
      * current tenant first, so the row is read again. For a cached configuration that has stopped
      * working, e.g. an own key disabled in KMS when it was replaced or withdrawn (EUD-289 D-3).
+     *
+     * <p>Within a {@code SigningConfigScope}, if the row read again differs from the configuration the
+     * request already used, it fails with {@code SigningConfigurationChangedException} and the scope
+     * runs the request again.
      */
     Mono<ActiveSigningConfig> reloadActiveSigningConfig();
 

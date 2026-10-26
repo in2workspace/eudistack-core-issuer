@@ -2,6 +2,9 @@ package es.in2.issuer.backend.statuslist.infrastructure.adapter;
 
 
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
+import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
+import es.in2.issuer.backend.signing.domain.exception.SigningConfigurationChangedException;
+import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
 import es.in2.issuer.backend.statuslist.domain.util.factory.IssuerFactory;
 import es.in2.issuer.backend.statuslist.domain.exception.*;
 import es.in2.issuer.backend.statuslist.domain.factory.BitstringStatusListCredentialFactory;
@@ -514,6 +517,184 @@ class BitstringStatusListProviderTest {
         verify(statusListRepository, atLeastOnce()).save(any(StatusList.class));
         verify(issuerFactory, atLeastOnce()).createSimpleIssuer();
         verify(statusListSigner, atLeastOnce()).sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt"));
+        verify(statusListIndexRepository).countByStatusListId(TEST_LIST_ID);
+        verify(statusListIndexReservationService).reserve(TEST_LIST_ID, TEST_ISSUANCE_ID);
+    }
+
+    /** EUD-289 M4: the signing configuration changed after the issuer was read, so it is read again. */
+    @Test
+    void allocateEntry_signingConfigurationChanges_readsTheIssuerAgainAndSignsOnce() {
+        // Arrange
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
+        StatusPurpose purpose = StatusPurpose.REVOCATION;
+
+        StatusList newList = new StatusList(
+                TEST_LIST_ID,
+                "revocation",
+                "bitstring_vc",
+                "encodedList",
+                null,
+                Instant.now(),
+                Instant.now()
+        );
+
+        StatusListIndexData reservedIndex = new StatusListIndexData(
+                1L,
+                TEST_LIST_ID,
+                0,
+                procedureUuid,
+                Instant.now()
+        );
+
+        String expectedListUrl = TEST_ISSUER_URL + "/w3c/v1/credentials/status/" + TEST_LIST_ID;
+
+        StatusListEntry expectedEntry = StatusListEntry.builder()
+                .id("urn:uuid:" + procedureUuid)
+                .type("BitstringStatusListEntry")
+                .statusPurpose(purpose)
+                .statusListIndex("0")
+                .statusListCredential(expectedListUrl)
+                .build();
+
+        SimpleIssuer simpleIssuer = SimpleIssuer.builder()
+                .id(TEST_ISSUER_DID)
+                .build();
+
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
+                .thenReturn(Mono.empty());
+
+        when(statusListRepository.findLatestByPurposeAndFormat("revocation", "bitstring_vc"))
+                .thenReturn(Mono.empty());
+
+        when(statusListRepository.save(any(StatusList.class)))
+                .thenReturn(Mono.just(newList));
+
+        when(issuerFactory.createSimpleIssuer())
+                .thenReturn(Mono.just(simpleIssuer));
+
+        when(statusListBuilder.buildUnsigned(eq(expectedListUrl), eq(TEST_ISSUER_DID), eq("revocation"), anyString()))
+                .thenReturn(Map.of("type", "StatusListCredential"));
+
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt")))
+                .thenReturn(Mono.error(new RemoteSignatureException("StatusList signing failed; list ID: " + TEST_LIST_ID,
+                        new SigningConfigurationChangedException())))
+                .thenReturn(Mono.just("signedJwt"));
+
+        when(statusListRepository.updateSignedCredential(TEST_LIST_ID, "signedJwt"))
+                .thenReturn(Mono.just(1));
+
+        // Aquest mock és necessari perquè després de crear la llista, es fa un count
+        when(statusListIndexRepository.countByStatusListId(TEST_LIST_ID))
+                .thenReturn(Mono.just(0L));
+
+        when(statusListIndexReservationService.reserve(TEST_LIST_ID, TEST_ISSUANCE_ID))
+                .thenReturn(Mono.just(reservedIndex));
+
+        when(statusListBuilder.buildStatusListEntry(expectedListUrl, 0, purpose))
+                .thenReturn(expectedEntry);
+
+        // Act & Assert
+        StepVerifier.create(bitstringStatusListProvider.allocateEntry(purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
+                .expectNext(expectedEntry)
+                .verifyComplete();
+
+        verify(statusListRepository).findLatestByPurposeAndFormat("revocation", "bitstring_vc");
+        verify(issuerFactory, times(2)).createSimpleIssuer();
+        verify(statusListSigner, times(2)).sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt"));
+        verify(statusListRepository, times(1)).save(any(StatusList.class));
+        verify(statusListIndexRepository).countByStatusListId(TEST_LIST_ID);
+        verify(statusListIndexReservationService).reserve(TEST_LIST_ID, TEST_ISSUANCE_ID);
+    }
+
+    /**
+     * EUD-289 M4, as in production: the list is created inside an issuance scope. The status list scope
+     * joins it, the half-created list is rolled back, and the issuance scope runs everything again.
+     */
+    @Test
+    void allocateEntry_insideAnIssuanceScope_rollsBackTheNewListAndTheIssuanceScopeRunsAgain() {
+        // Arrange
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
+        StatusPurpose purpose = StatusPurpose.REVOCATION;
+
+        StatusList newList = new StatusList(
+                TEST_LIST_ID,
+                "revocation",
+                "bitstring_vc",
+                "encodedList",
+                null,
+                Instant.now(),
+                Instant.now()
+        );
+
+        StatusListIndexData reservedIndex = new StatusListIndexData(
+                1L,
+                TEST_LIST_ID,
+                0,
+                procedureUuid,
+                Instant.now()
+        );
+
+        String expectedListUrl = TEST_ISSUER_URL + "/w3c/v1/credentials/status/" + TEST_LIST_ID;
+
+        StatusListEntry expectedEntry = StatusListEntry.builder()
+                .id("urn:uuid:" + procedureUuid)
+                .type("BitstringStatusListEntry")
+                .statusPurpose(purpose)
+                .statusListIndex("0")
+                .statusListCredential(expectedListUrl)
+                .build();
+
+        SimpleIssuer simpleIssuer = SimpleIssuer.builder()
+                .id(TEST_ISSUER_DID)
+                .build();
+
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
+                .thenReturn(Mono.empty());
+
+        when(statusListRepository.findLatestByPurposeAndFormat("revocation", "bitstring_vc"))
+                .thenReturn(Mono.empty());
+
+        when(statusListRepository.save(any(StatusList.class)))
+                .thenReturn(Mono.just(newList));
+
+        when(issuerFactory.createSimpleIssuer())
+                .thenReturn(Mono.just(simpleIssuer));
+
+        when(statusListBuilder.buildUnsigned(eq(expectedListUrl), eq(TEST_ISSUER_DID), eq("revocation"), anyString()))
+                .thenReturn(Map.of("type", "StatusListCredential"));
+
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt")))
+                .thenReturn(Mono.error(new RemoteSignatureException("StatusList signing failed; list ID: " + TEST_LIST_ID,
+                        new SigningConfigurationChangedException())))
+                .thenReturn(Mono.just("signedJwt"));
+
+        when(statusListRepository.updateSignedCredential(TEST_LIST_ID, "signedJwt"))
+                .thenReturn(Mono.just(1));
+
+        // Aquest mock és necessari perquè després de crear la llista, es fa un count
+        when(statusListRepository.deleteById(TEST_LIST_ID))
+                .thenReturn(Mono.empty());
+
+        when(statusListIndexRepository.countByStatusListId(TEST_LIST_ID))
+                .thenReturn(Mono.just(0L));
+
+        when(statusListIndexReservationService.reserve(TEST_LIST_ID, TEST_ISSUANCE_ID))
+                .thenReturn(Mono.just(reservedIndex));
+
+        when(statusListBuilder.buildStatusListEntry(expectedListUrl, 0, purpose))
+                .thenReturn(expectedEntry);
+
+        // Act & Assert
+        StepVerifier.create(SigningConfigScope.run(() -> bitstringStatusListProvider.allocateEntry(
+                        purpose, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL)))
+                .expectNext(expectedEntry)
+                .verifyComplete();
+
+        verify(statusListRepository, times(2)).findLatestByPurposeAndFormat("revocation", "bitstring_vc");
+        verify(issuerFactory, times(2)).createSimpleIssuer();
+        verify(statusListSigner, times(2)).sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt"));
+        verify(statusListRepository, times(2)).save(any(StatusList.class));
+        verify(statusListRepository, times(1)).deleteById(TEST_LIST_ID);
         verify(statusListIndexRepository).countByStatusListId(TEST_LIST_ID);
         verify(statusListIndexReservationService).reserve(TEST_LIST_ID, TEST_ISSUANCE_ID);
     }
