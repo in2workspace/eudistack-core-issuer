@@ -44,7 +44,7 @@ public final class JwsHeaderFingerprint {
             }
             byte[] certificate = Base64.getDecoder().decode(certificateChain.get(0).asText().getBytes(StandardCharsets.UTF_8));
             return Optional.of(new SignatureProof(algorithm.asText(), fingerprintOf(certificate)));
-        } catch (IOException | IllegalArgumentException e) {
+        } catch (IOException | IllegalArgumentException _) {
             return Optional.empty();
         }
     }

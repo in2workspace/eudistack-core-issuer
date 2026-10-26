@@ -195,7 +195,7 @@ class Oid4VciCredentialWorkflowImplTest {
         assertThat(entry.result()).isEqualTo(AuditResult.FAILURE);
         assertThat(entry.reason()).isEqualTo("StatusListUnavailable");
         assertThat(entry.resource()).isEqualTo("issuance:" + ISSUANCE_ID);
-        assertThat(entry.details().get("attestation_type")).isEqualTo(CREDENTIAL_TYPE);
+        assertThat(entry.details()).containsEntry("attestation_type", CREDENTIAL_TYPE);
         assertThat(auditTrail.correlationIds()).containsExactly(ISSUANCE_ID);
     }
 

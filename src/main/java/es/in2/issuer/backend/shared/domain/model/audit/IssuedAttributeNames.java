@@ -38,7 +38,7 @@ public final class IssuedAttributeNames {
                 collect(root, "", SD_JWT_ENVELOPE, names);
             }
             return new ArrayList<>(names);
-        } catch (IOException e) {
+        } catch (IOException _) {
             return List.of();
         }
     }

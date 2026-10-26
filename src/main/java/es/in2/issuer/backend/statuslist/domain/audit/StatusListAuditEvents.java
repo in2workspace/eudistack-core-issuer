@@ -14,6 +14,7 @@ import java.util.Map;
  */
 public final class StatusListAuditEvents {
 
+    private static final String LIST_URI = "list_uri";
     private static final String OPERATION_RESERVE = "Reserve";
     private static final String OPERATION_RELEASE = "Release";
     private static final String OPERATION_REVOKE = "Revoke";
@@ -59,7 +60,7 @@ public final class StatusListAuditEvents {
     /** A list signed again and stored, identified by the fingerprint of its new signed form. */
     public static AuditEntry published(Long listId, String listUri, String listHash) {
         Map<String, Object> details = new LinkedHashMap<>();
-        details.put("list_uri", listUri);
+        details.put(LIST_URI, listUri);
         details.put("list_hash", listHash);
         return AuditEntry.success(AuditEventType.STATUS_LIST_PUBLISHED, listResource(listId), details);
     }
@@ -67,7 +68,7 @@ public final class StatusListAuditEvents {
     /** {@code reason} is {@code SigningFailed} or {@code PublicationFailed}. */
     public static AuditEntry publicationFailed(Long listId, String listUri, String reason) {
         return AuditEntry.forReason(AuditEventType.STATUS_LIST_PUBLISHED, listResource(listId), reason,
-                Map.of("list_uri", listUri));
+                Map.of(LIST_URI, listUri));
     }
 
     /** {@code reason} is {@code ListFull} or {@code StatusListUnavailable}. */
@@ -87,14 +88,14 @@ public final class StatusListAuditEvents {
     private static Map<String, Object> entryDetails(String operation, String listUri, Integer listIndex) {
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("operation", operation);
-        details.put("list_uri", listUri);
+        details.put(LIST_URI, listUri);
         details.put("list_index", listIndex);
         return details;
     }
 
     private static Map<String, Object> creationDetails(String listUri, StatusListFormat format, int size) {
         Map<String, Object> details = new LinkedHashMap<>();
-        details.put("list_uri", listUri);
+        details.put(LIST_URI, listUri);
         details.put("format", format == StatusListFormat.TOKEN_JWT ? CATALOGUE_FORMAT_TOKEN : CATALOGUE_FORMAT_BITSTRING);
         details.put("size", size);
         return details;

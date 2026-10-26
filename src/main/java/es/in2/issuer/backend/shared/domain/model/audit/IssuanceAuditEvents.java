@@ -17,6 +17,9 @@ import java.util.Set;
  */
 public final class IssuanceAuditEvents {
 
+    private static final String ATTESTATION_TYPE = "attestation_type";
+    private static final String DELIVERY_METHOD = "delivery_method";
+    private static final String HOLDER = "holder";
     private static final String ISSUANCE_MODE_THIRD_PARTY = "ThirdParty";
     /** Scope of a listing made for no particular organization, such as an administrator's view of the whole tenant. */
     private static final String SCOPE_TENANT = "tenant";
@@ -106,10 +109,10 @@ public final class IssuanceAuditEvents {
     public static AuditEntry requested(String issuanceId, String attestationType, String deliveryMethod,
                                        Holder holder, Instant offerExpiresAt) {
         Map<String, Object> details = new LinkedHashMap<>();
-        details.put("attestation_type", attestationType);
+        details.put(ATTESTATION_TYPE, attestationType);
         details.put("issuance_mode", ISSUANCE_MODE_THIRD_PARTY);
-        details.put("delivery_method", deliveryMethod);
-        details.put("holder", holder.toDetails());
+        details.put(DELIVERY_METHOD, deliveryMethod);
+        details.put(HOLDER, holder.toDetails());
         details.put("offer_expires_at", hasOffer(deliveryMethod) ? offerExpiresAt : null);
         return AuditEntry.success(AuditEventType.ISSUANCE_REQUESTED, resourceOf(issuanceId), details);
     }
@@ -123,9 +126,9 @@ public final class IssuanceAuditEvents {
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("provider_legal_name", provider.legalName());
         details.put("provider_registration_id", provider.registrationId());
-        details.put("attestation_type", completion.attestationType());
-        details.put("delivery_method", completion.deliveryMethod());
-        details.put("holder", completion.holder().toDetails());
+        details.put(ATTESTATION_TYPE, completion.attestationType());
+        details.put(DELIVERY_METHOD, completion.deliveryMethod());
+        details.put(HOLDER, completion.holder().toDetails());
         details.put("issued_attributes", completion.issuedAttributes());
         details.put("valid_from", completion.validFrom());
         details.put("valid_until", completion.validUntil());
@@ -146,9 +149,9 @@ public final class IssuanceAuditEvents {
     public static AuditEntry attemptFailed(String issuanceId, String reason, String attestationType,
                                            String deliveryMethod, Holder holder) {
         Map<String, Object> details = new LinkedHashMap<>();
-        details.put("attestation_type", attestationType);
-        details.put("delivery_method", deliveryMethod);
-        details.put("holder", holder == null ? null : holder.toDetails());
+        details.put(ATTESTATION_TYPE, attestationType);
+        details.put(DELIVERY_METHOD, deliveryMethod);
+        details.put(HOLDER, holder == null ? null : holder.toDetails());
         return AuditEntry.forReason(AuditEventType.ISSUANCE_ATTEMPT_FAILED, resourceOf(issuanceId), reason, details);
     }
 
@@ -167,7 +170,7 @@ public final class IssuanceAuditEvents {
     /** The detail of one process, with the holder it is for. */
     public static AuditEntry detailAccessed(String issuanceId, Holder holder) {
         return AuditEntry.success(AuditEventType.ISSUANCE_DETAIL_ACCESSED, resourceOf(issuanceId),
-                Map.of("holder", holder.toDetails()));
+                Map.of(HOLDER, holder.toDetails()));
     }
 
     public static AuditEntry detailRefused(String issuanceId, String reason) {

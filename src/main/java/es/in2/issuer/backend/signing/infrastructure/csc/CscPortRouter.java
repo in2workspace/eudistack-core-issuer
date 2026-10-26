@@ -112,7 +112,7 @@ public class CscPortRouter implements CscPort {
         try {
             String host = URI.create(url).getHost();
             return host != null ? host : UNKNOWN_QTSP;
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException _) {
             return UNKNOWN_QTSP;
         }
     }
