@@ -80,7 +80,7 @@ public final class KmsRetryPolicy {
                         SigningFailureReason.PROVIDER_UNAVAILABLE,
                         "KMS " + operation + " unavailable after " + signal.totalRetries()
                                 + " retries, last=" + describe(signal.failure()),
-                        signal.failure()));
+                        logSafeCause(signal.failure())));
     }
 
     /** Wraps a failure that was not retried; a {@link KmsSigningException} is returned unchanged. */
@@ -91,7 +91,29 @@ public final class KmsRetryPolicy {
         SigningFailureReason reason = classify(throwable);
         return new KmsSigningException(reason,
                 "KMS " + operation + " failed: reason=" + reason + ", error=" + describe(throwable),
-                throwable);
+                logSafeCause(throwable));
+    }
+
+    /**
+     * Cause kept on a {@link KmsSigningException}: the failure's type, its AWS error code and its stack
+     * trace, but not its message. AWS messages carry the key ARN, with the account and the region, and
+     * any log that prints the cause chain would write them (for example the HTTP error handler).
+     */
+    static Throwable logSafeCause(Throwable throwable) {
+        if (throwable == null || throwable instanceof KmsSigningException) {
+            return throwable;
+        }
+        KmsFailureCause cause = new KmsFailureCause(
+                throwable.getClass().getSimpleName() + " (error=" + describe(throwable) + ")");
+        cause.setStackTrace(throwable.getStackTrace());
+        return cause;
+    }
+
+    /** Stand-in for an AWS SDK failure without its message; see {@link #logSafeCause(Throwable)}. */
+    static final class KmsFailureCause extends RuntimeException {
+        KmsFailureCause(String message) {
+            super(message);
+        }
     }
 
     /** AWS error code of the first service exception in the chain, else the class name; never the message. */

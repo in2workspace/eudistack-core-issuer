@@ -77,7 +77,7 @@ class KmsSigningAdapterTest {
     }
 
     @Test
-    void sign_transientFailureOnEveryAttempt_failsServiceUnavailableAfterFourCalls() {
+    void sign_transientFailureOnEveryAttempt_failsProviderUnavailableAfterFourCalls() {
         when(client.sign(any(SignRequest.class))).thenAnswer(inv -> failed(throttling()));
 
         StepVerifier.withVirtualTime(() -> adapter.sign(KEY_REF, DIGEST))
@@ -123,7 +123,7 @@ class KmsSigningAdapterTest {
     }
 
     @Test
-    void sign_callNeverCompletes_timesOutAtTenSecondsAndRetriesUntilServiceUnavailable() {
+    void sign_callNeverCompletes_timesOutAtTenSecondsAndRetriesUntilProviderUnavailable() {
         when(client.sign(any(SignRequest.class))).thenAnswer(inv -> new CompletableFuture<SignResponse>());
 
         StepVerifier.withVirtualTime(() -> adapter.sign(KEY_REF, DIGEST))
@@ -195,6 +195,40 @@ class KmsSigningAdapterTest {
                 .verify();
 
         verify(client, times(1)).sign(any(SignRequest.class));
+    }
+
+    @Test
+    void sign_failureMessageWithTheKeyArn_isNotKeptInTheCauseChain() {
+        String arn = "arn:aws:kms:eu-west-1:111122223333:key/1234abcd";
+        when(client.sign(any(SignRequest.class))).thenReturn(failed(DisabledException.builder()
+                .message(arn + " is disabled.")
+                .awsErrorDetails(AwsErrorDetails.builder().errorCode("DisabledException").build())
+                .build()));
+
+        StepVerifier.create(adapter.sign(KEY_REF, DIGEST))
+                .expectErrorSatisfies(ex -> {
+                    assertReason(ex, SigningFailureReason.KEY_UNUSABLE);
+                    for (Throwable t = ex; t != null; t = t.getCause()) {
+                        assertThat(String.valueOf(t.getMessage())).doesNotContain("111122223333");
+                    }
+                    assertThat(ex.getCause()).hasMessage("DisabledException (error=DisabledException)");
+                    assertThat(ex.getCause().getStackTrace()).isNotEmpty();
+                })
+                .verify();
+    }
+
+    @Test
+    void sign_retriesExhausted_causeKeepsTheErrorCodeButNotTheMessage() {
+        when(client.sign(any(SignRequest.class))).thenAnswer(inv -> failed(throttling()));
+
+        StepVerifier.withVirtualTime(() -> adapter.sign(KEY_REF, DIGEST))
+                .thenAwait(WAIT_ALL_RETRIES)
+                .expectErrorSatisfies(ex -> {
+                    assertReason(ex, SigningFailureReason.PROVIDER_UNAVAILABLE);
+                    assertThat(ex.getCause()).isInstanceOf(KmsRetryPolicy.KmsFailureCause.class);
+                    assertThat(ex.getCause().getCause()).isNull();
+                })
+                .verify();
     }
 
     private void assertNotRetried(Throwable failure) {
