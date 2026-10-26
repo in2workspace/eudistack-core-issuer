@@ -76,12 +76,13 @@ class SigningCertificateChecksTest {
     @Test
     void checks_nullArguments_throw() {
         var certificate = pki.validP256Leaf().certificate();
+        Instant now = Instant.now();
 
         assertThatThrownBy(() -> SigningCertificateChecks.isP256(null))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> SigningCertificateChecks.isSelfSigned(null))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> SigningCertificateChecks.isValidAt(null, Instant.now()))
+        assertThatThrownBy(() -> SigningCertificateChecks.isValidAt(null, now))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> SigningCertificateChecks.isValidAt(certificate, null))
                 .isInstanceOf(IllegalArgumentException.class);

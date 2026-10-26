@@ -39,6 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -240,7 +241,7 @@ class OwnKeySigningSelfTestTest {
         when(registry.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("t")));
         configsByTenant(Map.of("t", ActiveSigningConfig.ownKey(ownKey())));
         when(kmsProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "x")));
-        org.mockito.Mockito.doThrow(new IllegalStateException("audit down")).when(auditor).success(any(), any());
+        doThrow(new IllegalStateException("audit down")).when(auditor).success(any(), any());
 
         StepVerifier.create(selfTest(true).run()).verifyComplete();
     }

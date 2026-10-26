@@ -49,20 +49,22 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
         migrateFully(schema);
 
         Map<String, Object> newest = row(schema, ID_2);
-        assertThat(newest.get("status")).isEqualTo("active");
-        assertThat(newest.get("modality")).isEqualTo("qtsp");
+        assertThat(newest)
+                .containsEntry("status", "active")
+                .containsEntry("modality", "qtsp")
+                .containsEntry("activated_by", MIGRATION);
         assertThat(newest.get("withdrawn_at")).isNull();
         assertThat(newest.get("withdrawn_by")).isNull();
-        assertThat(newest.get("activated_by")).isEqualTo(MIGRATION);
         assertThat(((OffsetDateTime) newest.get("activated_at")).toInstant())
                 .isEqualTo(((OffsetDateTime) newest.get("created_at")).toInstant());
         for (String olderId : List.of(ID_1, ID_3)) {
             Map<String, Object> older = row(schema, olderId);
-            assertThat(older.get("status")).isEqualTo("withdrawn");
-            assertThat(older.get("modality")).isEqualTo("qtsp");
+            assertThat(older)
+                    .containsEntry("status", "withdrawn")
+                    .containsEntry("modality", "qtsp")
+                    .containsEntry("withdrawn_by", MIGRATION)
+                    .containsEntry("activated_by", MIGRATION);
             assertThat(older.get("withdrawn_at")).isNotNull();
-            assertThat(older.get("withdrawn_by")).isEqualTo(MIGRATION);
-            assertThat(older.get("activated_by")).isEqualTo(MIGRATION);
             assertThat(((OffsetDateTime) older.get("activated_at")).toInstant())
                     .isEqualTo(((OffsetDateTime) older.get("created_at")).toInstant());
         }
@@ -77,8 +79,8 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
 
         migrateFully(schema);
 
-        assertThat(row(schema, ID_2).get("status")).isEqualTo("active");
-        assertThat(row(schema, ID_1).get("status")).isEqualTo("withdrawn");
+        assertThat(row(schema, ID_2)).containsEntry("status", "active");
+        assertThat(row(schema, ID_1)).containsEntry("status", "withdrawn");
     }
 
     @Test
@@ -86,7 +88,7 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
         String schema = migratedSchemaWithOneActiveRow("tsc-single");
 
         Map<String, Object> only = row(schema, ID_1);
-        assertThat(only.get("status")).isEqualTo("active");
+        assertThat(only).containsEntry("status", "active");
         assertThat(only.get("withdrawn_at")).isNull();
         assertThat(only.get("activated_at")).isNotNull();
     }
@@ -152,8 +154,9 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
     void ownKeyRow_withQtspProvider_isRejected() {
         String schema = migratedSchemaWithOneActiveRow("tsc-ownkeyqtsp");
 
-        assertThatThrownBy(() -> exec(ownKeyInsert(schema, "withdrawn", "now()")
-                .replace("'aws-kms'", "'digitel'")))
+        String sql = ownKeyInsert(schema, "withdrawn", "now()").replace("'aws-kms'", "'digitel'");
+
+        assertThatThrownBy(() -> exec(sql))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("chk_tenant_signing_config_provider_modality");
     }

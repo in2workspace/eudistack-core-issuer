@@ -54,7 +54,7 @@ public final class SigningCertificateChecks {
         try {
             certificate.verify(certificate.getPublicKey());
             return true;
-        } catch (GeneralSecurityException e) {
+        } catch (GeneralSecurityException _) {
             return false;
         }
     }

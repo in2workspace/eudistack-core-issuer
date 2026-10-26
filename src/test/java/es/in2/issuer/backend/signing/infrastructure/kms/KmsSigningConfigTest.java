@@ -45,8 +45,12 @@ class KmsSigningConfigTest {
 
     @Test
     void properties_enabledWithoutRegion_failsFast() {
+        Duration callTimeout = Duration.ofSeconds(10);
+        Duration initialBackoff = Duration.ofSeconds(1);
+        Duration maxBackoff = Duration.ofSeconds(5);
+
         assertThatThrownBy(() -> new KmsSigningProperties(
-                true, " ", null, Duration.ofSeconds(10), 3, Duration.ofSeconds(1), Duration.ofSeconds(5)))
+                true, " ", null, callTimeout, 3, initialBackoff, maxBackoff))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("region");
     }

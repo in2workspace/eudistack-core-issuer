@@ -18,7 +18,6 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
@@ -34,8 +33,6 @@ import static org.mockito.Mockito.when;
 class TenantSigningConfigServiceImplTest {
 
     private static final String KMS_REF = "arn:aws:kms:eu-west-1:111122223333:key/k";
-    private static final Instant NOT_BEFORE = Instant.parse("2026-01-01T00:00:00Z");
-    private static final Instant NOT_AFTER = Instant.parse("2027-01-01T00:00:00Z");
 
     @Mock
     private TenantSigningConfigRepository repository;
@@ -201,8 +198,9 @@ class TenantSigningConfigServiceImplTest {
         assertThat(ttl.value()).isEqualTo("${issuer.signing.config-cache-ttl:5m}");
         assertThat(org.springframework.boot.convert.ApplicationConversionService.getSharedInstance()
                 .convert("5m", Duration.class)).isEqualTo(Duration.ofMinutes(5));
+        ObjectMapper objectMapper = new ObjectMapper();
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> new TenantSigningConfigServiceImpl(
-                        repository, new ObjectMapper(), Duration.ZERO, ticker))
+                        repository, objectMapper, Duration.ZERO, ticker))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

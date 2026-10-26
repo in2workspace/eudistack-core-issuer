@@ -127,7 +127,7 @@ public class KmsOwnKeySigningProvider implements SigningProvider {
         try {
             joseSignature = JwsSignatureEncoder.toJoseSignature(
                     Base64.getEncoder().encodeToString(derSignature), JWSAlgorithm.ES256);
-        } catch (IllegalArgumentException | IllegalStateException e) {
+        } catch (IllegalArgumentException | IllegalStateException _) {
             throw invalidSignature(tenant, config);
         }
         byte[] concat = Base64.getUrlDecoder().decode(joseSignature);

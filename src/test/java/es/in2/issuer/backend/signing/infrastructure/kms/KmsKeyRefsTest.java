@@ -30,7 +30,7 @@ class KmsKeyRefsTest {
     void forLog_neverReturnsTheAccountOrRegion(String description, String keyRef, String expected) {
         String logged = KmsKeyRefs.forLog(keyRef);
 
-        assertThat(logged).isEqualTo(expected);
-        assertThat(logged).doesNotContain("123456789012").doesNotContain("eu-west-1");
+        assertThat(logged).isEqualTo(expected)
+                .doesNotContain("123456789012").doesNotContain("eu-west-1");
     }
 }

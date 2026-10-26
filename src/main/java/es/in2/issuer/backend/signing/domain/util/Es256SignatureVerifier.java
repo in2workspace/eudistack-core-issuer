@@ -46,7 +46,7 @@ public final class Es256SignatureVerifier {
             ecdsa.initVerify(certificate.getPublicKey());
             ecdsa.update(signingInput.getBytes(StandardCharsets.US_ASCII));
             return ecdsa.verify(toDer(concatSignature));
-        } catch (GeneralSecurityException e) {
+        } catch (GeneralSecurityException _) {
             return false;
         }
     }
