@@ -26,6 +26,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
+import es.in2.issuer.backend.shared.infrastructure.config.tenantconfig.TenantCustomDomainsLoader;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
@@ -63,7 +64,6 @@ class IssuanceControllerTest {
     private static final String ISSUANCES_PATH = "/api/v1/issuances";
     private static final String BEARER_TOKEN = "Bearer operator-access-token";
     private static final String PUBLIC_ISSUER_BASE_URL = "https://issuer.example.com";
-    private static final String PUBLIC_WALLET_BASE_URL = "https://issuer.example.com/wallet";
 
     @Autowired
     private WebTestClient webTestClient;
@@ -99,6 +99,9 @@ class IssuanceControllerTest {
     private TenantRegistryService tenantRegistryService;
 
     @MockitoBean
+    private TenantCustomDomainsLoader tenantCustomDomainsLoader;
+
+    @MockitoBean
     private UrlResolver urlResolver;
 
     /**
@@ -113,9 +116,8 @@ class IssuanceControllerTest {
         String credentialOfferUri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fserver.example.com%2Fabc";
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
         when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN),
-                eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
+                eq(PUBLIC_ISSUER_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .credentialOfferUri(credentialOfferUri)
                         .deliveryResults(List.of(
@@ -154,9 +156,8 @@ class IssuanceControllerTest {
         String credentialOfferUri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fserver.example.com%2Fabc";
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
         when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN),
-                eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
+                eq(PUBLIC_ISSUER_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .credentialOfferUri(credentialOfferUri)
                         .deliveryResults(List.of(
@@ -191,9 +192,8 @@ class IssuanceControllerTest {
         IssuanceRequest request = buildIssuanceRequest();
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
         when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN),
-                eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
+                eq(PUBLIC_ISSUER_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .deliveryResults(List.of(
                                 DeliveryResult.failed("email", DeliveryErrorCode.DELIVERY_FAILED.value()),
@@ -224,8 +224,7 @@ class IssuanceControllerTest {
         IssuanceRequest request = buildIssuanceRequest();
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .credentialOfferUri(credentialOfferUri)
                         .deliveryResults(List.of(DeliveryResult.dispatched("ui")))
@@ -252,8 +251,7 @@ class IssuanceControllerTest {
         String signedCredential = "signed-credential-value";
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .signedCredential(signedCredential)
                         .deliveryResults(List.of(DeliveryResult.delivered("direct")))
@@ -279,8 +277,7 @@ class IssuanceControllerTest {
         IssuanceRequest request = buildIssuanceRequest();
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .signedCredential("signed-jwt")
                         .credentialOfferUri("openid-credential-offer://x")
@@ -317,8 +314,7 @@ class IssuanceControllerTest {
         String credentialOfferUri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fserver.example.com%2Fabc";
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder()
                         .credentialOfferUri(credentialOfferUri)
                         .deliveryResults(List.of(
@@ -446,8 +442,7 @@ class IssuanceControllerTest {
         String detail = "Unknown delivery mode: foo";
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), any(), any()))
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), any()))
                 .thenReturn(Mono.error(new InvalidDeliveryModeException(detail)));
         when(errorResponseFactory.handleWith(any(), any(), eq("invalid_request"), eq("Invalid request"),
                 eq(HttpStatus.BAD_REQUEST), anyString()))
@@ -473,8 +468,7 @@ class IssuanceControllerTest {
         String detail = "Delivery mode 'direct' is not eligible for credential type: test-schema";
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), any(), any()))
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), any()))
                 .thenReturn(Mono.error(new DeliveryModeNotEligibleException(detail)));
         when(errorResponseFactory.handleWith(any(), any(), eq("delivery_mode_not_eligible"),
                 eq("Delivery mode not eligible"), eq(HttpStatus.CONFLICT), anyString()))
@@ -499,8 +493,7 @@ class IssuanceControllerTest {
         IssuanceRequest request = buildIssuanceRequest();
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(urlResolver.publicWalletBaseUrl(any())).thenReturn(PUBLIC_WALLET_BASE_URL);
-        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL), eq(PUBLIC_WALLET_BASE_URL)))
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL)))
                 .thenReturn(Mono.just(IssuanceResponse.builder().build()));
 
         webTestClient.mutateWith(csrf())

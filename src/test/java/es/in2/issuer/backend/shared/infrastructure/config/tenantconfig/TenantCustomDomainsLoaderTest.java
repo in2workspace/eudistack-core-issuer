@@ -119,10 +119,14 @@ class TenantCustomDomainsLoaderTest {
         assertTrue(loader.findVerifierUrls("unknown").isEmpty());
     }
 
-    // ── findWalletUrlByIssuerHost ───────────────────────────────────────────
+    // ── legacy wallet field (EUD-305) ───────────────────────────────────────
 
+    /**
+     * The issuer no longer resolves wallets, but registries still carry {@code wallet} where other
+     * consumers read it (the local nginx entrypoint), so the field must not stop the startup.
+     */
     @Test
-    void findWalletUrlByIssuerHost_knownHost_returnsWalletUrl() throws IOException {
+    void load_legacyWalletField_isIgnored() throws IOException {
         TenantCustomDomainsLoader loader = loaderFrom("""
                 tenants:
                   - id: dome
@@ -132,63 +136,20 @@ class TenantCustomDomainsLoaderTest {
                     wallet: https://wallet.dome-marketplace.org/wallet
                 """);
 
-        assertTrue(loader.findWalletUrlByIssuerHost("issuer.dome-marketplace.org").isPresent());
-        assertEquals("https://wallet.dome-marketplace.org/wallet",
-                loader.findWalletUrlByIssuerHost("issuer.dome-marketplace.org").get());
+        assertEquals(List.of("https://verifier.dome-marketplace.org"), loader.getVerifierUrls("dome"));
     }
 
     @Test
-    void findWalletUrlByIssuerHost_unknownHost_returnsEmpty() throws IOException {
+    void load_withoutWalletField_loads() throws IOException {
         TenantCustomDomainsLoader loader = loaderFrom("""
                 tenants:
                   - id: dome
                     issuer: https://issuer.dome-marketplace.org
                     verifiers:
                       - https://verifier.dome-marketplace.org
-                    wallet: https://wallet.dome-marketplace.org/wallet
                 """);
 
-        assertTrue(loader.findWalletUrlByIssuerHost("dome.stg.eudistack.net").isEmpty());
-    }
-
-    @Test
-    void findWalletUrlByIssuerHost_nullOrBlank_returnsEmpty() throws IOException {
-        TenantCustomDomainsLoader loader = loaderFrom("""
-                tenants:
-                  - id: dome
-                    issuer: https://issuer.dome-marketplace.org
-                    verifiers:
-                      - https://verifier.dome-marketplace.org
-                    wallet: https://wallet.dome-marketplace.org/wallet
-                """);
-
-        assertTrue(loader.findWalletUrlByIssuerHost(null).isEmpty());
-        assertTrue(loader.findWalletUrlByIssuerHost("  ").isEmpty());
-    }
-
-    @Test
-    void findWalletUrlByIssuerHost_missingFile_returnsEmpty() {
-        TenantCustomDomainsLoader loader = new TenantCustomDomainsLoader(
-                new DefaultResourceLoader(), "file:/nonexistent/tenants-custom-domains.yaml");
-        loader.load();
-        assertTrue(loader.findWalletUrlByIssuerHost("issuer.dome-marketplace.org").isEmpty());
-    }
-
-    @Test
-    void load_duplicateIssuerHost_throwsAtStartup() {
-        assertThrows(IllegalStateException.class, () -> loaderFrom("""
-                tenants:
-                  - id: dome
-                    issuer: https://issuer.dome-marketplace.org
-                    verifiers:
-                      - https://verifier.dome-marketplace.org
-                    wallet: https://wallet.dome-marketplace.org/wallet
-                  - id: dome2
-                    issuer: https://issuer.dome-marketplace.org
-                    verifiers:
-                      - https://verifier2.dome-marketplace.org
-                    wallet: https://wallet2.dome-marketplace.org/wallet
-                """));
+        assertEquals(List.of("https://verifier.dome-marketplace.org"), loader.getVerifierUrls("dome"));
     }
 
     // ── unknown tenant ──────────────────────────────────────────────────────
@@ -263,5 +224,45 @@ class TenantCustomDomainsLoaderTest {
                       - "not a valid uri with spaces here"
                     wallet: https://kpmg.wallet.eudistack.net
                 """));
+    }
+
+    // ── environmentLabel ────────────────────────────────────────────────────
+
+    private static final String LABELLED_YAML = """
+            tenants:
+              - id: dome-dev
+                issuer: https://issuer.dev.dome.example
+                verifiers:
+                  - https://verifier.dev.dome.example
+                wallet: https://wallet.dev.dome.example
+                environmentLabel: Dev
+              - id: dome
+                issuer: https://issuer.dome.example
+                verifiers:
+                  - https://verifier.dome.example
+                wallet: https://wallet.dome.example
+            """;
+
+    @Test
+    void findEnvironmentLabelByIssuerHost_entryWithLabel_returnsLabel() throws IOException {
+        TenantCustomDomainsLoader loader = loaderFrom(LABELLED_YAML);
+
+        assertEquals(java.util.Optional.of("Dev"), loader.findEnvironmentLabelByIssuerHost("issuer.dev.dome.example"));
+    }
+
+    @Test
+    void findEnvironmentLabelByIssuerHost_entryWithoutLabel_returnsEmpty() throws IOException {
+        TenantCustomDomainsLoader loader = loaderFrom(LABELLED_YAML);
+
+        assertTrue(loader.findEnvironmentLabelByIssuerHost("issuer.dome.example").isEmpty());
+    }
+
+    @Test
+    void findEnvironmentLabelByIssuerHost_unknownOrBlankHost_returnsEmpty() throws IOException {
+        TenantCustomDomainsLoader loader = loaderFrom(LABELLED_YAML);
+
+        assertTrue(loader.findEnvironmentLabelByIssuerHost("other.example").isEmpty());
+        assertTrue(loader.findEnvironmentLabelByIssuerHost(" ").isEmpty());
+        assertTrue(loader.findEnvironmentLabelByIssuerHost(null).isEmpty());
     }
 }

@@ -55,12 +55,11 @@ public class IssuanceController {
             ServerWebExchange exchange) {
         String processId = UUID.randomUUID().toString();
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
-        String publicWalletBaseUrl = urlResolver.publicWalletBaseUrl(exchange);
         // Direct delivery signs inside this request with the caller's bearer credential (EUD-168).
         // No second identity assertion is read: who may issue depends only on the caller's powers
         // (EUD-253, point 10 -- the X-Id-Token of product certifications is gone).
         return issuanceWorkflow.issueCredential(processId, request, authorizationHeader,
-                        publicIssuerBaseUrl, publicWalletBaseUrl)
+                        publicIssuerBaseUrl)
                 .map(this::toResponseEntity);
     }
 

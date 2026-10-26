@@ -15,4 +15,10 @@ public interface TenantRegistryService {
      */
     Mono<String> getTenantType(String schemaName);
 
+    /**
+     * Returns the human-readable display name of the tenant, or the schema name itself when the
+     * tenant is unknown or has no display name.
+     */
+    Mono<String> getDisplayName(String schemaName);
+
 }
