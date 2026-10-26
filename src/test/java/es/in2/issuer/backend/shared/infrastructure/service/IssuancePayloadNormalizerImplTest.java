@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import es.in2.issuer.backend.shared.domain.exception.PayloadValidationException;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
+import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -38,6 +40,7 @@ class IssuancePayloadNormalizerImplTest {
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
             .build();
 
+    private SimpleMeterRegistry meterRegistry;
     private IssuancePayloadNormalizerImpl normalizer;
     private PayloadSchemaValidatorImpl validator;
 
@@ -46,7 +49,8 @@ class IssuancePayloadNormalizerImplTest {
         CredentialProfileRegistry registry = new CredentialProfileRegistry(
                 objectMapper, new PathMatchingResourcePatternResolver(), "file:dev-tools/credentials/profiles");
         PayloadSubschemaResolver resolver = new PayloadSubschemaResolver(registry);
-        normalizer = new IssuancePayloadNormalizerImpl(resolver);
+        meterRegistry = new SimpleMeterRegistry();
+        normalizer = new IssuancePayloadNormalizerImpl(resolver, new IssuanceMetrics(meterRegistry));
         validator = new PayloadSchemaValidatorImpl(resolver);
     }
 
@@ -258,6 +262,84 @@ class IssuancePayloadNormalizerImplTest {
 
             // Assert
             StepVerifier.create(result).verifyComplete();
+        }
+    }
+
+    @Nested
+    @DisplayName("normalize: removal counter")
+    class RemovalCounter {
+
+        private static final String COUNTER = "issuance.payload.optional_string.removed";
+
+        private double removed(String configId, String path, String reason) {
+            var counter = meterRegistry.find(COUNTER)
+                    .tag("credential_configuration_id", configId)
+                    .tag("path", path)
+                    .tag("reason", reason)
+                    .counter();
+            return counter == null ? 0 : counter.count();
+        }
+
+        @Test
+        void normalize_serialNumberNull_countsTheRemovalWithPathAndReason() throws Exception {
+            // Arrange
+            JsonNode payload = json(employeeMandate(EMPLOYEE_MANDATEE, mandatorWith("\"serialNumber\": null")));
+
+            // Act
+            normalizer.normalize(EMPLOYEE_W3C, payload);
+
+            // Assert
+            assertEquals(1, removed(EMPLOYEE_W3C, "$.mandator.serialNumber", "null"));
+        }
+
+        @Test
+        void normalize_serialNumberEmpty_countsTheRemovalAsEmpty() throws Exception {
+            // Arrange
+            JsonNode payload = json(employeeMandate(EMPLOYEE_MANDATEE, mandatorWith("\"serialNumber\": \"\"")));
+
+            // Act
+            normalizer.normalize(EMPLOYEE_W3C, payload);
+
+            // Assert
+            assertEquals(1, removed(EMPLOYEE_W3C, "$.mandator.serialNumber", "empty"));
+        }
+
+        @Test
+        void normalize_emptyValuesInDifferentArrayPositions_shareOneCounterPath() throws Exception {
+            // Arrange
+            JsonNode payload = json(mandate(EMPLOYEE_MANDATEE, mandatorWith("\"email\": \"org@example.com\""),
+                    "[{ \"domain\": \"\" }, { \"domain\": \"\" }]"));
+
+            // Act
+            normalizer.normalize(EMPLOYEE_W3C, payload);
+
+            // Assert
+            assertEquals(2, removed(EMPLOYEE_W3C, "$.power[].domain", "empty"));
+        }
+
+        @Test
+        void normalize_nothingToRemove_doesNotCount() throws Exception {
+            // Arrange
+            JsonNode payload = json(employeeMandate(EMPLOYEE_MANDATEE, mandatorWith("\"serialNumber\": \"A15456585\"")));
+
+            // Act
+            normalizer.normalize(EMPLOYEE_W3C, payload);
+
+            // Assert
+            assertTrue(meterRegistry.find(COUNTER).counters().isEmpty());
+        }
+
+        @Test
+        void normalize_requiredEmptyStringIsKept_doesNotCount() throws Exception {
+            // Arrange
+            JsonNode payload = json(employeeMandate(EMPLOYEE_MANDATEE,
+                    "{ \"organizationIdentifier\": \"\", \"country\": \"ES\" }"));
+
+            // Act
+            normalizer.normalize(EMPLOYEE_W3C, payload);
+
+            // Assert
+            assertTrue(meterRegistry.find(COUNTER).counters().isEmpty());
         }
     }
 

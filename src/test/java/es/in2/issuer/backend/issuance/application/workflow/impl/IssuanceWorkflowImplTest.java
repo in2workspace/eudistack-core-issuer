@@ -111,13 +111,13 @@ class IssuanceWorkflowImplTest {
 
     @BeforeEach
     void setUpDeliveryEligibility() {
-        // Permissive by default (equivalent to "no tenant configuration, ceiling wide open") so the
-        // pre-existing tests keep exercising what they were written for; tests that care about a
-        // narrower eligible set override this stub explicitly for their credential_configuration_id.
         // Identity by default: the normalizer has its own tests; here only the tests about what the
         // workflow does with its result override it.
         lenient().when(issuancePayloadNormalizer.normalize(anyString(), any()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
+        // Permissive by default (equivalent to "no tenant configuration, ceiling wide open") so the
+        // pre-existing tests keep exercising what they were written for; tests that care about a
+        // narrower eligible set override this stub explicitly for their credential_configuration_id.
         lenient().when(deliveryEligibilityResolver.resolveEligibleModes(anyString()))
                 .thenReturn(Mono.just(EnumSet.allOf(DeliveryMode.class)));
         // Identity by default (F2): bindHolderDid only matters to the tests asserting on
@@ -273,6 +273,58 @@ class IssuanceWorkflowImplTest {
 
         verify(payloadSchemaValidator).validate(CONFIG_ID, normalized);
         verify(genericCredentialBuilder).buildCredential(profile, normalized);
+    }
+
+    @Test
+    void issueCredentialShouldNotNormalizeWhenTheRequestIsRejected() {
+        // Arrange
+        IssuanceRequest request = new IssuanceRequest("UnknownType", new ObjectMapper().createObjectNode(), null, EMAIL, null);
+        when(credentialProfileRegistry.getByConfigurationId("UnknownType")).thenReturn(null);
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        // Act
+        var result = withTenant(workflow.issueCredential("p", request, "idToken", BEARER_TOKEN, BASE_URL));
+
+        // Assert
+        StepVerifier.create(result)
+                .expectError(CredentialTypeUnsupportedException.class)
+                .verify();
+        verifyNoInteractions(issuancePayloadNormalizer);
+    }
+
+    @Test
+    void issueCredentialWithoutAuthorizationShouldNotNormalizeWhenTheRequestIsRejected() {
+        // Arrange
+        IssuanceRequest request = new IssuanceRequest("UnknownType", new ObjectMapper().createObjectNode(), "email", EMAIL, null);
+        when(credentialProfileRegistry.getByConfigurationId("UnknownType")).thenReturn(null);
+
+        // Act
+        var result = workflow.issueCredentialWithoutAuthorization("p", request, "bootstrap-token", BASE_URL);
+
+        // Assert
+        StepVerifier.create(result)
+                .expectError(CredentialTypeUnsupportedException.class)
+                .verify();
+        verifyNoInteractions(issuancePayloadNormalizer);
+    }
+
+    @Test
+    void issueCredentialShouldFailWhenTheNormalizerReturnsNull() {
+        // Arrange
+        JsonNode payload = new ObjectMapper().createObjectNode().put("name", "Test");
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null);
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profileWithoutCnf());
+        when(issuancePayloadNormalizer.normalize(CONFIG_ID, payload)).thenReturn(null);
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        // Act
+        var result = withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL));
+
+        // Assert
+        StepVerifier.create(result)
+                .expectError(NullPointerException.class)
+                .verify();
+        verifyNoInteractions(payloadSchemaValidator);
     }
 
     // --- New tests ---

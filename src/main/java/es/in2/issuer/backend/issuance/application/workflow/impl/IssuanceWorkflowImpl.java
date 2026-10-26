@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.issuance.application.workflow.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.oidc4vci.application.workflow.impl.Oid4VciCredentialWorkflowImpl;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
@@ -45,6 +46,7 @@ import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
@@ -172,8 +174,10 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     }
 
     private IssuanceRequest normalized(IssuanceRequest request) {
-        return request.withPayload(
-                issuancePayloadNormalizer.normalize(request.credentialConfigurationId(), request.payload()));
+        JsonNode normalizedPayload = Objects.requireNonNull(
+                issuancePayloadNormalizer.normalize(request.credentialConfigurationId(), request.payload()),
+                "The issuance payload normalizer must not return null");
+        return request.withPayload(normalizedPayload);
     }
 
     private Mono<Void> validateRequest(IssuanceRequest request, String idToken) {
