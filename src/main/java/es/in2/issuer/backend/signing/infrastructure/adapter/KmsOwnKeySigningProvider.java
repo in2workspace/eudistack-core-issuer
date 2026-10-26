@@ -32,7 +32,9 @@ import reactor.core.publisher.Mono;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.X509Certificate;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
@@ -93,12 +95,22 @@ public class KmsOwnKeySigningProvider implements SigningProvider {
                     "KMS signing is not enabled on this issuer"));
         }
 
-        X509Certificate leaf = StoredCertificateInfo.leaf(config);
-        // Trust validation of the chain is out of scope here (tech-debt 9 / EUD-264): only the
-        // validity window and the key type of the leaf are checked.
-        if (!SigningCertificateChecks.isValidAt(leaf, clock.instant()) || !SigningCertificateChecks.isP256(leaf)) {
+        List<X509Certificate> chain = StoredCertificateInfo.chain(config);
+        X509Certificate leaf = chain.getFirst();
+        Instant now = clock.instant();
+        // Trust validation of the chain is out of scope here (tech-debt 9 / EUD-264): the leaf must be a
+        // valid P-256 end-entity signing certificate and the chain must link, but its anchor is not checked.
+        if (!SigningCertificateChecks.isValidAt(leaf, now) || !SigningCertificateChecks.isP256(leaf)) {
             return Mono.error(new SigningException(SigningFailureReason.CERTIFICATE_INVALID,
                     "The stored signing certificate is expired, not yet valid or not a P-256 certificate"));
+        }
+        if (!SigningCertificateChecks.isEndEntity(leaf) || !SigningCertificateChecks.allowsSigning(leaf)) {
+            return Mono.error(new SigningException(SigningFailureReason.CERTIFICATE_INVALID,
+                    "The stored signing certificate is a CA certificate or its key usage does not allow signing"));
+        }
+        if (!SigningCertificateChecks.isLinkedChain(chain, now)) {
+            return Mono.error(new SigningException(SigningFailureReason.CERTIFICATE_INVALID,
+                    "The stored certificate chain does not link or holds an invalid intermediate certificate"));
         }
 
         CertificateInfo certInfo = StoredCertificateInfo.from(config,

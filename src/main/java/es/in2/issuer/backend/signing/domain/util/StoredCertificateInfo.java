@@ -52,8 +52,17 @@ public final class StoredCertificateInfo {
 
     /** The first certificate of the stored chain, parsed. */
     public static X509Certificate leaf(OwnKeySigningConfig config) {
+        return parse(config.certificateChain().getFirst());
+    }
+
+    /** The whole stored chain, leaf first, parsed. */
+    public static List<X509Certificate> chain(OwnKeySigningConfig config) {
+        return config.certificateChain().stream().map(StoredCertificateInfo::parse).toList();
+    }
+
+    private static X509Certificate parse(String base64Der) {
         try {
-            byte[] der = Base64.getDecoder().decode(config.certificateChain().getFirst());
+            byte[] der = Base64.getDecoder().decode(base64Der);
             return (X509Certificate) CertificateFactory.getInstance("X.509")
                     .generateCertificate(new ByteArrayInputStream(der));
         } catch (GeneralSecurityException | IllegalArgumentException e) {

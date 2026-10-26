@@ -3,6 +3,7 @@ package es.in2.issuer.backend.signing.domain.util;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -86,5 +87,72 @@ class SigningCertificateChecksTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> SigningCertificateChecks.isValidAt(certificate, null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static final Instant NOW = Instant.parse("2026-06-01T00:00:00Z");
+
+    @Test
+    void isEndEntity_leafWithoutOrWithCaFalse_returnsTrue() {
+        assertThat(SigningCertificateChecks.isEndEntity(pki.validP256Leaf().certificate())).isTrue();
+        assertThat(SigningCertificateChecks.isEndEntity(pki.signingLeafWithExtensions().certificate())).isTrue();
+    }
+
+    @Test
+    void isEndEntity_caCertificate_returnsFalse() {
+        assertThat(SigningCertificateChecks.isEndEntity(pki.caLeaf().certificate())).isFalse();
+        assertThat(SigningCertificateChecks.isEndEntity(pki.rootCertificate())).isFalse();
+    }
+
+    @Test
+    void allowsSigning_signingKeyUsageOrNone_returnsTrue() {
+        assertThat(SigningCertificateChecks.allowsSigning(pki.signingLeafWithExtensions().certificate())).isTrue();
+        assertThat(SigningCertificateChecks.allowsSigning(pki.validP256Leaf().certificate())).isTrue();
+    }
+
+    @Test
+    void allowsSigning_certSignOnly_returnsFalse() {
+        assertThat(SigningCertificateChecks.allowsSigning(pki.certSignOnlyLeaf().certificate())).isFalse();
+    }
+
+    @Test
+    void isLinkedChain_singleLeaf_returnsTrue() {
+        assertThat(SigningCertificateChecks.isLinkedChain(List.of(pki.validP256Leaf().certificate()), NOW)).isTrue();
+    }
+
+    @Test
+    void isLinkedChain_leafAndItsIntermediate_returnsTrue() {
+        assertThat(SigningCertificateChecks.isLinkedChain(pki.chainWithIntermediate().certificates(), NOW)).isTrue();
+    }
+
+    @Test
+    void isLinkedChain_leafAndRoot_returnsTrue() {
+        assertThat(SigningCertificateChecks.isLinkedChain(
+                List.of(pki.validP256Leaf().certificate(), pki.rootCertificate()), NOW)).isTrue();
+    }
+
+    @Test
+    void isLinkedChain_expiredIntermediate_returnsFalse() {
+        assertThat(SigningCertificateChecks.isLinkedChain(pki.chainWithExpiredIntermediate().certificates(), NOW))
+                .isFalse();
+    }
+
+    @Test
+    void isLinkedChain_certificateNotIssuedByTheNext_returnsFalse() {
+        var leaf = pki.validP256Leaf().certificate();
+        var otherIntermediate = pki.chainWithIntermediate().certificates().get(1);
+        assertThat(SigningCertificateChecks.isLinkedChain(List.of(leaf, otherIntermediate), NOW)).isFalse();
+    }
+
+    @Test
+    void isLinkedChain_nextIsNotACa_returnsFalse() {
+        var leaf = pki.chainWithIntermediate().certificates().getFirst();
+        assertThat(SigningCertificateChecks.isLinkedChain(List.of(leaf, pki.validP256Leaf().certificate()), NOW))
+                .isFalse();
+    }
+
+    @Test
+    void isLinkedChain_forgedIssuerWithTheSameName_returnsFalse() {
+        assertThat(SigningCertificateChecks.isLinkedChain(
+                List.of(pki.validP256Leaf().certificate(), pki.forgedSelfIssuedCertificate()), NOW)).isFalse();
     }
 }

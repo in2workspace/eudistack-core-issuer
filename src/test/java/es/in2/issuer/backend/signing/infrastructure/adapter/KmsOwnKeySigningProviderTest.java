@@ -97,9 +97,16 @@ class KmsOwnKeySigningProviderTest {
     }
 
     private static OwnKeySigningConfig configFor(OwnKeyTestPki.Leaf leaf) {
+        return configFor(List.of(leaf.certificate()));
+    }
+
+    private static OwnKeySigningConfig configFor(List<java.security.cert.X509Certificate> chain) {
         try {
-            return new OwnKeySigningConfig(KEY_REF, "ES256",
-                    List.of(Base64.getEncoder().encodeToString(leaf.certificate().getEncoded())));
+            List<String> encoded = new java.util.ArrayList<>();
+            for (var certificate : chain) {
+                encoded.add(Base64.getEncoder().encodeToString(certificate.getEncoded()));
+            }
+            return new OwnKeySigningConfig(KEY_REF, "ES256", encoded);
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
@@ -265,5 +272,52 @@ class KmsOwnKeySigningProviderTest {
                         .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "sandbox")))
                 .expectNextCount(1)
                 .verifyComplete();
+    }
+
+    @Test
+    void sign_chainWithIntermediate_signs() {
+        var chain = PKI.chainWithIntermediate();
+        provider = providerWith(new FakeKms(chain.leafKeyPair()), NOW);
+
+        StepVerifier.create(provider.sign(withOwnKey(jades(null), configFor(chain.certificates()))))
+                .expectNextCount(1)
+                .verifyComplete();
+    }
+
+    @Test
+    void sign_caLeaf_failsWithCertificateInvalidWithoutCallingKms() {
+        StepVerifier.create(provider.sign(withOwnKey(jades(null), configFor(PKI.caLeaf()))))
+                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.CERTIFICATE_INVALID))
+                .verify();
+        assertThat(kms.signCalls).hasValue(0);
+    }
+
+    @Test
+    void sign_leafWhoseKeyUsageDoesNotAllowSigning_failsWithCertificateInvalidWithoutCallingKms() {
+        StepVerifier.create(provider.sign(withOwnKey(jades(null), configFor(PKI.certSignOnlyLeaf()))))
+                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.CERTIFICATE_INVALID))
+                .verify();
+        assertThat(kms.signCalls).hasValue(0);
+    }
+
+    @Test
+    void sign_chainThatDoesNotLink_failsWithCertificateInvalidWithoutCallingKms() {
+        var unrelatedIntermediate = PKI.chainWithIntermediate().certificates().get(1);
+        var chain = List.of(PKI.validP256Leaf().certificate(), unrelatedIntermediate);
+
+        StepVerifier.create(provider.sign(withOwnKey(jades(null), configFor(chain))))
+                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.CERTIFICATE_INVALID))
+                .verify();
+        assertThat(kms.signCalls).hasValue(0);
+    }
+
+    @Test
+    void sign_expiredIntermediate_failsWithCertificateInvalidWithoutCallingKms() {
+        var chain = PKI.chainWithExpiredIntermediate();
+        provider = providerWith(new FakeKms(chain.leafKeyPair()), NOW);
+
+        StepVerifier.create(provider.sign(withOwnKey(jades(null), configFor(chain.certificates()))))
+                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.CERTIFICATE_INVALID))
+                .verify();
     }
 }
