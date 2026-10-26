@@ -248,10 +248,13 @@ class OwnKeySigningSelfTestTest {
 
     @Test
     void properties_nonPositiveTimeout_isRejected() {
+        Duration validWarning = Duration.ofDays(30);
+        Duration negativeWarning = Duration.ofDays(-1);
+
         assertThrows(IllegalArgumentException.class,
-                () -> new SigningSelfTestProperties(true, Duration.ZERO, Duration.ofDays(30)));
+                () -> new SigningSelfTestProperties(true, Duration.ZERO, validWarning));
         assertThrows(IllegalArgumentException.class,
-                () -> new SigningSelfTestProperties(true, null, Duration.ofDays(-1)));
+                () -> new SigningSelfTestProperties(true, null, negativeWarning));
     }
 
     @Test
