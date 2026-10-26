@@ -9,6 +9,7 @@ import es.in2.issuer.backend.signing.domain.model.SigningModality;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
+import es.in2.issuer.backend.signing.domain.util.StoredCertificateInfo;
 import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
 import es.in2.issuer.backend.signing.infrastructure.adapter.KmsOwnKeySigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningAuditor;
@@ -23,7 +24,9 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -41,7 +44,9 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  * either modality, is reported as {@code NO_CONFIGURATION}: it cannot issue anything. The probe goes
  * through {@link KmsOwnKeySigningProvider}, which verifies the signature against the stored certificate.
  * The probe payload and the signature are never logged. Each own-key tenant's outcome is also
- * recorded in the audit trail (event {@code signing.self_test}).
+ * recorded in the audit trail (event {@code signing.self_test}). A signing certificate that expires
+ * within {@code certificateExpiryWarning} is logged as a warning: from its expiry the issuer refuses
+ * to sign with it.
  */
 @Slf4j
 @Component
@@ -60,6 +65,7 @@ public class OwnKeySigningSelfTest {
     private final SigningAuditor signingAuditor;
     private final SigningSelfTestProperties properties;
     private final KmsSigningProperties kmsSigningProperties;
+    private final Clock clock;
 
     @EventListener(ApplicationReadyEvent.class)
     public void onApplicationReady() {
@@ -98,7 +104,7 @@ public class OwnKeySigningSelfTest {
                 .doOnNext(config -> modality.set(config.modality() == SigningModality.OWN_KEY
                         ? SigningAuditor.OWN_KEY_MODALITY : SigningAuditor.QTSP_MODALITY))
                 .filter(config -> config.modality() == SigningModality.OWN_KEY)
-                .flatMap(this::probe)
+                .flatMap(config -> probe(config).doOnNext(result -> warnIfExpiringSoon(tenant, config)))
                 .timeout(tenantTimeout(), Mono.error(() -> new SigningException(
                         SigningFailureReason.PROVIDER_UNAVAILABLE, "own-key signing self-test timed out")))
                 .doOnNext(result -> {
@@ -130,6 +136,15 @@ public class OwnKeySigningSelfTest {
                 .ownKey(config.ownKey())
                 .build();
         return kmsOwnKeySigningProvider.sign(request);
+    }
+
+    private void warnIfExpiringSoon(String tenant, ActiveSigningConfig config) {
+        Instant notAfter = StoredCertificateInfo.leaf(config.ownKey()).getNotAfter().toInstant();
+        Duration left = Duration.between(clock.instant(), notAfter);
+        if (left.compareTo(properties.certificateExpiryWarning()) <= 0) {
+            log.warn("own-key signing certificate expires soon tenant={} notAfter={} daysLeft={}",
+                    tenant, notAfter, left.toDays());
+        }
     }
 
     private void reportMissingConfiguration(String tenant, long startNanos) {
