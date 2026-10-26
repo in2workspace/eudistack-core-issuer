@@ -210,6 +210,7 @@ class DelegatingSigningProviderImplAuditTest {
     @Test
     void sign_auditServiceThrowingOnFailure_keepsTheOriginalError() {
         when(configService.getActiveSigningConfig()).thenReturn(Mono.just(ownKey()));
+        when(configService.reloadActiveSigningConfig()).thenReturn(Mono.just(ownKey()));
         when(kmsProvider.sign(any())).thenReturn(Mono.error(
                 new KmsSigningException(SigningFailureReason.KEY_UNUSABLE, "disabled")));
         doThrow(new IllegalStateException("audit down")).when(auditService).auditFailure(any(), any(), any(), any());

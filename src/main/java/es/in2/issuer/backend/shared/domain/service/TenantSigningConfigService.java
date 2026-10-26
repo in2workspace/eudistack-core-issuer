@@ -18,4 +18,11 @@ public interface TenantSigningConfigService {
      */
     Mono<ActiveSigningConfig> getActiveSigningConfig();
 
+    /**
+     * Like {@link #getActiveSigningConfig()}, but discards this instance's cached configuration of the
+     * current tenant first, so the row is read again. For a cached configuration that has stopped
+     * working, e.g. an own key disabled in KMS when it was replaced or withdrawn (EUD-289 D-3).
+     */
+    Mono<ActiveSigningConfig> reloadActiveSigningConfig();
+
 }

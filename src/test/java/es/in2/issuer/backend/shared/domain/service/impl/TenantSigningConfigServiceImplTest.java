@@ -203,4 +203,22 @@ class TenantSigningConfigServiceImplTest {
                         repository, objectMapper, Duration.ZERO, ticker))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void reloadActiveSigningConfig_discardsTheCachedConfigurationOfTheTenant() {
+        when(repository.findFirstByStatusOrderByCreatedAtDesc("active"))
+                .thenReturn(Mono.just(ownKeyRow("ES256", "[\"MIIB-leaf\"]", KMS_REF)))
+                .thenReturn(Mono.just(qtspRow()));
+
+        StepVerifier.create(load("t1")).expectNextCount(1).verifyComplete();
+        StepVerifier.create(service.reloadActiveSigningConfig()
+                        .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "t1")))
+                .assertNext(config -> assertThat(config.modality()).isEqualTo(SigningModality.QTSP))
+                .verifyComplete();
+        StepVerifier.create(load("t1"))
+                .assertNext(config -> assertThat(config.modality()).isEqualTo(SigningModality.QTSP))
+                .verifyComplete();
+
+        verify(repository, times(2)).findFirstByStatusOrderByCreatedAtDesc("active");
+    }
 }

@@ -82,6 +82,14 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
         });
     }
 
+    @Override
+    public Mono<ActiveSigningConfig> reloadActiveSigningConfig() {
+        return Mono.deferContextual(ctx -> {
+            configCache.invalidate(ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "unknown"));
+            return getActiveSigningConfig();
+        });
+    }
+
     private ActiveSigningConfig toActiveSigningConfig(String tenant, TenantSigningConfig row) {
         return switch (modalityOf(tenant, row)) {
             case QTSP -> ActiveSigningConfig.qtsp(toRemoteSignatureDto(row));

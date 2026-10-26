@@ -5,6 +5,7 @@ import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
+import es.in2.issuer.backend.signing.domain.model.SigningModality;
 import es.in2.issuer.backend.signing.domain.model.SigningProviderType;
 import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
 import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
@@ -62,12 +63,35 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
                     .switchIfEmpty(Mono.defer(this::loadActiveSigningConfig))
                     .doOnNext(resolved::set)
                     .flatMap(config -> sign(request, config)
+                            .onErrorResume(error -> isDisabledOwnKey(config, error),
+                                    error -> reloadAndSign(request, resolved))
                             .onErrorMap(DelegatingSigningProviderImpl::classify))
                     .doOnNext(result -> signingAuditor.success(SigningAuditor.SIGN_EVENT,
                             attempt(tenant, request, resolved.get(), startNanos)))
                     .doOnError(error -> signingAuditor.failure(SigningAuditor.SIGN_EVENT,
                             attempt(tenant, request, resolved.get(), startNanos), error));
         });
+    }
+
+    /**
+     * An own key that KMS no longer lets sign. When a key is replaced or withdrawn it is disabled in
+     * KMS at once (EUD-289 D-3), while this instance may still hold the old configuration in cache.
+     */
+    private static boolean isDisabledOwnKey(ActiveSigningConfig config, Throwable error) {
+        return config.modality() == SigningModality.OWN_KEY
+                && SigningFailureReasons.of(error) == SigningFailureReason.KEY_UNUSABLE;
+    }
+
+    /**
+     * Reads the tenant's configuration again and signs once more with it: the replacement when the key
+     * was replaced, {@code NO_CONFIGURATION} when it was withdrawn. A second failure is not retried.
+     */
+    private Mono<SigningResult> reloadAndSign(SigningRequest request, AtomicReference<ActiveSigningConfig> resolved) {
+        log.info("Own key not usable, reloading the signing configuration");
+        return tenantSigningConfigService.reloadActiveSigningConfig()
+                .switchIfEmpty(Mono.error(DelegatingSigningProviderImpl::noConfiguration))
+                .doOnNext(resolved::set)
+                .flatMap(config -> sign(request, config));
     }
 
     /** Audit data of one attempt: classification only, never the payload, tokens or key reference. */
@@ -110,15 +134,17 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
     private Mono<ActiveSigningConfig> loadActiveSigningConfig() {
 
         return tenantSigningConfigService.getActiveSigningConfig()
-                .switchIfEmpty(Mono.error(
-                        new SigningException(
-                                SigningFailureReason.NO_CONFIGURATION,
-                                """
-                                        No remote signature configuration available for this tenant.
-                                        Seed tenant_signing_config for the active tenant.
-                                        """
-                        )
-                ));
+                .switchIfEmpty(Mono.error(DelegatingSigningProviderImpl::noConfiguration));
+    }
+
+    private static SigningException noConfiguration() {
+        return new SigningException(
+                SigningFailureReason.NO_CONFIGURATION,
+                """
+                        No remote signature configuration available for this tenant.
+                        Seed tenant_signing_config for the active tenant.
+                        """
+        );
     }
 
     private Mono<SigningResult> sign(SigningRequest request, ActiveSigningConfig config) {

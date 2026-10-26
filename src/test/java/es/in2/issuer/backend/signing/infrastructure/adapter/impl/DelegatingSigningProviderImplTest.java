@@ -332,4 +332,79 @@ class DelegatingSigningProviderImplTest {
 
         verifyNoInteractions(tenantSigningConfigService);
     }
+
+    @Test
+    void sign_ownKeyDisabled_reloadsTheConfigurationAndSignsWithTheReplacement() {
+        var oldKey = ownKey("arn:aws:kms:eu-west-1:111122223333:key/old");
+        var newKey = ownKey("arn:aws:kms:eu-west-1:111122223333:key/new");
+        var expected = new SigningResult(SigningType.JADES, "jws-new-key");
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(ActiveSigningConfig.ownKey(oldKey)));
+        when(tenantSigningConfigService.reloadActiveSigningConfig())
+                .thenReturn(Mono.just(ActiveSigningConfig.ownKey(newKey)));
+        when(signingProviderResolver.resolve(SigningProviderType.AWS_KMS)).thenReturn(kmsProvider);
+        when(kmsProvider.sign(any()))
+                .thenReturn(Mono.error(new KmsSigningException(SigningFailureReason.KEY_UNUSABLE, "disabled")))
+                .thenReturn(Mono.just(expected));
+
+        StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
+                .expectNext(expected)
+                .verifyComplete();
+
+        var captor = ArgumentCaptor.forClass(SigningRequest.class);
+        verify(kmsProvider, times(2)).sign(captor.capture());
+        assertEquals(java.util.List.of(oldKey, newKey),
+                captor.getAllValues().stream().map(SigningRequest::ownKey).toList());
+        verify(tenantSigningConfigService).reloadActiveSigningConfig();
+    }
+
+    @Test
+    void sign_ownKeyDisabledAndWithdrawn_failsWithNoConfiguration() {
+        var oldKey = ownKey("arn:aws:kms:eu-west-1:111122223333:key/old");
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(ActiveSigningConfig.ownKey(oldKey)));
+        when(tenantSigningConfigService.reloadActiveSigningConfig()).thenReturn(Mono.empty());
+        when(signingProviderResolver.resolve(SigningProviderType.AWS_KMS)).thenReturn(kmsProvider);
+        when(kmsProvider.sign(any()))
+                .thenReturn(Mono.error(new KmsSigningException(SigningFailureReason.KEY_UNUSABLE, "disabled")));
+
+        StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
+                .expectErrorSatisfies(ex -> assertEquals(SigningFailureReason.NO_CONFIGURATION,
+                        es.in2.issuer.backend.signing.domain.util.SigningFailureReasons.of(ex)))
+                .verify();
+        verify(kmsProvider, times(1)).sign(any());
+    }
+
+    @Test
+    void sign_ownKeyStillDisabledAfterReload_failsWithoutASecondReload() {
+        var key = ownKey("arn:aws:kms:eu-west-1:111122223333:key/k");
+        var disabled = new KmsSigningException(SigningFailureReason.KEY_UNUSABLE, "disabled");
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(ActiveSigningConfig.ownKey(key)));
+        when(tenantSigningConfigService.reloadActiveSigningConfig())
+                .thenReturn(Mono.just(ActiveSigningConfig.ownKey(key)));
+        when(signingProviderResolver.resolve(SigningProviderType.AWS_KMS)).thenReturn(kmsProvider);
+        when(kmsProvider.sign(any())).thenReturn(Mono.error(disabled));
+
+        StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
+                .expectErrorSatisfies(ex -> assertSame(disabled, ex))
+                .verify();
+        verify(kmsProvider, times(2)).sign(any());
+        verify(tenantSigningConfigService, times(1)).reloadActiveSigningConfig();
+    }
+
+    @Test
+    void sign_ownKeyOtherFailure_isNotReloaded() {
+        var key = ownKey("arn:aws:kms:eu-west-1:111122223333:key/k");
+        when(tenantSigningConfigService.getActiveSigningConfig())
+                .thenReturn(Mono.just(ActiveSigningConfig.ownKey(key)));
+        when(signingProviderResolver.resolve(SigningProviderType.AWS_KMS)).thenReturn(kmsProvider);
+        when(kmsProvider.sign(any()))
+                .thenReturn(Mono.error(new KmsSigningException(SigningFailureReason.INVALID_RESPONSE, "bad")));
+
+        StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
+                .expectError(KmsSigningException.class)
+                .verify();
+        verify(tenantSigningConfigService, never()).reloadActiveSigningConfig();
+    }
 }
