@@ -245,4 +245,23 @@ class OwnKeySigningSelfTestTest {
 
         StepVerifier.create(selfTest(true).run()).verifyComplete();
     }
+
+    @Test
+    void run_tenantWithoutActiveConfiguration_isReportedAsNoConfiguration() {
+        when(registry.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("empty", "q")));
+        configsByTenant(Map.of("q", qtsp()));
+
+        StepVerifier.create(selfTest(true).run()).verifyComplete();
+
+        assertThat(messages(Level.WARN))
+                .containsExactly("signing self-test: no active signing configuration tenant=empty");
+        var attempt = ArgumentCaptor.forClass(SigningAuditor.Attempt.class);
+        var error = ArgumentCaptor.forClass(Throwable.class);
+        verify(auditor).failure(eq(SigningAuditor.SELF_TEST_EVENT), attempt.capture(), error.capture());
+        assertThat(attempt.getValue().tenant()).isEqualTo("empty");
+        assertThat(attempt.getValue().modality()).isEqualTo(SigningAuditor.UNKNOWN);
+        assertThat(attempt.getValue().provider()).isEqualTo(SigningAuditor.UNKNOWN);
+        assertThat(SigningFailureReasons.of(error.getValue())).isEqualTo(SigningFailureReason.NO_CONFIGURATION);
+        verifyNoInteractions(kmsProvider);
+    }
 }

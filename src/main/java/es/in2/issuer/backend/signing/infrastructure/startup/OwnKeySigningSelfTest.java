@@ -36,8 +36,10 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  * <p>It is purely informative and never prevents or delays startup (NFR-4): it runs on a bounded
  * scheduler after {@link ApplicationReadyEvent}, each tenant has a timeout, and every error is
  * swallowed. Unless configured, the timeout covers the worst case of a KMS call with all its
- * retries, so a slow KMS is reported as {@code PROVIDER_UNAVAILABLE} and not cut short. QTSP tenants are skipped: no QTSP is called at startup. The probe goes through
- * {@link KmsOwnKeySigningProvider}, which verifies the signature against the stored certificate.
+ * retries, so a slow KMS is reported as {@code PROVIDER_UNAVAILABLE} and not cut short. QTSP
+ * tenants are skipped: no QTSP is called at startup. A tenant without an active configuration, of
+ * either modality, is reported as {@code NO_CONFIGURATION}: it cannot issue anything. The probe goes
+ * through {@link KmsOwnKeySigningProvider}, which verifies the signature against the stored certificate.
  * The probe payload and the signature are never logged. Each own-key tenant's outcome is also
  * recorded in the audit trail (event {@code signing.self_test}).
  */
@@ -89,6 +91,10 @@ public class OwnKeySigningSelfTest {
         long startNanos = System.nanoTime();
         AtomicReference<String> modality = new AtomicReference<>(SigningAuditor.UNKNOWN);
         return Mono.defer(tenantSigningConfigService::getActiveSigningConfig)
+                .switchIfEmpty(Mono.defer(() -> {
+                    reportMissingConfiguration(tenant, startNanos);
+                    return Mono.empty();
+                }))
                 .doOnNext(config -> modality.set(config.modality() == SigningModality.OWN_KEY
                         ? SigningAuditor.OWN_KEY_MODALITY : SigningAuditor.QTSP_MODALITY))
                 .filter(config -> config.modality() == SigningModality.OWN_KEY)
@@ -126,8 +132,19 @@ public class OwnKeySigningSelfTest {
         return kmsOwnKeySigningProvider.sign(request);
     }
 
+    private void reportMissingConfiguration(String tenant, long startNanos) {
+        log.warn("signing self-test: no active signing configuration tenant={}", tenant);
+        signingAuditor.failure(SigningAuditor.SELF_TEST_EVENT,
+                attempt(tenant, SigningAuditor.UNKNOWN, SigningAuditor.UNKNOWN, startNanos),
+                new SigningException(SigningFailureReason.NO_CONFIGURATION, "No active signing configuration"));
+    }
+
     private static SigningAuditor.Attempt attempt(String tenant, String modality, long startNanos) {
-        return new SigningAuditor.Attempt(tenant, "self-test", null, modality, SigningAuditor.KMS_PROVIDER,
+        return attempt(tenant, modality, SigningAuditor.KMS_PROVIDER, startNanos);
+    }
+
+    private static SigningAuditor.Attempt attempt(String tenant, String modality, String provider, long startNanos) {
+        return new SigningAuditor.Attempt(tenant, "self-test", null, modality, provider,
                 TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos));
     }
 }
