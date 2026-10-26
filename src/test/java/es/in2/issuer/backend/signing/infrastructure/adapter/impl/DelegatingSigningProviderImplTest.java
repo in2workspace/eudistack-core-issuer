@@ -205,7 +205,7 @@ class DelegatingSigningProviderImplTest {
     }
 
     @Test
-    void sign_recoverableFailure_isClassifiedAsServiceUnavailable() {
+    void sign_recoverableFailure_isClassifiedAsProviderUnavailable() {
         var recoverable = new SigningException("Signing failed", new java.net.ConnectException("refused"));
         givenSignHashFailsWith(recoverable);
 
@@ -219,7 +219,7 @@ class DelegatingSigningProviderImplTest {
     }
 
     @Test
-    void sign_recoverableNonSigningFailure_isWrappedAsServiceUnavailable() {
+    void sign_recoverableNonSigningFailure_isWrappedAsProviderUnavailable() {
         givenSignHashFailsWith(new java.util.concurrent.TimeoutException("slow"));
 
         StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))

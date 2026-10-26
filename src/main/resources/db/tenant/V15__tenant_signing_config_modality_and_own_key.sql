@@ -27,9 +27,8 @@
 -- some schemas) becomes withdrawn. This runs BEFORE the unique index is
 -- created, otherwise the index creation would fail on those schemas.
 --
--- The application does not read the new columns yet (R2DBC ignores unmapped
--- columns). The seed pattern `INSERT ... ON CONFLICT DO NOTHING` (no conflict
--- target) becomes a silent no-op when an active row already exists.
+-- The seeds insert a signing configuration only into an empty table, so they
+-- never reactivate a configuration that was replaced or withdrawn.
 -- =============================================================================
 ALTER TABLE tenant_signing_config
     ADD COLUMN IF NOT EXISTS modality                   VARCHAR(20) NOT NULL DEFAULT 'qtsp',
