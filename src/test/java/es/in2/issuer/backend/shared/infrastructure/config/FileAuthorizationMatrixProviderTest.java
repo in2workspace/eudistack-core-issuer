@@ -51,7 +51,8 @@ class FileAuthorizationMatrixProviderTest {
     private static String bundled() throws IOException {
         try (InputStream is = FileAuthorizationMatrixProviderTest.class.getClassLoader()
                 .getResourceAsStream(FileAuthorizationMatrixProvider.CLASSPATH_DEFAULT)) {
-            return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            // LF only: the edits below match LF text, and a checkout with core.autocrlf has CRLF.
+            return new String(is.readAllBytes(), StandardCharsets.UTF_8).replace("\r\n", "\n");
         }
     }
 
