@@ -9,9 +9,9 @@ import java.util.Locale;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Renders the real credential offer email template (EUD-305): the button must carry the link
- * exactly as the caller decided it -- a link to the tenant's wallet, or the standard
- * {@code openid-credential-offer://} form when the tenant configures no wallet.
+ * Renders the real credential offer email template (EUD-305): the button must carry
+ * {@code walletLink} exactly as the email service built it -- a link to the tenant's wallet, or the
+ * standard {@code openid-credential-offer://} form when the tenant configures no wallet.
  */
 class CredentialOfferEmailTemplateTest {
 
@@ -20,13 +20,13 @@ class CredentialOfferEmailTemplateTest {
             "https://wallet.example.com/wallet/protocol/callback?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fissuer%2Foid4vci%2Fv1%2Fcredential-offer%2Fnonce",
             "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fissuer%2Foid4vci%2Fv1%2Fcredential-offer%2Fnonce"
     })
-    void credentialOfferEmail_buttonCarriesTheLinkUnchanged(String credentialOfferLink) {
+    void credentialOfferEmail_buttonCarriesTheWalletLinkUnchanged(String walletLink) {
         Context context = EmailTemplateTestSupport.offerContext(
                 Locale.ENGLISH, EmailTemplateTestSupport.DEFAULT_BRANDING, null);
-        context.setVariable("credentialOfferLink", credentialOfferLink);
+        context.setVariable("walletLink", walletLink);
 
         String html = EmailTemplateTestSupport.engine().process("credential-offer-email", context);
 
-        assertThat(html).contains("href=\"" + credentialOfferLink + "\"");
+        assertThat(html).contains("href=\"" + walletLink + "\"");
     }
 }
