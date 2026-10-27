@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Logging of the own-key onboarding tool (OwnKeyOnboardingMain), a plain process without Spring.
+    The Issuer itself is configured by logback-spring.xml and does not read this file: it is only
+    selected through -Dlogback.configurationFile, which the tool sets before it logs anything.
+    Everything goes to stderr; stdout is the result of the command. The audit logger writes one
+    JSON line per SigningConfigurationChanged event.
+-->
+<configuration>
+    <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.err</target>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level %logger{30} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="AUDIT" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.err</target>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} AUDIT %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="es.in2.issuer.backend.signing.onboarding.audit" level="INFO" additivity="false">
+        <appender-ref ref="AUDIT"/>
+    </logger>
+
+    <root level="INFO">
+        <appender-ref ref="STDERR"/>
+    </root>
+</configuration>
