@@ -5,6 +5,7 @@ import es.in2.issuer.backend.signing.domain.onboarding.OnboardingPolicy;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingRejectedException;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyCertificateValidator;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding;
+import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.DiscardCommand;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.ImportCommand;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.PrepareCommand;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyReconciler;
@@ -68,6 +69,7 @@ public final class OnboardingCli {
     private enum Command {
         PREPARE("prepare"),
         IMPORT("import"),
+        DISCARD("discard"),
         RECONCILE("reconcile");
 
         private final String word;
@@ -124,6 +126,9 @@ public final class OnboardingCli {
                          wraps its private key with the public key.
               import     Validate again, import the wrapped key material, check that the key is the certificate's
                          and, in one transaction, replace the tenant's active configuration with the new one.
+              discard    Give up a preparation that was never imported: disable its KMS key if possible, schedule
+                         its deletion, delete its alias and mark the state file. Refused (exit 2) if the key has
+                         key material, other tags than this preparation's, or is referenced by any configuration.
               reconcile  Disable and schedule the deletion of the KMS key of every replaced configuration
                          withdrawn for longer than the grace period. Safe to repeat.
 
@@ -149,6 +154,8 @@ public final class OnboardingCli {
               --key-material <file>          [OWN_KEY_KEY_MATERIAL] the private key wrapped by the customer;
                                              not needed for a renewal (a certificate for the active key)
               --import-token <file>          [OWN_KEY_IMPORT_TOKEN] default: the one next to the state file
+            discard
+              --state <file>                 [OWN_KEY_STATE] the state file of the preparation to give up
             prepare and import
               --production                   [OWN_KEY_PRODUCTION] adds the production checks; requires the next two
               --trust-anchor <pem file>      [OWN_KEY_TRUST_ANCHOR] the CA agreed with the tenant (root or intermediate)
@@ -205,7 +212,7 @@ public final class OnboardingCli {
     public int run(String[] args, Map<String, String> env) {
         try {
             if (args.length == 0) {
-                throw new UsageException("a command is required: prepare, import or reconcile");
+                throw new UsageException("a command is required: prepare, import, discard or reconcile");
             }
             if (List.of("--help", "-h", "help").contains(args[0])) {
                 out.print(HELP);
@@ -238,6 +245,7 @@ public final class OnboardingCli {
             return switch (invocation.command()) {
                 case PREPARE -> prepare(invocation, services.onboarding());
                 case IMPORT -> importKey(invocation, services.onboarding());
+                case DISCARD -> discard(invocation, services.onboarding());
                 case RECONCILE -> reconcile(invocation, services.reconciler());
             };
         }
@@ -301,6 +309,22 @@ public final class OnboardingCli {
         return EXIT_OK;
     }
 
+    private int discard(Invocation invocation, OwnKeyOnboarding onboarding) {
+        Path stateFile = Path.of(invocation.require(Opt.STATE));
+        var loaded = PreparedOnboardingFiles.read(stateFile, null);
+        var result = onboarding.discard(new DiscardCommand(loaded.prepared(), invocation.dryRun(),
+                PreparedOnboardingFiles.around(stateFile)));
+        String what = switch (result.outcome()) {
+            case DISCARDED -> "discarded: the key is disabled and scheduled for deletion, its alias is deleted and "
+                    + "the state file is marked";
+            case ALREADY_DISCARDED -> "nothing to do: the preparation was already discarded";
+            case WOULD_DISCARD -> "dry run: the preparation can be discarded; nothing was changed";
+        };
+        out.println(what);
+        out.println("key        : " + result.keyArn());
+        return EXIT_OK;
+    }
+
     private static String prefixOf(PreparedOnboarding prepared) {
         return "own-key-" + prepared.tenant() + "-" + prepared.operationId();
     }
@@ -356,7 +380,7 @@ public final class OnboardingCli {
             }
         }
         if (command == null) {
-            throw new UsageException("unknown command '" + args[0] + "': prepare, import or reconcile");
+            throw new UsageException("unknown command '" + args[0] + "': prepare, import, discard or reconcile");
         }
         Set<Opt> allowed = allowedOptions(command);
         Map<Opt, String> values = new EnumMap<>(Opt.class);
@@ -406,6 +430,7 @@ public final class OnboardingCli {
                     Opt.TRUST_ANCHOR, Opt.EXPECTED_ORG_ID));
             case IMPORT -> allowed.addAll(List.of(Opt.STATE, Opt.KEY_MATERIAL, Opt.IMPORT_TOKEN, Opt.PRODUCTION,
                     Opt.TRUST_ANCHOR, Opt.EXPECTED_ORG_ID));
+            case DISCARD -> allowed.add(Opt.STATE);
             case RECONCILE -> allowed.add(Opt.GRACE_SECONDS);
         }
         return allowed;

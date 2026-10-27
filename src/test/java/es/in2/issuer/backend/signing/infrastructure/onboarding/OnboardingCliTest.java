@@ -3,6 +3,9 @@ package es.in2.issuer.backend.signing.infrastructure.onboarding;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFailedException;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingRejectedException;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding;
+import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.DiscardCommand;
+import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.DiscardOutcome;
+import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.DiscardResult;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.ImportCommand;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.ImportResult;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.PrepareCommand;
@@ -353,5 +356,44 @@ class OnboardingCliTest {
 
         assertThat(run("import", "--state", directory.resolve("own-key-cgcom-op-1.state.json").toString()))
                 .isEqualTo(OnboardingCli.EXIT_USAGE);
+    }
+
+    @Test
+    void run_discard_readsTheStateAndReportsTheOutcome() throws Exception {
+        new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
+        when(onboarding.discard(any())).thenReturn(new DiscardResult("arn", DiscardOutcome.DISCARDED));
+
+        int exitCode = run("discard", "--state", directory.resolve("own-key-cgcom-op-1.state.json").toString());
+
+        assertThat(exitCode).isEqualTo(OnboardingCli.EXIT_OK);
+        ArgumentCaptor<DiscardCommand> command = ArgumentCaptor.forClass(DiscardCommand.class);
+        verify(onboarding).discard(command.capture());
+        assertThat(command.getValue().prepared()).isEqualTo(prepared());
+        assertThat(command.getValue().dryRun()).isFalse();
+        assertThat(out()).contains("discarded");
+    }
+
+    @Test
+    void run_discardDryRun_passesTheFlagOn() throws Exception {
+        new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
+        when(onboarding.discard(any())).thenReturn(new DiscardResult("arn", DiscardOutcome.WOULD_DISCARD));
+
+        run("discard", "--state", directory.resolve("own-key-cgcom-op-1.state.json").toString(), "--dry-run");
+
+        ArgumentCaptor<DiscardCommand> command = ArgumentCaptor.forClass(DiscardCommand.class);
+        verify(onboarding).discard(command.capture());
+        assertThat(command.getValue().dryRun()).isTrue();
+        assertThat(out()).contains("dry run");
+    }
+
+    @Test
+    void run_discardRefused_exitsWithTwo() throws Exception {
+        new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
+        when(onboarding.discard(any())).thenThrow(
+                new OnboardingRejectedException(RejectionReason.POLICY_DENIED, "the key has been imported"));
+
+        assertThat(run("discard", "--state", directory.resolve("own-key-cgcom-op-1.state.json").toString()))
+                .isEqualTo(OnboardingCli.EXIT_REJECTED);
+        assertThat(err()).contains("REJECTED: the key has been imported");
     }
 }

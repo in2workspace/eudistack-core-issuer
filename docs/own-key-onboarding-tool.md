@@ -5,9 +5,10 @@ the KMS key of a replaced configuration. It is **not** the Issuer service: it is
 operator or a scheduler launches and that ends, with its own exit code. It lives in the Issuer jar only to reuse
 the Issuer's certificate checks.
 
-It runs with the **operation role** (`CreateKey`, `TagResource`, `CreateAlias`, `GetParametersForImport`,
-`ImportKeyMaterial`, `GetPublicKey`, `DisableKey`, `ScheduleKeyDeletion`, plus `DescribeKey` for `reconcile` and
-`sts:GetCallerIdentity`). It has no `kms:Sign`: the key is checked by comparing its public key with the
+It runs with the **operation role**: `kms:CreateKey`, `kms:TagResource`, `kms:CreateAlias`,
+`kms:GetParametersForImport`, `kms:ImportKeyMaterial`, `kms:GetPublicKey`, `kms:DisableKey`,
+`kms:ScheduleKeyDeletion`, `kms:DescribeKey` (reconcile, discard), `kms:ListResourceTags` (discard) and
+`kms:DeleteAlias` (discard). `sts:GetCallerIdentity` needs no permission. It has no `kms:Sign`: the key is checked by comparing its public key with the
 certificate. It never receives a private key in clear.
 
 ## Commands
@@ -16,6 +17,7 @@ certificate. It never receives a private key in clear.
 |---------|--------------|
 | `prepare` | Validates the certificate chain and the tenant. Creates the KMS key (external origin, ECC_NIST_P256, SIGN_VERIFY, tags `Tenant=<tenant>` and `operationId=<uuid>`) with an alias, asks KMS for the import parameters (`RSA_AES_KEY_WRAP_SHA_256`, RSA_4096) and writes to `--out-dir`: `own-key-<tenant>-<operationId>.{wrapping-public-key.der,wrapping-public-key.pem,import-token.bin,state.json}`. Nothing in them is secret. If anything fails after `CreateKey`, the new key is disabled and its deletion scheduled. |
 | `import` | Reads the state file and the key material the customer wrapped with the wrapping public key. Validates again (the state may be stale), imports with `KEY_MATERIAL_DOES_NOT_EXPIRE`, requires `GetPublicKey` to be byte-identical to the certificate's SPKI and, in **one database transaction**, locks the tenant's active row, withdraws it (a QTSP row loses `credentialPwd`, `clientSecret`, `accessKey`, `credentialId`; an own-key row loses its SPKI reservation), inserts the new active `own_key` row, reserves the SPKI in `public.signing_spki_reservation` and stages the audit event. If anything fails after the import, the key is disabled and its deletion scheduled and the database is unchanged. |
+| `discard` | Gives up a preparation that was never imported (`--state`): checks that the KMS key is the one of that preparation (tags `operationId` and `Tenant` equal the state's), that it is still waiting for its key material (PendingImport) and that no `tenant_signing_config` row of any tenant references its ARN; then disables it if possible, schedules its deletion, deletes its alias and marks the state file (`discardedAt`), which `import` then refuses. It refuses with exit 2 a key that has material imported, other tags or a reference. A key already pending deletion or gone only gets the state marked, so it can be repeated. A renewal has nothing to discard. |
 | `reconcile` | For every active tenant, takes (`FOR UPDATE SKIP LOCKED`, one transaction per row) the `own_key` rows withdrawn for longer than the grace period (default 160 s) whose key is not marked yet, checks the key state, disables it if enabled, schedules its deletion (default 7 days, the KMS minimum) and sets `own_key_deleted_at`. Idempotent: a second run makes no KMS call. |
 
 **Renewal keeping the key.** If the certificate's SPKI is reserved by the same tenant and by that tenant's
@@ -85,6 +87,7 @@ Arguments or environment variables; an argument wins. The names of the database 
 | `prepare`: tenant, chain (PEM, leaf first, root excluded), output directory, alias | `--tenant`, `--cert-chain`, `--out-dir`, `--alias` | `OWN_KEY_TENANT`, `OWN_KEY_CERT_CHAIN`, `OWN_KEY_OUT_DIR`, `OWN_KEY_ALIAS` |
 | `import`: state, wrapped key material, import token (default: next to the state) | `--state`, `--key-material`, `--import-token` | `OWN_KEY_STATE`, `OWN_KEY_KEY_MATERIAL`, `OWN_KEY_IMPORT_TOKEN` |
 | `prepare` and `import`: production checks | `--production`, `--trust-anchor`, `--expected-org-id` | `OWN_KEY_PRODUCTION`, `OWN_KEY_TRUST_ANCHOR`, `OWN_KEY_EXPECTED_ORG_ID` |
+| `discard`: state file of the preparation | `--state` | `OWN_KEY_STATE` |
 | `reconcile`: grace period in seconds (default 160) | `--grace-seconds` | `OWN_KEY_GRACE_SECONDS` |
 
 The default alias is `alias/own-key-<tenant>-<operationId>`. The key policy is the KMS default until Infra defines

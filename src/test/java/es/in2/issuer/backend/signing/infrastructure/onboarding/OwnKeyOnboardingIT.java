@@ -322,6 +322,13 @@ class OwnKeyOnboardingIT {
                 material.spki());
     }
 
+    private static String aliasOf(Path preparedDirectory) throws Exception {
+        var matcher = Pattern.compile("\"alias\"\s*:\s*\"([^\"]+)\"").matcher(
+                Files.readString(file(preparedDirectory, ".state.json")));
+        assertThat(matcher.find()).isTrue();
+        return matcher.group(1);
+    }
+
     @Test
     void renewal_keepsTheKeyAndReconcileNeverRetiresIt() throws Exception {
         Material first = newMaterial("renew-first");
@@ -365,6 +372,44 @@ class OwnKeyOnboardingIT {
 
         assertThat(Files.readString(file(out, ".state.json"))).contains("\"renewal\" : false");
         assertThat(keyState(keyArnOf(out))).isEqualTo("PendingImport");
+    }
+
+    @Test
+    void discard_unimportedPreparation_retiresTheKeyAndTheAliasAndMakesImportRefuseIt() throws Exception {
+        Material material = newMaterial("discard");
+        Path prepared = prepare(material, "discard");
+        String arn = keyArnOf(prepared);
+        String alias = aliasOf(prepared);
+        Path state = file(prepared, ".state.json");
+        Path wrapped = wrap(prepared, material.keyPair().getPrivate(), "discard");
+
+        assertThat(run("discard", "--state", state.toString(), "--dry-run")).as(err()).isZero();
+        assertThat(keyState(arn)).isEqualTo("PendingImport");
+
+        assertThat(run("discard", "--state", state.toString())).as(err()).isZero();
+        assertThat(keyState(arn)).isEqualTo("PendingDeletion");
+        assertThat(kms.listAliases(ListAliasesRequest.builder().build()).get().aliases())
+                .noneMatch(a -> a.aliasName().equals(alias));
+        assertThat(Files.readString(state)).contains("discardedAt");
+
+        assertThat(importKey(prepared, wrapped)).isEqualTo(OnboardingCli.EXIT_ERROR);
+        assertThat(err()).contains("discarded");
+        assertThat(scalar("SELECT count(*) FROM cgcom_issuer.tenant_signing_config")).isEqualTo(0L);
+
+        assertThat(run("discard", "--state", state.toString())).as("idempotent").isZero();
+    }
+
+    @Test
+    void discard_keyThatWasImported_isRefusedAndTheKeyStaysEnabled() throws Exception {
+        Material material = newMaterial("imported");
+        Path prepared = prepare(material, "imported");
+        assertThat(importKey(prepared, wrap(prepared, material.keyPair().getPrivate(), "imported"))).isZero();
+
+        int exitCode = run("discard", "--state", file(prepared, ".state.json").toString());
+
+        assertThat(exitCode).isEqualTo(OnboardingCli.EXIT_REJECTED);
+        assertThat(keyState(keyArnOf(prepared))).isEqualTo("Enabled");
+        assertThat(Files.readString(file(prepared, ".state.json"))).doesNotContain("\"discardedAt\" : \"");
     }
 
     private void assertSignatureVerifies(String keyArn, PublicKey publicKey) throws Exception {

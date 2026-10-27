@@ -4,6 +4,7 @@ import es.in2.issuer.backend.signing.domain.model.SigningModality;
 import es.in2.issuer.backend.signing.domain.spi.CallerIdentityPort;
 import es.in2.issuer.backend.signing.domain.spi.KmsKeyAdministrationPort;
 import es.in2.issuer.backend.signing.domain.spi.KmsKeyAdministrationPort.ImportParameters;
+import es.in2.issuer.backend.signing.domain.spi.KmsKeyAdministrationPort.KeyState;
 import es.in2.issuer.backend.signing.domain.spi.OnboardingArtifactsPort;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.ActiveConfiguration;
@@ -22,6 +23,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
@@ -44,7 +46,7 @@ import java.util.regex.Pattern;
  * created or imported. {@code prepare} checks the key and leaves a state marked as a renewal, and
  * {@code import} (without key material) checks again that the existing key is the certificate's and swaps the
  * rows in one transaction, with the same KMS key. That key is never disabled or scheduled for deletion, not even
- * when the renewal fails.
+ * when the renewal fails. {@link #discard} gives up a preparation that was never imported.
  *
  * <p>The tool never receives a private key in clear and never signs: the role that runs it has no
  * {@code kms:Sign}. A KMS key that an onboarding created and could not complete is disabled and scheduled
@@ -101,6 +103,24 @@ public class OwnKeyOnboarding {
 
     /** @param configurationId id of the new active row; {@code null} on a dry run */
     public record ImportResult(String keyArn, UUID configurationId, Operation operation, String spkiSha256) {}
+
+    /**
+     * @param prepared  the state {@code prepare} left
+     * @param dryRun    only check that the preparation can be discarded
+     * @param artifacts where the state is marked as discarded
+     */
+    public record DiscardCommand(PreparedOnboarding prepared, boolean dryRun, OnboardingArtifactsPort artifacts) {}
+
+    public enum DiscardOutcome {
+        /** The key was disabled and scheduled for deletion, its alias deleted and the state marked. */
+        DISCARDED,
+        /** Nothing to do: it was discarded before, or the key is already pending deletion or gone. */
+        ALREADY_DISCARDED,
+        /** A dry run: the preparation can be discarded. */
+        WOULD_DISCARD
+    }
+
+    public record DiscardResult(String keyArn, DiscardOutcome outcome) {}
 
     /** What an onboarding attempt knows about itself, for the event of a rejection. */
     private static final class Attempt {
@@ -238,6 +258,65 @@ public class OwnKeyOnboarding {
         if (!MessageDigest.isEqual(kms.getPublicKey(attempt.renewalKeyArn), certificate.spkiDer())) {
             throw new OnboardingRejectedException(RejectionReason.INVALID_KEY,
                     "the public key of the existing KMS key is not the public key of the new certificate");
+        }
+    }
+
+    /**
+     * Gives up a preparation that was never imported: its KMS key is disabled if possible, scheduled for
+     * deletion and its alias deleted, and the state is marked. It refuses (rejection) a key that is not the one
+     * of this preparation (the tags {@code operationId} and {@code Tenant} must match the state), a key that has
+     * key material, and a key that any signing configuration of any tenant references.
+     */
+    public DiscardResult discard(DiscardCommand command) {
+        PreparedOnboarding prepared = command.prepared();
+        requireTenantId(prepared.tenant());
+        if (prepared.renewal()) {
+            throw new OnboardingFailedException("a renewal created no KMS key: there is nothing to discard");
+        }
+        if (prepared.discardedAt() != null) {
+            return new DiscardResult(prepared.keyArn(), DiscardOutcome.ALREADY_DISCARDED);
+        }
+        KeyState state = kms.describeKeyState(prepared.keyArn());
+        if (state == KeyState.NOT_FOUND || state == KeyState.PENDING_DELETION) {
+            if (!command.dryRun()) {
+                command.artifacts().markDiscarded(prepared, clock.instant());
+            }
+            return new DiscardResult(prepared.keyArn(), DiscardOutcome.ALREADY_DISCARDED);
+        }
+        if (state != KeyState.PENDING_IMPORT) {
+            throw new OnboardingRejectedException(RejectionReason.POLICY_DENIED, "the key is " + state
+                    + ", not waiting for its key material: it has been imported and is not discarded");
+        }
+        requireKeyOfThisPreparation(prepared);
+        if (store.isKeyReferenced(prepared.keyArn(), false)) {
+            throw new OnboardingRejectedException(RejectionReason.POLICY_DENIED,
+                    "a signing configuration references the key: it is not discarded");
+        }
+        if (command.dryRun()) {
+            return new DiscardResult(prepared.keyArn(), DiscardOutcome.WOULD_DISCARD);
+        }
+        try {
+            kms.disableKey(prepared.keyArn());
+        } catch (RuntimeException e) {
+            log.debug("DisableKey of {} was not applied (a key waiting for its material cannot be disabled): {}",
+                    prepared.keyArn(), e.toString());
+        }
+        kms.scheduleKeyDeletion(prepared.keyArn(), pendingDeletionDays);
+        try {
+            kms.deleteAlias(prepared.alias());
+        } catch (RuntimeException e) {
+            log.warn("The key {} is scheduled for deletion but its alias {} could not be deleted: {}",
+                    prepared.keyArn(), prepared.alias(), e.toString());
+        }
+        command.artifacts().markDiscarded(prepared, clock.instant());
+        return new DiscardResult(prepared.keyArn(), DiscardOutcome.DISCARDED);
+    }
+
+    private void requireKeyOfThisPreparation(PreparedOnboarding prepared) {
+        Map<String, String> tags = kms.listTags(prepared.keyArn());
+        if (!prepared.operationId().equals(tags.get("operationId")) || !prepared.tenant().equals(tags.get("Tenant"))) {
+            throw new OnboardingRejectedException(RejectionReason.POLICY_DENIED,
+                    "the tags of the key are not those of this preparation (operationId, Tenant): it is not discarded");
         }
     }
 
