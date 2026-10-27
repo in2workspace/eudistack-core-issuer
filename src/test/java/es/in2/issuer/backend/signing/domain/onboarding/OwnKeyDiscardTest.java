@@ -62,7 +62,7 @@ class OwnKeyDiscardTest {
 
         assertThat(result.outcome()).isEqualTo(DiscardOutcome.DISCARDED);
         assertThat(kms.calls).containsExactly("describeKey:" + ARN, "listTags:" + ARN, "disableKey:" + ARN,
-                "scheduleKeyDeletion:" + ARN + ":7", "deleteAlias:" + prepared.alias());
+                "scheduleKeyDeletion:" + ARN + ":7", "resolveKeyArn:" + prepared.alias(), "deleteAlias:" + prepared.alias());
         assertThat(artifacts.discarded).isEqualTo(prepared);
     }
 

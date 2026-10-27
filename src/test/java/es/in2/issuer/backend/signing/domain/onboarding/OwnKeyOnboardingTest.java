@@ -73,6 +73,11 @@ class OwnKeyOnboardingTest {
         return new ImportCommand(prepared, artifacts.importToken, KEY_MATERIAL, OnboardingPolicy.nonProduction(), dryRun);
     }
 
+    private void assertNothingDestroyed() {
+        assertThat(kms.calls).noneMatch(call -> call.startsWith("disableKey") || call.startsWith("scheduleKeyDeletion")
+                || call.startsWith("deleteAlias") || call.startsWith("importKeyMaterial"));
+    }
+
     private void assertKeyDiscarded() {
         assertThat(kms.calls).contains("disableKey:" + FakeKms.KEY_ARN, "scheduleKeyDeletion:" + FakeKms.KEY_ARN + ":7");
     }
@@ -261,7 +266,7 @@ class OwnKeyOnboardingTest {
         var result = onboarding.importKey(importCommand(prepared, true));
 
         assertThat(result.configurationId()).isNull();
-        assertThat(kms.calls).isEmpty();
+        assertThat(kms.calls).as("reads only").allMatch(call -> call.startsWith("describeKey") || call.startsWith("listTags"));
         assertThat(store.transactions).isZero();
         assertThat(store.eventsInOwnTransaction).isEmpty();
     }
@@ -272,7 +277,8 @@ class OwnKeyOnboardingTest {
 
         var result = onboarding.importKey(importCommand(prepared, false));
 
-        assertThat(kms.calls).containsExactly("importKeyMaterial", "getPublicKey");
+        assertThat(kms.calls).containsExactly("describeKey:" + FakeKms.KEY_ARN, "listTags:" + FakeKms.KEY_ARN,
+                "importKeyMaterial", "getPublicKey");
         assertThat(store.transactions).isEqualTo(1);
         assertThat(store.committedOperations).containsExactly("lockActive:cgcom",
                 "activate:" + FakeKms.KEY_ARN + ":" + CALLER, "reserve:cgcom");
@@ -330,7 +336,7 @@ class OwnKeyOnboardingTest {
         assertThatThrownBy(() -> onboarding.importKey(importCommand(prepared, false)))
                 .hasMessage("database error");
 
-        assertThat(kms.calls).startsWith("importKeyMaterial", "getPublicKey");
+        assertThat(kms.calls).contains("importKeyMaterial", "getPublicKey");
         assertKeyDiscarded();
         assertThat(store.committedOperations).isEmpty();
         assertThat(store.committedEvents).isEmpty();
@@ -424,9 +430,10 @@ class OwnKeyOnboardingTest {
                 () -> "op-2", 7);
 
         assertThatThrownBy(() -> later.importKey(importCommand(prepared, false)))
-                .isInstanceOf(OnboardingFailedException.class)
+                .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessageContaining("run prepare again");
         assertKeyDiscarded();
+        assertThat(store.eventsInOwnTransaction).as("the rejection is audited").hasSize(1);
     }
 
     @Test
@@ -440,7 +447,7 @@ class OwnKeyOnboardingTest {
                 .isInstanceOf(OnboardingFailedException.class)
                 .hasMessageContaining("does not match");
 
-        assertThat(kms.calls).isEmpty();
+        assertNothingDestroyed();
     }
 
     @Test

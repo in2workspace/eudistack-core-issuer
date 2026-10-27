@@ -74,7 +74,8 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
             Instant importTokenExpiresAt,
             String importTokenFile,
             boolean renewal,
-            Instant discardedAt
+            Instant discardedAt,
+            Instant importedAt
     ) {}
 
     @Override
@@ -94,19 +95,29 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
         }
     }
 
-    /** Rewrites the state file next to the others with {@code discardedAt}; this is the one file that is overwritten. */
+    /** Rewrites the state file with {@code discardedAt}: one of the two files that are overwritten, in place. */
     @Override
     public void markDiscarded(PreparedOnboarding prepared, Instant discardedAt) {
-        String prefix = prefix(prepared);
+        rewrite(new PreparedOnboarding(prepared.operationId(), prepared.tenant(), prepared.keyArn(), prepared.alias(),
+                prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),
+                prepared.importTokenExpiresAt(), prepared.renewal(), discardedAt, prepared.importedAt()));
+    }
+
+    /** Rewrites the state file with {@code importedAt}: a consumed state is refused by {@code import}. */
+    @Override
+    public void markImported(PreparedOnboarding prepared, Instant importedAt) {
+        rewrite(new PreparedOnboarding(prepared.operationId(), prepared.tenant(), prepared.keyArn(), prepared.alias(),
+                prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),
+                prepared.importTokenExpiresAt(), prepared.renewal(), prepared.discardedAt(), importedAt));
+    }
+
+    private void rewrite(PreparedOnboarding marked) {
+        String prefix = prefix(marked);
         try {
             Files.write(stateFile != null ? stateFile : outputDirectory.resolve(prefix + ".state.json"),
-                    MAPPER.writeValueAsBytes(document(
-                    new PreparedOnboarding(prepared.operationId(), prepared.tenant(), prepared.keyArn(), prepared.alias(),
-                            prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),
-                            prepared.importTokenExpiresAt(), prepared.renewal(), discardedAt),
-                    prepared.renewal() ? null : prefix + ".import-token.bin")));
+                    MAPPER.writeValueAsBytes(document(marked, marked.renewal() ? null : prefix + ".import-token.bin")));
         } catch (IOException e) {
-            throw new OnboardingFailedException("could not mark the state file as discarded", e);
+            throw new OnboardingFailedException("could not mark the state file", e);
         }
     }
 
@@ -117,7 +128,7 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
     private static StateDocument document(PreparedOnboarding prepared, String tokenFile) {
         return new StateDocument(STATE_VERSION, prepared.operationId(), prepared.tenant(), prepared.keyArn(),
                 prepared.alias(), prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),
-                prepared.importTokenExpiresAt(), tokenFile, prepared.renewal(), prepared.discardedAt());
+                prepared.importTokenExpiresAt(), tokenFile, prepared.renewal(), prepared.discardedAt(), prepared.importedAt());
     }
 
     /**
@@ -138,7 +149,7 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
             }
             return new Loaded(new PreparedOnboarding(state.operationId(), state.tenant(), state.keyArn(), state.alias(),
                     state.certificateChain(), state.spkiSha256(), state.createdAt(), state.importTokenExpiresAt(),
-                    state.renewal(), state.discardedAt()), token);
+                    state.renewal(), state.discardedAt(), state.importedAt()), token);
         } catch (JsonProcessingException e) {
             throw new OnboardingFailedException("the state file " + stateFile + " is not a valid state file");
         } catch (IOException e) {

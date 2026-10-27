@@ -412,6 +412,33 @@ class OwnKeyOnboardingIT {
         assertThat(Files.readString(file(prepared, ".state.json"))).doesNotContain("\"discardedAt\" : \"");
     }
 
+    @Test
+    void import_repeatedWithTheSameState_neverTouchesTheActiveKey() throws Exception {
+        Material material = newMaterial("twice");
+        Path prepared = prepare(material, "twice");
+        String arn = keyArnOf(prepared);
+        Path wrapped = wrap(prepared, material.keyPair().getPrivate(), "twice");
+        assertThat(importKey(prepared, wrapped)).as(err()).isZero();
+        Path state = file(prepared, ".state.json");
+        assertThat(Files.readString(state)).contains("importedAt");
+
+        // The state is consumed: refused with no change.
+        assertThat(importKey(prepared, wrapped)).isEqualTo(OnboardingCli.EXIT_ERROR);
+        assertThat(err()).contains("already imported");
+        assertThat(keyState(arn)).isEqualTo("Enabled");
+
+        // As if the consumed mark had been lost: the key checks still refuse, and nothing is disabled.
+        Files.writeString(state, Files.readString(state).replaceAll("\"importedAt\"\s*:\s*\"[^\"]*\"", "\"importedAt\" : null"));
+        stderr.reset();
+        assertThat(importKey(prepared, wrapped)).isEqualTo(OnboardingCli.EXIT_REJECTED);
+        assertThat(err()).contains("not the one of this preparation");
+        assertThat(keyState(arn)).as("the active key is untouched").isEqualTo("Enabled");
+        assertThat(scalar("SELECT count(*) FROM cgcom_issuer.tenant_signing_config WHERE status = 'active'"))
+                .isEqualTo(1L);
+        assertThat(run("reconcile", "--grace-seconds", "0")).isZero();
+        assertThat(keyState(arn)).isEqualTo("Enabled");
+    }
+
     private void assertSignatureVerifies(String keyArn, PublicKey publicKey) throws Exception {
         byte[] message = "EUD-289 onboarding test".getBytes(StandardCharsets.UTF_8);
         byte[] signature = kms.sign(SignRequest.builder().keyId(keyArn).message(SdkBytes.fromByteArray(message))

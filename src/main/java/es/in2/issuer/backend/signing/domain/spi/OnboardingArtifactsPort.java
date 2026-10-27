@@ -18,6 +18,9 @@ public interface OnboardingArtifactsPort {
      */
     void write(PreparedOnboarding prepared, byte[] wrappingPublicKeyDer, byte[] importToken);
 
+    /** Marks the state of a preparation as consumed by a successful {@code import}, so that it is never used again. */
+    void markImported(PreparedOnboarding prepared, Instant importedAt);
+
     /** Marks the state of a preparation as discarded, so that {@code import} refuses it. */
     void markDiscarded(PreparedOnboarding prepared, Instant discardedAt);
 }

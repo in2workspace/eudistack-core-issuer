@@ -36,6 +36,7 @@ final class OnboardingFakes {
         Instant tokenValidTo = Instant.parse("2026-10-28T12:00:00Z");
         byte[] publicKey;
         Map<String, String> tags = new HashMap<>();
+        final Map<String, String> aliases = new HashMap<>();
 
         private void record(String call) {
             calls.add(call);
@@ -48,12 +49,16 @@ final class OnboardingFakes {
         @Override
         public String createKey(String tenant, String operationId) {
             record("createKey:" + tenant + ":" + operationId);
+            states.put(KEY_ARN, KeyState.PENDING_IMPORT);
+            tags.put("Tenant", tenant);
+            tags.put("operationId", operationId);
             return KEY_ARN;
         }
 
         @Override
         public void createAlias(String alias, String keyArn) {
             record("createAlias:" + alias);
+            aliases.put(alias, keyArn);
         }
 
         @Override
@@ -65,6 +70,7 @@ final class OnboardingFakes {
         @Override
         public void importKeyMaterial(String keyArn, byte[] token, byte[] encryptedKeyMaterial) {
             record("importKeyMaterial");
+            states.put(keyArn, KeyState.ENABLED);
         }
 
         @Override
@@ -80,6 +86,12 @@ final class OnboardingFakes {
         }
 
         @Override
+        public java.util.Optional<String> resolveKeyArn(String keyIdOrAlias) {
+            record("resolveKeyArn:" + keyIdOrAlias);
+            return java.util.Optional.ofNullable(aliases.get(keyIdOrAlias));
+        }
+
+        @Override
         public Map<String, String> listTags(String keyArn) {
             record("listTags:" + keyArn);
             return tags;
@@ -88,6 +100,7 @@ final class OnboardingFakes {
         @Override
         public void deleteAlias(String alias) {
             record("deleteAlias:" + alias);
+            aliases.remove(alias);
         }
 
         @Override
@@ -254,6 +267,12 @@ final class OnboardingFakes {
         byte[] importToken;
         RuntimeException failure;
         PreparedOnboarding discarded;
+        PreparedOnboarding imported;
+
+        @Override
+        public void markImported(PreparedOnboarding prepared, Instant importedAt) {
+            this.imported = prepared;
+        }
 
         @Override
         public void markDiscarded(PreparedOnboarding prepared, Instant discardedAt) {

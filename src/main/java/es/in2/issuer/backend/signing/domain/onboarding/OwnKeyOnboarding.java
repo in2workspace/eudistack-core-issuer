@@ -13,6 +13,7 @@ import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.NewOwnKeyConfigu
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.RegisteredTenant;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.SpkiReservation;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.WithdrawnOwnKey;
+import es.in2.issuer.backend.signing.domain.util.KeyRefs;
 import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChanged.Operation;
 import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChanged.Result;
 import lombok.extern.slf4j.Slf4j;
@@ -22,8 +23,10 @@ import java.security.cert.X509Certificate;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
@@ -97,9 +100,24 @@ public class OwnKeyOnboarding {
      * @param importToken          the token {@code prepare} left
      * @param encryptedKeyMaterial the private key, wrapped by the customer with the wrapping public key
      * @param dryRun               run the validations only: nothing is written to KMS or the database
+     * @param artifacts            where the state is marked as consumed after a successful import; may be null
      */
     public record ImportCommand(PreparedOnboarding prepared, byte[] importToken, byte[] encryptedKeyMaterial,
-                                OnboardingPolicy policy, boolean dryRun) {}
+                                OnboardingPolicy policy, boolean dryRun, OnboardingArtifactsPort artifacts) {
+
+        public ImportCommand(PreparedOnboarding prepared, byte[] importToken, byte[] encryptedKeyMaterial,
+                             OnboardingPolicy policy, boolean dryRun) {
+            this(prepared, importToken, encryptedKeyMaterial, policy, dryRun, null);
+        }
+    }
+
+    /** The KMS key a preparation created, as far as the checks and the cleanup need to know it. */
+    private record OwnKey(String arn, String tenant, String operationId, String alias) {
+
+        static OwnKey of(PreparedOnboarding prepared) {
+            return new OwnKey(prepared.keyArn(), prepared.tenant(), prepared.operationId(), prepared.alias());
+        }
+    }
 
     /** @param configurationId id of the new active row; {@code null} on a dry run */
     public record ImportResult(String keyArn, UUID configurationId, Operation operation, String spkiSha256) {}
@@ -180,7 +198,7 @@ public class OwnKeyOnboarding {
             command.artifacts().write(prepared, parameters.wrappingPublicKeyDer(), parameters.importToken());
             return new PrepareResult(prepared, attempt.operation(), certificate.spkiSha256Hex());
         } catch (RuntimeException e) {
-            discardKey(keyArn, e);
+            retireOwnNewKey(new OwnKey(keyArn, command.tenant(), attempt.operationId, alias), PENDING_ONLY, e);
             throw e;
         }
     }
@@ -188,45 +206,81 @@ public class OwnKeyOnboarding {
     public ImportResult importKey(ImportCommand command) {
         PreparedOnboarding prepared = command.prepared();
         requireTenantId(prepared.tenant());
-        Attempt attempt = new Attempt(prepared.tenant(), command.dryRun() ? null : identity.callerArn(), clock.instant());
-        attempt.operationId = prepared.operationId();
-
+        // A consumed or discarded state is refused before anything else, with no call to KMS: repeating an import
+        // must not be able to touch a key.
+        if (prepared.importedAt() != null) {
+            throw new OnboardingFailedException("this preparation was already imported at " + prepared.importedAt()
+                    + ": it cannot be used again");
+        }
         if (prepared.discardedAt() != null) {
             throw new OnboardingFailedException("this preparation was discarded at " + prepared.discardedAt()
                     + ": run prepare again");
+        }
+        Attempt attempt = new Attempt(prepared.tenant(), command.dryRun() ? null : identity.callerArn(), clock.instant());
+        attempt.operationId = prepared.operationId();
+        OwnKey key = OwnKey.of(prepared);
+
+        if (!prepared.renewal()) {
+            requireTheKeyOfThisPreparation(key, attempt, command.dryRun());
         }
         ValidatedOwnKeyCertificate certificate;
         try {
             certificate = validatedOrRejected(attempt,
                     () -> OwnKeyCertificateValidator.parseBase64Chain(prepared.certificateChain()),
                     command.policy(), command.dryRun());
-            requireStateOfItsChain(prepared, certificate);
-            requireSameKindOfOnboarding(prepared, attempt);
         } catch (OnboardingRejectedException rejected) {
-            // A renewal created nothing: the key it names is the active one and is never discarded.
-            if (!command.dryRun() && !prepared.renewal()) {
-                discardKey(prepared.keyArn(), rejected);
-            }
+            retireIfNewKey(prepared, key, command.dryRun(), PENDING_ONLY, rejected);
             throw rejected;
         }
-        if (prepared.renewal()) {
-            if (command.dryRun()) {
-                return new ImportResult(prepared.keyArn(), null, attempt.operation(), certificate.spkiSha256Hex());
-            }
-            return renewAndActivate(command, attempt, certificate);
-        }
-        if (!clock.instant().isBefore(prepared.importTokenExpiresAt())) {
-            OnboardingFailedException expired = new OnboardingFailedException("the import token expired at "
-                    + prepared.importTokenExpiresAt() + ": run prepare again");
+        try {
+            requireStateOfItsChain(prepared, certificate);
+            requireSameKindOfOnboarding(prepared, attempt);
+            requireNotExpired(prepared);
+        } catch (OnboardingRejectedException rejected) {
             if (!command.dryRun()) {
-                discardKey(prepared.keyArn(), expired);
+                recordRejection(attempt, rejected);
             }
-            throw expired;
+            retireIfNewKey(prepared, key, command.dryRun(), PENDING_ONLY, rejected);
+            throw rejected;
         }
         if (command.dryRun()) {
             return new ImportResult(prepared.keyArn(), null, attempt.operation(), certificate.spkiSha256Hex());
         }
-        return importAndActivate(command, attempt, certificate);
+        return prepared.renewal() ? renewAndActivate(command, attempt, certificate)
+                : importAndActivate(command, attempt, key, certificate);
+    }
+
+    /**
+     * Before anything is validated or imported, the key the state names must be the one this preparation created:
+     * waiting for its material, tagged for this tenant and this operation, and referenced by no configuration. A
+     * state that names any other key (the active one, another tenant's) is rejected and that key is NOT touched.
+     */
+    private void requireTheKeyOfThisPreparation(OwnKey key, Attempt attempt, boolean dryRun) {
+        String problem = whyNotAnOwnNewKey(key, PENDING_ONLY);
+        if (problem == null) {
+            return;
+        }
+        OnboardingRejectedException rejected = new OnboardingRejectedException(RejectionReason.POLICY_DENIED,
+                "the key named by the state is not the one of this preparation (" + problem + "): nothing was imported");
+        if (!dryRun) {
+            recordRejection(attempt, rejected);
+        }
+        throw rejected;
+    }
+
+    private void retireIfNewKey(PreparedOnboarding prepared, OwnKey key, boolean dryRun, Set<KeyState> allowed,
+                                Throwable cause) {
+        // A renewal created nothing: the key it names is the active one and is never touched.
+        if (!dryRun && !prepared.renewal()) {
+            retireOwnNewKey(key, allowed, cause);
+        }
+    }
+
+    private void requireNotExpired(PreparedOnboarding prepared) {
+        if (!prepared.renewal() && !clock.instant().isBefore(prepared.importTokenExpiresAt())) {
+            throw new OnboardingRejectedException(RejectionReason.POLICY_DENIED, "the import token expired at "
+                    + prepared.importTokenExpiresAt() + ": run prepare again");
+        }
     }
 
     /** What {@code prepare} decided (new key or renewal) must still be true: the tenant may have changed since. */
@@ -247,10 +301,24 @@ public class OwnKeyOnboarding {
         try {
             requireExistingKeyIsTheCertificates(attempt, certificate);
             UUID configurationId = store.inTransaction(tx -> activate(tx, attempt, prepared, certificate));
+            markImported(command);
             return new ImportResult(prepared.keyArn(), configurationId, attempt.operation(), certificate.spkiSha256Hex());
         } catch (OnboardingRejectedException rejected) {
             recordRejection(attempt, rejected);
             throw rejected;
+        }
+    }
+
+    /** After the commit: a failure here cannot undo the change, and the key checks refuse a repeated import anyway. */
+    private void markImported(ImportCommand command) {
+        if (command.artifacts() == null) {
+            return;
+        }
+        try {
+            command.artifacts().markImported(command.prepared(), clock.instant());
+        } catch (RuntimeException e) {
+            log.error("The import of tenant '{}' was committed but its state file could not be marked as consumed: {}",
+                    command.prepared().tenant(), e.toString());
         }
     }
 
@@ -283,40 +351,107 @@ public class OwnKeyOnboarding {
             }
             return new DiscardResult(prepared.keyArn(), DiscardOutcome.ALREADY_DISCARDED);
         }
-        if (state != KeyState.PENDING_IMPORT) {
-            throw new OnboardingRejectedException(RejectionReason.POLICY_DENIED, "the key is " + state
-                    + ", not waiting for its key material: it has been imported and is not discarded");
-        }
-        requireKeyOfThisPreparation(prepared);
-        if (store.isKeyReferenced(prepared.keyArn(), false)) {
+        OwnKey key = OwnKey.of(prepared);
+        String problem = whyNotAnOwnNewKey(key, PENDING_ONLY, state);
+        if (problem != null) {
             throw new OnboardingRejectedException(RejectionReason.POLICY_DENIED,
-                    "a signing configuration references the key: it is not discarded");
+                    "the key is not discarded (" + problem + ")");
         }
         if (command.dryRun()) {
             return new DiscardResult(prepared.keyArn(), DiscardOutcome.WOULD_DISCARD);
         }
-        try {
-            kms.disableKey(prepared.keyArn());
-        } catch (RuntimeException e) {
-            log.debug("DisableKey of {} was not applied (a key waiting for its material cannot be disabled): {}",
-                    prepared.keyArn(), e.toString());
-        }
-        kms.scheduleKeyDeletion(prepared.keyArn(), pendingDeletionDays);
-        try {
-            kms.deleteAlias(prepared.alias());
-        } catch (RuntimeException e) {
-            log.warn("The key {} is scheduled for deletion but its alias {} could not be deleted: {}",
-                    prepared.keyArn(), prepared.alias(), e.toString());
-        }
+        retireVerifiedKey(key);
         command.artifacts().markDiscarded(prepared, clock.instant());
         return new DiscardResult(prepared.keyArn(), DiscardOutcome.DISCARDED);
     }
 
-    private void requireKeyOfThisPreparation(PreparedOnboarding prepared) {
-        Map<String, String> tags = kms.listTags(prepared.keyArn());
-        if (!prepared.operationId().equals(tags.get("operationId")) || !prepared.tenant().equals(tags.get("Tenant"))) {
-            throw new OnboardingRejectedException(RejectionReason.POLICY_DENIED,
-                    "the tags of the key are not those of this preparation (operationId, Tenant): it is not discarded");
+    private static final Set<KeyState> PENDING_ONLY = EnumSet.of(KeyState.PENDING_IMPORT);
+    /** Right after this run's own {@code ImportKeyMaterial} the key is enabled; if that call failed it still waits. */
+    private static final Set<KeyState> PENDING_OR_JUST_IMPORTED = EnumSet.of(KeyState.PENDING_IMPORT, KeyState.ENABLED);
+
+    /**
+     * The one check before anything destroys a key: it is in a state this operation can have left it in, it carries
+     * the tags of this preparation (so it is not another tenant's, and not the active key of anyone), and no signing
+     * configuration of any tenant references it.
+     *
+     * @return what is wrong, or {@code null} if the key is the new key of this preparation
+     */
+    private String whyNotAnOwnNewKey(OwnKey key, Set<KeyState> allowedStates) {
+        return whyNotAnOwnNewKey(key, allowedStates, kms.describeKeyState(key.arn()));
+    }
+
+    private String whyNotAnOwnNewKey(OwnKey key, Set<KeyState> allowedStates, KeyState state) {
+        if (!allowedStates.contains(state)) {
+            return "the key is " + state + ", not " + allowedStates
+                    + (state == KeyState.ENABLED || state == KeyState.DISABLED ? ": its key material is imported" : "");
+        }
+        Map<String, String> tags = kms.listTags(key.arn());
+        if (!key.operationId().equals(tags.get("operationId")) || !key.tenant().equals(tags.get("Tenant"))) {
+            return "its tags are not those of this preparation";
+        }
+        if (store.isKeyReferenced(key.arn(), false)) {
+            return "a signing configuration references the key";
+        }
+        return null;
+    }
+
+    /** Disables the key if it can be, schedules its deletion and deletes its alias if that points to it. */
+    private void retireVerifiedKey(OwnKey key) {
+        try {
+            kms.disableKey(key.arn());
+        } catch (RuntimeException e) {
+            log.debug("DisableKey of {} was not applied (a key waiting for its material cannot be disabled): {}",
+                    KeyRefs.forLog(key.arn()), e.toString());
+        }
+        kms.scheduleKeyDeletion(key.arn(), pendingDeletionDays);
+        deleteAliasIfItIsTheKeys(key);
+    }
+
+    /** The alias comes from a file: it is only deleted if it resolves to this very key. */
+    private void deleteAliasIfItIsTheKeys(OwnKey key) {
+        if (key.alias() == null) {
+            return;
+        }
+        try {
+            if (kms.resolveKeyArn(key.alias()).filter(key.arn()::equals).isPresent()) {
+                kms.deleteAlias(key.alias());
+            } else {
+                log.warn("The alias {} does not point to the key {}: it is left alone", key.alias(),
+                        KeyRefs.forLog(key.arn()));
+            }
+        } catch (RuntimeException e) {
+            log.warn("The key {} is scheduled for deletion but its alias {} could not be deleted: {}",
+                    KeyRefs.forLog(key.arn()), key.alias(), e.toString());
+        }
+    }
+
+    /**
+     * Compensation: the new key that an onboarding created and did not complete is disabled and scheduled for
+     * deletion, but only after checking that it still is that key. If it is not (the state names another key, a
+     * configuration references it, KMS cannot be read) it is not touched, and the operator is told to look at it.
+     */
+    private void retireOwnNewKey(OwnKey key, Set<KeyState> allowedStates, Throwable cause) {
+        String problem;
+        try {
+            problem = whyNotAnOwnNewKey(key, allowedStates);
+        } catch (RuntimeException e) {
+            log.error("The KMS key {} could not be checked and is NOT touched: check it by hand ({})",
+                    KeyRefs.forLog(key.arn()), e.toString());
+            cause.addSuppressed(e);
+            return;
+        }
+        if (problem != null) {
+            log.error("The KMS key {} is NOT touched: {}. Check it by hand.", KeyRefs.forLog(key.arn()), problem);
+            return;
+        }
+        try {
+            retireVerifiedKey(key);
+            log.warn("The KMS key {} was not put into service: it is disabled and scheduled for deletion",
+                    KeyRefs.forLog(key.arn()));
+        } catch (RuntimeException e) {
+            log.error("The KMS key {} was not put into service and its deletion could not be scheduled: "
+                    + "disable it and schedule its deletion by hand", KeyRefs.forLog(key.arn()));
+            cause.addSuppressed(e);
         }
     }
 
@@ -324,7 +459,8 @@ public class OwnKeyOnboarding {
      * From the {@code ImportKeyMaterial} call on, any failure disables and schedules the deletion of the key.
      * Nothing after the commit of the transaction may throw: it would discard a key that is already active.
      */
-    private ImportResult importAndActivate(ImportCommand command, Attempt attempt, ValidatedOwnKeyCertificate certificate) {
+    private ImportResult importAndActivate(ImportCommand command, Attempt attempt, OwnKey key,
+                                           ValidatedOwnKeyCertificate certificate) {
         PreparedOnboarding prepared = command.prepared();
         try {
             kms.importKeyMaterial(prepared.keyArn(), command.importToken(), command.encryptedKeyMaterial());
@@ -333,17 +469,19 @@ public class OwnKeyOnboarding {
                         "the public key of the imported KMS key is not the public key of the certificate");
             }
             UUID configurationId = store.inTransaction(tx -> activate(tx, attempt, prepared, certificate));
+            markImported(command);
             return new ImportResult(prepared.keyArn(), configurationId, attempt.operation(), certificate.spkiSha256Hex());
         } catch (OnboardingRejectedException rejected) {
-            discardKey(prepared.keyArn(), rejected);
+            retireOwnNewKey(key, PENDING_OR_JUST_IMPORTED, rejected);
             recordRejection(attempt, rejected);
             throw rejected;
         } catch (CommitOutcomeUnknownException unknown) {
             log.error("The outcome of the commit is unknown: the KMS key {} may be the active one and was NOT "
-                    + "disabled. Check tenant_signing_config before doing anything else.", prepared.keyArn());
+                    + "disabled. Check tenant_signing_config before doing anything else.",
+                    KeyRefs.forLog(prepared.keyArn()));
             throw unknown;
         } catch (RuntimeException failure) {
-            discardKey(prepared.keyArn(), failure);
+            retireOwnNewKey(key, PENDING_OR_JUST_IMPORTED, failure);
             throw failure;
         }
     }
@@ -454,28 +592,6 @@ public class OwnKeyOnboarding {
         return new SigningConfigurationChanged(attempt.tenant, operation, result, reason, previousModality,
                 SigningModality.OWN_KEY, certificateSha256, attempt.actor, Duration.between(attempt.startedAt, now), now,
                 attempt.operationId);
-    }
-
-    /**
-     * Compensation: the key that an onboarding created and did not complete is disabled and scheduled for
-     * deletion. A key that has no material yet cannot be disabled, so that step is allowed to fail; if the
-     * deletion cannot be scheduled the operator is told which key to retire by hand.
-     */
-    private void discardKey(String keyArn, Throwable cause) {
-        try {
-            kms.disableKey(keyArn);
-        } catch (RuntimeException e) {
-            log.debug("DisableKey of {} was not applied (a key waiting for its material cannot be disabled): {}",
-                    keyArn, e.toString());
-        }
-        try {
-            kms.scheduleKeyDeletion(keyArn, pendingDeletionDays);
-            log.warn("The KMS key {} was not put into service: it is disabled and scheduled for deletion", keyArn);
-        } catch (RuntimeException e) {
-            log.error("The KMS key {} was not put into service and its deletion could not be scheduled: "
-                    + "disable it and schedule its deletion by hand", keyArn);
-            cause.addSuppressed(e);
-        }
     }
 
     private static String defaultAlias(String tenant, String operationId) {

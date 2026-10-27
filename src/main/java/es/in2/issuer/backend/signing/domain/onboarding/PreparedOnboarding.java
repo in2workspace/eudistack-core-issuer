@@ -19,6 +19,8 @@ import java.util.List;
  * @param renewal             the certificate is renewed keeping the key: {@code keyArn} is the key of the tenant's
  *                            active configuration, nothing was created in KMS and {@code import} imports nothing
  * @param discardedAt         when {@code discard} gave the preparation up; {@code null} if it was not
+ * @param importedAt          when a successful {@code import} consumed it; {@code null} if it did not. A consumed
+ *                            state is refused, so that repeating {@code import} cannot touch anything
  */
 public record PreparedOnboarding(
         String operationId,
@@ -30,11 +32,19 @@ public record PreparedOnboarding(
         Instant createdAt,
         Instant importTokenExpiresAt,
         boolean renewal,
-        Instant discardedAt
+        Instant discardedAt,
+        Instant importedAt
 ) {
 
     public PreparedOnboarding {
         certificateChain = List.copyOf(certificateChain);
+    }
+
+    public PreparedOnboarding(String operationId, String tenant, String keyArn, String alias,
+                              List<String> certificateChain, String spkiSha256, Instant createdAt,
+                              Instant importTokenExpiresAt, boolean renewal, Instant discardedAt) {
+        this(operationId, tenant, keyArn, alias, certificateChain, spkiSha256, createdAt, importTokenExpiresAt,
+                renewal, discardedAt, null);
     }
 
     /** A preparation of a new key: neither a renewal nor discarded. */
@@ -42,6 +52,6 @@ public record PreparedOnboarding(
                               List<String> certificateChain, String spkiSha256, Instant createdAt,
                               Instant importTokenExpiresAt) {
         this(operationId, tenant, keyArn, alias, certificateChain, spkiSha256, createdAt, importTokenExpiresAt,
-                false, null);
+                false, null, null);
     }
 }

@@ -112,4 +112,18 @@ class PreparedOnboardingFilesTest {
 
         assertThat(PreparedOnboardingFiles.read(state, null).prepared().discardedAt()).isEqualTo(when);
     }
+
+    @Test
+    void markImported_rewritesTheStateWithTheDateAndKeepsTheRest() throws Exception {
+        new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
+        Path state = directory.resolve("own-key-cgcom-op-1.state.json");
+        Instant when = Instant.parse("2026-10-27T13:00:00Z");
+
+        PreparedOnboardingFiles.around(state).markImported(PREPARED, when);
+
+        var read = PreparedOnboardingFiles.read(state, null).prepared();
+        assertThat(read.importedAt()).isEqualTo(when);
+        assertThat(read.keyArn()).isEqualTo(PREPARED.keyArn());
+        assertThat(read.discardedAt()).isNull();
+    }
 }

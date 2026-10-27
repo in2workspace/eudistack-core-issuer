@@ -30,6 +30,7 @@ import software.amazon.awssdk.services.kms.model.WrappingKeySpec;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.Supplier;
@@ -138,6 +139,19 @@ public class AwsKmsKeyAdministrationAdapter implements KmsKeyAdministrationPort 
         } catch (OnboardingFailedException e) {
             if (e.getCause() instanceof NotFoundException) {
                 return KeyState.NOT_FOUND;
+            }
+            throw e;
+        }
+    }
+
+    @Override
+    public Optional<String> resolveKeyArn(String keyIdOrAlias) {
+        try {
+            return Optional.ofNullable(call("DescribeKey", () -> client.describeKey(
+                    DescribeKeyRequest.builder().keyId(keyIdOrAlias).build())).keyMetadata().arn());
+        } catch (OnboardingFailedException e) {
+            if (e.getCause() instanceof NotFoundException) {
+                return Optional.empty();
             }
             throw e;
         }

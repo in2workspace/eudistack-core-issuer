@@ -296,7 +296,7 @@ public final class OnboardingCli {
         byte[] keyMaterial = invocation.has(Opt.KEY_MATERIAL) || needsKeyMaterial
                 ? readBytes(Path.of(invocation.require(Opt.KEY_MATERIAL))) : new byte[0];
         var result = onboarding.importKey(new ImportCommand(loaded.prepared(), loaded.importToken(), keyMaterial,
-                policy(invocation), invocation.dryRun()));
+                policy(invocation), invocation.dryRun(), PreparedOnboardingFiles.around(stateFile)));
         if (result.configurationId() == null) {
             out.println("dry run: the onboarding of tenant " + loaded.prepared().tenant()
                     + " passes the validations (operation " + result.operation().catalogName() + "); nothing was imported");

@@ -180,6 +180,22 @@ class AwsKmsKeyAdministrationAdapterTest {
     }
 
     @Test
+    void resolveKeyArn_aliasOfAKey_returnsTheArn() {
+        when(client.describeKey(any(DescribeKeyRequest.class))).thenReturn(CompletableFuture.completedFuture(
+                DescribeKeyResponse.builder().keyMetadata(KeyMetadata.builder().arn(KEY_ARN).build()).build()));
+
+        assertThat(adapter.resolveKeyArn("alias/own-key-cgcom-op-1")).contains(KEY_ARN);
+    }
+
+    @Test
+    void resolveKeyArn_aliasThatDoesNotExist_isEmpty() {
+        when(client.describeKey(any(DescribeKeyRequest.class)))
+                .thenReturn(failed(NotFoundException.builder().message("gone").build()));
+
+        assertThat(adapter.resolveKeyArn("alias/none")).isEmpty();
+    }
+
+    @Test
     void deleteAlias_deletesTheAliasByName() {
         when(client.deleteAlias(any(DeleteAliasRequest.class)))
                 .thenReturn(CompletableFuture.completedFuture(DeleteAliasResponse.builder().build()));
