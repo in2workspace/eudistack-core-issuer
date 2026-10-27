@@ -68,9 +68,18 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
             }
             boolean provisioned = queryString(connection, "SELECT table_name FROM information_schema.tables "
                     + "WHERE table_schema = ? AND table_name = 'tenant_signing_config'", schemaName(tenantId)) != null;
-            String modality = provisioned ? queryString(connection, "SELECT modality FROM " + table(tenantId)
-                    + " WHERE status = 'active'") : null;
-            return Optional.of(new RegisteredTenant(tenantId, "active".equals(status), provisioned, modalityOf(modality)));
+            if (!provisioned) {
+                return Optional.of(new RegisteredTenant(tenantId, "active".equals(status), false, null, null, null));
+            }
+            try (PreparedStatement statement = connection.prepareStatement("SELECT id, modality, own_key_kms_key_ref FROM "
+                    + table(tenantId) + " WHERE status = 'active'");
+                 ResultSet rs = statement.executeQuery()) {
+                boolean active = "active".equals(status);
+                return rs.next()
+                        ? Optional.of(new RegisteredTenant(tenantId, active, true, modalityOf(rs.getString(2)),
+                                rs.getObject(1, UUID.class), rs.getString(3)))
+                        : Optional.of(new RegisteredTenant(tenantId, active, true, null, null, null));
+            }
         });
     }
 
@@ -90,13 +99,51 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
     }
 
     @Override
-    public Optional<String> findSpkiReservationHolder(byte[] spkiSha256) {
+    public Optional<SpkiReservation> findSpkiReservation(byte[] spkiSha256) {
         return read(connection -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    "SELECT tenant_id FROM public.signing_spki_reservation WHERE public_key_spki_sha256 = ?")) {
+            try (PreparedStatement statement = connection.prepareStatement("SELECT tenant_id, signing_configuration_id "
+                    + "FROM public.signing_spki_reservation WHERE public_key_spki_sha256 = ?")) {
                 statement.setBytes(1, spkiSha256);
                 try (ResultSet rs = statement.executeQuery()) {
-                    return rs.next() ? Optional.of(rs.getString(1)) : Optional.<String>empty();
+                    return rs.next()
+                            ? Optional.of(new SpkiReservation(rs.getString(1), rs.getObject(2, UUID.class)))
+                            : Optional.<SpkiReservation>empty();
+                }
+            }
+        });
+    }
+
+    /** Looks in the schema of every tenant that has a signing configuration table, not only the registered ones. */
+    @Override
+    public boolean isKeyReferenced(String kmsKeyRef, boolean activeOnly) {
+        return read(connection -> {
+            List<String> schemas = new ArrayList<>();
+            try (PreparedStatement statement = connection.prepareStatement("SELECT table_schema FROM "
+                    + "information_schema.tables WHERE table_name = 'tenant_signing_config'");
+                 ResultSet rs = statement.executeQuery()) {
+                while (rs.next()) {
+                    String schema = rs.getString(1);
+                    if (!schema.endsWith(SCHEMA_SUFFIX)) {
+                        continue;
+                    }
+                    String tenant = schema.substring(0, schema.length() - SCHEMA_SUFFIX.length());
+                    if (TENANT_ID.matcher(tenant).matches()) {
+                        schemas.add(tenant);
+                    }
+                }
+            }
+            if (schemas.isEmpty()) {
+                return false;
+            }
+            String where = " WHERE own_key_kms_key_ref = ?" + (activeOnly ? " AND status = 'active'" : "");
+            String union = String.join(" UNION ALL ", schemas.stream()
+                    .map(tenant -> "SELECT 1 FROM " + table(tenant) + where).toList());
+            try (PreparedStatement statement = connection.prepareStatement("SELECT EXISTS (" + union + ")")) {
+                for (int i = 1; i <= schemas.size(); i++) {
+                    statement.setString(i, kmsKeyRef);
+                }
+                try (ResultSet rs = statement.executeQuery()) {
+                    return rs.next() && rs.getBoolean(1);
                 }
             }
         });
@@ -197,11 +244,12 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
                     lock.setString(1, ONBOARDING_LOCK_PREFIX + tenantId);
                     lock.execute();
                 }
-                try (PreparedStatement statement = connection.prepareStatement("SELECT id, modality FROM "
+                try (PreparedStatement statement = connection.prepareStatement("SELECT id, modality, own_key_kms_key_ref FROM "
                         + table(tenantId) + " WHERE status = 'active' FOR UPDATE");
                      ResultSet rs = statement.executeQuery()) {
                     return rs.next()
-                            ? Optional.of(new ActiveConfiguration(rs.getObject(1, UUID.class), modalityOf(rs.getString(2))))
+                            ? Optional.of(new ActiveConfiguration(rs.getObject(1, UUID.class),
+                                    modalityOf(rs.getString(2)), rs.getString(3)))
                             : Optional.<ActiveConfiguration>empty();
                 }
             });

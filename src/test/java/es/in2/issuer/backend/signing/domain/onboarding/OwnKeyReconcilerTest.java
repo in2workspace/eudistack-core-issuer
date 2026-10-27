@@ -92,6 +92,32 @@ class OwnKeyReconcilerTest {
     }
 
     @Test
+    void reconcile_keyStillReferencedByAnActiveConfiguration_isNeverTouchedAndTheRowIsMarked() {
+        var row = withdrawn("cgcom", KEY_A);
+        store.activeKeyRefs.add(KEY_A);
+
+        var report = reconciler.reconcile(GRACE, false);
+
+        assertThat(kms.calls).isEmpty();
+        assertThat(store.retired).containsExactly(row.id());
+        assertThat(report.succeeded()).isTrue();
+
+        kms.calls.clear();
+        reconciler.reconcile(GRACE, false);
+        assertThat(kms.calls).as("not retried forever").isEmpty();
+    }
+
+    @Test
+    void reconcile_dryRunOfAKeyStillInUse_makesNoKmsCall() {
+        withdrawn("cgcom", KEY_A);
+        store.activeKeyRefs.add(KEY_A);
+
+        reconciler.reconcile(GRACE, true);
+
+        assertThat(kms.calls).isEmpty();
+    }
+
+    @Test
     void reconcile_noWithdrawnRows_makesNoKmsCall() {
         var report = reconciler.reconcile(GRACE, false);
 

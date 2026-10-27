@@ -180,7 +180,7 @@ class OwnKeyOnboardingTest {
 
     @Test
     void prepare_keyAlreadyReservedByAnotherTenant_isRejectedAsKeyInUse() {
-        store.reservations.put(new ValidatedOwnKeyCertificate(List.of(leaf.certificate())).spkiSha256Hex(), "kpmg");
+        store.reserve(new ValidatedOwnKeyCertificate(List.of(leaf.certificate())).spkiSha256Hex(), "kpmg");
 
         assertThatThrownBy(() -> onboarding.prepare(prepareCommand(leaf.certificate(), false)))
                 .isInstanceOfSatisfying(OnboardingRejectedException.class, e -> {
@@ -192,7 +192,7 @@ class OwnKeyOnboardingTest {
 
     @Test
     void prepare_keyAlreadyReservedByTheSameTenant_isRejectedToo() {
-        store.reservations.put(new ValidatedOwnKeyCertificate(List.of(leaf.certificate())).spkiSha256Hex(), TENANT);
+        store.reserve(new ValidatedOwnKeyCertificate(List.of(leaf.certificate())).spkiSha256Hex(), TENANT);
 
         assertThatThrownBy(() -> onboarding.prepare(prepareCommand(leaf.certificate(), false)))
                 .isInstanceOfSatisfying(OnboardingRejectedException.class,
@@ -346,7 +346,7 @@ class OwnKeyOnboardingTest {
     void importKey_keyReservedByAnotherOnboardingInTheMeantime_isRejectedAtTheReservationAndTheKeyDiscarded() {
         var prepared = prepared();
         // The validation made before the import sees nothing: the other onboarding commits after it.
-        store.onTransactionStart = () -> store.reservations.put(
+        store.onTransactionStart = () -> store.reserve(
                 new ValidatedOwnKeyCertificate(List.of(leaf.certificate())).spkiSha256Hex(), "kpmg");
 
         assertThatThrownBy(() -> onboarding.importKey(importCommand(prepared, false)))
@@ -362,7 +362,7 @@ class OwnKeyOnboardingTest {
     @Test
     void importKey_keyReservedAfterPrepare_isRejectedBeforeAnythingIsImportedAndTheKeyDiscarded() {
         var prepared = prepared();
-        store.reservations.put(new ValidatedOwnKeyCertificate(List.of(leaf.certificate())).spkiSha256Hex(), "kpmg");
+        store.reserve(new ValidatedOwnKeyCertificate(List.of(leaf.certificate())).spkiSha256Hex(), "kpmg");
 
         assertThatThrownBy(() -> onboarding.importKey(importCommand(prepared, false)))
                 .isInstanceOfSatisfying(OnboardingRejectedException.class,
@@ -402,7 +402,7 @@ class OwnKeyOnboardingTest {
     @Test
     void importKey_keyThatWaitsForItsMaterial_isScheduledForDeletionEvenIfItCannotBeDisabled() {
         var prepared = prepared();
-        store.reservations.put(new ValidatedOwnKeyCertificate(List.of(leaf.certificate())).spkiSha256Hex(), "kpmg");
+        store.reserve(new ValidatedOwnKeyCertificate(List.of(leaf.certificate())).spkiSha256Hex(), "kpmg");
         kms.failures.put("disableKey", new OnboardingFailedException("KMS DisableKey failed (KMSInvalidStateException)"));
 
         assertThatThrownBy(() -> onboarding.importKey(importCommand(prepared, false)))

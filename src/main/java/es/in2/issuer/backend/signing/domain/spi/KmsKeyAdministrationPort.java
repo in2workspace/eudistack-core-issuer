@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.signing.domain.spi;
 
 import java.time.Instant;
+import java.util.Map;
 
 /**
  * Creates, imports into and retires the KMS keys of the own-key onboarding tool. It is the
@@ -18,9 +19,11 @@ public interface KmsKeyAdministrationPort {
         ENABLED,
         DISABLED,
         PENDING_DELETION,
+        /** The key was created and waits for its key material: it has never held a private key. */
+        PENDING_IMPORT,
         /** The key does not exist (any more). */
         NOT_FOUND,
-        /** Any other state (for example PendingImport or Unavailable): the tool does not act on it. */
+        /** Any other state (for example Unavailable): the tool does not act on it. */
         OTHER
     }
 
@@ -55,6 +58,12 @@ public interface KmsKeyAdministrationPort {
     byte[] getPublicKey(String keyArn);
 
     KeyState describeKeyState(String keyArn);
+
+    /** All the tags of the key, through every page. */
+    Map<String, String> listTags(String keyArn);
+
+    /** @param alias the full alias name, starting with {@code alias/} */
+    void deleteAlias(String alias);
 
     void disableKey(String keyArn);
 

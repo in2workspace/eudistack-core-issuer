@@ -28,7 +28,8 @@ import java.util.List;
  *   <li>{@code .state.json}: the {@link PreparedOnboarding}, without secrets.</li>
  * </ul>
  *
- * <p>No file is ever overwritten: an operation id is used once.
+ * <p>No file is ever overwritten, except the state file, which {@code discard} marks. A renewal leaves only the
+ * state file: there is no wrapping key and no token.
  */
 public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
 
@@ -40,12 +41,24 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
             .enable(SerializationFeature.INDENT_OUTPUT);
 
     private final Path outputDirectory;
+    /** The state file {@link #markDiscarded} rewrites; {@code null} derives its name from the preparation. */
+    private final Path stateFile;
 
     public PreparedOnboardingFiles(Path outputDirectory) {
-        this.outputDirectory = outputDirectory;
+        this(outputDirectory, null);
     }
 
-    /** What {@code import} needs from the files: the state and the token. */
+    /** Files around an existing state file, which is the one {@link #markDiscarded} rewrites. */
+    public static PreparedOnboardingFiles around(Path stateFile) {
+        return new PreparedOnboardingFiles(stateFile.toAbsolutePath().getParent(), stateFile);
+    }
+
+    private PreparedOnboardingFiles(Path outputDirectory, Path stateFile) {
+        this.outputDirectory = outputDirectory;
+        this.stateFile = stateFile;
+    }
+
+    /** What {@code import} needs from the files: the state and the token ({@code null} on a renewal). */
     public record Loaded(PreparedOnboarding prepared, byte[] importToken) {}
 
     /** The JSON of the state file: the state plus the name of the token file next to it. */
@@ -59,44 +72,83 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
             String spkiSha256,
             Instant createdAt,
             Instant importTokenExpiresAt,
-            String importTokenFile
+            String importTokenFile,
+            boolean renewal,
+            Instant discardedAt
     ) {}
 
     @Override
     public void write(PreparedOnboarding prepared, byte[] wrappingPublicKeyDer, byte[] importToken) {
-        String prefix = "own-key-" + prepared.tenant() + "-" + prepared.operationId();
-        String tokenFile = prefix + ".import-token.bin";
+        String prefix = prefix(prepared);
+        String tokenFile = prepared.renewal() ? null : prefix + ".import-token.bin";
         try {
             Files.createDirectories(outputDirectory);
-            create(outputDirectory.resolve(prefix + ".wrapping-public-key.der"), wrappingPublicKeyDer);
-            create(outputDirectory.resolve(prefix + ".wrapping-public-key.pem"), pem(wrappingPublicKeyDer));
-            create(outputDirectory.resolve(tokenFile), importToken);
-            create(outputDirectory.resolve(prefix + ".state.json"), MAPPER.writeValueAsBytes(new StateDocument(
-                    STATE_VERSION, prepared.operationId(), prepared.tenant(), prepared.keyArn(), prepared.alias(),
-                    prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),
-                    prepared.importTokenExpiresAt(), tokenFile)));
+            if (!prepared.renewal()) {
+                create(outputDirectory.resolve(prefix + ".wrapping-public-key.der"), wrappingPublicKeyDer);
+                create(outputDirectory.resolve(prefix + ".wrapping-public-key.pem"), pem(wrappingPublicKeyDer));
+                create(outputDirectory.resolve(tokenFile), importToken);
+            }
+            create(outputDirectory.resolve(prefix + ".state.json"), MAPPER.writeValueAsBytes(document(prepared, tokenFile)));
         } catch (IOException e) {
             throw new OnboardingFailedException("could not write the onboarding files to " + outputDirectory, e);
         }
     }
 
-    /** @param importTokenFile the token file; {@code null} takes the one named in the state, next to it */
+    /** Rewrites the state file next to the others with {@code discardedAt}; this is the one file that is overwritten. */
+    @Override
+    public void markDiscarded(PreparedOnboarding prepared, Instant discardedAt) {
+        String prefix = prefix(prepared);
+        try {
+            Files.write(stateFile != null ? stateFile : outputDirectory.resolve(prefix + ".state.json"),
+                    MAPPER.writeValueAsBytes(document(
+                    new PreparedOnboarding(prepared.operationId(), prepared.tenant(), prepared.keyArn(), prepared.alias(),
+                            prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),
+                            prepared.importTokenExpiresAt(), prepared.renewal(), discardedAt),
+                    prepared.renewal() ? null : prefix + ".import-token.bin")));
+        } catch (IOException e) {
+            throw new OnboardingFailedException("could not mark the state file as discarded", e);
+        }
+    }
+
+    private static String prefix(PreparedOnboarding prepared) {
+        return "own-key-" + prepared.tenant() + "-" + prepared.operationId();
+    }
+
+    private static StateDocument document(PreparedOnboarding prepared, String tokenFile) {
+        return new StateDocument(STATE_VERSION, prepared.operationId(), prepared.tenant(), prepared.keyArn(),
+                prepared.alias(), prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),
+                prepared.importTokenExpiresAt(), tokenFile, prepared.renewal(), prepared.discardedAt());
+    }
+
+    /**
+     * @param importTokenFile the token file; {@code null} takes the one named in the state, next to it. The token
+     *                        of a renewal is {@code null}: there is none.
+     */
     public static Loaded read(Path stateFile, Path importTokenFile) {
         try {
             StateDocument state = MAPPER.readValue(Files.readAllBytes(stateFile), StateDocument.class);
             if (state.version() != STATE_VERSION) {
                 throw new OnboardingFailedException("unsupported state file version " + state.version());
             }
-            Path tokenPath = importTokenFile != null ? importTokenFile
-                    : stateFile.toAbsolutePath().resolveSibling(state.importTokenFile());
+            byte[] token = null;
+            if (!state.renewal() && state.importTokenFile() != null) {
+                Path tokenPath = importTokenFile != null ? importTokenFile
+                        : stateFile.toAbsolutePath().resolveSibling(state.importTokenFile());
+                token = readTokenUnlessDiscarded(tokenPath, state);
+            }
             return new Loaded(new PreparedOnboarding(state.operationId(), state.tenant(), state.keyArn(), state.alias(),
-                    state.certificateChain(), state.spkiSha256(), state.createdAt(), state.importTokenExpiresAt()),
-                    Files.readAllBytes(tokenPath));
+                    state.certificateChain(), state.spkiSha256(), state.createdAt(), state.importTokenExpiresAt(),
+                    state.renewal(), state.discardedAt()), token);
         } catch (JsonProcessingException e) {
             throw new OnboardingFailedException("the state file " + stateFile + " is not a valid state file");
         } catch (IOException e) {
             throw new OnboardingFailedException("could not read " + stateFile + " or its import token", e);
         }
+    }
+
+    /** A discarded preparation is still readable (to refuse it by name) even if its token file was removed. */
+    private static byte[] readTokenUnlessDiscarded(Path tokenPath, StateDocument state) throws IOException {
+        return state.discardedAt() != null && !Files.exists(tokenPath) ? new byte[0] : Files.readAllBytes(tokenPath);
     }
 
     private static void create(Path file, byte[] content) throws IOException {

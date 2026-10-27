@@ -10,6 +10,7 @@ import software.amazon.awssdk.services.kms.KmsAsyncClient;
 import software.amazon.awssdk.services.kms.model.AlgorithmSpec;
 import software.amazon.awssdk.services.kms.model.CreateAliasRequest;
 import software.amazon.awssdk.services.kms.model.CreateKeyRequest;
+import software.amazon.awssdk.services.kms.model.DeleteAliasRequest;
 import software.amazon.awssdk.services.kms.model.DescribeKeyRequest;
 import software.amazon.awssdk.services.kms.model.DisableKeyRequest;
 import software.amazon.awssdk.services.kms.model.ExpirationModelType;
@@ -19,6 +20,7 @@ import software.amazon.awssdk.services.kms.model.ImportKeyMaterialRequest;
 import software.amazon.awssdk.services.kms.model.IncorrectKeyMaterialException;
 import software.amazon.awssdk.services.kms.model.InvalidCiphertextException;
 import software.amazon.awssdk.services.kms.model.KeySpec;
+import software.amazon.awssdk.services.kms.model.ListResourceTagsRequest;
 import software.amazon.awssdk.services.kms.model.KeyUsageType;
 import software.amazon.awssdk.services.kms.model.NotFoundException;
 import software.amazon.awssdk.services.kms.model.OriginType;
@@ -26,6 +28,8 @@ import software.amazon.awssdk.services.kms.model.ScheduleKeyDeletionRequest;
 import software.amazon.awssdk.services.kms.model.Tag;
 import software.amazon.awssdk.services.kms.model.WrappingKeySpec;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.Supplier;
@@ -128,6 +132,7 @@ public class AwsKmsKeyAdministrationAdapter implements KmsKeyAdministrationPort 
                 case ENABLED -> KeyState.ENABLED;
                 case DISABLED -> KeyState.DISABLED;
                 case PENDING_DELETION -> KeyState.PENDING_DELETION;
+                case PENDING_IMPORT -> KeyState.PENDING_IMPORT;
                 default -> KeyState.OTHER;
             };
         } catch (OnboardingFailedException e) {
@@ -136,6 +141,25 @@ public class AwsKmsKeyAdministrationAdapter implements KmsKeyAdministrationPort 
             }
             throw e;
         }
+    }
+
+    @Override
+    public Map<String, String> listTags(String keyArn) {
+        Map<String, String> tags = new HashMap<>();
+        String marker = null;
+        do {
+            String currentMarker = marker;
+            var page = call("ListResourceTags", () -> client.listResourceTags(
+                    ListResourceTagsRequest.builder().keyId(keyArn).marker(currentMarker).build()));
+            page.tags().forEach(tag -> tags.put(tag.tagKey(), tag.tagValue()));
+            marker = Boolean.TRUE.equals(page.truncated()) ? page.nextMarker() : null;
+        } while (marker != null);
+        return tags;
+    }
+
+    @Override
+    public void deleteAlias(String alias) {
+        call("DeleteAlias", () -> client.deleteAlias(DeleteAliasRequest.builder().aliasName(alias).build()));
     }
 
     @Override

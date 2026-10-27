@@ -15,7 +15,10 @@ import java.util.List;
  * @param certificateChain    base64 DER certificates, leaf first and root excluded
  * @param spkiSha256          SHA-256 of the SPKI of the leaf, lowercase hexadecimal
  * @param createdAt           when {@code prepare} ran
- * @param importTokenExpiresAt when the import token and the wrapping key expire
+ * @param importTokenExpiresAt when the import token and the wrapping key expire; {@code null} on a renewal
+ * @param renewal             the certificate is renewed keeping the key: {@code keyArn} is the key of the tenant's
+ *                            active configuration, nothing was created in KMS and {@code import} imports nothing
+ * @param discardedAt         when {@code discard} gave the preparation up; {@code null} if it was not
  */
 public record PreparedOnboarding(
         String operationId,
@@ -25,10 +28,20 @@ public record PreparedOnboarding(
         List<String> certificateChain,
         String spkiSha256,
         Instant createdAt,
-        Instant importTokenExpiresAt
+        Instant importTokenExpiresAt,
+        boolean renewal,
+        Instant discardedAt
 ) {
 
     public PreparedOnboarding {
         certificateChain = List.copyOf(certificateChain);
+    }
+
+    /** A preparation of a new key: neither a renewal nor discarded. */
+    public PreparedOnboarding(String operationId, String tenant, String keyArn, String alias,
+                              List<String> certificateChain, String spkiSha256, Instant createdAt,
+                              Instant importTokenExpiresAt) {
+        this(operationId, tenant, keyArn, alias, certificateChain, spkiSha256, createdAt, importTokenExpiresAt,
+                false, null);
     }
 }

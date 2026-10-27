@@ -9,6 +9,7 @@ import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.ImportCo
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.PrepareCommand;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyReconciler;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyReconciler.ReconcileReport;
+import es.in2.issuer.backend.signing.domain.onboarding.PreparedOnboarding;
 
 import java.io.IOException;
 import java.io.PrintStream;
@@ -145,7 +146,8 @@ public final class OnboardingCli {
               --alias <alias/name>           [OWN_KEY_ALIAS] default alias/own-key-<tenant>-<operation id>
             import
               --state <file>                 [OWN_KEY_STATE] the state file written by prepare
-              --key-material <file>          [OWN_KEY_KEY_MATERIAL] the private key wrapped by the customer
+              --key-material <file>          [OWN_KEY_KEY_MATERIAL] the private key wrapped by the customer;
+                                             not needed for a renewal (a certificate for the active key)
               --import-token <file>          [OWN_KEY_IMPORT_TOKEN] default: the one next to the state file
             prepare and import
               --production                   [OWN_KEY_PRODUCTION] adds the production checks; requires the next two
@@ -254,7 +256,15 @@ public final class OnboardingCli {
             return EXIT_OK;
         }
         var prepared = result.prepared();
-        String prefix = "own-key-" + prepared.tenant() + "-" + prepared.operationId();
+        if (prepared.renewal()) {
+            out.println("prepared the renewal " + prepared.operationId() + " for tenant " + prepared.tenant()
+                    + " (operation " + result.operation().catalogName() + "): the certificate renews the key "
+                    + prepared.keyArn() + ", which stays; nothing was created in KMS");
+            out.println("next       : run import with --state " + outDir.resolve(prefixOf(prepared) + ".state.json")
+                    + " (no key material is needed)");
+            return EXIT_OK;
+        }
+        String prefix = prefixOf(prepared);
         out.println("prepared onboarding " + prepared.operationId() + " for tenant " + prepared.tenant()
                 + " (operation " + result.operation().catalogName() + ")");
         out.println("key        : " + prepared.keyArn());
@@ -270,10 +280,11 @@ public final class OnboardingCli {
 
     private int importKey(Invocation invocation, OwnKeyOnboarding onboarding) {
         Path stateFile = Path.of(invocation.require(Opt.STATE));
-        byte[] keyMaterial = invocation.dryRun() && !invocation.has(Opt.KEY_MATERIAL)
-                ? new byte[0] : readBytes(Path.of(invocation.require(Opt.KEY_MATERIAL)));
         Path tokenFile = invocation.has(Opt.IMPORT_TOKEN) ? Path.of(invocation.get(Opt.IMPORT_TOKEN)) : null;
         var loaded = PreparedOnboardingFiles.read(stateFile, tokenFile);
+        boolean needsKeyMaterial = !loaded.prepared().renewal() && !invocation.dryRun();
+        byte[] keyMaterial = invocation.has(Opt.KEY_MATERIAL) || needsKeyMaterial
+                ? readBytes(Path.of(invocation.require(Opt.KEY_MATERIAL))) : new byte[0];
         var result = onboarding.importKey(new ImportCommand(loaded.prepared(), loaded.importToken(), keyMaterial,
                 policy(invocation), invocation.dryRun()));
         if (result.configurationId() == null) {
@@ -281,12 +292,17 @@ public final class OnboardingCli {
                     + " passes the validations (operation " + result.operation().catalogName() + "); nothing was imported");
             return EXIT_OK;
         }
-        out.println("tenant " + loaded.prepared().tenant() + " now signs with its own key (operation "
+        out.println("tenant " + loaded.prepared().tenant() + " now signs with " + (loaded.prepared().renewal()
+                ? "the renewed certificate of its own key" : "its own key") + " (operation "
                 + result.operation().catalogName() + ")");
         out.println("key           : " + result.keyArn());
         out.println("configuration : " + result.configurationId());
         out.println("SPKI sha256   : " + result.spkiSha256());
         return EXIT_OK;
+    }
+
+    private static String prefixOf(PreparedOnboarding prepared) {
+        return "own-key-" + prepared.tenant() + "-" + prepared.operationId();
     }
 
     private int reconcile(Invocation invocation, OwnKeyReconciler reconciler) {

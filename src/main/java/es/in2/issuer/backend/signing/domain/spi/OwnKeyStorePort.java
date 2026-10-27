@@ -24,16 +24,34 @@ public interface OwnKeyStorePort {
      * @param active              the registry says the tenant is active
      * @param schemaProvisioned   the tenant's Issuer schema exists and holds {@code tenant_signing_config}
      * @param activeModality      modality of the tenant's active signing configuration; {@code null} if it has none
+     * @param activeConfigurationId id of that configuration; {@code null} if it has none
+     * @param activeKmsKeyRef     KMS key of that configuration when it is an own-key one; {@code null} otherwise
      */
-    record RegisteredTenant(String id, boolean active, boolean schemaProvisioned, SigningModality activeModality) {}
+    record RegisteredTenant(String id, boolean active, boolean schemaProvisioned, SigningModality activeModality,
+                            UUID activeConfigurationId, String activeKmsKeyRef) {
+
+        public RegisteredTenant(String id, boolean active, boolean schemaProvisioned, SigningModality activeModality) {
+            this(id, active, schemaProvisioned, activeModality, null, null);
+        }
+    }
+
+    /** A reservation of an SPKI hash: the tenant that holds it and the configuration it was made for. */
+    record SpkiReservation(String tenantId, UUID configurationId) {}
 
     Optional<RegisteredTenant> findTenant(String tenantId);
 
     /** Ids of the tenants the registry marks active, in the order the tool reconciles them. */
     List<String> findActiveTenants();
 
-    /** @return the tenant that holds a reservation of this SPKI hash, if any (for any tenant, the same one included) */
-    Optional<String> findSpkiReservationHolder(byte[] spkiSha256);
+    /** @return the reservation of this SPKI hash, if any (for any tenant, the same one included) */
+    Optional<SpkiReservation> findSpkiReservation(byte[] spkiSha256);
+
+    /**
+     * Whether the KMS key is referenced by a signing configuration of any tenant.
+     *
+     * @param activeOnly {@code true} to look only at active rows, {@code false} at rows of every status
+     */
+    boolean isKeyReferenced(String kmsKeyRef, boolean activeOnly);
 
     /** Own-key rows of the tenant withdrawn for longer than {@code grace} whose KMS key is not marked yet; no lock. */
     List<WithdrawnOwnKey> findWithdrawnOwnKeysPendingKms(String tenantId, Duration grace);
@@ -54,7 +72,12 @@ public interface OwnKeyStorePort {
     record WithdrawnOwnKey(UUID id, String tenantId, String kmsKeyRef) {}
 
     /** The active configuration of a tenant. */
-    record ActiveConfiguration(UUID id, SigningModality modality) {}
+    record ActiveConfiguration(UUID id, SigningModality modality, String kmsKeyRef) {
+
+        public ActiveConfiguration(UUID id, SigningModality modality) {
+            this(id, modality, null);
+        }
+    }
 
     /** The own-key configuration that becomes active. */
     record NewOwnKeyConfiguration(String kmsKeyRef, List<String> certificateChain) {}
@@ -87,7 +110,10 @@ public interface OwnKeyStorePort {
         Optional<WithdrawnOwnKey> lockNextWithdrawnOwnKey(String tenantId, Duration grace,
                                                           Set<UUID> excluding);
 
-        /** Marks the KMS key of the row as retired ({@code own_key_deleted_at}). */
+        /**
+         * Marks the row as handled ({@code own_key_deleted_at}): its KMS key was retired, or is still in use by
+         * an active configuration and must not be, so the row is not selected again.
+         */
         void markKeyRetired(String tenantId, WithdrawnOwnKey key);
 
         /** Stages the event in this transaction: it is only published if the transaction commits. */

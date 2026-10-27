@@ -18,6 +18,16 @@ certificate. It never receives a private key in clear.
 | `import` | Reads the state file and the key material the customer wrapped with the wrapping public key. Validates again (the state may be stale), imports with `KEY_MATERIAL_DOES_NOT_EXPIRE`, requires `GetPublicKey` to be byte-identical to the certificate's SPKI and, in **one database transaction**, locks the tenant's active row, withdraws it (a QTSP row loses `credentialPwd`, `clientSecret`, `accessKey`, `credentialId`; an own-key row loses its SPKI reservation), inserts the new active `own_key` row, reserves the SPKI in `public.signing_spki_reservation` and stages the audit event. If anything fails after the import, the key is disabled and its deletion scheduled and the database is unchanged. |
 | `reconcile` | For every active tenant, takes (`FOR UPDATE SKIP LOCKED`, one transaction per row) the `own_key` rows withdrawn for longer than the grace period (default 160 s) whose key is not marked yet, checks the key state, disables it if enabled, schedules its deletion (default 7 days, the KMS minimum) and sets `own_key_deleted_at`. Idempotent: a second run makes no KMS call. |
 
+**Renewal keeping the key.** If the certificate's SPKI is reserved by the same tenant and by that tenant's
+currently active own-key row, it is a renewal of that row's certificate: the key material is already in its KMS
+key, so nothing is created or imported. `prepare` checks that `GetPublicKey` of the existing key equals the new
+certificate's SPKI and leaves only a state file marked `renewal`; `import --state` (no key material, no token) checks
+it again and, in one transaction, withdraws the old row, inserts the new active row with the **same key ARN**, moves
+the reservation to the new row and stages a `Replace` event. The old row is marked handled
+(`own_key_deleted_at`) and `reconcile` never disables or schedules the deletion of a key that an active row of any
+tenant references. A failed renewal never touches the existing key. Any other holder of the SPKI (another tenant, or
+a stale reservation of the same tenant not tied to the active row) is still rejected as `KeyInUse`.
+
 There is **no withdrawal command**: a configuration is only withdrawn by its replacement (`import`), and the
 active configuration of a tenant is never withdrawn without one. Run `reconcile` every 15 to 20 minutes, or by hand.
 
@@ -30,7 +40,7 @@ The chain parses; the key is P-256; the leaf is an end-entity certificate whose 
 `digitalSignature` or `nonRepudiation`; every certificate links to the next, which is a CA; the leaf and the
 intermediates are valid now (always); the certificate does not declare a QSCD (QCP-n-qscd, QCP-l-qscd, QcSSCD);
 the tenant is active in `public.tenant_registry` and its `<tenant>_issuer` schema exists; the SPKI SHA-256 is not
-reserved by any tenant (the same one included). With `--production` the certificate is also not self-signed, the
+reserved by any tenant, except for a renewal of the tenant's own active key (above). With `--production` the certificate is also not self-signed, the
 chain ends in the agreed CA (`--trust-anchor`) and the leaf carries the tenant's `organizationIdentifier`
 (`--expected-org-id`); both are mandatory with `--production` and are checked whenever they are given.
 

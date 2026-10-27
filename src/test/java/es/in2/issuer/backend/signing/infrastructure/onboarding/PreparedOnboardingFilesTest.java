@@ -86,4 +86,30 @@ class PreparedOnboardingFilesTest {
         assertThatThrownBy(() -> PreparedOnboardingFiles.read(directory.resolve("missing.json"), null))
                 .isInstanceOf(OnboardingFailedException.class);
     }
+
+    @Test
+    void write_renewal_leavesOnlyTheStateFileAndReadsBackWithoutAToken() throws Exception {
+        var renewal = new PreparedOnboarding("op-2", "cgcom", "arn:aws:kms:eu-west-1:000000000000:key/abc", null,
+                List.of("AAAA"), "ab".repeat(32), Instant.parse("2026-10-27T12:00:00Z"), null, true, null);
+
+        new PreparedOnboardingFiles(directory).write(renewal, null, null);
+
+        try (var files = Files.list(directory)) {
+            assertThat(files.map(path -> path.getFileName().toString())).containsExactly("own-key-cgcom-op-2.state.json");
+        }
+        var loaded = PreparedOnboardingFiles.read(directory.resolve("own-key-cgcom-op-2.state.json"), null);
+        assertThat(loaded.prepared()).isEqualTo(renewal);
+        assertThat(loaded.importToken()).isNull();
+    }
+
+    @Test
+    void markDiscarded_rewritesTheStateFileThatWasGivenWithTheDate() throws Exception {
+        new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
+        Path state = directory.resolve("own-key-cgcom-op-1.state.json");
+        Instant when = Instant.parse("2026-10-27T13:00:00Z");
+
+        PreparedOnboardingFiles.around(state).markDiscarded(PREPARED, when);
+
+        assertThat(PreparedOnboardingFiles.read(state, null).prepared().discardedAt()).isEqualTo(when);
+    }
 }

@@ -35,6 +35,7 @@ final class OnboardingFakes {
         byte[] importToken = {9, 8, 7};
         Instant tokenValidTo = Instant.parse("2026-10-28T12:00:00Z");
         byte[] publicKey;
+        Map<String, String> tags = new HashMap<>();
 
         private void record(String call) {
             calls.add(call);
@@ -79,6 +80,17 @@ final class OnboardingFakes {
         }
 
         @Override
+        public Map<String, String> listTags(String keyArn) {
+            record("listTags:" + keyArn);
+            return tags;
+        }
+
+        @Override
+        public void deleteAlias(String alias) {
+            record("deleteAlias:" + alias);
+        }
+
+        @Override
         public void disableKey(String keyArn) {
             record("disableKey:" + keyArn);
         }
@@ -97,7 +109,9 @@ final class OnboardingFakes {
     static final class FakeStore implements OwnKeyStorePort {
 
         final Map<String, RegisteredTenant> tenants = new HashMap<>();
-        final Map<String, String> reservations = new HashMap<>();
+        final Map<String, SpkiReservation> reservations = new HashMap<>();
+        final Set<String> activeKeyRefs = new HashSet<>();
+        final Set<String> otherKeyRefs = new HashSet<>();
         final List<String> committedOperations = new ArrayList<>();
         final List<SigningConfigurationChanged> committedEvents = new ArrayList<>();
         final List<SigningConfigurationChanged> eventsInOwnTransaction = new ArrayList<>();
@@ -120,9 +134,19 @@ final class OnboardingFakes {
             return tenants.values().stream().filter(RegisteredTenant::active).map(RegisteredTenant::id).toList();
         }
 
+        /** Reserves the hash (hexadecimal) for the tenant, on a configuration that is not the active one. */
+        void reserve(String spkiSha256Hex, String tenantId) {
+            reservations.put(spkiSha256Hex, new SpkiReservation(tenantId, UUID.randomUUID()));
+        }
+
         @Override
-        public Optional<String> findSpkiReservationHolder(byte[] spkiSha256) {
+        public Optional<SpkiReservation> findSpkiReservation(byte[] spkiSha256) {
             return Optional.ofNullable(reservations.get(HexFormat.of().formatHex(spkiSha256)));
+        }
+
+        @Override
+        public boolean isKeyReferenced(String kmsKeyRef, boolean activeOnly) {
+            return activeKeyRefs.contains(kmsKeyRef) || (!activeOnly && otherKeyRefs.contains(kmsKeyRef));
         }
 
         @Override
@@ -158,6 +182,7 @@ final class OnboardingFakes {
             private final List<String> operations = new ArrayList<>();
             private final List<SigningConfigurationChanged> events = new ArrayList<>();
             private final Set<UUID> retired = new HashSet<>();
+            private final Set<UUID> withdrawnIds = new HashSet<>();
 
             @Override
             public Optional<ActiveConfiguration> lockActiveConfiguration(String tenantId) {
@@ -168,6 +193,7 @@ final class OnboardingFakes {
             @Override
             public void withdraw(String tenantId, ActiveConfiguration configuration, String withdrawnBy) {
                 operations.add("withdraw:" + configuration.modality() + ":" + withdrawnBy);
+                withdrawnIds.add(configuration.id());
             }
 
             @Override
@@ -179,7 +205,8 @@ final class OnboardingFakes {
             @Override
             public void reserveSpki(byte[] spkiSha256, String tenantId, UUID configurationId) {
                 String hash = HexFormat.of().formatHex(spkiSha256);
-                if (reservations.containsKey(hash)) {
+                var existing = reservations.get(hash);
+                if (existing != null && !withdrawnIds.contains(existing.configurationId())) {
                     throw new OnboardingRejectedException(RejectionReason.KEY_IN_USE, "reserved in the meantime");
                 }
                 operations.add("reserve:" + tenantId);
@@ -204,6 +231,7 @@ final class OnboardingFakes {
 
             @Override
             public void markKeyRetired(String tenantId, WithdrawnOwnKey key) {
+                operations.add("markHandled:" + key.kmsKeyRef());
                 retired.add(key.id());
             }
 
@@ -225,6 +253,12 @@ final class OnboardingFakes {
         byte[] wrappingPublicKey;
         byte[] importToken;
         RuntimeException failure;
+        PreparedOnboarding discarded;
+
+        @Override
+        public void markDiscarded(PreparedOnboarding prepared, Instant discardedAt) {
+            this.discarded = prepared;
+        }
 
         @Override
         public void write(PreparedOnboarding prepared, byte[] wrappingPublicKeyDer, byte[] importToken) {

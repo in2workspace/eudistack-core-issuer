@@ -312,6 +312,61 @@ class OwnKeyOnboardingIT {
         assertThat(err()).contains("not in the tenant registry");
     }
 
+    /** A new certificate, from the same CA, for the key pair of an existing material: a renewal keeping the key. */
+    private Material renewedMaterial(Material material, String name) throws Exception {
+        var certificate = pki.certificateFor(material.keyPair().getPublic());
+        String pem = "-----BEGIN CERTIFICATE-----\n"
+                + Base64.getMimeEncoder(64, "\n".getBytes()).encodeToString(certificate.getEncoded())
+                + "\n-----END CERTIFICATE-----\n";
+        return new Material(material.keyPair(), Files.writeString(directory.resolve(name + ".chain.pem"), pem),
+                material.spki());
+    }
+
+    @Test
+    void renewal_keepsTheKeyAndReconcileNeverRetiresIt() throws Exception {
+        Material first = newMaterial("renew-first");
+        Path preparedFirst = prepare(first, "renew-first");
+        String arn = keyArnOf(preparedFirst);
+        assertThat(importKey(preparedFirst, wrap(preparedFirst, first.keyPair().getPrivate(), "renew-first"))).isZero();
+        Material renewed = renewedMaterial(first, "renew-second");
+        int keys = keyCount();
+
+        Path out = Files.createDirectory(directory.resolve("renewal"));
+        assertThat(run("prepare", "--tenant", "cgcom", "--cert-chain", renewed.chainFile().toString(), "--out-dir",
+                out.toString())).as(err()).isZero();
+        assertThat(keyCount()).as("a renewal creates no key").isEqualTo(keys);
+        try (var files = Files.list(out)) {
+            assertThat(files).hasSize(1);
+        }
+        assertThat(run("import", "--state", file(out, ".state.json").toString())).as(err()).isZero();
+
+        assertThat(keyArnOf(out)).isEqualTo(arn);
+        assertThat(query("SELECT status, own_key_deleted_at IS NOT NULL FROM cgcom_issuer.tenant_signing_config "
+                + "ORDER BY created_at")).containsExactly(List.of("withdrawn", true), List.of("active", false));
+        assertThat(scalar("SELECT count(DISTINCT own_key_kms_key_ref) FROM cgcom_issuer.tenant_signing_config"))
+                .isEqualTo(1L);
+        UUID active = (UUID) scalar("SELECT id FROM cgcom_issuer.tenant_signing_config WHERE status = 'active'");
+        assertThat(scalar("SELECT signing_configuration_id FROM public.signing_spki_reservation "
+                + "WHERE public_key_spki_sha256 = ?", (Object) sha256(first.spki()))).isEqualTo(active);
+        assertThat(run("reconcile", "--grace-seconds", "0")).as(err()).isZero();
+        assertThat(keyState(arn)).as("the key is still the active one").isEqualTo("Enabled");
+        assertSignatureVerifies(arn, first.keyPair().getPublic());
+    }
+
+    @Test
+    void renewal_certificateOfAnotherKeyForTheSameTenant_isNotARenewal() throws Exception {
+        Material first = newMaterial("other-first");
+        Path preparedFirst = prepare(first, "other-first");
+        assertThat(importKey(preparedFirst, wrap(preparedFirst, first.keyPair().getPrivate(), "other-first"))).isZero();
+
+        Path out = Files.createDirectory(directory.resolve("other-second"));
+        assertThat(run("prepare", "--tenant", "cgcom", "--cert-chain", newMaterial("other-second").chainFile().toString(),
+                "--out-dir", out.toString())).isZero();
+
+        assertThat(Files.readString(file(out, ".state.json"))).contains("\"renewal\" : false");
+        assertThat(keyState(keyArnOf(out))).isEqualTo("PendingImport");
+    }
+
     private void assertSignatureVerifies(String keyArn, PublicKey publicKey) throws Exception {
         byte[] message = "EUD-289 onboarding test".getBytes(StandardCharsets.UTF_8);
         byte[] signature = kms.sign(SignRequest.builder().keyId(keyArn).message(SdkBytes.fromByteArray(message))

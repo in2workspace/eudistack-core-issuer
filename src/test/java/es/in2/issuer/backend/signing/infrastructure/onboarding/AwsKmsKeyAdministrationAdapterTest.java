@@ -12,6 +12,8 @@ import software.amazon.awssdk.services.kms.KmsAsyncClient;
 import software.amazon.awssdk.services.kms.model.AlgorithmSpec;
 import software.amazon.awssdk.services.kms.model.CreateKeyRequest;
 import software.amazon.awssdk.services.kms.model.CreateKeyResponse;
+import software.amazon.awssdk.services.kms.model.DeleteAliasRequest;
+import software.amazon.awssdk.services.kms.model.DeleteAliasResponse;
 import software.amazon.awssdk.services.kms.model.DescribeKeyRequest;
 import software.amazon.awssdk.services.kms.model.DescribeKeyResponse;
 import software.amazon.awssdk.services.kms.model.ExpirationModelType;
@@ -24,6 +26,8 @@ import software.amazon.awssdk.services.kms.model.KeyMetadata;
 import software.amazon.awssdk.services.kms.model.KeySpec;
 import software.amazon.awssdk.services.kms.model.KeyUsageType;
 import software.amazon.awssdk.services.kms.model.KmsInvalidStateException;
+import software.amazon.awssdk.services.kms.model.ListResourceTagsRequest;
+import software.amazon.awssdk.services.kms.model.ListResourceTagsResponse;
 import software.amazon.awssdk.services.kms.model.NotFoundException;
 import software.amazon.awssdk.services.kms.model.OriginType;
 import software.amazon.awssdk.services.kms.model.Tag;
@@ -141,7 +145,8 @@ class AwsKmsKeyAdministrationAdapterTest {
         assertThat(stateOf("Enabled")).isEqualTo(KeyState.ENABLED);
         assertThat(stateOf("Disabled")).isEqualTo(KeyState.DISABLED);
         assertThat(stateOf("PendingDeletion")).isEqualTo(KeyState.PENDING_DELETION);
-        assertThat(stateOf("PendingImport")).isEqualTo(KeyState.OTHER);
+        assertThat(stateOf("PendingImport")).isEqualTo(KeyState.PENDING_IMPORT);
+        assertThat(stateOf("Unavailable")).isEqualTo(KeyState.OTHER);
     }
 
     @Test
@@ -159,6 +164,31 @@ class AwsKmsKeyAdministrationAdapterTest {
         assertThatThrownBy(() -> adapter.describeKeyState(KEY_ARN))
                 .isInstanceOf(OnboardingFailedException.class)
                 .hasMessage("KMS DescribeKey failed (IllegalStateException)");
+    }
+
+    @Test
+    void listTags_readsEveryPage() {
+        when(client.listResourceTags(any(ListResourceTagsRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(ListResourceTagsResponse.builder()
+                        .tags(Tag.builder().tagKey("Tenant").tagValue("cgcom").build())
+                        .truncated(true).nextMarker("page-2").build()))
+                .thenReturn(CompletableFuture.completedFuture(ListResourceTagsResponse.builder()
+                        .tags(Tag.builder().tagKey("operationId").tagValue("op-1").build())
+                        .truncated(false).build()));
+
+        assertThat(adapter.listTags(KEY_ARN)).containsEntry("Tenant", "cgcom").containsEntry("operationId", "op-1");
+    }
+
+    @Test
+    void deleteAlias_deletesTheAliasByName() {
+        when(client.deleteAlias(any(DeleteAliasRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(DeleteAliasResponse.builder().build()));
+
+        adapter.deleteAlias("alias/own-key-cgcom-op-1");
+
+        ArgumentCaptor<DeleteAliasRequest> request = ArgumentCaptor.forClass(DeleteAliasRequest.class);
+        verify(client).deleteAlias(request.capture());
+        assertThat(request.getValue().aliasName()).isEqualTo("alias/own-key-cgcom-op-1");
     }
 
     private KeyState stateOf(String kmsState) {

@@ -23,7 +23,8 @@ import java.util.UUID;
  *
  * <p>Idempotent: a row whose key was retired is marked ({@code own_key_deleted_at}) and never selected
  * again, so a second run makes no KMS call. The key state is checked before acting, so an interrupted run
- * can be repeated. {@code DeleteImportedKeyMaterial} is not called: during the deletion window the key is
+ * can be repeated. A key that an active configuration of any tenant references is never touched (a renewal keeps
+ * the key of the configuration it replaces): the row is only marked. {@code DeleteImportedKeyMaterial} is not called: during the deletion window the key is
  * disabled but recoverable if the replacement was a mistake.
  *
  * <p>One transaction per row: the row is selected {@code FOR UPDATE SKIP LOCKED}, so two runs at the same
@@ -103,6 +104,12 @@ public class OwnKeyReconciler {
     /** A failure is returned, not thrown, so the transaction ends and the row stays as it was. */
     private RowResult retire(OwnKeyStorePort.ConfigurationTransaction tx, String tenant, WithdrawnOwnKey row) {
         try {
+            if (store.isKeyReferenced(row.kmsKeyRef(), true)) {
+                log.warn("Tenant '{}', configuration {}: the key is referenced by an active configuration and is not "
+                        + "retired", tenant, row.id());
+                tx.markKeyRetired(tenant, row);
+                return new RowResult(row.id(), null);
+            }
             KeyState state = kms.describeKeyState(row.kmsKeyRef());
             switch (actionFor(state)) {
                 case DISABLE_AND_SCHEDULE -> {
@@ -126,6 +133,11 @@ public class OwnKeyReconciler {
         List<WithdrawnOwnKey> pending = store.findWithdrawnOwnKeysPendingKms(tenant, grace);
         for (WithdrawnOwnKey row : pending) {
             try {
+                if (store.isKeyReferenced(row.kmsKeyRef(), true)) {
+                    log.info("Dry run. Tenant '{}', configuration {}: the key is referenced by an active configuration, "
+                            + "would only mark the row", tenant, row.id());
+                    continue;
+                }
                 KeyState state = kms.describeKeyState(row.kmsKeyRef());
                 log.info("Dry run. Tenant '{}', configuration {}: key is {}, would {}", tenant, row.id(), state,
                         actionFor(state));
@@ -141,7 +153,7 @@ public class OwnKeyReconciler {
             case ENABLED -> Action.DISABLE_AND_SCHEDULE;
             case DISABLED -> Action.SCHEDULE;
             case PENDING_DELETION, NOT_FOUND -> Action.NONE;
-            case OTHER -> Action.UNEXPECTED_STATE;
+            case PENDING_IMPORT, OTHER -> Action.UNEXPECTED_STATE;
         };
     }
 

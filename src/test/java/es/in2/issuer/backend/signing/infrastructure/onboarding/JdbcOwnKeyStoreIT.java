@@ -8,6 +8,7 @@ import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChang
 import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChanged.Result;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.ActiveConfiguration;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.NewOwnKeyConfiguration;
+import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.SpkiReservation;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.WithdrawnOwnKey;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -154,11 +155,58 @@ class JdbcOwnKeyStoreIT {
     }
 
     @Test
-    void findSpkiReservationHolder_reservedHash_returnsTheTenant() {
-        reserve(SPKI, "kpmg", UUID.randomUUID());
+    void findSpkiReservation_reservedHash_returnsTheTenantAndTheConfiguration() {
+        UUID configuration = UUID.randomUUID();
+        reserve(SPKI, "kpmg", configuration);
 
-        assertThat(store.findSpkiReservationHolder(SPKI)).contains("kpmg");
-        assertThat(store.findSpkiReservationHolder(OTHER_SPKI)).isEmpty();
+        assertThat(store.findSpkiReservation(SPKI)).contains(new SpkiReservation("kpmg", configuration));
+        assertThat(store.findSpkiReservation(OTHER_SPKI)).isEmpty();
+    }
+
+    @Test
+    void findTenant_tenantWithAnActiveOwnKeyRow_reportsItsIdAndKey() {
+        UUID id = insertOwnKey("cgcom", "active", "arn:aws:kms:eu-west-1:000000000000:key/live", null, null);
+
+        var tenant = store.findTenant("cgcom").orElseThrow();
+
+        assertThat(tenant.activeConfigurationId()).isEqualTo(id);
+        assertThat(tenant.activeKmsKeyRef()).isEqualTo("arn:aws:kms:eu-west-1:000000000000:key/live");
+    }
+
+    @Test
+    void isKeyReferenced_looksAtEveryTenantSchemaAndAtTheStatusAsked() {
+        insertOwnKey("kpmg", "active", "arn:in-kpmg", null, null);
+        insertOwnKey("cgcom", "withdrawn", "arn:withdrawn", 600, null);
+
+        assertThat(store.isKeyReferenced("arn:in-kpmg", true)).isTrue();
+        assertThat(store.isKeyReferenced("arn:withdrawn", true)).isFalse();
+        assertThat(store.isKeyReferenced("arn:withdrawn", false)).isTrue();
+        assertThat(store.isKeyReferenced("arn:nowhere", false)).isFalse();
+    }
+
+    @Test
+    void renewal_withdrawsTheOldRowMarksItHandledAndMovesTheReservationKeepingTheKey() {
+        String key = "arn:aws:kms:eu-west-1:000000000000:key/kept";
+        UUID previous = insertOwnKey("cgcom", "active", key, null, null);
+        reserve(SPKI, "cgcom", previous);
+
+        UUID created = store.inTransaction(tx -> {
+            var active = tx.lockActiveConfiguration("cgcom").orElseThrow();
+            tx.withdraw("cgcom", active, CALLER);
+            tx.markKeyRetired("cgcom", new WithdrawnOwnKey(active.id(), "cgcom", active.kmsKeyRef()));
+            UUID id = tx.activateOwnKey("cgcom", new NewOwnKeyConfiguration(key, List.of("QUJD")), CALLER);
+            tx.reserveSpki(SPKI, "cgcom", id);
+            return id;
+        });
+
+        assertThat(query("SELECT status, own_key_deleted_at IS NOT NULL FROM cgcom_issuer.tenant_signing_config "
+                + "WHERE id = ?", previous)).singleElement().isEqualTo(List.of("withdrawn", true));
+        assertThat(scalar("SELECT own_key_kms_key_ref FROM cgcom_issuer.tenant_signing_config WHERE id = ?", created))
+                .isEqualTo(key);
+        assertThat(scalar("SELECT signing_configuration_id FROM public.signing_spki_reservation "
+                + "WHERE public_key_spki_sha256 = ?", (Object) SPKI)).isEqualTo(created);
+        assertThat(store.findWithdrawnOwnKeysPendingKms("cgcom", Duration.ZERO)).isEmpty();
+        assertThat(store.isKeyReferenced(key, true)).isTrue();
     }
 
     @Test

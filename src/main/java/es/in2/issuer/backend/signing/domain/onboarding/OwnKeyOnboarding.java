@@ -10,6 +10,8 @@ import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.ActiveConfigurat
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.ConfigurationTransaction;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.NewOwnKeyConfiguration;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.RegisteredTenant;
+import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.SpkiReservation;
+import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.WithdrawnOwnKey;
 import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChanged.Operation;
 import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChanged.Result;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +38,13 @@ import java.util.regex.Pattern;
  *       the previous active configuration, activates the new one, reserves the SPKI and stages the audit
  *       event.</li>
  * </ol>
+ *
+ * <p>A certificate renewal that keeps the key is a third case: when the SPKI is reserved by the tenant's own
+ * active own-key configuration, the key material is already in that configuration's KMS key, so nothing is
+ * created or imported. {@code prepare} checks the key and leaves a state marked as a renewal, and
+ * {@code import} (without key material) checks again that the existing key is the certificate's and swaps the
+ * rows in one transaction, with the same KMS key. That key is never disabled or scheduled for deletion, not even
+ * when the renewal fails.
  *
  * <p>The tool never receives a private key in clear and never signs: the role that runs it has no
  * {@code kms:Sign}. A KMS key that an onboarding created and could not complete is disabled and scheduled
@@ -101,6 +110,8 @@ public class OwnKeyOnboarding {
         private SigningModality previousModality;
         private String certificateSha256;
         private String operationId;
+        /** Set when the certificate renews the key of the tenant's active configuration. */
+        private String renewalKeyArn;
 
         private Attempt(String tenant, String actor, Instant startedAt) {
             this.tenant = tenant;
@@ -118,10 +129,27 @@ public class OwnKeyOnboarding {
         Attempt attempt = new Attempt(command.tenant(), command.dryRun() ? null : identity.callerArn(), clock.instant());
         ValidatedOwnKeyCertificate certificate = validatedOrRejected(attempt,
                 () -> OwnKeyCertificateValidator.parsePemChain(command.chainPem()), command.policy(), command.dryRun());
+        if (attempt.renewalKeyArn != null) {
+            try {
+                requireExistingKeyIsTheCertificates(attempt, certificate);
+            } catch (OnboardingRejectedException rejected) {
+                if (!command.dryRun()) {
+                    recordRejection(attempt, rejected);
+                }
+                throw rejected;
+            }
+        }
         if (command.dryRun()) {
             return new PrepareResult(null, attempt.operation(), certificate.spkiSha256Hex());
         }
         attempt.operationId = operationIds.get();
+        if (attempt.renewalKeyArn != null) {
+            PreparedOnboarding renewal = new PreparedOnboarding(attempt.operationId, command.tenant(),
+                    attempt.renewalKeyArn, null, certificate.chainBase64(), certificate.spkiSha256Hex(),
+                    clock.instant(), null, true, null);
+            command.artifacts().write(renewal, null, null);
+            return new PrepareResult(renewal, attempt.operation(), certificate.spkiSha256Hex());
+        }
         String alias = command.alias() != null ? command.alias() : defaultAlias(command.tenant(), attempt.operationId);
         String keyArn = kms.createKey(command.tenant(), attempt.operationId);
         try {
@@ -143,17 +171,29 @@ public class OwnKeyOnboarding {
         Attempt attempt = new Attempt(prepared.tenant(), command.dryRun() ? null : identity.callerArn(), clock.instant());
         attempt.operationId = prepared.operationId();
 
+        if (prepared.discardedAt() != null) {
+            throw new OnboardingFailedException("this preparation was discarded at " + prepared.discardedAt()
+                    + ": run prepare again");
+        }
         ValidatedOwnKeyCertificate certificate;
         try {
             certificate = validatedOrRejected(attempt,
                     () -> OwnKeyCertificateValidator.parseBase64Chain(prepared.certificateChain()),
                     command.policy(), command.dryRun());
             requireStateOfItsChain(prepared, certificate);
+            requireSameKindOfOnboarding(prepared, attempt);
         } catch (OnboardingRejectedException rejected) {
-            if (!command.dryRun()) {
+            // A renewal created nothing: the key it names is the active one and is never discarded.
+            if (!command.dryRun() && !prepared.renewal()) {
                 discardKey(prepared.keyArn(), rejected);
             }
             throw rejected;
+        }
+        if (prepared.renewal()) {
+            if (command.dryRun()) {
+                return new ImportResult(prepared.keyArn(), null, attempt.operation(), certificate.spkiSha256Hex());
+            }
+            return renewAndActivate(command, attempt, certificate);
         }
         if (!clock.instant().isBefore(prepared.importTokenExpiresAt())) {
             OnboardingFailedException expired = new OnboardingFailedException("the import token expired at "
@@ -167,6 +207,38 @@ public class OwnKeyOnboarding {
             return new ImportResult(prepared.keyArn(), null, attempt.operation(), certificate.spkiSha256Hex());
         }
         return importAndActivate(command, attempt, certificate);
+    }
+
+    /** What {@code prepare} decided (new key or renewal) must still be true: the tenant may have changed since. */
+    private static void requireSameKindOfOnboarding(PreparedOnboarding prepared, Attempt attempt) {
+        boolean renewalNow = attempt.renewalKeyArn != null;
+        if (prepared.renewal() != renewalNow || (renewalNow && !attempt.renewalKeyArn.equals(prepared.keyArn()))) {
+            throw new OnboardingRejectedException(RejectionReason.POLICY_DENIED,
+                    "the active configuration of the tenant changed since prepare: run prepare again");
+        }
+    }
+
+    /**
+     * Renewal: no key is created or imported. The existing key must be the certificate's, and a failure here
+     * never touches it: it is the key the tenant signs with.
+     */
+    private ImportResult renewAndActivate(ImportCommand command, Attempt attempt, ValidatedOwnKeyCertificate certificate) {
+        PreparedOnboarding prepared = command.prepared();
+        try {
+            requireExistingKeyIsTheCertificates(attempt, certificate);
+            UUID configurationId = store.inTransaction(tx -> activate(tx, attempt, prepared, certificate));
+            return new ImportResult(prepared.keyArn(), configurationId, attempt.operation(), certificate.spkiSha256Hex());
+        } catch (OnboardingRejectedException rejected) {
+            recordRejection(attempt, rejected);
+            throw rejected;
+        }
+    }
+
+    private void requireExistingKeyIsTheCertificates(Attempt attempt, ValidatedOwnKeyCertificate certificate) {
+        if (!MessageDigest.isEqual(kms.getPublicKey(attempt.renewalKeyArn), certificate.spkiDer())) {
+            throw new OnboardingRejectedException(RejectionReason.INVALID_KEY,
+                    "the public key of the existing KMS key is not the public key of the new certificate");
+        }
     }
 
     /**
@@ -200,7 +272,18 @@ public class OwnKeyOnboarding {
     private UUID activate(ConfigurationTransaction tx, Attempt attempt, PreparedOnboarding prepared,
                           ValidatedOwnKeyCertificate certificate) {
         var previous = tx.lockActiveConfiguration(attempt.tenant);
-        previous.ifPresent(active -> tx.withdraw(attempt.tenant, active, attempt.actor));
+        if (prepared.renewal()) {
+            // Under the lock: the active row must still be the one that holds this key.
+            ActiveConfiguration active = previous.filter(row -> row.modality() == SigningModality.OWN_KEY
+                            && prepared.keyArn().equals(row.kmsKeyRef()))
+                    .orElseThrow(() -> new OnboardingRejectedException(RejectionReason.POLICY_DENIED,
+                            "the active configuration of the tenant changed since prepare: run prepare again"));
+            tx.withdraw(attempt.tenant, active, attempt.actor);
+            // The key is still the active one: mark the row handled so that reconcile does not retire it.
+            tx.markKeyRetired(attempt.tenant, new WithdrawnOwnKey(active.id(), attempt.tenant, active.kmsKeyRef()));
+        } else {
+            previous.ifPresent(active -> tx.withdraw(attempt.tenant, active, attempt.actor));
+        }
         UUID configurationId = tx.activateOwnKey(attempt.tenant,
                 new NewOwnKeyConfiguration(prepared.keyArn(), certificate.chainBase64()), attempt.actor);
         tx.reserveSpki(certificate.spkiSha256(), attempt.tenant, configurationId);
@@ -239,11 +322,25 @@ public class OwnKeyOnboarding {
                     "the Issuer schema of tenant '" + attempt.tenant + "' does not exist or has no signing configuration table");
         }
         attempt.previousModality = tenant.activeModality();
-        store.findSpkiReservationHolder(certificate.spkiSha256()).ifPresent(holder -> {
-            throw new OnboardingRejectedException(RejectionReason.KEY_IN_USE, "the key (SPKI sha256 "
-                    + certificate.spkiSha256Hex() + ") is already reserved by tenant '" + holder + "'");
+        store.findSpkiReservation(certificate.spkiSha256()).ifPresent(reservation -> {
+            if (!isRenewalOfTheActiveKey(reservation, tenant)) {
+                throw new OnboardingRejectedException(RejectionReason.KEY_IN_USE, "the key (SPKI sha256 "
+                        + certificate.spkiSha256Hex() + ") is already reserved by tenant '" + reservation.tenantId() + "'");
+            }
+            attempt.renewalKeyArn = tenant.activeKmsKeyRef();
         });
         return certificate;
+    }
+
+    /**
+     * A reservation is a renewal, not a conflict, only when it belongs to this tenant and to the very row that is
+     * its active own-key configuration. A stale reservation of the same tenant, or any other holder, is a conflict.
+     */
+    private static boolean isRenewalOfTheActiveKey(SpkiReservation reservation, RegisteredTenant tenant) {
+        return tenant.activeModality() == SigningModality.OWN_KEY
+                && tenant.activeKmsKeyRef() != null
+                && tenant.id().equals(reservation.tenantId())
+                && reservation.configurationId().equals(tenant.activeConfigurationId());
     }
 
     /** The state file says which key the chain belongs to: a state that does not agree with its own chain is not trusted. */

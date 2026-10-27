@@ -330,4 +330,28 @@ class OnboardingCliTest {
         assertThat(out() + err()).doesNotContain(PASSWORD);
         assertThat(openedWith.get().toString()).doesNotContain(PASSWORD);
     }
+
+    @Test
+    void run_importOfARenewal_needsNoKeyMaterial() throws Exception {
+        var renewal = new PreparedOnboarding("op-2", "cgcom", "arn:aws:kms:eu-west-1:000000000000:key/abc", null,
+                List.of("AAAA"), "ab".repeat(32), Instant.parse("2026-10-27T12:00:00Z"), null, true, null);
+        new PreparedOnboardingFiles(directory).write(renewal, null, null);
+        when(onboarding.importKey(any())).thenReturn(new ImportResult("arn", UUID.randomUUID(), Operation.REPLACE, "ab"));
+
+        int exitCode = run("import", "--state", directory.resolve("own-key-cgcom-op-2.state.json").toString());
+
+        assertThat(exitCode).isEqualTo(OnboardingCli.EXIT_OK);
+        ArgumentCaptor<ImportCommand> command = ArgumentCaptor.forClass(ImportCommand.class);
+        verify(onboarding).importKey(command.capture());
+        assertThat(command.getValue().prepared().renewal()).isTrue();
+        assertThat(command.getValue().importToken()).isNull();
+    }
+
+    @Test
+    void run_importOfANewKeyWithoutKeyMaterial_isAUsageError() throws Exception {
+        new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
+
+        assertThat(run("import", "--state", directory.resolve("own-key-cgcom-op-1.state.json").toString()))
+                .isEqualTo(OnboardingCli.EXIT_USAGE);
+    }
 }
