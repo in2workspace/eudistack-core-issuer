@@ -88,6 +88,23 @@ class RevocationWorkflowTest {
                 .thenReturn(Mono.just(TestAuthorizationDecisions.query("VATES-A15456585", UserRole.LEAR, false)));
     }
 
+    /** A process stored without organization (pre EUD-272) must not read as "no resource" to the decision point. */
+    @Test
+    void revoke_processWithoutOrganization_isDecidedAsBelongingToNoOrganization() {
+        mockProcedure.setOrganizationIdentifier(null);
+        when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(callerResolver.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
+        when(powerAuthorizationService.authorize(eq(PowerAuthorizationService.REVOKE), eq(CALLER), eq(""), any()))
+                .thenReturn(Mono.error(new IssuanceNotFoundException("No issuance found")));
+
+        StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com"))
+                .expectError(IssuanceNotFoundException.class)
+                .verify();
+
+        verifyNoInteractions(statusListProvider);
+    }
+
     @Test
     void revoke_ShouldSucceed() {
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));

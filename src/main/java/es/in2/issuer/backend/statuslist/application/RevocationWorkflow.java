@@ -25,6 +25,7 @@ import reactor.core.publisher.Mono;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -131,12 +132,17 @@ public class RevocationWorkflow {
      * same for a person and a system. The decision goes first so that an attestation outside the
      * caller's scope reads as not found whatever its status, and the platform administrator's attempt
      * on an already revoked one is traced as a security action before it is rejected (AC-10).
+     *
+     * <p>A process stored without an organization (issued before EUD-272, e.g. Doctor ID) belongs to
+     * no organization: it is passed as {@code ""}, never {@code null}, which the decision point reads
+     * as "no resource" and would let an organization administrator through.
      */
     private Mono<Void> authorizeOperatorRevocation(String processId, String token, Issuance issuance) {
         log.info("Process ID: {} - Validating 'revoke' action...", processId);
+        String organization = Objects.requireNonNullElse(issuance.getOrganizationIdentifier(), "");
         return callerResolver.fromToken(token)
                 .flatMap(caller -> powerAuthorizationService.authorize(PowerAuthorizationService.REVOKE, caller,
-                        issuance.getOrganizationIdentifier(), String.valueOf(issuance.getIssuanceId())))
+                        organization, String.valueOf(issuance.getIssuanceId())))
                 .then(Mono.defer(() -> requireRevocable(issuance)));
     }
 

@@ -283,6 +283,16 @@ class PowerAuthorizationServiceImplTest {
                     Reason.OPERATOR_LACKS_ONBOARDING);
         }
 
+        /** AC-05: an Onboarding · Execute power whose domain is another tenant gives nothing here. */
+        @ParameterizedTest
+        @ValueSource(strings = {QUERY, PowerAuthorizationService.QUERY_FROM_SYSTEM})
+        void withThePowerOfAnotherTenant_isDenied(String action) {
+            Caller foreign = caller(ORG, TENANT, power("organization", OTHER_TENANT, "Onboarding", "Execute"),
+                    power("domain", OTHER_TENANT, "Onboarding", "Execute"));
+            expectReason(inTenant(service.authorize(action, foreign, null, null), TENANT),
+                    Reason.OPERATOR_LACKS_ONBOARDING);
+        }
+
         @Test
         void withATokenOfAnotherTenant_isDenied() {
             StepVerifier.create(inTenant(service.authorize(QUERY, caller(ORG, OTHER_TENANT, TENANT_ADMIN), null, null), TENANT))
