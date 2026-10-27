@@ -347,7 +347,7 @@ class EmailTemplatesRenderTest {
         Context ctx = new Context(EN);
         ctx.setVariable("organization", "KPMG Spain");
         ctx.setVariable("qrImageCid", "cid:qr-credential-offer.png");
-        ctx.setVariable("credentialOfferLink", "https://wallet.example.com/callback");
+        ctx.setVariable("walletLink", "https://wallet.example.com/callback");
         ctx.setVariable("reissueUrl", "https://issuer.example.com/refresh/token");
 
         String html = render("credential-offer-email-v2", ctx);

@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (EUD-305)
+
+- **EUD-305 — The wallet link of the credential offer email is built by the email service.** `CredentialOfferServiceImpl` no longer reads `issuer.wallet_url` nor builds a wallet link: it hands the standard `openid-credential-offer://?credential_offer_uri=...` offer to the email service, which reads `issuer.wallet_url` (optional) and builds `<issuer.wallet_url>/protocol/callback?credential_offer_uri=...` for the "Open in Wallet" button and the QR, or keeps the standard offer when the tenant configures no wallet. No change for the holder: the email carries the same links as before. The template variable for the button is now `walletLink`.
+
 ### Added (EUD-301)
 
 - **EUD-301 — Additional business attributes in SD-JWT VC issuance**: attributes that a profile's `sd_claims` does not list are no longer dropped silently; they are issued as selectively disclosable claims.
