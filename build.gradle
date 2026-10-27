@@ -72,6 +72,11 @@ dependencies {
         exclude group: 'software.amazon.awssdk', module: 'apache-client'
         exclude group: 'software.amazon.awssdk', module: 'apache5-client'
     }
+    // STS: the onboarding tool records the caller identity (GetCallerIdentity) as activated_by / withdrawn_by
+    implementation('software.amazon.awssdk:sts') {
+        exclude group: 'software.amazon.awssdk', module: 'apache-client'
+        exclude group: 'software.amazon.awssdk', module: 'apache5-client'
+    }
 
     // --- Email ---
     implementation 'org.springframework.boot:spring-boot-starter-mail'

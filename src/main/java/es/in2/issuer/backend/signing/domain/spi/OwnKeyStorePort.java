@@ -1,0 +1,96 @@
+package es.in2.issuer.backend.signing.domain.spi;
+
+import es.in2.issuer.backend.signing.domain.model.SigningModality;
+import es.in2.issuer.backend.signing.domain.onboarding.OnboardingRejectedException;
+import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChanged;
+
+import java.time.Duration;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.function.Function;
+
+/**
+ * Database side of the onboarding tool: the tenant registry, the signing configuration of each tenant
+ * and the SPKI reservation. The tool is a separate process, so this is its own access to the database,
+ * not the Issuer's.
+ */
+public interface OwnKeyStorePort {
+
+    /**
+     * A tenant of {@code public.tenant_registry}.
+     *
+     * @param active              the registry says the tenant is active
+     * @param schemaProvisioned   the tenant's Issuer schema exists and holds {@code tenant_signing_config}
+     * @param activeModality      modality of the tenant's active signing configuration; {@code null} if it has none
+     */
+    record RegisteredTenant(String id, boolean active, boolean schemaProvisioned, SigningModality activeModality) {}
+
+    Optional<RegisteredTenant> findTenant(String tenantId);
+
+    /** Ids of the tenants the registry marks active, in the order the tool reconciles them. */
+    List<String> findActiveTenants();
+
+    /** @return the tenant that holds a reservation of this SPKI hash, if any (for any tenant, the same one included) */
+    Optional<String> findSpkiReservationHolder(byte[] spkiSha256);
+
+    /** Own-key rows of the tenant withdrawn for longer than {@code grace} whose KMS key is not marked yet; no lock. */
+    List<WithdrawnOwnKey> findWithdrawnOwnKeysPendingKms(String tenantId, Duration grace);
+
+    /**
+     * Runs {@code work} in one database transaction: it commits when {@code work} returns and rolls back
+     * when it throws, rethrowing. Events staged with {@link ConfigurationTransaction#stage} are part of it.
+     */
+    <T> T inTransaction(Function<ConfigurationTransaction, T> work);
+
+    /**
+     * Records an event in a transaction of its own, for an onboarding that was rejected: staged in the
+     * business transaction it would be rolled back with it.
+     */
+    void recordInOwnTransaction(SigningConfigurationChanged event);
+
+    /** A withdrawn own-key row whose KMS key still has to be retired. */
+    record WithdrawnOwnKey(UUID id, String tenantId, String kmsKeyRef) {}
+
+    /** The active configuration of a tenant. */
+    record ActiveConfiguration(UUID id, SigningModality modality) {}
+
+    /** The own-key configuration that becomes active. */
+    record NewOwnKeyConfiguration(String kmsKeyRef, List<String> certificateChain) {}
+
+    /** What the tool does inside one transaction, on the schema of a tenant. */
+    interface ConfigurationTransaction {
+
+        /** {@code SELECT ... FOR UPDATE} of the active row; also serialises onboardings of the same tenant. */
+        Optional<ActiveConfiguration> lockActiveConfiguration(String tenantId);
+
+        /**
+         * The row becomes {@code withdrawn}. A QTSP row loses its four secret fields
+         * ({@code credentialPwd}, {@code clientSecret}, {@code accessKey}, {@code credentialId}) and keeps
+         * the rest; an own-key row loses its SPKI reservation. A withdrawn row is never active again.
+         */
+        void withdraw(String tenantId, ActiveConfiguration configuration, String withdrawnBy);
+
+        /** Inserts the new {@code active} own-key row, activated now by {@code activatedBy}; returns its id. */
+        UUID activateOwnKey(String tenantId, NewOwnKeyConfiguration configuration, String activatedBy);
+
+        /**
+         * Reserves the SPKI for the tenant's configuration.
+         *
+         * @throws OnboardingRejectedException {@code KEY_IN_USE}
+         *         if the hash is already reserved
+         */
+        void reserveSpki(byte[] spkiSha256, String tenantId, UUID configurationId);
+
+        /** The next withdrawn own-key row past the grace whose KMS key is not marked yet, locked with SKIP LOCKED. */
+        Optional<WithdrawnOwnKey> lockNextWithdrawnOwnKey(String tenantId, Duration grace,
+                                                          Set<UUID> excluding);
+
+        /** Marks the KMS key of the row as retired ({@code own_key_deleted_at}). */
+        void markKeyRetired(String tenantId, WithdrawnOwnKey key);
+
+        /** Stages the event in this transaction: it is only published if the transaction commits. */
+        void stage(SigningConfigurationChanged event);
+    }
+}
