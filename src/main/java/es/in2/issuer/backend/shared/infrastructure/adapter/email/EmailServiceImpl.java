@@ -29,8 +29,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -270,14 +268,15 @@ public class EmailServiceImpl implements EmailService {
                 .defaultIfEmpty(credentialOfferUri);
     }
 
-    /** Reuses the already-encoded https offer URL after {@code credential_offer_uri=}, so it is not encoded twice. */
+    /**
+     * Replaces the {@code openid-credential-offer://} start of the standard offer with the wallet's
+     * callback and keeps its query ({@code ?credential_offer_uri=...}) as is: the https offer URL in it
+     * is already encoded, so it is not encoded twice.
+     */
     private static String buildWalletLink(String credentialOfferUri, String walletUrl) {
-        String encodedHttpsUrl = credentialOfferUri.startsWith(CREDENTIAL_OFFER_PREFIX)
-                ? credentialOfferUri.substring(CREDENTIAL_OFFER_PREFIX.length())
-                : URLEncoder.encode(credentialOfferUri, StandardCharsets.UTF_8);
         String walletBase = walletUrl.endsWith("/") ? walletUrl.substring(0, walletUrl.length() - 1) : walletUrl;
 
-        return walletBase + WALLET_PROTOCOL_CALLBACK + "?" + CREDENTIAL_OFFER_URI_PARAMETER + "=" + encodedHttpsUrl;
+        return walletBase + WALLET_PROTOCOL_CALLBACK + credentialOfferUri.substring(credentialOfferUri.indexOf('?'));
     }
 
     /** Common icon shipped in {@code email/icons/}, referenced by the templates as {@code cid:icon-<name>.png}. */

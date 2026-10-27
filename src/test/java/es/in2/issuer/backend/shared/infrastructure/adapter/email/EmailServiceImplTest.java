@@ -127,7 +127,7 @@ class EmailServiceImplTest {
         // Act
         StepVerifier.create(emailService.sendCredentialOfferEmail(
                 "to@example.com",
-                "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fexample.com",
+                STANDARD_OFFER_URI,
                 "https://example.com/reissue",
                 "ACME Corp", "TX123"
         )).verifyComplete();
@@ -152,7 +152,7 @@ class EmailServiceImplTest {
         // Act & Assert
         StepVerifier.create(emailService.sendCredentialOfferEmail(
                 "to@example.com",
-                "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fexample.com",
+                STANDARD_OFFER_URI,
                 "https://example.com/reissue",
                 "ACME Corp", null
         )).verifyComplete();
@@ -231,7 +231,7 @@ class EmailServiceImplTest {
         // Act & Assert
         StepVerifier.create(emailService.sendCredentialOfferEmail(
                 "to@example.com",
-                "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fexample.com",
+                STANDARD_OFFER_URI,
                 "https://example.com/reissue",
                 "ACME Corp", "TX123"
         )).expectError(RuntimeException.class)
@@ -346,14 +346,13 @@ class EmailServiceImplTest {
         when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
         when(templateEngine.process(eq("credential-offer-email-v2"), any(Context.class))).thenReturn("<html>v2</html>");
 
-        String credentialOfferLink = "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fcredential-offer%2Fnonce";
         String reissueUrl = "https://issuer.example.com/credential-offer/refresh/abc";
 
         // Act
         StepVerifier.create(emailService.sendBrandedCredentialOfferEmail(
                 "user@kpmg.com",
                 "email.activation.subject",
-                credentialOfferLink,
+                STANDARD_OFFER_URI,
                 reissueUrl,
                 "KPMG Spain"
         )).verifyComplete();
@@ -366,7 +365,7 @@ class EmailServiceImplTest {
         assertEquals("KPMG Spain", ctx.getVariable("organization"));
         assertEquals("cid:qr-credential-offer.png", ctx.getVariable("qrImageCid"));
         assertEquals(reissueUrl, ctx.getVariable("reissueUrl"));
-        assertEquals(credentialOfferLink, ctx.getVariable("walletLink"));
+        assertEquals(STANDARD_OFFER_URI, ctx.getVariable("walletLink"));
     }
 
     @Test
@@ -378,7 +377,7 @@ class EmailServiceImplTest {
         StepVerifier.create(emailService.sendBrandedCredentialOfferEmail(
                 "user@kpmg.com",
                 "email.activation.subject",
-                "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fcredential-offer%2Fnonce",
+                STANDARD_OFFER_URI,
                 "https://issuer.example.com/credential-offer/refresh/abc",
                 "KPMG Spain"
         )).expectError(RuntimeException.class)
@@ -415,9 +414,6 @@ class EmailServiceImplTest {
         return new SentOffer(ctxCaptor.getValue(), qrContent);
     }
 
-    private static final String OFFER_DEEP_LINK =
-            "https://wallet.example.com/protocol/callback?credential_offer_uri=https%3A%2F%2Fexample.com";
-
     private MimeMessage stubMimeMessage(String template) {
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(javaMailSender.createMimeMessage()).thenReturn(mimeMessage);
@@ -436,7 +432,7 @@ class EmailServiceImplTest {
         stubOfferSubject("DOME Marketplace", "Your DOME Marketplace credential is ready");
 
         StepVerifier.create(emailService.sendCredentialOfferEmail(
-                        "to@example.com", OFFER_DEEP_LINK, "https://example.com/reissue", "ACME Corp", null)
+                        "to@example.com", STANDARD_OFFER_URI, "https://example.com/reissue", "ACME Corp", null)
                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "dome")
                         .put(ENVIRONMENT_LABEL_CONTEXT_KEY, "SBX")))
                 .verifyComplete();
@@ -450,7 +446,7 @@ class EmailServiceImplTest {
         stubOfferSubject("DOME Marketplace", "Your DOME Marketplace credential is ready");
 
         StepVerifier.create(emailService.sendCredentialOfferEmail(
-                        "to@example.com", OFFER_DEEP_LINK, "https://example.com/reissue", "ACME Corp", null)
+                        "to@example.com", STANDARD_OFFER_URI, "https://example.com/reissue", "ACME Corp", null)
                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "dome")))
                 .verifyComplete();
 
@@ -463,7 +459,7 @@ class EmailServiceImplTest {
         stubOfferSubject("DOME Marketplace", "Your DOME\r\nBcc: x@example.com credential is ready");
 
         StepVerifier.create(emailService.sendCredentialOfferEmail(
-                        "to@example.com", OFFER_DEEP_LINK, "https://example.com/reissue", "ACME Corp", null)
+                        "to@example.com", STANDARD_OFFER_URI, "https://example.com/reissue", "ACME Corp", null)
                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "dome")
                         .put(ENVIRONMENT_LABEL_CONTEXT_KEY, "S\nBX")))
                 .verifyComplete();
@@ -477,7 +473,7 @@ class EmailServiceImplTest {
         stubOfferSubject("DOME Marketplace", "Your DOME Marketplace credential is ready");
 
         StepVerifier.create(emailService.sendCredentialOfferEmail(
-                        "to@example.com", OFFER_DEEP_LINK, "https://example.com/reissue", "ACME Corp", null)
+                        "to@example.com", STANDARD_OFFER_URI, "https://example.com/reissue", "ACME Corp", null)
                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "dome")))
                 .verifyComplete();
 
@@ -558,7 +554,7 @@ class EmailServiceImplTest {
         MimeMessage mimeMessage = stubMimeMessage("credential-offer-email-v2");
 
         StepVerifier.create(emailService.sendBrandedCredentialOfferEmail(
-                        "user@kpmg.com", "email.activation.subject", OFFER_DEEP_LINK,
+                        "user@kpmg.com", "email.activation.subject", STANDARD_OFFER_URI,
                         "https://example.com/reissue", "KPMG Spain")
                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "kpmg")
                         .put(ENVIRONMENT_LABEL_CONTEXT_KEY, "SBX")))
@@ -570,7 +566,7 @@ class EmailServiceImplTest {
         Context ctx = ctxCaptor.getValue();
         assertNull(ctx.getVariable("branding"));
         assertNull(ctx.getVariable("tenantDisplayName"));
-        assertEquals(OFFER_DEEP_LINK, ctx.getVariable("walletLink"));
+        assertEquals(STANDARD_OFFER_URI, ctx.getVariable("walletLink"));
         assertNull(ctx.getVariable("walletInstallUrl"));
         verifyNoInteractions(emailBrandingResolver, tenantRegistryService);
     }
@@ -579,14 +575,14 @@ class EmailServiceImplTest {
     @Test
     void sendCredentialOfferEmail_htmlBodyIsFirstRelatedPartAndQrFollows() throws Exception {
         assertHtmlBodyPrecedesQr(emailService.sendCredentialOfferEmail(
-                "to@example.com", OFFER_DEEP_LINK, "https://example.com/reissue", "ACME Corp", null),
+                "to@example.com", STANDARD_OFFER_URI, "https://example.com/reissue", "ACME Corp", null),
                 "credential-offer-email");
     }
 
     @Test
     void sendBrandedCredentialOfferEmail_htmlBodyIsFirstRelatedPartAndQrFollows() throws Exception {
         assertHtmlBodyPrecedesQr(emailService.sendBrandedCredentialOfferEmail(
-                "user@kpmg.com", "email.activation.subject", OFFER_DEEP_LINK,
+                "user@kpmg.com", "email.activation.subject", STANDARD_OFFER_URI,
                 "https://example.com/reissue", "KPMG Spain"),
                 "credential-offer-email-v2");
     }
