@@ -46,6 +46,9 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
 
     // --- Persistence ---
+    // Transactions of the onboarding tool on a DataSource (already on the classpath through the R2DBC starter)
+    implementation 'org.springframework:spring-jdbc'
+    implementation 'org.springframework:spring-tx'
     implementation 'org.springframework.boot:spring-boot-starter-data-r2dbc'
     runtimeOnly 'org.postgresql:r2dbc-postgresql'
     runtimeOnly 'org.postgresql:postgresql'

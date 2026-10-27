@@ -10,9 +10,13 @@ import es.in2.issuer.backend.signing.domain.onboarding.RejectionReason;
 import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChanged;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.DataSourceUtils;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.TransactionException;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -22,13 +26,16 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.regex.Pattern;
+import javax.sql.DataSource;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.SCHEMA_SUFFIX;
 
 /**
- * {@link OwnKeyStorePort} over plain JDBC (the tool is not a Spring application). Every statement of a
+ * {@link OwnKeyStorePort} over JDBC with Spring transactions on a {@link DataSource} (the tool is not a Spring
+ * Boot application; spring-jdbc is used for the transaction only). Every statement of a
  * tenant is schema-qualified with {@code <tenant>_issuer}, so no {@code search_path} is needed; the tenant id
  * is checked against the shape of a schema name before it is put in a statement.
  *
@@ -45,17 +52,20 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
     private static final String[] QTSP_SECRET_FIELDS = {"credentialPwd", "clientSecret", "accessKey", "credentialId"};
     private static final String ONBOARDING_LOCK_PREFIX = "eudistack.own_key_onboarding:";
 
-    private final String url;
-    private final String user;
-    private final String password;
+    private final DataSource dataSource;
+    private final TransactionTemplate transactions;
     private final SigningConfigurationAuditSink auditSink;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public JdbcOwnKeyStore(String url, String user, String password, SigningConfigurationAuditSink auditSink) {
-        this.url = url;
-        this.user = user;
-        this.password = password;
+    /** @param dataSource the one every transaction and every audit sink uses, so that they share the transaction */
+    public JdbcOwnKeyStore(DataSource dataSource, SigningConfigurationAuditSink auditSink) {
+        this.dataSource = dataSource;
+        this.transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
         this.auditSink = auditSink;
+    }
+
+    public JdbcOwnKeyStore(String url, String user, String password, SigningConfigurationAuditSink auditSink) {
+        this(new DriverManagerDataSource(url, user, password), auditSink);
     }
 
     @Override
@@ -168,54 +178,51 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         });
     }
 
+    /**
+     * One Spring transaction on the data source: whatever else runs on the same {@link DataSource} inside
+     * {@code work}, such as the outbox of the audit starter, joins it. A failure of the commit itself leaves the
+     * outcome unknown (the server may have committed before the connection broke), which the caller must not treat
+     * as a rollback.
+     */
     @Override
     public <T> T inTransaction(Function<ConfigurationTransaction, T> work) {
-        try (Connection connection = open()) {
-            connection.setAutoCommit(false);
-            JdbcConfigurationTransaction transaction = new JdbcConfigurationTransaction(connection);
-            T result;
-            try {
-                result = work.apply(transaction);
-            } catch (RuntimeException e) {
-                rollback(connection, e);
-                throw e;
+        AtomicBoolean started = new AtomicBoolean();
+        AtomicBoolean completed = new AtomicBoolean();
+        List<SigningConfigurationChanged> staged = new ArrayList<>();
+        T result;
+        try {
+            result = transactions.execute(status -> {
+                started.set(true);
+                JdbcConfigurationTransaction transaction = new JdbcConfigurationTransaction(
+                        DataSourceUtils.getConnection(dataSource), staged);
+                T value = work.apply(transaction);
+                completed.set(true);
+                return value;
+            });
+        } catch (TransactionException e) {
+            if (started.get() && completed.get()) {
+                throw new CommitOutcomeUnknownException("the database did not confirm the commit: " + e.getMessage(), e);
             }
-            commit(connection);
-            transaction.staged.forEach(this::publish);
-            return result;
-        } catch (SQLException e) {
             throw databaseFailure(e);
         }
+        staged.forEach(this::publish);
+        return result;
     }
 
     @Override
     public void recordInOwnTransaction(SigningConfigurationChanged event) {
-        try (Connection connection = open()) {
-            connection.setAutoCommit(false);
-            try {
-                auditSink.stage(connection, event);
-            } catch (SQLException | RuntimeException e) {
-                rollback(connection, e);
-                throw e;
-            }
-            connection.commit();
-            publish(event);
-        } catch (SQLException e) {
+        try {
+            transactions.executeWithoutResult(status -> {
+                try {
+                    auditSink.stage(DataSourceUtils.getConnection(dataSource), event);
+                } catch (SQLException e) {
+                    throw databaseFailure(e);
+                }
+            });
+        } catch (TransactionException e) {
             throw databaseFailure(e);
         }
-    }
-
-    /**
-     * A failure of the commit itself leaves the outcome unknown (the server may have committed before the
-     * connection broke), which the caller must not treat as a rollback.
-     */
-    private static void commit(Connection connection) {
-        try {
-            connection.commit();
-        } catch (SQLException e) {
-            throw new CommitOutcomeUnknownException("the database did not confirm the commit (SQLState "
-                    + e.getSQLState() + "): " + e.getMessage(), e);
-        }
+        publish(event);
     }
 
     /** The change is already committed: a sink that fails cannot undo it. */
@@ -231,10 +238,11 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
     private final class JdbcConfigurationTransaction implements ConfigurationTransaction {
 
         private final Connection connection;
-        private final List<SigningConfigurationChanged> staged = new ArrayList<>();
+        private final List<SigningConfigurationChanged> staged;
 
-        private JdbcConfigurationTransaction(Connection connection) {
+        private JdbcConfigurationTransaction(Connection connection, List<SigningConfigurationChanged> staged) {
             this.connection = connection;
+            this.staged = staged;
         }
 
         @Override
@@ -389,7 +397,7 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
     }
 
     private Connection open() throws SQLException {
-        return DriverManager.getConnection(url, user, password);
+        return dataSource.getConnection();
     }
 
     private static String queryString(Connection connection, String sql, String... parameters) throws SQLException {
@@ -400,14 +408,6 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
             try (ResultSet rs = statement.executeQuery()) {
                 return rs.next() ? rs.getString(1) : null;
             }
-        }
-    }
-
-    private static void rollback(Connection connection, Exception cause) {
-        try {
-            connection.rollback();
-        } catch (SQLException e) {
-            cause.addSuppressed(e);
         }
     }
 
