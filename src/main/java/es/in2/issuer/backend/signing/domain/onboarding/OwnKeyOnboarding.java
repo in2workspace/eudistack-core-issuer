@@ -391,10 +391,10 @@ public class OwnKeyOnboarding {
     private ValidatedOwnKeyCertificate validate(Attempt attempt, List<X509Certificate> chain, OnboardingPolicy policy) {
         attempt.certificateSha256 = new ValidatedOwnKeyCertificate(chain).certificateSha256Hex();
         ValidatedOwnKeyCertificate certificate = OwnKeyCertificateValidator.validate(chain, policy, clock.instant());
-        RegisteredTenant tenant = store.findTenant(attempt.tenant).orElseThrow(() -> new TenantNotAvailableException(
-                "tenant '" + attempt.tenant + "' is not in the tenant registry"));
+        RegisteredTenant tenant = store.findTenant(attempt.tenant).orElseThrow(() -> unavailableTenant(
+                attempt, "tenant '" + attempt.tenant + "' is not in the tenant registry"));
         if (!tenant.active()) {
-            throw new TenantNotAvailableException("tenant '" + attempt.tenant + "' is not active in the tenant registry");
+            throw unavailableTenant(attempt, "tenant '" + attempt.tenant + "' is not active in the tenant registry");
         }
         if (!tenant.schemaProvisioned()) {
             throw new OnboardingRejectedException(RejectionReason.POLICY_DENIED,
@@ -429,12 +429,16 @@ public class OwnKeyOnboarding {
         }
     }
 
+    /**
+     * Audited like any other rejection, with the tenant id as given: the audit API keeps the events of a tenant it
+     * does not know as rejected events of its own. The line tells the operator which tenant was not found.
+     */
+    private static OnboardingRejectedException unavailableTenant(Attempt attempt, String message) {
+        log.warn("Onboarding of tenant '{}' rejected: {}", attempt.tenant, message);
+        return new OnboardingRejectedException(RejectionReason.POLICY_DENIED, message);
+    }
+
     private void recordRejection(Attempt attempt, OnboardingRejectedException rejected) {
-        if (rejected instanceof TenantNotAvailableException) {
-            log.warn("Onboarding of tenant '{}' rejected and not audited (the tenant is not available): {}",
-                    attempt.tenant, rejected.getMessage());
-            return;
-        }
         try {
             store.recordInOwnTransaction(event(attempt, attempt.operation(), attempt.previousModality, Result.DENIED,
                     rejected.getReason(), attempt.certificateSha256));

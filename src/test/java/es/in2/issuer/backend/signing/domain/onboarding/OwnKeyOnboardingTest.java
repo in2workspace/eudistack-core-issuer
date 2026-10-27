@@ -154,7 +154,12 @@ class OwnKeyOnboardingTest {
                     assertThat(e.getMessage()).contains("not in the tenant registry");
                 });
         assertThat(kms.calls).isEmpty();
-        assertThat(store.eventsInOwnTransaction).as("no event for an unknown tenant").isEmpty();
+        assertThat(store.eventsInOwnTransaction).as("audited with the tenant as given").singleElement()
+                .satisfies(event -> {
+                    assertThat(event.tenant()).isEqualTo(TENANT);
+                    assertThat(event.result()).isEqualTo(Result.DENIED);
+                    assertThat(event.reason()).isEqualTo(RejectionReason.POLICY_DENIED);
+                });
     }
 
     @Test
@@ -165,7 +170,8 @@ class OwnKeyOnboardingTest {
         assertThatThrownBy(() -> onboarding.prepare(prepareCommand(leaf.certificate(), false)))
                 .isInstanceOfSatisfying(OnboardingRejectedException.class,
                         e -> assertThat(e.getMessage()).contains("not active"));
-        assertThat(store.eventsInOwnTransaction).as("no event for an inactive tenant").isEmpty();
+        assertThat(store.eventsInOwnTransaction).as("audited like any rejection").singleElement()
+                .satisfies(event -> assertThat(event.reason()).isEqualTo(RejectionReason.POLICY_DENIED));
     }
 
     @Test
@@ -384,7 +390,7 @@ class OwnKeyOnboardingTest {
                 .isInstanceOfSatisfying(OnboardingRejectedException.class,
                         e -> assertThat(e.getReason()).isEqualTo(RejectionReason.POLICY_DENIED));
         assertKeyDiscarded();
-        assertThat(store.eventsInOwnTransaction).isEmpty();
+        assertThat(store.eventsInOwnTransaction).hasSize(1);
     }
 
     @Test
