@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
@@ -123,39 +124,49 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         });
     }
 
-    /** Looks in the schema of every tenant that has a signing configuration table, not only the registered ones. */
+    /**
+     * Looks in the schema of every tenant that has a signing configuration table, as the catalogue lists them
+     * ({@code pg_catalog} shows tables whatever the privileges of the role, unlike {@code information_schema}), so
+     * a registered tenant whose table the role cannot read is still found. It fails closed: if the table of a tenant cannot be read, the key cannot be
+     * shown to be unreferenced, so the call fails and the caller does not touch the key.
+     *
+     * @throws OnboardingFailedException if the signing configurations of some tenant cannot be read
+     */
     @Override
     public boolean isKeyReferenced(String kmsKeyRef, boolean activeOnly) {
         return read(connection -> {
-            List<String> schemas = new ArrayList<>();
-            try (PreparedStatement statement = connection.prepareStatement("SELECT table_schema FROM "
-                    + "information_schema.tables WHERE table_name = 'tenant_signing_config'");
+            Set<String> tenants = new TreeSet<>();
+            try (PreparedStatement statement = connection.prepareStatement("SELECT n.nspname FROM pg_catalog.pg_class c "
+                    + "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+                    + "WHERE c.relname = 'tenant_signing_config' AND c.relkind IN ('r', 'p')");
                  ResultSet rs = statement.executeQuery()) {
                 while (rs.next()) {
                     String schema = rs.getString(1);
-                    if (!schema.endsWith(SCHEMA_SUFFIX)) {
-                        continue;
-                    }
-                    String tenant = schema.substring(0, schema.length() - SCHEMA_SUFFIX.length());
-                    if (TENANT_ID.matcher(tenant).matches()) {
-                        schemas.add(tenant);
+                    if (schema.endsWith(SCHEMA_SUFFIX)) {
+                        String tenant = schema.substring(0, schema.length() - SCHEMA_SUFFIX.length());
+                        if (TENANT_ID.matcher(tenant).matches()) {
+                            tenants.add(tenant);
+                        }
                     }
                 }
-            }
-            if (schemas.isEmpty()) {
-                return false;
             }
             String where = " WHERE own_key_kms_key_ref = ?" + (activeOnly ? " AND status = 'active'" : "");
-            String union = String.join(" UNION ALL ", schemas.stream()
-                    .map(tenant -> "SELECT 1 FROM " + table(tenant) + where).toList());
-            try (PreparedStatement statement = connection.prepareStatement("SELECT EXISTS (" + union + ")")) {
-                for (int i = 1; i <= schemas.size(); i++) {
-                    statement.setString(i, kmsKeyRef);
-                }
-                try (ResultSet rs = statement.executeQuery()) {
-                    return rs.next() && rs.getBoolean(1);
+            for (String tenant : tenants) {
+                try (PreparedStatement statement = connection.prepareStatement(
+                        "SELECT EXISTS (SELECT 1 FROM " + table(tenant) + where + ")")) {
+                    statement.setString(1, kmsKeyRef);
+                    try (ResultSet rs = statement.executeQuery()) {
+                        if (rs.next() && rs.getBoolean(1)) {
+                            return true;
+                        }
+                    }
+                } catch (SQLException e) {
+                    throw new OnboardingFailedException("the signing configurations of tenant '" + tenant
+                            + "' cannot be read (SQLState " + e.getSQLState() + "), so the key cannot be shown to be "
+                            + "unreferenced: nothing was done with it", e);
                 }
             }
+            return false;
         });
     }
 

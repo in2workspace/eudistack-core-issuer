@@ -136,6 +136,15 @@ class OwnKeyDiscardTest {
     }
 
     @Test
+    void discard_referenceCheckThatCannotRead_failsAndTouchesNothing() {
+        store.referenceCheckFailure = new OnboardingFailedException("cannot be shown to be unreferenced");
+
+        assertThatThrownBy(() -> onboarding.discard(command(false))).isInstanceOf(OnboardingFailedException.class);
+
+        assertNothingDestroyed();
+    }
+
+    @Test
     void discard_keyReferencedByAnActiveConfiguration_isRefused() {
         store.activeKeyRefs.add(ARN);
 

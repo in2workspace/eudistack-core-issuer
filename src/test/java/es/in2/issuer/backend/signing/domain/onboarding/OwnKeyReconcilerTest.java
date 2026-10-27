@@ -118,6 +118,18 @@ class OwnKeyReconcilerTest {
     }
 
     @Test
+    void reconcile_referenceCheckThatCannotRead_touchesNoKeyAndFails() {
+        var row = withdrawn("cgcom", KEY_A);
+        store.referenceCheckFailure = new OnboardingFailedException("cannot be shown to be unreferenced");
+
+        var report = reconciler.reconcile(GRACE, false);
+
+        assertThat(kms.calls).isEmpty();
+        assertThat(store.retired).doesNotContain(row.id());
+        assertThat(report.succeeded()).isFalse();
+    }
+
+    @Test
     void reconcile_noWithdrawnRows_makesNoKmsCall() {
         var report = reconciler.reconcile(GRACE, false);
 

@@ -134,6 +134,7 @@ final class OnboardingFakes {
         ActiveConfiguration active;
         RuntimeException failure;
         RuntimeException failureRecordingEvent;
+        RuntimeException referenceCheckFailure;
         Runnable onTransactionStart = () -> { };
         int transactions;
 
@@ -159,6 +160,9 @@ final class OnboardingFakes {
 
         @Override
         public boolean isKeyReferenced(String kmsKeyRef, boolean activeOnly) {
+            if (referenceCheckFailure != null) {
+                throw referenceCheckFailure;
+            }
             return activeKeyRefs.contains(kmsKeyRef) || (!activeOnly && otherKeyRefs.contains(kmsKeyRef));
         }
 
