@@ -18,9 +18,9 @@ import java.util.List;
  * the Issuer migrates itself: {@code public.signing_spki_reservation} and the schema of each tenant, with the
  * same Flyway settings as {@code TenantSchemaFlywayMigrator}.
  */
-final class OnboardingTestDatabase {
+public final class OnboardingTestDatabase {
 
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    public static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
     private static final List<String> MIGRATED_TENANTS = List.of("cgcom", "kpmg", "dormant");
 
@@ -48,21 +48,21 @@ final class OnboardingTestDatabase {
 
     private OnboardingTestDatabase() {}
 
-    static Connection open() throws SQLException {
+    public static Connection open() throws SQLException {
         return DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
-    static JdbcOwnKeyStore store(SigningConfigurationAuditSink sink) {
+    public static JdbcOwnKeyStore store(SigningConfigurationAuditSink sink) {
         return new JdbcOwnKeyStore(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword(), sink);
     }
 
     /** Empties the signing configurations of the tenants and the reservations. */
-    static void reset() {
+    public static void reset() {
         execute("TRUNCATE cgcom_issuer.tenant_signing_config, kpmg_issuer.tenant_signing_config, "
                 + "dormant_issuer.tenant_signing_config, public.signing_spki_reservation");
     }
 
-    static void execute(String sql, Object... parameters) {
+    public static void execute(String sql, Object... parameters) {
         try (Connection connection = open(); PreparedStatement statement = connection.prepareStatement(sql)) {
             bind(statement, parameters);
             statement.execute();
@@ -72,7 +72,7 @@ final class OnboardingTestDatabase {
     }
 
     /** The rows of a query, each as a list of its columns. */
-    static List<List<Object>> query(String sql, Object... parameters) {
+    public static List<List<Object>> query(String sql, Object... parameters) {
         try (Connection connection = open(); PreparedStatement statement = connection.prepareStatement(sql)) {
             bind(statement, parameters);
             List<List<Object>> rows = new ArrayList<>();
@@ -92,7 +92,7 @@ final class OnboardingTestDatabase {
         }
     }
 
-    static Object scalar(String sql, Object... parameters) {
+    public static Object scalar(String sql, Object... parameters) {
         List<List<Object>> rows = query(sql, parameters);
         return rows.isEmpty() ? null : rows.getFirst().getFirst();
     }

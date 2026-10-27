@@ -12,6 +12,7 @@ import java.net.URI;
  * @param kmsRegion           AWS region ({@code ISSUER_SIGNING_KMS_REGION}, then {@code AWS_REGION}); {@code null} lets the SDK resolve it
  * @param kmsEndpoint         endpoint override for emulators such as LocalStack ({@code ISSUER_SIGNING_KMS_ENDPOINT}); applies to KMS and STS
  * @param deletionWindowDays  waiting period of {@code ScheduleKeyDeletion}, 7 to 30 days
+ * @param auditSink           where the audit events go ({@code OWN_KEY_AUDIT_SINK}, {@code log} or {@code outbox})
  */
 public record OnboardingSettings(
         String dbUrl,
@@ -19,8 +20,15 @@ public record OnboardingSettings(
         String dbPassword,
         String kmsRegion,
         URI kmsEndpoint,
-        int deletionWindowDays
+        int deletionWindowDays,
+        AuditSinkMode auditSink
 ) {
+
+    /** Where the audit events go: the log (default) or the outbox of the EUD-244 starter, if the build has it. */
+    public enum AuditSinkMode {
+        LOG,
+        OUTBOX
+    }
 
     static final int MIN_DELETION_WINDOW_DAYS = 7;
     static final int MAX_DELETION_WINDOW_DAYS = 30;
@@ -36,6 +44,6 @@ public record OnboardingSettings(
     @Override
     public String toString() {
         return "OnboardingSettings[dbUrl=" + dbUrl + ", dbUser=" + dbUser + ", kmsRegion=" + kmsRegion
-                + ", kmsEndpoint=" + kmsEndpoint + ", deletionWindowDays=" + deletionWindowDays + "]";
+                + ", kmsEndpoint=" + kmsEndpoint + ", deletionWindowDays=" + deletionWindowDays + ", auditSink=" + auditSink + "]";
     }
 }

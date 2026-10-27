@@ -140,6 +140,35 @@ dependencies {
     testImplementation 'org.awaitility:awaitility'
 }
 
+// --- Opt-in: outbox audit sink of the onboarding tool (EUD-289, EUD-244 starter) ---
+// Off by default: without -PauditStarter the build has no extra repository, no dependency and no extra source,
+// and does not need GitHub Packages. To switch it on for good, drop the condition (docs/own-key-onboarding-tool.md).
+// Until the starter can be resolved in CI and in the Docker build, use a copy built locally:
+//   git clone --branch v0.1.0 https://github.com/in2workspace/eudistack-platform-audit-starter && ./gradlew publishToMavenLocal
+if (project.hasProperty('auditStarter')) {
+    repositories {
+        mavenLocal {
+            content { includeGroup 'com.eudistack' }
+        }
+        maven {
+            name = 'GitHubPackages'
+            url = uri('https://maven.pkg.github.com/in2workspace/eudistack-platform-audit-starter')
+            credentials {
+                username = System.getenv('GITHUB_ACTOR') ?: findProperty('gpr.user')
+                password = System.getenv('GITHUB_TOKEN') ?: findProperty('gpr.token')
+            }
+            content { includeGroup 'com.eudistack' }
+        }
+    }
+    sourceSets {
+        main.java.srcDir 'src/audit-starter/main/java'
+        test.java.srcDir 'src/audit-starter/test/java'
+    }
+    dependencies {
+        implementation 'com.eudistack:auditoria-spring-boot-starter:0.1.0'
+    }
+}
+
 configurations.configureEach {
     exclude module: 'slf4j-simple'
 }

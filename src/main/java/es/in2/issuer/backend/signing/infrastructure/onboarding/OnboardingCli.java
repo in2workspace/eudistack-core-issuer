@@ -86,6 +86,7 @@ public final class OnboardingCli {
         KMS_ENDPOINT("kms-endpoint", "ISSUER_SIGNING_KMS_ENDPOINT", false),
         DELETION_WINDOW_DAYS("deletion-window-days", "OWN_KEY_DELETION_WINDOW_DAYS", false),
         DRY_RUN("dry-run", "OWN_KEY_DRY_RUN", true),
+        AUDIT_SINK("audit-sink", "OWN_KEY_AUDIT_SINK", false),
         TENANT("tenant", "OWN_KEY_TENANT", false),
         CERT_CHAIN("cert-chain", "OWN_KEY_CERT_CHAIN", false),
         OUT_DIR("out-dir", "OWN_KEY_OUT_DIR", false),
@@ -113,7 +114,7 @@ public final class OnboardingCli {
     private static final String ENV_AWS_REGION = "AWS_REGION";
 
     private static final Set<Opt> COMMON = EnumSet.of(Opt.DB_URL, Opt.DB_USER, Opt.KMS_REGION, Opt.KMS_ENDPOINT,
-            Opt.DELETION_WINDOW_DAYS, Opt.DRY_RUN);
+            Opt.DELETION_WINDOW_DAYS, Opt.DRY_RUN, Opt.AUDIT_SINK);
 
     private static final String HELP = """
             Own-key onboarding tool (EUD-289): puts a tenant's own signing key, held in AWS KMS, into service.
@@ -143,6 +144,7 @@ public final class OnboardingCli {
               --kms-endpoint <url>           [ISSUER_SIGNING_KMS_ENDPOINT] emulators only; applies to KMS and STS
               --deletion-window-days <7-30>  [OWN_KEY_DELETION_WINDOW_DAYS] default 7
               --dry-run                      [OWN_KEY_DRY_RUN]
+              --audit-sink <log|outbox>      [OWN_KEY_AUDIT_SINK] default log; outbox needs a build with the audit starter
 
             prepare
               --tenant <id>                  [OWN_KEY_TENANT] tenant id, e.g. cgcom
@@ -354,6 +356,15 @@ public final class OnboardingCli {
         return new OnboardingPolicy(invocation.has(Opt.PRODUCTION), anchor, invocation.get(Opt.EXPECTED_ORG_ID));
     }
 
+    private static OnboardingSettings.AuditSinkMode auditSink(Invocation invocation) {
+        String value = invocation.has(Opt.AUDIT_SINK) ? invocation.get(Opt.AUDIT_SINK) : "log";
+        return switch (value.toLowerCase(Locale.ROOT)) {
+            case "log" -> OnboardingSettings.AuditSinkMode.LOG;
+            case "outbox" -> OnboardingSettings.AuditSinkMode.OUTBOX;
+            default -> throw new UsageException("--audit-sink must be log or outbox");
+        };
+    }
+
     private OnboardingSettings settings(Invocation invocation) {
         String password = invocation.env().get(ENV_DB_PASSWORD);
         if (password == null) {
@@ -368,7 +379,7 @@ public final class OnboardingCli {
                 ? (int) parseLong(Opt.DELETION_WINDOW_DAYS, invocation.get(Opt.DELETION_WINDOW_DAYS))
                 : DEFAULT_DELETION_WINDOW_DAYS;
         return new OnboardingSettings(invocation.require(Opt.DB_URL), invocation.require(Opt.DB_USER), password,
-                region == null || region.isBlank() ? null : region, endpoint, days);
+                region == null || region.isBlank() ? null : region, endpoint, days, auditSink(invocation));
     }
 
     /** @return the invocation, or {@code null} if help was asked for */

@@ -84,6 +84,7 @@ Arguments or environment variables; an argument wins. The names of the database 
 | AWS credentials | | SDK default chain (task role, SSO, `AWS_*`) |
 | Pending window of `ScheduleKeyDeletion`, 7 to 30 | `--deletion-window-days` | `OWN_KEY_DELETION_WINDOW_DAYS` |
 | Validations only | `--dry-run` | `OWN_KEY_DRY_RUN` |
+| Where the audit events go: `log` (default) or `outbox` | `--audit-sink` | `OWN_KEY_AUDIT_SINK` |
 | `prepare`: tenant, chain (PEM, leaf first, root excluded), output directory, alias | `--tenant`, `--cert-chain`, `--out-dir`, `--alias` | `OWN_KEY_TENANT`, `OWN_KEY_CERT_CHAIN`, `OWN_KEY_OUT_DIR`, `OWN_KEY_ALIAS` |
 | `import`: state, wrapped key material, import token (default: next to the state) | `--state`, `--key-material`, `--import-token` | `OWN_KEY_STATE`, `OWN_KEY_KEY_MATERIAL`, `OWN_KEY_IMPORT_TOKEN` |
 | `prepare` and `import`: production checks | `--production`, `--trust-anchor`, `--expected-org-id` | `OWN_KEY_PRODUCTION`, `OWN_KEY_TRUST_ANCHOR`, `OWN_KEY_EXPECTED_ORG_ID` |
@@ -116,3 +117,45 @@ ARN. To use the outbox, implement `SigningConfigurationAuditSink.stage` (an inse
 EUD-244 starter); nothing else changes.
 
 `activated_by` and `withdrawn_by` hold the caller ARN from STS `GetCallerIdentity`, never free text.
+
+## Audit sink: the outbox of the EUD-244 starter (ready, not active)
+
+`OWN_KEY_AUDIT_SINK=log` (the default) writes the event to the audit logger, as above. `OWN_KEY_AUDIT_SINK=outbox`
+stages it in `public.audit_outbox` with the EUD-244 audit starter (`com.eudistack:auditoria-spring-boot-starter`),
+in the same transaction as the configuration change, and the Issuer's dispatcher sends it later. **The outbox mode
+exists but is inactive:** the default build does not include the starter, because the Issuer cannot resolve it from
+GitHub Packages yet (no authentication in CI or in the Docker build). With `outbox` in a build without it, the tool
+ends with exit code 1 and a message saying that the build lacks the audit starter.
+
+How it works. The tool's transactions are Spring transactions (`DataSourceTransactionManager`) on one
+`DataSource`, so whatever the sink stages on that data source joins them: the starter refuses to stage outside a
+transaction. In outbox mode the tool starts a minimal non-web Spring context
+(`OutboxAuditConfiguration`) that imports only the starter's own auto-configurations for the properties, the context
+accessor and the publisher, plus the two beans the starter only creates for servlet applications
+(`JdbcAuditOutboxSchema`, `JdbcOutboxStore`). Publisher on, **dispatcher off** (the tool never sends events),
+`auditoria.source=issuer`; the event's own source is `signing`. Nothing of the Issuer's context (R2DBC, Flyway,
+WebFlux, its beans, its `application.yml`) is loaded. The tenant and the actor (the caller ARN) come from
+`AuditContexts.system(tenant, callerArn, operationId)`; a rejected onboarding is staged in a transaction of its own,
+also when the tenant is unknown. `details` are `operation`, `previous_modality`, `new_modality` and
+`signing_certificate` (`sha256:<hex>` of the leaf certificate); the resource is `signing-configuration:<tenant>`.
+
+Where the code is. The sink, the context and their tests are in the opt-in source sets `src/audit-starter/main/java`
+and `src/audit-starter/test/java`, compiled only with `-PauditStarter`, which also adds the dependency
+`com.eudistack:auditoria-spring-boot-starter:0.1.0` and the repositories `mavenLocal()` and GitHub Packages
+(credentials from `GITHUB_ACTOR`/`GITHUB_TOKEN` or `gpr.user`/`gpr.token`). Without the flag the build has no extra
+repository, dependency or source. The main code has no starter types: it loads
+`...onboarding.audit.OutboxAuditSinkFactory` by name.
+
+Tested against the starter **v0.1.0 built locally from its tag** and published to Maven Local
+(`git clone --branch v0.1.0 https://github.com/in2workspace/eudistack-platform-audit-starter`,
+`./gradlew publishToMavenLocal`), not downloaded from GitHub Packages. Run them with
+`./gradlew check -PauditStarter`.
+
+Activating it for good:
+
+1. In `build.gradle`, remove the `if (project.hasProperty('auditStarter'))` condition, so the source sets, the
+   dependency and the repositories are always there.
+2. Set `OWN_KEY_AUDIT_SINK=outbox` in the environment of the tool's task.
+3. Prerequisites outside this repository's code: read access to the package for the Issuer repository; CI
+   authentication to GitHub Packages (the shared workflows that build the Issuer, and the SHA of those workflows the
+   Issuer pins); and a build secret for the Dockerfile, which compiles inside the image.

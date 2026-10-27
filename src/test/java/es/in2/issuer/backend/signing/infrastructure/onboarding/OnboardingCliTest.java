@@ -396,4 +396,26 @@ class OnboardingCliTest {
                 .isEqualTo(OnboardingCli.EXIT_REJECTED);
         assertThat(err()).contains("REJECTED: the key has been imported");
     }
+
+    @Test
+    void run_auditSinkDefaultsToTheLog() {
+        run("reconcile");
+
+        assertThat(openedWith.get().auditSink()).isEqualTo(OnboardingSettings.AuditSinkMode.LOG);
+    }
+
+    @Test
+    void run_auditSinkOutbox_fromTheArgumentOrTheEnvironment() {
+        run("reconcile", "--audit-sink", "outbox");
+        assertThat(openedWith.get().auditSink()).isEqualTo(OnboardingSettings.AuditSinkMode.OUTBOX);
+
+        env.put("OWN_KEY_AUDIT_SINK", "OUTBOX");
+        run("reconcile");
+        assertThat(openedWith.get().auditSink()).isEqualTo(OnboardingSettings.AuditSinkMode.OUTBOX);
+    }
+
+    @Test
+    void run_auditSinkOfAnotherKind_isAUsageError() {
+        assertThat(run("reconcile", "--audit-sink", "kafka")).isEqualTo(OnboardingCli.EXIT_USAGE);
+    }
 }
