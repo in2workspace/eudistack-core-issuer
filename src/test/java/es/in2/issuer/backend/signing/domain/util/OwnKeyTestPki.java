@@ -1,9 +1,14 @@
 package es.in2.issuer.backend.signing.domain.util;
 
+import org.bouncycastle.asn1.ASN1EncodableVector;
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.DERSequence;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.X500NameBuilder;
 import org.bouncycastle.asn1.x500.style.BCStyle;
 import org.bouncycastle.asn1.x509.BasicConstraints;
+import org.bouncycastle.asn1.x509.CertificatePolicies;
+import org.bouncycastle.asn1.x509.PolicyInformation;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.KeyUsage;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
@@ -168,6 +173,72 @@ public final class OwnKeyTestPki {
         return chainWithIntermediate("2025-01-01T00:00:00Z", "2025-01-02T00:00:00Z");
     }
 
+    /** P-256 leaf issued by the root that declares the given certificate policy (for example a QCP-n-qscd OID). */
+    public Leaf leafWithPolicy(String policyOid) {
+        return leafWithExtra(builder -> builder.addExtension(Extension.certificatePolicies, false,
+                new CertificatePolicies(new PolicyInformation(new ASN1ObjectIdentifier(policyOid)))));
+    }
+
+    /** P-256 leaf issued by the root whose qcStatements declare QcSSCD (0.4.0.1862.1.4): the key is in a QSCD. */
+    public Leaf leafWithQcSscdStatement() {
+        return leafWithExtra(builder -> {
+            ASN1EncodableVector statement = new ASN1EncodableVector();
+            statement.add(new ASN1ObjectIdentifier("0.4.0.1862.1.4"));
+            ASN1EncodableVector statements = new ASN1EncodableVector();
+            statements.add(new DERSequence(statement));
+            builder.addExtension(Extension.qCStatements, false, new DERSequence(statements));
+        });
+    }
+
+    /** P-256 leaf issued by the root whose subject carries another organizationIdentifier. */
+    public Leaf leafWithOrganizationIdentifier(String organizationIdentifier) {
+        try {
+            KeyPair keyPair = generateEc();
+            X500Name subject = new X500NameBuilder(BCStyle.INSTANCE)
+                    .addRDN(BCStyle.C, "ES")
+                    .addRDN(BCStyle.O, "OTRA ORGANIZACION (ficticio)")
+                    .addRDN(BCStyle.ORGANIZATION_IDENTIFIER, organizationIdentifier)
+                    .addRDN(BCStyle.CN, "Sello de pruebas")
+                    .build();
+            return new Leaf(issue(subject, rootKeyPair, name("Raiz de pruebas"), keyPair.getPublic(),
+                    "2024-01-01T00:00:00Z", "2099-01-01T00:00:00Z"), keyPair);
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not issue the leaf", e);
+        }
+    }
+
+    /** A leaf issued by a certificate that is not a CA (basicConstraints cA=false); the chain is leaf and issuer. */
+    public Chain chainWithNonCaIssuer() {
+        try {
+            KeyPair issuerKeyPair = generateEc();
+            X500Name issuerName = name("Emisor que no es CA");
+            X509Certificate issuer = issue(issuerName, rootKeyPair, name("Raiz de pruebas"), issuerKeyPair.getPublic(),
+                    "2024-01-01T00:00:00Z", "2099-01-01T00:00:00Z", END_ENTITY, SIGNING);
+            KeyPair leafKeyPair = generateEc();
+            X509Certificate leaf = issue(name("Sello de pruebas"), issuerKeyPair, issuerName, leafKeyPair.getPublic(),
+                    "2024-01-01T00:00:00Z", "2099-01-01T00:00:00Z", END_ENTITY, SIGNING);
+            return new Chain(List.of(leaf, issuer), leafKeyPair);
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not build the chain", e);
+        }
+    }
+
+    /** Adds extensions to a certificate builder. */
+    @FunctionalInterface
+    private interface ExtensionAdder {
+        void add(JcaX509v3CertificateBuilder builder) throws Exception;
+    }
+
+    private Leaf leafWithExtra(ExtensionAdder extra) {
+        try {
+            KeyPair keyPair = generateEc();
+            return new Leaf(issue(name("Sello de pruebas"), rootKeyPair, name("Raiz de pruebas"), keyPair.getPublic(),
+                    "2024-01-01T00:00:00Z", "2099-01-01T00:00:00Z", END_ENTITY, SIGNING, extra), keyPair);
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not issue the leaf", e);
+        }
+    }
+
     private Chain chainWithIntermediate(String intermediateNotBefore, String intermediateNotAfter) {
         try {
             KeyPair intermediateKeyPair = generateEc();
@@ -210,6 +281,13 @@ public final class OwnKeyTestPki {
                                          java.security.PublicKey subjectKey, String notBefore, String notAfter,
                                          BasicConstraints basicConstraints, KeyUsage keyUsage)
             throws Exception {
+        return issue(subject, signer, issuer, subjectKey, notBefore, notAfter, basicConstraints, keyUsage, null);
+    }
+
+    private static X509Certificate issue(X500Name subject, KeyPair signer, X500Name issuer,
+                                         java.security.PublicKey subjectKey, String notBefore, String notAfter,
+                                         BasicConstraints basicConstraints, KeyUsage keyUsage, ExtensionAdder extra)
+            throws Exception {
         var builder = new JcaX509v3CertificateBuilder(
                 issuer,
                 BigInteger.valueOf(System.nanoTime()),
@@ -222,6 +300,9 @@ public final class OwnKeyTestPki {
         }
         if (keyUsage != null) {
             builder.addExtension(Extension.keyUsage, true, keyUsage);
+        }
+        if (extra != null) {
+            extra.add(builder);
         }
         String algorithm = "RSA".equals(signer.getPrivate().getAlgorithm()) ? "SHA256withRSA" : "SHA256withECDSA";
         var contentSigner = new JcaContentSignerBuilder(algorithm).build(signer.getPrivate());
