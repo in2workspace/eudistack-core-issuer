@@ -96,7 +96,7 @@ Results go to stdout; logs and errors to stderr.
 Each created or replaced configuration, and each rejected onboarding, produces a `SigningConfigurationChanged`
 event (EUD-244 catalogue: `operation` Create or Replace, previous and new modality, certificate fingerprint, result
 and, if rejected, reason `PolicyDenied`, `InvalidKey`, `InvalidCertificate` or `KeyInUse`; actor = the caller ARN;
-duration). It is staged in the same transaction as the change; a rejection is recorded in a transaction of its
+duration). A rejection because the tenant is not in `public.tenant_registry` or is not active is not audited (the audit API rejects events of an unknown tenant): its record is the stderr reason, exit code 2 and a log line. The event is staged in the same transaction as the change; a rejection is recorded in a transaction of its
 own. Until the outbox of EUD-244 exists, `LoggingSigningConfigurationAuditSink` writes it as a JSON line to the
 logger `es.in2.issuer.backend.signing.onboarding.audit` after the commit. The event holds no secrets and no key
 ARN. To use the outbox, implement `SigningConfigurationAuditSink.stage` (an insert on the given connection, or the
