@@ -5,6 +5,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -34,5 +35,20 @@ class TenantSchemaFlywayMigratorTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatCode(() -> TenantSchemaFlywayMigrator.requireValidSchemaName("a".repeat(63)))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void publicSchemaConfiguration_usesItsOwnLocationAndHistoryTableAndBaselinesBelowV1() {
+        var configuration = TenantSchemaFlywayMigrator.publicSchemaConfiguration("jdbc:postgresql://h/db", "u", "p");
+
+        assertThat(configuration.getLocations()).singleElement()
+                .satisfies(location -> assertThat(location.getPath()).isEqualTo("db/public"));
+        assertThat(configuration.getTable()).isEqualTo("flyway_issuer_public_history");
+        assertThat(configuration.getDefaultSchema()).isEqualTo("public");
+        assertThat(configuration.getSchemas()).containsExactly("public");
+        assertThat(configuration.isCreateSchemas()).isFalse();
+        // public is never empty, and a baseline at version 1 (the default) would skip V1.
+        assertThat(configuration.isBaselineOnMigrate()).isTrue();
+        assertThat(configuration.getBaselineVersion().getVersion()).isEqualTo("0");
     }
 }
