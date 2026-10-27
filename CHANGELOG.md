@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (EUD-305)
+
+- **EUD-305 — The wallet link of the credential offer email is built by the email service.** `CredentialOfferServiceImpl` no longer reads `issuer.wallet_url` nor builds a wallet link: it hands the standard `openid-credential-offer://?credential_offer_uri=...` offer to the email service, which reads `issuer.wallet_url` (optional) and builds `<issuer.wallet_url>/protocol/callback?credential_offer_uri=...` for the "Open in Wallet" button and the QR, or keeps the standard offer when the tenant configures no wallet. No change for the holder: the email carries the same links as before. The template variable for the button is now `walletLink`.
+
 ### Changed
 - **EUD-272 (EUD-253) — Power-based authorization of issuance, query and revocation.** A single decision point (`PowerAuthorizationService`) decides actions `E1`–`E6`, `E9`, `C1`, `C2` and `R1` from the caller's powers, the `X-Tenant` of the request and the organization stored with each process, following the action matrix of the PRD (`authorization/authorization-matrix.yaml`). The rules are configuration: `APP_AUTHORIZATION_MATRIX_PATH` points to an external copy that is re-read when it changes (no redeploy, no restart); an invalid change is rejected and the previous rules stay. Persons and systems get the same decision, for every attestation type.
   - The tenant administrator is recognized by `organization · <tenant> · Onboarding · Execute`, no longer by `tenant_config.admin_organization_id`. **Deploy note:** current tenant administrator attestations must be reissued with that power (operation, point 2).
