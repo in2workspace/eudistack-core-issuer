@@ -94,6 +94,10 @@ public class KmsOwnKeySigningProvider implements SigningProvider {
             return Mono.error(new SigningException(SigningFailureReason.KEY_UNUSABLE,
                     "KMS signing is not enabled on this issuer"));
         }
+        if (!isKeyTaggedFor(tenant, config)) {
+            return Mono.error(new SigningException(SigningFailureReason.NO_CONFIGURATION,
+                    "The KMS key of this tenant is not tagged for it"));
+        }
 
         List<X509Certificate> chain = StoredCertificateInfo.chain(config);
         X509Certificate leaf = chain.getFirst();
@@ -123,6 +127,28 @@ public class KmsOwnKeySigningProvider implements SigningProvider {
         return port.sign(config.kmsKeyRef(), digest)
                 .map(der -> toVerifiedJws(tenant, config, leaf, signingInput, der))
                 .map(jws -> new SigningResult(SigningType.JADES, jws));
+    }
+
+    /**
+     * The key must carry the tag {@code Tenant=<tenant>} of the tenant of the request. The tenant comes
+     * from the request context, never from the configuration row: a row that points to another
+     * tenant's key is the case this check exists for. The tag was read when the configuration was
+     * loaded, so nothing is asked to KMS here. A key that is not tagged for the tenant is reported
+     * outward as {@code NO_CONFIGURATION}; {@code KEY_TENANT_MISMATCH} is only the literal of the log
+     * line, so operations can alert on it, and it never triggers the reload that a disabled key does.
+     *
+     * <p>Limit: this is an Issuer-side check. It does not protect against a compromised Issuer
+     * process, which could sign with any key its runtime role allows. Enforcing it in IAM (a session
+     * tag per tenant and a condition on {@code kms:Sign}) is a later phase.
+     */
+    private static boolean isKeyTaggedFor(String tenant, OwnKeySigningConfig config) {
+        if (tenant.equals(config.keyTenantTag())) {
+            return true;
+        }
+        log.error("KEY_TENANT_MISMATCH tenant={} keyRef={} keyTenantTag={}", tenant,
+                KmsKeyRefs.forLog(config.kmsKeyRef()),
+                config.keyTenantTag() == null ? "missing" : config.keyTenantTag());
+        return false;
     }
 
     private byte[] sha256(String signingInput) {

@@ -16,4 +16,13 @@ public interface KmsSigningPort {
      * @return the ECDSA signature, ASN.1 DER encoded
      */
     Mono<byte[]> sign(String keyRef, byte[] sha256Digest);
+
+    /**
+     * Reads the tenant a key is tagged for ({@code Tenant=<tenant>}, set when the key is created at
+     * onboarding). Tags are read through every page the KMS returns.
+     *
+     * @param keyRef key identifier understood by the KMS (id, ARN or alias)
+     * @return the value of the {@code Tenant} tag, or empty when the key has no such tag
+     */
+    Mono<String> findTenantTag(String keyRef);
 }

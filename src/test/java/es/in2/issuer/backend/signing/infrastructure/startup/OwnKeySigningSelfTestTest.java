@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.signing.infrastructure.startup;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -9,6 +10,7 @@ import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
+import es.in2.issuer.backend.signing.domain.model.JadesProfile;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
@@ -20,6 +22,11 @@ import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.infrastructure.properties.KmsSigningProperties;
 import es.in2.issuer.backend.signing.infrastructure.properties.SigningSelfTestProperties;
+import es.in2.issuer.backend.signing.domain.service.impl.HashGeneratorServiceImpl;
+import es.in2.issuer.backend.signing.domain.service.impl.JadesHeaderBuilderServiceImpl;
+import es.in2.issuer.backend.signing.domain.spi.KmsSigningPort;
+import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningProperties;
+import org.springframework.beans.factory.ObjectProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -310,5 +317,32 @@ class OwnKeySigningSelfTestTest {
         StepVerifier.create(selfTest(true).run()).verifyComplete();
 
         assertThat(messages(Level.WARN)).isEmpty();
+    }
+
+    @Test
+    void run_keyTaggedForAnotherTenant_throughTheRealProvider_reportsNoConfigurationAndDoesNotSign() {
+        @SuppressWarnings("unchecked")
+        ObjectProvider<KmsSigningPort> port = mock(ObjectProvider.class);
+        KmsSigningPort kms = mock(KmsSigningPort.class);
+        when(port.getIfAvailable()).thenReturn(kms);
+        var realProvider = new KmsOwnKeySigningProvider(port,
+                new JadesHeaderBuilderServiceImpl(new ObjectMapper()),
+                new HashGeneratorServiceImpl(),
+                new CscSigningProperties(JadesProfile.JADES_B_T),
+                NOW);
+        when(registry.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("cgcom", "untagged")));
+        configsByTenant(Map.of(
+                "cgcom", ActiveSigningConfig.ownKey(ownKey().withKeyTenantTag("kpmg")),
+                "untagged", ActiveSigningConfig.ownKey(ownKey())));
+        var selfTestWithRealProvider = new OwnKeySigningSelfTest(registry, configService, realProvider, auditor,
+                new SigningSelfTestProperties(true, Duration.ofSeconds(5), Duration.ofDays(30)), kmsProperties, NOW);
+
+        StepVerifier.create(selfTestWithRealProvider.run()).verifyComplete();
+
+        assertThat(messages(Level.WARN)).containsExactlyInAnyOrder(
+                "own-key signing self-test failed tenant=cgcom reason=NO_CONFIGURATION",
+                "own-key signing self-test failed tenant=untagged reason=NO_CONFIGURATION");
+        assertThat(messages(Level.INFO)).isEmpty();
+        verifyNoInteractions(kms);
     }
 }

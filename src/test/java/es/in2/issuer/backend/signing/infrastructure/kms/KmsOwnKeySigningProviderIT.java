@@ -29,6 +29,7 @@ import software.amazon.awssdk.services.kms.model.CreateKeyRequest;
 import software.amazon.awssdk.services.kms.model.GetPublicKeyRequest;
 import software.amazon.awssdk.services.kms.model.KeySpec;
 import software.amazon.awssdk.services.kms.model.KeyUsageType;
+import software.amazon.awssdk.services.kms.model.Tag;
 
 import java.security.KeyFactory;
 import java.security.interfaces.ECPublicKey;
@@ -38,6 +39,7 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -78,6 +80,7 @@ class KmsOwnKeySigningProviderIT {
         String keyId = client.createKey(CreateKeyRequest.builder()
                         .keySpec(KeySpec.ECC_NIST_P256)
                         .keyUsage(KeyUsageType.SIGN_VERIFY)
+                        .tags(Tag.builder().tagKey("Tenant").tagValue("cgcom").build())
                         .build())
                 .get().keyMetadata().keyId();
         KmsSigningPort adapter = new KmsSigningAdapter(client, properties);
@@ -86,7 +89,8 @@ class KmsOwnKeySigningProviderIT {
         ECPublicKey kmsPublicKey = (ECPublicKey) KeyFactory.getInstance("EC").generatePublic(new X509EncodedKeySpec(spki));
         var certificate = new OwnKeyTestPki().certificateFor(kmsPublicKey);
         var config = new OwnKeySigningConfig(keyId, "ES256",
-                List.of(Base64.getEncoder().encodeToString(certificate.getEncoded())));
+                List.of(Base64.getEncoder().encodeToString(certificate.getEncoded())),
+                adapter.findTenantTag(keyId).block(Duration.ofSeconds(30)));
 
         @SuppressWarnings("unchecked")
         ObjectProvider<KmsSigningPort> port = mock(ObjectProvider.class);
@@ -99,6 +103,7 @@ class KmsOwnKeySigningProviderIT {
 
         var result = provider.sign(SigningRequest.builder()
                 .type(SigningType.JADES).data("{\"vct\":\"test\"}").typ("dc+sd-jwt").ownKey(config).build())
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "cgcom"))
                 .block(Duration.ofSeconds(30));
 
         assertThat(result).isNotNull();

@@ -4,11 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Ticker;
 import es.in2.issuer.backend.shared.domain.model.entities.TenantSigningConfig;
 import es.in2.issuer.backend.shared.infrastructure.repository.TenantSigningConfigRepository;
+import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
 import es.in2.issuer.backend.signing.domain.exception.SigningConfigurationChangedException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
+import es.in2.issuer.backend.signing.domain.spi.KmsSigningPort;
 import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import org.junit.jupiter.api.BeforeEach;
@@ -16,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -28,6 +31,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -42,12 +48,21 @@ class TenantSigningConfigServiceImplTest {
 
     private final AtomicLong nanos = new AtomicLong();
     private final Ticker ticker = nanos::get;
+    private final KmsSigningPort kms = mock(KmsSigningPort.class);
     private TenantSigningConfigServiceImpl service;
+
+    private static ObjectProvider<KmsSigningPort> kmsProvider(KmsSigningPort port) {
+        @SuppressWarnings("unchecked")
+        ObjectProvider<KmsSigningPort> provider = mock(ObjectProvider.class);
+        lenient().when(provider.getIfAvailable()).thenReturn(port);
+        return provider;
+    }
 
     @BeforeEach
     void setUp() {
+        lenient().when(kms.findTenantTag(KMS_REF)).thenReturn(Mono.just("t1"));
         service = new TenantSigningConfigServiceImpl(repository, new ObjectMapper(),
-                Duration.ofSeconds(30), ticker);
+                Duration.ofSeconds(30), kmsProvider(kms), ticker);
     }
 
     private static TenantSigningConfig qtspRow() {
@@ -98,6 +113,93 @@ class TenantSigningConfigServiceImplTest {
                     assertThat(ownKey.certificateChain()).containsExactly("MIIB-leaf", "MIIB-intermediate");
                 })
                 .verifyComplete();
+    }
+
+    @Test
+    void getActiveSigningConfig_ownKeyRow_keepsTheTenantTagOfTheKeyInTheConfiguration() {
+        when(repository.findFirstByStatusOrderByCreatedAtDesc("active"))
+                .thenReturn(Mono.just(ownKeyRow("ES256", "[\"MIIB-leaf\"]", KMS_REF)));
+
+        StepVerifier.create(load("t1"))
+                .assertNext(config -> assertThat(config.ownKey().keyTenantTag()).isEqualTo("t1"))
+                .verifyComplete();
+    }
+
+    @Test
+    void getActiveSigningConfig_keyWithoutTenantTag_loadsWithNoTag() {
+        when(kms.findTenantTag(KMS_REF)).thenReturn(Mono.empty());
+        when(repository.findFirstByStatusOrderByCreatedAtDesc("active"))
+                .thenReturn(Mono.just(ownKeyRow("ES256", "[\"MIIB-leaf\"]", KMS_REF)));
+
+        StepVerifier.create(load("t1"))
+                .assertNext(config -> assertThat(config.ownKey().keyTenantTag()).isNull())
+                .verifyComplete();
+    }
+
+    @Test
+    void getActiveSigningConfig_tagsAreReadOnceWhileTheConfigurationIsCached() {
+        when(repository.findFirstByStatusOrderByCreatedAtDesc("active"))
+                .thenReturn(Mono.just(ownKeyRow("ES256", "[\"MIIB-leaf\"]", KMS_REF)));
+
+        StepVerifier.create(load("t1")).expectNextCount(1).verifyComplete();
+        StepVerifier.create(load("t1")).expectNextCount(1).verifyComplete();
+
+        verify(kms, times(1)).findTenantTag(KMS_REF);
+    }
+
+    @Test
+    void getActiveSigningConfig_readingTheTagsFails_theLoadFailsAndNothingIsCached() {
+        var failure = new KmsSigningException(SigningFailureReason.PROVIDER_UNAVAILABLE, "kms down");
+        when(kms.findTenantTag(KMS_REF)).thenReturn(Mono.error(failure)).thenReturn(Mono.just("t1"));
+        when(repository.findFirstByStatusOrderByCreatedAtDesc("active"))
+                .thenReturn(Mono.just(ownKeyRow("ES256", "[\"MIIB-leaf\"]", KMS_REF)));
+
+        StepVerifier.create(load("t1")).expectErrorSatisfies(e -> assertThat(e).isSameAs(failure)).verify();
+        StepVerifier.create(load("t1"))
+                .assertNext(config -> assertThat(config.ownKey().keyTenantTag()).isEqualTo("t1"))
+                .verifyComplete();
+
+        verify(repository, times(2)).findFirstByStatusOrderByCreatedAtDesc("active");
+    }
+
+    @Test
+    void getActiveSigningConfig_kmsSigningDisabled_readsNoTagsAndLoadsWithNoTag() {
+        service = new TenantSigningConfigServiceImpl(repository, new ObjectMapper(),
+                Duration.ofSeconds(30), kmsProvider(null), ticker);
+        when(repository.findFirstByStatusOrderByCreatedAtDesc("active"))
+                .thenReturn(Mono.just(ownKeyRow("ES256", "[\"MIIB-leaf\"]", KMS_REF)));
+
+        StepVerifier.create(load("t1"))
+                .assertNext(config -> assertThat(config.ownKey().keyTenantTag()).isNull())
+                .verifyComplete();
+        verify(kms, never()).findTenantTag(any());
+    }
+
+    @Test
+    void getActiveSigningConfig_qtspRow_readsNoTags() {
+        when(repository.findFirstByStatusOrderByCreatedAtDesc("active")).thenReturn(Mono.just(qtspRow()));
+
+        StepVerifier.create(load("t1")).expectNextCount(1).verifyComplete();
+
+        verify(kms, never()).findTenantTag(any());
+    }
+
+    @Test
+    void withinScope_reloadFindingTheKeyRetagged_isAChangedConfiguration() {
+        when(kms.findTenantTag(KMS_REF)).thenReturn(Mono.just("t1")).thenReturn(Mono.just("t2"));
+        when(repository.findFirstByStatusOrderByCreatedAtDesc("active"))
+                .thenReturn(Mono.just(ownKeyRow("ES256", "[\"MIIB-leaf\"]", KMS_REF)));
+
+        List<Throwable> reloadErrors = new ArrayList<>();
+
+        Mono<ActiveSigningConfig> request = SigningConfigScope.run(() -> service.getActiveSigningConfig()
+                .then(service.reloadActiveSigningConfig().doOnError(reloadErrors::add)));
+
+        // The scope runs the request again, this time with the configuration that carries the new tag.
+        StepVerifier.create(inTenant(request, "t1"))
+                .assertNext(config -> assertThat(config.ownKey().keyTenantTag()).isEqualTo("t2"))
+                .verifyComplete();
+        assertThat(reloadErrors).singleElement().isInstanceOf(SigningConfigurationChangedException.class);
     }
 
     @Test
@@ -196,14 +298,14 @@ class TenantSigningConfigServiceImplTest {
     @Test
     void cacheTtl_defaultIs5Minutes_andNonPositiveIsRejected() throws NoSuchMethodException {
         var ttl = TenantSigningConfigServiceImpl.class.getConstructor(
-                        TenantSigningConfigRepository.class, ObjectMapper.class, Duration.class)
+                        TenantSigningConfigRepository.class, ObjectMapper.class, Duration.class, ObjectProvider.class)
                 .getParameters()[2].getAnnotation(org.springframework.beans.factory.annotation.Value.class);
         assertThat(ttl.value()).isEqualTo("${issuer.signing.config-cache-ttl:5m}");
         assertThat(org.springframework.boot.convert.ApplicationConversionService.getSharedInstance()
                 .convert("5m", Duration.class)).isEqualTo(Duration.ofMinutes(5));
         ObjectMapper objectMapper = new ObjectMapper();
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> new TenantSigningConfigServiceImpl(
-                        repository, objectMapper, Duration.ZERO, ticker))
+                        repository, objectMapper, Duration.ZERO, kmsProvider(kms), ticker))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

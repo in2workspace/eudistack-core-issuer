@@ -11,6 +11,7 @@ import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
+import es.in2.issuer.backend.signing.domain.spi.KmsSigningPort;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningAuditor;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -30,6 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -61,7 +64,10 @@ class DelegatingSigningProviderImplReplacementTest {
 
     @BeforeEach
     void setUp() {
-        configService = new TenantSigningConfigServiceImpl(repository, new ObjectMapper(), Duration.ofMinutes(5));
+        // KMS signing disabled: the tag is not read, the provider is a mock here.
+        @SuppressWarnings("unchecked")
+        ObjectProvider<KmsSigningPort> noKms = mock(ObjectProvider.class);
+        configService = new TenantSigningConfigServiceImpl(repository, new ObjectMapper(), Duration.ofMinutes(5), noKms);
         signingProvider = new DelegatingSigningProviderImpl(configService, signingProviderResolver, signingAuditor);
 
         // The cache holds the old key; the database already has its replacement.

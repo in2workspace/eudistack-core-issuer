@@ -16,9 +16,11 @@ import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
+import es.in2.issuer.backend.signing.domain.spi.KmsSigningPort;
 import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -41,17 +43,21 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
     private final TenantSigningConfigRepository repository;
     private final Cache<String, ActiveSigningConfig> configCache;
     private final ObjectMapper objectMapper;
+    /** The port exists only when {@code issuer.signing.kms.enabled=true}. */
+    private final ObjectProvider<KmsSigningPort> kmsSigningPort;
 
     @Autowired
     public TenantSigningConfigServiceImpl(TenantSigningConfigRepository repository,
                                           ObjectMapper objectMapper,
-                                          @Value("${issuer.signing.config-cache-ttl:5m}") Duration configCacheTtl) {
-        this(repository, objectMapper, configCacheTtl, Ticker.systemTicker());
+                                          @Value("${issuer.signing.config-cache-ttl:5m}") Duration configCacheTtl,
+                                          ObjectProvider<KmsSigningPort> kmsSigningPort) {
+        this(repository, objectMapper, configCacheTtl, kmsSigningPort, Ticker.systemTicker());
     }
 
     TenantSigningConfigServiceImpl(TenantSigningConfigRepository repository,
                                    ObjectMapper objectMapper,
                                    Duration configCacheTtl,
+                                   ObjectProvider<KmsSigningPort> kmsSigningPort,
                                    Ticker ticker) {
         if (configCacheTtl == null || configCacheTtl.isZero() || configCacheTtl.isNegative()) {
             throw new IllegalArgumentException("issuer.signing.config-cache-ttl must be positive");
@@ -65,6 +71,7 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
                 .maximumSize(50)
                 .build();
         this.objectMapper = objectMapper;
+        this.kmsSigningPort = kmsSigningPort;
     }
 
     @Override
@@ -116,18 +123,35 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
         }
 
         return repository.findFirstByStatusOrderByCreatedAtDesc(ACTIVE_STATUS)
-                .map(row -> toActiveSigningConfig(tenant, row))
+                .flatMap(row -> toActiveSigningConfig(tenant, row))
                 .doOnNext(config -> {
                     configCache.put(tenant, config);
                     log.debug("Loaded active signing config for '{}': modality {}", tenant, config.modality());
                 });
     }
 
-    private ActiveSigningConfig toActiveSigningConfig(String tenant, TenantSigningConfig row) {
+    private Mono<ActiveSigningConfig> toActiveSigningConfig(String tenant, TenantSigningConfig row) {
         return switch (modalityOf(tenant, row)) {
-            case QTSP -> ActiveSigningConfig.qtsp(toRemoteSignatureDto(row));
-            case OWN_KEY -> ActiveSigningConfig.ownKey(toOwnKeySigningConfig(tenant, row));
+            case QTSP -> Mono.just(ActiveSigningConfig.qtsp(toRemoteSignatureDto(row)));
+            case OWN_KEY -> withKeyTenantTag(toOwnKeySigningConfig(tenant, row)).map(ActiveSigningConfig::ownKey);
         };
+    }
+
+    /**
+     * Reads the {@code Tenant} tag of the KMS key once, when the configuration is loaded, so the cache
+     * keeps it with the configuration and signing does not ask KMS for it. If the tags cannot be read
+     * the load fails with the reason of the KMS failure and nothing is cached. A key without the tag
+     * is loaded with no tag: {@code KmsOwnKeySigningProvider} refuses to sign with it. When KMS signing
+     * is not enabled on this issuer there is nothing to read; the provider reports that case itself.
+     */
+    private Mono<OwnKeySigningConfig> withKeyTenantTag(OwnKeySigningConfig config) {
+        KmsSigningPort port = kmsSigningPort.getIfAvailable();
+        if (port == null) {
+            return Mono.just(config);
+        }
+        return port.findTenantTag(config.kmsKeyRef())
+                .map(config::withKeyTenantTag)
+                .defaultIfEmpty(config);
     }
 
     private static SigningModality modalityOf(String tenant, TenantSigningConfig row) {
