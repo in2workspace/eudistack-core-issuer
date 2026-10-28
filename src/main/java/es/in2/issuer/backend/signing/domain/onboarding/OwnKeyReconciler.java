@@ -159,7 +159,7 @@ public class OwnKeyReconciler {
     /** The row's transaction made no change, so the failure goes in a transaction of its own. */
     private void recordFailure(String tenant, UUID configurationId, String actor) {
         try {
-            store.recordInOwnTransaction(SigningConfigurationChanged.retire(tenant, Result.FAILURE, null, actor,
+            store.recordInOwnTransaction(SigningConfigurationChanged.retire(tenant, Result.FAILURE, RejectionReason.PROVIDER_UNAVAILABLE, actor,
                     Duration.ZERO, clock.instant(), configurationId.toString()));
         } catch (RuntimeException e) {
             log.error("Tenant '{}', configuration {}: the failed retirement could not be recorded: {}", tenant,

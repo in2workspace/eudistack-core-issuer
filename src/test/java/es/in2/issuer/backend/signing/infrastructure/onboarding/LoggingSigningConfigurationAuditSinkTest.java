@@ -82,6 +82,17 @@ class LoggingSigningConfigurationAuditSinkTest {
     }
 
     @Test
+    void toJson_failure_carriesTheSameReasonAsTheOutboxSink() throws Exception {
+        var failure = SigningConfigurationChanged.retire("cgcom", Result.FAILURE, RejectionReason.PROVIDER_UNAVAILABLE,
+                ACTOR, Duration.ZERO, Instant.parse("2026-10-27T12:00:00Z"), "cfg-1");
+
+        JsonNode json = mapper.readTree(LoggingSigningConfigurationAuditSink.toJson(failure));
+
+        assertThat(json.get("result").asText()).isEqualTo("Failure");
+        assertThat(json.get("reason").asText()).isEqualTo("ProviderUnavailable");
+    }
+
+    @Test
     void toJson_hasOnlyTheFieldsOfTheCatalogue_soNoSecretCanBeInIt() throws Exception {
         JsonNode json = mapper.readTree(LoggingSigningConfigurationAuditSink.toJson(replacement()));
 

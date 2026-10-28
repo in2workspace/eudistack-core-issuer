@@ -18,7 +18,7 @@ import java.time.Instant;
  * @param tenant                   tenant id
  * @param operation                create or replace
  * @param result                   success, or denied for a rejected onboarding
- * @param reason                   why it was rejected; {@code null} on success
+ * @param reason                   why it was rejected or failed, from the catalogue vocabulary; {@code null} on success
  * @param previousModality         modality of the configuration that was active, {@code null} if none
  * @param newModality              modality of the new configuration; {@code null} for a retirement
  * @param signingCertificateSha256 SHA-256 of the leaf certificate, hexadecimal; {@code null} if the chain could
@@ -41,6 +41,14 @@ public record SigningConfigurationChanged(
         Instant occurredAt,
         String correlationId
 ) {
+
+    /** The catalogue requires a reason from its vocabulary exactly when the result is not a success. */
+    public SigningConfigurationChanged {
+        if (result == Result.SUCCESS ? reason != null : (reason == null || reason.result() != result)) {
+            throw new IllegalArgumentException("a " + result + " event needs a reason of that result, and a success has none: "
+                    + reason);
+        }
+    }
 
     /**
      * The retirement of the KMS key of a withdrawn own-key configuration. No key reference goes into the event.

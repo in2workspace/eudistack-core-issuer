@@ -129,11 +129,11 @@ class OutboxAuditSinkIT {
 
     @Test
     void recordInOwnTransaction_retireFailure_isInTheOutboxWithAFailureReasonAndNoModalityOrCertificate() throws Exception {
-        store.recordInOwnTransaction(SigningConfigurationChanged.retire("cgcom", Result.FAILURE, null, CALLER,
+        store.recordInOwnTransaction(SigningConfigurationChanged.retire("cgcom", Result.FAILURE, RejectionReason.PROVIDER_UNAVAILABLE, CALLER,
                 Duration.ZERO, Instant.parse("2026-10-27T12:00:00Z"), "00000000-0000-0000-0000-000000000001"));
 
         JsonNode payload = onlyOutboxPayload();
-        assertThat(payload.toString()).contains("\"Failure\"", "\"OperationFailed\"", "\"Retire\"");
+        assertThat(payload.toString()).contains("\"Failure\"", "\"ProviderUnavailable\"", "\"Retire\"");
         List<String> details = new ArrayList<>();
         payload.path("details").fieldNames().forEachRemaining(details::add);
         assertThat(details).containsExactlyInAnyOrder("operation", "previous_modality");

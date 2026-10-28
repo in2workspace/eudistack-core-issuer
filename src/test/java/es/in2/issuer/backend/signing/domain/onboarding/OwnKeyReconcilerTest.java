@@ -243,6 +243,7 @@ class OwnKeyReconcilerTest {
         assertThat(store.eventsInOwnTransaction).singleElement().satisfies(event -> {
             assertThat(event.operation()).isEqualTo(SigningConfigurationChanged.Operation.RETIRE);
             assertThat(event.result()).isEqualTo(SigningConfigurationChanged.Result.FAILURE);
+            assertThat(event.reason()).isEqualTo(RejectionReason.PROVIDER_UNAVAILABLE);
             assertThat(event.actor()).isEqualTo(CALLER);
             assertThat(event.correlationId()).isEqualTo(failing.id().toString());
         });

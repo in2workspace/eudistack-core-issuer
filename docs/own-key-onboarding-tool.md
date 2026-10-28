@@ -132,7 +132,7 @@ Results go to stdout; logs and errors to stderr.
 
 Each created or replaced configuration, each key retired by `reconcile` and each rejected onboarding or discard produces a
 `SigningConfigurationChanged` event (EUD-244 catalogue: `operation` Create, Replace or Retire, previous and new modality, certificate fingerprint, result
-and, if rejected, reason `PolicyDenied`, `InvalidKey`, `InvalidCertificate` or `KeyInUse`; actor = the caller ARN;
+and, if not a success, the reason, which is always one of the catalogue vocabulary of the event: `PolicyDenied`, `InvalidKey`, `InvalidCertificate` or `KeyInUse` (Denied) and `ProviderUnavailable` (Failure); actor = the caller ARN;
 duration). A rejection because the tenant is not in `public.tenant_registry` or is not active is audited like any other, with the tenant id as given (the audit API keeps the events of an unknown tenant as rejected events of its own), and also leaves a warn log line. The event is staged in the same transaction as the change; a rejection is recorded in a transaction of its
 own. Until the outbox of EUD-244 exists, `LoggingSigningConfigurationAuditSink` writes it as a JSON line to the
 logger `es.in2.issuer.backend.signing.onboarding.audit` after the commit. The event holds no secrets and no key
@@ -140,8 +140,7 @@ ARN. To use the outbox, implement `SigningConfigurationAuditSink.stage` (an inse
 EUD-244 starter); nothing else changes.
 
 `Retire` (by `reconcile`): `Success` when the key was disabled and its deletion scheduled (or was already), `Denied` with
-`KeyInUse` when an active configuration references the key and it is left alone, `Failure` (recorded in its own transaction,
-reason `OperationFailed` in the outbox) when it could not be retired. It has no new modality and no certificate; the
+`KeyInUse` when an active configuration references the key and it is left alone, `Failure` (recorded in its own transaction) with reason `ProviderUnavailable`, in both sinks, when it could not be retired. It has no new modality and no certificate; the
 correlation id is the id of the withdrawn configuration. A refused `discard` is a `Retire` with `Denied`. No event holds a key
 ARN.
 
