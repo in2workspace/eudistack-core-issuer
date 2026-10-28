@@ -19,8 +19,10 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * The files {@code prepare} leaves in the output directory, and how {@code import} reads them back. For an
@@ -69,7 +71,26 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
     }
 
     /** What {@code import} needs from the files: the state and the token ({@code null} on a renewal). */
-    public record Loaded(PreparedOnboarding prepared, byte[] importToken) {}
+    public record Loaded(PreparedOnboarding prepared, byte[] importToken) {
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Loaded that && Objects.equals(prepared, that.prepared)
+                    && Arrays.equals(importToken, that.importToken);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(prepared, Arrays.hashCode(importToken));
+        }
+
+        /** The token is never printed, only its length. */
+        @Override
+        public String toString() {
+            return "Loaded[prepared=" + prepared + ", importToken="
+                    + (importToken == null ? "null" : importToken.length + " bytes") + "]";
+        }
+    }
 
     /** The JSON of the state file: the state plus the name of the token file next to it. */
     private record StateDocument(

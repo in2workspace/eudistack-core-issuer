@@ -24,6 +24,7 @@ import java.security.cert.X509Certificate;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
@@ -111,6 +112,33 @@ public class OwnKeyOnboarding {
         public ImportCommand(PreparedOnboarding prepared, byte[] importToken, byte[] encryptedKeyMaterial,
                              OnboardingPolicy policy, boolean dryRun) {
             this(prepared, importToken, encryptedKeyMaterial, policy, dryRun, null);
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof ImportCommand that && dryRun == that.dryRun
+                    && Objects.equals(prepared, that.prepared)
+                    && Arrays.equals(importToken, that.importToken)
+                    && Arrays.equals(encryptedKeyMaterial, that.encryptedKeyMaterial)
+                    && Objects.equals(policy, that.policy) && Objects.equals(artifacts, that.artifacts);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(prepared, Arrays.hashCode(importToken), Arrays.hashCode(encryptedKeyMaterial), policy,
+                    dryRun, artifacts);
+        }
+
+        /** The token and the wrapped key material are never printed, only their length. */
+        @Override
+        public String toString() {
+            return "ImportCommand[prepared=" + prepared + ", importToken=" + length(importToken)
+                    + " bytes, encryptedKeyMaterial=" + length(encryptedKeyMaterial) + " bytes, policy=" + policy
+                    + ", dryRun=" + dryRun + ", artifacts=" + artifacts + "]";
+        }
+
+        private static int length(byte[] bytes) {
+            return bytes == null ? 0 : bytes.length;
         }
     }
 

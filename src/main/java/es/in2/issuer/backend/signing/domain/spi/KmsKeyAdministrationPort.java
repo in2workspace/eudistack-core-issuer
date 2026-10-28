@@ -1,7 +1,9 @@
 package es.in2.issuer.backend.signing.domain.spi;
 
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -35,7 +37,32 @@ public interface KmsKeyAdministrationPort {
      * @param importToken          opaque token that goes with the wrapped key material
      * @param validTo              when the token and the wrapping key stop being valid
      */
-    record ImportParameters(byte[] wrappingPublicKeyDer, byte[] importToken, Instant validTo) {}
+    record ImportParameters(byte[] wrappingPublicKeyDer, byte[] importToken, Instant validTo) {
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof ImportParameters that
+                    && Arrays.equals(wrappingPublicKeyDer, that.wrappingPublicKeyDer)
+                    && Arrays.equals(importToken, that.importToken)
+                    && Objects.equals(validTo, that.validTo);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(Arrays.hashCode(wrappingPublicKeyDer), Arrays.hashCode(importToken), validTo);
+        }
+
+        /** The bytes are never printed, only their length. */
+        @Override
+        public String toString() {
+            return "ImportParameters[wrappingPublicKeyDer=" + length(wrappingPublicKeyDer) + " bytes, importToken="
+                    + length(importToken) + " bytes, validTo=" + validTo + "]";
+        }
+
+        private static int length(byte[] bytes) {
+            return bytes == null ? 0 : bytes.length;
+        }
+    }
 
     /**
      * Creates an external-origin ECC_NIST_P256 SIGN_VERIFY key tagged {@code Tenant=<tenant>} (the tag the Issuer
