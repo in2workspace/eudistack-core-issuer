@@ -131,6 +131,31 @@ class PreparedOnboardingFilesTest {
         assertThat(read.discardedAt()).isNull();
     }
 
+    @Test
+    void current_readsTheMarksAnotherRunLeftSinceTheStateWasRead() {
+        new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
+        Path state = directory.resolve("own-key-cgcom-op-1.state.json");
+        var readBefore = PreparedOnboardingFiles.read(state, null).prepared();
+        Instant when = Instant.parse("2026-10-27T13:00:00Z");
+        PreparedOnboardingFiles.around(state).markImported(readBefore, when);
+
+        var current = PreparedOnboardingFiles.around(state).current(readBefore);
+
+        assertThat(readBefore.importedAt()).isNull();
+        assertThat(current.importedAt()).isEqualTo(when);
+        assertThat(current.operationId()).isEqualTo(PREPARED.operationId());
+    }
+
+    @Test
+    void current_ofAStateThatIsNoLongerThere_fails() throws Exception {
+        new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
+        Path state = directory.resolve("own-key-cgcom-op-1.state.json");
+        Files.delete(state);
+
+        assertThatThrownBy(() -> PreparedOnboardingFiles.around(state).current(PREPARED))
+                .isInstanceOf(OnboardingFailedException.class);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"../secret.bin", "/etc/hostname", "sub/own-key-cgcom-op-1.import-token.bin",
             "other.bin", "own-key-kpmg-op-1.import-token.bin"})

@@ -27,6 +27,7 @@ import java.time.Instant;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -222,12 +223,27 @@ public class OwnKeyOnboarding {
      * A real run holds the lock of its operation from before the first check until it has ended, so two runs of the
      * same state cannot overlap: without it, one could find the key the other has just imported enabled and take it
      * for its own to clean up. A run that cannot take the lock ends with an error before any call to KMS.
+     *
+     * <p>The state the caller read may be stale: a run that held the lock before may have imported or discarded it
+     * since. So, once the lock is held, the state is read again and refused if it is marked. Without that, a renewal
+     * read before the other run marked it would replace the configuration a second time.
      */
     public ImportResult importKey(ImportCommand command) {
         PreparedOnboarding prepared = command.prepared();
         requireTenantId(prepared.tenant());
         // A consumed or discarded state is refused before anything else, with no call to KMS: repeating an import
         // must not be able to touch a key.
+        requireNotMarked(prepared);
+        if (command.dryRun()) {
+            return runImport(command);
+        }
+        try (OperationLock ignored = lockOperation(prepared)) {
+            requireNotMarked(currentState(prepared, command.artifacts()));
+            return runImport(command);
+        }
+    }
+
+    private static void requireNotMarked(PreparedOnboarding prepared) {
         if (prepared.importedAt() != null) {
             throw new OnboardingFailedException("this preparation was already imported at " + prepared.importedAt()
                     + ": it cannot be used again");
@@ -236,15 +252,31 @@ public class OwnKeyOnboarding {
             throw new OnboardingFailedException("this preparation was discarded at " + prepared.discardedAt()
                     + ": run prepare again");
         }
-        if (command.dryRun()) {
-            return runImport(command);
-        }
-        try (OperationLock ignored = store.tryLockOperation(prepared.operationId()).orElseThrow(
-                () -> new OnboardingFailedException("another run is importing this preparation (operation "
+    }
+
+    /** The one lock of an operation: {@code import} and {@code discard} of the same state never overlap. */
+    private OperationLock lockOperation(PreparedOnboarding prepared) {
+        return store.tryLockOperation(prepared.operationId()).orElseThrow(
+                () -> new OnboardingFailedException("another run is importing or discarding this preparation (operation "
                         + prepared.operationId() + "): nothing was touched in KMS. Wait for it to end and check its "
-                        + "result before trying again"))) {
-            return runImport(command);
+                        + "result before trying again"));
+    }
+
+    /**
+     * The state as it is kept now. It must still be the same preparation: a state file that now names another
+     * operation or key was replaced under the run, and nothing is done with it.
+     */
+    private static PreparedOnboarding currentState(PreparedOnboarding prepared, OnboardingArtifactsPort artifacts) {
+        if (artifacts == null) {
+            return prepared;
         }
+        PreparedOnboarding current = artifacts.current(prepared);
+        if (!prepared.operationId().equals(current.operationId())
+                || !Objects.equals(prepared.keyArn(), current.keyArn())) {
+            throw new OnboardingFailedException("the state file changed since it was read (it now names another "
+                    + "operation or key): nothing was touched in KMS");
+        }
+        return current;
     }
 
     private ImportResult runImport(ImportCommand command) {
@@ -424,6 +456,9 @@ public class OwnKeyOnboarding {
      * deletion and its alias deleted, and the state is marked. It refuses (rejection) a key that is not the one
      * of this preparation (the tags {@code operationId} and {@code Tenant} must match the state), a key that has
      * key material, and a key that any signing configuration of any tenant references.
+     *
+     * <p>A real run holds the same lock as {@code import}, and reads the state again under it, so that it never runs
+     * between the import of the key material and the commit of an import of the same preparation.
      */
     public DiscardResult discard(DiscardCommand command) {
         PreparedOnboarding prepared = command.prepared();
@@ -435,6 +470,19 @@ public class OwnKeyOnboarding {
         if (prepared.discardedAt() != null) {
             return new DiscardResult(prepared.keyArn(), DiscardOutcome.ALREADY_DISCARDED);
         }
+        if (command.dryRun()) {
+            return runDiscard(command, prepared, startedAt);
+        }
+        try (OperationLock ignored = lockOperation(prepared)) {
+            PreparedOnboarding current = currentState(prepared, command.artifacts());
+            if (current.discardedAt() != null) {
+                return new DiscardResult(prepared.keyArn(), DiscardOutcome.ALREADY_DISCARDED);
+            }
+            return runDiscard(command, current, startedAt);
+        }
+    }
+
+    private DiscardResult runDiscard(DiscardCommand command, PreparedOnboarding prepared, Instant startedAt) {
         KeyState state = kms.describeKeyState(prepared.keyArn());
         if (state == KeyState.NOT_FOUND || state == KeyState.PENDING_DELETION) {
             if (!command.dryRun()) {

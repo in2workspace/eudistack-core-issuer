@@ -99,6 +99,7 @@ class OwnKeyImportSafetyTest {
         var prepared = prepared();
         onboarding.importKey(importOf(prepared));
         // The second run uses the very same state, as if marking it had failed: the key is now the active one.
+        artifacts.current = null;
         store.active = new ActiveConfiguration(UUID.randomUUID(), SigningModality.OWN_KEY, FakeKms.KEY_ARN);
         store.activeKeyRefs.add(FakeKms.KEY_ARN);
         store.tenants.put("cgcom", new RegisteredTenant("cgcom", true, true, SigningModality.OWN_KEY,

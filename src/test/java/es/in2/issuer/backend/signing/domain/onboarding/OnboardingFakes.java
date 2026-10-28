@@ -294,15 +294,30 @@ final class OnboardingFakes {
         RuntimeException failure;
         PreparedOnboarding discarded;
         PreparedOnboarding imported;
+        /** The state as kept now, with its marks; {@code null} until it is marked or set by a test. */
+        PreparedOnboarding current;
 
         @Override
         public void markImported(PreparedOnboarding prepared, Instant importedAt) {
             this.imported = prepared;
+            this.current = new PreparedOnboarding(prepared.operationId(), prepared.tenant(), prepared.keyArn(),
+                    prepared.alias(), prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),
+                    prepared.importTokenExpiresAt(), prepared.renewal(), prepared.discardedAt(), importedAt,
+                    prepared.policy());
         }
 
         @Override
         public void markDiscarded(PreparedOnboarding prepared, Instant discardedAt) {
             this.discarded = prepared;
+            this.current = new PreparedOnboarding(prepared.operationId(), prepared.tenant(), prepared.keyArn(),
+                    prepared.alias(), prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),
+                    prepared.importTokenExpiresAt(), prepared.renewal(), discardedAt, prepared.importedAt(),
+                    prepared.policy());
+        }
+
+        @Override
+        public PreparedOnboarding current(PreparedOnboarding prepared) {
+            return current != null ? current : prepared;
         }
 
         @Override

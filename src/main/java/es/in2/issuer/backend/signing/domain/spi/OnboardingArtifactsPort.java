@@ -23,4 +23,10 @@ public interface OnboardingArtifactsPort {
 
     /** Marks the state of a preparation as discarded, so that {@code import} refuses it. */
     void markDiscarded(PreparedOnboarding prepared, Instant discardedAt);
+
+    /**
+     * The state of a preparation as it is kept now, read again: another run may have marked it since the caller read
+     * it. Read under the lock of the operation, it tells whether that run already imported or discarded it.
+     */
+    PreparedOnboarding current(PreparedOnboarding prepared);
 }

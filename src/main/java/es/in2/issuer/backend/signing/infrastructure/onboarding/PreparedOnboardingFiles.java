@@ -122,10 +122,27 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
                 prepared.importTokenExpiresAt(), prepared.renewal(), prepared.discardedAt(), importedAt, prepared.policy()));
     }
 
+    /** Reads the state file again; the import token is not read, only the marks matter here. */
+    @Override
+    public PreparedOnboarding current(PreparedOnboarding prepared) {
+        Path file = stateFileOf(prepared);
+        try {
+            return prepared(readState(file));
+        } catch (JsonProcessingException e) {
+            throw new OnboardingFailedException("the state file " + file + " is not a valid state file");
+        } catch (IOException e) {
+            throw new OnboardingFailedException("could not read " + file + " again", e);
+        }
+    }
+
+    private Path stateFileOf(PreparedOnboarding prepared) {
+        return stateFile != null ? stateFile : outputDirectory.resolve(prefix(prepared) + ".state.json");
+    }
+
     private void rewrite(PreparedOnboarding marked) {
         String prefix = prefix(marked);
         try {
-            replaceAtomically(stateFile != null ? stateFile : outputDirectory.resolve(prefix + ".state.json"),
+            replaceAtomically(stateFileOf(marked),
                     MAPPER.writeValueAsBytes(document(marked, marked.renewal() ? null : prefix + ".import-token.bin")));
         } catch (IOException e) {
             throw new OnboardingFailedException("could not mark the state file", e);
@@ -148,24 +165,33 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
      */
     public static Loaded read(Path stateFile, Path importTokenFile) {
         try {
-            StateDocument state = MAPPER.readValue(Files.readAllBytes(stateFile), StateDocument.class);
-            if (state.version() != STATE_VERSION) {
-                throw new OnboardingFailedException("unsupported state file version " + state.version());
-            }
+            StateDocument state = readState(stateFile);
             byte[] token = null;
             if (!state.renewal() && state.importTokenFile() != null) {
                 Path tokenPath = importTokenFile != null ? importTokenFile
                         : stateFile.toAbsolutePath().resolveSibling(requireOwnTokenFileName(state));
                 token = readTokenUnlessDiscarded(tokenPath, state);
             }
-            return new Loaded(new PreparedOnboarding(state.operationId(), state.tenant(), state.keyArn(), state.alias(),
-                    state.certificateChain(), state.spkiSha256(), state.createdAt(), state.importTokenExpiresAt(),
-                    state.renewal(), state.discardedAt(), state.importedAt(), state.policy()), token);
+            return new Loaded(prepared(state), token);
         } catch (JsonProcessingException e) {
             throw new OnboardingFailedException("the state file " + stateFile + " is not a valid state file");
         } catch (IOException e) {
             throw new OnboardingFailedException("could not read " + stateFile + " or its import token", e);
         }
+    }
+
+    private static StateDocument readState(Path stateFile) throws IOException {
+        StateDocument state = MAPPER.readValue(Files.readAllBytes(stateFile), StateDocument.class);
+        if (state.version() != STATE_VERSION) {
+            throw new OnboardingFailedException("unsupported state file version " + state.version());
+        }
+        return state;
+    }
+
+    private static PreparedOnboarding prepared(StateDocument state) {
+        return new PreparedOnboarding(state.operationId(), state.tenant(), state.keyArn(), state.alias(),
+                state.certificateChain(), state.spkiSha256(), state.createdAt(), state.importTokenExpiresAt(),
+                state.renewal(), state.discardedAt(), state.importedAt(), state.policy());
     }
 
     /** A discarded preparation is still readable (to refuse it by name) even if its token file was removed. */

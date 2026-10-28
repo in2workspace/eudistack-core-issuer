@@ -163,6 +163,23 @@ class OwnKeyRenewalTest {
     }
 
     @Test
+    void importKey_renewalStateReadBeforeAnotherRunMarkedIt_replacesTheConfigurationOnlyOnce() {
+        var staleCopy = prepared();
+        onboarding.importKey(new ImportCommand(staleCopy, null, new byte[0], OnboardingPolicy.nonProduction(), false,
+                artifacts));
+        kms.calls.clear();
+
+        assertThatThrownBy(() -> onboarding.importKey(new ImportCommand(staleCopy, null, new byte[0],
+                OnboardingPolicy.nonProduction(), false, artifacts)))
+                .isInstanceOf(OnboardingFailedException.class)
+                .hasMessageContaining("already imported");
+
+        assertThat(kms.calls).isEmpty();
+        assertThat(store.committedEvents).singleElement()
+                .satisfies(event -> assertThat(event.operation()).isEqualTo(Operation.REPLACE));
+    }
+
+    @Test
     void importKey_renewalDryRun_makesNoKmsCallAndNoTransaction() {
         var prepared = prepared();
 

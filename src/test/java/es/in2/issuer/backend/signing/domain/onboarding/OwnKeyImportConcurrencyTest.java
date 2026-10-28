@@ -91,7 +91,7 @@ class OwnKeyImportConcurrencyTest {
 
         assertThatThrownBy(() -> onboarding.importKey(importOf(prepared)))
                 .isInstanceOf(OnboardingFailedException.class)
-                .hasMessageContaining("another run is importing");
+                .hasMessageContaining("another run is importing or discarding");
 
         assertThat(kms.calls).as("the second run made no call to KMS").hasSize(kmsCallsOfTheFirst);
         releaseFirst.countDown();
@@ -99,6 +99,73 @@ class OwnKeyImportConcurrencyTest {
         assertNoKeyWasDisabledOrDeleted();
         assertThat(kms.calls("importKeyMaterial")).hasSize(1);
         assertThat(store.committedOperations).anyMatch(operation -> operation.startsWith("activate:"));
+        assertThat(store.lockedOperations).isEmpty();
+    }
+
+    @Test
+    void importKey_stateReadBeforeTheFirstRunMarkedIt_isRefusedUnderTheLockWithoutAnyKmsCall() throws Exception {
+        var staleCopy = prepared();
+        onboarding.importKey(importOf(staleCopy));
+        kms.calls.clear();
+
+        assertThatThrownBy(() -> onboarding.importKey(importOf(staleCopy)))
+                .isInstanceOf(OnboardingFailedException.class)
+                .hasMessageContaining("already imported");
+
+        assertThat(kms.calls).isEmpty();
+        assertThat(store.lockedOperations).isEmpty();
+    }
+
+    @Test
+    void importKey_stateFileThatNowNamesAnotherKey_isRefusedWithoutAnyKmsCall() throws Exception {
+        var prepared = prepared();
+        artifacts.current = new PreparedOnboarding(prepared.operationId(), prepared.tenant(), "arn:other",
+                prepared.alias(), prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),
+                prepared.importTokenExpiresAt());
+
+        assertThatThrownBy(() -> onboarding.importKey(importOf(prepared)))
+                .isInstanceOf(OnboardingFailedException.class)
+                .hasMessageContaining("state file changed");
+
+        assertThat(kms.calls).isEmpty();
+    }
+
+    @Test
+    void discard_whileAnImportOfTheSamePreparationRuns_touchesNothing() throws Exception {
+        var prepared = prepared();
+        CountDownLatch importerHasImported = new CountDownLatch(1);
+        CountDownLatch releaseImporter = new CountDownLatch(1);
+        kms.duringGetPublicKey = () -> {
+            importerHasImported.countDown();
+            await(releaseImporter);
+        };
+        Future<?> importer = executor.submit(() -> onboarding.importKey(importOf(prepared)));
+        assertThat(importerHasImported.await(10, TimeUnit.SECONDS)).isTrue();
+        int kmsCallsOfTheImporter = kms.calls.size();
+
+        assertThatThrownBy(() -> onboarding.discard(new OwnKeyOnboarding.DiscardCommand(prepared, false, artifacts)))
+                .isInstanceOf(OnboardingFailedException.class)
+                .hasMessageContaining("another run is importing or discarding");
+
+        assertThat(kms.calls).as("the discard made no call to KMS").hasSize(kmsCallsOfTheImporter);
+        releaseImporter.countDown();
+        importer.get(10, TimeUnit.SECONDS);
+        assertNoKeyWasDisabledOrDeleted();
+        assertThat(artifacts.discarded).isNull();
+    }
+
+    @Test
+    void discard_stateReadBeforeAnotherDiscardMarkedIt_isAlreadyDiscardedUnderTheLock() throws Exception {
+        var staleCopy = prepared();
+        kms.tags.put("Tenant", "cgcom");
+        kms.tags.put("operationId", staleCopy.operationId());
+        onboarding.discard(new OwnKeyOnboarding.DiscardCommand(staleCopy, false, artifacts));
+        kms.calls.clear();
+
+        var result = onboarding.discard(new OwnKeyOnboarding.DiscardCommand(staleCopy, false, artifacts));
+
+        assertThat(result.outcome()).isEqualTo(OwnKeyOnboarding.DiscardOutcome.ALREADY_DISCARDED);
+        assertThat(kms.calls).isEmpty();
         assertThat(store.lockedOperations).isEmpty();
     }
 
@@ -188,6 +255,11 @@ class OwnKeyImportConcurrencyTest {
                     @Override
                     public void write(PreparedOnboarding p, byte[] wrappingPublicKeyDer, byte[] importToken) {
                         throw new UnsupportedOperationException();
+                    }
+
+                    @Override
+                    public PreparedOnboarding current(PreparedOnboarding p) {
+                        return p;
                     }
                 });
 
