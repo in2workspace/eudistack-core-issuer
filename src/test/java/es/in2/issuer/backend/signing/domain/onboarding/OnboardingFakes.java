@@ -297,7 +297,7 @@ final class OnboardingFakes {
                 // handled, but its reservation stays, or passes to the active row of the tenant that uses the key
                 keptReservation.add(key.id());
                 Optional<UUID> holder = Optional.ofNullable(sameTenantActiveRows.get(key.kmsKeyRef()));
-                holder.ifPresent(active -> reservationMoves.put(key.id(), active));
+                holder.ifPresent(activeRow -> reservationMoves.put(key.id(), activeRow));
                 return holder;
             }
 

@@ -342,8 +342,8 @@ class OwnKeyReconcilerTest {
 
         reconciler.reconcile(GRACE, false);
 
-        assertThat(store.reservations.get("ab".repeat(32)))
-                .isEqualTo(new OwnKeyStorePort.SpkiReservation("cgcom", activeRow));
+        assertThat(store.reservations)
+                .containsEntry("ab".repeat(32), new OwnKeyStorePort.SpkiReservation("cgcom", activeRow));
         assertThat(kms.calls).noneMatch(call -> call.startsWith("disableKey") || call.startsWith("scheduleKeyDeletion"));
     }
 

@@ -222,8 +222,9 @@ class OwnKeyRenewalTest {
     void importKey_renewalThatLostTheLockBeforeTheCommit_commitsNothing() {
         var prepared = prepared();
         kms.duringGetPublicKey = () -> store.lostLocks.add(prepared.operationId());
+        var command = importCommand(prepared, false);
 
-        assertThatThrownBy(() -> onboarding.importKey(importCommand(prepared, false)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingFailedException.class)
                 .hasMessageContaining("was lost");
 
@@ -252,8 +253,9 @@ class OwnKeyRenewalTest {
     void importKey_renewalWhoseCommitOutcomeIsUnknown_leavesNoFailureEvent() {
         var prepared = prepared();
         store.failure = new CommitOutcomeUnknownException("the database did not confirm the commit", null);
+        var command = importCommand(prepared, false);
 
-        assertThatThrownBy(() -> onboarding.importKey(importCommand(prepared, false)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(CommitOutcomeUnknownException.class);
 
         assertThat(store.eventsInOwnTransaction).isEmpty();

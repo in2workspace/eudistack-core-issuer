@@ -534,7 +534,7 @@ public final class OnboardingCli {
     }
 
     private static KeyPolicy keyPolicyOf(String json, String source) {
-        if (json.startsWith("﻿")) {
+        if (json.startsWith("\uFEFF")) {
             throw new OnboardingUsageException(source + " starts with a byte order mark: save the policy as UTF-8 "
                     + "without BOM");
         }
