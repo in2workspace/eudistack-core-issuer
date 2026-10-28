@@ -409,13 +409,25 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         }
 
         @Override
+        public void markKeyStillInUse(String tenantId, WithdrawnOwnKey key) {
+            run(() -> {
+                markHandled(tenantId, key);
+                return null;
+            });
+        }
+
+        private void markHandled(String tenantId, WithdrawnOwnKey key) throws SQLException {
+            try (PreparedStatement statement = connection.prepareStatement("UPDATE " + table(tenantId)
+                    + " SET own_key_deleted_at = now(), updated_at = now() WHERE id = ?")) {
+                statement.setObject(1, key.id());
+                requireOneRow(statement.executeUpdate(), "mark the handled key");
+            }
+        }
+
+        @Override
         public void markKeyRetired(String tenantId, WithdrawnOwnKey key) {
             run(() -> {
-                try (PreparedStatement statement = connection.prepareStatement("UPDATE " + table(tenantId)
-                        + " SET own_key_deleted_at = now(), updated_at = now() WHERE id = ?")) {
-                    statement.setObject(1, key.id());
-                    requireOneRow(statement.executeUpdate(), "mark the retired key");
-                }
+                markHandled(tenantId, key);
                 // The public key stays reserved for the tenant until its key is retired. A renewal marks the old row
                 // handled before it reserves the same key for the new one, which is how the reservation moves.
                 try (PreparedStatement statement = connection.prepareStatement("DELETE FROM "

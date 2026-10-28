@@ -397,6 +397,44 @@ class JdbcOwnKeyStoreIT {
     }
 
     @Test
+    void markKeyStillInUse_marksTheRowHandledButKeepsItsSpkiReservation() {
+        UUID id = insertOwnKey("cgcom", "withdrawn", "arn:old", 600, null);
+        store.inTransaction(tx -> {
+            tx.reserveSpki(SPKI, "cgcom", id);
+            return null;
+        });
+
+        store.inTransaction(tx -> {
+            var row = tx.lockNextWithdrawnOwnKey("cgcom", Duration.ofSeconds(160), Set.of()).orElseThrow();
+            tx.markKeyStillInUse("cgcom", row);
+            return null;
+        });
+
+        assertThat(scalar("SELECT own_key_deleted_at IS NOT NULL FROM cgcom_issuer.tenant_signing_config WHERE id = ?",
+                id)).isEqualTo(true);
+        assertThat(store.findWithdrawnOwnKeysPendingKms("cgcom", Duration.ZERO)).isEmpty();
+        assertThat(store.findSpkiReservation(SPKI)).isPresent().get()
+                .satisfies(reservation -> assertThat(reservation.configurationId()).isEqualTo(id));
+    }
+
+    @Test
+    void markKeyRetired_releasesTheSpkiReservationOfTheRow() {
+        UUID id = insertOwnKey("cgcom", "withdrawn", "arn:old", 600, null);
+        store.inTransaction(tx -> {
+            tx.reserveSpki(SPKI, "cgcom", id);
+            return null;
+        });
+
+        store.inTransaction(tx -> {
+            var row = tx.lockNextWithdrawnOwnKey("cgcom", Duration.ofSeconds(160), Set.of()).orElseThrow();
+            tx.markKeyRetired("cgcom", row);
+            return null;
+        });
+
+        assertThat(store.findSpkiReservation(SPKI)).isEmpty();
+    }
+
+    @Test
     void lockNextWithdrawnOwnKey_rowLockedByAnotherTransaction_isSkipped() throws Exception {
         UUID id = insertOwnKey("cgcom", "withdrawn", "arn:old", 600, null);
 

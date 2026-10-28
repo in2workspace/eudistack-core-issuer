@@ -131,11 +131,17 @@ public interface OwnKeyStorePort {
                                                           Set<UUID> excluding);
 
         /**
-         * Marks the row as handled ({@code own_key_deleted_at}): its KMS key was retired, or is still in use by
-         * an active configuration and must not be, so the row is not selected again. It also releases the SPKI
-         * reservation of the row, if it holds one, in the same transaction.
+         * Marks the row as handled ({@code own_key_deleted_at}) because its KMS key was retired, so the row is not
+         * selected again. It also releases the SPKI reservation of the row, if it holds one, in the same transaction.
          */
         void markKeyRetired(String tenantId, WithdrawnOwnKey key);
+
+        /**
+         * Marks the row as handled ({@code own_key_deleted_at}) because its KMS key is still referenced by an active
+         * configuration and must not be retired, so the row is not selected again. The SPKI reservation of the row is
+         * NOT released: the key still signs, so its public key must stay reserved for its tenant.
+         */
+        void markKeyStillInUse(String tenantId, WithdrawnOwnKey key);
 
         /** Stages the event in this transaction: it is only published if the transaction commits. */
         void stage(SigningConfigurationChanged event);

@@ -260,6 +260,20 @@ class OwnKeyReconcilerTest {
     }
 
     @Test
+    void reconcile_keyStillReferencedByAnActiveConfiguration_marksTheRowButKeepsItsSpkiReservation() {
+        var row = withdrawn("cgcom", KEY_A);
+        store.reservations.put("ab".repeat(32), new OwnKeyStorePort.SpkiReservation("cgcom", row.id()));
+        store.activeKeyRefs.add(KEY_A);
+
+        reconciler.reconcile(GRACE, false);
+
+        assertThat(store.committedOperations).containsExactly("markStillInUse:" + KEY_A);
+        assertThat(store.retired).contains(row.id());
+        assertThat(store.reservations).containsOnlyKeys("ab".repeat(32));
+        assertThat(kms.calls).noneMatch(call -> call.startsWith("disableKey") || call.startsWith("scheduleKeyDeletion"));
+    }
+
+    @Test
     void reconcile_retiredKey_releasesTheSpkiReservationOfItsRow() {
         var row = withdrawn("cgcom", KEY_A);
         store.reservations.put("ab".repeat(32), new OwnKeyStorePort.SpkiReservation("cgcom", row.id()));

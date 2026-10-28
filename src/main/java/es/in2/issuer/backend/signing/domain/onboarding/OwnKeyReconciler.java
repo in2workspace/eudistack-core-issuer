@@ -33,8 +33,9 @@ import java.util.UUID;
  *
  * <p>Every row leaves a {@code Retire} event: {@code Success} or {@code Denied} (key in use) staged in the
  * transaction that marks the row, {@code Failure} in a transaction of its own, since the row's transaction ends
- * without changes. The actor is the caller ARN. The same transaction releases the SPKI reservation of the row: until
- * then the public key is still reserved for its tenant.
+ * without changes. The actor is the caller ARN. The same transaction releases the SPKI reservation of the row of a key that
+ * was retired: until then the public key is still reserved for its tenant. The reservation of a key that an active
+ * configuration still references is not released, because the key still signs.
  *
  * <p>One transaction per row: the row is selected {@code FOR UPDATE SKIP LOCKED}, so two runs at the same
  * time never act on the same row, and a failure on one key leaves the others to proceed.
@@ -125,7 +126,8 @@ public class OwnKeyReconciler {
             if (store.isKeyReferenced(row.kmsKeyRef(), true)) {
                 log.warn("Tenant '{}', configuration {}: the key is referenced by an active configuration and is not "
                         + "retired", tenant, row.id());
-                tx.markKeyRetired(tenant, row);
+                // The key still signs: its row is handled, but its SPKI stays reserved for the tenant.
+                tx.markKeyStillInUse(tenant, row);
                 tx.stage(event(tenant, row, Result.DENIED, RejectionReason.KEY_IN_USE, actor, startedAt));
                 return new RowResult(row.id(), null);
             }

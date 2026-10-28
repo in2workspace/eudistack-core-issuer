@@ -195,6 +195,7 @@ final class OnboardingFakes {
             committedOperations.addAll(transaction.operations);
             committedEvents.addAll(transaction.events);
             retired.addAll(transaction.retired);
+            retired.addAll(transaction.keptReservation);
             reservations.values().removeIf(reservation -> transaction.retired.contains(reservation.configurationId()));
             return result;
         }
@@ -212,6 +213,7 @@ final class OnboardingFakes {
             private final List<String> operations = new ArrayList<>();
             private final List<SigningConfigurationChanged> events = new ArrayList<>();
             private final Set<UUID> retired = new HashSet<>();
+            private final Set<UUID> keptReservation = new HashSet<>();
 
             @Override
             public Optional<ActiveConfiguration> lockActiveConfiguration(String tenantId) {
@@ -254,6 +256,7 @@ final class OnboardingFakes {
             private Set<UUID> retired() {
                 Set<UUID> all = new HashSet<>(FakeStore.this.retired);
                 all.addAll(retired);
+                all.addAll(keptReservation);
                 return all;
             }
 
@@ -262,6 +265,13 @@ final class OnboardingFakes {
                 operations.add("markHandled:" + key.kmsKeyRef());
                 // marking a row handled releases the reservation of its configuration
                 retired.add(key.id());
+            }
+
+            @Override
+            public void markKeyStillInUse(String tenantId, WithdrawnOwnKey key) {
+                operations.add("markStillInUse:" + key.kmsKeyRef());
+                // handled, but its reservation stays
+                keptReservation.add(key.id());
             }
 
             @Override
