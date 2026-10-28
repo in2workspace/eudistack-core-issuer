@@ -67,11 +67,46 @@ class OwnKeyDiscardTest {
     }
 
     @Test
+    void discard_success_isAuditedAsARetireSuccessWithTheCallerAndNoKeyReference() {
+        onboarding.discard(command(false));
+
+        assertThat(store.eventsInOwnTransaction).singleElement().satisfies(event -> {
+            assertThat(event.operation()).isEqualTo(SigningConfigurationChanged.Operation.RETIRE);
+            assertThat(event.result()).isEqualTo(SigningConfigurationChanged.Result.SUCCESS);
+            assertThat(event.reason()).isNull();
+            assertThat(event.tenant()).isEqualTo("cgcom");
+            assertThat(event.actor()).isEqualTo("arn:caller");
+            assertThat(event.correlationId()).isEqualTo("op-1");
+            assertThat(event.toString()).doesNotContain(ARN);
+        });
+    }
+
+    @Test
+    void discard_successWhoseEventCannotBeRecorded_isStillADiscard() {
+        store.failureRecordingEvent = new IllegalStateException("audit store down");
+
+        var result = onboarding.discard(command(false));
+
+        assertThat(result.outcome()).isEqualTo(DiscardOutcome.DISCARDED);
+        assertThat(artifacts.discarded).isEqualTo(prepared);
+    }
+
+    @Test
+    void discard_alreadyPendingDeletion_leavesNoEventBecauseNothingWasRetired() {
+        kms.states.put(ARN, KeyState.PENDING_DELETION);
+
+        onboarding.discard(command(false));
+
+        assertThat(store.eventsInOwnTransaction).isEmpty();
+    }
+
+    @Test
     void discard_dryRun_onlyChecks() {
         var result = onboarding.discard(command(true));
 
         assertThat(result.outcome()).isEqualTo(DiscardOutcome.WOULD_DISCARD);
         assertThat(kms.calls).containsExactly("describeKey:" + ARN, "listTags:" + ARN);
+        assertThat(store.eventsInOwnTransaction).isEmpty();
         assertNothingDestroyed();
     }
 

@@ -428,7 +428,7 @@ public class OwnKeyOnboarding {
             OnboardingRejectedException rejected = new OnboardingRejectedException(RejectionReason.POLICY_DENIED,
                     "the key is not discarded (" + problem + ")");
             if (!command.dryRun()) {
-                recordDiscardRejection(prepared, rejected, startedAt);
+                recordDiscardEvent(prepared, Result.DENIED, rejected.getReason(), startedAt, rejected);
             }
             throw rejected;
         }
@@ -437,20 +437,29 @@ public class OwnKeyOnboarding {
         }
         retireVerifiedKey(key);
         command.artifacts().markDiscarded(prepared, clock.instant());
+        recordDiscardEvent(prepared, Result.SUCCESS, null, startedAt, null);
         return new DiscardResult(prepared.keyArn(), DiscardOutcome.DISCARDED);
     }
 
-    /** A refused discard is a denied retirement of a key: audited like any other rejection. */
-    private void recordDiscardRejection(PreparedOnboarding prepared, OnboardingRejectedException rejected,
-                                        Instant startedAt) {
+    /**
+     * A discard is a retirement of a key and is audited, in a transaction of its own because nothing in the database
+     * changes: denied when it was refused, a success when the key was retired. A failure to record it never undoes or
+     * fails the discard; it is logged and, for a refusal, added to the rejection as suppressed.
+     *
+     * @param refusal the rejection to add a recording failure to; {@code null} for a success
+     */
+    private void recordDiscardEvent(PreparedOnboarding prepared, Result result, RejectionReason reason, Instant startedAt,
+                                    OnboardingRejectedException refusal) {
         try {
             Instant now = clock.instant();
-            store.recordInOwnTransaction(SigningConfigurationChanged.retire(prepared.tenant(), Result.DENIED,
-                    rejected.getReason(), identity.callerArn(), Duration.between(startedAt, now), now,
-                    prepared.operationId()));
+            store.recordInOwnTransaction(SigningConfigurationChanged.retire(prepared.tenant(), result, reason,
+                    identity.callerArn(), Duration.between(startedAt, now), now, prepared.operationId()));
         } catch (RuntimeException e) {
-            log.error("The refused discard of tenant '{}' could not be recorded: {}", prepared.tenant(), e.toString());
-            rejected.addSuppressed(e);
+            log.error("The {} discard of tenant '{}' could not be recorded: {}", result.catalogName(), prepared.tenant(),
+                    e.toString());
+            if (refusal != null) {
+                refusal.addSuppressed(e);
+            }
         }
     }
 
