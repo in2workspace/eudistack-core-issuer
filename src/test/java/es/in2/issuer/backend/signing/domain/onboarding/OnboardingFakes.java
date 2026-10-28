@@ -306,6 +306,7 @@ final class OnboardingFakes {
         byte[] wrappingPublicKey;
         byte[] importToken;
         RuntimeException failure;
+        RuntimeException markDiscardedFailure;
         PreparedOnboarding discarded;
         PreparedOnboarding imported;
         /** The state as kept now, with its marks; {@code null} until it is marked or set by a test. */
@@ -322,6 +323,9 @@ final class OnboardingFakes {
 
         @Override
         public void markDiscarded(PreparedOnboarding prepared, Instant discardedAt) {
+            if (markDiscardedFailure != null) {
+                throw markDiscardedFailure;
+            }
             this.discarded = prepared;
             this.current = new PreparedOnboarding(prepared.operationId(), prepared.tenant(), prepared.keyArn(),
                     prepared.alias(), prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),

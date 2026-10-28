@@ -1,9 +1,14 @@
 package es.in2.issuer.backend.signing.infrastructure.onboarding;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.sun.net.httpserver.HttpServer;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFailedException;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingRejectedException;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 
@@ -110,6 +115,29 @@ class OnboardingWiringTest {
                     .hasMessageContaining("999999999999")
                     .hasMessageContaining("--expected-aws-account");
         } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void open_expectedAccountThatIsNotTheCallers_logsAWarningWithBothAccounts() throws Exception {
+        HttpServer server = sts();
+        Logger logger = (Logger) LoggerFactory.getLogger(ExpectedAwsAccount.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            var wiring = wiring();
+            var settings = settingsExpecting("999999999999", uriOf(server));
+
+            assertThatThrownBy(() -> wiring.open(settings)).isInstanceOf(OnboardingRejectedException.class);
+
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                assertThat(event.getFormattedMessage()).contains(ACCOUNT, "999999999999");
+            });
+        } finally {
+            logger.detachAppender(appender);
             server.stop(0);
         }
     }

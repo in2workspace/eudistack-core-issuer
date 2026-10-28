@@ -1,10 +1,13 @@
 package es.in2.issuer.backend.signing.domain.onboarding;
 
+import es.in2.issuer.backend.signing.domain.model.SigningModality;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFakes.FakeKms;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFakes.FakeStore;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFakes.RecordingArtifacts;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.ImportCommand;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.PrepareCommand;
+import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChanged.Operation;
+import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChanged.Result;
 import es.in2.issuer.backend.signing.domain.spi.KmsKeyAdministrationPort.KeyState;
 import es.in2.issuer.backend.signing.domain.spi.OnboardingArtifactsPort;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
@@ -101,6 +104,72 @@ class OwnKeyImportConcurrencyTest {
         assertThat(kms.calls("importKeyMaterial")).hasSize(1);
         assertThat(store.committedOperations).anyMatch(operation -> operation.startsWith("activate:"));
         assertThat(store.lockedOperations).isEmpty();
+    }
+
+    @Test
+    void importKey_lockHeldByAnotherRun_isAuditedAsAFailureOfTheOperationTheTenantWouldGet() throws Exception {
+        var prepared = prepared();
+        store.tenants.put("cgcom", OnboardingFakes.activeTenant("cgcom", SigningModality.QTSP));
+        store.lockedOperations.add(prepared.operationId());
+        var command = importOf(prepared);
+
+        assertThatThrownBy(() -> onboarding.importKey(command)).isInstanceOf(OnboardingFailedException.class);
+
+        assertThat(kms.calls).isEmpty();
+        assertThat(store.eventsInOwnTransaction).singleElement().satisfies(event -> {
+            assertThat(event.operation()).isEqualTo(Operation.REPLACE);
+            assertThat(event.previousModality()).isEqualTo(SigningModality.QTSP);
+            assertThat(event.result()).isEqualTo(Result.FAILURE);
+            assertThat(event.reason()).isEqualTo(RejectionReason.PROVIDER_UNAVAILABLE);
+            assertThat(event.actor()).isEqualTo(CALLER);
+            assertThat(event.correlationId()).isEqualTo(prepared.operationId());
+            assertThat(event.signingCertificateSha256()).isNotNull();
+        });
+    }
+
+    @Test
+    void importKey_lockHeldByAnotherRunForATenantWithoutConfiguration_isACreateFailure() throws Exception {
+        var prepared = prepared();
+        store.lockedOperations.add(prepared.operationId());
+        var command = importOf(prepared);
+
+        assertThatThrownBy(() -> onboarding.importKey(command)).isInstanceOf(OnboardingFailedException.class);
+
+        assertThat(store.eventsInOwnTransaction).singleElement().satisfies(event -> {
+            assertThat(event.operation()).isEqualTo(Operation.CREATE);
+            assertThat(event.previousModality()).isNull();
+        });
+    }
+
+    @Test
+    void importKey_failureOfImportKeyMaterial_isAuditedAsAFailure() throws Exception {
+        var prepared = prepared();
+        kms.failures.put("importKeyMaterial", new IllegalStateException("KMS refuses"));
+        var command = importOf(prepared);
+
+        assertThatThrownBy(() -> onboarding.importKey(command)).isInstanceOf(IllegalStateException.class);
+
+        assertThat(store.eventsInOwnTransaction).singleElement().satisfies(event -> {
+            assertThat(event.operation()).isEqualTo(Operation.CREATE);
+            assertThat(event.result()).isEqualTo(Result.FAILURE);
+            assertThat(event.reason()).isEqualTo(RejectionReason.PROVIDER_UNAVAILABLE);
+        });
+    }
+
+    @Test
+    void importKey_failureAfterTheImportThatCannotBeRecorded_keepsTheRecordingFailureAsSuppressed() throws Exception {
+        var prepared = prepared();
+        kms.failures.put("getPublicKey", new IllegalStateException("KMS unavailable"));
+        store.failureRecordingEvent = new IllegalStateException("audit store down");
+        var command = importOf(prepared);
+
+        assertThatThrownBy(() -> onboarding.importKey(command))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("KMS unavailable")
+                .satisfies(e -> assertThat(e.getSuppressed()).extracting(Throwable::getMessage)
+                        .contains("audit store down"));
+
+        assertThat(kms.calls("scheduleKeyDeletion")).as("the key is still cleaned up").hasSize(1);
     }
 
     @Test
@@ -227,6 +296,11 @@ class OwnKeyImportConcurrencyTest {
 
         assertThat(kms.calls("disableKey")).hasSize(1);
         assertThat(kms.calls("scheduleKeyDeletion")).hasSize(1);
+        assertThat(store.eventsInOwnTransaction).singleElement().satisfies(event -> {
+            assertThat(event.result()).isEqualTo(Result.FAILURE);
+            assertThat(event.reason()).isEqualTo(RejectionReason.PROVIDER_UNAVAILABLE);
+            assertThat(event.signingCertificateSha256()).isNotNull();
+        });
     }
 
     @Test

@@ -217,6 +217,33 @@ class OwnKeyRenewalTest {
     }
 
     @Test
+    void importKey_renewalThatFailsWithoutARejection_isAuditedAsAReplaceFailure() {
+        var prepared = prepared();
+        store.failure = new OnboardingFailedException("database error");
+
+        assertThatThrownBy(() -> onboarding.importKey(importCommand(prepared, false))).hasMessage("database error");
+
+        assertThat(store.eventsInOwnTransaction).singleElement().satisfies(event -> {
+            assertThat(event.operation()).isEqualTo(Operation.REPLACE);
+            assertThat(event.previousModality()).isEqualTo(SigningModality.OWN_KEY);
+            assertThat(event.result()).isEqualTo(Result.FAILURE);
+            assertThat(event.reason()).isEqualTo(RejectionReason.PROVIDER_UNAVAILABLE);
+            assertThat(event.correlationId()).isEqualTo("op-1");
+        });
+    }
+
+    @Test
+    void importKey_renewalWhoseCommitOutcomeIsUnknown_leavesNoFailureEvent() {
+        var prepared = prepared();
+        store.failure = new CommitOutcomeUnknownException("the database did not confirm the commit", null);
+
+        assertThatThrownBy(() -> onboarding.importKey(importCommand(prepared, false)))
+                .isInstanceOf(CommitOutcomeUnknownException.class);
+
+        assertThat(store.eventsInOwnTransaction).isEmpty();
+    }
+
+    @Test
     void importKey_renewalWhenTheActiveRowChangedMeanwhile_isRejectedAndTheKeyIsNeverTouched() {
         var prepared = prepared();
         store.active = new ActiveConfiguration(UUID.randomUUID(), SigningModality.OWN_KEY, "arn:another-key");

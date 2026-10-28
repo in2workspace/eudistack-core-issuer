@@ -259,13 +259,14 @@ public class OwnKeyOnboarding {
     public ImportResult importKey(ImportCommand command) {
         PreparedOnboarding prepared = command.prepared();
         requireTenantId(prepared.tenant());
+        Instant startedAt = clock.instant();
         // A consumed or discarded state is refused before anything else, with no call to KMS: repeating an import
         // must not be able to touch a key.
         requireNotMarked(prepared);
         if (command.dryRun()) {
             return runImport(command, null);
         }
-        try (var lock = lockOperation(prepared)) {
+        try (var lock = lockOperation(prepared, () -> recordBusyImport(prepared, startedAt))) {
             requireNotMarked(currentState(prepared, command.artifacts()));
             return runImport(command, lock);
         }
@@ -282,12 +283,49 @@ public class OwnKeyOnboarding {
         }
     }
 
-    /** The one lock of an operation: {@code import} and {@code discard} of the same state never overlap. */
-    private OperationLock lockOperation(PreparedOnboarding prepared) {
-        return store.tryLockOperation(prepared.operationId()).orElseThrow(
-                () -> new OnboardingFailedException("another run is importing or discarding this preparation (operation "
-                        + prepared.operationId() + "): nothing was touched in KMS. Wait for it to end and check its "
-                        + "result before trying again"));
+    /**
+     * The one lock of an operation: {@code import} and {@code discard} of the same state never overlap. A run that finds
+     * it taken is a run that could not be completed, and is audited as such before it ends.
+     *
+     * @param recordBusy records the {@code Failure} event of the run that could not take the lock; never throws
+     */
+    private OperationLock lockOperation(PreparedOnboarding prepared, Runnable recordBusy) {
+        return store.tryLockOperation(prepared.operationId()).orElseThrow(() -> {
+            recordBusy.run();
+            return new OnboardingFailedException("another run is importing or discarding this preparation (operation "
+                    + prepared.operationId() + "): nothing was touched in KMS. Wait for it to end and check its "
+                    + "result before trying again");
+        });
+    }
+
+    /**
+     * An {@code import} that could not take the lock is a {@code Create} or a {@code Replace} that could not be completed.
+     * Which one is read from the tenant's active configuration now (a renewal always replaces an own-key one), since
+     * nothing of the run has been validated yet.
+     */
+    private void recordBusyImport(PreparedOnboarding prepared, Instant startedAt) {
+        try {
+            Attempt attempt = new Attempt(prepared.tenant(), identity.callerArn(), startedAt);
+            attempt.operationId = prepared.operationId();
+            attempt.certificateSha256 = certificateSha256Of(prepared);
+            attempt.previousModality = prepared.renewal() ? SigningModality.OWN_KEY
+                    : store.findTenant(prepared.tenant()).map(RegisteredTenant::activeModality).orElse(null);
+            store.recordInOwnTransaction(event(attempt, attempt.operation(), attempt.previousModality, Result.FAILURE,
+                    RejectionReason.PROVIDER_UNAVAILABLE, attempt.certificateSha256));
+        } catch (RuntimeException e) {
+            log.error("The import of tenant '{}' that found its operation locked by another run could not be recorded: {}",
+                    prepared.tenant(), e.toString());
+        }
+    }
+
+    /** @return the fingerprint of the leaf of the state's chain, or {@code null} if the chain cannot be read */
+    private static String certificateSha256Of(PreparedOnboarding prepared) {
+        try {
+            return new ValidatedOwnKeyCertificate(OwnKeyCertificateValidator.parseBase64Chain(prepared.certificateChain()))
+                    .certificateSha256Hex();
+        } catch (RuntimeException _) {
+            return null;
+        }
     }
 
     /**
@@ -416,7 +454,8 @@ public class OwnKeyOnboarding {
 
     /**
      * Renewal: no key is created or imported. The existing key must be the certificate's, and a failure here
-     * never touches it: it is the key the tenant signs with.
+     * never touches it: it is the key the tenant signs with. A failure that is not a rejection is audited as a
+     * {@code Replace} that could not be completed, unless the outcome of the commit is unknown.
      */
     private ImportResult renewAndActivate(ImportCommand command, Attempt attempt, ValidatedOwnKeyCertificate certificate) {
         PreparedOnboarding prepared = command.prepared();
@@ -427,6 +466,11 @@ public class OwnKeyOnboarding {
         } catch (OnboardingRejectedException rejected) {
             recordRejection(attempt, rejected);
             throw rejected;
+        } catch (CommitOutcomeUnknownException unknown) {
+            throw unknown;
+        } catch (RuntimeException failure) {
+            recordFailure(attempt, failure);
+            throw failure;
         }
         boolean marked = markImported(command);
         requireTheKeyIsEnabled(attempt.tenant, prepared.keyArn());
@@ -507,7 +551,8 @@ public class OwnKeyOnboarding {
         if (command.dryRun()) {
             return runDiscard(command, prepared, startedAt);
         }
-        try (var _ = lockOperation(prepared)) {
+        try (var _ = lockOperation(prepared, () -> recordDiscardEvent(prepared, Result.FAILURE,
+                RejectionReason.PROVIDER_UNAVAILABLE, startedAt, null))) {
             PreparedOnboarding current = currentState(prepared, command.artifacts());
             if (current.discardedAt() != null) {
                 return new DiscardResult(prepared.keyArn(), DiscardOutcome.ALREADY_DISCARDED);
@@ -538,15 +583,18 @@ public class OwnKeyOnboarding {
             return new DiscardResult(prepared.keyArn(), DiscardOutcome.WOULD_DISCARD);
         }
         retireVerifiedKey(key);
-        command.artifacts().markDiscarded(prepared, clock.instant());
+        // Recorded before the state is marked: the key is retired already, and a failure marking the state must not
+        // leave that retirement without its event.
         recordDiscardEvent(prepared, Result.SUCCESS, null, startedAt, null);
+        command.artifacts().markDiscarded(prepared, clock.instant());
         return new DiscardResult(prepared.keyArn(), DiscardOutcome.DISCARDED);
     }
 
     /**
      * A discard is a retirement of a key and is audited, in a transaction of its own because nothing in the database
-     * changes: denied when it was refused, a success when the key was retired. A failure to record it never undoes or
-     * fails the discard; it is logged and, for a refusal, added to the rejection as suppressed.
+     * changes: denied when it was refused, a success when the key was retired, a failure when another run held the lock
+     * of the operation. A failure to record it never undoes or fails the discard; it is logged and, for a refusal, added
+     * to the rejection as suppressed.
      *
      * @param refusal the rejection to add a recording failure to; {@code null} for a success
      */
@@ -683,6 +731,7 @@ public class OwnKeyOnboarding {
             throw unknown;
         } catch (RuntimeException failure) {
             retireOwnNewKeyUnderLock(lock, key, statesToRetire(attempt), failure);
+            recordFailure(attempt, failure);
             throw failure;
         }
         boolean marked = markImported(command);
@@ -825,6 +874,22 @@ public class OwnKeyOnboarding {
         } catch (RuntimeException e) {
             log.error("The rejected onboarding of tenant '{}' could not be recorded: {}", attempt.tenant, e.toString());
             rejected.addSuppressed(e);
+        }
+    }
+
+    /**
+     * An import or a renewal that failed for any reason but a rejection, once it reached KMS or the database, is a
+     * {@code Create} or {@code Replace} that could not be completed: {@code Failure} with {@code ProviderUnavailable}, the
+     * only {@code Failure} reason of the catalogue, in a transaction of its own because the change was rolled back. A
+     * failure to record it is logged and added to the failure as suppressed.
+     */
+    private void recordFailure(Attempt attempt, RuntimeException failure) {
+        try {
+            store.recordInOwnTransaction(event(attempt, attempt.operation(), attempt.previousModality, Result.FAILURE,
+                    RejectionReason.PROVIDER_UNAVAILABLE, attempt.certificateSha256));
+        } catch (RuntimeException e) {
+            log.error("The failed onboarding of tenant '{}' could not be recorded: {}", attempt.tenant, e.toString());
+            failure.addSuppressed(e);
         }
     }
 

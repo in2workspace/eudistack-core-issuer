@@ -92,6 +92,36 @@ class OwnKeyDiscardTest {
     }
 
     @Test
+    void discard_stateThatCannotBeMarked_stillLeavesTheRetireEventOfTheKeyItRetired() {
+        artifacts.markDiscardedFailure = new IllegalStateException("disk full");
+        var command = command(false);
+
+        assertThatThrownBy(() -> onboarding.discard(command)).hasMessage("disk full");
+
+        assertThat(kms.calls("scheduleKeyDeletion")).hasSize(1);
+        assertThat(store.eventsInOwnTransaction).singleElement()
+                .satisfies(event -> assertThat(event.result()).isEqualTo(SigningConfigurationChanged.Result.SUCCESS));
+    }
+
+    @Test
+    void discard_whileAnotherRunHoldsTheLock_isAuditedAsARetireFailureAndTouchesNothing() {
+        store.lockedOperations.add("op-1");
+        var command = command(false);
+
+        assertThatThrownBy(() -> onboarding.discard(command))
+                .isInstanceOf(OnboardingFailedException.class)
+                .hasMessageContaining("another run");
+
+        assertNothingDestroyed();
+        assertThat(store.eventsInOwnTransaction).singleElement().satisfies(event -> {
+            assertThat(event.operation()).isEqualTo(SigningConfigurationChanged.Operation.RETIRE);
+            assertThat(event.result()).isEqualTo(SigningConfigurationChanged.Result.FAILURE);
+            assertThat(event.reason()).isEqualTo(RejectionReason.PROVIDER_UNAVAILABLE);
+            assertThat(event.correlationId()).isEqualTo("op-1");
+        });
+    }
+
+    @Test
     void discard_alreadyPendingDeletion_leavesNoEventBecauseNothingWasRetired() {
         kms.states.put(ARN, KeyState.PENDING_DELETION);
 
