@@ -23,12 +23,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.util.List;
+import java.util.stream.Stream;
 import java.util.Map;
 
 import static es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService.ARCHIVE;
@@ -368,11 +372,73 @@ class PowerAuthorizationServiceImplTest {
                     .expectError(TenantMismatchException.class).verify();
         }
 
+        /** C2 for a system (machine attestation), C1 for a person: same powers, same scope (AC-08). */
+        @ParameterizedTest
+        @CsvSource({"learcredential.machine.w3c.3, C2", "learcredential.machine.sd.1, C2", "LEARCredentialMachine, C2",
+                "learcredential.employee.sd.1, C1", "LEARCredentialEmployee, C1"})
+        void PowerAuthorizationService_authorizeQuery_aSystemIsDecidedAsC2AndAPersonAsC1(String credentialType, String action) {
+            // Given
+            when(callerProvider.current()).thenReturn(Mono.just(new Caller(ORG, List.of(ORG_ADMIN), TENANT, credentialType, "j")));
+
+            // When / Then
+            StepVerifier.create(inTenant(service.authorizeQuery(null, null), TENANT))
+                    .assertNext(d -> {
+                        assertThat(d.actionId()).isEqualTo(action);
+                        assertThat(d.anyOrganization()).isFalse();
+                    })
+                    .verifyComplete();
+        }
+
         @Test
         void PowerAuthorizationService_authorize_unknownActionIsDeniedByDefault() {
             expectReason(inTenant(service.authorize("Z9", caller(ORG, TENANT, TENANT_ADMIN), null, null), TENANT),
                     Reason.AUTHORIZATION_RULE_MISSING);
         }
+    }
+
+    // --- Task criterion: every action has a negative test without its power and one with another tenant ---
+
+    /** Action, holder of its power, a caller of the tenant without it, type, organization, granted powers. */
+    static Stream<Arguments> issuanceActions() {
+        return Stream.of(
+                Arguments.of("E1", List.of(ORG_ADMIN), List.<Power>of(), EMPLOYEE_TYPE, null, List.<Power>of()),
+                Arguments.of("E2", List.of(TENANT_ADMIN), List.of(ORG_ADMIN), EMPLOYEE_TYPE, OTHER_ORG, List.<Power>of()),
+                Arguments.of("E3", List.of(TENANT_ADMIN), List.of(ORG_ADMIN), EMPLOYEE_TYPE, null, List.of(ORG_ADMIN)),
+                Arguments.of("E4", List.of(PLATFORM_ADMIN), List.of(TENANT_ADMIN), EMPLOYEE_TYPE, null, List.of(TENANT_ADMIN)),
+                Arguments.of("E5", List.of(TENANT_ADMIN), List.of(ORG_ADMIN), EMPLOYEE_TYPE, null, List.of(CERTIFY)),
+                Arguments.of("E6", List.of(CERTIFY), List.of(TENANT_ADMIN), LABEL_TYPE, null, List.<Power>of()));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("issuanceActions")
+    void PowerAuthorizationService_authorizeIssuance_eachActionIsPermittedWithItsPowerOnlyAndOnlyInItsTenant(
+            String action, List<Power> holder, List<Power> withoutIt, String type, String organization, List<Power> granted) {
+        JsonNode payload = payloadGranting(granted.toArray(Power[]::new));
+
+        // With its power, in its tenant: permitted, and the action is part of the decision
+        StepVerifier.create(issue(caller(ORG, TENANT, holder.toArray(Power[]::new)), type, organization, payload))
+                .assertNext(a -> assertThat(a.actionIds()).contains(action))
+                .verifyComplete();
+
+        // Negative 1 -- without the power: denied
+        StepVerifier.create(issue(caller(ORG, TENANT, withoutIt.toArray(Power[]::new)), type, organization, payload))
+                .expectError(LearIssuancePolicyException.class).verify();
+
+        // Negative 2 -- another tenant: the same powers in a token of another tenant are denied...
+        StepVerifier.create(issue(caller(ORG, OTHER_TENANT, holder.toArray(Power[]::new)), type, organization, payload))
+                .expectError(TenantMismatchException.class).verify();
+
+        // ...and so is the power itself when its domain is another tenant (for E4, System · Administration
+        // of a domain that is not the platform's recognizes no administrator)
+        Power[] foreign = holder.stream()
+                .map(p -> power(p.type(), OTHER_TENANT, p.function(), actionOf(p)))
+                .toArray(Power[]::new);
+        StepVerifier.create(issue(caller(ORG, TENANT, foreign), type, organization, payload))
+                .expectError(LearIssuancePolicyException.class).verify();
+    }
+
+    private static String actionOf(Power p) {
+        return p.action() instanceof List<?> list && !list.isEmpty() ? String.valueOf(list.get(0)) : String.valueOf(p.action());
     }
 
     // --- E1..E6, E9: issuance ---

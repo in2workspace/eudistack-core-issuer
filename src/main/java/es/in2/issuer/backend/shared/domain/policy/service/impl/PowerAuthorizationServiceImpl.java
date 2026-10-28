@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -73,6 +74,22 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
     public Mono<AuthorizationDecision> authorize(String actionId, String resourceOrganization, String resourceId) {
         return callerProvider.current()
                 .flatMap(caller -> authorize(actionId, caller, resourceOrganization, resourceId));
+    }
+
+    @Override
+    public Mono<AuthorizationDecision> authorizeQuery(String resourceOrganization, String resourceId) {
+        return callerProvider.current().flatMap(caller ->
+                authorize(isSystem(caller) ? QUERY_FROM_SYSTEM : QUERY, caller, resourceOrganization, resourceId));
+    }
+
+    /**
+     * A system authenticates with a LEAR machine attestation, a person with an employee one (PRD §5). The
+     * access token names it by its W3C type ({@code LEARCredentialMachine}) or its configuration id
+     * ({@code learcredential.machine.*}).
+     */
+    private static boolean isSystem(Caller caller) {
+        String type = caller.credentialType() == null ? "" : caller.credentialType().toLowerCase(Locale.ROOT);
+        return type.equals("learcredentialmachine") || type.startsWith("learcredential.machine.");
     }
 
     @Override

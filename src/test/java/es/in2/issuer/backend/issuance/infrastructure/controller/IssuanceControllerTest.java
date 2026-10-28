@@ -535,7 +535,7 @@ class IssuanceControllerTest {
                 .issuances(List.of(new IssuanceList.IssuanceEntry(summary)))
                 .build();
 
-        when(powerAuthorizationService.authorize(eq(PowerAuthorizationService.QUERY), any(), any()))
+        when(powerAuthorizationService.authorizeQuery(any(), any()))
                 .thenReturn(Mono.just(authCtx));
         when(issuanceService.getAllIssuancesVisibleFor(authCtx))
                 .thenReturn(Mono.just(issuanceList));
@@ -565,7 +565,7 @@ class IssuanceControllerTest {
                 .organizationIdentifier(orgId)
                 .build();
 
-        when(powerAuthorizationService.authorize(eq(PowerAuthorizationService.QUERY), any(), any()))
+        when(powerAuthorizationService.authorizeQuery(any(), any()))
                 .thenReturn(Mono.just(authCtx));
         when(issuanceService.getAllIssuancesVisibleFor(authCtx))
                 .thenReturn(Mono.just(IssuanceList.builder()
@@ -595,7 +595,7 @@ class IssuanceControllerTest {
                 .credential(null)
                 .build();
         when(issuanceService.getIssuanceById(issuanceId)).thenReturn(Mono.just(storedIn("VATES-STORED")));
-        when(powerAuthorizationService.authorize(PowerAuthorizationService.QUERY, "VATES-STORED", issuanceId))
+        when(powerAuthorizationService.authorizeQuery("VATES-STORED", issuanceId))
                 .thenReturn(Mono.just(authCtx));
         when(issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(authCtx, issuanceId))
                 .thenReturn(Mono.just(details));
@@ -618,7 +618,7 @@ class IssuanceControllerTest {
         String issuanceId = UUID.randomUUID().toString();
         AuthorizationDecision authCtx = organizationAdminDecision("org");
         when(issuanceService.getIssuanceById(issuanceId)).thenReturn(Mono.empty());
-        when(powerAuthorizationService.authorize(PowerAuthorizationService.QUERY, null, issuanceId))
+        when(powerAuthorizationService.authorizeQuery(null, issuanceId))
                 .thenReturn(Mono.just(authCtx));
         when(issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(authCtx, issuanceId))
                 .thenReturn(Mono.just(CredentialDetails.builder().lifeCycleStatus("VALID").build()));
@@ -790,7 +790,7 @@ class IssuanceControllerTest {
     /** The 403 mapping of the denial is SharedExceptionHandler's (SharedExceptionHandlerTest), not part of this slice. */
     @Test
     void getAllIssuances_DeniedByAuthorization_NeverQueries() {
-        when(powerAuthorizationService.authorize(eq(PowerAuthorizationService.QUERY), any(), any()))
+        when(powerAuthorizationService.authorizeQuery(any(), any()))
                 .thenReturn(Mono.error(new LearIssuancePolicyException(
                         LearIssuancePolicyException.Reason.OPERATOR_LACKS_ONBOARDING, "no power")));
 

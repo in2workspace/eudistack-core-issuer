@@ -70,12 +70,12 @@ public class IssuanceController {
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
     public Mono<IssuanceList> getAllIssuances() {
-        return powerAuthorizationService.authorize(PowerAuthorizationService.QUERY, null, null)
+        return powerAuthorizationService.authorizeQuery(null, null)
                 .flatMap(issuanceService::getAllIssuancesVisibleFor);
     }
 
     /**
-     * C1 on one attestation, decided with the organization stored with it: another organization's
+     * C1/C2 on one attestation, decided with the organization stored with it: another organization's
      * reads as not found and is traced as out of scope (FR-13). An id that is not in the tenant is
      * decided without a resource -- the platform administrator's cross-tenant view finds it in
      * another schema, everyone else gets not found from the lookup.
@@ -86,8 +86,7 @@ public class IssuanceController {
         return storedOrganization(id)
                 .map(Optional::of)
                 .defaultIfEmpty(Optional.empty())
-                .flatMap(organization -> powerAuthorizationService.authorize(
-                        PowerAuthorizationService.QUERY, organization.orElse(null), id))
+                .flatMap(organization -> powerAuthorizationService.authorizeQuery(organization.orElse(null), id))
                 .flatMap(decision -> issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(decision, id));
     }
 

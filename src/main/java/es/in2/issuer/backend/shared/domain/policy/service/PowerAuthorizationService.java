@@ -52,6 +52,13 @@ public interface PowerAuthorizationService {
     Mono<AuthorizationDecision> authorize(String actionId, String resourceOrganization, String resourceId);
 
     /**
+     * Decides a query (list, search or detail) of the current request's caller: {@code C2} when it is a
+     * system -- it authenticated with a LEAR machine attestation -- and {@code C1} for a person, each with
+     * its own rule and trace.
+     */
+    Mono<AuthorizationDecision> authorizeQuery(String resourceOrganization, String resourceId);
+
+    /**
      * Decides an issuance of the current request's caller: E1 or E6 for the type, E2 when the
      * requested organization is not the caller's, and the grant rules (E3, E4, E5, E9) for every
      * power the new attestation carries in {@code payload.power} (FR-10).
