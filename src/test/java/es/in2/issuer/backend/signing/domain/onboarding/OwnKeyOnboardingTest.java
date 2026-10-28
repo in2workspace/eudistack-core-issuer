@@ -206,8 +206,10 @@ class OwnKeyOnboardingTest {
         store.reserve(new ValidatedOwnKeyCertificate(List.of(leaf.certificate())).spkiSha256Hex(), TENANT);
 
         assertThatThrownBy(() -> onboarding.prepare(prepareCommand(leaf.certificate(), false)))
-                .isInstanceOfSatisfying(OnboardingRejectedException.class,
-                        e -> assertThat(e.getReason()).isEqualTo(RejectionReason.KEY_IN_USE));
+                .isInstanceOfSatisfying(OnboardingRejectedException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(RejectionReason.KEY_IN_USE);
+                    assertThat(e.getMessage()).contains("same tenant", "was replaced", "reconcile");
+                });
     }
 
     @Test

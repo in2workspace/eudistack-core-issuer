@@ -669,11 +669,23 @@ public class OwnKeyOnboarding {
         store.findSpkiReservation(certificate.spkiSha256()).ifPresent(reservation -> {
             if (!isRenewalOfTheActiveKey(reservation, tenant)) {
                 throw new OnboardingRejectedException(RejectionReason.KEY_IN_USE, "the key (SPKI sha256 "
-                        + certificate.spkiSha256Hex() + ") is already reserved by tenant '" + reservation.tenantId() + "'");
+                        + certificate.spkiSha256Hex() + ") is already reserved by " + holderOf(reservation, attempt));
             }
             attempt.renewalKeyArn = tenant.activeKmsKeyRef();
         });
         return certificate;
+    }
+
+    /**
+     * Who holds the reservation. When it is this very tenant, the key was in a configuration that has been replaced: the
+     * reservation lasts until {@code reconcile} retires that key, so the operator is told to wait for it.
+     */
+    private static String holderOf(SpkiReservation reservation, Attempt attempt) {
+        if (attempt.tenant.equals(reservation.tenantId())) {
+            return "a configuration of this same tenant: the key was replaced and its reservation is "
+                    + "released when reconcile retires it (after the grace period, in its next run)";
+        }
+        return "tenant '" + reservation.tenantId() + "'";
     }
 
     /**
