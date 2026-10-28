@@ -55,6 +55,28 @@ Production checks are the default and cannot be switched off by the environment:
 - In production mode the run is refused (usage error, exit 64) if the AWS SDK is configured with an endpoint override: environment variables `AWS_ENDPOINT_URL` and `AWS_ENDPOINT_URL_<SERVICE>` or system properties `aws.endpointUrl*` (the error names them, never their values). The KMS and STS clients are also built with `aws.ignoreConfiguredEndpointUrls=true`, so an `endpoint_url` of the AWS profile is ignored too. Without this a redirected STS would make the actor of the audit event (the caller ARN) untrustworthy. In `--non-production` they are allowed, for emulators such as LocalStack.
 - Every run says its mode: `checks: production` or `checks: NON-PRODUCTION (...)` on stdout and a log line, which is a `WARN` in non-production. The mode is **not** a field of the audit event: the EUD-244 catalogue (2.2.0) allows no other `details` than `operation`, `previous_modality`, `new_modality` and `signing_certificate`, and the audit API rejects any other field. It is in the log and the output of the run.
 
+## Running in production
+
+The production checks protect against mistakes, not against whoever controls how the tool is launched: `--non-production`
+given by hand switches them off, and a run in that mode leaves the same audit event as a production one (the EUD-244
+catalogue 2.2.0 has no field for the mode; it is only on stdout and in a `WARN` of the log). The tool does not know which
+AWS accounts are production. So in PRO the guarantee is in **how it is launched**, and this is a requirement for infra:
+
+- **Only a controlled path launches it in PRO**: a GitHub Action with input fields (the command and its parameters, never
+  free arguments), or one ECS task definition per command. That path **never adds `--non-production`** and always passes
+  `--expected-aws-account` with the PRO account.
+- **Nobody launches it any other way in PRO**: nobody has `ecs:RunTask` with container overrides (command, environment,
+  entry point), nor `ecs:RegisterTaskDefinition` for the tool's task, nor can assume the operation role directly. Only
+  that path can.
+- **The same path injects the key policy from SSM Parameter Store** into `OWN_KEY_KEY_POLICY_JSON` (the `secrets` of the
+  task definition, or the step of the Action), so the operator cannot change it either (see *Key policy*).
+- **The task definition is a trust asset.** Whoever controls it (its environment, `JAVA_TOOL_OPTIONS`, an HTTPS proxy or a
+  trust store of the JVM) can redirect STS and falsify the actor and the account. Its changes go through the review of the
+  infrastructure code like any other.
+
+If infra cannot set it up this way, it must tell the team before the tool is used in PRO: the alternative, a list of the
+production accounts in SSM that the tool reads to refuse `--non-production` in them, needs a change in the tool.
+
 ## Local environments
 
 Keys onboarded before M1 (for example with the bash tool `local-onboard-cgcom.sh`) have no `Tenant` tag, and the Issuer
