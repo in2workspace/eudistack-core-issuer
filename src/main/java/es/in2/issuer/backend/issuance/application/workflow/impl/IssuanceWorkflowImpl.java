@@ -31,6 +31,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.HolderBi
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
+import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
@@ -457,13 +458,23 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private Mono<IssuanceResponse> performDirectIssuance(String processId, IssuanceRequest request, String token,
                                                           String publicIssuerBaseUrl, String originalDelivery,
                                                           Map<String, Object> cnf) {
+        UUID issuanceId = UUID.randomUUID();
+
+        // bindIssuer and the signature use the same signing configuration (EUD-289 M4). If it changes in
+        // between, the scope runs issueDirectly again with the same issuanceId: a failure before the save
+        // releases the status list entry, and the credential built the first time never left the Issuer.
+        return SigningConfigScope.run(() ->
+                issueDirectly(processId, request, token, publicIssuerBaseUrl, originalDelivery, cnf, issuanceId));
+    }
+
+    private Mono<IssuanceResponse> issueDirectly(String processId, IssuanceRequest request, String token,
+                                                 String publicIssuerBaseUrl, String originalDelivery,
+                                                 Map<String, Object> cnf, UUID issuanceId) {
         String configId = request.credentialConfigurationId();
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
         String credentialFormat = profile.format() != null ? profile.format() : JWT_VC_JSON;
         StatusListFormat statusFormat = DC_SD_JWT.equals(credentialFormat)
                 ? StatusListFormat.TOKEN_JWT : StatusListFormat.BITSTRING_VC;
-
-        UUID issuanceId = UUID.randomUUID();
 
         return genericCredentialBuilder.buildCredential(profile, request.payload())
                 .flatMap(buildResult ->

@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.statuslist.infrastructure.adapter;
 
 
+import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
 import es.in2.issuer.backend.statuslist.domain.util.factory.IssuerFactory;
 import es.in2.issuer.backend.statuslist.domain.exception.*;
 import es.in2.issuer.backend.statuslist.domain.factory.BitstringStatusListCredentialFactory;
@@ -361,7 +362,12 @@ public class BitstringStatusListProvider implements StatusListProvider {
 
     // --- Signing ---
 
+    // The issuer of the list and its signature come from the same signing configuration (EUD-289 M4).
     private Mono<String> getIssuerAndSignCredential(StatusList saved, String token, String publicIssuerBaseUrl) {
+        return SigningConfigScope.run(() -> issueAndSign(saved, token, publicIssuerBaseUrl));
+    }
+
+    private Mono<String> issueAndSign(StatusList saved, String token, String publicIssuerBaseUrl) {
         StatusListFormat fmt = StatusListFormat.fromValue(saved.format());
 
         return issuerFactory.createSimpleIssuer()

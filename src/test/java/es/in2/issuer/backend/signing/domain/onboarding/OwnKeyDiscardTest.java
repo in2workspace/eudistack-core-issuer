@@ -1,0 +1,327 @@
+package es.in2.issuer.backend.signing.domain.onboarding;
+
+import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFakes.FakeKms;
+import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFakes.FakeStore;
+import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFakes.RecordingArtifacts;
+import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.DiscardCommand;
+import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.DiscardOutcome;
+import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.PrepareCommand;
+import es.in2.issuer.backend.signing.domain.spi.KmsKeyAdministrationPort.KeyState;
+import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
+import es.in2.issuer.backend.signing.infrastructure.onboarding.BouncyCastleCertificateExtensions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/** Giving up a preparation that was never imported. */
+class OwnKeyDiscardTest {
+
+    private static final Instant NOW = Instant.parse("2026-10-27T12:00:00Z");
+    private static final String ARN = FakeKms.KEY_ARN;
+
+    private final OwnKeyTestPki pki = new OwnKeyTestPki();
+    private final FakeKms kms = new FakeKms();
+    private final FakeStore store = new FakeStore();
+    private final RecordingArtifacts artifacts = new RecordingArtifacts();
+    private OwnKeyOnboarding onboarding;
+    private PreparedOnboarding prepared;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        store.tenants.put("cgcom", OnboardingFakes.activeTenant("cgcom", null));
+        onboarding = new OwnKeyOnboarding(kms, store, new BouncyCastleCertificateExtensions(),
+                () -> "arn:caller", Clock.fixed(NOW, ZoneOffset.UTC),
+                () -> "op-1", 7);
+        var leaf = pki.validP256Leaf();
+        onboarding.prepare(new PrepareCommand("cgcom", OwnKeyCertificateValidatorTest.toPem(leaf.certificate()),
+                OnboardingPolicy.nonProduction(), null, false, artifacts));
+        prepared = artifacts.prepared;
+        kms.calls.clear();
+        kms.states.put(ARN, KeyState.PENDING_IMPORT);
+        kms.tags.put("Tenant", "cgcom");
+        kms.tags.put("operationId", "op-1");
+    }
+
+    private DiscardCommand command(boolean dryRun) {
+        return new DiscardCommand(prepared, dryRun, artifacts);
+    }
+
+    private void assertNothingDestroyed() {
+        assertThat(kms.calls).noneMatch(call -> call.startsWith("disableKey") || call.startsWith("scheduleKeyDeletion")
+                || call.startsWith("deleteAlias"));
+        assertThat(artifacts.discarded).isNull();
+    }
+
+    @Test
+    void discard_unimportedPreparation_disablesSchedulesDeletionDeletesTheAliasAndMarksTheState() {
+        var result = onboarding.discard(command(false));
+
+        assertThat(result.outcome()).isEqualTo(DiscardOutcome.DISCARDED);
+        assertThat(kms.calls).containsExactly("describeKey:" + ARN, "listTags:" + ARN, "disableKey:" + ARN,
+                "scheduleKeyDeletion:" + ARN + ":7", "resolveKeyArn:" + prepared.alias(), "deleteAlias:" + prepared.alias());
+        assertThat(artifacts.discarded).isEqualTo(prepared);
+    }
+
+    @Test
+    void discard_success_isAuditedAsARetireSuccessWithTheCallerAndNoKeyReference() {
+        onboarding.discard(command(false));
+
+        assertThat(store.eventsInOwnTransaction).singleElement().satisfies(event -> {
+            assertThat(event.operation()).isEqualTo(SigningConfigurationChanged.Operation.RETIRE);
+            assertThat(event.result()).isEqualTo(SigningConfigurationChanged.Result.SUCCESS);
+            assertThat(event.reason()).isNull();
+            assertThat(event.tenant()).isEqualTo("cgcom");
+            assertThat(event.actor()).isEqualTo("arn:caller");
+            assertThat(event.correlationId()).isEqualTo("op-1");
+            assertThat(event.toString()).doesNotContain(ARN);
+        });
+    }
+
+    @Test
+    void discard_successWhoseEventCannotBeRecorded_isStillADiscard() {
+        store.failureRecordingEvent = new IllegalStateException("audit store down");
+
+        var result = onboarding.discard(command(false));
+
+        assertThat(result.outcome()).isEqualTo(DiscardOutcome.DISCARDED);
+        assertThat(artifacts.discarded).isEqualTo(prepared);
+    }
+
+    @Test
+    void discard_stateThatCannotBeMarked_stillLeavesTheRetireEventOfTheKeyItRetired() {
+        artifacts.markDiscardedFailure = new IllegalStateException("disk full");
+        var command = command(false);
+
+        assertThatThrownBy(() -> onboarding.discard(command)).hasMessage("disk full");
+
+        assertThat(kms.calls("scheduleKeyDeletion")).hasSize(1);
+        assertThat(store.eventsInOwnTransaction).singleElement()
+                .satisfies(event -> assertThat(event.result()).isEqualTo(SigningConfigurationChanged.Result.SUCCESS));
+    }
+
+    @Test
+    void discard_whileAnotherRunHoldsTheLock_isAuditedAsARetireFailureAndTouchesNothing() {
+        store.lockedOperations.add("op-1");
+        var command = command(false);
+
+        assertThatThrownBy(() -> onboarding.discard(command))
+                .isInstanceOf(OnboardingFailedException.class)
+                .hasMessageContaining("another run");
+
+        assertNothingDestroyed();
+        assertThat(store.eventsInOwnTransaction).singleElement().satisfies(event -> {
+            assertThat(event.operation()).isEqualTo(SigningConfigurationChanged.Operation.RETIRE);
+            assertThat(event.result()).isEqualTo(SigningConfigurationChanged.Result.FAILURE);
+            assertThat(event.reason()).isEqualTo(RejectionReason.PROVIDER_UNAVAILABLE);
+            assertThat(event.correlationId()).isEqualTo("op-1");
+        });
+    }
+
+    @Test
+    void discard_alreadyPendingDeletion_leavesNoEventBecauseNothingWasRetired() {
+        kms.states.put(ARN, KeyState.PENDING_DELETION);
+
+        onboarding.discard(command(false));
+
+        assertThat(store.eventsInOwnTransaction).isEmpty();
+    }
+
+    @Test
+    void discard_dryRun_onlyChecks() {
+        var result = onboarding.discard(command(true));
+
+        assertThat(result.outcome()).isEqualTo(DiscardOutcome.WOULD_DISCARD);
+        assertThat(kms.calls).containsExactly("describeKey:" + ARN, "listTags:" + ARN);
+        assertThat(store.eventsInOwnTransaction).isEmpty();
+        assertNothingDestroyed();
+    }
+
+    @Test
+    void discard_keyThatHasItsMaterialImported_isRefused() {
+        kms.states.put(ARN, KeyState.ENABLED);
+        var command = command(false);
+
+        assertThatThrownBy(() -> onboarding.discard(command))
+                .isInstanceOf(OnboardingRejectedException.class)
+                .hasMessageContaining("imported");
+
+        assertNothingDestroyed();
+    }
+
+    @Test
+    void discard_disabledKeyThatHadMaterial_isRefused() {
+        kms.states.put(ARN, KeyState.DISABLED);
+        var command = command(false);
+
+        assertThatThrownBy(() -> onboarding.discard(command)).isInstanceOf(OnboardingRejectedException.class);
+
+        assertNothingDestroyed();
+    }
+
+    @Test
+    void discard_keyWhoseOperationIdTagIsAnotherOnes_isRefused() {
+        kms.tags.put("operationId", "op-other");
+        var command = command(false);
+
+        assertThatThrownBy(() -> onboarding.discard(command))
+                .isInstanceOf(OnboardingRejectedException.class)
+                .hasMessageContaining("tags");
+
+        assertNothingDestroyed();
+    }
+
+    @Test
+    void discard_refused_isAuditedAsADeniedRetire() {
+        kms.tags.put("operationId", "op-other");
+        var command = command(false);
+
+        assertThatThrownBy(() -> onboarding.discard(command)).isInstanceOf(OnboardingRejectedException.class);
+
+        assertThat(store.eventsInOwnTransaction).singleElement().satisfies(event -> {
+            assertThat(event.operation()).isEqualTo(SigningConfigurationChanged.Operation.RETIRE);
+            assertThat(event.result()).isEqualTo(SigningConfigurationChanged.Result.DENIED);
+            assertThat(event.reason()).isEqualTo(RejectionReason.POLICY_DENIED);
+            assertThat(event.actor()).isEqualTo("arn:caller");
+            assertThat(event.toString()).doesNotContain(ARN);
+        });
+    }
+
+    @Test
+    void discard_refusedDryRun_recordsNothing() {
+        kms.tags.put("operationId", "op-other");
+        var command = command(true);
+
+        assertThatThrownBy(() -> onboarding.discard(command)).isInstanceOf(OnboardingRejectedException.class);
+
+        assertThat(store.eventsInOwnTransaction).isEmpty();
+    }
+
+    @Test
+    void discard_keyWhoseTenantTagIsAnotherTenants_isRefused() {
+        kms.tags.put("Tenant", "kpmg");
+        var command = command(false);
+
+        assertThatThrownBy(() -> onboarding.discard(command)).isInstanceOf(OnboardingRejectedException.class);
+
+        assertNothingDestroyed();
+    }
+
+    @Test
+    void discard_keyWithoutTags_isRefused() {
+        kms.tags.clear();
+        var command = command(false);
+
+        assertThatThrownBy(() -> onboarding.discard(command)).isInstanceOf(OnboardingRejectedException.class);
+
+        assertNothingDestroyed();
+    }
+
+    @Test
+    void discard_keyReferencedByASigningConfigurationOfAnyStatus_isRefused() {
+        store.otherKeyRefs.add(ARN);
+        var command = command(false);
+
+        assertThatThrownBy(() -> onboarding.discard(command))
+                .isInstanceOf(OnboardingRejectedException.class)
+                .hasMessageContaining("references the key");
+
+        assertNothingDestroyed();
+    }
+
+    @Test
+    void discard_referenceCheckThatCannotRead_failsAndTouchesNothing() {
+        store.referenceCheckFailure = new OnboardingFailedException("cannot be shown to be unreferenced");
+        var command = command(false);
+
+        assertThatThrownBy(() -> onboarding.discard(command)).isInstanceOf(OnboardingFailedException.class);
+
+        assertNothingDestroyed();
+    }
+
+    @Test
+    void discard_keyReferencedByAnActiveConfiguration_isRefused() {
+        store.activeKeyRefs.add(ARN);
+        var command = command(false);
+
+        assertThatThrownBy(() -> onboarding.discard(command)).isInstanceOf(OnboardingRejectedException.class);
+
+        assertNothingDestroyed();
+    }
+
+    @Test
+    void discard_keyAlreadyPendingDeletion_onlyMarksTheState() {
+        kms.states.put(ARN, KeyState.PENDING_DELETION);
+
+        var result = onboarding.discard(command(false));
+
+        assertThat(result.outcome()).isEqualTo(DiscardOutcome.ALREADY_DISCARDED);
+        assertThat(kms.calls).containsExactly("describeKey:" + ARN);
+        assertThat(artifacts.discarded).isEqualTo(prepared);
+    }
+
+    @Test
+    void discard_keyThatNoLongerExists_onlyMarksTheState() {
+        kms.states.put(ARN, KeyState.NOT_FOUND);
+
+        assertThat(onboarding.discard(command(false)).outcome()).isEqualTo(DiscardOutcome.ALREADY_DISCARDED);
+        assertThat(artifacts.discarded).isEqualTo(prepared);
+    }
+
+    @Test
+    void discard_stateAlreadyDiscarded_makesNoKmsCall() {
+        var already = new PreparedOnboarding(prepared.operationId(), prepared.tenant(), prepared.keyArn(),
+                prepared.alias(), prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),
+                prepared.importTokenExpiresAt(), false, NOW);
+
+        var result = onboarding.discard(new DiscardCommand(already, false, artifacts));
+
+        assertThat(result.outcome()).isEqualTo(DiscardOutcome.ALREADY_DISCARDED);
+        assertThat(kms.calls).isEmpty();
+    }
+
+    @Test
+    void discard_keyThatCannotBeDisabled_isStillScheduledForDeletion() {
+        kms.failures.put("disableKey", new OnboardingFailedException("KMS DisableKey failed"));
+
+        assertThat(onboarding.discard(command(false)).outcome()).isEqualTo(DiscardOutcome.DISCARDED);
+        assertThat(kms.calls).contains("scheduleKeyDeletion:" + ARN + ":7");
+    }
+
+    @Test
+    void discard_deletionThatCannotBeScheduled_failsAndLeavesTheStateUnmarked() {
+        kms.failures.put("scheduleKeyDeletion", new OnboardingFailedException("KMS ScheduleKeyDeletion failed"));
+        var command = command(false);
+
+        assertThatThrownBy(() -> onboarding.discard(command)).isInstanceOf(OnboardingFailedException.class);
+
+        assertThat(artifacts.discarded).isNull();
+        assertThat(kms.calls).noneMatch(call -> call.startsWith("deleteAlias"));
+    }
+
+    @Test
+    void discard_aliasThatCannotBeDeleted_doesNotFailTheDiscard() {
+        kms.failures.put("deleteAlias", new OnboardingFailedException("KMS DeleteAlias failed"));
+
+        assertThat(onboarding.discard(command(false)).outcome()).isEqualTo(DiscardOutcome.DISCARDED);
+        assertThat(artifacts.discarded).isEqualTo(prepared);
+    }
+
+    @Test
+    void discard_renewalState_hasNothingToDiscard() {
+        var renewal = new PreparedOnboarding("op-2", "cgcom", ARN, null, prepared.certificateChain(),
+                prepared.spkiSha256(), NOW, null, true, null);
+        var command = new DiscardCommand(renewal, false, artifacts);
+
+        assertThatThrownBy(() -> onboarding.discard(command))
+                .isInstanceOf(OnboardingFailedException.class)
+                .hasMessageContaining("nothing to discard");
+
+        assertThat(kms.calls).isEmpty();
+    }
+}

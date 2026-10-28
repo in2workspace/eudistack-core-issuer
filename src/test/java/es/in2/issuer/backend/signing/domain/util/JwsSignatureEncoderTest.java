@@ -16,6 +16,8 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.security.Signature;
 import java.util.Base64;
 import java.util.stream.Stream;
@@ -47,6 +49,43 @@ class JwsSignatureEncoderTest {
 
         SignedJWT jwt = SignedJWT.parse(signingInput + "." + joseSignature);
         assertThat(jwt.verify(new ECDSAVerifier(key.toECPublicKey()))).isTrue();
+    }
+
+    @Test
+    void toJoseSignature_kmsStyleDigestSignatures_areTranscodedIncludingSignPaddedIntegers() throws Exception {
+        // Arrange — KMS Sign with MessageType=DIGEST / ECDSA_SHA_256 signs a precomputed SHA-256
+        // digest with no further hashing, i.e. JCA NONEwithECDSA, and answers with ASN.1 DER.
+        // R or S gets a leading 0x00 (a 33-byte INTEGER) whenever its top bit is set, about half
+        // the time each; that is the case a naive "strip the DER framing" implementation breaks.
+        ECKey key = new ECKeyGenerator(Curve.P_256).generate();
+        String signingInput = "eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJrbXMifQ";
+        byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(signingInput.getBytes(StandardCharsets.US_ASCII));
+        Signature ecdsa = Signature.getInstance("NONEwithECDSA");
+
+        boolean sawPaddedR = false;
+        boolean sawPaddedS = false;
+        for (int i = 0; i < 10_000 && !(sawPaddedR && sawPaddedS); i++) {
+            ecdsa.initSign(key.toECPrivateKey());
+            ecdsa.update(digest);
+            byte[] der = ecdsa.sign();
+
+            int rLength = der[3] & 0xFF;
+            sawPaddedR |= rLength == 33;
+            sawPaddedS |= (der[5 + rLength] & 0xFF) == 33;
+
+            // Act
+            String joseSignature = JwsSignatureEncoder.toJoseSignature(
+                    Base64.getEncoder().encodeToString(der), JWSAlgorithm.ES256);
+
+            // Assert
+            assertThat(new Base64URL(joseSignature).decode()).hasSize(64);
+            assertThat(SignedJWT.parse(signingInput + "." + joseSignature)
+                    .verify(new ECDSAVerifier(key.toECPublicKey()))).isTrue();
+        }
+
+        assertThat(sawPaddedR).as("a signature whose R needs a leading 0x00").isTrue();
+        assertThat(sawPaddedS).as("a signature whose S needs a leading 0x00").isTrue();
     }
 
     @Test

@@ -29,6 +29,7 @@ import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.shared.domain.util.DidKeyDerivation;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
+import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
@@ -343,8 +344,13 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         StatusListFormat statusFormat = DC_SD_JWT.equals(credentialFormat)
                 ? StatusListFormat.TOKEN_JWT : StatusListFormat.BITSTRING_VC;
 
+        // Steps 1 to 4 use one signing configuration (EUD-289 M4): if it changes between bindIssuer and the
+        // signature, the scope runs them again. That is safe: bindIssuer starts again from the persisted
+        // dataSet, the status list entry is keyed by issuanceId (see ISSUABLE_STATUSES), and step 3 overwrites
+        // the dataSet cached by the first run, which carried the old certificate's issuer.
         // Step 1: Bind issuer to the credential dataSet (in memory, NOT persisted)
-        return genericCredentialBuilder.bindIssuer(profile, proc.getCredentialDataSet(), issuanceId, email)
+        return SigningConfigScope.run(() -> genericCredentialBuilder
+                .bindIssuer(profile, proc.getCredentialDataSet(), issuanceId, email)
                 .map(enrichedDataSet -> {
                     // Inject derived holder DID into mandatee.id when proof supplied a did:key-bound
                     // subject, or -- an AD-8 exempt type never takes the proof path (F2, S2) -- derive it
@@ -370,7 +376,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                                 .then(credentialSignerWorkflow.signCredential(
                                         token, enrichedWithStatus, credentialType,
                                         credentialFormat, cnf, issuanceId, email))
-                )
+                ))
                 .flatMap(signedCredential -> {
                     // Step 5: Generate notification_id and cache mapping
                     String notificationId = UUID.randomUUID().toString();

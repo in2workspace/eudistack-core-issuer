@@ -41,6 +41,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import es.in2.issuer.backend.signing.domain.exception.SigningConfigurationChangedException;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -606,6 +607,41 @@ class IssuanceWorkflowImplTest {
         verifyNoInteractions(credentialOfferService);
         verify(credentialIssuedLogger).logIssued(CONFIG_ID);
         verify(credentialIssuedLogger, never()).logFailed(any(), any());
+    }
+
+    /** EUD-289 M4: the signing configuration changed after bindIssuer, so the issuer is bound again. */
+    @Test
+    void directDeliveryWhoseSigningConfigurationChanges_bindsTheIssuerAgainAndSignsOnce() {
+        JsonNode payload = new ObjectMapper().createObjectNode();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "direct", EMAIL, null);
+        CredentialProfile profile = profileWithoutCnf();
+        CredentialBuildResult buildResult = buildResult(Instant.now().minusSeconds(100));
+
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(issuancePdpService.authorize(eq(CONFIG_ID), eq(payload), anyString())).thenReturn(Mono.empty());
+        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
+                .thenReturn(Mono.just("enriched-data-set"));
+        when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
+                .thenReturn(Mono.just(statusListEntry()));
+        when(genericCredentialBuilder.injectCredentialStatus(anyString(), any(), anyString()))
+                .thenReturn("enriched-with-status");
+        when(credentialSignerWorkflow.signCredential(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.error(new SigningConfigurationChangedException()))
+                .thenReturn(Mono.just("signed-jwt"));
+        when(statusListWorkflow.releaseEntry(anyString())).thenReturn(Mono.empty());
+        when(issuanceService.saveIssuance(any(Issuance.class)))
+                .thenReturn(Mono.just(Issuance.builder().issuanceId(UUID.randomUUID()).build()));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, "id-token", BEARER_TOKEN, BASE_URL)))
+                .assertNext(response -> assertEquals("signed-jwt", response.signedCredential()))
+                .verifyComplete();
+
+        verify(genericCredentialBuilder, times(2)).bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL));
+        verify(statusListWorkflow, times(1)).releaseEntry(anyString());
+        verify(issuanceService, times(1)).saveIssuance(any(Issuance.class));
     }
 
     @Test

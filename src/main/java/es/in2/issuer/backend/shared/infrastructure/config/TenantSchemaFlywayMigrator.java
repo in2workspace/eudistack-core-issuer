@@ -2,6 +2,7 @@ package es.in2.issuer.backend.shared.infrastructure.config;
 
 import lombok.extern.slf4j.Slf4j;
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.configuration.FluentConfiguration;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.flyway.FlywayProperties;
@@ -26,6 +27,10 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.SCHEMA_SUFFIX;
 @EnableConfigurationProperties({R2dbcProperties.class, FlywayProperties.class})
 public class TenantSchemaFlywayMigrator implements ApplicationRunner {
 
+    private static final String PUBLIC_SCHEMA = "public";
+    private static final String PUBLIC_MIGRATIONS_LOCATION = "classpath:db/public";
+    static final String PUBLIC_HISTORY_TABLE = "flyway_issuer_public_history";
+
     // Lowercase, starts with a letter, at most 63 chars (PostgreSQL identifier limit).
     private static final Pattern SCHEMA_NAME_PATTERN = Pattern.compile("^[a-z][a-z0-9_-]{0,62}$");
 
@@ -48,6 +53,8 @@ public class TenantSchemaFlywayMigrator implements ApplicationRunner {
         // future tenant-onboarding service). The Issuer only reads from it on startup
         // to know which tenant schemas to create/migrate.
 
+        migratePublicSchema(jdbcUrl, username, password);
+
         List<String> tenants = loadActiveTenants(jdbcUrl, username, password);
         for (String tenant : tenants) {
             migrateTenantSchema(jdbcUrl, username, password, tenant + SCHEMA_SUFFIX);
@@ -55,6 +62,39 @@ public class TenantSchemaFlywayMigrator implements ApplicationRunner {
 
         log.info("Flyway multi-schema migration completed: {} tenant schemas (suffix '{}')",
                 tenants.size(), SCHEMA_SUFFIX);
+    }
+
+    private void migratePublicSchema(String jdbcUrl, String username, String password) {
+        log.info("Migrating the public schema objects of the Issuer");
+        try {
+            publicSchemaConfiguration(jdbcUrl, username, password).load().migrate();
+        } catch (RuntimeException e) {
+            // The Issuer itself does not use these objects: only the own-key onboarding tool does. A role without
+            // CREATE on public must not stop the Issuer (nor the migration of the tenant schemas).
+            log.error("The public schema objects of the Issuer could not be migrated: {}. The Issuer starts anyway, "
+                    + "but the own-key onboarding tool needs public.signing_spki_reservation: grant CREATE on "
+                    + "schema public to the migration role and restart.", e.getMessage());
+        }
+    }
+
+    /**
+     * The Issuer's own objects in {@code public} (EUD-289: {@code signing_spki_reservation}). Their
+     * history table is not {@code flyway_schema_history}, so nothing else in {@code public}
+     * (provisioned by the platform) can collide with it. {@code public} is never empty
+     * ({@code tenant_registry} lives there), so the first run needs {@code baselineOnMigrate};
+     * the baseline is version 0 so that {@code V1} is applied and not taken as already applied,
+     * which is what the default baseline version 1 would do.
+     */
+    static FluentConfiguration publicSchemaConfiguration(String jdbcUrl, String username, String password) {
+        return Flyway.configure()
+                .dataSource(jdbcUrl, username, password)
+                .locations(PUBLIC_MIGRATIONS_LOCATION)
+                .defaultSchema(PUBLIC_SCHEMA)
+                .schemas(PUBLIC_SCHEMA)
+                .createSchemas(false)
+                .table(PUBLIC_HISTORY_TABLE)
+                .baselineOnMigrate(true)
+                .baselineVersion("0");
     }
 
     private List<String> loadActiveTenants(String jdbcUrl, String username, String password) {
