@@ -97,7 +97,7 @@ production accounts in SSM that the tool reads to refuse `--non-production` in t
 
 ## Local environments
 
-Keys onboarded before M1 (for example with the bash tool `local-onboard-cgcom.sh`) have no `Tenant` tag, and the Issuer
+Keys onboarded before M1 (for example with the former bash tool of `eudistack-platform-dev`, since removed) have no `Tenant` tag, and the Issuer
 refuses to sign with a KMS key that is not tagged for the request tenant. Tag them, or onboard them again with this tool:
 
 ```bash
@@ -258,7 +258,7 @@ EUD-244 starter); nothing else changes.
 correlation id is the operation id of the onboarding that activated the withdrawn configuration
 (`own_key_operation_id`, which `import` and a renewal keep in the row), the same id as the correlation id of its `Create`
 or `Replace` event, so all the events of one key can be joined; it is empty for a row the tool did not write (seeds, the
-bash tool, rows written by hand). A `discard` is a `Retire` too: `Success` when it retired the key (recorded in its own transaction, with the operation id as correlation id, right after the key is retired and before the state file is marked, so a failure marking the file does not lose it; a key that was already pending deletion or gone leaves no event, because nothing was retired), `Denied` when it was refused and `Failure` when another run held the lock of the operation. If recording the event fails, the discard still stands and the failure is logged. No event holds a key
+former bash tool, rows written by hand). A `discard` is a `Retire` too: `Success` when it retired the key (recorded in its own transaction, with the operation id as correlation id, right after the key is retired and before the state file is marked, so a failure marking the file does not lose it; a key that was already pending deletion or gone leaves no event, because nothing was retired), `Denied` when it was refused and `Failure` when another run held the lock of the operation. If recording the event fails, the discard still stands and the failure is logged. No event holds a key
 ARN.
 
 **`Failure` means "the operation could not be completed".** `ProviderUnavailable` is the only `Failure` reason of
