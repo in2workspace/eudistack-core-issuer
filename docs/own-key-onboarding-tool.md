@@ -7,8 +7,8 @@ the Issuer's certificate checks.
 
 It runs with the **operation role**: `kms:CreateKey`, `kms:TagResource`, `kms:CreateAlias`,
 `kms:GetParametersForImport`, `kms:ImportKeyMaterial`, `kms:GetPublicKey`, `kms:DisableKey`,
-`kms:ScheduleKeyDeletion`, `kms:DescribeKey` (reconcile, discard), `kms:ListResourceTags` (discard) and
-`kms:DeleteAlias` (discard). `reconcile` and `discard` call `kms:DescribeKey` (also on the alias, to check it points to the key). `sts:GetCallerIdentity` needs no permission. It has no `kms:Sign`: the key is checked by comparing its public key with the
+`kms:ScheduleKeyDeletion`, `kms:DescribeKey` (`import`, `discard`, `reconcile`, and in the compensation of `prepare`; also on the alias, to check it points to the key), `kms:ListResourceTags` (`import`, `discard`) and
+`kms:DeleteAlias` (`import`, `discard` and the compensation of `prepare`). `sts:GetCallerIdentity` needs no permission (it also gives the account that `--expected-aws-account` is compared with). It has no `kms:Sign`: the key is checked by comparing its public key with the
 certificate. It never receives a private key in clear.
 
 ## Commands
@@ -126,6 +126,13 @@ SHA-256 of the trust anchor, organization id). A successful `import` marks the s
 temporary file and an atomic move; and the token file the state names must be a plain file name starting with
 `own-key-<tenant>-<operationId>`, otherwise it is not read. The tenant id `unknown` is refused: the Issuer takes it for a
 request without tenant.
+
+## Runbook notes
+
+- **The database fails after `ImportKeyMaterial`.** If the database cannot be read or written once the key material is imported, the tool cannot prove that no configuration references the key, so it does **not** touch it (it logs `NOT touched ... Check it by hand`). The key may be left `ENABLED` and unreferenced, and neither `discard` (it refuses a key with material) nor `import` (it refuses an enabled key) will clean it. Clean it up by hand with the operation role: first check that no `tenant_signing_config` row of any tenant references its ARN (`own_key_kms_key_ref`, any status), then `kms:DisableKey` and `kms:ScheduleKeyDeletion` (and `kms:DeleteAlias` for its alias if it points to that key). The same applies if the outcome of the commit is unknown: check `tenant_signing_config` before doing anything.
+- **Two runs of the same `import`.** The second one ends with exit 1 (`another run is importing this preparation`) and touches nothing. Wait for the first to end and look at its result (and at the configuration of the tenant) before repeating.
+- **File permissions on Windows.** The output directory and files are created `0700` and `0600` only where the file system is POSIX. On Windows they keep the ACLs they inherit: use an `--out-dir` inside the operator's profile, not a shared folder. On ECS do not write the output files to a shared volume (EFS, a bind mount shared with other tasks): use the ephemeral storage of the task. None of the files holds a private key, but they hold the state that `import` trusts.
+- **The key of the same tenant is rejected right after a replacement.** Onboarding the key of a configuration that was just replaced ends with `KeyInUse` until `reconcile` retires the replaced key (grace period plus the next run); see the message of the rejection.
 
 ## Exit codes
 
