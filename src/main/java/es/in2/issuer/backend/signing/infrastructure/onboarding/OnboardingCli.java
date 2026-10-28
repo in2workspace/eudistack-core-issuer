@@ -29,9 +29,11 @@ import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HexFormat;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -555,54 +557,67 @@ public final class OnboardingCli {
 
     /** @return the invocation, or {@code null} if help was asked for */
     private static Invocation parse(String[] args, Map<String, String> env) {
-        Command command = null;
-        for (Command candidate : Command.values()) {
-            if (candidate.word.equals(args[0])) {
-                command = candidate;
-            }
-        }
-        if (command == null) {
-            throw new OnboardingUsageException("unknown command '" + args[0] + "': prepare, import, discard or reconcile");
-        }
+        Command command = command(args[0]);
         Set<Opt> allowed = allowedOptions(command);
         Map<Opt, String> values = new EnumMap<>(Opt.class);
-        for (int i = 1; i < args.length; i++) {
-            String token = args[i];
+        Iterator<String> tokens = Arrays.asList(args).subList(1, args.length).iterator();
+        while (tokens.hasNext()) {
+            String token = tokens.next();
             if ("--help".equals(token) || "-h".equals(token)) {
                 return null;
             }
-            if (!token.startsWith("--")) {
-                throw new OnboardingUsageException("unexpected argument '" + token + "'");
-            }
-            int equals = token.indexOf('=');
-            String name = equals < 0 ? token.substring(2) : token.substring(2, equals);
-            Opt option = allowed.stream().filter(o -> o.flag.equals(name)).findFirst()
-                    .orElseThrow(() -> new OnboardingUsageException("unknown option --" + name + " for " + args[0]));
-            if (values.containsKey(option)) {
-                throw new OnboardingUsageException("--" + name + " is given twice");
-            }
-            if (option.isSwitch) {
-                if (equals < 0 || isTrue(token.substring(equals + 1))) {
-                    values.put(option, "true");
-                }
-            } else if (equals >= 0) {
-                values.put(option, token.substring(equals + 1));
-            } else if (i + 1 < args.length) {
-                values.put(option, args[++i]);
-            } else {
-                throw new OnboardingUsageException("--" + name + " needs a value");
-            }
+            parseOption(token, tokens, command, allowed, values);
         }
-        for (Opt option : allowed) {
-            if (option.env != null && !values.containsKey(option) && env.get(option.env) != null && !env.get(option.env).isBlank()) {
-                if (!option.isSwitch) {
-                    values.put(option, env.get(option.env));
-                } else if (isTrue(env.get(option.env))) {
-                    values.put(option, "true");
-                }
-            }
-        }
+        addFromEnvironment(allowed, env, values);
         return new Invocation(command, values, env);
+    }
+
+    private static Command command(String word) {
+        return Arrays.stream(Command.values()).filter(command -> command.word.equals(word)).findFirst()
+                .orElseThrow(() -> new OnboardingUsageException("unknown command '" + word
+                        + "': prepare, import, discard or reconcile"));
+    }
+
+    /** Reads one option; its value comes after an equals sign or, if there is none, from the next token. */
+    private static void parseOption(String token, Iterator<String> tokens, Command command, Set<Opt> allowed,
+                                    Map<Opt, String> values) {
+        if (!token.startsWith("--")) {
+            throw new OnboardingUsageException("unexpected argument '" + token + "'");
+        }
+        int equals = token.indexOf('=');
+        String name = equals < 0 ? token.substring(2) : token.substring(2, equals);
+        Opt option = allowed.stream().filter(o -> o.flag.equals(name)).findFirst()
+                .orElseThrow(() -> new OnboardingUsageException("unknown option --" + name + " for " + command.word));
+        if (values.containsKey(option)) {
+            throw new OnboardingUsageException("--" + name + " is given twice");
+        }
+        String inline = equals < 0 ? null : token.substring(equals + 1);
+        if (option.isSwitch) {
+            if (inline == null || isTrue(inline)) {
+                values.put(option, "true");
+            }
+        } else if (inline != null) {
+            values.put(option, inline);
+        } else if (tokens.hasNext()) {
+            values.put(option, tokens.next());
+        } else {
+            throw new OnboardingUsageException("--" + name + " needs a value");
+        }
+    }
+
+    /** What the command line does not give is taken from the environment; a switch only when it says true. */
+    private static void addFromEnvironment(Set<Opt> allowed, Map<String, String> env, Map<Opt, String> values) {
+        for (Opt option : allowed) {
+            String value = option.env == null || values.containsKey(option) ? null : env.get(option.env);
+            if (value == null || value.isBlank()) {
+                continue;
+            }
+            if (!option.isSwitch) {
+                values.put(option, value);
+            } else if (isTrue(value)) {
+                values.put(option, "true");
+            }
+        }
     }
 
     private static Set<Opt> allowedOptions(Command command) {

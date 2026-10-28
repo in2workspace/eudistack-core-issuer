@@ -175,6 +175,65 @@ class OnboardingCliTest {
     }
 
     @Test
+    void run_argumentThatIsNotAnOption_isAUsageError() {
+        assertThat(run("reconcile", "cgcom")).isEqualTo(OnboardingCli.EXIT_USAGE);
+
+        assertThat(err()).contains("unexpected argument 'cgcom'");
+    }
+
+    @Test
+    void run_optionGivenTwice_isAUsageError() {
+        assertThat(run("reconcile", "--grace-seconds", "30", "--grace-seconds=40")).isEqualTo(OnboardingCli.EXIT_USAGE);
+
+        assertThat(err()).contains("--grace-seconds is given twice");
+        verifyNoInteractions(reconciler);
+    }
+
+    @Test
+    void run_lastOptionWithoutItsValue_isAUsageError() {
+        assertThat(cli.run(new String[] {"reconcile", "--non-production", "--grace-seconds"}, env))
+                .isEqualTo(OnboardingCli.EXIT_USAGE);
+
+        assertThat(err()).contains("--grace-seconds needs a value");
+    }
+
+    @Test
+    void run_optionValueAsTheNextArgument_isTheValue() {
+        assertThat(run("reconcile", "--grace-seconds", "30")).isEqualTo(OnboardingCli.EXIT_OK);
+
+        verify(reconciler).reconcile(Duration.ofSeconds(30), false);
+    }
+
+    @Test
+    void run_optionMissingOnTheCommandLine_isTakenFromTheEnvironment() {
+        env.put("OWN_KEY_GRACE_SECONDS", "45");
+        env.put("OWN_KEY_DRY_RUN", "yes");
+
+        assertThat(run("reconcile")).isEqualTo(OnboardingCli.EXIT_OK);
+
+        verify(reconciler).reconcile(Duration.ofSeconds(45), true);
+    }
+
+    @Test
+    void run_optionOnTheCommandLine_winsOverTheEnvironment() {
+        env.put("OWN_KEY_GRACE_SECONDS", "45");
+
+        assertThat(run("reconcile", "--grace-seconds", "30")).isEqualTo(OnboardingCli.EXIT_OK);
+
+        verify(reconciler).reconcile(Duration.ofSeconds(30), false);
+    }
+
+    @Test
+    void run_switchFromTheEnvironmentThatIsNotTrue_isNotSet() {
+        env.put("OWN_KEY_DRY_RUN", "no");
+        env.put("OWN_KEY_GRACE_SECONDS", " ");
+
+        assertThat(run("reconcile")).isEqualTo(OnboardingCli.EXIT_OK);
+
+        verify(reconciler).reconcile(Duration.ofSeconds(160), false);
+    }
+
+    @Test
     void run_missingRequiredOption_isAUsageErrorNamingTheEnvironmentVariable() throws Exception {
         assertThat(run("prepare", "--cert-chain", chainFile().toString(), "--out-dir", directory.toString()))
                 .isEqualTo(OnboardingCli.EXIT_USAGE);
