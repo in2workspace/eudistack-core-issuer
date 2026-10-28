@@ -12,6 +12,8 @@ import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.SpkiReservation;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.WithdrawnOwnKey;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -177,13 +179,13 @@ class JdbcOwnKeyStoreIT {
 
     @Test
     void isKeyReferenced_looksAtEveryTenantSchemaAndAtTheStatusAsked() {
-        insertOwnKey("kpmg", "active", "arn:in-kpmg", null, null);
-        insertOwnKey("cgcom", "withdrawn", "arn:withdrawn", 600, null);
+        insertOwnKey("kpmg", "active", "arn:aws:kms:eu-west-1:000000000000:key/in-kpmg", null, null);
+        insertOwnKey("cgcom", "withdrawn", "arn:aws:kms:eu-west-1:000000000000:key/withdrawn", 600, null);
 
-        assertThat(store.isKeyReferenced("arn:in-kpmg", true)).isTrue();
-        assertThat(store.isKeyReferenced("arn:withdrawn", true)).isFalse();
-        assertThat(store.isKeyReferenced("arn:withdrawn", false)).isTrue();
-        assertThat(store.isKeyReferenced("arn:nowhere", false)).isFalse();
+        assertThat(store.isKeyReferenced("arn:aws:kms:eu-west-1:000000000000:key/in-kpmg", true)).isTrue();
+        assertThat(store.isKeyReferenced("arn:aws:kms:eu-west-1:000000000000:key/withdrawn", true)).isFalse();
+        assertThat(store.isKeyReferenced("arn:aws:kms:eu-west-1:000000000000:key/withdrawn", false)).isTrue();
+        assertThat(store.isKeyReferenced("arn:aws:kms:eu-west-1:000000000000:key/nowhere", false)).isFalse();
     }
 
     @Test
@@ -353,23 +355,23 @@ class JdbcOwnKeyStoreIT {
 
     @Test
     void findWithdrawnOwnKeysPendingKms_returnsOnlyRowsPastTheGraceAndNotMarked() {
-        UUID old = insertOwnKey("cgcom", "withdrawn", "arn:old", 600, null);
-        insertOwnKey("cgcom", "withdrawn", "arn:recent", 10, null);
-        insertOwnKey("cgcom", "withdrawn", "arn:marked", 600, Instant.now());
-        insertOwnKey("cgcom", "active", "arn:active", null, null);
+        UUID old = insertOwnKey("cgcom", "withdrawn", "arn:aws:kms:eu-west-1:000000000000:key/old", 600, null);
+        insertOwnKey("cgcom", "withdrawn", "arn:aws:kms:eu-west-1:000000000000:key/recent", 10, null);
+        insertOwnKey("cgcom", "withdrawn", "arn:aws:kms:eu-west-1:000000000000:key/marked", 600, Instant.now());
+        insertOwnKey("cgcom", "active", "arn:aws:kms:eu-west-1:000000000000:key/active", null, null);
         insertQtspActive("kpmg");
 
         var rows = store.findWithdrawnOwnKeysPendingKms("cgcom", Duration.ofSeconds(160));
 
         assertThat(rows).extracting(WithdrawnOwnKey::id).containsExactly(old);
-        assertThat(rows.getFirst().kmsKeyRef()).isEqualTo("arn:old");
+        assertThat(rows.getFirst().kmsKeyRef()).isEqualTo("arn:aws:kms:eu-west-1:000000000000:key/old");
     }
 
     @Test
     void lockNextWithdrawnOwnKey_respectsTheGraceAndTheExcludedRows() {
-        UUID first = insertOwnKey("cgcom", "withdrawn", "arn:first", 900, null);
-        UUID second = insertOwnKey("cgcom", "withdrawn", "arn:second", 600, null);
-        insertOwnKey("cgcom", "withdrawn", "arn:recent", 10, null);
+        UUID first = insertOwnKey("cgcom", "withdrawn", "arn:aws:kms:eu-west-1:000000000000:key/first", 900, null);
+        UUID second = insertOwnKey("cgcom", "withdrawn", "arn:aws:kms:eu-west-1:000000000000:key/second", 600, null);
+        insertOwnKey("cgcom", "withdrawn", "arn:aws:kms:eu-west-1:000000000000:key/recent", 10, null);
 
         var all = store.inTransaction(tx -> tx.lockNextWithdrawnOwnKey("cgcom", Duration.ofSeconds(160), Set.of()));
         var withoutFirst = store.inTransaction(
@@ -401,16 +403,38 @@ class JdbcOwnKeyStoreIT {
 
     @Test
     void lockNextWithdrawnOwnKey_rowWithoutTheOperationThatActivatedIt_hasNoOperationId() {
-        insertOwnKey("cgcom", "withdrawn", "arn:old", 600, null);
+        insertOwnKey("cgcom", "withdrawn", "arn:aws:kms:eu-west-1:000000000000:key/old", 600, null);
 
         var locked = store.inTransaction(tx -> tx.lockNextWithdrawnOwnKey("cgcom", Duration.ofSeconds(160), Set.of()));
 
         assertThat(locked).hasValueSatisfying(row -> assertThat(row.operationId()).isNull());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"1234abcd-12ab-34cd-56ef-1234567890ab", "alias/own-key-cgcom",
+            "arn:aws:kms:eu-west-1:000000000000:alias/own-key-cgcom", "arn:aws:kms:eu-west-1:0000:key/short-account"})
+    void activateOwnKey_referenceThatIsNotTheFullArnOfAKey_isRefusedByTheDatabase(String keyRef) {
+        assertThatThrownBy(() -> store.inTransaction(tx -> tx.activateOwnKey("cgcom",
+                new NewOwnKeyConfiguration(keyRef, List.of("QUJD"), null), CALLER)))
+                .hasMessageContaining("23514");
+
+        assertThat(scalar("SELECT count(*) FROM cgcom_issuer.tenant_signing_config")).isEqualTo(0L);
+    }
+
+    @Test
+    void activateOwnKey_fullArnOfAKeyInAnotherPartition_isAccepted() {
+        String keyRef = "arn:aws-us-gov:kms:us-gov-west-1:000000000000:key/1234abcd-12ab-34cd-56ef-1234567890ab";
+
+        UUID id = store.inTransaction(tx -> tx.activateOwnKey("cgcom",
+                new NewOwnKeyConfiguration(keyRef, List.of("QUJD"), null), CALLER));
+
+        assertThat(scalar("SELECT own_key_kms_key_ref FROM cgcom_issuer.tenant_signing_config WHERE id = ?", id))
+                .isEqualTo(keyRef);
+    }
+
     @Test
     void markKeyRetired_setsTheDeletionDateAndTheRowIsNotSelectedAgain() {
-        UUID id = insertOwnKey("cgcom", "withdrawn", "arn:old", 600, null);
+        UUID id = insertOwnKey("cgcom", "withdrawn", "arn:aws:kms:eu-west-1:000000000000:key/old", 600, null);
 
         store.inTransaction(tx -> {
             var row = tx.lockNextWithdrawnOwnKey("cgcom", Duration.ofSeconds(160), Set.of()).orElseThrow();
@@ -425,7 +449,7 @@ class JdbcOwnKeyStoreIT {
 
     @Test
     void markKeyStillInUse_marksTheRowHandledButKeepsItsSpkiReservation() {
-        UUID id = insertOwnKey("cgcom", "withdrawn", "arn:old", 600, null);
+        UUID id = insertOwnKey("cgcom", "withdrawn", "arn:aws:kms:eu-west-1:000000000000:key/old", 600, null);
         store.inTransaction(tx -> {
             tx.reserveSpki(SPKI, "cgcom", id);
             return null;
@@ -488,7 +512,7 @@ class JdbcOwnKeyStoreIT {
 
     @Test
     void markKeyRetired_releasesTheSpkiReservationOfTheRow() {
-        UUID id = insertOwnKey("cgcom", "withdrawn", "arn:old", 600, null);
+        UUID id = insertOwnKey("cgcom", "withdrawn", "arn:aws:kms:eu-west-1:000000000000:key/old", 600, null);
         store.inTransaction(tx -> {
             tx.reserveSpki(SPKI, "cgcom", id);
             return null;
@@ -505,7 +529,7 @@ class JdbcOwnKeyStoreIT {
 
     @Test
     void lockNextWithdrawnOwnKey_rowLockedByAnotherTransaction_isSkipped() throws Exception {
-        UUID id = insertOwnKey("cgcom", "withdrawn", "arn:old", 600, null);
+        UUID id = insertOwnKey("cgcom", "withdrawn", "arn:aws:kms:eu-west-1:000000000000:key/old", 600, null);
 
         try (Connection holder = OnboardingTestDatabase.open()) {
             holder.setAutoCommit(false);

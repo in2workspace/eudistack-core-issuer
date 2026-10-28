@@ -164,6 +164,20 @@ class PreparedOnboardingFilesTest {
                 .hasMessageContaining("operation id");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"1234abcd-12ab-34cd-56ef-1234567890ab", "alias/own-key-cgcom",
+            "arn:aws:kms:eu-west-1:000000000000:alias/own-key-cgcom"})
+    void read_stateThatDoesNotNameItsKeyByItsFullArn_isRefused(String keyRef) throws Exception {
+        new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
+        Path state = directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json");
+        String json = Files.readString(state);
+        Files.writeString(state, json.replace("\"" + PREPARED.keyArn() + "\"", "\"" + keyRef + "\""));
+
+        assertThatThrownBy(() -> PreparedOnboardingFiles.read(state, null))
+                .isInstanceOf(OnboardingFailedException.class)
+                .hasMessageContaining("full ARN");
+    }
+
     @Test
     void current_ofAStateThatIsNoLongerThere_fails() throws Exception {
         new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});

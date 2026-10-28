@@ -9,6 +9,7 @@ import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFailedException
 import es.in2.issuer.backend.signing.domain.onboarding.PolicySummary;
 import es.in2.issuer.backend.signing.domain.onboarding.PreparedOnboarding;
 import es.in2.issuer.backend.signing.domain.spi.OnboardingArtifactsPort;
+import es.in2.issuer.backend.signing.domain.util.KeyRefs;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -208,6 +209,10 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
             throw new OnboardingFailedException("unsupported state file version " + state.version());
         }
         requireCanonicalUuid(state.operationId());
+        if (!KeyRefs.isKeyArn(state.keyArn())) {
+            throw new OnboardingFailedException("the state file does not name its KMS key by its full ARN: it was not "
+                    + "written by prepare, or it was edited");
+        }
         return state;
     }
 

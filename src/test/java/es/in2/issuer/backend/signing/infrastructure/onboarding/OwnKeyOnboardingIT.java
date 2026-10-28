@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.signing.infrastructure.onboarding;
 
+import es.in2.issuer.backend.signing.domain.util.KeyRefs;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -245,6 +246,7 @@ class OwnKeyOnboardingIT {
 
     private void assertImportedAsTheActiveConfiguration(String keyArn, Material material) throws Exception {
         assertThat(keyState(keyArn)).isEqualTo("Enabled");
+        assertThat(KeyRefs.isKeyArn(keyArn)).as("the configuration stores the full ARN of the key: " + keyArn).isTrue();
         assertThat(query("SELECT status, modality, provider, activated_by, own_key_kms_key_ref, own_key_algorithm, "
                 + "jsonb_array_length(own_key_certificate_chain) FROM cgcom_issuer.tenant_signing_config"))
                 .singleElement().isEqualTo(List.of("active", "own_key", "aws-kms", callerArn, keyArn,
@@ -376,6 +378,9 @@ class OwnKeyOnboardingIT {
                 + "ORDER BY created_at")).containsExactly(List.of("withdrawn", true), List.of("active", false));
         assertThat(scalar("SELECT count(DISTINCT own_key_kms_key_ref) FROM cgcom_issuer.tenant_signing_config"))
                 .isEqualTo(1L);
+        assertThat(scalar("SELECT own_key_kms_key_ref FROM cgcom_issuer.tenant_signing_config WHERE status = 'active'"))
+                .as("the renewal stores the full ARN too").isEqualTo(arn)
+                .satisfies(stored -> assertThat(KeyRefs.isKeyArn((String) stored)).isTrue());
         UUID active = (UUID) scalar("SELECT id FROM cgcom_issuer.tenant_signing_config WHERE status = 'active'");
         assertThat(scalar("SELECT signing_configuration_id FROM public.signing_spki_reservation "
                 + "WHERE public_key_spki_sha256 = ?", (Object) sha256(first.spki()))).isEqualTo(active);

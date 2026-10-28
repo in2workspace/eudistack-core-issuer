@@ -21,6 +21,10 @@
 -- * own-key block: no secrets, only the KMS key ARN, the certificate chain as
 --   the exact JWS `x5c` value (JSONB array of base64 DER certificates, leaf
 --   first, root excluded; identity, validity and the public key are read from it).
+-- * own_key_kms_key_ref is always the full ARN of a KMS key
+--   (arn:<partition>:kms:<region>:<account>:key/<key id>), never a KeyId or an
+--   alias: the tool compares references as text to know whether a key is still
+--   in use, so one key must have one form only.
 -- * own_key_operation_id: the operation id of the onboarding tool run that
 --   activated the row (import or renewal). The audit events of the key that
 --   row holds use it as their correlation id, so the events of one onboarding
@@ -99,6 +103,15 @@ BEGIN
                 AND own_key_certificate_chain IS NOT NULL
                 AND jsonb_typeof(own_key_certificate_chain) = 'array'
                 AND jsonb_array_length(own_key_certificate_chain) > 0));
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conname = 'chk_tenant_signing_config_own_key_kms_key_ref'
+                     AND conrelid = 'tenant_signing_config'::regclass) THEN
+        ALTER TABLE tenant_signing_config
+            ADD CONSTRAINT chk_tenant_signing_config_own_key_kms_key_ref
+            CHECK (own_key_kms_key_ref IS NULL
+                OR own_key_kms_key_ref ~ '^arn:aws[a-z-]*:kms:[a-z0-9-]+:[0-9]{12}:key/[A-Za-z0-9-]+$');
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint

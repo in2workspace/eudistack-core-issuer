@@ -26,7 +26,7 @@ class JdbcOwnKeyStoreFailClosedIT {
         execute("CREATE TABLE locked_issuer.tenant_signing_config (LIKE cgcom_issuer.tenant_signing_config INCLUDING ALL)");
         execute("INSERT INTO locked_issuer.tenant_signing_config (provider, modality, status, activated_by, "
                 + "own_key_kms_key_ref, own_key_algorithm, own_key_certificate_chain) "
-                + "VALUES ('aws-kms', 'own_key', 'active', 'x', 'arn:the-locked-key', 'ES256', '[\"AAAA\"]'::jsonb)");
+                + "VALUES ('aws-kms', 'own_key', 'active', 'x', 'arn:aws:kms:eu-west-1:000000000000:key/the-locked-key', 'ES256', '[\"AAAA\"]'::jsonb)");
         execute("GRANT SELECT ON public.tenant_registry TO " + READER);
         for (String tenant : new String[] {"cgcom", "kpmg", "dormant"}) {
             execute("GRANT USAGE ON SCHEMA " + tenant + "_issuer TO " + READER);
@@ -50,11 +50,11 @@ class JdbcOwnKeyStoreFailClosedIT {
     void isKeyReferenced_aTenantSchemaTheRoleCannotRead_failsInsteadOfAnsweringNo() {
         var store = storeAs(READER, READER_PASSWORD);
 
-        assertThatThrownBy(() -> store.isKeyReferenced("arn:the-locked-key", true))
+        assertThatThrownBy(() -> store.isKeyReferenced("arn:aws:kms:eu-west-1:000000000000:key/the-locked-key", true))
                 .isInstanceOf(OnboardingFailedException.class)
                 .hasMessageContaining("tenant 'locked'")
                 .hasMessageContaining("cannot be shown to be unreferenced");
-        assertThatThrownBy(() -> store.isKeyReferenced("arn:anything", false))
+        assertThatThrownBy(() -> store.isKeyReferenced("arn:aws:kms:eu-west-1:000000000000:key/anything", false))
                 .isInstanceOf(OnboardingFailedException.class);
     }
 
@@ -64,15 +64,15 @@ class JdbcOwnKeyStoreFailClosedIT {
         execute("GRANT SELECT ON ALL TABLES IN SCHEMA locked_issuer TO " + READER);
         var store = storeAs(READER, READER_PASSWORD);
 
-        assertThat(store.isKeyReferenced("arn:the-locked-key", true)).isTrue();
-        assertThat(store.isKeyReferenced("arn:nowhere", false)).isFalse();
+        assertThat(store.isKeyReferenced("arn:aws:kms:eu-west-1:000000000000:key/the-locked-key", true)).isTrue();
+        assertThat(store.isKeyReferenced("arn:aws:kms:eu-west-1:000000000000:key/nowhere", false)).isFalse();
     }
 
     @Test
     void isKeyReferenced_findsASchemaThatTheRegistryDoesNotList() {
         var store = OnboardingTestDatabase.store(new LoggingSigningConfigurationAuditSink());
 
-        assertThat(store.isKeyReferenced("arn:the-locked-key", true))
+        assertThat(store.isKeyReferenced("arn:aws:kms:eu-west-1:000000000000:key/the-locked-key", true))
                 .as("locked is not in tenant_registry, but its table exists").isTrue();
     }
 }
