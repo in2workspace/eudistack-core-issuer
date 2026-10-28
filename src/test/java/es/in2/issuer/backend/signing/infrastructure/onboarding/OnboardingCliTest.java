@@ -17,21 +17,27 @@ import es.in2.issuer.backend.signing.domain.onboarding.PreparedOnboarding;
 import es.in2.issuer.backend.signing.domain.onboarding.RejectionReason;
 import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChanged.Operation;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -227,6 +233,39 @@ class OnboardingCliTest {
         assertThat(command.getValue().policy().production()).isTrue();
         assertThat(command.getValue().policy().expectedOrganizationIdentifier()).isEqualTo("VATES-Q0000000X");
         assertThat(openedWith.get().keyPolicy()).isEqualTo("{\"Version\":\"2012-10-17\"}");
+    }
+
+    @Test
+    void run_prepare_printsAndLogsTheSha256OfTheKeyPolicyButNeverItsContent() throws Exception {
+        when(onboarding.prepare(any())).thenReturn(new PrepareResult(prepared(), Operation.CREATE, "ab".repeat(32)));
+        String content = "{\"Version\":\"2012-10-17\",\"Statement\":[]}";
+        Path keyPolicy = Files.writeString(directory.resolve("policy.json"), content);
+        String sha256 = HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(content.getBytes(StandardCharsets.UTF_8)));
+        Logger cliLogger = (Logger) LoggerFactory.getLogger(OnboardingCli.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        cliLogger.addAppender(appender);
+        try {
+            int exitCode = run("prepare", "--tenant", "cgcom", "--cert-chain", chainFile().toString(), "--out-dir",
+                    directory.toString(), "--key-policy", keyPolicy.toString());
+
+            assertThat(exitCode).as(err()).isEqualTo(OnboardingCli.EXIT_OK);
+            assertThat(out()).contains("key policy  : sha256 " + sha256).doesNotContain("2012-10-17");
+            assertThat(appender.list).extracting(ILoggingEvent::getFormattedMessage)
+                    .anyMatch(message -> message.contains(sha256)).noneMatch(message -> message.contains("2012-10-17"));
+        } finally {
+            cliLogger.detachAppender(appender);
+        }
+    }
+
+    @Test
+    void run_prepareWithoutAKeyPolicy_saysTheKmsDefaultWasUsed() throws Exception {
+        when(onboarding.prepare(any())).thenReturn(new PrepareResult(prepared(), Operation.CREATE, "ab".repeat(32)));
+
+        run("prepare", "--tenant", "cgcom", "--cert-chain", chainFile().toString(), "--out-dir", directory.toString());
+
+        assertThat(out()).contains("key policy  : none (the KMS default policy");
     }
 
     @Test

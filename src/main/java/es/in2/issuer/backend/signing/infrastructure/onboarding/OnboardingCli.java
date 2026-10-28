@@ -23,11 +23,14 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.EnumSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -269,11 +272,12 @@ public final class OnboardingCli {
 
     private int execute(Invocation invocation) {
         requireProductionSafeUsage(invocation);
-        OnboardingSettings settings = settings(invocation);
+        KeyPolicy keyPolicy = keyPolicy(invocation);
+        OnboardingSettings settings = settings(invocation, keyPolicy == null ? null : keyPolicy.json());
         announceChecks(invocation);
         try (Services services = wiring.open(settings)) {
             return switch (invocation.command()) {
-                case PREPARE -> prepare(invocation, services.onboarding());
+                case PREPARE -> prepare(invocation, services.onboarding(), keyPolicy);
                 case IMPORT -> importKey(invocation, services.onboarding());
                 case DISCARD -> discard(invocation, services.onboarding());
                 case RECONCILE -> reconcile(invocation, services.reconciler());
@@ -281,7 +285,7 @@ public final class OnboardingCli {
         }
     }
 
-    private int prepare(Invocation invocation, OwnKeyOnboarding onboarding) {
+    private int prepare(Invocation invocation, OwnKeyOnboarding onboarding, KeyPolicy keyPolicy) {
         String tenant = invocation.require(Opt.TENANT);
         String chainPem = readString(Path.of(invocation.require(Opt.CERT_CHAIN)));
         Path outDir = invocation.dryRun() ? null : Path.of(invocation.require(Opt.OUT_DIR));
@@ -308,12 +312,24 @@ public final class OnboardingCli {
         out.println("key        : " + prepared.keyArn());
         out.println("alias      : " + prepared.alias());
         out.println("SPKI sha256: " + prepared.spkiSha256());
+        printKeyPolicy(keyPolicy);
         out.println("valid until: " + prepared.importTokenExpiresAt() + " (import token and wrapping key)");
         out.println("files      : " + outDir.resolve(prefix + ".{wrapping-public-key.der,wrapping-public-key.pem,"
                 + "import-token.bin,state.json}"));
         out.println("next       : the customer wraps its private key with the wrapping public key; then run import "
                 + "with --state " + outDir.resolve(prefix + ".state.json") + " and --key-material <wrapped key>");
         return EXIT_OK;
+    }
+
+    /** What policy the new key was created with is shown by its SHA-256, never by its content. */
+    private void printKeyPolicy(KeyPolicy keyPolicy) {
+        if (keyPolicy == null) {
+            out.println("key policy  : none (the KMS default policy, --non-production only)");
+            log.info("The key was created with the KMS default policy");
+            return;
+        }
+        out.println("key policy  : sha256 " + keyPolicy.sha256() + " (the content is not printed)");
+        log.info("Key policy applied to the new key: sha256={}", keyPolicy.sha256());
     }
 
     private int importKey(Invocation invocation, OwnKeyOnboarding onboarding) {
@@ -448,17 +464,29 @@ public final class OnboardingCli {
         }
     }
 
-    private String keyPolicy(Invocation invocation) {
+    /** The key policy as it is applied, and the SHA-256 of its bytes, which is what is recorded about it. */
+    private record KeyPolicy(String json, String sha256) {}
+
+    private KeyPolicy keyPolicy(Invocation invocation) {
         if (invocation.command() != Command.PREPARE || !invocation.has(Opt.KEY_POLICY)) {
             return null;
         }
-        String policy = readString(Path.of(invocation.get(Opt.KEY_POLICY)));
+        byte[] bytes = readBytes(Path.of(invocation.get(Opt.KEY_POLICY)));
+        String json = new String(bytes, StandardCharsets.UTF_8);
         try {
-            new ObjectMapper().readTree(policy);
+            new ObjectMapper().readTree(json);
         } catch (JsonProcessingException e) {
             throw new OnboardingUsageException("--key-policy must be a JSON file");
         }
-        return policy;
+        return new KeyPolicy(json, sha256Hex(bytes));
+    }
+
+    private static String sha256Hex(byte[] bytes) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is not available", e);
+        }
     }
 
     private OnboardingPolicy policy(Invocation invocation) {
@@ -488,7 +516,7 @@ public final class OnboardingCli {
         };
     }
 
-    private OnboardingSettings settings(Invocation invocation) {
+    private OnboardingSettings settings(Invocation invocation, String keyPolicyJson) {
         String password = invocation.env().get(ENV_DB_PASSWORD);
         if (password == null) {
             throw new OnboardingUsageException(ENV_DB_PASSWORD + " is required (the database password is never an argument)");
@@ -505,7 +533,7 @@ public final class OnboardingCli {
                 ? ExpectedAwsAccount.parse(invocation.get(Opt.EXPECTED_AWS_ACCOUNT)) : null;
         return new OnboardingSettings(invocation.require(Opt.DB_URL), invocation.require(Opt.DB_USER), password,
                 region == null || region.isBlank() ? null : region, endpoint, days, auditSink(invocation),
-                keyPolicy(invocation), !invocation.has(Opt.NON_PRODUCTION), account);
+                keyPolicyJson, !invocation.has(Opt.NON_PRODUCTION), account);
     }
 
     /** @return the invocation, or {@code null} if help was asked for */

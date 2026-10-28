@@ -116,7 +116,7 @@ The default alias is `alias/own-key-<tenant>-<operationId>`.
 **Key policy.** `prepare` passes the JSON of `--key-policy` (`OWN_KEY_KEY_POLICY`) to `CreateKey`. In production mode
 (the default) it refuses to create a key without it, so the key never gets the KMS default policy, which delegates
 everything to the IAM of the account. With `--non-production` and no policy it logs a warning and uses the KMS default
-policy. Infra owns the content of the policy; the tool only checks that the file is JSON. `--dry-run` creates no key and
+policy. Infra owns the content of the policy; the tool only checks that the file is JSON. `prepare` prints (`key policy  : sha256 <hex>`) and logs the **SHA-256 of the policy file it applied**, never its content, so that it can be shown afterwards which policy each key was created with; compare it with the hash of the policy infra approved. `--dry-run` creates no key and
 needs none.
 
 **State file.** `prepare` stores, next to the key and the certificate, a summary of its policy (production yes/no,
