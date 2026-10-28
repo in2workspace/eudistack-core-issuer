@@ -10,7 +10,7 @@ import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.policy.Caller;
-import es.in2.issuer.backend.shared.domain.policy.CallerResolver;
+import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.support.TestAuthorizationDecisions;
 import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
@@ -46,12 +46,12 @@ class RevocationWorkflowTest {
     private AccessTokenService accessTokenService;
 
     @Mock
-    private CallerResolver callerResolver;
+    private CallerProvider callerProvider;
 
     @Mock
     private PowerAuthorizationService powerAuthorizationService;
 
-    private static final Caller CALLER = new Caller("VATES-A15456585", java.util.List.of(), "sandbox", null, "sub", "jti");
+    private static final Caller CALLER = new Caller("VATES-A15456585", java.util.List.of(), "sandbox", null, "jti");
 
     @Mock
     private IssuanceService issuanceService;
@@ -83,7 +83,7 @@ class RevocationWorkflowTest {
     }
 
     private void permitRevocation() {
-        when(callerResolver.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
+        when(callerProvider.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
         when(powerAuthorizationService.authorize(eq(PowerAuthorizationService.REVOKE), eq(CALLER), eq("VATES-A15456585"), any()))
                 .thenReturn(Mono.just(TestAuthorizationDecisions.query("VATES-A15456585", UserRole.LEAR, false)));
     }
@@ -94,7 +94,7 @@ class RevocationWorkflowTest {
         mockProcedure.setOrganizationIdentifier(null);
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
-        when(callerResolver.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
+        when(callerProvider.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
         when(powerAuthorizationService.authorize(eq(PowerAuthorizationService.REVOKE), eq(CALLER), eq(""), any()))
                 .thenReturn(Mono.error(new IssuanceNotFoundException("No issuance found")));
 
@@ -162,7 +162,7 @@ class RevocationWorkflowTest {
     void revoke_WithValidationFailure_ShouldPropagateError() {
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
-        when(callerResolver.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
+        when(callerProvider.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
         when(powerAuthorizationService.authorize(any(), any(), any(), any())).thenReturn(Mono.error(new RuntimeException("Validation failed")));
 
         StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com"))
@@ -367,7 +367,7 @@ class RevocationWorkflowTest {
     void revoke_outOfScope_failsAsIssuanceNotFound_andAuditsIt() {
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
-        when(callerResolver.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
+        when(callerProvider.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
         when(powerAuthorizationService.authorize(any(), any(), any(), any()))
                 .thenReturn(Mono.error(new IssuanceNotFoundException("No issuance found for issuanceId: " + ISSUANCE_ID)));
 
@@ -384,7 +384,7 @@ class RevocationWorkflowTest {
         mockProcedure.setCredentialStatus(CredentialStatusEnum.REVOKED);
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
-        when(callerResolver.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
+        when(callerProvider.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
         when(powerAuthorizationService.authorize(any(), any(), any(), any()))
                 .thenReturn(Mono.error(new LearIssuancePolicyException(
                         LearIssuancePolicyException.Reason.OPERATOR_LACKS_ONBOARDING, "no power")));

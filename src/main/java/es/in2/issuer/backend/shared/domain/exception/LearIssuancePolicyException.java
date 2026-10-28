@@ -47,7 +47,9 @@ public class LearIssuancePolicyException extends InsufficientPermissionException
         /** The platform administrator in the platform tenant can only read. */
         PLATFORM_TENANT_READ_ONLY("platform_tenant_read_only"),
         /** No rule for the action: denied by default (FR-11). */
-        AUTHORIZATION_RULE_MISSING("authorization_rule_missing");
+        AUTHORIZATION_RULE_MISSING("authorization_rule_missing"),
+        /** FR-07: the attestation type is not enabled in the tenant. */
+        CREDENTIAL_TYPE_NOT_ENABLED("credential_type_not_enabled");
 
         private final String code;
     }

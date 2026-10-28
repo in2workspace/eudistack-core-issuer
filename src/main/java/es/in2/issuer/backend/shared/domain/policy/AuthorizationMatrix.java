@@ -1,22 +1,29 @@
 package es.in2.issuer.backend.shared.domain.policy;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonValue;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * Issuer action matrix (EUD-253 prd.md, Annex A): the user types, how each one is recognized by
  * its powers, and the scope every user type has on every action. Read as configuration by
  * {@link es.in2.issuer.backend.shared.domain.model.port.AuthorizationMatrixProvider}, so a rule
  * change applies without redeploying (FR-15).
+ *
+ * <p>Unknown keys are not ignored: the matrix is a security policy, and a misspelt key
+ * ({@code recognised_by}, {@code require_power}) silently read as "absent" would open what it was
+ * meant to restrict. The reader fails on them, and {@link #validate} rejects every omission that
+ * would read as "allowed".
  */
-@JsonIgnoreProperties(ignoreUnknown = true)
 public record AuthorizationMatrix(
         @JsonProperty("version") int version,
         @JsonProperty("user_types") Map<String, UserTypeRule> userTypes,
@@ -35,33 +42,88 @@ public record AuthorizationMatrix(
     }
 
     /**
-     * Fails if the matrix is not usable: every user type of the recognition order is defined and
-     * every action states the scope of every user type, so a missing entry never reads as "allowed".
+     * Domains that are never a tenant's own: the literal domains user types are recognized by (the
+     * platform's {@code EUDISTACK}). A power of one of them is outside every tenant, even one that
+     * happened to be named the same.
      */
-    public AuthorizationMatrix validate() {
-        if (userTypes == null || userTypes.isEmpty() || recognitionOrder == null || recognitionOrder.isEmpty()
-                || actions == null || actions.isEmpty()) {
-            throw new IllegalStateException("Authorization matrix must define user_types, recognition_order and actions");
-        }
-        for (String type : recognitionOrder) {
-            if (!userTypes.containsKey(type)) {
-                throw new IllegalStateException("recognition_order references unknown user type: " + type);
-            }
-        }
+    public boolean isPlatformDomain(String domain) {
+        return domain != null && userTypes.values().stream()
+                .flatMap(rule -> rule.recognizedByOrEmpty().stream())
+                .map(PowerPattern::domain)
+                .anyMatch(d -> !TENANT_PLACEHOLDER.equals(d) && d.equalsIgnoreCase(domain));
+    }
+
+    /**
+     * Fails if the matrix is not usable, so a missing or misspelt entry never reads as "allowed":
+     * <ul>
+     *   <li>the user types the issuer knows are all in the recognition order;</li>
+     *   <li>every user type of the recognition order is defined, and only the last one -- the
+     *       catch-all for an attestation without powers -- is recognized by no power;</li>
+     *   <li>every power pattern states its type, domain, function and action;</li>
+     *   <li>every action has a unique id, states whether it writes, and gives the scope of every
+     *       user type;</li>
+     *   <li>the actions the issuer decides exist, and one rule covers powers outside the tenant.</li>
+     * </ul>
+     *
+     * @param requiredActionIds the action ids the issuer decides with this matrix
+     */
+    public AuthorizationMatrix validate(Collection<String> requiredActionIds) {
+        require(userTypes != null && !userTypes.isEmpty() && recognitionOrder != null && !recognitionOrder.isEmpty()
+                && actions != null && !actions.isEmpty(),
+                "Authorization matrix must define user_types, recognition_order and actions");
+        validateUserTypes();
+        Set<String> ids = new HashSet<>();
         for (ActionRule action : actions) {
-            if (action.id() == null || action.scope() == null) {
-                throw new IllegalStateException("Every action needs an id and a scope");
-            }
-            for (String type : recognitionOrder) {
-                if (action.scope().get(type) == null) {
-                    throw new IllegalStateException("Action " + action.id() + " has no scope for user type " + type);
-                }
-            }
+            validateAction(action);
+            require(ids.add(action.id()), "Duplicated action id: " + action.id());
         }
+        for (String required : requiredActionIds) {
+            require(ids.contains(required), "Authorization matrix has no rule for action " + required);
+        }
+        require(actions.stream().anyMatch(ActionRule::grantsOutsideTenant),
+                "Authorization matrix needs a rule for granting powers outside the tenant (grants_outside_tenant)");
         return this;
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
+    private void validateUserTypes() {
+        for (String known : List.of(RecognizedCaller.PLATFORM_ADMIN, RecognizedCaller.TENANT_ADMIN,
+                RecognizedCaller.ORGANIZATION_ADMIN, RecognizedCaller.USER)) {
+            // A renamed type would silently demote its holders to USER in every role-based path.
+            require(recognitionOrder.contains(known), "recognition_order must include the user type " + known);
+        }
+        for (int i = 0; i < recognitionOrder.size(); i++) {
+            String type = recognitionOrder.get(i);
+            UserTypeRule rule = userTypes.get(type);
+            require(rule != null, "recognition_order references unknown user type: " + type);
+            boolean last = i == recognitionOrder.size() - 1;
+            if (last) {
+                require(rule.recognizedByOrEmpty().isEmpty(),
+                        "The last user type of recognition_order must be the catch-all (no recognized_by): " + type);
+            } else {
+                require(!rule.recognizedByOrEmpty().isEmpty(),
+                        "User type " + type + " is recognized by no power; only the last one may be");
+            }
+            rule.recognizedByOrEmpty().forEach(pattern -> pattern.validate("recognized_by of " + type));
+        }
+    }
+
+    private void validateAction(ActionRule action) {
+        require(action.id() != null && action.scope() != null && action.writes() != null,
+                "Every action needs an id, writes and a scope");
+        for (String type : recognitionOrder) {
+            require(action.scope().get(type) != null, "Action " + action.id() + " has no scope for user type " + type);
+        }
+        Stream.of(action.grants(), action.requiresPower())
+                .filter(Objects::nonNull)
+                .forEach(pattern -> pattern.validate("action " + action.id()));
+    }
+
+    private static void require(boolean condition, String message) {
+        if (!condition) {
+            throw new IllegalStateException(message);
+        }
+    }
+
     public record UserTypeRule(
             @JsonProperty("name") String name,
             @JsonProperty("recognized_by") List<PowerPattern> recognizedBy,
@@ -80,11 +142,11 @@ public record AuthorizationMatrix(
         }
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
+    /** {@code writes} is a {@link Boolean} so its absence fails validation instead of reading as "does not write". */
     public record ActionRule(
             @JsonProperty("id") String id,
             @JsonProperty("name") String name,
-            @JsonProperty("writes") boolean writes,
+            @JsonProperty("writes") Boolean writes,
             @JsonProperty("grants") PowerPattern grants,
             @JsonProperty("grants_outside_tenant") boolean grantsOutsideTenant,
             @JsonProperty("requires_power") PowerPattern requiresPower,
@@ -94,6 +156,10 @@ public record AuthorizationMatrix(
         public List<String> credentialTypesOrEmpty() {
             return credentialTypes != null ? credentialTypes : List.of();
         }
+
+        public boolean isWrite() {
+            return Boolean.TRUE.equals(writes);
+        }
     }
 
     /**
@@ -101,13 +167,17 @@ public record AuthorizationMatrix(
      * compared exactly -- the type is always lowercase and a variant is not recognized (§5, point 13);
      * the domain is an identifier and is compared ignoring case.
      */
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record PowerPattern(
             @JsonProperty("type") String type,
             @JsonProperty("domain") String domain,
             @JsonProperty("function") String function,
             @JsonProperty("action") String action
     ) {
+
+        void validate(String where) {
+            require(type != null && domain != null && function != null && action != null,
+                    "Incomplete power pattern in " + where + ": type, domain, function and action are required");
+        }
 
         public String resolvedDomain(String tenant) {
             return TENANT_PLACEHOLDER.equals(domain) ? tenant : domain;

@@ -9,13 +9,13 @@ import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException
 import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.port.AuthorizationMatrixProvider;
+import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
 import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
 import es.in2.issuer.backend.shared.domain.policy.AuthorizationMatrix;
 import es.in2.issuer.backend.shared.domain.policy.AuthorizationMatrix.ActionRule;
 import es.in2.issuer.backend.shared.domain.policy.AuthorizationMatrix.Scope;
 import es.in2.issuer.backend.shared.domain.policy.AuthorizationMatrix.UserTypeRule;
 import es.in2.issuer.backend.shared.domain.policy.Caller;
-import es.in2.issuer.backend.shared.domain.policy.CallerResolver;
 import es.in2.issuer.backend.shared.domain.policy.IssuanceAuthorization;
 import es.in2.issuer.backend.shared.domain.policy.RecognizedCaller;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
@@ -23,9 +23,6 @@ import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
@@ -38,8 +35,11 @@ import java.util.Objects;
 import static es.in2.issuer.backend.shared.domain.util.Constants.PLATFORM_TENANT;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
+/**
+ * Registered as a bean by {@code PowerAuthorizationConfig} (infrastructure): the decision point is
+ * domain code and imports nothing from Spring (hexagonal-discipline).
+ */
 @Slf4j
-@Service
 @RequiredArgsConstructor
 public class PowerAuthorizationServiceImpl implements PowerAuthorizationService {
 
@@ -57,19 +57,22 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
             ISSUE_PRODUCT_CERTIFICATION, Reason.CERTIFICATION_POWER_REQUIRED);
 
     private final AuthorizationMatrixProvider matrixProvider;
-    private final CallerResolver callerResolver;
+    private final CallerProvider callerProvider;
     private final TenantCredentialProfileService tenantCredentialProfileService;
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
 
     @Override
     public Mono<RecognizedCaller> recognize(Caller caller) {
-        return requestTenant().map(tenant -> recognize(matrixProvider.current(), caller, tenant));
+        return requestTenant().flatMap(tenant -> Mono.fromCallable(() -> {
+            requireTenantMatch(caller, tenant, new Trace(null, caller, tenant));
+            return recognize(matrixProvider.current(), caller, tenant);
+        }));
     }
 
     @Override
     public Mono<AuthorizationDecision> authorize(String actionId, String resourceOrganization, String resourceId) {
-        return callerResolver.fromSecurityContext()
+        return callerProvider.current()
                 .flatMap(caller -> authorize(actionId, caller, resourceOrganization, resourceId));
     }
 
@@ -104,7 +107,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
     @Override
     public Mono<IssuanceAuthorization> authorizeIssuance(String processId, String credentialConfigurationId, String credentialType,
                                                          String requestedOrganization, JsonNode payload) {
-        return callerResolver.fromSecurityContext()
+        return callerProvider.current()
                 .flatMap(caller -> requestTenant().flatMap(tenant -> Mono.defer(() -> {
                     AuthorizationMatrix matrix = matrixProvider.current();
                     Trace trace = new Trace(ISSUE_OWN, caller, tenant)
@@ -168,8 +171,15 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
                 : pattern.equals(typeName);
     }
 
+    /**
+     * The grant action that decides who may put this power in an attestation, or null when no rule
+     * covers it. A power is outside the tenant when its domain is not the tenant's, and always when
+     * it is a platform domain ({@code EUDISTACK}): a tenant named like one does not make the
+     * platform administrator's power its own.
+     */
     private String grantAction(AuthorizationMatrix matrix, Power granted, String tenant) {
-        boolean outsideTenant = granted.domain() == null || !granted.domain().equalsIgnoreCase(tenant);
+        boolean outsideTenant = granted.domain() == null || !granted.domain().equalsIgnoreCase(tenant)
+                || matrix.isPlatformDomain(granted.domain());
         for (ActionRule action : matrix.actions()) {
             if (outsideTenant && action.grantsOutsideTenant()) {
                 return action.id();
@@ -195,7 +205,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
         if (action == null) {
             throw deny(trace, Reason.AUTHORIZATION_RULE_MISSING, "no rule for action " + actionId);
         }
-        if (action.writes() && recognized.readOnly()) {
+        if (action.isWrite() && recognized.readOnly()) {
             throw deny(trace, Reason.PLATFORM_TENANT_READ_ONLY, "actions that write are not allowed from the platform tenant");
         }
         if (action.requiresPower() != null) {
@@ -244,8 +254,14 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
         return recognized.caller().powers().stream()
                 .filter(power -> patterns.stream().anyMatch(pattern -> pattern.isHeldBy(power, recognized.tenant())))
                 .findFirst()
-                .map(power -> power.type() + " · " + power.domain() + " · " + power.function() + " · " + power.action())
+                .map(power -> power.type() + " · " + power.domain() + " · " + power.function() + " · " + actionsOf(power))
                 .orElse(null);
+    }
+
+    private static String actionsOf(Power power) {
+        return power.action() instanceof List<?> actions
+                ? String.join(",", actions.stream().map(String::valueOf).toList())
+                : String.valueOf(power.action());
     }
 
     /** FR-02: the token must have been issued for the request's tenant, also for the platform administrator. */
@@ -265,9 +281,8 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
                     if (Boolean.TRUE.equals(allowed)) {
                         return Mono.empty();
                     }
-                    deny(trace, "credential_type_not_enabled");
-                    return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN,
-                            "Credential type '" + credentialConfigurationId + "' is not enabled for this tenant"));
+                    return Mono.error(deny(trace, Reason.CREDENTIAL_TYPE_NOT_ENABLED,
+                            "credential type " + credentialConfigurationId + " is not enabled in the tenant"));
                 });
     }
 
@@ -315,7 +330,6 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
             with("tenant", tenant);
             with("callerOrganization", caller.organizationIdentifier());
             with("callerCredentialType", caller.credentialType());
-            with("callerSubject", caller.subject());
             with("callerTokenId", caller.tokenId());
             with("callerAttestationId", caller.attestationId());
         }
@@ -339,8 +353,15 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
             return this;
         }
 
+        /**
+         * Who acted, without personal data (conv-quality-security-gates §10.3): the attestation, or
+         * the access token when the token does not carry the attestation id.
+         */
         String actor() {
-            return caller.subject() != null ? caller.subject() : caller.organizationIdentifier();
+            if (caller.attestationId() != null) {
+                return caller.attestationId();
+            }
+            return caller.tokenId() != null ? caller.tokenId() : caller.organizationIdentifier();
         }
 
         Map<String, Object> details() {

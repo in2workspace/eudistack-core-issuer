@@ -11,7 +11,7 @@ import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
-import es.in2.issuer.backend.shared.domain.policy.CallerResolver;
+import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.statuslist.domain.spi.StatusListProvider;
 import io.micrometer.observation.annotation.Observed;
@@ -50,7 +50,7 @@ public class RevocationWorkflow {
 
     private final StatusListProvider statusListProvider;
     private final AccessTokenService accessTokenService;
-    private final CallerResolver callerResolver;
+    private final CallerProvider callerProvider;
     private final PowerAuthorizationService powerAuthorizationService;
     private final IssuanceService issuanceService;
     private final EmailService emailService;
@@ -140,7 +140,7 @@ public class RevocationWorkflow {
     private Mono<Void> authorizeOperatorRevocation(String processId, String token, Issuance issuance) {
         log.info("Process ID: {} - Validating 'revoke' action...", processId);
         String organization = Objects.requireNonNullElse(issuance.getOrganizationIdentifier(), "");
-        return callerResolver.fromToken(token)
+        return callerProvider.fromToken(token)
                 .flatMap(caller -> powerAuthorizationService.authorize(PowerAuthorizationService.REVOKE, caller,
                         organization, String.valueOf(issuance.getIssuanceId())))
                 .then(Mono.defer(() -> requireRevocable(issuance)));

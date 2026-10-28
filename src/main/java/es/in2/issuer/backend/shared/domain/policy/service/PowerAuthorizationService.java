@@ -7,6 +7,8 @@ import es.in2.issuer.backend.shared.domain.policy.IssuanceAuthorization;
 import es.in2.issuer.backend.shared.domain.policy.RecognizedCaller;
 import reactor.core.publisher.Mono;
 
+import java.util.List;
+
 /**
  * The single decision point of the issuer actions (EUD-253, FR-15). Every decision is taken from the
  * caller's powers, the request's tenant (from {@code X-Tenant}) and the organization stored with the
@@ -20,13 +22,20 @@ public interface PowerAuthorizationService {
     String ISSUE_OWN = "E1";
     String ISSUE_ON_BEHALF = "E2";
     String ISSUE_PRODUCT_CERTIFICATION = "E6";
+    String WITHDRAW = "E7";
     String QUERY = "C1";
     String QUERY_FROM_SYSTEM = "C2";
     String REVOKE = "R1";
+    String ARCHIVE = "R2";
+
+    /** The actions the issuer decides: a matrix without a rule for one of them is rejected. */
+    List<String> ACTIONS_IN_USE = List.of(ISSUE_OWN, ISSUE_ON_BEHALF, ISSUE_PRODUCT_CERTIFICATION, WITHDRAW,
+            QUERY, QUERY_FROM_SYSTEM, REVOKE, ARCHIVE);
 
     /**
-     * Resolves the user type of the caller in the request's tenant. Does not check that the token
-     * was issued for that tenant: callers that act on a resource use {@link #authorize}.
+     * Resolves the user type of the caller in the request's tenant, for the callers that need the
+     * role without deciding an action ({@code GET /me}, the catalog). The token must have been issued
+     * for that tenant (FR-02): otherwise it fails as {@code TenantMismatchException}, traced.
      */
     Mono<RecognizedCaller> recognize(Caller caller);
 

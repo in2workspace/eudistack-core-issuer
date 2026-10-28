@@ -25,6 +25,7 @@ class LearIssuancePolicyExceptionTest {
                         "on_behalf_requires_tenant_admin",
                         "certification_power_required",
                         "platform_tenant_read_only",
-                        "authorization_rule_missing");
+                        "authorization_rule_missing",
+                        "credential_type_not_enabled");
     }
 }

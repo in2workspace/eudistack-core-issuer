@@ -23,7 +23,7 @@ public final class TestAuthorizationDecisions {
         };
         AuthorizationMatrix.Scope scope = role == UserRole.LEAR
                 ? AuthorizationMatrix.Scope.OWN_ORGANIZATION : AuthorizationMatrix.Scope.ANY_ORGANIZATION;
-        Caller caller = new Caller(organizationIdentifier, List.of(), "sandbox", null, null, null);
+        Caller caller = new Caller(organizationIdentifier, List.of(), "sandbox", null, null);
         RecognizedCaller recognized = new RecognizedCaller(caller, readOnly ? "platform" : "sandbox", userType,
                 role == UserRole.SYSADMIN ? RecognizedCaller.TENANT_ADMIN : userType, readOnly, role == UserRole.SYSADMIN);
         return new AuthorizationDecision("C1", recognized, scope);

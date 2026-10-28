@@ -459,22 +459,25 @@ class SharedExceptionHandlerTest {
 
     @Test
     void handleLearIssuancePolicyExceptionAddsReasonCode() {
+        // Security review (EUD-272 F8): handleSafe -- the message names matrix actions and powers.
         var ex = new LearIssuancePolicyException(
-                LearIssuancePolicyException.Reason.ON_BEHALF_REQUIRES_TENANT_ADMIN, "same org");
+                LearIssuancePolicyException.Reason.ON_BEHALF_REQUIRES_TENANT_ADMIN,
+                "Authorization denied: action E2 not allowed for organization_admin");
         var type = GlobalErrorTypes.INSUFFICIENT_PERMISSION.getCode();
         var title = "Insufficient permission";
         var st = HttpStatus.FORBIDDEN;
-        var fallback = "The client who made the issuance request do not have the required permissions";
-        var expected = new GlobalErrorMessage(type, title, st.value(), "same org", UUID.randomUUID().toString());
+        var detail = "The client who made the issuance request do not have the required permissions";
+        var expected = new GlobalErrorMessage(type, title, st.value(), detail, UUID.randomUUID().toString());
 
-        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+        when(errors.handleSafe(ex, request, type, title, st, detail)).thenReturn(Mono.just(expected));
 
         StepVerifier.create(handler.handleLearIssuancePolicyException(ex, request))
                 .assertNext(gem -> {
-                    assertGem(gem, type, title, st, "same org");
+                    assertGem(gem, type, title, st, detail);
                     assertEquals("on_behalf_requires_tenant_admin", gem.reason());
                 })
                 .verifyComplete();
+        verify(errors).handleSafe(ex, request, type, title, st, detail);
     }
 
     // -------------------- handleUnauthorizedRoleException --------------------

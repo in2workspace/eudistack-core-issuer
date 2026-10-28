@@ -12,11 +12,11 @@ import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
 import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
-import es.in2.issuer.backend.shared.domain.policy.CallerResolver;
 import es.in2.issuer.backend.shared.domain.policy.service.impl.PowerAuthorizationServiceImpl;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.shared.infrastructure.config.FileAuthorizationMatrixProvider;
+import es.in2.issuer.backend.shared.infrastructure.config.security.JwtCallerProvider;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Named;
@@ -66,13 +66,13 @@ class AccessTokenServiceImplBranchesTest {
     @BeforeEach
     void setUp() {
         ObjectMapper objectMapper = new ObjectMapper();
-        CallerResolver callerResolver = new CallerResolver(objectMapper);
+        lenient().when(appConfig.getManagementTokenOrgIdJsonPath()).thenReturn(ORG_ID_PATH);
+        JwtCallerProvider callerProvider = new JwtCallerProvider(objectMapper, appConfig);
         // The real decision point with the bundled matrix: role resolution is the matrix's recognition.
         PowerAuthorizationServiceImpl pdp = new PowerAuthorizationServiceImpl(
-                new FileAuthorizationMatrixProvider(""), callerResolver,
+                new FileAuthorizationMatrixProvider("", mock(AuditService.class)), callerProvider,
                 mock(TenantCredentialProfileService.class), mock(AuditService.class), objectMapper);
-        service = new AccessTokenServiceImpl(objectMapper, appConfig, tenantRegistryService, callerResolver, pdp);
-        lenient().when(appConfig.getManagementTokenOrgIdJsonPath()).thenReturn(ORG_ID_PATH);
+        service = new AccessTokenServiceImpl(objectMapper, appConfig, tenantRegistryService, callerProvider, pdp);
     }
 
     // --- getCleanBearerToken ---
@@ -164,7 +164,7 @@ class AccessTokenServiceImplBranchesTest {
     @MethodSource("roleCases")
     void getAuthorizationContext_resolvesRoleFromPowersAlone(Map<String, Object> claims, UserRole expectedRole) throws JOSEException {
         // Arrange
-        String token = token(b -> withClaims(b, claims));
+        String token = token(b -> withClaims(b, claims).claim("tenant", TENANT));
         when(tenantRegistryService.getTenantType(TENANT)).thenReturn(Mono.just("STANDARD"));
 
         // Act + Assert
@@ -183,7 +183,8 @@ class AccessTokenServiceImplBranchesTest {
         String token = token(b -> withClaims(b, Map.of(
                 "mandator", Map.of("organizationIdentifier", "ANY"),
                 "power", List.of(Map.of("type", "organization", "domain", "EUDISTACK",
-                        "function", "System", "action", List.of("Administration"))))));
+                        "function", "System", "action", List.of("Administration")))))
+                .claim("tenant", "platform"));
         when(tenantRegistryService.getTenantType("platform")).thenReturn(Mono.just("platform"));
 
         StepVerifier.create(service.getAuthorizationContext("Bearer " + token)
@@ -196,17 +197,32 @@ class AccessTokenServiceImplBranchesTest {
     }
 
     @Test
-    void getAuthorizationContext_withoutMandator_isAUserWithoutOrganization() throws JOSEException {
-        String token = token(b -> withClaims(b, Map.of("sub", "x")));
-        when(tenantRegistryService.getTenantType(TENANT)).thenReturn(Mono.just("STANDARD"));
+    void getAuthorizationContext_withoutMandator_isAnInvalidToken() throws JOSEException {
+        // Given: a token that represents no organization is not a caller of the management API
+        String token = token(b -> withClaims(b, Map.of("sub", "x")).claim("tenant", TENANT));
 
+        // When / Then: 401, not a context with a null organization (500 further down)
         StepVerifier.create(service.getAuthorizationContext("Bearer " + token)
                         .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
-                .assertNext(ctx -> {
-                    assertThat(ctx.role()).isEqualTo(UserRole.USER);
-                    assertThat(ctx.organizationIdentifier()).isNull();
-                })
-                .verifyComplete();
+                .expectError(InvalidTokenException.class)
+                .verify();
+    }
+
+    /** FR-02 / S3 of the EUD-272 security review: the role is never resolved for a token of another tenant. */
+    @Test
+    void getAuthorizationContext_withATokenOfAnotherTenant_failsAsTenantMismatch() throws JOSEException {
+        // Given: a platform administrator's token issued for the platform tenant, used on another tenant
+        String token = token(b -> withClaims(b, Map.of(
+                "mandator", Map.of("organizationIdentifier", "ANY"),
+                "power", List.of(Map.of("type", "organization", "domain", "EUDISTACK",
+                        "function", "System", "action", List.of("Administration")))))
+                .claim("tenant", "platform"));
+
+        // When / Then: it would otherwise act there without the platform tenant's read-only mode
+        StepVerifier.create(service.getAuthorizationContext("Bearer " + token)
+                        .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .expectError(TenantMismatchException.class)
+                .verify();
     }
 
     @Test

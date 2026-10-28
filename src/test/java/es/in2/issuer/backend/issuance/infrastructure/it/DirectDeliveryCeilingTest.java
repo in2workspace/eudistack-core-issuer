@@ -14,7 +14,6 @@ import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
 import es.in2.issuer.backend.shared.domain.policy.IssuanceAuthorization;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
-import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
 import es.in2.issuer.backend.shared.domain.service.DeliveryEligibilityResolver;
@@ -137,7 +136,6 @@ class DirectDeliveryCeilingTest {
         IssuanceController controller = new IssuanceController(
                 issuanceWorkflow,
                 mock(IssuanceService.class),
-                mock(AccessTokenService.class),
                 mock(PowerAuthorizationService.class),
                 mock(RevocationWorkflow.class),
                 urlResolver,

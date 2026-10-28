@@ -9,9 +9,11 @@ import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException
 import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException.Reason;
 import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
+import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
+import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
 import es.in2.issuer.backend.shared.domain.policy.AuthorizationMatrix.Scope;
 import es.in2.issuer.backend.shared.domain.policy.Caller;
-import es.in2.issuer.backend.shared.domain.policy.CallerResolver;
+import es.in2.issuer.backend.shared.domain.policy.IssuanceAuthorization;
 import es.in2.issuer.backend.shared.domain.policy.RecognizedCaller;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
@@ -23,15 +25,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.util.List;
 import java.util.Map;
 
+import static es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService.ARCHIVE;
 import static es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService.QUERY;
+import static es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService.QUERY_FROM_SYSTEM;
 import static es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService.REVOKE;
+import static es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService.WITHDRAW;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -42,7 +46,7 @@ import static org.mockito.Mockito.*;
 /**
  * EUD-272 / EUD-253: every action decided by the caller's powers and the organization stored with
  * the resource, with the bundled matrix. Each action has a negative case without the power and one
- * from another tenant.
+ * from another tenant (tech-debt.md, "Para el diseño y las pruebas" 3).
  */
 class PowerAuthorizationServiceImplTest {
 
@@ -59,19 +63,19 @@ class PowerAuthorizationServiceImplTest {
     private static final Power CERTIFY = power("domain", TENANT, "Certification", "Attest");
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private CallerResolver callerResolver;
+    private CallerProvider callerProvider;
     private TenantCredentialProfileService tenantCredentialProfileService;
     private AuditService auditService;
     private PowerAuthorizationServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        callerResolver = mock(CallerResolver.class);
+        callerProvider = mock(CallerProvider.class);
         tenantCredentialProfileService = mock(TenantCredentialProfileService.class);
         auditService = mock(AuditService.class);
         when(tenantCredentialProfileService.isProfileAllowed(anyString())).thenReturn(Mono.just(true));
-        service = new PowerAuthorizationServiceImpl(new FileAuthorizationMatrixProvider(""), callerResolver,
-                tenantCredentialProfileService, auditService, objectMapper);
+        service = new PowerAuthorizationServiceImpl(new FileAuthorizationMatrixProvider("", mock(AuditService.class)),
+                callerProvider, tenantCredentialProfileService, auditService, objectMapper);
     }
 
     // --- helpers ---
@@ -80,21 +84,30 @@ class PowerAuthorizationServiceImplTest {
         return new Power(List.of(action), domain, function, type);
     }
 
+    private static String attestationOf(String org) {
+        return "urn:uuid:attestation-" + org;
+    }
+
     private static Caller caller(String org, String tokenTenant, Power... powers) {
-        return new Caller(org, List.of(powers), tokenTenant, "learcredential.machine.w3c.3", "sub-" + org, "jti");
+        return new Caller(org, List.of(powers), tokenTenant, "learcredential.machine.w3c.3", "jti-" + org, attestationOf(org));
     }
 
     private <T> Mono<T> inTenant(Mono<T> mono, String tenant) {
         return mono.contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant));
     }
 
-    private Mono<?> revoke(Caller caller, String resourceOrg) {
-        return inTenant(service.authorize(REVOKE, caller, resourceOrg, "issuance-1"), TENANT);
+    private Mono<AuthorizationDecision> decide(String action, Caller caller, String resourceOrg) {
+        return inTenant(service.authorize(action, caller, resourceOrg, "issuance-1"), TENANT);
     }
 
-    private Mono<?> issue(Caller caller, String credentialType, String organization, JsonNode payload) {
-        when(callerResolver.fromSecurityContext()).thenReturn(Mono.just(caller));
-        return inTenant(service.authorizeIssuance("process-1", "config-id", credentialType, organization, payload), TENANT);
+    private Mono<IssuanceAuthorization> issue(Caller caller, String credentialType, String organization, JsonNode payload) {
+        return issueIn(TENANT, caller, credentialType, organization, payload);
+    }
+
+    private Mono<IssuanceAuthorization> issueIn(String tenant, Caller caller, String credentialType, String organization,
+                                                JsonNode payload) {
+        when(callerProvider.current()).thenReturn(Mono.just(caller));
+        return inTenant(service.authorizeIssuance("process-1", "config-id", credentialType, organization, payload), tenant);
     }
 
     private JsonNode payloadGranting(Power... powers) {
@@ -135,8 +148,12 @@ class PowerAuthorizationServiceImplTest {
     @Nested
     class Recognition {
 
+        private String userType(Caller caller) {
+            return inTenant(service.recognize(caller), TENANT).map(RecognizedCaller::userType).block();
+        }
+
         @Test
-        void recognizesEachUserTypeByItsPowerAlone() {
+        void PowerAuthorizationService_recognize_recognizesEachUserTypeByItsPowerAlone() {
             assertThat(userType(caller(ORG, TENANT, PLATFORM_ADMIN))).isEqualTo(RecognizedCaller.PLATFORM_ADMIN);
             assertThat(userType(caller(ORG, TENANT, TENANT_ADMIN))).isEqualTo(RecognizedCaller.TENANT_ADMIN);
             assertThat(userType(caller(ORG, TENANT, ORG_ADMIN))).isEqualTo(RecognizedCaller.ORGANIZATION_ADMIN);
@@ -145,7 +162,7 @@ class PowerAuthorizationServiceImplTest {
         }
 
         @Test
-        void platformAdminActsAsTenantAdminAndIsASecurityActor() {
+        void PowerAuthorizationService_recognize_platformAdminActsAsTenantAdminAndIsASecurityActor() {
             StepVerifier.create(inTenant(service.recognize(caller(ORG, TENANT, PLATFORM_ADMIN)), TENANT))
                     .assertNext(r -> {
                         assertThat(r.actsAs()).isEqualTo(RecognizedCaller.TENANT_ADMIN);
@@ -156,101 +173,143 @@ class PowerAuthorizationServiceImplTest {
         }
 
         @Test
-        void powerTypeIsComparedInLowercaseOnly() {
+        void PowerAuthorizationService_recognize_comparesThePowerTypeInLowercaseOnly() {
             assertThat(userType(caller(ORG, TENANT, power("Domain", TENANT, "Onboarding", "Execute"))))
                     .isEqualTo(RecognizedCaller.USER);
             assertThat(userType(caller(ORG, TENANT, power("Organization", TENANT, "Onboarding", "Execute"))))
                     .isEqualTo(RecognizedCaller.USER);
         }
 
-        private String userType(Caller caller) {
-            return inTenant(service.recognize(caller), TENANT).map(RecognizedCaller::userType).block();
+        /** FR-02 also for the role-only callers (GET /me, catalog): S3 of the EUD-272 security review. */
+        @Test
+        void PowerAuthorizationService_recognize_deniesATokenOfAnotherTenantAndTracesIt() {
+            // Given: a platform administrator whose token was issued for the platform tenant
+            Caller platformToken = caller(ORG, "platform", PLATFORM_ADMIN);
+
+            // When / Then: it cannot be recognized in sandbox, where it would not be read-only
+            StepVerifier.create(inTenant(service.recognize(platformToken), TENANT))
+                    .expectError(TenantMismatchException.class)
+                    .verify();
+            assertThat(lastDenyDetails("tenant_mismatch")).containsEntry("tenant", TENANT);
+        }
+
+        @Test
+        void PowerAuthorizationService_recognize_withoutTenantHeaderFailsClosed() {
+            StepVerifier.create(service.recognize(caller(ORG, TENANT, TENANT_ADMIN)))
+                    .expectError(TenantMismatchException.class)
+                    .verify();
         }
     }
 
-    // --- R1: revoke ---
+    // --- R1, E7, R2: revoke, withdraw and archive -- the same rule on a stored resource ---
 
     @Nested
-    class Revoke {
+    class ResourceActions {
 
-        @Test
-        void organizationAdminRevokesItsOwnOrganization() {
-            StepVerifier.create(revoke(caller(ORG, TENANT, ORG_ADMIN), ORG)).expectNextCount(1).verifyComplete();
+        @ParameterizedTest
+        @ValueSource(strings = {REVOKE, WITHDRAW, ARCHIVE})
+        void PowerAuthorizationService_authorize_organizationAdminActsOnItsOwnOrganization(String action) {
+            StepVerifier.create(decide(action, caller(ORG, TENANT, ORG_ADMIN), ORG)).expectNextCount(1).verifyComplete();
         }
 
-        /** Jira AC: a system with domain · tenant · Onboarding · Execute, another organization → issuance_not_found + trace. */
-        @Test
-        void organizationAdminRevokingAnotherOrganization_failsAsNotFound_andTracesTheReason() {
-            StepVerifier.create(revoke(caller(ORG, TENANT, ORG_ADMIN), OTHER_ORG))
+        /** AC-02 / Jira AC: another organization → issuance_not_found (existence not disclosed) + trace. */
+        @ParameterizedTest
+        @ValueSource(strings = {REVOKE, WITHDRAW, ARCHIVE})
+        void PowerAuthorizationService_authorize_organizationAdminOnAnotherOrganizationFailsAsNotFound(String action) {
+            // When / Then
+            StepVerifier.create(decide(action, caller(ORG, TENANT, ORG_ADMIN), OTHER_ORG))
                     .expectError(IssuanceNotFoundException.class)
                     .verify();
 
-            Map<String, Object> details = lastDenyDetails("resource_out_of_scope");
-            assertThat(details).containsEntry("action", REVOKE)
+            // Then: the trace keeps the real reason
+            assertThat(lastDenyDetails("resource_out_of_scope")).containsEntry("action", action)
                     .containsEntry("userType", RecognizedCaller.ORGANIZATION_ADMIN)
                     .containsEntry("resourceOrganization", OTHER_ORG)
                     .containsEntry("callerOrganization", ORG);
         }
 
+        /** A process stored without an organization (before EUD-272) is passed as "", never matched by an organization. */
         @Test
-        void tenantAdminRevokesAnyOrganizationOfTheTenant() {
-            StepVerifier.create(revoke(caller(ORG, TENANT, TENANT_ADMIN), OTHER_ORG))
-                    .assertNext(d -> assertThat(((es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision) d).scope())
-                            .isEqualTo(Scope.ANY_ORGANIZATION))
+        void PowerAuthorizationService_authorize_organizationAdminOnAProcessWithoutOrganizationFailsAsNotFound() {
+            StepVerifier.create(decide(REVOKE, caller(ORG, TENANT, ORG_ADMIN), ""))
+                    .expectError(IssuanceNotFoundException.class)
+                    .verify();
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {REVOKE, WITHDRAW, ARCHIVE})
+        void PowerAuthorizationService_authorize_tenantAdminActsOnAnyOrganizationOfTheTenant(String action) {
+            StepVerifier.create(decide(action, caller(ORG, TENANT, TENANT_ADMIN), OTHER_ORG))
+                    .assertNext(d -> assertThat(d.scope()).isEqualTo(Scope.ANY_ORGANIZATION))
                     .verifyComplete();
         }
 
+        /** AC-10. */
         @Test
-        void platformAdminInsideATenant_isPermittedAsItsAdministrator_withSecurityTrace() {
-            StepVerifier.create(revoke(caller(ORG, TENANT, PLATFORM_ADMIN), OTHER_ORG)).expectNextCount(1).verifyComplete();
+        void PowerAuthorizationService_authorize_platformAdminInsideATenantIsPermittedAsItsAdministratorWithSecurityTrace() {
+            StepVerifier.create(decide(REVOKE, caller(ORG, TENANT, PLATFORM_ADMIN), OTHER_ORG)).expectNextCount(1).verifyComplete();
 
             assertThat(lastPermitDetails()).containsEntry("securityAction", true)
                     .containsEntry("actsAs", RecognizedCaller.TENANT_ADMIN);
         }
 
-        @Test
-        void platformAdminFromThePlatformTenant_cannotRevoke() {
+        /** AC-11: every action that writes is denied from the platform tenant, and traced. */
+        @ParameterizedTest
+        @ValueSource(strings = {REVOKE, WITHDRAW, ARCHIVE})
+        void PowerAuthorizationService_authorize_platformAdminFromThePlatformTenantCannotWrite(String action) {
+            // Given
             Caller platformAdmin = caller(ORG, "platform", PLATFORM_ADMIN);
-            expectReason(inTenant(service.authorize(REVOKE, platformAdmin, OTHER_ORG, "issuance-1"), "platform"),
+
+            // When / Then
+            expectReason(inTenant(service.authorize(action, platformAdmin, OTHER_ORG, "issuance-1"), "platform"),
                     Reason.PLATFORM_TENANT_READ_ONLY);
+            assertThat(lastDenyDetails(Reason.PLATFORM_TENANT_READ_ONLY.getCode())).containsEntry("action", action);
         }
 
-        @Test
-        void withoutPower_isDenied() {
-            expectReason(revoke(caller(ORG, TENANT), ORG), Reason.OPERATOR_LACKS_ONBOARDING);
+        /** AC-07, W3: a user without powers. */
+        @ParameterizedTest
+        @ValueSource(strings = {REVOKE, WITHDRAW, ARCHIVE})
+        void PowerAuthorizationService_authorize_userWithoutPowersIsDenied(String action) {
+            expectReason(decide(action, caller(ORG, TENANT), ORG), Reason.OPERATOR_LACKS_ONBOARDING);
         }
 
-        @Test
-        void withThePowerOfAnotherTenant_isDenied() {
-            expectReason(revoke(caller(ORG, TENANT, power("domain", OTHER_TENANT, "Onboarding", "Execute")), ORG),
+        /** AC-05. */
+        @ParameterizedTest
+        @ValueSource(strings = {REVOKE, WITHDRAW, ARCHIVE})
+        void PowerAuthorizationService_authorize_thePowerOfAnotherTenantIsDenied(String action) {
+            expectReason(decide(action, caller(ORG, TENANT, power("domain", OTHER_TENANT, "Onboarding", "Execute")), ORG),
                     Reason.OPERATOR_LACKS_ONBOARDING);
         }
 
-        @Test
-        void withATokenOfAnotherTenant_isDenied_evenForThePlatformAdmin() {
-            StepVerifier.create(revoke(caller(ORG, OTHER_TENANT, ORG_ADMIN), ORG))
+        /** AC-04, FR-02: also for the platform administrator. */
+        @ParameterizedTest
+        @ValueSource(strings = {REVOKE, WITHDRAW, ARCHIVE})
+        void PowerAuthorizationService_authorize_aTokenOfAnotherTenantIsDeniedEvenForThePlatformAdmin(String action) {
+            StepVerifier.create(decide(action, caller(ORG, OTHER_TENANT, ORG_ADMIN), ORG))
                     .expectError(TenantMismatchException.class).verify();
-            StepVerifier.create(revoke(caller(ORG, OTHER_TENANT, PLATFORM_ADMIN), ORG))
+            StepVerifier.create(decide(action, caller(ORG, "platform", PLATFORM_ADMIN), ORG))
                     .expectError(TenantMismatchException.class).verify();
             lastDenyDetails("tenant_mismatch");
         }
 
         @Test
-        void withoutTenantHeader_failsClosed() {
+        void PowerAuthorizationService_authorize_withoutTenantHeaderFailsClosed() {
             StepVerifier.create(service.authorize(REVOKE, caller(ORG, TENANT, TENANT_ADMIN), ORG, "issuance-1"))
                     .expectError(TenantMismatchException.class).verify();
         }
 
         /** AC-08: a system and a person with the same powers get the same decision. */
         @Test
-        void personAndSystemWithTheSamePowers_getTheSameDecision() {
-            Caller system = new Caller(ORG, List.of(ORG_ADMIN), TENANT, "learcredential.machine.w3c.3", "m", "j");
-            Caller person = new Caller(ORG, List.of(ORG_ADMIN), TENANT, "learcredential.employee.w3c.4", "p", "j");
+        void PowerAuthorizationService_authorize_personAndSystemWithTheSamePowersGetTheSameDecision() {
+            // Given
+            Caller system = new Caller(ORG, List.of(ORG_ADMIN), TENANT, "learcredential.machine.w3c.3", "j");
+            Caller person = new Caller(ORG, List.of(ORG_ADMIN), TENANT, "learcredential.employee.w3c.4", "j");
 
-            StepVerifier.create(revoke(system, OTHER_ORG)).expectError(IssuanceNotFoundException.class).verify();
-            StepVerifier.create(revoke(person, OTHER_ORG)).expectError(IssuanceNotFoundException.class).verify();
-            StepVerifier.create(revoke(system, ORG)).expectNextCount(1).verifyComplete();
-            StepVerifier.create(revoke(person, ORG)).expectNextCount(1).verifyComplete();
+            // When / Then
+            StepVerifier.create(decide(REVOKE, system, OTHER_ORG)).expectError(IssuanceNotFoundException.class).verify();
+            StepVerifier.create(decide(REVOKE, person, OTHER_ORG)).expectError(IssuanceNotFoundException.class).verify();
+            StepVerifier.create(decide(REVOKE, system, ORG)).expectNextCount(1).verifyComplete();
+            StepVerifier.create(decide(REVOKE, person, ORG)).expectNextCount(1).verifyComplete();
         }
     }
 
@@ -260,7 +319,7 @@ class PowerAuthorizationServiceImplTest {
     class Query {
 
         @Test
-        void organizationAdminSeesItsOrganization_tenantAdminTheWholeTenant() {
+        void PowerAuthorizationService_authorize_organizationAdminSeesItsOrganizationAndTenantAdminTheWholeTenant() {
             StepVerifier.create(inTenant(service.authorize(QUERY, caller(ORG, TENANT, ORG_ADMIN), null, null), TENANT))
                     .assertNext(d -> assertThat(d.anyOrganization()).isFalse())
                     .verifyComplete();
@@ -269,24 +328,34 @@ class PowerAuthorizationServiceImplTest {
                     .verifyComplete();
         }
 
+        /** W2: the detail of another organization's attestation is a denial in the trace, not a permit. */
         @Test
-        void platformAdminFromThePlatformTenant_canRead() {
+        void PowerAuthorizationService_authorize_detailOfAnotherOrganizationIsTracedAsOutOfScope() {
+            StepVerifier.create(decide(QUERY, caller(ORG, TENANT, ORG_ADMIN), OTHER_ORG))
+                    .expectError(IssuanceNotFoundException.class).verify();
+
+            lastDenyDetails("resource_out_of_scope");
+            verify(auditService, never()).auditSuccess(eq("authorization.permit"), any(), any(), any(), any());
+        }
+
+        @Test
+        void PowerAuthorizationService_authorize_platformAdminFromThePlatformTenantCanRead() {
             StepVerifier.create(inTenant(service.authorize(QUERY, caller(ORG, "platform", PLATFORM_ADMIN), null, null), "platform"))
                     .assertNext(d -> assertThat(d.caller().readOnly()).isTrue())
                     .verifyComplete();
         }
 
         @ParameterizedTest
-        @ValueSource(strings = {QUERY, PowerAuthorizationService.QUERY_FROM_SYSTEM})
-        void withoutPower_isDenied(String action) {
+        @ValueSource(strings = {QUERY, QUERY_FROM_SYSTEM})
+        void PowerAuthorizationService_authorize_withoutPowerIsDenied(String action) {
             expectReason(inTenant(service.authorize(action, caller(ORG, TENANT, CERTIFY), null, null), TENANT),
                     Reason.OPERATOR_LACKS_ONBOARDING);
         }
 
         /** AC-05: an Onboarding · Execute power whose domain is another tenant gives nothing here. */
         @ParameterizedTest
-        @ValueSource(strings = {QUERY, PowerAuthorizationService.QUERY_FROM_SYSTEM})
-        void withThePowerOfAnotherTenant_isDenied(String action) {
+        @ValueSource(strings = {QUERY, QUERY_FROM_SYSTEM})
+        void PowerAuthorizationService_authorize_thePowerOfAnotherTenantIsDenied(String action) {
             Caller foreign = caller(ORG, TENANT, power("organization", OTHER_TENANT, "Onboarding", "Execute"),
                     power("domain", OTHER_TENANT, "Onboarding", "Execute"));
             expectReason(inTenant(service.authorize(action, foreign, null, null), TENANT),
@@ -294,13 +363,13 @@ class PowerAuthorizationServiceImplTest {
         }
 
         @Test
-        void withATokenOfAnotherTenant_isDenied() {
+        void PowerAuthorizationService_authorize_aTokenOfAnotherTenantCannotQuery() {
             StepVerifier.create(inTenant(service.authorize(QUERY, caller(ORG, OTHER_TENANT, TENANT_ADMIN), null, null), TENANT))
                     .expectError(TenantMismatchException.class).verify();
         }
 
         @Test
-        void unknownAction_isDeniedByDefault() {
+        void PowerAuthorizationService_authorize_unknownActionIsDeniedByDefault() {
             expectReason(inTenant(service.authorize("Z9", caller(ORG, TENANT, TENANT_ADMIN), null, null), TENANT),
                     Reason.AUTHORIZATION_RULE_MISSING);
         }
@@ -314,40 +383,40 @@ class PowerAuthorizationServiceImplTest {
         /** AC-01, AC-16, points 9/14: the organization is the caller's, whatever the content, for every type. */
         @ParameterizedTest
         @ValueSource(strings = {EMPLOYEE_TYPE, "doctorid.sd.1", "learcredential.machine.w3c.3"})
-        void organizationAdmin_issuesForItsOrganization_whateverTheContent(String type) {
-            StepVerifier.create(issue(caller(ORG, TENANT, ORG_ADMIN), type, null, payloadGranting()))
-                    .assertNext(a -> assertThat(((es.in2.issuer.backend.shared.domain.policy.IssuanceAuthorization) a)
-                            .organizationIdentifier()).isEqualTo(ORG))
-                    .verifyComplete();
+        void PowerAuthorizationService_authorizeIssuance_organizationAdminIssuesForItsOrganizationWhateverTheContent(String type) {
+            // Given: a payload whose mandator is another organization
+            JsonNode payload = payloadGranting();
 
+            // When / Then
+            StepVerifier.create(issue(caller(ORG, TENANT, ORG_ADMIN), type, null, payload))
+                    .assertNext(a -> assertThat(a.organizationIdentifier()).isEqualTo(ORG))
+                    .verifyComplete();
             assertThat(lastPermitDetails()).containsEntry("processId", "process-1")
                     .containsEntry("organization", ORG)
-                    .containsEntry("callerSubject", "sub-" + ORG);
+                    .containsEntry("callerAttestationId", attestationOf(ORG));
         }
 
         /** AC-06: only a tenant administrator issues for another organization (E2). */
         @Test
-        void organizationAdmin_cannotIssueForAnotherOrganization() {
+        void PowerAuthorizationService_authorizeIssuance_organizationAdminCannotIssueForAnotherOrganization() {
             expectReason(issue(caller(ORG, TENANT, ORG_ADMIN), EMPLOYEE_TYPE, OTHER_ORG, payloadGranting()),
                     Reason.ON_BEHALF_REQUIRES_TENANT_ADMIN);
         }
 
         /** AC-03, AC-17. */
         @Test
-        void tenantAdmin_issuesForItsOwnOrForTheOrganizationItIndicates() {
+        void PowerAuthorizationService_authorizeIssuance_tenantAdminIssuesForItsOwnOrForTheOrganizationItIndicates() {
             StepVerifier.create(issue(caller(ORG, TENANT, TENANT_ADMIN), EMPLOYEE_TYPE, null, payloadGranting()))
-                    .assertNext(a -> assertThat(((es.in2.issuer.backend.shared.domain.policy.IssuanceAuthorization) a)
-                            .organizationIdentifier()).isEqualTo(ORG))
+                    .assertNext(a -> assertThat(a.organizationIdentifier()).isEqualTo(ORG))
                     .verifyComplete();
             StepVerifier.create(issue(caller(ORG, TENANT, TENANT_ADMIN), EMPLOYEE_TYPE, OTHER_ORG, payloadGranting()))
-                    .assertNext(a -> assertThat(((es.in2.issuer.backend.shared.domain.policy.IssuanceAuthorization) a)
-                            .organizationIdentifier()).isEqualTo(OTHER_ORG))
+                    .assertNext(a -> assertThat(a.organizationIdentifier()).isEqualTo(OTHER_ORG))
                     .verifyComplete();
         }
 
         /** AC-09 / E4: the power of tenant administrator is only granted by the platform administrator. */
         @Test
-        void tenantAdminPower_isOnlyGrantedByThePlatformAdmin() {
+        void PowerAuthorizationService_authorizeIssuance_tenantAdminPowerIsOnlyGrantedByThePlatformAdmin() {
             expectReason(issue(caller(ORG, TENANT, TENANT_ADMIN), EMPLOYEE_TYPE, null, payloadGranting(TENANT_ADMIN)),
                     Reason.TENANT_ADMIN_DELEGATION_REQUIRES_PLATFORM_ADMIN);
             StepVerifier.create(issue(caller(ORG, TENANT, PLATFORM_ADMIN), EMPLOYEE_TYPE, null, payloadGranting(TENANT_ADMIN)))
@@ -356,7 +425,7 @@ class PowerAuthorizationServiceImplTest {
 
         /** E3, E5: administering an organization and certifying are granted by the tenant administrator. */
         @Test
-        void organizationAndCertificationPowers_areGrantedByTheTenantAdmin() {
+        void PowerAuthorizationService_authorizeIssuance_organizationAndCertificationPowersAreGrantedByTheTenantAdmin() {
             StepVerifier.create(issue(caller(ORG, TENANT, TENANT_ADMIN), EMPLOYEE_TYPE, null, payloadGranting(ORG_ADMIN, CERTIFY)))
                     .expectNextCount(1).verifyComplete();
             expectReason(issue(caller(ORG, TENANT, ORG_ADMIN), EMPLOYEE_TYPE, null, payloadGranting(ORG_ADMIN)),
@@ -366,7 +435,7 @@ class PowerAuthorizationServiceImplTest {
         }
 
         @Test
-        void grantingAPowerWithTheTypeInAnotherCase_doesNotSkipTheGrantRule() {
+        void PowerAuthorizationService_authorizeIssuance_aPowerTypeInAnotherCaseDoesNotSkipTheGrantRule() {
             expectReason(issue(caller(ORG, TENANT, ORG_ADMIN), EMPLOYEE_TYPE, null,
                             payloadGranting(power("Domain", TENANT, "Onboarding", "Execute"))),
                     Reason.ONBOARDING_DELEGATION_REQUIRES_TENANT_ADMIN);
@@ -374,7 +443,7 @@ class PowerAuthorizationServiceImplTest {
 
         /** E9: a power never leaves its domain -- not even the platform administrator's. */
         @Test
-        void grantingAPowerOutsideTheTenant_isOnlyForThePlatformAdmin() {
+        void PowerAuthorizationService_authorizeIssuance_grantingAPowerOutsideTheTenantIsOnlyForThePlatformAdmin() {
             expectReason(issue(caller(ORG, TENANT, TENANT_ADMIN), EMPLOYEE_TYPE, null, payloadGranting(PLATFORM_ADMIN)),
                     Reason.FOREIGN_DOMAIN_DELEGATION_REQUIRES_PLATFORM_ADMIN);
             expectReason(issue(caller(ORG, TENANT, TENANT_ADMIN), EMPLOYEE_TYPE, null,
@@ -382,9 +451,20 @@ class PowerAuthorizationServiceImplTest {
                     Reason.FOREIGN_DOMAIN_DELEGATION_REQUIRES_PLATFORM_ADMIN);
         }
 
+        /** S7 of the EUD-272 security review: a tenant named like the platform domain does not own its power. */
+        @Test
+        void PowerAuthorizationService_authorizeIssuance_thePlatformPowerIsOutsideATenantNamedLikeThePlatform() {
+            // Given: an organization administrator of a tenant called "eudistack"
+            Caller orgAdmin = caller(ORG, "eudistack", power("domain", "eudistack", "Onboarding", "Execute"));
+
+            // When / Then: granting System · Administration still needs E9 (platform administrator only)
+            expectReason(issueIn("eudistack", orgAdmin, EMPLOYEE_TYPE, null, payloadGranting(PLATFORM_ADMIN)),
+                    Reason.FOREIGN_DOMAIN_DELEGATION_REQUIRES_PLATFORM_ADMIN);
+        }
+
         /** E6, FR-09, point 11: product certification needs domain · tenant · Certification · Attest, for any user type. */
         @Test
-        void productCertification_needsTheCertificationPowerOfTheTenant() {
+        void PowerAuthorizationService_authorizeIssuance_productCertificationNeedsTheCertificationPowerOfTheTenant() {
             StepVerifier.create(issue(caller(ORG, TENANT, CERTIFY), LABEL_TYPE, null, objectMapper.createObjectNode()))
                     .expectNextCount(1).verifyComplete();
             expectReason(issue(caller(ORG, TENANT, TENANT_ADMIN), LABEL_TYPE, null, objectMapper.createObjectNode()),
@@ -397,50 +477,52 @@ class PowerAuthorizationServiceImplTest {
 
         /** AC-07. */
         @Test
-        void userWithoutPowers_cannotIssue() {
+        void PowerAuthorizationService_authorizeIssuance_userWithoutPowersCannotIssue() {
             expectReason(issue(caller(ORG, TENANT), EMPLOYEE_TYPE, null, payloadGranting()), Reason.OPERATOR_LACKS_ONBOARDING);
         }
 
         /** AC-05. */
         @Test
-        void onboardingPowerOfAnotherTenant_cannotIssue() {
+        void PowerAuthorizationService_authorizeIssuance_onboardingPowerOfAnotherTenantCannotIssue() {
             expectReason(issue(caller(ORG, TENANT, power("domain", OTHER_TENANT, "Onboarding", "Execute")),
                     EMPLOYEE_TYPE, null, payloadGranting()), Reason.OPERATOR_LACKS_ONBOARDING);
         }
 
         /** AC-04. */
         @Test
-        void tokenOfAnotherTenant_cannotIssue() {
+        void PowerAuthorizationService_authorizeIssuance_tokenOfAnotherTenantCannotIssue() {
             StepVerifier.create(issue(caller(ORG, OTHER_TENANT, TENANT_ADMIN), EMPLOYEE_TYPE, null, payloadGranting()))
                     .expectError(TenantMismatchException.class).verify();
         }
 
         /** The current profiles name the type by its configuration id: any version of the family is E6. */
         @Test
-        void productCertification_isRecognizedByItsConfigurationIdFamily() {
-            when(callerResolver.fromSecurityContext()).thenReturn(Mono.just(caller(ORG, TENANT, TENANT_ADMIN)));
+        void PowerAuthorizationService_authorizeIssuance_productCertificationIsRecognizedByItsConfigurationIdFamily() {
+            when(callerProvider.current()).thenReturn(Mono.just(caller(ORG, TENANT, TENANT_ADMIN)));
             expectReason(inTenant(service.authorizeIssuance("p", "gx.labelcredential.w3c.2", "gx.labelcredential.w3c.2",
                     null, objectMapper.createObjectNode()), TENANT), Reason.CERTIFICATION_POWER_REQUIRED);
 
-            when(callerResolver.fromSecurityContext()).thenReturn(Mono.just(caller(ORG, TENANT, CERTIFY)));
+            when(callerProvider.current()).thenReturn(Mono.just(caller(ORG, TENANT, CERTIFY)));
             StepVerifier.create(inTenant(service.authorizeIssuance("p", "gx.labelcredential.w3c.2", "gx.labelcredential.w3c.2",
                     null, objectMapper.createObjectNode()), TENANT)).expectNextCount(1).verifyComplete();
         }
 
-        /** AC-15. */
+        /** AC-15: denied like any other rule, with its stable reason (N3). */
         @Test
-        void typeNotEnabledInTheTenant_isDenied() {
+        void PowerAuthorizationService_authorizeIssuance_typeNotEnabledInTheTenantIsDenied() {
+            // Given
             when(tenantCredentialProfileService.isProfileAllowed("config-id")).thenReturn(Mono.just(false));
-            StepVerifier.create(issue(caller(ORG, TENANT, TENANT_ADMIN), EMPLOYEE_TYPE, null, payloadGranting()))
-                    .expectError(ResponseStatusException.class).verify();
-            lastDenyDetails("credential_type_not_enabled");
+
+            // When / Then
+            expectReason(issue(caller(ORG, TENANT, TENANT_ADMIN), EMPLOYEE_TYPE, null, payloadGranting()),
+                    Reason.CREDENTIAL_TYPE_NOT_ENABLED);
+            lastDenyDetails(Reason.CREDENTIAL_TYPE_NOT_ENABLED.getCode());
         }
 
         /** AC-11. */
         @Test
-        void platformAdminFromThePlatformTenant_cannotIssue() {
-            when(callerResolver.fromSecurityContext()).thenReturn(Mono.just(caller(ORG, "platform", PLATFORM_ADMIN)));
-            expectReason(inTenant(service.authorizeIssuance("p", "config-id", EMPLOYEE_TYPE, null, payloadGranting()), "platform"),
+        void PowerAuthorizationService_authorizeIssuance_platformAdminFromThePlatformTenantCannotIssue() {
+            expectReason(issueIn("platform", caller(ORG, "platform", PLATFORM_ADMIN), EMPLOYEE_TYPE, null, payloadGranting()),
                     Reason.PLATFORM_TENANT_READ_ONLY);
         }
     }
@@ -452,41 +534,70 @@ class PowerAuthorizationServiceImplTest {
     class Audit {
 
         @Test
-        void permittedDecision_isAuditedWithWhoPowerAndResource() {
-            StepVerifier.create(revoke(caller(ORG, TENANT, TENANT_ADMIN), OTHER_ORG)).expectNextCount(1).verifyComplete();
+        void PowerAuthorizationService_authorize_permittedDecisionIsAuditedWithWhoPowerAndResource() {
+            // When
+            StepVerifier.create(decide(REVOKE, caller(ORG, TENANT, TENANT_ADMIN), OTHER_ORG)).expectNextCount(1).verifyComplete();
 
-            verify(auditService).auditSuccess(eq("authorization.permit"), eq("sub-" + ORG), eq("action"), eq(REVOKE), any());
-            assertThat(lastPermitDetails()).containsEntry("callerSubject", "sub-" + ORG)
+            // Then
+            verify(auditService).auditSuccess(eq("authorization.permit"), eq(attestationOf(ORG)), eq("action"), eq(REVOKE), any());
+            assertThat(lastPermitDetails()).containsEntry("callerAttestationId", attestationOf(ORG))
                     .containsEntry("callerOrganization", ORG)
-                    .containsEntry("recognizedByPower", "organization · sandbox · Onboarding · [Execute]")
+                    .containsEntry("recognizedByPower", "organization · sandbox · Onboarding · Execute")
                     .containsEntry("resourceOrganization", OTHER_ORG)
                     .containsEntry("resourceId", "issuance-1")
                     .containsEntry("scope", Scope.ANY_ORGANIZATION.value());
         }
 
         @Test
-        void deniedDecision_isAuditedWithWhoPowerResourceAndReason() {
-            StepVerifier.create(revoke(caller(ORG, TENANT, ORG_ADMIN), OTHER_ORG))
+        void PowerAuthorizationService_authorize_deniedDecisionIsAuditedWithWhoPowerResourceAndReason() {
+            // When
+            StepVerifier.create(decide(REVOKE, caller(ORG, TENANT, ORG_ADMIN), OTHER_ORG))
                     .expectError(IssuanceNotFoundException.class).verify();
 
-            verify(auditService).auditFailure(eq("authorization.deny"), eq("sub-" + ORG), eq("resource_out_of_scope"), any());
-            assertThat(lastDenyDetails("resource_out_of_scope")).containsEntry("callerSubject", "sub-" + ORG)
-                    .containsEntry("recognizedByPower", "domain · sandbox · Onboarding · [Execute]")
+            // Then
+            verify(auditService).auditFailure(eq("authorization.deny"), eq(attestationOf(ORG)), eq("resource_out_of_scope"), any());
+            assertThat(lastDenyDetails("resource_out_of_scope"))
+                    .containsEntry("recognizedByPower", "domain · sandbox · Onboarding · Execute")
                     .containsEntry("resourceOrganization", OTHER_ORG)
                     .containsEntry("resourceId", "issuance-1");
             verify(auditService, never()).auditSuccess(eq("authorization.permit"), any(), any(), any(), any());
         }
 
         @Test
-        void deniedForAMissingPower_isAuditedWithThePowerEvaluatedAndTheReason() {
-            when(callerResolver.fromSecurityContext()).thenReturn(Mono.just(caller(ORG, TENANT, ORG_ADMIN)));
+        void PowerAuthorizationService_authorizeIssuance_deniedForAMissingPowerIsAuditedWithThePowerEvaluated() {
+            // Given
+            when(callerProvider.current()).thenReturn(Mono.just(caller(ORG, TENANT, ORG_ADMIN)));
+
+            // When
             expectReason(inTenant(service.authorizeIssuance("process-1", "gx.labelcredential.w3c.2", LABEL_TYPE,
                     null, objectMapper.createObjectNode()), TENANT), Reason.CERTIFICATION_POWER_REQUIRED);
 
+            // Then
             assertThat(lastDenyDetails(Reason.CERTIFICATION_POWER_REQUIRED.getCode()))
                     .containsEntry("powerEvaluated", "domain · {tenant} · Certification · Attest")
-                    .containsEntry("processId", "process-1")
-                    .containsEntry("callerSubject", "sub-" + ORG);
+                    .containsEntry("processId", "process-1");
+        }
+
+        /** §10.3: the trace identifies the caller by its attestation, never by personal data. */
+        @Test
+        void PowerAuthorizationService_authorize_traceCarriesNoSubject() {
+            // When
+            StepVerifier.create(decide(REVOKE, caller(ORG, TENANT, TENANT_ADMIN), ORG)).expectNextCount(1).verifyComplete();
+
+            // Then
+            assertThat(lastPermitDetails()).doesNotContainKeys("callerSubject", "subject", "email");
+        }
+
+        @Test
+        void PowerAuthorizationService_authorize_actorFallsBackToTheTokenIdWithoutAttestationId() {
+            // Given
+            Caller withoutAttestation = new Caller(ORG, List.of(TENANT_ADMIN), TENANT, EMPLOYEE_TYPE, "jti-only");
+
+            // When
+            StepVerifier.create(decide(REVOKE, withoutAttestation, ORG)).expectNextCount(1).verifyComplete();
+
+            // Then
+            verify(auditService).auditSuccess(eq("authorization.permit"), eq("jti-only"), eq("action"), eq(REVOKE), any());
         }
     }
 }

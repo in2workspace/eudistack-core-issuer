@@ -9,7 +9,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
 import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
-import es.in2.issuer.backend.shared.domain.policy.CallerResolver;
+import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
@@ -35,7 +35,7 @@ public class AccessTokenServiceImpl implements AccessTokenService {
     private final ObjectMapper objectMapper;
     private final IssuerProperties appConfig;
     private final TenantRegistryService tenantRegistryService;
-    private final CallerResolver callerResolver;
+    private final CallerProvider callerProvider;
     private final PowerAuthorizationService powerAuthorizationService;
 
     private static final String DPOP_PREFIX = "DPoP ";
@@ -72,7 +72,7 @@ public class AccessTokenServiceImpl implements AccessTokenService {
             String currentTenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
 
             return getCleanBearerToken(authorizationHeader)
-                    .flatMap(callerResolver::fromToken)
+                    .flatMap(callerProvider::fromToken)
                     .flatMap(powerAuthorizationService::recognize)
                     .flatMap(recognized -> tenantRegistryService.getTenantType(currentTenant)
                             .map(tenantType -> new AuthorizationContext(

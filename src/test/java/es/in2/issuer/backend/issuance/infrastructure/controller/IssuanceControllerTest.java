@@ -17,12 +17,12 @@ import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.issuance.domain.model.dtos.UpdateIssuanceStatusRequest;
 import es.in2.issuer.backend.oidc4vci.domain.service.NonceService;
-import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialDetails;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceSummary;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
-import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
+import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
+import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
@@ -33,6 +33,8 @@ import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.context.annotation.Import;
@@ -52,6 +54,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.csrf;
 
@@ -83,6 +89,7 @@ class IssuanceControllerTest {
     @MockitoBean
     private IssuanceService issuanceService;
 
+    /** Not used by the controller any more; other beans of the WebFlux slice still need it. */
     @MockitoBean
     private AccessTokenService accessTokenService;
 
@@ -576,23 +583,23 @@ class IssuanceControllerTest {
     }
 
     @Test
-    void getIssuance_ReturnsCredentialDetails() {
-        String orgId = "testOrganizationId";
-        String issuanceId = "test-issuance-id";
-        AuthorizationDecision authCtx = organizationAdminDecision(orgId);
-
+    void IssuanceController_getIssuance_decidesWithTheOrganizationStoredWithTheAttestation() {
+        // Given
+        String issuanceId = UUID.randomUUID().toString();
+        AuthorizationDecision authCtx = organizationAdminDecision("VATES-STORED");
         CredentialDetails details = CredentialDetails.builder()
                 .issuanceId(UUID.randomUUID())
                 .credentialConfigurationId("learcredential.employee.w3c.4")
                 .lifeCycleStatus("VALID")
                 .credential(null)
                 .build();
-
-        when(powerAuthorizationService.authorize(eq(PowerAuthorizationService.QUERY), any(), any()))
+        when(issuanceService.getIssuanceById(issuanceId)).thenReturn(Mono.just(storedIn("VATES-STORED")));
+        when(powerAuthorizationService.authorize(PowerAuthorizationService.QUERY, "VATES-STORED", issuanceId))
                 .thenReturn(Mono.just(authCtx));
         when(issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(authCtx, issuanceId))
                 .thenReturn(Mono.just(details));
 
+        // When / Then
         webTestClient
                 .get()
                 .uri(ISSUANCES_PATH + "/{id}", issuanceId)
@@ -603,110 +610,146 @@ class IssuanceControllerTest {
                 .jsonPath("$.lifeCycleStatus").isEqualTo("VALID");
     }
 
+    /** An id that is not in the tenant is decided without a resource (the platform administrator's cross-tenant view). */
     @Test
-    void updateIssuanceStatus_WithdrawnByTenantAdmin_Returns204() throws JsonProcessingException {
+    void IssuanceController_getIssuance_decidesWithoutResourceWhenTheTenantHasNoSuchAttestation() {
+        // Given
         String issuanceId = UUID.randomUUID().toString();
-        UpdateIssuanceStatusRequest request = new UpdateIssuanceStatusRequest(CredentialStatusEnum.WITHDRAWN);
-        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.TENANT_ADMIN, false, "multi_org");
-
-        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(accessTokenService.getAuthorizationContext(anyString()))
+        AuthorizationDecision authCtx = organizationAdminDecision("org");
+        when(issuanceService.getIssuanceById(issuanceId)).thenReturn(Mono.empty());
+        when(powerAuthorizationService.authorize(PowerAuthorizationService.QUERY, null, issuanceId))
                 .thenReturn(Mono.just(authCtx));
-        when(issuanceService.withdrawIssuance(issuanceId))
-                .thenReturn(Mono.empty());
+        when(issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(authCtx, issuanceId))
+                .thenReturn(Mono.just(CredentialDetails.builder().lifeCycleStatus("VALID").build()));
 
-        webTestClient.mutateWith(csrf())
-                .patch()
+        // When / Then
+        webTestClient
+                .get()
                 .uri(ISSUANCES_PATH + "/{id}", issuanceId)
                 .header("Authorization", "Bearer testToken")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(objectMapper.writeValueAsString(request))
                 .exchange()
-                .expectStatus().isNoContent();
+                .expectStatus().isOk();
     }
 
     @Test
-    void updateIssuanceStatus_ArchivedByTenantAdmin_Returns204() throws JsonProcessingException {
+    void IssuanceController_updateIssuanceStatus_withdrawIsDecidedOnTheStoredOrganization() throws JsonProcessingException {
+        // Given
         String issuanceId = UUID.randomUUID().toString();
-        UpdateIssuanceStatusRequest request = new UpdateIssuanceStatusRequest(CredentialStatusEnum.ARCHIVED);
-        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.TENANT_ADMIN, false, "multi_org");
-
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(accessTokenService.getAuthorizationContext(anyString()))
-                .thenReturn(Mono.just(authCtx));
-        when(issuanceService.archiveIssuance(issuanceId))
-                .thenReturn(Mono.empty());
+        when(issuanceService.getIssuanceById(issuanceId)).thenReturn(Mono.just(storedIn("VATES-STORED")));
+        when(powerAuthorizationService.authorize(PowerAuthorizationService.WITHDRAW, "VATES-STORED", issuanceId))
+                .thenReturn(Mono.just(organizationAdminDecision("VATES-STORED")));
+        when(issuanceService.withdrawIssuance(issuanceId)).thenReturn(Mono.empty());
 
-        webTestClient.mutateWith(csrf())
-                .patch()
-                .uri(ISSUANCES_PATH + "/{id}", issuanceId)
-                .header("Authorization", "Bearer testToken")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(objectMapper.writeValueAsString(request))
-                .exchange()
-                .expectStatus().isNoContent();
+        // When / Then
+        patchStatus(issuanceId, CredentialStatusEnum.WITHDRAWN).expectStatus().isNoContent();
+        verify(issuanceService).withdrawIssuance(issuanceId);
     }
 
     @Test
-    void updateIssuanceStatus_Revoked_Returns204() throws JsonProcessingException {
+    void IssuanceController_updateIssuanceStatus_archiveIsDecidedOnTheStoredOrganization() throws JsonProcessingException {
+        // Given
         String issuanceId = UUID.randomUUID().toString();
-        UpdateIssuanceStatusRequest request = new UpdateIssuanceStatusRequest(CredentialStatusEnum.REVOKED);
-        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.TENANT_ADMIN, false, "multi_org");
-
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(accessTokenService.getAuthorizationContext(anyString()))
-                .thenReturn(Mono.just(authCtx));
+        when(issuanceService.getIssuanceById(issuanceId)).thenReturn(Mono.just(storedIn("VATES-STORED")));
+        when(powerAuthorizationService.authorize(PowerAuthorizationService.ARCHIVE, "VATES-STORED", issuanceId))
+                .thenReturn(Mono.just(organizationAdminDecision("VATES-STORED")));
+        when(issuanceService.archiveIssuance(issuanceId)).thenReturn(Mono.empty());
+
+        // When / Then
+        patchStatus(issuanceId, CredentialStatusEnum.ARCHIVED).expectStatus().isNoContent();
+        verify(issuanceService).archiveIssuance(issuanceId);
+    }
+
+    /** A process stored before EUD-272, without organization, is decided as "" -- never as "no resource". */
+    @Test
+    void IssuanceController_updateIssuanceStatus_processWithoutOrganizationIsDecidedAsBelongingToNone()
+            throws JsonProcessingException {
+        // Given
+        String issuanceId = UUID.randomUUID().toString();
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(issuanceService.getIssuanceById(issuanceId)).thenReturn(Mono.just(storedIn(null)));
+        when(powerAuthorizationService.authorize(PowerAuthorizationService.WITHDRAW, "", issuanceId))
+                .thenReturn(Mono.error(new IssuanceNotFoundException("out of scope")));
+
+        // When / Then
+        patchStatus(issuanceId, CredentialStatusEnum.WITHDRAWN)
+                .expectStatus().value(status -> assertThat(status).isNotEqualTo(204));
+        verify(issuanceService, never()).withdrawIssuance(any());
+    }
+
+    /** W3 / AC-07: a user without powers can neither withdraw nor archive. */
+    @ParameterizedTest
+    @EnumSource(value = CredentialStatusEnum.class, names = {"WITHDRAWN", "ARCHIVED"})
+    void IssuanceController_updateIssuanceStatus_deniedDecisionNeverChangesTheProcess(CredentialStatusEnum target)
+            throws JsonProcessingException {
+        // Given
+        String issuanceId = UUID.randomUUID().toString();
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(issuanceService.getIssuanceById(issuanceId)).thenReturn(Mono.just(storedIn("VATES-STORED")));
+        when(powerAuthorizationService.authorize(anyString(), eq("VATES-STORED"), eq(issuanceId)))
+                .thenReturn(Mono.error(new LearIssuancePolicyException(
+                        LearIssuancePolicyException.Reason.OPERATOR_LACKS_ONBOARDING, "no power")));
+
+        // When / Then
+        patchStatus(issuanceId, target).expectStatus().value(status -> assertThat(status).isNotEqualTo(204));
+        verify(issuanceService, never()).withdrawIssuance(any());
+        verify(issuanceService, never()).archiveIssuance(any());
+    }
+
+    /** A caller who may not withdraw at all is denied before learning whether the id exists. */
+    @Test
+    void IssuanceController_updateIssuanceStatus_missingProcessIsDecidedBeforeItIsNotFound() throws JsonProcessingException {
+        // Given
+        String issuanceId = UUID.randomUUID().toString();
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(issuanceService.getIssuanceById(issuanceId)).thenReturn(Mono.empty());
+        when(powerAuthorizationService.authorize(PowerAuthorizationService.WITHDRAW, null, issuanceId))
+                .thenReturn(Mono.just(organizationAdminDecision("org")));
+
+        // When / Then
+        patchStatus(issuanceId, CredentialStatusEnum.WITHDRAWN)
+                .expectStatus().value(status -> assertThat(status).isNotEqualTo(204));
+        verify(powerAuthorizationService).authorize(PowerAuthorizationService.WITHDRAW, null, issuanceId);
+        verify(issuanceService, never()).withdrawIssuance(any());
+    }
+
+    /** B1: revocation goes to the decision point (RevocationWorkflow → R1), with no read-only pre-check here. */
+    @Test
+    void IssuanceController_updateIssuanceStatus_revokeIsDecidedByTheRevocationWorkflow() throws JsonProcessingException {
+        // Given
+        String issuanceId = UUID.randomUUID().toString();
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(revocationWorkflow.revoke(anyString(), eq("Bearer testToken"), eq(issuanceId), isNull(), eq(PUBLIC_ISSUER_BASE_URL)))
                 .thenReturn(Mono.empty());
 
-        webTestClient.mutateWith(csrf())
-                .patch()
-                .uri(ISSUANCES_PATH + "/{id}", issuanceId)
-                .header("Authorization", "Bearer testToken")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(objectMapper.writeValueAsString(request))
-                .exchange()
-                .expectStatus().isNoContent();
+        // When / Then
+        patchStatus(issuanceId, CredentialStatusEnum.REVOKED).expectStatus().isNoContent();
+        verifyNoInteractions(powerAuthorizationService);
     }
 
     @Test
-    void updateIssuanceStatus_UnsupportedStatus_Returns400() throws JsonProcessingException {
+    void IssuanceController_updateIssuanceStatus_unsupportedStatusReturns400() throws JsonProcessingException {
+        // Given
         String issuanceId = UUID.randomUUID().toString();
-        UpdateIssuanceStatusRequest request = new UpdateIssuanceStatusRequest(CredentialStatusEnum.VALID);
-        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.TENANT_ADMIN, false, "multi_org");
-
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(accessTokenService.getAuthorizationContext(anyString()))
-                .thenReturn(Mono.just(authCtx));
 
-        webTestClient.mutateWith(csrf())
-                .patch()
-                .uri(ISSUANCES_PATH + "/{id}", issuanceId)
-                .header("Authorization", "Bearer testToken")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(objectMapper.writeValueAsString(request))
-                .exchange()
-                .expectStatus().isBadRequest();
+        // When / Then
+        patchStatus(issuanceId, CredentialStatusEnum.VALID).expectStatus().isBadRequest();
     }
 
-    @Test
-    void updateIssuanceStatus_WhenReadOnlyContext_Returns403() throws JsonProcessingException {
-        String issuanceId = UUID.randomUUID().toString();
-        UpdateIssuanceStatusRequest request = new UpdateIssuanceStatusRequest(CredentialStatusEnum.WITHDRAWN);
-        AuthorizationContext authCtx = new AuthorizationContext("testOrg", UserRole.LEAR, true, "multi_org");
-
-        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(accessTokenService.getAuthorizationContext(anyString()))
-                .thenReturn(Mono.just(authCtx));
-
-        webTestClient.mutateWith(csrf())
+    private WebTestClient.ResponseSpec patchStatus(String issuanceId, CredentialStatusEnum target) throws JsonProcessingException {
+        return webTestClient.mutateWith(csrf())
                 .patch()
                 .uri(ISSUANCES_PATH + "/{id}", issuanceId)
                 .header("Authorization", "Bearer testToken")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(objectMapper.writeValueAsString(request))
-                .exchange()
-                .expectStatus().isForbidden();
+                .bodyValue(objectMapper.writeValueAsString(new UpdateIssuanceStatusRequest(target)))
+                .exchange();
+    }
+
+    private static Issuance storedIn(String organization) {
+        return Issuance.builder().issuanceId(UUID.randomUUID()).organizationIdentifier(organization).build();
     }
 
     private IssuanceRequest buildIssuanceRequest() {
@@ -718,7 +761,7 @@ class IssuanceControllerTest {
     }
 
     private static AuthorizationDecision organizationAdminDecision(String orgId) {
-        Caller caller = new Caller(orgId, List.of(), "sandbox", "learcredential.machine.w3c.3", "sub", "jti");
+        Caller caller = new Caller(orgId, List.of(), "sandbox", "learcredential.machine.w3c.3", "jti");
         RecognizedCaller recognized = new RecognizedCaller(caller, "sandbox", RecognizedCaller.ORGANIZATION_ADMIN,
                 RecognizedCaller.ORGANIZATION_ADMIN, false, false);
         return new AuthorizationDecision(PowerAuthorizationService.QUERY, recognized, AuthorizationMatrix.Scope.OWN_ORGANIZATION);

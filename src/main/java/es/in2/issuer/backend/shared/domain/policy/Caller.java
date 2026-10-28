@@ -9,7 +9,10 @@ import java.util.List;
  * (the mandator), the powers of its mandate and the tenant the token was issued for. A person and a
  * system with the same powers are the same caller for every decision (FR-08).
  *
- * @param subject        {@code sub} of the access token, identifies the attestation in the trace
+ * <p>The token's {@code sub} is deliberately not kept: the verifier fills it with the mandatee's
+ * email, and the caller is what the decision trace records (FR-13 asks who, not their email;
+ * conv-quality-security-gates §10.3). The attestation and the token identify it instead.
+ *
  * @param tokenId        {@code jti} of the access token
  * @param credentialType {@code credential_type} of the attestation the caller authenticated with
  * @param attestationId  {@code vc.id} of that attestation, when the token carries it (FR-13 evidence)
@@ -19,7 +22,6 @@ public record Caller(
         List<Power> powers,
         String tokenTenant,
         String credentialType,
-        String subject,
         String tokenId,
         String attestationId
 ) {
@@ -28,7 +30,7 @@ public record Caller(
     }
 
     public Caller(String organizationIdentifier, List<Power> powers, String tokenTenant, String credentialType,
-                  String subject, String tokenId) {
-        this(organizationIdentifier, powers, tokenTenant, credentialType, subject, tokenId, null);
+                  String tokenId) {
+        this(organizationIdentifier, powers, tokenTenant, credentialType, tokenId, null);
     }
 }

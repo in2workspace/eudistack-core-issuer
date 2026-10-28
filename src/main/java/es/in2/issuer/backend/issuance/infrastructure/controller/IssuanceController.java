@@ -3,15 +3,14 @@ package es.in2.issuer.backend.issuance.infrastructure.controller;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.dtos.UpdateIssuanceStatusRequest;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
-import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialDetails;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceHttpResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
-import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
+import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
+import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
-import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
@@ -28,6 +27,8 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ISSUANCES_PATH;
@@ -40,7 +41,6 @@ public class IssuanceController {
 
     private final IssuanceWorkflow issuanceWorkflow;
     private final IssuanceService issuanceService;
-    private final AccessTokenService accessTokenService;
     private final PowerAuthorizationService powerAuthorizationService;
     private final RevocationWorkflow revocationWorkflow;
     private final UrlResolver urlResolver;
@@ -71,13 +71,28 @@ public class IssuanceController {
                 .flatMap(issuanceService::getAllIssuancesVisibleFor);
     }
 
+    /**
+     * C1 on one attestation, decided with the organization stored with it: another organization's
+     * reads as not found and is traced as out of scope (FR-13). An id that is not in the tenant is
+     * decided without a resource -- the platform administrator's cross-tenant view finds it in
+     * another schema, everyone else gets not found from the lookup.
+     */
     @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
     public Mono<CredentialDetails> getIssuance(@PathVariable("id") String id) {
-        return powerAuthorizationService.authorize(PowerAuthorizationService.QUERY, null, id)
+        return storedOrganization(id)
+                .map(Optional::of)
+                .defaultIfEmpty(Optional.empty())
+                .flatMap(organization -> powerAuthorizationService.authorize(
+                        PowerAuthorizationService.QUERY, organization.orElse(null), id))
                 .flatMap(decision -> issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(decision, id));
     }
 
+    /**
+     * R1 (revoke), E7 (withdraw) and R2 (archive), each decided by the decision point on the
+     * organization stored with the process: the token's tenant, the platform tenant's read-only
+     * mode and the scope of the caller's user type are checked -- and traced -- in one place.
+     */
     @PatchMapping(value = "/{id}",
             consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -88,58 +103,43 @@ public class IssuanceController {
             ServerWebExchange exchange) {
         String processId = UUID.randomUUID().toString();
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
-        return accessTokenService.getAuthorizationContext(authorizationHeader)
-                .flatMap(ctx -> {
-                    if (!ctx.canWrite()) {
-                        return Mono.error(new ResponseStatusException(
-                                HttpStatus.FORBIDDEN, "Read-only access from platform tenant"));
-                    }
-                    return switch (request.status()) {
-                        case WITHDRAWN -> authorizeAndWithdraw(ctx, id);
-                        case REVOKED -> revocationWorkflow.revoke(processId, authorizationHeader, id, null, publicIssuerBaseUrl);
-                        case ARCHIVED -> authorizeAndArchive(ctx, id);
-                        default -> Mono.error(new ResponseStatusException(
-                                HttpStatus.BAD_REQUEST,
-                                "Unsupported target status: " + request.status()));
-                    };
-                });
+        return switch (request.status()) {
+            case REVOKED -> revocationWorkflow.revoke(processId, authorizationHeader, id, null, publicIssuerBaseUrl);
+            case WITHDRAWN -> authorizeOnStoredIssuance(PowerAuthorizationService.WITHDRAW, id)
+                    .then(Mono.defer(() -> issuanceService.withdrawIssuance(id)));
+            case ARCHIVED -> authorizeOnStoredIssuance(PowerAuthorizationService.ARCHIVE, id)
+                    .then(Mono.defer(() -> issuanceService.archiveIssuance(id)));
+            default -> Mono.error(new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Unsupported target status: " + request.status()));
+        };
     }
 
-    private Mono<Void> authorizeAndArchive(AuthorizationContext ctx, String id) {
-        if (!ctx.isAdministrator()) {
-            return Mono.error(new InsufficientPermissionException("Access denied: no administration power in this tenant"));
-        }
-        if (ctx.isTenantAdmin()) {
-            return issuanceService.archiveIssuance(id);
-        }
-        return issuanceService.getIssuanceById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
-                .flatMap(issuance -> {
-                    if (!ctx.organizationIdentifier().equals(issuance.getOrganizationIdentifier())) {
-                        return Mono.error(new ResponseStatusException(
-                                HttpStatus.FORBIDDEN, "Cannot archive issuance from another organization"));
-                    }
-                    return issuanceService.archiveIssuance(id);
-                });
+    /**
+     * Decides an action on a stored process. A process that does not exist is decided without a
+     * resource first, so a caller who may not do the action at all is denied rather than told
+     * whether the id exists; then it is not found.
+     */
+    private Mono<AuthorizationDecision> authorizeOnStoredIssuance(String actionId, String id) {
+        return storedOrganization(id)
+                .flatMap(organization -> powerAuthorizationService.authorize(actionId, organization, id))
+                .switchIfEmpty(Mono.defer(() -> powerAuthorizationService.authorize(actionId, null, id)
+                        .then(Mono.<AuthorizationDecision>error(
+                                new IssuanceNotFoundException("No issuance found for issuanceId: " + id)))));
     }
 
-    private Mono<Void> authorizeAndWithdraw(AuthorizationContext ctx, String id) {
-        if (!ctx.isAdministrator()) {
-            return Mono.error(new InsufficientPermissionException("Access denied: no administration power in this tenant"));
+    /**
+     * The organization stored with a process of the tenant: {@code ""} for one stored without it
+     * (issued before EUD-272), which no organization matches; empty when there is no such process.
+     */
+    private Mono<String> storedOrganization(String id) {
+        try {
+            UUID.fromString(id);
+        } catch (IllegalArgumentException _) {
+            return Mono.empty();
         }
-        if (ctx.isTenantAdmin()) {
-            return issuanceService.withdrawIssuance(id);
-        }
-        // LEAR: verify ownership before withdrawing
         return issuanceService.getIssuanceById(id)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
-                .flatMap(issuance -> {
-                    if (!ctx.organizationIdentifier().equals(issuance.getOrganizationIdentifier())) {
-                        return Mono.error(new ResponseStatusException(
-                                HttpStatus.FORBIDDEN, "Cannot withdraw issuance from another organization"));
-                    }
-                    return issuanceService.withdrawIssuance(id);
-                });
+                .map(issuance -> Objects.requireNonNullElse(issuance.getOrganizationIdentifier(), ""));
     }
 
     private ResponseEntity<IssuanceHttpResponse> toResponseEntity(IssuanceResponse response) {

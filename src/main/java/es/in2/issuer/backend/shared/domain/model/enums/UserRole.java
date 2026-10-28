@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.shared.domain.model.enums;
 
+import es.in2.issuer.backend.shared.domain.policy.RecognizedCaller;
+
 /**
  * The user type of the current caller within the tenant, as the power-based authorization
  * recognizes it from the powers of its attestation alone (EUD-253, prd.md §2):
@@ -22,9 +24,9 @@ public enum UserRole {
     /** Maps a user type id of the authorization matrix to the role exposed to clients. */
     public static UserRole fromUserType(String userType) {
         return switch (userType) {
-            case "platform_admin" -> SYSADMIN;
-            case "tenant_admin" -> TENANT_ADMIN;
-            case "organization_admin" -> LEAR;
+            case RecognizedCaller.PLATFORM_ADMIN -> SYSADMIN;
+            case RecognizedCaller.TENANT_ADMIN -> TENANT_ADMIN;
+            case RecognizedCaller.ORGANIZATION_ADMIN -> LEAR;
             default -> USER;
         };
     }
