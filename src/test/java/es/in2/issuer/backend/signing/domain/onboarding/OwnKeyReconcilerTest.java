@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -247,6 +248,48 @@ class OwnKeyReconcilerTest {
             assertThat(event.actor()).isEqualTo(CALLER);
             assertThat(event.correlationId()).isEqualTo(failing.id().toString());
         });
+    }
+
+    private OwnKeyReconciler reconcilerCountingIdentityCalls(AtomicInteger calls) {
+        return new OwnKeyReconciler(kms, store, () -> {
+            calls.incrementAndGet();
+            return CALLER;
+        }, Clock.fixed(Instant.parse("2026-10-28T10:00:00Z"), ZoneOffset.UTC), 7);
+    }
+
+    @Test
+    void reconcile_nothingToRetire_doesNotAskForTheCallerIdentity() {
+        AtomicInteger identityCalls = new AtomicInteger();
+
+        var report = reconcilerCountingIdentityCalls(identityCalls).reconcile(GRACE, false);
+
+        assertThat(report.retired()).isZero();
+        assertThat(identityCalls).hasValue(0);
+    }
+
+    @Test
+    void reconcile_severalRows_asksForTheCallerIdentityOnceAndOnlyWhenThereIsARow() {
+        withdrawn("cgcom", KEY_A);
+        withdrawn("cgcom", KEY_B);
+        AtomicInteger identityCalls = new AtomicInteger();
+
+        var report = reconcilerCountingIdentityCalls(identityCalls).reconcile(GRACE, false);
+
+        assertThat(report.retired()).isEqualTo(2);
+        assertThat(identityCalls).hasValue(1);
+    }
+
+    @Test
+    void reconcile_identityThatCannotBeRead_retiresNothingAndFailsTheRow() {
+        withdrawn("cgcom", KEY_A);
+        var reconcilerWithoutIdentity = new OwnKeyReconciler(kms, store, () -> {
+            throw new OnboardingFailedException("STS is down");
+        }, Clock.fixed(Instant.parse("2026-10-28T10:00:00Z"), ZoneOffset.UTC), 7);
+
+        var report = reconcilerWithoutIdentity.reconcile(GRACE, false);
+
+        assertThat(report.succeeded()).isFalse();
+        assertThat(kms.calls).as("no key is retired without knowing who did it").isEmpty();
     }
 
     @Test

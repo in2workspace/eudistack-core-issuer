@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * Makes KMS reflect what the database says (EUD-289 B8): a withdrawn own-key configuration cannot be
@@ -78,11 +79,29 @@ public class OwnKeyReconciler {
         UNEXPECTED_STATE
     }
 
+    /**
+     * The caller ARN, asked of STS the first time a row is processed and not before: a run with nothing to retire
+     * (the usual one, every 15 to 20 minutes) does not depend on STS.
+     */
+    private Supplier<String> actor() {
+        return new Supplier<>() {
+            private String arn;
+
+            @Override
+            public String get() {
+                if (arn == null) {
+                    arn = identity.callerArn();
+                }
+                return arn;
+            }
+        };
+    }
+
     /** @param dryRun report what would be done: reads the database and the key states, writes nothing */
     public ReconcileReport reconcile(Duration grace, boolean dryRun) {
         int retired = 0;
         List<String> failures = new ArrayList<>();
-        String actor = dryRun ? null : identity.callerArn();
+        Supplier<String> actor = actor();
         for (String tenant : store.findActiveTenants()) {
             if (!store.findTenant(tenant).map(RegisteredTenant::schemaProvisioned).orElse(false)) {
                 // Registered but not migrated yet (the Issuer creates the schema at startup): nothing to reconcile.
@@ -99,7 +118,7 @@ public class OwnKeyReconciler {
         return new ReconcileReport(retired, failures);
     }
 
-    private int reconcileTenant(String tenant, Duration grace, String actor, List<String> failures) {
+    private int reconcileTenant(String tenant, Duration grace, Supplier<String> actor, List<String> failures) {
         Set<UUID> failed = new HashSet<>();
         int retired = 0;
         while (true) {
@@ -120,9 +139,11 @@ public class OwnKeyReconciler {
 
     /** A failure is returned, not thrown, so the transaction ends and the row stays as it was. */
     private RowResult retire(OwnKeyStorePort.ConfigurationTransaction tx, String tenant, WithdrawnOwnKey row,
-                             String actor) {
+                             Supplier<String> actorOf) {
         Instant startedAt = clock.instant();
         try {
+            // Before KMS is touched: a row is not retired without knowing who did it.
+            String actor = actorOf.get();
             if (store.isKeyReferenced(row.kmsKeyRef(), true)) {
                 log.warn("Tenant '{}', configuration {}: the key is referenced by an active configuration and is not "
                         + "retired", tenant, row.id());
@@ -159,9 +180,10 @@ public class OwnKeyReconciler {
     }
 
     /** The row's transaction made no change, so the failure goes in a transaction of its own. */
-    private void recordFailure(String tenant, UUID configurationId, String actor) {
+    private void recordFailure(String tenant, UUID configurationId, Supplier<String> actor) {
         try {
-            store.recordInOwnTransaction(SigningConfigurationChanged.retire(tenant, Result.FAILURE, RejectionReason.PROVIDER_UNAVAILABLE, actor,
+            store.recordInOwnTransaction(SigningConfigurationChanged.retire(tenant, Result.FAILURE,
+                    RejectionReason.PROVIDER_UNAVAILABLE, actor.get(),
                     Duration.ZERO, clock.instant(), configurationId.toString()));
         } catch (RuntimeException e) {
             log.error("Tenant '{}', configuration {}: the failed retirement could not be recorded: {}", tenant,
