@@ -278,7 +278,7 @@ class OwnKeyOnboardingTest {
         var result = onboarding.importKey(importCommand(prepared, false));
 
         assertThat(kms.calls).containsExactly("describeKey:" + FakeKms.KEY_ARN, "listTags:" + FakeKms.KEY_ARN,
-                "importKeyMaterial", "getPublicKey");
+                "importKeyMaterial", "getPublicKey", "describeKey:" + FakeKms.KEY_ARN);
         assertThat(store.transactions).isEqualTo(1);
         assertThat(store.committedOperations).containsExactly("lockActive:cgcom",
                 "activate:" + FakeKms.KEY_ARN + ":" + CALLER, "reserve:cgcom");

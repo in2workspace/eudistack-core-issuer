@@ -52,6 +52,7 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
     /** The four secret fields of a QTSP configuration, removed from a row that is withdrawn (H-7). */
     private static final String[] QTSP_SECRET_FIELDS = {"credentialPwd", "clientSecret", "accessKey", "credentialId"};
     private static final String ONBOARDING_LOCK_PREFIX = "eudistack.own_key_onboarding:";
+    private static final String IMPORT_LOCK_PREFIX = "eudistack.own_key_import:";
 
     private final DataSource dataSource;
     private final TransactionTemplate transactions;
@@ -107,6 +108,63 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
             }
             return tenants;
         });
+    }
+
+    @Override
+    public Optional<OperationLock> tryLockOperation(String operationId) {
+        Connection connection = null;
+        try {
+            connection = open();
+            try (PreparedStatement statement = connection.prepareStatement("SELECT pg_try_advisory_lock(hashtext(?))")) {
+                statement.setString(1, IMPORT_LOCK_PREFIX + operationId);
+                try (ResultSet rs = statement.executeQuery()) {
+                    if (rs.next() && rs.getBoolean(1)) {
+                        return Optional.of(new SessionLock(connection, operationId));
+                    }
+                }
+            }
+            connection.close();
+            return Optional.empty();
+        } catch (SQLException e) {
+            closeQuietly(connection);
+            throw databaseFailure(e);
+        }
+    }
+
+    /** A session advisory lock: it belongs to the connection, which stays open until the lock is released. */
+    private static final class SessionLock implements OperationLock {
+
+        private final Connection connection;
+        private final String operationId;
+
+        private SessionLock(Connection connection, String operationId) {
+            this.connection = connection;
+            this.operationId = operationId;
+        }
+
+        @Override
+        public void close() {
+            try (PreparedStatement statement = connection.prepareStatement("SELECT pg_advisory_unlock(hashtext(?))")) {
+                statement.setString(1, IMPORT_LOCK_PREFIX + operationId);
+                statement.execute();
+            } catch (SQLException e) {
+                // Closing the connection below releases the lock of the session anyway.
+                log.warn("The lock of operation {} could not be released explicitly: {}", operationId, e.getMessage());
+            } finally {
+                closeQuietly(connection);
+            }
+        }
+    }
+
+    private static void closeQuietly(Connection connection) {
+        if (connection == null) {
+            return;
+        }
+        try {
+            connection.close();
+        } catch (SQLException e) {
+            log.debug("A connection could not be closed: {}", e.getMessage());
+        }
     }
 
     @Override

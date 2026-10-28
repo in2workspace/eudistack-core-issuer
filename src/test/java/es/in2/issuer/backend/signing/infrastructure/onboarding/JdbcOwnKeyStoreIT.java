@@ -432,4 +432,32 @@ class JdbcOwnKeyStoreIT {
         assertThatThrownBy(() -> store.findWithdrawnOwnKeysPendingKms("x\"; DROP TABLE a; --", Duration.ZERO))
                 .hasMessageContaining("not a valid tenant id");
     }
+
+    @Test
+    void tryLockOperation_aSecondRunOfTheSameOperationCannotTakeItUntilTheFirstReleasesIt() {
+        JdbcOwnKeyStore anotherProcess = OnboardingTestDatabase.store(sink);
+
+        try (var held = store.tryLockOperation("op-1").orElseThrow()) {
+            assertThat(anotherProcess.tryLockOperation("op-1")).as("the same operation").isEmpty();
+            try (var other = anotherProcess.tryLockOperation("op-2").orElseThrow()) {
+                assertThat(other).as("another operation can be locked meanwhile").isNotNull();
+            }
+        }
+
+        try (var again = anotherProcess.tryLockOperation("op-1").orElseThrow()) {
+            assertThat(again).as("after the release").isNotNull();
+        }
+    }
+
+    @Test
+    void tryLockOperation_theLockLastsAcrossTransactionsOfTheRun() {
+        JdbcOwnKeyStore anotherProcess = OnboardingTestDatabase.store(sink);
+
+        try (var held = store.tryLockOperation("op-1").orElseThrow()) {
+            store.inTransaction(tx -> tx.lockActiveConfiguration("cgcom"));
+            store.findTenant("cgcom");
+
+            assertThat(anotherProcess.tryLockOperation("op-1")).isEmpty();
+        }
+    }
 }

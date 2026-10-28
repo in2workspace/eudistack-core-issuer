@@ -10,6 +10,7 @@ import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.ActiveConfiguration;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.ConfigurationTransaction;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.NewOwnKeyConfiguration;
+import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.OperationLock;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.RegisteredTenant;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.SpkiReservation;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.WithdrawnOwnKey;
@@ -151,6 +152,8 @@ public class OwnKeyOnboarding {
         private String operationId;
         /** Set when the certificate renews the key of the tenant's active configuration. */
         private String renewalKeyArn;
+        /** Set once the {@code ImportKeyMaterial} of THIS run succeeded: only then may the key be found enabled. */
+        private boolean keyMaterialImported;
 
         private Attempt(String tenant, String actor, Instant startedAt) {
             this.tenant = tenant;
@@ -205,6 +208,11 @@ public class OwnKeyOnboarding {
         }
     }
 
+    /**
+     * A real run holds the lock of its operation from before the first check until it has ended, so two runs of the
+     * same state cannot overlap: without it, one could find the key the other has just imported enabled and take it
+     * for its own to clean up. A run that cannot take the lock ends with an error before any call to KMS.
+     */
     public ImportResult importKey(ImportCommand command) {
         PreparedOnboarding prepared = command.prepared();
         requireTenantId(prepared.tenant());
@@ -218,6 +226,19 @@ public class OwnKeyOnboarding {
             throw new OnboardingFailedException("this preparation was discarded at " + prepared.discardedAt()
                     + ": run prepare again");
         }
+        if (command.dryRun()) {
+            return runImport(command);
+        }
+        try (OperationLock ignored = store.tryLockOperation(prepared.operationId()).orElseThrow(
+                () -> new OnboardingFailedException("another run is importing this preparation (operation "
+                        + prepared.operationId() + "): nothing was touched in KMS. Wait for it to end and check its "
+                        + "result before trying again"))) {
+            return runImport(command);
+        }
+    }
+
+    private ImportResult runImport(ImportCommand command) {
+        PreparedOnboarding prepared = command.prepared();
         Attempt attempt = new Attempt(prepared.tenant(), command.dryRun() ? null : identity.callerArn(), clock.instant());
         attempt.operationId = prepared.operationId();
         OwnKey key = OwnKey.of(prepared);
@@ -322,14 +343,38 @@ public class OwnKeyOnboarding {
      */
     private ImportResult renewAndActivate(ImportCommand command, Attempt attempt, ValidatedOwnKeyCertificate certificate) {
         PreparedOnboarding prepared = command.prepared();
+        UUID configurationId;
         try {
             requireExistingKeyIsTheCertificates(attempt, certificate);
-            UUID configurationId = store.inTransaction(tx -> activate(tx, attempt, prepared, certificate));
-            markImported(command);
-            return new ImportResult(prepared.keyArn(), configurationId, attempt.operation(), certificate.spkiSha256Hex());
+            configurationId = store.inTransaction(tx -> activate(tx, attempt, prepared, certificate));
         } catch (OnboardingRejectedException rejected) {
             recordRejection(attempt, rejected);
             throw rejected;
+        }
+        markImported(command);
+        requireTheKeyIsEnabled(attempt.tenant, prepared.keyArn());
+        return new ImportResult(prepared.keyArn(), configurationId, attempt.operation(), certificate.spkiSha256Hex());
+    }
+
+    /**
+     * After the commit the key must be the enabled one: if it is not, the tenant is configured with a key that cannot
+     * sign, and the operator must know at once. Nothing is undone: the commit stands, and that key is not touched.
+     */
+    private void requireTheKeyIsEnabled(String tenant, String keyArn) {
+        KeyState state;
+        try {
+            state = kms.describeKeyState(keyArn);
+        } catch (RuntimeException e) {
+            log.error("The import of tenant '{}' was committed but the state of its KMS key {} could not be read: {}",
+                    tenant, KeyRefs.forLog(keyArn), e.toString());
+            throw new OnboardingFailedException("the import of tenant '" + tenant + "' was committed but the state of its "
+                    + "KMS key could not be read: check that the key is enabled", e);
+        }
+        if (state != KeyState.ENABLED) {
+            log.error("The import of tenant '{}' was committed but its KMS key {} is {}, not ENABLED", tenant,
+                    KeyRefs.forLog(keyArn), state);
+            throw new OnboardingFailedException("the import of tenant '" + tenant + "' was committed but its KMS key is "
+                    + state + ", not ENABLED: the tenant cannot sign until that is fixed");
         }
     }
 
@@ -409,8 +454,8 @@ public class OwnKeyOnboarding {
     }
 
     private static final Set<KeyState> PENDING_ONLY = EnumSet.of(KeyState.PENDING_IMPORT);
-    /** Right after this run's own {@code ImportKeyMaterial} the key is enabled; if that call failed it still waits. */
-    private static final Set<KeyState> PENDING_OR_JUST_IMPORTED = EnumSet.of(KeyState.PENDING_IMPORT, KeyState.ENABLED);
+    /** After this run's own {@code ImportKeyMaterial} succeeded the key is enabled. */
+    private static final Set<KeyState> JUST_IMPORTED = EnumSet.of(KeyState.ENABLED);
 
     /**
      * The one check before anything destroys a key: it is in a state this operation can have left it in, it carries
@@ -505,17 +550,17 @@ public class OwnKeyOnboarding {
     private ImportResult importAndActivate(ImportCommand command, Attempt attempt, OwnKey key,
                                            ValidatedOwnKeyCertificate certificate) {
         PreparedOnboarding prepared = command.prepared();
+        UUID configurationId;
         try {
             kms.importKeyMaterial(prepared.keyArn(), command.importToken(), command.encryptedKeyMaterial());
+            attempt.keyMaterialImported = true;
             if (!MessageDigest.isEqual(kms.getPublicKey(prepared.keyArn()), certificate.spkiDer())) {
                 throw new OnboardingRejectedException(RejectionReason.INVALID_KEY,
                         "the public key of the imported KMS key is not the public key of the certificate");
             }
-            UUID configurationId = store.inTransaction(tx -> activate(tx, attempt, prepared, certificate));
-            markImported(command);
-            return new ImportResult(prepared.keyArn(), configurationId, attempt.operation(), certificate.spkiSha256Hex());
+            configurationId = store.inTransaction(tx -> activate(tx, attempt, prepared, certificate));
         } catch (OnboardingRejectedException rejected) {
-            retireOwnNewKey(key, PENDING_OR_JUST_IMPORTED, rejected);
+            retireOwnNewKey(key, statesToRetire(attempt), rejected);
             recordRejection(attempt, rejected);
             throw rejected;
         } catch (CommitOutcomeUnknownException unknown) {
@@ -524,9 +569,17 @@ public class OwnKeyOnboarding {
                     KeyRefs.forLog(prepared.keyArn()));
             throw unknown;
         } catch (RuntimeException failure) {
-            retireOwnNewKey(key, PENDING_OR_JUST_IMPORTED, failure);
+            retireOwnNewKey(key, statesToRetire(attempt), failure);
             throw failure;
         }
+        markImported(command);
+        requireTheKeyIsEnabled(attempt.tenant, prepared.keyArn());
+        return new ImportResult(prepared.keyArn(), configurationId, attempt.operation(), certificate.spkiSha256Hex());
+    }
+
+    /** The key is enabled only if THIS run imported its material; otherwise it must still be waiting for it. */
+    private static Set<KeyState> statesToRetire(Attempt attempt) {
+        return attempt.keyMaterialImported ? JUST_IMPORTED : PENDING_ONLY;
     }
 
     private UUID activate(ConfigurationTransaction tx, Attempt attempt, PreparedOnboarding prepared,

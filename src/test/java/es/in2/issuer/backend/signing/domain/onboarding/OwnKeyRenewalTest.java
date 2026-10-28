@@ -150,7 +150,7 @@ class OwnKeyRenewalTest {
 
         var result = onboarding.importKey(importCommand(prepared, false));
 
-        assertThat(kms.calls).containsExactly("getPublicKey");
+        assertThat(kms.calls).containsExactly("getPublicKey", "describeKey:" + FakeKms.KEY_ARN);
         assertThat(store.committedOperations).containsExactly("lockActive:cgcom", "withdraw:OWN_KEY:" + CALLER,
                 "markHandled:" + FakeKms.KEY_ARN, "activate:" + FakeKms.KEY_ARN + ":" + CALLER, "reserve:cgcom");
         assertThat(store.committedEvents).singleElement().satisfies(event -> {

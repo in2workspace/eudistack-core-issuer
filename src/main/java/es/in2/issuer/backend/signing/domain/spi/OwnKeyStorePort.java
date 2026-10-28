@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.signing.domain.spi;
 
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
+import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFailedException;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingRejectedException;
 import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChanged;
 
@@ -67,6 +68,23 @@ public interface OwnKeyStorePort {
      * business transaction it would be rolled back with it.
      */
     void recordInOwnTransaction(SigningConfigurationChanged event);
+
+    /**
+     * Takes, without waiting, the lock that serialises the runs of one onboarding operation: while it is held, no
+     * other run of the same operation (on this database) can take it. It is held for the whole run, not for one
+     * transaction, and ends when it is closed or the process dies.
+     *
+     * @return the lock, or empty if another run holds it
+     * @throws OnboardingFailedException if the lock cannot be asked for: the run must not go on without it
+     */
+    Optional<OperationLock> tryLockOperation(String operationId);
+
+    /** A lock of {@link #tryLockOperation}; closing it releases it and never throws. */
+    interface OperationLock extends AutoCloseable {
+
+        @Override
+        void close();
+    }
 
     /** A withdrawn own-key row whose KMS key still has to be retired. */
     record WithdrawnOwnKey(UUID id, String tenantId, String kmsKeyRef) {}

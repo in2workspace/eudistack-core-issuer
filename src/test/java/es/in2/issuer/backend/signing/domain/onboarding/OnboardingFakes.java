@@ -37,6 +37,9 @@ final class OnboardingFakes {
         byte[] publicKey;
         Map<String, String> tags = new HashMap<>();
         final Map<String, String> aliases = new HashMap<>();
+        /** Run at the start of the call they name: a way to change the world under a run. */
+        Runnable beforeImportKeyMaterial = () -> { };
+        Runnable duringGetPublicKey = () -> { };
 
         private void record(String call) {
             calls.add(call);
@@ -69,12 +72,14 @@ final class OnboardingFakes {
 
         @Override
         public void importKeyMaterial(String keyArn, byte[] token, byte[] encryptedKeyMaterial) {
+            beforeImportKeyMaterial.run();
             record("importKeyMaterial");
             states.put(keyArn, KeyState.ENABLED);
         }
 
         @Override
         public byte[] getPublicKey(String keyArn) {
+            duringGetPublicKey.run();
             record("getPublicKey");
             return publicKey;
         }
@@ -131,12 +136,19 @@ final class OnboardingFakes {
         final List<WithdrawnOwnKey> withdrawn = new ArrayList<>();
         final Set<UUID> retired = new HashSet<>();
         final Set<String> tenantsWithoutSchema = new HashSet<>();
+        final Set<String> lockedOperations = java.util.concurrent.ConcurrentHashMap.newKeySet();
         ActiveConfiguration active;
         RuntimeException failure;
         RuntimeException failureRecordingEvent;
         RuntimeException referenceCheckFailure;
         Runnable onTransactionStart = () -> { };
         int transactions;
+
+        @Override
+        public Optional<OperationLock> tryLockOperation(String operationId) {
+            return lockedOperations.add(operationId)
+                    ? Optional.of(() -> lockedOperations.remove(operationId)) : Optional.empty();
+        }
 
         @Override
         public Optional<RegisteredTenant> findTenant(String tenantId) {
