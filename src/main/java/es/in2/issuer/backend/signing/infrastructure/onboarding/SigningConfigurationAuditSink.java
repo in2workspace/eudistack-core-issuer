@@ -23,7 +23,10 @@ public interface SigningConfigurationAuditSink {
      */
     void stage(Connection connection, SigningConfigurationChanged event) throws SQLException;
 
-    /** Called once the transaction that staged the event committed. It must not throw. */
+    /**
+     * Called once the transaction that staged the event committed. An exception cannot undo the change: the caller
+     * logs it and goes on.
+     */
     default void afterCommit(SigningConfigurationChanged event) {
         // Nothing to do by default: an outbox is drained by its dispatcher, not by this call.
     }

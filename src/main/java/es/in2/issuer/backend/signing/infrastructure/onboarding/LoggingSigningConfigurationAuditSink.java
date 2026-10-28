@@ -24,7 +24,6 @@ public class LoggingSigningConfigurationAuditSink implements SigningConfiguratio
     public static final String AUDIT_LOGGER = "es.in2.issuer.backend.signing.onboarding.audit";
 
     private static final Logger AUDIT = LoggerFactory.getLogger(AUDIT_LOGGER);
-    private static final Logger LOG = LoggerFactory.getLogger(LoggingSigningConfigurationAuditSink.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Override
@@ -32,13 +31,10 @@ public class LoggingSigningConfigurationAuditSink implements SigningConfiguratio
         // The line is written after the commit; there is nothing to stage in the database yet.
     }
 
+    /** A failure to write the line is logged by the caller, as for any sink. */
     @Override
     public void afterCommit(SigningConfigurationChanged event) {
-        try {
-            AUDIT.info(toJson(event));
-        } catch (RuntimeException e) {
-            LOG.error("The audit event of tenant '{}' could not be written: {}", event.tenant(), e.toString());
-        }
+        AUDIT.info(toJson(event));
     }
 
     static String toJson(SigningConfigurationChanged event) {
