@@ -193,9 +193,8 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
     @Override
     public boolean isKeyReferenced(String kmsKeyRef, boolean activeOnly) {
         return read(connection -> {
-            String where = " WHERE own_key_kms_key_ref = ?" + (activeOnly ? " AND status = 'active'" : "");
             for (String tenant : tenantsWithSigningConfiguration(connection)) {
-                if (tenantReferencesKey(connection, tenant, where, kmsKeyRef)) {
+                if (tenantReferencesKey(connection, tenant, kmsKeyRef, activeOnly)) {
                     return true;
                 }
             }
@@ -222,9 +221,10 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         return tenants;
     }
 
-    private static boolean tenantReferencesKey(Connection connection, String tenant, String where, String kmsKeyRef) {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT EXISTS (SELECT 1 FROM " + table(tenant) + where + ")")) {
+    private static boolean tenantReferencesKey(Connection connection, String tenant, String kmsKeyRef,
+                                               boolean activeOnly) {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT EXISTS (SELECT 1 FROM " + table(tenant)
+                + " WHERE own_key_kms_key_ref = ?" + (activeOnly ? " AND status = 'active'" : "") + ")")) {
             statement.setString(1, kmsKeyRef);
             try (ResultSet rs = statement.executeQuery()) {
                 return rs.next() && rs.getBoolean(1);
