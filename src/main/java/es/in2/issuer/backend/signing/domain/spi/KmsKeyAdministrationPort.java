@@ -41,10 +41,10 @@ public interface KmsKeyAdministrationPort {
 
         @Override
         public boolean equals(Object other) {
-            return other instanceof ImportParameters that
-                    && Arrays.equals(wrappingPublicKeyDer, that.wrappingPublicKeyDer)
-                    && Arrays.equals(importToken, that.importToken)
-                    && Objects.equals(validTo, that.validTo);
+            return other instanceof ImportParameters(var otherWrappingKey, var otherToken, var otherValidTo)
+                    && Arrays.equals(wrappingPublicKeyDer, otherWrappingKey)
+                    && Arrays.equals(importToken, otherToken)
+                    && Objects.equals(validTo, otherValidTo);
         }
 
         @Override

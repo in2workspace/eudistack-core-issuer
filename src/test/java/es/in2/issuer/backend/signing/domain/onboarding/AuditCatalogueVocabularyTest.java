@@ -36,7 +36,7 @@ class AuditCatalogueVocabularyTest {
         Arrays.stream(RejectionReason.values())
                 .forEach(reason -> emitted.put(reason.catalogName(), reason.result().catalogName()));
 
-        assertThat(CATALOGUE_REASONS).containsAllEntriesOf(emitted);
+        assertThat(emitted.entrySet()).isSubsetOf(CATALOGUE_REASONS.entrySet());
     }
 
     @Test

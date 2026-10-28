@@ -144,8 +144,9 @@ class OwnKeyDiscardTest {
     @Test
     void discard_refused_isAuditedAsADeniedRetire() {
         kms.tags.put("operationId", "op-other");
+        var command = command(false);
 
-        assertThatThrownBy(() -> onboarding.discard(command(false))).isInstanceOf(OnboardingRejectedException.class);
+        assertThatThrownBy(() -> onboarding.discard(command)).isInstanceOf(OnboardingRejectedException.class);
 
         assertThat(store.eventsInOwnTransaction).singleElement().satisfies(event -> {
             assertThat(event.operation()).isEqualTo(SigningConfigurationChanged.Operation.RETIRE);
@@ -159,8 +160,9 @@ class OwnKeyDiscardTest {
     @Test
     void discard_refusedDryRun_recordsNothing() {
         kms.tags.put("operationId", "op-other");
+        var command = command(true);
 
-        assertThatThrownBy(() -> onboarding.discard(command(true))).isInstanceOf(OnboardingRejectedException.class);
+        assertThatThrownBy(() -> onboarding.discard(command)).isInstanceOf(OnboardingRejectedException.class);
 
         assertThat(store.eventsInOwnTransaction).isEmpty();
     }

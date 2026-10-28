@@ -193,39 +193,47 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
     @Override
     public boolean isKeyReferenced(String kmsKeyRef, boolean activeOnly) {
         return read(connection -> {
-            Set<String> tenants = new TreeSet<>();
-            try (PreparedStatement statement = connection.prepareStatement("SELECT n.nspname FROM pg_catalog.pg_class c "
-                    + "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
-                    + "WHERE c.relname = 'tenant_signing_config' AND c.relkind IN ('r', 'p')");
-                 ResultSet rs = statement.executeQuery()) {
-                while (rs.next()) {
-                    String schema = rs.getString(1);
-                    if (schema.endsWith(SCHEMA_SUFFIX)) {
-                        String tenant = schema.substring(0, schema.length() - SCHEMA_SUFFIX.length());
-                        if (TENANT_ID.matcher(tenant).matches()) {
-                            tenants.add(tenant);
-                        }
-                    }
-                }
-            }
             String where = " WHERE own_key_kms_key_ref = ?" + (activeOnly ? " AND status = 'active'" : "");
-            for (String tenant : tenants) {
-                try (PreparedStatement statement = connection.prepareStatement(
-                        "SELECT EXISTS (SELECT 1 FROM " + table(tenant) + where + ")")) {
-                    statement.setString(1, kmsKeyRef);
-                    try (ResultSet rs = statement.executeQuery()) {
-                        if (rs.next() && rs.getBoolean(1)) {
-                            return true;
-                        }
-                    }
-                } catch (SQLException e) {
-                    throw new OnboardingFailedException("the signing configurations of tenant '" + tenant
-                            + "' cannot be read (SQLState " + e.getSQLState() + "), so the key cannot be shown to be "
-                            + "unreferenced: nothing was done with it", e);
+            for (String tenant : tenantsWithSigningConfiguration(connection)) {
+                if (tenantReferencesKey(connection, tenant, where, kmsKeyRef)) {
+                    return true;
                 }
             }
             return false;
         });
+    }
+
+    /** Every tenant schema that has a signing configuration table, found in the catalogue, not in the registry. */
+    private static Set<String> tenantsWithSigningConfiguration(Connection connection) throws SQLException {
+        Set<String> tenants = new TreeSet<>();
+        try (PreparedStatement statement = connection.prepareStatement("SELECT n.nspname FROM pg_catalog.pg_class c "
+                + "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+                + "WHERE c.relname = 'tenant_signing_config' AND c.relkind IN ('r', 'p')");
+             ResultSet rs = statement.executeQuery()) {
+            while (rs.next()) {
+                String schema = rs.getString(1);
+                String tenant = schema.endsWith(SCHEMA_SUFFIX)
+                        ? schema.substring(0, schema.length() - SCHEMA_SUFFIX.length()) : null;
+                if (tenant != null && TENANT_ID.matcher(tenant).matches()) {
+                    tenants.add(tenant);
+                }
+            }
+        }
+        return tenants;
+    }
+
+    private static boolean tenantReferencesKey(Connection connection, String tenant, String where, String kmsKeyRef) {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT EXISTS (SELECT 1 FROM " + table(tenant) + where + ")")) {
+            statement.setString(1, kmsKeyRef);
+            try (ResultSet rs = statement.executeQuery()) {
+                return rs.next() && rs.getBoolean(1);
+            }
+        } catch (SQLException e) {
+            throw new OnboardingFailedException("the signing configurations of tenant '" + tenant
+                    + "' cannot be read (SQLState " + e.getSQLState() + "), so the key cannot be shown to be "
+                    + "unreferenced: nothing was done with it", e);
+        }
     }
 
     @Override

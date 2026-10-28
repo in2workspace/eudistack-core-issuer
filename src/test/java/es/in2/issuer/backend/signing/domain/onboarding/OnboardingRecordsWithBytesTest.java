@@ -24,9 +24,9 @@ class OnboardingRecordsWithBytesTest {
         var same = new ImportCommand(PREPARED, new byte[] {1, 2}, new byte[] {7, 7, 7}, OnboardingPolicy.nonProduction(),
                 false);
 
-        assertThat(one).isEqualTo(same).hasSameHashCodeAs(same);
-        assertThat(one).isNotEqualTo(new ImportCommand(PREPARED, new byte[] {1, 2}, new byte[] {8},
-                OnboardingPolicy.nonProduction(), false));
+        assertThat(one).isEqualTo(same).hasSameHashCodeAs(same)
+                .isNotEqualTo(new ImportCommand(PREPARED, new byte[] {1, 2}, new byte[] {8},
+                        OnboardingPolicy.nonProduction(), false));
         assertThat(one.toString()).contains("importToken=2 bytes", "encryptedKeyMaterial=3 bytes")
                 .doesNotContain("[B@");
     }
@@ -36,8 +36,8 @@ class OnboardingRecordsWithBytesTest {
         var one = new ImportParameters(new byte[] {1}, new byte[] {2, 3}, WHEN);
         var same = new ImportParameters(new byte[] {1}, new byte[] {2, 3}, WHEN);
 
-        assertThat(one).isEqualTo(same).hasSameHashCodeAs(same);
-        assertThat(one).isNotEqualTo(new ImportParameters(new byte[] {1}, new byte[] {9}, WHEN));
+        assertThat(one).isEqualTo(same).hasSameHashCodeAs(same)
+                .isNotEqualTo(new ImportParameters(new byte[] {1}, new byte[] {9}, WHEN));
         assertThat(one.toString()).contains("importToken=2 bytes").doesNotContain("[B@");
     }
 
@@ -46,8 +46,8 @@ class OnboardingRecordsWithBytesTest {
         var one = new Loaded(PREPARED, new byte[] {4, 5, 6});
         var same = new Loaded(PREPARED, new byte[] {4, 5, 6});
 
-        assertThat(one).isEqualTo(same).hasSameHashCodeAs(same);
-        assertThat(one).isNotEqualTo(new Loaded(PREPARED, null));
+        assertThat(one).isEqualTo(same).hasSameHashCodeAs(same)
+                .isNotEqualTo(new Loaded(PREPARED, null));
         assertThat(one.toString()).contains("importToken=3 bytes").doesNotContain("[B@");
     }
 }

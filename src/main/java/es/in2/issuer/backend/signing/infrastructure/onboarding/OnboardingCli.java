@@ -277,15 +277,22 @@ public final class OnboardingCli {
         announceChecks(invocation);
         try (Services services = wiring.open(settings)) {
             return switch (invocation.command()) {
-                case PREPARE -> prepare(invocation, services.onboarding(), keyPolicy);
-                case IMPORT -> importKey(invocation, services.onboarding());
+                case PREPARE -> {
+                    prepare(invocation, services.onboarding(), keyPolicy);
+                    yield EXIT_OK;
+                }
+                case IMPORT -> {
+                    importKey(invocation, services.onboarding());
+                    yield EXIT_OK;
+                }
                 case DISCARD -> discard(invocation, services.onboarding());
                 case RECONCILE -> reconcile(invocation, services.reconciler());
             };
         }
     }
 
-    private int prepare(Invocation invocation, OwnKeyOnboarding onboarding, KeyPolicy keyPolicy) {
+    /** Ends normally or throws: a failure never comes back as an exit code. */
+    private void prepare(Invocation invocation, OwnKeyOnboarding onboarding, KeyPolicy keyPolicy) {
         String tenant = invocation.require(Opt.TENANT);
         String chainPem = readString(Path.of(invocation.require(Opt.CERT_CHAIN)));
         Path outDir = invocation.dryRun() ? null : Path.of(invocation.require(Opt.OUT_DIR));
@@ -295,7 +302,7 @@ public final class OnboardingCli {
         if (result.prepared() == null) {
             out.println("dry run: the certificate chain and the tenant pass the validations (operation "
                     + result.operation().catalogName() + "); nothing was created");
-            return EXIT_OK;
+            return;
         }
         var prepared = result.prepared();
         if (prepared.renewal()) {
@@ -304,7 +311,7 @@ public final class OnboardingCli {
                     + prepared.keyArn() + ", which stays; nothing was created in KMS");
             out.println("next       : run import with --state " + outDir.resolve(prefixOf(prepared) + ".state.json")
                     + " (no key material is needed)");
-            return EXIT_OK;
+            return;
         }
         String prefix = prefixOf(prepared);
         out.println("prepared onboarding " + prepared.operationId() + " for tenant " + prepared.tenant()
@@ -318,7 +325,6 @@ public final class OnboardingCli {
                 + "import-token.bin,state.json}"));
         out.println("next       : the customer wraps its private key with the wrapping public key; then run import "
                 + "with --state " + outDir.resolve(prefix + ".state.json") + " and --key-material <wrapped key>");
-        return EXIT_OK;
     }
 
     /** What policy the new key was created with is shown by its SHA-256, never by its content. */
@@ -332,7 +338,8 @@ public final class OnboardingCli {
         log.info("Key policy applied to the new key: sha256={}", keyPolicy.sha256());
     }
 
-    private int importKey(Invocation invocation, OwnKeyOnboarding onboarding) {
+    /** Ends normally or throws: a failure never comes back as an exit code. */
+    private void importKey(Invocation invocation, OwnKeyOnboarding onboarding) {
         Path stateFile = Path.of(invocation.require(Opt.STATE));
         Path tokenFile = invocation.has(Opt.IMPORT_TOKEN) ? Path.of(invocation.get(Opt.IMPORT_TOKEN)) : null;
         var loaded = PreparedOnboardingFiles.read(stateFile, tokenFile);
@@ -344,7 +351,7 @@ public final class OnboardingCli {
         if (result.configurationId() == null) {
             out.println("dry run: the onboarding of tenant " + loaded.prepared().tenant()
                     + " passes the validations (operation " + result.operation().catalogName() + "); nothing was imported");
-            return EXIT_OK;
+            return;
         }
         out.println("tenant " + loaded.prepared().tenant() + " now signs with " + (loaded.prepared().renewal()
                 ? "the renewed certificate of its own key" : "its own key") + " (operation "
@@ -357,7 +364,6 @@ public final class OnboardingCli {
                     + "consumed. Do NOT use it again (a second import of a renewal would replace the configuration once "
                     + "more): delete it.");
         }
-        return EXIT_OK;
     }
 
     private int discard(Invocation invocation, OwnKeyOnboarding onboarding) {
@@ -421,16 +427,18 @@ public final class OnboardingCli {
             requireForProduction(invocation, Opt.TRUST_ANCHOR);
             requireForProduction(invocation, Opt.EXPECTED_ORG_ID);
         }
-        if (invocation.command() == Command.PREPARE && !invocation.dryRun()) {
-            if (production && !invocation.has(Opt.KEY_POLICY)) {
-                throw new OnboardingUsageException("prepare does not create a key without an explicit key policy: "
-                        + "--key-policy <json file> (or --non-production outside production)");
-            }
-            if (!production && !invocation.has(Opt.KEY_POLICY)) {
-                log.warn("No key policy was given (--non-production): the key is created with the KMS default policy, "
-                        + "which delegates everything to IAM of the account. Never do this in STG or PRO.");
-            }
+        if (invocation.command() == Command.PREPARE && !invocation.dryRun() && !invocation.has(Opt.KEY_POLICY)) {
+            requireKeyPolicyUnlessNonProduction(production);
         }
+    }
+
+    private void requireKeyPolicyUnlessNonProduction(boolean production) {
+        if (production) {
+            throw new OnboardingUsageException("prepare does not create a key without an explicit key policy: "
+                    + "--key-policy <json file> (or --non-production outside production)");
+        }
+        log.warn("No key policy was given (--non-production): the key is created with the KMS default policy, "
+                + "which delegates everything to IAM of the account. Never do this in STG or PRO.");
     }
 
     /**
@@ -480,7 +488,7 @@ public final class OnboardingCli {
         String json = new String(bytes, StandardCharsets.UTF_8);
         try {
             new ObjectMapper().readTree(json);
-        } catch (JsonProcessingException e) {
+        } catch (JsonProcessingException _) {
             throw new OnboardingUsageException("--key-policy must be a JSON file");
         }
         return new KeyPolicy(json, sha256Hex(bytes));
@@ -507,7 +515,7 @@ public final class OnboardingCli {
     private static URI endpoint(String value) {
         try {
             return URI.create(value);
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException _) {
             throw new OnboardingUsageException("--kms-endpoint is not a valid URL");
         }
     }

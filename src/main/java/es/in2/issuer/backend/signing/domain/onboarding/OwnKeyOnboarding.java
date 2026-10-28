@@ -116,11 +116,11 @@ public class OwnKeyOnboarding {
 
         @Override
         public boolean equals(Object other) {
-            return other instanceof ImportCommand that && dryRun == that.dryRun
-                    && Objects.equals(prepared, that.prepared)
-                    && Arrays.equals(importToken, that.importToken)
-                    && Arrays.equals(encryptedKeyMaterial, that.encryptedKeyMaterial)
-                    && Objects.equals(policy, that.policy) && Objects.equals(artifacts, that.artifacts);
+            return other instanceof ImportCommand(var otherPrepared, var otherToken, var otherMaterial,
+                    var otherPolicy, var otherDryRun, var otherArtifacts)
+                    && dryRun == otherDryRun && Objects.equals(prepared, otherPrepared)
+                    && Arrays.equals(importToken, otherToken) && Arrays.equals(encryptedKeyMaterial, otherMaterial)
+                    && Objects.equals(policy, otherPolicy) && Objects.equals(artifacts, otherArtifacts);
         }
 
         @Override
@@ -265,7 +265,7 @@ public class OwnKeyOnboarding {
         if (command.dryRun()) {
             return runImport(command);
         }
-        try (OperationLock ignored = lockOperation(prepared)) {
+        try (OperationLock _ = lockOperation(prepared)) {
             requireNotMarked(currentState(prepared, command.artifacts()));
             return runImport(command);
         }
@@ -369,10 +369,15 @@ public class OwnKeyOnboarding {
      * nothing about the checks it was prepared with, so it counts as prepared with the strictest ones: production.
      */
     private void requireNoLaxerPolicyThanPrepare(PreparedOnboarding prepared, ImportCommand command, Attempt attempt) {
-        String problem = prepared.policy() == null
-                ? (command.policy().production() ? null : "the state has no policy summary, so it counts as prepared "
-                        + "with the production checks, and import runs without them")
-                : prepared.policy().whyNotCoveredBy(command.policy().summary());
+        String problem;
+        if (prepared.policy() != null) {
+            problem = prepared.policy().whyNotCoveredBy(command.policy().summary());
+        } else if (command.policy().production()) {
+            problem = null;
+        } else {
+            problem = "the state has no policy summary, so it counts as prepared with the production checks, and "
+                    + "import runs without them";
+        }
         if (problem == null) {
             return;
         }
@@ -501,7 +506,7 @@ public class OwnKeyOnboarding {
         if (command.dryRun()) {
             return runDiscard(command, prepared, startedAt);
         }
-        try (OperationLock ignored = lockOperation(prepared)) {
+        try (OperationLock _ = lockOperation(prepared)) {
             PreparedOnboarding current = currentState(prepared, command.artifacts());
             if (current.discardedAt() != null) {
                 return new DiscardResult(prepared.keyArn(), DiscardOutcome.ALREADY_DISCARDED);
@@ -733,13 +738,14 @@ public class OwnKeyOnboarding {
         attempt.certificateSha256 = new ValidatedOwnKeyCertificate(chain).certificateSha256Hex();
         ValidatedOwnKeyCertificate certificate = OwnKeyCertificateValidator.validate(chain, policy, clock.instant());
         RegisteredTenant tenant = store.findTenant(attempt.tenant).orElseThrow(() -> unavailableTenant(
-                attempt, "tenant '" + attempt.tenant + "' is not in the tenant registry"));
+                attempt, tenantNamed(attempt.tenant) + " is not in the tenant registry"));
         if (!tenant.active()) {
-            throw unavailableTenant(attempt, "tenant '" + attempt.tenant + "' is not active in the tenant registry");
+            throw unavailableTenant(attempt, tenantNamed(attempt.tenant) + " is not active in the tenant registry");
         }
         if (!tenant.schemaProvisioned()) {
             throw new OnboardingRejectedException(RejectionReason.POLICY_DENIED,
-                    "the Issuer schema of tenant '" + attempt.tenant + "' does not exist or has no signing configuration table");
+                    "the Issuer schema of " + tenantNamed(attempt.tenant)
+                            + " does not exist or has no signing configuration table");
         }
         attempt.previousModality = tenant.activeModality();
         store.findSpkiReservation(certificate.spkiSha256()).ifPresent(reservation -> {
@@ -761,7 +767,11 @@ public class OwnKeyOnboarding {
             return "a configuration of this same tenant: the key was replaced and its reservation is "
                     + "released when reconcile retires it (after the grace period, in its next run)";
         }
-        return "tenant '" + reservation.tenantId() + "'";
+        return tenantNamed(reservation.tenantId());
+    }
+
+    private static String tenantNamed(String tenant) {
+        return "tenant '" + tenant + "'";
     }
 
     /**

@@ -75,8 +75,8 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
 
         @Override
         public boolean equals(Object other) {
-            return other instanceof Loaded that && Objects.equals(prepared, that.prepared)
-                    && Arrays.equals(importToken, that.importToken);
+            return other instanceof Loaded(var otherPrepared, var otherToken)
+                    && Objects.equals(prepared, otherPrepared) && Arrays.equals(importToken, otherToken);
         }
 
         @Override
@@ -149,7 +149,7 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
         Path file = stateFileOf(prepared);
         try {
             return prepared(readState(file));
-        } catch (JsonProcessingException e) {
+        } catch (JsonProcessingException _) {
             throw new OnboardingFailedException("the state file " + file + " is not a valid state file");
         } catch (IOException e) {
             throw new OnboardingFailedException("could not read " + file + " again", e);
