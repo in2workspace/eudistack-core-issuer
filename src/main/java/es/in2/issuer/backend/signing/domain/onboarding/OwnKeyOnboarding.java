@@ -362,7 +362,7 @@ public class OwnKeyOnboarding {
                     () -> OwnKeyCertificateValidator.parseBase64Chain(prepared.certificateChain()),
                     command.policy(), command.dryRun());
         } catch (OnboardingRejectedException rejected) {
-            retireIfNewKey(prepared, key, command.dryRun(), PENDING_ONLY, rejected);
+            retireIfNewKey(prepared, key, lock, PENDING_ONLY, rejected);
             throw rejected;
         }
         try {
@@ -373,13 +373,13 @@ public class OwnKeyOnboarding {
             if (!command.dryRun()) {
                 recordRejection(attempt, rejected);
             }
-            retireIfNewKey(prepared, key, command.dryRun(), PENDING_ONLY, rejected);
+            retireIfNewKey(prepared, key, lock, PENDING_ONLY, rejected);
             throw rejected;
         }
         if (command.dryRun()) {
             return new ImportResult(prepared.keyArn(), null, attempt.operation(), certificate.spkiSha256Hex());
         }
-        return prepared.renewal() ? renewAndActivate(command, attempt, certificate)
+        return prepared.renewal() ? renewAndActivate(command, attempt, certificate, lock)
                 : importAndActivate(command, attempt, key, certificate, lock);
     }
 
@@ -428,11 +428,25 @@ public class OwnKeyOnboarding {
         throw rejected;
     }
 
-    private void retireIfNewKey(PreparedOnboarding prepared, OwnKey key, boolean dryRun, Set<KeyState> allowed,
+    /** @param lock the lock of the operation; {@code null} on a dry run, which touches nothing */
+    private void retireIfNewKey(PreparedOnboarding prepared, OwnKey key, OperationLock lock, Set<KeyState> allowed,
                                 Throwable cause) {
         // A renewal created nothing: the key it names is the active one and is never touched.
-        if (!dryRun && !prepared.renewal()) {
-            retireOwnNewKey(key, allowed, cause);
+        if (lock != null && !prepared.renewal()) {
+            retireOwnNewKeyUnderLock(lock, key, allowed, cause);
+        }
+    }
+
+    /**
+     * A run that lost the lock of its operation goes no further: another run may hold it now, and two runs must never
+     * import, activate or clean up the same preparation at the same time. Nothing is touched; the operator checks the
+     * outcome by hand.
+     */
+    private static void requireTheLockIsHeld(OperationLock lock, PreparedOnboarding prepared) {
+        if (!lock.isHeld()) {
+            throw new OnboardingFailedException("the lock of operation " + prepared.operationId() + " was lost (its "
+                    + "database session ended), so another run may have taken the operation: this run stops without "
+                    + "committing and the KMS key is NOT touched. Check the configuration of the tenant and the key by hand");
         }
     }
 
@@ -457,12 +471,13 @@ public class OwnKeyOnboarding {
      * never touches it: it is the key the tenant signs with. A failure that is not a rejection is audited as a
      * {@code Replace} that could not be completed, unless the outcome of the commit is unknown.
      */
-    private ImportResult renewAndActivate(ImportCommand command, Attempt attempt, ValidatedOwnKeyCertificate certificate) {
+    private ImportResult renewAndActivate(ImportCommand command, Attempt attempt, ValidatedOwnKeyCertificate certificate,
+                                          OperationLock lock) {
         PreparedOnboarding prepared = command.prepared();
         UUID configurationId;
         try {
             requireExistingKeyIsTheCertificates(attempt, certificate);
-            configurationId = store.inTransaction(tx -> activate(tx, attempt, prepared, certificate));
+            configurationId = store.inTransaction(tx -> activate(tx, attempt, prepared, certificate, lock));
         } catch (OnboardingRejectedException rejected) {
             recordRejection(attempt, rejected);
             throw rejected;
@@ -713,13 +728,14 @@ public class OwnKeyOnboarding {
         PreparedOnboarding prepared = command.prepared();
         UUID configurationId;
         try {
+            requireTheLockIsHeld(lock, prepared);
             kms.importKeyMaterial(prepared.keyArn(), command.importToken(), command.encryptedKeyMaterial());
             attempt.keyMaterialImported = true;
             if (!MessageDigest.isEqual(kms.getPublicKey(prepared.keyArn()), certificate.spkiDer())) {
                 throw new OnboardingRejectedException(RejectionReason.INVALID_KEY,
                         "the public key of the imported KMS key is not the public key of the certificate");
             }
-            configurationId = store.inTransaction(tx -> activate(tx, attempt, prepared, certificate));
+            configurationId = store.inTransaction(tx -> activate(tx, attempt, prepared, certificate, lock));
         } catch (OnboardingRejectedException rejected) {
             retireOwnNewKeyUnderLock(lock, key, statesToRetire(attempt), rejected);
             recordRejection(attempt, rejected);
@@ -760,8 +776,12 @@ public class OwnKeyOnboarding {
         return attempt.keyMaterialImported ? JUST_IMPORTED : PENDING_ONLY;
     }
 
+    /**
+     * The last step before the commit checks that the lock of the operation is still held, so the change is only committed
+     * while no other run of the operation can be at work; if it was lost, the transaction rolls back.
+     */
     private UUID activate(ConfigurationTransaction tx, Attempt attempt, PreparedOnboarding prepared,
-                          ValidatedOwnKeyCertificate certificate) {
+                          ValidatedOwnKeyCertificate certificate, OperationLock lock) {
         var previous = tx.lockActiveConfiguration(attempt.tenant);
         if (prepared.renewal()) {
             // Under the lock: the active row must still be the one that holds this key.
@@ -782,6 +802,7 @@ public class OwnKeyOnboarding {
         tx.stage(event(attempt, previous.isPresent() ? Operation.REPLACE : Operation.CREATE,
                 previous.map(ActiveConfiguration::modality).orElse(null), Result.SUCCESS, null,
                 certificate.certificateSha256Hex()));
+        requireTheLockIsHeld(lock, prepared);
         return configurationId;
     }
 

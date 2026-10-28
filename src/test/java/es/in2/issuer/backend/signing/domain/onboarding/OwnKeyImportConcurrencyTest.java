@@ -317,6 +317,53 @@ class OwnKeyImportConcurrencyTest {
     }
 
     @Test
+    void importKey_lockLostBeforeTheImport_importsNothingTouchesNothingAndIsAFailure() throws Exception {
+        var prepared = prepared();
+        store.lostLocks.add(prepared.operationId());
+        var command = importOf(prepared);
+
+        assertThatThrownBy(() -> onboarding.importKey(command))
+                .isInstanceOf(OnboardingFailedException.class)
+                .hasMessageContaining("was lost");
+
+        assertThat(kms.calls("importKeyMaterial")).isEmpty();
+        assertNoKeyWasDisabledOrDeleted();
+        assertThat(store.committedOperations).isEmpty();
+        assertThat(store.eventsInOwnTransaction).singleElement()
+                .satisfies(event -> assertThat(event.result()).isEqualTo(Result.FAILURE));
+    }
+
+    @Test
+    void importKey_lockLostBeforeTheCommit_rollsBackAndDoesNotTouchTheKey() throws Exception {
+        var prepared = prepared();
+        kms.duringGetPublicKey = () -> store.lostLocks.add(prepared.operationId());
+        var command = importOf(prepared);
+
+        assertThatThrownBy(() -> onboarding.importKey(command))
+                .isInstanceOf(OnboardingFailedException.class)
+                .hasMessageContaining("was lost");
+
+        assertThat(store.committedOperations).as("nothing committed without the lock").isEmpty();
+        assertThat(store.committedEvents).isEmpty();
+        assertNoKeyWasDisabledOrDeleted();
+        assertThat(artifacts.imported).isNull();
+    }
+
+    @Test
+    void importKey_rejectionBeforeTheImportWithTheLockLost_doesNotTouchTheKey() throws Exception {
+        kms.tokenValidTo = NOW;
+        var prepared = prepared();
+        store.lostLocks.add(prepared.operationId());
+        var command = importOf(prepared);
+
+        assertThatThrownBy(() -> onboarding.importKey(command))
+                .isInstanceOf(OnboardingRejectedException.class)
+                .hasMessageContaining("expired");
+
+        assertNoKeyWasDisabledOrDeleted();
+    }
+
+    @Test
     void importKey_rejectionAfterTheImportWithTheLockLost_doesNotTouchTheKeyAndIsStillRecorded() throws Exception {
         var prepared = prepared();
         kms.duringGetPublicKey = () -> store.lostLocks.add(prepared.operationId());

@@ -219,6 +219,20 @@ class OwnKeyRenewalTest {
     }
 
     @Test
+    void importKey_renewalThatLostTheLockBeforeTheCommit_commitsNothing() {
+        var prepared = prepared();
+        kms.duringGetPublicKey = () -> store.lostLocks.add(prepared.operationId());
+
+        assertThatThrownBy(() -> onboarding.importKey(importCommand(prepared, false)))
+                .isInstanceOf(OnboardingFailedException.class)
+                .hasMessageContaining("was lost");
+
+        assertThat(store.committedOperations).isEmpty();
+        assertThat(store.committedEvents).isEmpty();
+        assertTheActiveKeyWasNeverTouched();
+    }
+
+    @Test
     void importKey_renewalThatFailsWithoutARejection_isAuditedAsAReplaceFailure() {
         var prepared = prepared();
         store.failure = new OnboardingFailedException("database error");
