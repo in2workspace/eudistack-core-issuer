@@ -65,14 +65,32 @@ AWS accounts are production. So in PRO the guarantee is in **how it is launched*
 - **Only a controlled path launches it in PRO**: a GitHub Action with input fields (the command and its parameters, never
   free arguments), or one ECS task definition per command. That path **never adds `--non-production`** and always passes
   `--expected-aws-account` with the PRO account.
-- **Nobody launches it any other way in PRO**: nobody has `ecs:RunTask` with container overrides (command, environment,
-  entry point), nor `ecs:RegisterTaskDefinition` for the tool's task, nor can assume the operation role directly. Only
-  that path can.
+- **Nobody launches it any other way in PRO.** IAM has no condition key that tells a `RunTask` with container overrides
+  from one without them, so the rule is enforced on who may start the tool at all:
+  - only the identity of the controlled path has `ecs:RunTask` and `ecs:StartTask` on the tool's task definitions, and
+    nobody has `ecs:CreateService` or `ecs:UpdateService` with them;
+  - nobody but the infrastructure pipeline has `ecs:RegisterTaskDefinition` for the tool's family, nor `iam:PassRole` on
+    the operation role (otherwise another task family could be registered with that role);
+  - the trust policy of the operation role trusts only `ecs-tasks.amazonaws.com`, with `aws:SourceAccount` and
+    `aws:SourceArn` limited to the tool's task definitions, so no person can assume it directly;
+  - the tool's tasks run with `enableExecuteCommand=false`, and nobody has `ecs:ExecuteCommand` on them (ECS Exec would
+    give a shell with the credentials of the role).
+- **The controlled path is itself a trust asset**, because it can pass overrides: its code (the workflow, or the task
+  definitions) changes only through reviewed pull requests. For a GitHub Action, the OIDC trust of its AWS role is
+  limited to the repository, the protected *environment* of PRO and the default branch; that environment requires
+  reviewers; and the inputs are validated (choices or patterns, never free arguments).
 - **The same path injects the key policy from SSM Parameter Store** into `OWN_KEY_KEY_POLICY_JSON` (the `secrets` of the
-  task definition, or the step of the Action), so the operator cannot change it either (see *Key policy*).
+  task definition, or the step of the Action), so the operator cannot change it either (see *Key policy*). That only holds
+  if nobody but the infrastructure pipeline has `ssm:PutParameter` on that parameter and, for a `SecureString`, the use of
+  its KMS key for encryption.
 - **The task definition is a trust asset.** Whoever controls it (its environment, `JAVA_TOOL_OPTIONS`, an HTTPS proxy or a
   trust store of the JVM) can redirect STS and falsify the actor and the account. Its changes go through the review of the
   infrastructure code like any other.
+- **Manual cleanups need an emergency path.** Some runbook notes say to clean up a key or a reservation by hand with the
+  operation role (*Runbook notes*). Since nobody can assume that role directly in PRO, infra defines an audited
+  emergency (break-glass) procedure for them before the tool is used in PRO: for example, a separate role that needs MFA
+  and an approval, with short sessions, whose every use raises an alert from CloudTrail. Otherwise access would end up
+  being given ad hoc.
 
 If infra cannot set it up this way, it must tell the team before the tool is used in PRO: the alternative, a list of the
 production accounts in SSM that the tool reads to refuse `--non-production` in them, needs a change in the tool.
