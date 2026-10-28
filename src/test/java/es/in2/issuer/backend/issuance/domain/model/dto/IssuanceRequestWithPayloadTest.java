@@ -20,7 +20,7 @@ class IssuanceRequestWithPayloadTest {
         JsonNode newPayload = objectMapper.createObjectNode().put("name", "replacement");
         IssuanceRequest request = new IssuanceRequest(
                 "learcredential.employee.w3c.4", originalPayload, "email", "jane.doe@example.com",
-                "authorization_code", holderKey);
+                "authorization_code", holderKey, "VATES-B22222222");
 
         // Act
         IssuanceRequest result = request.withPayload(newPayload);
@@ -32,6 +32,7 @@ class IssuanceRequestWithPayloadTest {
         assertEquals(request.email(), result.email());
         assertEquals(request.grantType(), result.grantType());
         assertSame(holderKey, result.holderKey());
+        assertEquals(request.organization(), result.organization());
     }
 
     @Test

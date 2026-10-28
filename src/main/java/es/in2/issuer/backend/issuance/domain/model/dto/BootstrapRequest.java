@@ -10,9 +10,8 @@ import lombok.Builder;
 /**
  * Request body for the cross-tenant bootstrap endpoint.
  *
- * <p>The destination tenant is resolved from the request host subdomain or,
- * as fallback, from the {@code X-Tenant} HTTP header. It is NOT part of the
- * body. Validation and registry lookup are performed by
+ * <p>The destination tenant is taken from the {@code X-Tenant} HTTP header.
+ * It is NOT part of the body. Validation and registry lookup are performed by
  * {@code TenantDomainWebFilter} before the controller is invoked.
  */
 @Builder
@@ -39,6 +38,10 @@ public record BootstrapRequest(
                 .delivery(delivery)
                 .email(email)
                 .grantType(grantType)
+                // Bootstrap has no caller whose organization the process could take (EUD-253 FR-07):
+                // the first credential of a tenant belongs to the organization it is issued to.
+                .organization(payload != null
+                        ? payload.path("mandator").path("organizationIdentifier").asText(null) : null)
                 .build();
     }
 }

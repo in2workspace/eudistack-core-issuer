@@ -48,7 +48,8 @@ public class AppConfig implements IssuerProperties {
     public String getManagementTokenOrgIdJsonPath() {
         return appProperties.managementToken() != null
                 ? appProperties.managementToken().orgIdJsonPath()
-                : "vc.credentialSubject.mandate.mandator.organizationIdentifier";
+                // Same default as application.yml and the IaC: the verifier puts the mandate in flat claims.
+                : "mandator.organizationIdentifier";
     }
 
     public String getManagementTokenAdminPowerFunction() {

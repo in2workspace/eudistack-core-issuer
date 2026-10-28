@@ -103,7 +103,6 @@ class GenericCredentialBuilderSdJwtTest {
         StepVerifier.create(builder.buildCredential(profile, mandatePayload()))
                 .assertNext(result -> {
                     assertThat(result.subject()).isEmpty();
-                    assertThat(result.organizationIdentifier()).isEmpty();
                 })
                 .verifyComplete();
     }
@@ -126,25 +125,6 @@ class GenericCredentialBuilderSdJwtTest {
 
         StepVerifier.create(builder.buildCredential(profile, mandatePayload()))
                 .assertNext(result -> assertThat(result.subject()).isEqualTo(expectedSubject))
-                .verifyComplete();
-    }
-
-    static Stream<Arguments> organizationFields() {
-        return Stream.of(
-                Arguments.of("mandator.missing", ""),
-                Arguments.of(null, ""),
-                Arguments.of("mandator.organizationIdentifier", "VATES-B12345678"));
-    }
-
-    @ParameterizedTest
-    @MethodSource("organizationFields")
-    void buildCredential_withFieldOrgExtraction_resolvesOrganization(String field, String expectedOrg) {
-        CredentialProfile profile = sdJwtProfile(null)
-                .organizationExtraction(new CredentialProfile.OrganizationExtraction("field", field))
-                .build();
-
-        StepVerifier.create(builder.buildCredential(profile, mandatePayload()))
-                .assertNext(result -> assertThat(result.organizationIdentifier()).isEqualTo(expectedOrg))
                 .verifyComplete();
     }
 

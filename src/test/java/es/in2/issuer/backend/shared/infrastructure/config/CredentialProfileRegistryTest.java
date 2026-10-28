@@ -206,18 +206,6 @@ class CredentialProfileRegistryTest {
     }
 
     @Test
-    void shouldParseOrganizationExtraction() throws IOException {
-        ResourcePatternResolver resolver = mockResolver(validEmployeeProfile());
-
-        CredentialProfileRegistry registry = new CredentialProfileRegistry(OBJECT_MAPPER, resolver, "classpath:credentials/profiles");
-
-        CredentialProfile profile = registry.getByConfigurationId("learcredential.employee.w3c.4");
-        assertThat(profile.organizationExtraction()).isNotNull();
-        assertThat(profile.organizationExtraction().strategy()).isEqualTo("field");
-        assertThat(profile.organizationExtraction().field()).isEqualTo("mandate.mandator.organizationIdentifier");
-    }
-
-    @Test
     void shouldFailOnMissingConfigurationId() throws IOException {
         String json = """
                 {

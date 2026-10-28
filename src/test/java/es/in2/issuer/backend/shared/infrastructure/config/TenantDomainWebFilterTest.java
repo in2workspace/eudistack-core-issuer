@@ -32,8 +32,9 @@ class TenantDomainWebFilterTest {
         filter = new TenantDomainWebFilter(tenantRegistryService);
     }
 
+    /** EUD-253 FR-01 / point 12: the tenant is never deduced from the address. */
     @Test
-    void filter_hostPresent_resolvesFromHostSubdomain() {
+    void filter_hostWithoutHeader_isIgnored_passesThroughWithoutTenant() {
         when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("altia")));
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get("https://altia.eudistack.net/issuer/ping"));
@@ -45,7 +46,8 @@ class TenantDomainWebFilterTest {
 
         StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
 
-        assertEquals("altia", captured.get());
+        assertNull(captured.get());
+        org.mockito.Mockito.verifyNoInteractions(tenantRegistryService);
     }
 
     @Test
@@ -128,7 +130,8 @@ class TenantDomainWebFilterTest {
     void filter_tenantNotRegistered_returns404() {
         when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("altia")));
         MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("https://unknown.eudistack.net/issuer/ping"));
+                MockServerHttpRequest.get("https://altia.eudistack.net/issuer/ping")
+                        .header(X_TENANT_HEADER, "unknown"));
         WebFilterChain chain = ex -> Mono.error(new AssertionError("chain must not be invoked"));
 
         StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
@@ -219,10 +222,11 @@ class TenantDomainWebFilterTest {
     }
 
     @Test
-    void filter_hostWithStgSuffix_stripsBeforeRegistryLookup() {
+    void filter_headerWithStgSuffix_stripsBeforeRegistryLookup() {
         when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("sandbox")));
         MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("https://sandbox-stg.eudistack.net/issuer/ping"));
+                MockServerHttpRequest.get("https://sandbox-stg.eudistack.net/issuer/ping")
+                        .header(X_TENANT_HEADER, "sandbox-stg"));
         AtomicReference<String> captured = new AtomicReference<>();
         WebFilterChain chain = ex -> Mono.deferContextual(ctx -> {
             captured.set(ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null));
@@ -235,10 +239,11 @@ class TenantDomainWebFilterTest {
     }
 
     @Test
-    void filter_hostWithDevSuffix_stripsBeforeRegistryLookup() {
+    void filter_headerWithDevSuffix_stripsBeforeRegistryLookup() {
         when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("platform")));
         MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("https://platform-dev.eudistack.net/issuer/ping"));
+                MockServerHttpRequest.get("https://platform-dev.eudistack.net/issuer/ping")
+                        .header(X_TENANT_HEADER, "platform-dev"));
         AtomicReference<String> captured = new AtomicReference<>();
         WebFilterChain chain = ex -> Mono.deferContextual(ctx -> {
             captured.set(ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null));
@@ -251,10 +256,11 @@ class TenantDomainWebFilterTest {
     }
 
     @Test
-    void filter_hostWithPreSuffix_stripsBeforeRegistryLookup() {
+    void filter_headerWithPreSuffix_stripsBeforeRegistryLookup() {
         when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("dome")));
         MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("https://dome-pre.eudistack.net/issuer/ping"));
+                MockServerHttpRequest.get("https://dome-pre.eudistack.net/issuer/ping")
+                        .header(X_TENANT_HEADER, "dome-pre"));
         AtomicReference<String> captured = new AtomicReference<>();
         WebFilterChain chain = ex -> Mono.deferContextual(ctx -> {
             captured.set(ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null));
@@ -270,7 +276,8 @@ class TenantDomainWebFilterTest {
     void filter_tenantWithoutEnvSuffix_passesThroughUnchanged() {
         when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("kpmg")));
         MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("https://kpmg.eudistack.net/issuer/ping"));
+                MockServerHttpRequest.get("https://kpmg.eudistack.net/issuer/ping")
+                        .header(X_TENANT_HEADER, "kpmg"));
         AtomicReference<String> captured = new AtomicReference<>();
         WebFilterChain chain = ex -> Mono.deferContextual(ctx -> {
             captured.set(ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null));

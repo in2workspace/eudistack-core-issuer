@@ -7,7 +7,6 @@ import es.in2.issuer.backend.shared.domain.model.dto.CredentialBuildResult;
 import es.in2.issuer.backend.statuslist.domain.util.factory.IssuerFactory;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
-import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -31,7 +30,6 @@ public class GenericCredentialBuilder {
 
     private final ObjectMapper objectMapper;
     private final IssuerFactory issuerFactory;
-    private final AccessTokenService accessTokenService;
 
     private static final String DC_SD_JWT = "dc+sd-jwt";
 
@@ -70,14 +68,13 @@ public class GenericCredentialBuilder {
 
         String subject = extractSubject(profile, payload);
 
-        return extractOrganizationIdentifier(profile, payload)
-                .map(orgId -> CredentialBuildResult.builder()
-                        .credentialDataSet(credentialJson)
-                        .subject(subject)
-                        .organizationIdentifier(orgId)
-                        .validFrom(Timestamp.from(parseInstant(validFrom)))
-                        .validUntil(Timestamp.from(parseInstant(validUntil)))
-                        .build());
+        // The organization of the process is not read from the content: the authorization sets it (EUD-253 FR-07).
+        return Mono.just(CredentialBuildResult.builder()
+                .credentialDataSet(credentialJson)
+                .subject(subject)
+                .validFrom(Timestamp.from(parseInstant(validFrom)))
+                .validUntil(Timestamp.from(parseInstant(validUntil)))
+                .build());
     }
 
     /**
@@ -321,21 +318,6 @@ public class GenericCredentialBuilder {
         }
 
         return result;
-    }
-
-    private Mono<String> extractOrganizationIdentifier(CredentialProfile profile, JsonNode payload) {
-        CredentialProfile.OrganizationExtraction extraction = profile.organizationExtraction();
-        if (extraction == null) {
-            return Mono.just("");
-        }
-
-        if ("session".equals(extraction.strategy())) {
-            return accessTokenService.getOrganizationIdFromCurrentSession();
-        }
-
-        // "field" strategy
-        String value = resolveFieldValue(payload, extraction.field());
-        return Mono.just(value != null ? value : "");
     }
 
     private String resolveFieldValue(JsonNode node, String fieldPath) {

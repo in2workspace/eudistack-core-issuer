@@ -20,33 +20,27 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.HEALTH
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.PROMETHEUS_PATH;
 
 /**
- * Resolves the tenant identifier, validates that it exists in {@code tenant_registry}
- * and stores it in the Reactor subscriber context.
+ * Resolves the tenant of the request from the {@code X-Tenant} header, validates that it exists in
+ * {@code tenant_registry} and stores it in the Reactor subscriber context.
  *
- * <p>Resolution order:
- * <ol>
- *     <li>{@code X-Tenant} header, trimmed, validated and normalized.</li>
- *     <li>First segment of the request host, validated and normalized. With
- *         {@code forward-headers-strategy: framework}, this is already the effective
- *         forwarded host, so CloudFront/ALB deployments work transparently.
- *         Example: {@code kpmg.eudistack.net} &rarr; {@code kpmg}.</li>
- * </ol>
+ * <p>The header is the only source (EUD-253 FR-01, point 12): the tenant is never deduced from the
+ * request host. The entry infrastructure resolves it from {@code <tenant>.<env>.<domain>}, sets the
+ * header and discards any value sent by the client (EUD-274).
  *
- * <p>If neither source produces a value (bare IP, missing host, internal calls or
- * health checks), the request passes through without a tenant in context.
+ * <p>Without the header (internal calls, health checks) the request passes through without a tenant
+ * in context; every tenant-scoped action then fails closed downstream.
  *
  * <p>Tenant-agnostic operational paths bypass this filter entirely:
  * {@value es.in2.issuer.backend.shared.domain.util.EndpointsConstants#HEALTH_PATH} and
- * {@value es.in2.issuer.backend.shared.domain.util.EndpointsConstants#PROMETHEUS_PATH}
- * — probes may hit the container IP directly, so the host may not contain a tenant segment.
+ * {@value es.in2.issuer.backend.shared.domain.util.EndpointsConstants#PROMETHEUS_PATH}.
  *
  * <p>A valid tenant may contain only letters, digits, hyphens and underscores.
  *
  * <p>Environment suffixes such as {@code -stg}, {@code -dev} and {@code -pre}
  * are stripped before the registry lookup.
  *
- * <p>Returns 400 if the resolved identifier is malformed, 404 if the tenant does
- * not exist in {@code tenant_registry}.
+ * <p>Returns 400 if the identifier is malformed, 404 if the tenant does not exist in
+ * {@code tenant_registry}.
  */
 @Slf4j
 @Component
@@ -91,12 +85,8 @@ public class TenantDomainWebFilter implements WebFilter {
 
     private Mono<String> resolveTenant(ServerWebExchange exchange) {
         String headerValue = exchange.getRequest().getHeaders().getFirst(X_TENANT_HEADER);
-        String tenantFromHost = extractTenantFromHost(exchange);
-
         TenantCandidate headerCandidate = normalizeCandidate(headerValue, X_TENANT_HEADER + " header");
-        TenantCandidate hostCandidate = normalizeCandidate(tenantFromHost, "request host");
 
-        // Reject malformed header immediately because it has priority over host resolution.
         if (headerCandidate.hasMalformedTenant()) {
             log.warn("Rejected malformed tenant identifier from {}: {}",
                     headerCandidate.source(), headerCandidate.originalTenant());
@@ -106,55 +96,24 @@ public class TenantDomainWebFilter implements WebFilter {
                     .then(Mono.empty());
         }
 
-        // Reject malformed host only when there is no valid header to use instead.
-        if (hostCandidate.hasMalformedTenant() && !headerCandidate.hasTenant()) {
-            log.warn("Rejected malformed tenant identifier from {}: {}",
-                    hostCandidate.source(), hostCandidate.originalTenant());
-            return writeProblem(exchange, HttpStatus.BAD_REQUEST,
-                    "INVALID_TENANT", "Invalid tenant identifier",
-                    "Tenant identifier '" + hostCandidate.originalTenant() + "' is not a valid schema name")
-                    .then(Mono.empty());
-        }
-
         // Nothing to look up. The request can continue without tenant context.
-        if (!headerCandidate.hasTenant() && !hostCandidate.hasTenant()) {
+        if (!headerCandidate.hasTenant()) {
             return Mono.just("");
         }
 
         return tenantRegistryService.getActiveTenantSchemas()
                 .flatMap(schemas -> {
-                    if (headerCandidate.hasTenant()
-                            && schemas.contains(headerCandidate.resolvedTenant())) {
+                    if (schemas.contains(headerCandidate.resolvedTenant())) {
                         log.debug("Resolved tenant '{}' from {}",
                                 headerCandidate.resolvedTenant(), headerCandidate.source());
                         return Mono.just(headerCandidate.resolvedTenant());
                     }
 
-                    if (headerCandidate.hasTenant()) {
-                        log.warn("Tenant '{}' from {} not found in tenant_registry",
-                                headerCandidate.resolvedTenant(), headerCandidate.source());
-
-                        return writeProblem(exchange, HttpStatus.NOT_FOUND,
-                                "TENANT_NOT_FOUND", "Tenant not found",
-                                "Tenant '" + headerCandidate.resolvedTenant() + "' does not exist")
-                                .then(Mono.empty());
-                    }
-
-                    if (hostCandidate.hasTenant()
-                            && schemas.contains(hostCandidate.resolvedTenant())) {
-                        log.debug("Resolved tenant '{}' from {}",
-                                hostCandidate.resolvedTenant(), hostCandidate.source());
-                        return Mono.just(hostCandidate.resolvedTenant());
-                    }
-
-                    String missingTenant = hostCandidate.resolvedTenant();
-
                     log.warn("Tenant '{}' from {} not found in tenant_registry",
-                            missingTenant, hostCandidate.source());
-
+                            headerCandidate.resolvedTenant(), headerCandidate.source());
                     return writeProblem(exchange, HttpStatus.NOT_FOUND,
                             "TENANT_NOT_FOUND", "Tenant not found",
-                            "Tenant '" + missingTenant + "' does not exist")
+                            "Tenant '" + headerCandidate.resolvedTenant() + "' does not exist")
                             .then(Mono.empty());
                 });
     }
@@ -211,16 +170,6 @@ public class TenantDomainWebFilter implements WebFilter {
             }
         }
         return false;
-    }
-
-    private static String extractTenantFromHost(ServerWebExchange exchange) {
-        String host = exchange.getRequest().getURI().getHost();
-        if (host == null || host.isBlank()) {
-            return null;
-        }
-
-        int dot = host.indexOf('.');
-        return dot < 0 ? host : host.substring(0, dot);
     }
 
     private static Mono<Void> writeProblem(ServerWebExchange exchange, HttpStatus status,
