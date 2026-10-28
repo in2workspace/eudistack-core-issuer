@@ -4,15 +4,19 @@ import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFailedException
 import es.in2.issuer.backend.signing.domain.onboarding.PreparedOnboarding;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class PreparedOnboardingFilesTest {
 
@@ -125,5 +129,53 @@ class PreparedOnboardingFilesTest {
         assertThat(read.importedAt()).isEqualTo(when);
         assertThat(read.keyArn()).isEqualTo(PREPARED.keyArn());
         assertThat(read.discardedAt()).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"../secret.bin", "/etc/hostname", "sub/own-key-cgcom-op-1.import-token.bin",
+            "other.bin", "own-key-kpmg-op-1.import-token.bin"})
+    void read_stateNamingATokenFileThatIsNotAPlainNameOfThisPreparation_isRefusedAndNotRead(String tokenFile)
+            throws Exception {
+        new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
+        Path state = directory.resolve("own-key-cgcom-op-1.state.json");
+        Files.writeString(state, Files.readString(state).replace("own-key-cgcom-op-1.import-token.bin", tokenFile));
+
+        assertThatThrownBy(() -> PreparedOnboardingFiles.read(state, null))
+                .isInstanceOf(OnboardingFailedException.class)
+                .hasMessageContaining("not a file of this preparation");
+    }
+
+    @Test
+    void write_onAPosixFileSystem_createsAPrivateDirectoryAndPrivateFiles() throws Exception {
+        assumeTrue(directory.getFileSystem().supportedFileAttributeViews().contains("posix"));
+        Path out = directory.resolve("out");
+
+        new PreparedOnboardingFiles(out).write(PREPARED, new byte[] {1}, new byte[] {2});
+
+        assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(out))).isEqualTo("rwx------");
+        try (var files = Files.list(out)) {
+            assertThat(files.map(path -> {
+                try {
+                    return PosixFilePermissions.toString(Files.getPosixFilePermissions(path));
+                } catch (java.io.IOException e) {
+                    throw new IllegalStateException(e);
+                }
+            })).hasSize(4).containsOnly("rw-------");
+        }
+    }
+
+    @Test
+    void markImported_onAPosixFileSystem_keepsTheStateFilePrivateAndLeavesNoTemporaryFile() throws Exception {
+        new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
+        Path state = directory.resolve("own-key-cgcom-op-1.state.json");
+
+        PreparedOnboardingFiles.around(state).markImported(PREPARED, Instant.parse("2026-10-27T13:00:00Z"));
+
+        if (directory.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+            assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(state))).isEqualTo("rw-------");
+        }
+        try (var files = Files.list(directory)) {
+            assertThat(files.map(path -> path.getFileName().toString())).noneMatch(name -> name.endsWith(".tmp"));
+        }
     }
 }

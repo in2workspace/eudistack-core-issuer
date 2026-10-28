@@ -14,7 +14,10 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.FileAttribute;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
@@ -29,12 +32,18 @@ import java.util.List;
  *   <li>{@code .state.json}: the {@link PreparedOnboarding}, without secrets.</li>
  * </ul>
  *
- * <p>No file is ever overwritten, except the state file, which {@code discard} marks. A renewal leaves only the
- * state file: there is no wrapping key and no token.
+ * <p>No file is ever overwritten, except the state file, which {@code discard} and {@code import} mark: it is
+ * rewritten through a temporary file and an atomic move, so a failure never leaves it half written. A renewal leaves
+ * only the state file: there is no wrapping key and no token. Where the file system is POSIX, the directory this
+ * creates is {@code 0700} and every file {@code 0600}; elsewhere (Windows) the defaults of the file system apply.
  */
 public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
 
     private static final int STATE_VERSION = 1;
+    private static final FileAttribute<?> OWNER_ONLY_FILE = PosixFilePermissions.asFileAttribute(
+            PosixFilePermissions.fromString("rw-------"));
+    private static final FileAttribute<?> OWNER_ONLY_DIRECTORY = PosixFilePermissions.asFileAttribute(
+            PosixFilePermissions.fromString("rwx------"));
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
@@ -85,7 +94,7 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
         String prefix = prefix(prepared);
         String tokenFile = prepared.renewal() ? null : prefix + ".import-token.bin";
         try {
-            Files.createDirectories(outputDirectory);
+            createDirectories(outputDirectory);
             if (!prepared.renewal()) {
                 create(outputDirectory.resolve(prefix + ".wrapping-public-key.der"), wrappingPublicKeyDer);
                 create(outputDirectory.resolve(prefix + ".wrapping-public-key.pem"), pem(wrappingPublicKeyDer));
@@ -116,7 +125,7 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
     private void rewrite(PreparedOnboarding marked) {
         String prefix = prefix(marked);
         try {
-            Files.write(stateFile != null ? stateFile : outputDirectory.resolve(prefix + ".state.json"),
+            replaceAtomically(stateFile != null ? stateFile : outputDirectory.resolve(prefix + ".state.json"),
                     MAPPER.writeValueAsBytes(document(marked, marked.renewal() ? null : prefix + ".import-token.bin")));
         } catch (IOException e) {
             throw new OnboardingFailedException("could not mark the state file", e);
@@ -146,7 +155,7 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
             byte[] token = null;
             if (!state.renewal() && state.importTokenFile() != null) {
                 Path tokenPath = importTokenFile != null ? importTokenFile
-                        : stateFile.toAbsolutePath().resolveSibling(state.importTokenFile());
+                        : stateFile.toAbsolutePath().resolveSibling(requireOwnTokenFileName(state));
                 token = readTokenUnlessDiscarded(tokenPath, state);
             }
             return new Loaded(new PreparedOnboarding(state.operationId(), state.tenant(), state.keyArn(), state.alias(),
@@ -164,8 +173,55 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
         return state.discardedAt() != null && !Files.exists(tokenPath) ? new byte[0] : Files.readAllBytes(tokenPath);
     }
 
+    /**
+     * The state file is not trusted: the token it names must be a plain file name of this preparation, not a path
+     * that sends the tool to read any file and hand it to KMS as a token.
+     */
+    private static String requireOwnTokenFileName(StateDocument state) {
+        String name = state.importTokenFile();
+        String prefix = "own-key-" + state.tenant() + "-" + state.operationId();
+        if (name.contains("/") || name.contains("\\") || name.contains("..") || !name.startsWith(prefix)
+                || !name.equals(Path.of(name).getFileName().toString())) {
+            throw new OnboardingFailedException("the state file names an import token file that is not a file of "
+                    + "this preparation (own-key-<tenant>-<operationId>...): it is not read");
+        }
+        return name;
+    }
+
+    private static boolean isPosix(Path path) {
+        return path.getFileSystem().supportedFileAttributeViews().contains("posix");
+    }
+
+    /** A new directory is private to the operator; an existing one is the operator's own choice and is left alone. */
+    private static void createDirectories(Path directory) throws IOException {
+        if (isPosix(directory)) {
+            Files.createDirectories(directory, OWNER_ONLY_DIRECTORY);
+        } else {
+            Files.createDirectories(directory);
+        }
+    }
+
     private static void create(Path file, byte[] content) throws IOException {
-        Files.write(file, content, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+        if (isPosix(file)) {
+            Files.createFile(file, OWNER_ONLY_FILE);
+        } else {
+            Files.createFile(file);
+        }
+        Files.write(file, content, StandardOpenOption.WRITE);
+    }
+
+    /** Temporary file next to the target, then an atomic move over it: the state is never half written. */
+    private static void replaceAtomically(Path target, byte[] content) throws IOException {
+        Path directory = target.toAbsolutePath().getParent();
+        Path temporary = isPosix(directory) ? Files.createTempFile(directory, ".state-", ".tmp", OWNER_ONLY_FILE)
+                : Files.createTempFile(directory, ".state-", ".tmp");
+        try {
+            Files.write(temporary, content, StandardOpenOption.WRITE);
+            Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException | RuntimeException e) {
+            Files.deleteIfExists(temporary);
+            throw e;
+        }
     }
 
     private static byte[] pem(byte[] der) {
