@@ -82,6 +82,13 @@ public interface OwnKeyStorePort {
     /** A lock of {@link #tryLockOperation}; closing it releases it and never throws. */
     interface OperationLock extends AutoCloseable {
 
+        /**
+         * Whether the lock is still held by this run. It can be lost without the run knowing it (the session that held it
+         * ended: a cut connection, a server timeout, a failover); after that, another run of the same operation may have
+         * taken it. Never throws: if it cannot be shown to be held, it is not.
+         */
+        boolean isHeld();
+
         @Override
         void close();
     }

@@ -541,6 +541,33 @@ class JdbcOwnKeyStoreIT {
     }
 
     @Test
+    void tryLockOperation_sessionOfTheLockTerminated_isNoLongerHeldAndAnotherRunCanTakeIt() {
+        JdbcOwnKeyStore anotherProcess = OnboardingTestDatabase.store(sink);
+
+        try (var lock = store.tryLockOperation("op-1").orElseThrow()) {
+            assertThat(lock.isHeld()).isTrue();
+
+            Object pid = scalar("SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND granted AND objsubid = 2 "
+                    + "AND objid = hashtext('op-1')::oid");
+            assertThat(scalar("SELECT pg_terminate_backend(?)", pid)).isEqualTo(true);
+
+            assertThat(lock.isHeld()).as("the session that held it is gone").isFalse();
+            try (var taken = anotherProcess.tryLockOperation("op-1").orElseThrow()) {
+                assertThat(taken.isHeld()).isTrue();
+                assertThat(lock.isHeld()).as("held by another session now, not by this one").isFalse();
+            }
+        }
+    }
+
+    @Test
+    void tryLockOperation_andTheTransactionLockOfATenantWithTheSameName_doNotBlockEachOther() {
+        try (var _ = store.tryLockOperation("cgcom").orElseThrow()) {
+            assertThatCode(() -> OnboardingTestDatabase.store(sink).inTransaction(
+                    tx -> tx.lockActiveConfiguration("cgcom"))).doesNotThrowAnyException();
+        }
+    }
+
+    @Test
     void tryLockOperation_theLockLastsAcrossTransactionsOfTheRun() {
         JdbcOwnKeyStore anotherProcess = OnboardingTestDatabase.store(sink);
 

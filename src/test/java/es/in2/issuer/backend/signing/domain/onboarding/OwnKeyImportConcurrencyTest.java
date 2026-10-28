@@ -230,6 +230,33 @@ class OwnKeyImportConcurrencyTest {
     }
 
     @Test
+    void importKey_failureAfterTheImportWithTheLockLost_doesNotTouchTheKey() throws Exception {
+        var prepared = prepared();
+        kms.duringGetPublicKey = () -> store.lostLocks.add(prepared.operationId());
+        kms.failures.put("getPublicKey", new IllegalStateException("KMS unavailable"));
+        var command = importOf(prepared);
+
+        assertThatThrownBy(() -> onboarding.importKey(command)).isInstanceOf(IllegalStateException.class);
+
+        assertNoKeyWasDisabledOrDeleted();
+        assertThat(store.lockedOperations).isEmpty();
+    }
+
+    @Test
+    void importKey_rejectionAfterTheImportWithTheLockLost_doesNotTouchTheKeyAndIsStillRecorded() throws Exception {
+        var prepared = prepared();
+        kms.duringGetPublicKey = () -> store.lostLocks.add(prepared.operationId());
+        kms.publicKey = new byte[] {0, 1, 2};
+        var command = importOf(prepared);
+
+        assertThatThrownBy(() -> onboarding.importKey(command)).isInstanceOf(OnboardingRejectedException.class);
+
+        assertNoKeyWasDisabledOrDeleted();
+        assertThat(store.eventsInOwnTransaction).singleElement()
+                .satisfies(event -> assertThat(event.reason()).isEqualTo(RejectionReason.INVALID_KEY));
+    }
+
+    @Test
     void importKey_keyNotEnabledAfterTheCommit_failsAndTheCommitStands() throws Exception {
         var prepared = prepared();
         store.onTransactionStart = () -> kms.states.put(FakeKms.KEY_ARN, KeyState.DISABLED);

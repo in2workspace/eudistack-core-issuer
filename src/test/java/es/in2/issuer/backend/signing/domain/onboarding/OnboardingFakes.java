@@ -137,6 +137,8 @@ final class OnboardingFakes {
         final Set<UUID> retired = new HashSet<>();
         final Set<String> tenantsWithoutSchema = new HashSet<>();
         final Set<String> lockedOperations = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        /** Operations whose lock was lost while a run held it (its session ended). */
+        final Set<String> lostLocks = java.util.concurrent.ConcurrentHashMap.newKeySet();
         ActiveConfiguration active;
         RuntimeException failure;
         RuntimeException failureRecordingEvent;
@@ -146,8 +148,20 @@ final class OnboardingFakes {
 
         @Override
         public Optional<OperationLock> tryLockOperation(String operationId) {
-            return lockedOperations.add(operationId)
-                    ? Optional.of(() -> lockedOperations.remove(operationId)) : Optional.empty();
+            if (!lockedOperations.add(operationId)) {
+                return Optional.empty();
+            }
+            return Optional.of(new OperationLock() {
+                @Override
+                public boolean isHeld() {
+                    return !lostLocks.contains(operationId);
+                }
+
+                @Override
+                public void close() {
+                    lockedOperations.remove(operationId);
+                }
+            });
         }
 
         @Override

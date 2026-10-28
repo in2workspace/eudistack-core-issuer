@@ -51,8 +51,15 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
     private static final String UNIQUE_VIOLATION = "23505";
     /** The four secret fields of a QTSP configuration, removed from a row that is withdrawn (H-7). */
     private static final String[] QTSP_SECRET_FIELDS = {"credentialPwd", "clientSecret", "accessKey", "credentialId"};
-    private static final String ONBOARDING_LOCK_PREFIX = "eudistack.own_key_onboarding:";
-    private static final String IMPORT_LOCK_PREFIX = "eudistack.own_key_import:";
+    /**
+     * The two advisory locks of the tool take the two-key form {@code (namespace, hashtext(id))}: the namespace keeps the
+     * lock of a tenant's transaction and the lock of an operation's run apart whatever their hashes, so the transaction of
+     * a run can never wait for the lock its own run holds on another connection.
+     */
+    private static final int TENANT_LOCK_NAMESPACE = 289_001;
+    private static final int OPERATION_LOCK_NAMESPACE = 289_002;
+    /** Seconds to wait for the answer of the session that holds the lock of an operation before taking it as lost. */
+    private static final int LOCK_CHECK_TIMEOUT_SECONDS = 5;
     /**
      * How long a statement of the tool waits for a lock, and how long it may run, inside a transaction: a run that waits
      * on a row or a lock held by another (a reconcile in the middle of its KMS calls, a stuck session) fails instead of
@@ -122,8 +129,10 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         Connection connection = null;
         try {
             connection = open();
-            try (PreparedStatement statement = connection.prepareStatement("SELECT pg_try_advisory_lock(hashtext(?))")) {
-                statement.setString(1, IMPORT_LOCK_PREFIX + operationId);
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "SELECT pg_try_advisory_lock(?, hashtext(?))")) {
+                statement.setInt(1, OPERATION_LOCK_NAMESPACE);
+                statement.setString(2, operationId);
                 try (ResultSet rs = statement.executeQuery()) {
                     if (rs.next() && rs.getBoolean(1)) {
                         return Optional.of(new SessionLock(connection, operationId));
@@ -149,10 +158,39 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
             this.operationId = operationId;
         }
 
+        /**
+         * Asked on the connection of the lock itself: the lock is this session's only if the server still shows it granted
+         * to this very backend. A connection that does not answer in time, or fails, means the lock is lost.
+         */
+        @Override
+        public boolean isHeld() {
+            try {
+                if (!connection.isValid(LOCK_CHECK_TIMEOUT_SECONDS)) {
+                    return false;
+                }
+                try (PreparedStatement statement = connection.prepareStatement("SELECT EXISTS (SELECT 1 FROM pg_locks "
+                        + "WHERE locktype = 'advisory' AND granted AND pid = pg_backend_pid() "
+                        + "AND database = (SELECT oid FROM pg_database WHERE datname = current_database()) "
+                        + "AND classid = ?::oid AND objid = hashtext(?)::oid AND objsubid = 2)")) {
+                    statement.setQueryTimeout(LOCK_CHECK_TIMEOUT_SECONDS);
+                    statement.setInt(1, OPERATION_LOCK_NAMESPACE);
+                    statement.setString(2, operationId);
+                    try (ResultSet rs = statement.executeQuery()) {
+                        return rs.next() && rs.getBoolean(1);
+                    }
+                }
+            } catch (SQLException e) {
+                log.warn("The lock of operation {} could not be checked, so it is taken as lost: {}", operationId,
+                        e.getMessage());
+                return false;
+            }
+        }
+
         @Override
         public void close() {
-            try (PreparedStatement statement = connection.prepareStatement("SELECT pg_advisory_unlock(hashtext(?))")) {
-                statement.setString(1, IMPORT_LOCK_PREFIX + operationId);
+            try (PreparedStatement statement = connection.prepareStatement("SELECT pg_advisory_unlock(?, hashtext(?))")) {
+                statement.setInt(1, OPERATION_LOCK_NAMESPACE);
+                statement.setString(2, operationId);
                 statement.execute();
             } catch (SQLException e) {
                 // Closing the connection below releases the lock of the session anyway.
@@ -345,8 +383,10 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         @Override
         public Optional<ActiveConfiguration> lockActiveConfiguration(String tenantId) {
             return run(() -> {
-                try (PreparedStatement lock = connection.prepareStatement("SELECT pg_advisory_xact_lock(hashtext(?))")) {
-                    lock.setString(1, ONBOARDING_LOCK_PREFIX + tenantId);
+                try (PreparedStatement lock = connection.prepareStatement(
+                        "SELECT pg_advisory_xact_lock(?, hashtext(?))")) {
+                    lock.setInt(1, TENANT_LOCK_NAMESPACE);
+                    lock.setString(2, tenantId);
                     lock.execute();
                 }
                 try (PreparedStatement statement = connection.prepareStatement("SELECT id, modality, own_key_kms_key_ref FROM "

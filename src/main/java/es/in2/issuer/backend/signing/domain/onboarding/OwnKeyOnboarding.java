@@ -263,11 +263,11 @@ public class OwnKeyOnboarding {
         // must not be able to touch a key.
         requireNotMarked(prepared);
         if (command.dryRun()) {
-            return runImport(command);
+            return runImport(command, null);
         }
-        try (var _ = lockOperation(prepared)) {
+        try (var lock = lockOperation(prepared)) {
             requireNotMarked(currentState(prepared, command.artifacts()));
-            return runImport(command);
+            return runImport(command, lock);
         }
     }
 
@@ -307,7 +307,8 @@ public class OwnKeyOnboarding {
         return current;
     }
 
-    private ImportResult runImport(ImportCommand command) {
+    /** @param lock the lock of the operation; {@code null} on a dry run, which takes none */
+    private ImportResult runImport(ImportCommand command, OperationLock lock) {
         PreparedOnboarding prepared = command.prepared();
         Attempt attempt = new Attempt(prepared.tenant(), command.dryRun() ? null : identity.callerArn(), clock.instant());
         attempt.operationId = prepared.operationId();
@@ -341,7 +342,7 @@ public class OwnKeyOnboarding {
             return new ImportResult(prepared.keyArn(), null, attempt.operation(), certificate.spkiSha256Hex());
         }
         return prepared.renewal() ? renewAndActivate(command, attempt, certificate)
-                : importAndActivate(command, attempt, key, certificate);
+                : importAndActivate(command, attempt, key, certificate, lock);
     }
 
     /**
@@ -655,11 +656,12 @@ public class OwnKeyOnboarding {
     }
 
     /**
-     * From the {@code ImportKeyMaterial} call on, any failure disables and schedules the deletion of the key.
-     * Nothing after the commit of the transaction may throw: it would discard a key that is already active.
+     * From the {@code ImportKeyMaterial} call on, any failure disables and schedules the deletion of the key, if the lock
+     * of the operation is still held. Nothing after the commit of the transaction may throw: it would discard a key that
+     * is already active.
      */
     private ImportResult importAndActivate(ImportCommand command, Attempt attempt, OwnKey key,
-                                           ValidatedOwnKeyCertificate certificate) {
+                                           ValidatedOwnKeyCertificate certificate, OperationLock lock) {
         PreparedOnboarding prepared = command.prepared();
         UUID configurationId;
         try {
@@ -671,7 +673,7 @@ public class OwnKeyOnboarding {
             }
             configurationId = store.inTransaction(tx -> activate(tx, attempt, prepared, certificate));
         } catch (OnboardingRejectedException rejected) {
-            retireOwnNewKey(key, statesToRetire(attempt), rejected);
+            retireOwnNewKeyUnderLock(lock, key, statesToRetire(attempt), rejected);
             recordRejection(attempt, rejected);
             throw rejected;
         } catch (CommitOutcomeUnknownException unknown) {
@@ -680,13 +682,28 @@ public class OwnKeyOnboarding {
                     KeyRefs.forLog(prepared.keyArn()));
             throw unknown;
         } catch (RuntimeException failure) {
-            retireOwnNewKey(key, statesToRetire(attempt), failure);
+            retireOwnNewKeyUnderLock(lock, key, statesToRetire(attempt), failure);
             throw failure;
         }
         boolean marked = markImported(command);
         requireTheKeyIsEnabled(attempt.tenant, prepared.keyArn());
         return new ImportResult(prepared.keyArn(), configurationId, attempt.operation(), certificate.spkiSha256Hex(),
                 marked);
+    }
+
+    /**
+     * The compensation of a key whose material this run may have imported is destructive, and is only safe while no other
+     * run of the operation can be at work: if the lock was lost (its session ended), another run may have taken it since
+     * and be activating that very key. Then the key is NOT touched and the operator is told to check it.
+     */
+    private void retireOwnNewKeyUnderLock(OperationLock lock, OwnKey key, Set<KeyState> allowedStates, Throwable cause) {
+        if (!lock.isHeld()) {
+            log.error("The lock of operation {} was lost (its database session ended), so another run may have taken the "
+                    + "operation since: the KMS key {} is NOT touched. Check it by hand.", key.operationId(),
+                    KeyRefs.forLog(key.arn()));
+            return;
+        }
+        retireOwnNewKey(key, allowedStates, cause);
     }
 
     /** The key is enabled only if THIS run imported its material; otherwise it must still be waiting for it. */
