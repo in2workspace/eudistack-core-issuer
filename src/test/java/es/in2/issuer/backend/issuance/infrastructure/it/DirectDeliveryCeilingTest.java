@@ -18,6 +18,7 @@ import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
 import es.in2.issuer.backend.shared.domain.service.DeliveryEligibilityResolver;
 import es.in2.issuer.backend.shared.domain.service.HolderDidFallbackAuditor;
+import es.in2.issuer.backend.shared.domain.service.IssuancePayloadNormalizer;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.PayloadSchemaValidator;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
@@ -51,7 +52,7 @@ import static org.mockito.Mockito.when;
  * point is exercising {@link SchemaDeliveryCeiling} and {@link CredentialProfileRegistry} for real,
  * loaded from the classpath profile fixture, exactly as {@link IssuanceWorkflowImpl} wires them in
  * production. Everything the ceiling check runs <em>before</em> -- {@link PayloadSchemaValidator},
- * {@link IssuancePdpService} -- and everything a rejected request must never reach -- signing, status
+ * {@link PowerAuthorizationService} -- and everything a rejected request must never reach -- signing, status
  * list, persistence, the Wallet offer trigger -- are mocked, because those are the actual I/O
  * boundaries {@link IssuanceWorkflowImpl} injects.
  */
@@ -89,6 +90,7 @@ class DirectDeliveryCeilingTest {
 
         payloadSchemaValidator = mock(PayloadSchemaValidator.class);
         powerAuthorizationService = mock(PowerAuthorizationService.class);
+        IssuancePayloadNormalizer issuancePayloadNormalizer = mock(IssuancePayloadNormalizer.class);
         issuanceService = mock(IssuanceService.class);
         credentialOfferService = mock(CredentialOfferService.class);
         credentialSignerWorkflow = mock(CredentialSignerWorkflow.class);
@@ -111,11 +113,13 @@ class DirectDeliveryCeilingTest {
         when(payloadSchemaValidator.validate(any(), any())).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new IssuanceAuthorization(null, "ORG", java.util.List.of("E1"))));
+        when(issuancePayloadNormalizer.normalize(any(), any())).thenAnswer(invocation -> invocation.getArgument(1));
 
         IssuanceWorkflowImpl issuanceWorkflow = new IssuanceWorkflowImpl(
                 issuanceService,
                 credentialOfferService,
                 powerAuthorizationService,
+                issuancePayloadNormalizer,
                 payloadSchemaValidator,
                 credentialProfileRegistry,
                 issuanceMetrics,

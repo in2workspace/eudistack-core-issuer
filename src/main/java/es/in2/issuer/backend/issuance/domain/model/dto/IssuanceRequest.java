@@ -57,4 +57,9 @@ public record IssuanceRequest(
         return new IssuanceRequest(credentialConfigurationId, payload, delivery, email, grantType, holderKey,
                 decidedOrganization);
     }
+
+    public IssuanceRequest withPayload(JsonNode newPayload) {
+        return new IssuanceRequest(credentialConfigurationId, newPayload, delivery, email, grantType, holderKey,
+                organization);
+    }
 }
