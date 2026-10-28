@@ -48,7 +48,7 @@ class PayloadSchemaValidatorImplDoctorIdSchemaTest {
     void setUp() {
         CredentialProfileRegistry registry = new CredentialProfileRegistry(
                 objectMapper, new PathMatchingResourcePatternResolver(), "file:dev-tools/credentials/profiles");
-        validator = new PayloadSchemaValidatorImpl(registry);
+        validator = new PayloadSchemaValidatorImpl(new PayloadSubschemaResolver(registry));
     }
 
     private ObjectNode payload() throws Exception {

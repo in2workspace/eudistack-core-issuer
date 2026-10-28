@@ -63,6 +63,15 @@ public class IssuanceMetrics {
                 .increment();
     }
 
+    public void recordOptionalStringRemoved(String configurationId, String path, String reason) {
+        Counter.builder("issuance.payload.optional_string.removed")
+                .tag("credential_configuration_id", configurationId)
+                .tag("path", path)
+                .tag("reason", reason)
+                .register(meterRegistry)
+                .increment();
+    }
+
     private Counter counter(String configurationId, String delivery, String outcome) {
         return Counter.builder("issuance.requests")
                 .tag(TAG_TENANT, currentTenant())
