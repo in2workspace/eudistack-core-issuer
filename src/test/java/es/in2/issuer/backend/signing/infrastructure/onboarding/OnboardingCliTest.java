@@ -363,6 +363,95 @@ class OnboardingCliTest {
     }
 
     @Test
+    void run_prepareInProductionWithTheKeyPolicyInTheEnvironment_passesItAndPrintsItsSha256() throws Exception {
+        production = true;
+        when(onboarding.prepare(any())).thenReturn(new PrepareResult(prepared(), Operation.CREATE, "ab".repeat(32)));
+        String content = "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"Gestión\"}]}";
+        env.put("OWN_KEY_KEY_POLICY_JSON", content);
+        Path chain = chainFile();
+
+        int exitCode = run("prepare", "--tenant", "cgcom", "--cert-chain", chain.toString(), "--out-dir",
+                directory.toString(), "--trust-anchor", chain.toString(), "--expected-org-id", "VATES-Q0000000X");
+
+        assertThat(exitCode).as(err()).isEqualTo(OnboardingCli.EXIT_OK);
+        assertThat(openedWith.get().keyPolicy()).isEqualTo(content);
+        assertThat(out()).contains("key policy  : sha256 " + sha256Hex(content.getBytes(StandardCharsets.UTF_8)))
+                .doesNotContain("2012-10-17");
+    }
+
+    @Test
+    void run_keyPolicyFileWithNonAsciiText_hashesTheUtf8BytesThatArePassedOn() throws Exception {
+        when(onboarding.prepare(any())).thenReturn(new PrepareResult(prepared(), Operation.CREATE, "ab".repeat(32)));
+        String content = "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"Gestión\"}]}";
+        Path keyPolicy = Files.write(directory.resolve("policy.json"), content.getBytes(StandardCharsets.UTF_8));
+
+        int exitCode = run("prepare", "--tenant", "cgcom", "--cert-chain", chainFile().toString(), "--out-dir",
+                directory.toString(), "--key-policy", keyPolicy.toString());
+
+        assertThat(exitCode).as(err()).isEqualTo(OnboardingCli.EXIT_OK);
+        assertThat(openedWith.get().keyPolicy()).isEqualTo(content);
+        assertThat(out()).contains("key policy  : sha256 " + sha256Hex(Files.readAllBytes(keyPolicy)));
+    }
+
+    @Test
+    void run_keyPolicyFileAndKeyPolicyInTheEnvironment_isAUsageError() throws Exception {
+        Path keyPolicy = Files.writeString(directory.resolve("policy.json"), "{\"Version\":\"2012-10-17\"}");
+        env.put("OWN_KEY_KEY_POLICY_JSON", "{\"Version\":\"2012-10-17\"}");
+
+        assertThat(run("prepare", "--tenant", "cgcom", "--cert-chain", chainFile().toString(), "--out-dir",
+                directory.toString(), "--key-policy", keyPolicy.toString())).isEqualTo(OnboardingCli.EXIT_USAGE);
+
+        assertThat(err()).contains("given twice", "OWN_KEY_KEY_POLICY_JSON");
+        verifyNoInteractions(onboarding);
+    }
+
+    @Test
+    void run_keyPolicyFileWithAByteOrderMark_isAUsageError() throws Exception {
+        byte[] withBom = ("﻿{\"Version\":\"2012-10-17\"}").getBytes(StandardCharsets.UTF_8);
+        Path keyPolicy = Files.write(directory.resolve("policy.json"), withBom);
+
+        assertThat(run("prepare", "--tenant", "cgcom", "--cert-chain", chainFile().toString(), "--out-dir",
+                directory.toString(), "--key-policy", keyPolicy.toString())).isEqualTo(OnboardingCli.EXIT_USAGE);
+
+        assertThat(err()).contains("byte order mark");
+        verifyNoInteractions(onboarding);
+    }
+
+    @Test
+    void run_keyPolicyInTheEnvironmentWithAByteOrderMark_isAUsageError() throws Exception {
+        env.put("OWN_KEY_KEY_POLICY_JSON", "﻿{\"Version\":\"2012-10-17\"}");
+
+        assertThat(run("prepare", "--tenant", "cgcom", "--cert-chain", chainFile().toString(), "--out-dir",
+                directory.toString())).isEqualTo(OnboardingCli.EXIT_USAGE);
+
+        assertThat(err()).contains("OWN_KEY_KEY_POLICY_JSON", "byte order mark");
+    }
+
+    @Test
+    void run_keyPolicyFileThatIsNotUtf8_isAUsageError() throws Exception {
+        // "Gestión" in ISO-8859-1: the 0xF3 byte alone is not UTF-8
+        byte[] latin1 = "{\"Version\":\"2012-10-17\",\"Sid\":\"Gestión\"}".getBytes(StandardCharsets.ISO_8859_1);
+        Path keyPolicy = Files.write(directory.resolve("policy.json"), latin1);
+
+        assertThat(run("prepare", "--tenant", "cgcom", "--cert-chain", chainFile().toString(), "--out-dir",
+                directory.toString(), "--key-policy", keyPolicy.toString())).isEqualTo(OnboardingCli.EXIT_USAGE);
+
+        assertThat(err()).contains("not valid UTF-8");
+        verifyNoInteractions(onboarding);
+    }
+
+    @Test
+    void run_keyPolicyInTheEnvironmentForAnotherCommand_isIgnored() {
+        env.put("OWN_KEY_KEY_POLICY_JSON", "not even json");
+
+        assertThat(run("reconcile")).isEqualTo(OnboardingCli.EXIT_OK);
+    }
+
+    private static String sha256Hex(byte[] bytes) throws Exception {
+        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+    }
+
+    @Test
     void run_nonProductionWithoutAKeyPolicy_goesAheadWithTheKmsDefault() throws Exception {
         when(onboarding.prepare(any())).thenReturn(new PrepareResult(prepared(), Operation.CREATE, "ab".repeat(32)));
 

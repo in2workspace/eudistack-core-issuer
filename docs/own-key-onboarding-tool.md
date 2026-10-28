@@ -104,6 +104,7 @@ Arguments or environment variables; an argument wins. The names of the database 
 | Validations only | `--dry-run` | `OWN_KEY_DRY_RUN` |
 | Where the audit events go: `log` (default) or `outbox` | `--audit-sink` | `OWN_KEY_AUDIT_SINK` |
 | `prepare`: tenant, chain (PEM, leaf first, root excluded), output directory, alias | `--tenant`, `--cert-chain`, `--out-dir`, `--alias` | `OWN_KEY_TENANT`, `OWN_KEY_CERT_CHAIN`, `OWN_KEY_OUT_DIR`, `OWN_KEY_ALIAS` |
+| `prepare`: key policy, a file or the JSON itself (one of them, mandatory unless `--non-production`) | `--key-policy` (file) | `OWN_KEY_KEY_POLICY` (file), `OWN_KEY_KEY_POLICY_JSON` (the JSON) |
 | `import`: state, wrapped key material, import token (default: next to the state) | `--state`, `--key-material`, `--import-token` | `OWN_KEY_STATE`, `OWN_KEY_KEY_MATERIAL`, `OWN_KEY_IMPORT_TOKEN` |
 | `prepare` and `import`: trust anchor and expected organization id (mandatory unless `--non-production`) | `--trust-anchor`, `--expected-org-id` | `OWN_KEY_TRUST_ANCHOR`, `OWN_KEY_EXPECTED_ORG_ID` |
 | Skip the production checks (local and STG only) | `--non-production` | none: a command line argument only |
@@ -113,11 +114,21 @@ Arguments or environment variables; an argument wins. The names of the database 
 
 The default alias is `alias/own-key-<tenant>-<operationId>`.
 
-**Key policy.** `prepare` passes the JSON of `--key-policy` (`OWN_KEY_KEY_POLICY`) to `CreateKey`. In production mode
-(the default) it refuses to create a key without it, so the key never gets the KMS default policy, which delegates
-everything to the IAM of the account. With `--non-production` and no policy it logs a warning and uses the KMS default
-policy. Infra owns the content of the policy; the tool only checks that the file is JSON. `prepare` prints (`key policy  : sha256 <hex>`) and logs the **SHA-256 of the policy file it applied**, never its content, so that it can be shown afterwards which policy each key was created with; compare it with the hash of the policy infra approved. `--dry-run` creates no key and
-needs none.
+**Key policy.** `prepare` passes a JSON key policy to `CreateKey`, taken from one of two sources, never both (both
+set is a usage error, exit 64):
+
+- a file, `--key-policy <json file>` (or `OWN_KEY_KEY_POLICY` with its path), for an operator's workstation;
+- the JSON itself in the environment variable `OWN_KEY_KEY_POLICY_JSON`, for a task that injects it from SSM Parameter
+  Store (see *Running in production*). `prepare` is the only command that reads it; the others ignore it.
+
+In production mode (the default) it refuses to create a key without one of them, so the key never gets the KMS default
+policy, which delegates everything to the IAM of the account. With `--non-production` and neither it logs a warning and
+uses the KMS default policy. Infra owns the content of the policy; the tool only checks that it is JSON. The file must be
+UTF-8 without a byte order mark, and neither source may start with one: anything else is a usage error, because the
+policy applied would not be the one hashed. `prepare` prints (`key policy  : sha256 <hex>`) and logs the **SHA-256 of
+the UTF-8 bytes of the policy it passed to KMS**, never its content, so that it can be shown afterwards which policy
+each key was created with; compare it with the hash of the policy infra approved. `--dry-run` creates no key and needs
+none.
 
 **State file.** `prepare` stores, next to the key and the certificate, a summary of its policy (production yes/no,
 SHA-256 of the trust anchor, organization id). A successful `import` marks the state `importedAt`: it is consumed and

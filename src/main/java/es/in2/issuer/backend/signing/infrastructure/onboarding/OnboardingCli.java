@@ -21,6 +21,10 @@ import lombok.extern.slf4j.Slf4j;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.net.URI;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -127,6 +131,11 @@ public final class OnboardingCli {
     }
 
     private static final String ENV_DB_PASSWORD = "SPRING_R2DBC_PASSWORD";
+    /**
+     * The key policy itself (its JSON), environment only: the way a task injects it from a parameter store without a
+     * file. Read by {@code prepare} only, and never together with {@code --key-policy}.
+     */
+    private static final String ENV_KEY_POLICY_JSON = "OWN_KEY_KEY_POLICY_JSON";
     private static final String ENV_AWS_REGION = "AWS_REGION";
     /** No longer read: its presence is an error, so that a leftover cannot go unnoticed. */
     private static final String ENV_NON_PRODUCTION_REMOVED = "OWN_KEY_NON_PRODUCTION";
@@ -179,8 +188,10 @@ public final class OnboardingCli {
               --cert-chain <pem file>        [OWN_KEY_CERT_CHAIN] leaf first, root excluded
               --out-dir <dir>                [OWN_KEY_OUT_DIR]
               --alias <alias/name>           [OWN_KEY_ALIAS] default alias/own-key-<tenant>-<operation id>
-              --key-policy <json file>       [OWN_KEY_KEY_POLICY] key policy of the new key; required unless
-                                             --non-production (then, without it, the KMS default policy is used)
+              --key-policy <json file>       [OWN_KEY_KEY_POLICY] key policy of the new key, UTF-8 without BOM
+              (key policy JSON itself)       [OWN_KEY_KEY_POLICY_JSON], environment only; not with --key-policy.
+                                             One of the two is required unless --non-production (then, without
+                                             either, the KMS default policy is used)
             import
               --state <file>                 [OWN_KEY_STATE] the state file written by prepare
               --key-material <file>          [OWN_KEY_KEY_MATERIAL] the private key wrapped by the customer;
@@ -433,15 +444,32 @@ public final class OnboardingCli {
             requireForProduction(invocation, Opt.TRUST_ANCHOR);
             requireForProduction(invocation, Opt.EXPECTED_ORG_ID);
         }
-        if (invocation.command() == Command.PREPARE && !invocation.dryRun() && !invocation.has(Opt.KEY_POLICY)) {
-            requireKeyPolicyUnlessNonProduction(production);
+        if (invocation.command() == Command.PREPARE) {
+            requireOneKeyPolicySource(invocation);
+            if (!invocation.dryRun() && !invocation.has(Opt.KEY_POLICY) && keyPolicyJson(invocation) == null) {
+                requireKeyPolicyUnlessNonProduction(production);
+            }
         }
+    }
+
+    /** The policy comes from a file or from the environment, never both: which one applied would be a guess. */
+    private static void requireOneKeyPolicySource(Invocation invocation) {
+        if (invocation.has(Opt.KEY_POLICY) && keyPolicyJson(invocation) != null) {
+            throw new OnboardingUsageException("the key policy is given twice: --key-policy (or " + Opt.KEY_POLICY.env
+                    + ") and " + ENV_KEY_POLICY_JSON + ". Give only one");
+        }
+    }
+
+    /** @return the policy JSON of the environment, or {@code null} if it is not set */
+    private static String keyPolicyJson(Invocation invocation) {
+        String json = invocation.env().get(ENV_KEY_POLICY_JSON);
+        return json == null || json.isBlank() ? null : json;
     }
 
     private void requireKeyPolicyUnlessNonProduction(boolean production) {
         if (production) {
             throw new OnboardingUsageException("prepare does not create a key without an explicit key policy: "
-                    + "--key-policy <json file> (or --non-production outside production)");
+                    + "--key-policy <json file> or " + ENV_KEY_POLICY_JSON + " (or --non-production outside production)");
         }
         log.warn("No key policy was given (--non-production): the key is created with the KMS default policy, "
                 + "which delegates everything to IAM of the account. Never do this in STG or PRO.");
@@ -483,21 +511,60 @@ public final class OnboardingCli {
         }
     }
 
-    /** The key policy as it is applied, and the SHA-256 of its bytes, which is what is recorded about it. */
+    /**
+     * The key policy as it is passed to {@code CreateKey}, and the SHA-256 of its UTF-8 bytes, which are the bytes of the
+     * policy KMS receives: that hash is what is recorded about it.
+     */
     private record KeyPolicy(String json, String sha256) {}
 
+    /**
+     * Nothing is decoded leniently: a file that is not valid UTF-8 or starts with a byte order mark is refused, because
+     * the policy applied would not be the one hashed (a replaced character, a BOM KMS does not keep).
+     */
     private KeyPolicy keyPolicy(Invocation invocation) {
-        if (invocation.command() != Command.PREPARE || !invocation.has(Opt.KEY_POLICY)) {
+        if (invocation.command() != Command.PREPARE) {
             return null;
         }
-        byte[] bytes = readBytes(Path.of(invocation.get(Opt.KEY_POLICY)));
-        String json = new String(bytes, StandardCharsets.UTF_8);
+        if (invocation.has(Opt.KEY_POLICY)) {
+            String file = "--key-policy";
+            return keyPolicyOf(strictUtf8(readBytes(Path.of(invocation.get(Opt.KEY_POLICY))), file), file);
+        }
+        String json = keyPolicyJson(invocation);
+        return json == null ? null : keyPolicyOf(json, ENV_KEY_POLICY_JSON);
+    }
+
+    private static KeyPolicy keyPolicyOf(String json, String source) {
+        if (json.startsWith("﻿")) {
+            throw new OnboardingUsageException(source + " starts with a byte order mark: save the policy as UTF-8 "
+                    + "without BOM");
+        }
         try {
             new ObjectMapper().readTree(json);
         } catch (JsonProcessingException _) {
-            throw new OnboardingUsageException("--key-policy must be a JSON file");
+            throw new OnboardingUsageException(source + " must be a JSON key policy");
         }
-        return new KeyPolicy(json, sha256Hex(bytes));
+        return new KeyPolicy(json, sha256Hex(strictUtf8(json, source)));
+    }
+
+    private static String strictUtf8(byte[] bytes, String source) {
+        try {
+            return StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString();
+        } catch (CharacterCodingException _) {
+            throw new OnboardingUsageException(source + " is not valid UTF-8");
+        }
+    }
+
+    private static byte[] strictUtf8(String text, String source) {
+        try {
+            ByteBuffer encoded = StandardCharsets.UTF_8.newEncoder().onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT).encode(CharBuffer.wrap(text));
+            byte[] bytes = new byte[encoded.remaining()];
+            encoded.get(bytes);
+            return bytes;
+        } catch (CharacterCodingException _) {
+            throw new OnboardingUsageException(source + " is not valid UTF-8");
+        }
     }
 
     private static String sha256Hex(byte[] bytes) {
