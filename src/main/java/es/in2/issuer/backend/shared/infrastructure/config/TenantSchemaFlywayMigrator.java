@@ -66,7 +66,15 @@ public class TenantSchemaFlywayMigrator implements ApplicationRunner {
 
     private void migratePublicSchema(String jdbcUrl, String username, String password) {
         log.info("Migrating the public schema objects of the Issuer");
-        publicSchemaConfiguration(jdbcUrl, username, password).load().migrate();
+        try {
+            publicSchemaConfiguration(jdbcUrl, username, password).load().migrate();
+        } catch (RuntimeException e) {
+            // The Issuer itself does not use these objects: only the own-key onboarding tool does. A role without
+            // CREATE on public must not stop the Issuer (nor the migration of the tenant schemas).
+            log.error("The public schema objects of the Issuer could not be migrated: {}. The Issuer starts anyway, "
+                    + "but the own-key onboarding tool needs public.signing_spki_reservation: grant CREATE on "
+                    + "schema public to the migration role and restart.", e.getMessage());
+        }
     }
 
     /**

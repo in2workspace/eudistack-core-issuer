@@ -1,9 +1,17 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.flyway.FlywayProperties;
+import org.springframework.boot.autoconfigure.r2dbc.R2dbcProperties;
+import org.springframework.boot.DefaultApplicationArguments;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -50,5 +58,32 @@ class TenantSchemaFlywayMigratorTest {
         // public is never empty, and a baseline at version 1 (the default) would skip V1.
         assertThat(configuration.isBaselineOnMigrate()).isTrue();
         assertThat(configuration.getBaselineVersion().getVersion()).isEqualTo("0");
+    }
+
+    @Test
+    void run_whenThePublicSchemaCannotBeMigrated_logsAnErrorAndDoesNotStopTheIssuer() {
+        Logger migratorLogger = (Logger) LoggerFactory.getLogger(TenantSchemaFlywayMigrator.class);
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        logs.start();
+        migratorLogger.addAppender(logs);
+        FlywayProperties flyway = new FlywayProperties();
+        // Nothing listens on this port: the migration of public fails, as it would without CREATE on the schema.
+        flyway.setUrl("jdbc:postgresql://127.0.0.1:1/none");
+        R2dbcProperties r2dbc = new R2dbcProperties();
+        r2dbc.setUsername("u");
+        r2dbc.setPassword("p");
+
+        try {
+            assertThatCode(() -> new TenantSchemaFlywayMigrator(flyway, r2dbc).run(new DefaultApplicationArguments()))
+                    .doesNotThrowAnyException();
+        } finally {
+            migratorLogger.detachAppender(logs);
+        }
+
+        assertThat(logs.list).filteredOn(event -> event.getLevel() == Level.ERROR)
+                .singleElement()
+                .satisfies(event -> assertThat(event.getFormattedMessage())
+                        .contains("signing_spki_reservation").contains("grant CREATE on schema public"));
+        assertThat(logs.list).anyMatch(event -> event.getFormattedMessage().contains("Flyway multi-schema migration completed"));
     }
 }
