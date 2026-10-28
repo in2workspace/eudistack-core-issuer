@@ -53,6 +53,13 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
     private static final String[] QTSP_SECRET_FIELDS = {"credentialPwd", "clientSecret", "accessKey", "credentialId"};
     private static final String ONBOARDING_LOCK_PREFIX = "eudistack.own_key_onboarding:";
     private static final String IMPORT_LOCK_PREFIX = "eudistack.own_key_import:";
+    /**
+     * How long a statement of the tool waits for a lock, and how long it may run, inside a transaction: a run that waits
+     * on a row or a lock held by another (a reconcile in the middle of its KMS calls, a stuck session) fails instead of
+     * waiting without limit. Set with {@code SET LOCAL}, so they end with the transaction.
+     */
+    static final String LOCK_TIMEOUT = "5s";
+    static final String STATEMENT_TIMEOUT = "30s";
 
     private final DataSource dataSource;
     private final TransactionTemplate transactions;
@@ -270,8 +277,12 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         try {
             result = transactions.execute(status -> {
                 started.set(true);
-                JdbcConfigurationTransaction transaction = new JdbcConfigurationTransaction(
-                        DataSourceUtils.getConnection(dataSource), staged);
+                Connection connection = DataSourceUtils.getConnection(dataSource);
+                run(() -> {
+                    applyTimeouts(connection);
+                    return null;
+                });
+                JdbcConfigurationTransaction transaction = new JdbcConfigurationTransaction(connection, staged);
                 T value = work.apply(transaction);
                 completed.set(true);
                 return value;
@@ -291,7 +302,9 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         try {
             transactions.executeWithoutResult(status -> {
                 try {
-                    auditSink.stage(DataSourceUtils.getConnection(dataSource), event);
+                    Connection connection = DataSourceUtils.getConnection(dataSource);
+                    applyTimeouts(connection);
+                    auditSink.stage(connection, event);
                 } catch (SQLException e) {
                     throw databaseFailure(e);
                 }
@@ -300,6 +313,13 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
             throw databaseFailure(e);
         }
         publish(event);
+    }
+
+    private static void applyTimeouts(Connection connection) throws SQLException {
+        try (var statement = connection.createStatement()) {
+            statement.execute("SET LOCAL lock_timeout = '" + LOCK_TIMEOUT + "'");
+            statement.execute("SET LOCAL statement_timeout = '" + STATEMENT_TIMEOUT + "'");
+        }
     }
 
     /** The change is already committed: a sink that fails cannot undo it. */

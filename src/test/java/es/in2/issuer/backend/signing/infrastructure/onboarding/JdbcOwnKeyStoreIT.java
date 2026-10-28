@@ -458,6 +458,59 @@ class JdbcOwnKeyStoreIT {
     }
 
     @Test
+    void inTransaction_activeRowLockedByAnotherTransaction_failsAfterTheLockTimeoutInsteadOfWaiting() throws Exception {
+        insertQtspActive("cgcom");
+
+        try (Connection holder = OnboardingTestDatabase.open()) {
+            holder.setAutoCommit(false);
+            try (var statement = holder.prepareStatement(
+                    "SELECT id FROM cgcom_issuer.tenant_signing_config WHERE status = 'active' FOR UPDATE")) {
+                statement.executeQuery().close();
+            }
+            long started = System.nanoTime();
+
+            assertThatThrownBy(() -> store.inTransaction(tx -> tx.lockActiveConfiguration("cgcom")))
+                    .hasMessageContaining("SQLState 55P03");
+
+            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(20));
+            holder.rollback();
+        }
+    }
+
+    @Test
+    void inTransactionAndRecordInOwnTransaction_runWithTheLockAndStatementTimeouts() {
+        List<String> seen = new ArrayList<>();
+        JdbcOwnKeyStore probed = OnboardingTestDatabase.store(new SigningConfigurationAuditSink() {
+            @Override
+            public void stage(Connection connection, SigningConfigurationChanged event) throws SQLException {
+                seen.add(show(connection, "lock_timeout") + "/" + show(connection, "statement_timeout"));
+            }
+
+            @Override
+            public void afterCommit(SigningConfigurationChanged event) {
+                // nothing to publish
+            }
+        });
+        var event = new SigningConfigurationChanged("cgcom", Operation.CREATE, Result.DENIED,
+                RejectionReason.INVALID_KEY, null, SigningModality.OWN_KEY, null, CALLER, Duration.ZERO, Instant.now(), null);
+
+        probed.inTransaction(tx -> {
+            tx.stage(event);
+            return null;
+        });
+        probed.recordInOwnTransaction(event);
+
+        assertThat(seen).containsExactly("5s/30s", "5s/30s");
+    }
+
+    private static String show(Connection connection, String setting) throws SQLException {
+        try (var statement = connection.createStatement(); var rs = statement.executeQuery("SHOW " + setting)) {
+            rs.next();
+            return rs.getString(1);
+        }
+    }
+
+    @Test
     void lockNextWithdrawnOwnKey_tenantWithoutSchema_failsWithoutLeakingThePassword() {
         assertThatThrownBy(() -> store.inTransaction(
                 tx -> tx.lockNextWithdrawnOwnKey("ghost", Duration.ZERO, Set.of())))
