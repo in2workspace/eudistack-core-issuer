@@ -161,13 +161,20 @@ master user. The tool runs no migration (the Issuer does), so the user needs no 
 
 | Object | Privileges |
 |--------|------------|
+| the Issuer's database | `CONNECT` |
+| schema `public` | `USAGE` |
 | every tenant schema `<tenant>_issuer` | `USAGE` |
 | `<tenant>_issuer.tenant_signing_config`, in every tenant schema | `SELECT`, `INSERT`, `UPDATE` |
 | `public.tenant_registry` | `SELECT` |
 | `public.signing_spki_reservation` | `SELECT`, `INSERT`, `UPDATE`, `DELETE` |
 | `public.audit_outbox`, once the outbox sink is active | what the EUD-244 starter needs to stage an event (`INSERT`) |
 
+`CONNECT` and `USAGE` on `public` are held by `PUBLIC` by default, but an instance hardened with `REVOKE ... FROM PUBLIC`
+removes them, and then the tool can neither connect nor read `public`: grant them explicitly.
+
 ```sql
+GRANT CONNECT ON DATABASE <issuer database> TO <tool user>;
+GRANT USAGE ON SCHEMA public TO <tool user>;
 GRANT USAGE ON SCHEMA <tenant>_issuer TO <tool user>;
 GRANT SELECT, INSERT, UPDATE ON <tenant>_issuer.tenant_signing_config TO <tool user>;
 GRANT SELECT ON public.tenant_registry TO <tool user>;
@@ -178,6 +185,15 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.signing_spki_reservation TO <tool
 `tenant_signing_config`). Without them the tool takes the tenant as not provisioned, and the check "is this key referenced
 by any configuration" fails closed for every tenant: `import`, `discard` and `reconcile` end with exit 1 and touch no key
 until the grants are given.
+
+**This user can read the QTSP secrets of every tenant.** When a replacement withdraws a QTSP row, the tool removes its four
+secret fields with an `UPDATE` whose `SET` reads `provider_specific_config`, and PostgreSQL requires `SELECT` on the
+columns a `SET` expression reads. So the privileges above cannot leave out `provider_specific_config`, and the tool's user
+can read `credentialPwd`, `clientSecret`, `accessKey` and `credentialId` of the active QTSP rows of all the tenants. It is no
+worse than today, when the tool uses the master user, but it is not least privilege: protect the credentials of this user
+like those of the Issuer. Removing it needs a change in the database (for example, a `SECURITY DEFINER` trigger or
+function that clears the secrets when a row is withdrawn, so that the user only needs `SELECT` and `UPDATE` on the
+columns it reads and writes).
 
 **Key policy.** `prepare` passes a JSON key policy to `CreateKey`, taken from one of two sources, never both (both
 set is a usage error, exit 64):
