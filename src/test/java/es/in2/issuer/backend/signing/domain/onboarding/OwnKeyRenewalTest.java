@@ -160,6 +160,8 @@ class OwnKeyRenewalTest {
         });
         assertThat(result.keyArn()).isEqualTo(FakeKms.KEY_ARN);
         assertThat(result.operation()).isEqualTo(Operation.REPLACE);
+        assertThat(store.activated).singleElement()
+                .satisfies(row -> assertThat(row.operationId()).isEqualTo("op-1"));
     }
 
     @Test

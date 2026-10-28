@@ -294,6 +294,8 @@ class OwnKeyOnboardingTest {
             assertThat(event.actor()).isEqualTo(CALLER);
             assertThat(event.correlationId()).isEqualTo("op-1");
         });
+        assertThat(store.activated).singleElement()
+                .satisfies(row -> assertThat(row.operationId()).as("kept in the row").isEqualTo("op-1"));
         assertThat(result.configurationId()).isEqualTo(UUID.fromString("00000000-0000-0000-0000-0000000000aa"));
     }
 

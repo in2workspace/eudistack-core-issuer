@@ -36,7 +36,7 @@ class OwnKeyReconcilerTest {
     }
 
     private WithdrawnOwnKey withdrawn(String tenant, String keyArn) {
-        var row = new WithdrawnOwnKey(UUID.randomUUID(), tenant, keyArn);
+        var row = new WithdrawnOwnKey(UUID.randomUUID(), tenant, keyArn, "op-" + keyArn.hashCode());
         store.withdrawn.add(row);
         return row;
     }
@@ -215,14 +215,24 @@ class OwnKeyReconcilerTest {
             assertThat(event.result()).isEqualTo(SigningConfigurationChanged.Result.SUCCESS);
             assertThat(event.tenant()).isEqualTo("cgcom");
             assertThat(event.actor()).isEqualTo(CALLER);
-            assertThat(event.correlationId()).isEqualTo(row.id().toString());
+            assertThat(event.correlationId()).as("the operation that activated the row").isEqualTo(row.operationId());
             assertThat(event.toString()).doesNotContain(KEY_A);
         });
     }
 
     @Test
+    void reconcile_rowWithoutTheOperationThatActivatedIt_leavesAnEventWithoutCorrelationId() {
+        store.withdrawn.add(new WithdrawnOwnKey(UUID.randomUUID(), "cgcom", KEY_A));
+
+        reconciler.reconcile(GRACE, false);
+
+        assertThat(store.committedEvents).singleElement()
+                .satisfies(event -> assertThat(event.correlationId()).isNull());
+    }
+
+    @Test
     void reconcile_keyStillReferencedByAnActiveConfiguration_leavesARetireDeniedEvent() {
-        withdrawn("cgcom", KEY_A);
+        var row = withdrawn("cgcom", KEY_A);
         store.activeKeyRefs.add(KEY_A);
 
         reconciler.reconcile(GRACE, false);
@@ -230,6 +240,7 @@ class OwnKeyReconcilerTest {
         assertThat(store.committedEvents).singleElement().satisfies(event -> {
             assertThat(event.result()).isEqualTo(SigningConfigurationChanged.Result.DENIED);
             assertThat(event.reason()).isEqualTo(RejectionReason.KEY_IN_USE);
+            assertThat(event.correlationId()).isEqualTo(row.operationId());
         });
     }
 
@@ -246,7 +257,7 @@ class OwnKeyReconcilerTest {
             assertThat(event.result()).isEqualTo(SigningConfigurationChanged.Result.FAILURE);
             assertThat(event.reason()).isEqualTo(RejectionReason.PROVIDER_UNAVAILABLE);
             assertThat(event.actor()).isEqualTo(CALLER);
-            assertThat(event.correlationId()).isEqualTo(failing.id().toString());
+            assertThat(event.correlationId()).isEqualTo(failing.operationId());
         });
     }
 

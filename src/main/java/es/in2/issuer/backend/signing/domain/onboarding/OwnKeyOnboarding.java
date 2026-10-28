@@ -776,7 +776,8 @@ public class OwnKeyOnboarding {
             previous.ifPresent(active -> tx.withdraw(attempt.tenant, active, attempt.actor));
         }
         UUID configurationId = tx.activateOwnKey(attempt.tenant,
-                new NewOwnKeyConfiguration(prepared.keyArn(), certificate.chainBase64()), attempt.actor);
+                new NewOwnKeyConfiguration(prepared.keyArn(), certificate.chainBase64(), prepared.operationId()),
+                attempt.actor);
         tx.reserveSpki(certificate.spkiSha256(), attempt.tenant, configurationId);
         tx.stage(event(attempt, previous.isPresent() ? Operation.REPLACE : Operation.CREATE,
                 previous.map(ActiveConfiguration::modality).orElse(null), Result.SUCCESS, null,

@@ -134,6 +134,7 @@ final class OnboardingFakes {
         final List<SigningConfigurationChanged> committedEvents = new ArrayList<>();
         final List<SigningConfigurationChanged> eventsInOwnTransaction = new ArrayList<>();
         final List<WithdrawnOwnKey> withdrawn = new ArrayList<>();
+        final List<NewOwnKeyConfiguration> activated = new ArrayList<>();
         final Set<UUID> retired = new HashSet<>();
         final Set<String> tenantsWithoutSchema = new HashSet<>();
         final Set<String> lockedOperations = java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -208,6 +209,7 @@ final class OnboardingFakes {
             }
             committedOperations.addAll(transaction.operations);
             committedEvents.addAll(transaction.events);
+            activated.addAll(transaction.activatedHere);
             retired.addAll(transaction.retiredHere);
             retired.addAll(transaction.keptReservation);
             reservations.values().removeIf(reservation -> transaction.retiredHere.contains(reservation.configurationId()));
@@ -226,6 +228,7 @@ final class OnboardingFakes {
 
             private final List<String> operations = new ArrayList<>();
             private final List<SigningConfigurationChanged> events = new ArrayList<>();
+            private final List<NewOwnKeyConfiguration> activatedHere = new ArrayList<>();
             private final Set<UUID> retiredHere = new HashSet<>();
             private final Set<UUID> keptReservation = new HashSet<>();
 
@@ -243,6 +246,7 @@ final class OnboardingFakes {
             @Override
             public UUID activateOwnKey(String tenantId, NewOwnKeyConfiguration configuration, String activatedBy) {
                 operations.add("activate:" + configuration.kmsKeyRef() + ":" + activatedBy);
+                activatedHere.add(configuration);
                 return UUID.fromString("00000000-0000-0000-0000-0000000000aa");
             }
 

@@ -93,8 +93,18 @@ public interface OwnKeyStorePort {
         void close();
     }
 
-    /** A withdrawn own-key row whose KMS key still has to be retired. */
-    record WithdrawnOwnKey(UUID id, String tenantId, String kmsKeyRef) {}
+    /**
+     * A withdrawn own-key row whose KMS key still has to be retired.
+     *
+     * @param operationId the operation of the onboarding that activated the row; {@code null} for a row the onboarding
+     *                    tool did not write
+     */
+    record WithdrawnOwnKey(UUID id, String tenantId, String kmsKeyRef, String operationId) {
+
+        public WithdrawnOwnKey(UUID id, String tenantId, String kmsKeyRef) {
+            this(id, tenantId, kmsKeyRef, null);
+        }
+    }
 
     /** The active configuration of a tenant. */
     record ActiveConfiguration(UUID id, SigningModality modality, String kmsKeyRef) {
@@ -104,8 +114,17 @@ public interface OwnKeyStorePort {
         }
     }
 
-    /** The own-key configuration that becomes active. */
-    record NewOwnKeyConfiguration(String kmsKeyRef, List<String> certificateChain) {}
+    /**
+     * The own-key configuration that becomes active.
+     *
+     * @param operationId the operation of the onboarding that activates it, kept in the row
+     */
+    record NewOwnKeyConfiguration(String kmsKeyRef, List<String> certificateChain, String operationId) {
+
+        public NewOwnKeyConfiguration(String kmsKeyRef, List<String> certificateChain) {
+            this(kmsKeyRef, certificateChain, null);
+        }
+    }
 
     /** What the tool does inside one transaction, on the schema of a tenant. */
     interface ConfigurationTransaction {

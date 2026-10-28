@@ -53,7 +53,8 @@ public record SigningConfigurationChanged(
     /**
      * The retirement of the KMS key of a withdrawn own-key configuration. No key reference goes into the event.
      *
-     * @param correlationId the id of the configuration (or operation) concerned
+     * @param correlationId the id of the onboarding operation that activated the configuration whose key is retired (or
+     *                      of the preparation a {@code discard} gives up); {@code null} if it is not known
      */
     public static SigningConfigurationChanged retire(String tenant, Result result, RejectionReason reason, String actor,
                                                      Duration duration, Instant occurredAt, String correlationId) {

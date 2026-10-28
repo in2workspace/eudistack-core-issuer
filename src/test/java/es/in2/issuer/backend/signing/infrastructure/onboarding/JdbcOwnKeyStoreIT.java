@@ -382,6 +382,32 @@ class JdbcOwnKeyStoreIT {
     }
 
     @Test
+    void activateOwnKey_keepsTheOperationThatActivatedTheRow_andTheReconcileReadsItBack() {
+        UUID first = store.inTransaction(tx -> tx.activateOwnKey("cgcom",
+                new NewOwnKeyConfiguration(NEW_KEY, List.of("QUJD"), "op-first"), CALLER));
+        replaceActive("cgcom", SPKI);
+        execute("UPDATE cgcom_issuer.tenant_signing_config SET withdrawn_at = now() - interval '10 minutes' WHERE id = ?",
+                first);
+
+        var pending = store.findWithdrawnOwnKeysPendingKms("cgcom", Duration.ofSeconds(160));
+        var locked = store.inTransaction(tx -> tx.lockNextWithdrawnOwnKey("cgcom", Duration.ofSeconds(160), Set.of()));
+
+        assertThat(scalar("SELECT own_key_operation_id FROM cgcom_issuer.tenant_signing_config WHERE id = ?", first))
+                .isEqualTo("op-first");
+        assertThat(pending).singleElement().satisfies(row -> assertThat(row.operationId()).isEqualTo("op-first"));
+        assertThat(locked).map(WithdrawnOwnKey::operationId).contains("op-first");
+    }
+
+    @Test
+    void lockNextWithdrawnOwnKey_rowWithoutTheOperationThatActivatedIt_hasNoOperationId() {
+        insertOwnKey("cgcom", "withdrawn", "arn:old", 600, null);
+
+        var locked = store.inTransaction(tx -> tx.lockNextWithdrawnOwnKey("cgcom", Duration.ofSeconds(160), Set.of()));
+
+        assertThat(locked).hasValueSatisfying(row -> assertThat(row.operationId()).isNull());
+    }
+
+    @Test
     void markKeyRetired_setsTheDeletionDateAndTheRowIsNotSelectedAgain() {
         UUID id = insertOwnKey("cgcom", "withdrawn", "arn:old", 600, null);
 

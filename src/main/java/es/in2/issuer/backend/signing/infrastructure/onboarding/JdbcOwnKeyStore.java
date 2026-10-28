@@ -286,13 +286,13 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         return read(connection -> {
             List<WithdrawnOwnKey> rows = new ArrayList<>();
             try (PreparedStatement statement = connection.prepareStatement(
-                    "SELECT id, own_key_kms_key_ref FROM " + table(tenantId) + " WHERE modality = 'own_key' "
-                            + "AND status = 'withdrawn' AND own_key_deleted_at IS NULL "
+                    "SELECT id, own_key_kms_key_ref, own_key_operation_id FROM " + table(tenantId)
+                            + " WHERE modality = 'own_key' AND status = 'withdrawn' AND own_key_deleted_at IS NULL "
                             + "AND withdrawn_at < now() - make_interval(secs => ?) ORDER BY withdrawn_at")) {
                 statement.setDouble(1, seconds(grace));
                 try (ResultSet rs = statement.executeQuery()) {
                     while (rs.next()) {
-                        rows.add(new WithdrawnOwnKey(rs.getObject(1, UUID.class), tenantId, rs.getString(2)));
+                        rows.add(withdrawnOwnKey(rs, tenantId));
                     }
                 }
             }
@@ -422,13 +422,14 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
             return run(() -> {
                 try (PreparedStatement statement = connection.prepareStatement("INSERT INTO " + table(tenantId)
                         + " (provider, modality, status, activated_at, activated_by, own_key_kms_key_ref, "
-                        + "own_key_algorithm, own_key_certificate_chain, own_key_loaded_at) "
-                        + "VALUES (?, 'own_key', 'active', now(), ?, ?, ?, ?::jsonb, now()) RETURNING id")) {
+                        + "own_key_algorithm, own_key_certificate_chain, own_key_loaded_at, own_key_operation_id) "
+                        + "VALUES (?, 'own_key', 'active', now(), ?, ?, ?, ?::jsonb, now(), ?) RETURNING id")) {
                     statement.setString(1, PROVIDER_AWS_KMS);
                     statement.setString(2, activatedBy);
                     statement.setString(3, configuration.kmsKeyRef());
                     statement.setString(4, ALGORITHM_ES256);
                     statement.setString(5, chainJson(configuration.certificateChain()));
+                    statement.setString(6, configuration.operationId());
                     try (ResultSet rs = statement.executeQuery()) {
                         rs.next();
                         return rs.getObject(1, UUID.class);
@@ -461,16 +462,15 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         @Override
         public Optional<WithdrawnOwnKey> lockNextWithdrawnOwnKey(String tenantId, Duration grace, Set<UUID> excluding) {
             return run(() -> {
-                try (PreparedStatement statement = connection.prepareStatement("SELECT id, own_key_kms_key_ref FROM "
-                        + table(tenantId) + " WHERE modality = 'own_key' AND status = 'withdrawn' "
-                        + "AND own_key_deleted_at IS NULL AND withdrawn_at < now() - make_interval(secs => ?) "
+                try (PreparedStatement statement = connection.prepareStatement("SELECT id, own_key_kms_key_ref, "
+                        + "own_key_operation_id FROM " + table(tenantId) + " WHERE modality = 'own_key' "
+                        + "AND status = 'withdrawn' AND own_key_deleted_at IS NULL "
+                        + "AND withdrawn_at < now() - make_interval(secs => ?) "
                         + "AND id <> ALL (?) ORDER BY withdrawn_at LIMIT 1 FOR UPDATE SKIP LOCKED")) {
                     statement.setDouble(1, seconds(grace));
                     statement.setArray(2, connection.createArrayOf("uuid", excluding.toArray()));
                     try (ResultSet rs = statement.executeQuery()) {
-                        return rs.next()
-                                ? Optional.of(new WithdrawnOwnKey(rs.getObject(1, UUID.class), tenantId, rs.getString(2)))
-                                : Optional.<WithdrawnOwnKey>empty();
+                        return rs.next() ? Optional.of(withdrawnOwnKey(rs, tenantId)) : Optional.<WithdrawnOwnKey>empty();
                     }
                 }
             });
@@ -572,6 +572,11 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         if (updated != 1) {
             throw new OnboardingFailedException("could not " + what + ": " + updated + " rows were updated");
         }
+    }
+
+    /** A row of {@code id, own_key_kms_key_ref, own_key_operation_id}. */
+    private static WithdrawnOwnKey withdrawnOwnKey(ResultSet rs, String tenantId) throws SQLException {
+        return new WithdrawnOwnKey(rs.getObject(1, UUID.class), tenantId, rs.getString(2), rs.getString(3));
     }
 
     private static double seconds(Duration duration) {

@@ -34,7 +34,9 @@ import java.util.function.Supplier;
  *
  * <p>Every row leaves a {@code Retire} event: {@code Success} or {@code Denied} (key in use) staged in the
  * transaction that marks the row, {@code Failure} in a transaction of its own, since the row's transaction ends
- * without changes. The actor is the caller ARN. The same transaction releases the SPKI reservation of the row of a key that
+ * without changes. The actor is the caller ARN. The correlation id is the operation id of the onboarding that activated
+ * the row, the same as in its {@code Create} or {@code Replace} event, so the events of a key can be joined; it is
+ * {@code null} for a row the onboarding tool did not write. The same transaction releases the SPKI reservation of the row of a key that
  * was retired: until then the public key is still reserved for its tenant. The reservation of a key that an active
  * configuration still references is not released, because the key still signs.
  *
@@ -130,9 +132,9 @@ public class OwnKeyReconciler {
             if (result.get().failure() == null) {
                 retired++;
             } else {
-                failed.add(result.get().id());
+                failed.add(result.get().row().id());
                 failures.add(result.get().failure());
-                recordFailure(tenant, result.get().id(), actor);
+                recordFailure(tenant, result.get().row(), actor);
             }
         }
     }
@@ -150,7 +152,7 @@ public class OwnKeyReconciler {
                 // The key still signs: its row is handled, but its SPKI stays reserved for the tenant.
                 tx.markKeyStillInUse(tenant, row);
                 tx.stage(event(tenant, row, Result.DENIED, RejectionReason.KEY_IN_USE, actor, startedAt));
-                return new RowResult(row.id(), null);
+                return new RowResult(row, null);
             }
             KeyState state = kms.describeKeyState(row.kmsKeyRef());
             switch (actionFor(state)) {
@@ -165,10 +167,10 @@ public class OwnKeyReconciler {
             tx.markKeyRetired(tenant, row);
             tx.stage(event(tenant, row, Result.SUCCESS, null, actor, startedAt));
             log.info("Tenant '{}', configuration {}: key retired (was {})", tenant, row.id(), state);
-            return new RowResult(row.id(), null);
+            return new RowResult(row, null);
         } catch (RuntimeException e) {
             log.error("Tenant '{}', configuration {}: the key could not be retired: {}", tenant, row.id(), e.toString());
-            return new RowResult(row.id(), rowFailure(tenant, row, e));
+            return new RowResult(row, rowFailure(tenant, row, e));
         }
     }
 
@@ -176,18 +178,17 @@ public class OwnKeyReconciler {
                                               String actor, Instant startedAt) {
         Instant now = clock.instant();
         return SigningConfigurationChanged.retire(tenant, result, reason, actor, Duration.between(startedAt, now), now,
-                row.id().toString());
+                row.operationId());
     }
 
     /** The row's transaction made no change, so the failure goes in a transaction of its own. */
-    private void recordFailure(String tenant, UUID configurationId, Supplier<String> actor) {
+    private void recordFailure(String tenant, WithdrawnOwnKey row, Supplier<String> actor) {
         try {
             store.recordInOwnTransaction(SigningConfigurationChanged.retire(tenant, Result.FAILURE,
-                    RejectionReason.PROVIDER_UNAVAILABLE, actor.get(),
-                    Duration.ZERO, clock.instant(), configurationId.toString()));
+                    RejectionReason.PROVIDER_UNAVAILABLE, actor.get(), Duration.ZERO, clock.instant(), row.operationId()));
         } catch (RuntimeException e) {
             log.error("Tenant '{}', configuration {}: the failed retirement could not be recorded: {}", tenant,
-                    configurationId, e.toString());
+                    row.id(), e.toString());
         }
     }
 
@@ -223,5 +224,5 @@ public class OwnKeyReconciler {
         };
     }
 
-    private record RowResult(UUID id, String failure) {}
+    private record RowResult(WithdrawnOwnKey row, String failure) {}
 }

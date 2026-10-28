@@ -174,7 +174,10 @@ EUD-244 starter); nothing else changes.
 
 `Retire` (by `reconcile`): `Success` when the key was disabled and its deletion scheduled (or was already), `Denied` with
 `KeyInUse` when an active configuration references the key and it is left alone, `Failure` (recorded in its own transaction) with reason `ProviderUnavailable`, in both sinks, when it could not be retired. It has no new modality and no certificate; the
-correlation id is the id of the withdrawn configuration. A `discard` is a `Retire` too: `Success` when it retired the key (recorded in its own transaction, with the operation id as correlation id, right after the key is retired and before the state file is marked, so a failure marking the file does not lose it; a key that was already pending deletion or gone leaves no event, because nothing was retired), `Denied` when it was refused and `Failure` when another run held the lock of the operation. If recording the event fails, the discard still stands and the failure is logged. No event holds a key
+correlation id is the operation id of the onboarding that activated the withdrawn configuration
+(`own_key_operation_id`, which `import` and a renewal keep in the row), the same id as the correlation id of its `Create`
+or `Replace` event, so all the events of one key can be joined; it is empty for a row the tool did not write (seeds, the
+bash tool, rows written by hand). A `discard` is a `Retire` too: `Success` when it retired the key (recorded in its own transaction, with the operation id as correlation id, right after the key is retired and before the state file is marked, so a failure marking the file does not lose it; a key that was already pending deletion or gone leaves no event, because nothing was retired), `Denied` when it was refused and `Failure` when another run held the lock of the operation. If recording the event fails, the discard still stands and the failure is logged. No event holds a key
 ARN.
 
 **`Failure` means "the operation could not be completed".** `ProviderUnavailable` is the only `Failure` reason of

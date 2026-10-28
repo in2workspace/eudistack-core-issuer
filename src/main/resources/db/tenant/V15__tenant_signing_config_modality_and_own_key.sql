@@ -21,6 +21,11 @@
 -- * own-key block: no secrets, only the KMS key ARN, the certificate chain as
 --   the exact JWS `x5c` value (JSONB array of base64 DER certificates, leaf
 --   first, root excluded; identity, validity and the public key are read from it).
+-- * own_key_operation_id: the operation id of the onboarding tool run that
+--   activated the row (import or renewal). The audit events of the key that
+--   row holds use it as their correlation id, so the events of one onboarding
+--   and of the retirement of its key can be joined. NULL for rows not written
+--   by that tool (seeds, the earlier bash tool, rows written by hand).
 --
 -- Existing rows: the newest one (created_at, then id) stays qtsp/active; any
 -- older row (seeds run without a unique constraint and have left duplicates in
@@ -41,7 +46,8 @@ ALTER TABLE tenant_signing_config
     ADD COLUMN IF NOT EXISTS own_key_algorithm          VARCHAR(20),
     ADD COLUMN IF NOT EXISTS own_key_certificate_chain  JSONB,
     ADD COLUMN IF NOT EXISTS own_key_loaded_at          TIMESTAMPTZ,
-    ADD COLUMN IF NOT EXISTS own_key_deleted_at         TIMESTAMPTZ;
+    ADD COLUMN IF NOT EXISTS own_key_deleted_at         TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS own_key_operation_id       VARCHAR(64);
 
 -- Data migration: newest row stays active, older ones are withdrawn.
 UPDATE tenant_signing_config t
