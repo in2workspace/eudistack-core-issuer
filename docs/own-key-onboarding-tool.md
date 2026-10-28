@@ -121,7 +121,7 @@ needs none.
 
 **State file.** `prepare` stores, next to the key and the certificate, a summary of its policy (production yes/no,
 SHA-256 of the trust anchor, organization id). A successful `import` marks the state `importedAt`: it is consumed and
-`import` refuses it afterwards, before any call to KMS. Where the file system is POSIX the output directory `prepare` creates is
+`import` refuses it afterwards, before any call to KMS. If the import was committed but the state file could not be marked (the exit code is still 0, because the onboarding is done), the tool prints a `WARNING` on stderr saying that the state file must not be used again and must be deleted: for a renewal nothing else refuses a second import of the same state, which would replace the configuration once more. Where the file system is POSIX the output directory `prepare` creates is
 `0700` and every file `0600` (on Windows the defaults of the file system apply); the state file is rewritten through a
 temporary file and an atomic move; and the token file the state names must be a plain file name starting with
 `own-key-<tenant>-<operationId>`, otherwise it is not read. The tenant id `unknown` is refused: the Issuer takes it for a

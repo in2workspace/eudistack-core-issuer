@@ -352,6 +352,11 @@ public final class OnboardingCli {
         out.println("key           : " + result.keyArn());
         out.println("configuration : " + result.configurationId());
         out.println("SPKI sha256   : " + result.spkiSha256());
+        if (!result.stateMarkedAsConsumed()) {
+            err.println("WARNING: the onboarding was committed, but the state file " + stateFile + " could not be marked as "
+                    + "consumed. Do NOT use it again (a second import of a renewal would replace the configuration once "
+                    + "more): delete it.");
+        }
         return EXIT_OK;
     }
 

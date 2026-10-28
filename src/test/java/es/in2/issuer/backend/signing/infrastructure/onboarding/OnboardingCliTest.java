@@ -269,6 +269,33 @@ class OnboardingCliTest {
     }
 
     @Test
+    void run_importCommittedButStateNotMarkedAsConsumed_warnsOnStderrAndStillSucceeds() throws Exception {
+        new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
+        Path state = directory.resolve("own-key-cgcom-op-1.state.json");
+        when(onboarding.importKey(any())).thenReturn(new ImportResult("arn:aws:kms:eu-west-1:000000000000:key/abc",
+                UUID.randomUUID(), Operation.CREATE, "ab".repeat(32), false));
+
+        int exitCode = run("import", "--state", state.toString(), "--key-material",
+                directory.resolve("own-key-cgcom-op-1.import-token.bin").toString());
+
+        assertThat(exitCode).isEqualTo(OnboardingCli.EXIT_OK);
+        assertThat(err()).contains("WARNING", "Do NOT use it again", state.toString());
+    }
+
+    @Test
+    void run_importWithTheStateMarkedAsConsumed_printsNoWarning() throws Exception {
+        new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
+        when(onboarding.importKey(any())).thenReturn(new ImportResult("arn:aws:kms:eu-west-1:000000000000:key/abc",
+                UUID.randomUUID(), Operation.CREATE, "ab".repeat(32)));
+
+        int exitCode = run("import", "--state", directory.resolve("own-key-cgcom-op-1.state.json").toString(),
+                "--key-material", directory.resolve("own-key-cgcom-op-1.import-token.bin").toString());
+
+        assertThat(exitCode).isEqualTo(OnboardingCli.EXIT_OK);
+        assertThat(err()).doesNotContain("WARNING");
+    }
+
+    @Test
     void run_keyPolicyThatIsNotJson_isAUsageError() throws Exception {
         Path notJson = Files.writeString(directory.resolve("policy.json"), "not json");
 

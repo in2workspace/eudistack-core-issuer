@@ -121,8 +121,18 @@ public class OwnKeyOnboarding {
         }
     }
 
-    /** @param configurationId id of the new active row; {@code null} on a dry run */
-    public record ImportResult(String keyArn, UUID configurationId, Operation operation, String spkiSha256) {}
+    /**
+     * @param configurationId       id of the new active row; {@code null} on a dry run
+     * @param stateMarkedAsConsumed {@code false} if the import was committed but its state file could not be marked as
+     *                              consumed: the operator must not use that state again
+     */
+    public record ImportResult(String keyArn, UUID configurationId, Operation operation, String spkiSha256,
+                               boolean stateMarkedAsConsumed) {
+
+        public ImportResult(String keyArn, UUID configurationId, Operation operation, String spkiSha256) {
+            this(keyArn, configurationId, operation, spkiSha256, true);
+        }
+    }
 
     /**
      * @param prepared  the state {@code prepare} left
@@ -352,9 +362,10 @@ public class OwnKeyOnboarding {
             recordRejection(attempt, rejected);
             throw rejected;
         }
-        markImported(command);
+        boolean marked = markImported(command);
         requireTheKeyIsEnabled(attempt.tenant, prepared.keyArn());
-        return new ImportResult(prepared.keyArn(), configurationId, attempt.operation(), certificate.spkiSha256Hex());
+        return new ImportResult(prepared.keyArn(), configurationId, attempt.operation(), certificate.spkiSha256Hex(),
+                marked);
     }
 
     /**
@@ -379,16 +390,25 @@ public class OwnKeyOnboarding {
         }
     }
 
-    /** After the commit: a failure here cannot undo the change, and the key checks refuse a repeated import anyway. */
-    private void markImported(ImportCommand command) {
+    /**
+     * After the commit: a failure here cannot undo the change, so it is reported, not thrown. For a new key a repeated
+     * import is refused anyway, because its key no longer waits for its material; for a renewal nothing refuses it, and
+     * a second import of the same state would replace the configuration again. That is why the caller tells the operator
+     * that the state must not be used.
+     *
+     * @return {@code false} if the state could not be marked as consumed
+     */
+    private boolean markImported(ImportCommand command) {
         if (command.artifacts() == null) {
-            return;
+            return true;
         }
         try {
             command.artifacts().markImported(command.prepared(), clock.instant());
+            return true;
         } catch (RuntimeException e) {
             log.error("The import of tenant '{}' was committed but its state file could not be marked as consumed: {}",
                     command.prepared().tenant(), e.toString());
+            return false;
         }
     }
 
@@ -582,9 +602,10 @@ public class OwnKeyOnboarding {
             retireOwnNewKey(key, statesToRetire(attempt), failure);
             throw failure;
         }
-        markImported(command);
+        boolean marked = markImported(command);
         requireTheKeyIsEnabled(attempt.tenant, prepared.keyArn());
-        return new ImportResult(prepared.keyArn(), configurationId, attempt.operation(), certificate.spkiSha256Hex());
+        return new ImportResult(prepared.keyArn(), configurationId, attempt.operation(), certificate.spkiSha256Hex(),
+                marked);
     }
 
     /** The key is enabled only if THIS run imported its material; otherwise it must still be waiting for it. */

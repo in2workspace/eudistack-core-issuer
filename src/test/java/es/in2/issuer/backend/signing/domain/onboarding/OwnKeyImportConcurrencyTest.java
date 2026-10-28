@@ -6,6 +6,7 @@ import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFakes.Recording
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.ImportCommand;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.PrepareCommand;
 import es.in2.issuer.backend.signing.domain.spi.KmsKeyAdministrationPort.KeyState;
+import es.in2.issuer.backend.signing.domain.spi.OnboardingArtifactsPort;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -167,6 +168,33 @@ class OwnKeyImportConcurrencyTest {
         assertThat(store.committedOperations).anyMatch(operation -> operation.startsWith("activate:"));
         assertNoKeyWasDisabledOrDeleted();
         assertThat(artifacts.imported).as("the state is consumed: the commit happened").isEqualTo(prepared);
+    }
+
+    @Test
+    void importKey_commitThenFailureMarkingTheState_succeedsAndTellsTheCaller() throws Exception {
+        var prepared = prepared();
+        ImportCommand command = new ImportCommand(prepared, new byte[] {1}, new byte[] {2},
+                OnboardingPolicy.nonProduction(), false, new OnboardingArtifactsPort() {
+                    @Override
+                    public void markImported(PreparedOnboarding p, Instant importedAt) {
+                        throw new IllegalStateException("disk full");
+                    }
+
+                    @Override
+                    public void markDiscarded(PreparedOnboarding p, Instant discardedAt) {
+                        throw new UnsupportedOperationException();
+                    }
+
+                    @Override
+                    public void write(PreparedOnboarding p, byte[] wrappingPublicKeyDer, byte[] importToken) {
+                        throw new UnsupportedOperationException();
+                    }
+                });
+
+        var result = onboarding.importKey(command);
+
+        assertThat(result.stateMarkedAsConsumed()).isFalse();
+        assertThat(store.committedOperations).anyMatch(operation -> operation.startsWith("activate:"));
     }
 
     private static void await(CountDownLatch latch) {
