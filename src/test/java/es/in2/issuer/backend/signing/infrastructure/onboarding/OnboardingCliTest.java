@@ -135,8 +135,8 @@ class OnboardingCliTest {
     }
 
     private static PreparedOnboarding prepared() {
-        return new PreparedOnboarding("op-1", "cgcom", "arn:aws:kms:eu-west-1:000000000000:key/abc",
-                "alias/own-key-cgcom-op-1", List.of("AAAA"), "ab".repeat(32), Instant.parse("2026-10-27T12:00:00Z"),
+        return new PreparedOnboarding("0f0e0d0c-0000-4000-8000-000000000001", "cgcom", "arn:aws:kms:eu-west-1:000000000000:key/abc",
+                "alias/own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001", List.of("AAAA"), "ab".repeat(32), Instant.parse("2026-10-27T12:00:00Z"),
                 Instant.parse("2026-10-28T12:00:00Z"));
     }
 
@@ -330,12 +330,12 @@ class OnboardingCliTest {
     @Test
     void run_importCommittedButStateNotMarkedAsConsumed_warnsOnStderrAndStillSucceeds() {
         new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
-        Path state = directory.resolve("own-key-cgcom-op-1.state.json");
+        Path state = directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json");
         when(onboarding.importKey(any())).thenReturn(new ImportResult("arn:aws:kms:eu-west-1:000000000000:key/abc",
                 UUID.randomUUID(), Operation.CREATE, "ab".repeat(32), false));
 
         int exitCode = run("import", "--state", state.toString(), "--key-material",
-                directory.resolve("own-key-cgcom-op-1.import-token.bin").toString());
+                directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.import-token.bin").toString());
 
         assertThat(exitCode).isEqualTo(OnboardingCli.EXIT_OK);
         assertThat(err()).contains("WARNING", "Do NOT use it again", state.toString());
@@ -347,8 +347,8 @@ class OnboardingCliTest {
         when(onboarding.importKey(any())).thenReturn(new ImportResult("arn:aws:kms:eu-west-1:000000000000:key/abc",
                 UUID.randomUUID(), Operation.CREATE, "ab".repeat(32)));
 
-        int exitCode = run("import", "--state", directory.resolve("own-key-cgcom-op-1.state.json").toString(),
-                "--key-material", directory.resolve("own-key-cgcom-op-1.import-token.bin").toString());
+        int exitCode = run("import", "--state", directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json").toString(),
+                "--key-material", directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.import-token.bin").toString());
 
         assertThat(exitCode).isEqualTo(OnboardingCli.EXIT_OK);
         assertThat(err()).doesNotContain("WARNING");
@@ -476,8 +476,8 @@ class OnboardingCliTest {
         production = true;
         new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
 
-        assertThat(run("import", "--state", directory.resolve("own-key-cgcom-op-1.state.json").toString(),
-                "--key-material", directory.resolve("own-key-cgcom-op-1.import-token.bin").toString()))
+        assertThat(run("import", "--state", directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json").toString(),
+                "--key-material", directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.import-token.bin").toString()))
                 .isEqualTo(OnboardingCli.EXIT_USAGE);
     }
 
@@ -617,7 +617,7 @@ class OnboardingCliTest {
         assertThat(command.getValue().chainPem()).contains("BEGIN CERTIFICATE");
         assertThat(openedWith.get().kmsEndpoint()).hasToString("http://localhost:4566");
         assertThat(openedWith.get().kmsRegion()).isEqualTo("eu-west-1");
-        assertThat(out()).contains("op-1", "arn:aws:kms:eu-west-1:000000000000:key/abc", "state.json");
+        assertThat(out()).contains("0f0e0d0c-0000-4000-8000-000000000001", "arn:aws:kms:eu-west-1:000000000000:key/abc", "state.json");
     }
 
     @Test
@@ -692,7 +692,7 @@ class OnboardingCliTest {
         Path keyMaterial = Files.write(directory.resolve("material.bin"), new byte[] {4, 5, 6});
         when(onboarding.importKey(any())).thenReturn(new ImportResult("arn", UUID.randomUUID(), Operation.REPLACE, "ab"));
 
-        int exitCode = run("import", "--state", directory.resolve("own-key-cgcom-op-1.state.json").toString(),
+        int exitCode = run("import", "--state", directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json").toString(),
                 "--key-material", keyMaterial.toString());
 
         assertThat(exitCode).isEqualTo(OnboardingCli.EXIT_OK);
@@ -709,7 +709,7 @@ class OnboardingCliTest {
         new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
         when(onboarding.importKey(any())).thenReturn(new ImportResult("arn", null, Operation.CREATE, "ab"));
 
-        int exitCode = run("import", "--state", directory.resolve("own-key-cgcom-op-1.state.json").toString(),
+        int exitCode = run("import", "--state", directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json").toString(),
                 "--dry-run");
 
         assertThat(exitCode).isEqualTo(OnboardingCli.EXIT_OK);
@@ -765,12 +765,12 @@ class OnboardingCliTest {
 
     @Test
     void run_importOfARenewal_needsNoKeyMaterial() {
-        var renewal = new PreparedOnboarding("op-2", "cgcom", "arn:aws:kms:eu-west-1:000000000000:key/abc", null,
+        var renewal = new PreparedOnboarding("0f0e0d0c-0000-4000-8000-000000000002", "cgcom", "arn:aws:kms:eu-west-1:000000000000:key/abc", null,
                 List.of("AAAA"), "ab".repeat(32), Instant.parse("2026-10-27T12:00:00Z"), null, true, null);
         new PreparedOnboardingFiles(directory).write(renewal, null, null);
         when(onboarding.importKey(any())).thenReturn(new ImportResult("arn", UUID.randomUUID(), Operation.REPLACE, "ab"));
 
-        int exitCode = run("import", "--state", directory.resolve("own-key-cgcom-op-2.state.json").toString());
+        int exitCode = run("import", "--state", directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000002.state.json").toString());
 
         assertThat(exitCode).isEqualTo(OnboardingCli.EXIT_OK);
         ArgumentCaptor<ImportCommand> command = ArgumentCaptor.forClass(ImportCommand.class);
@@ -783,7 +783,7 @@ class OnboardingCliTest {
     void run_importOfANewKeyWithoutKeyMaterial_isAUsageError() {
         new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
 
-        assertThat(run("import", "--state", directory.resolve("own-key-cgcom-op-1.state.json").toString()))
+        assertThat(run("import", "--state", directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json").toString()))
                 .isEqualTo(OnboardingCli.EXIT_USAGE);
     }
 
@@ -792,7 +792,7 @@ class OnboardingCliTest {
         new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
         when(onboarding.discard(any())).thenReturn(new DiscardResult("arn", DiscardOutcome.DISCARDED));
 
-        int exitCode = run("discard", "--state", directory.resolve("own-key-cgcom-op-1.state.json").toString());
+        int exitCode = run("discard", "--state", directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json").toString());
 
         assertThat(exitCode).isEqualTo(OnboardingCli.EXIT_OK);
         ArgumentCaptor<DiscardCommand> command = ArgumentCaptor.forClass(DiscardCommand.class);
@@ -807,7 +807,7 @@ class OnboardingCliTest {
         new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
         when(onboarding.discard(any())).thenReturn(new DiscardResult("arn", DiscardOutcome.WOULD_DISCARD));
 
-        run("discard", "--state", directory.resolve("own-key-cgcom-op-1.state.json").toString(), "--dry-run");
+        run("discard", "--state", directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json").toString(), "--dry-run");
 
         ArgumentCaptor<DiscardCommand> command = ArgumentCaptor.forClass(DiscardCommand.class);
         verify(onboarding).discard(command.capture());
@@ -821,7 +821,7 @@ class OnboardingCliTest {
         when(onboarding.discard(any())).thenThrow(
                 new OnboardingRejectedException(RejectionReason.POLICY_DENIED, "the key has been imported"));
 
-        assertThat(run("discard", "--state", directory.resolve("own-key-cgcom-op-1.state.json").toString()))
+        assertThat(run("discard", "--state", directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json").toString()))
                 .isEqualTo(OnboardingCli.EXIT_REJECTED);
         assertThat(err()).contains("REJECTED: the key has been imported");
     }

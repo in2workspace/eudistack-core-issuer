@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * The files {@code prepare} leaves in the output directory, and how {@code import} reads them back. For an
@@ -206,6 +207,7 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
         if (state.version() != STATE_VERSION) {
             throw new OnboardingFailedException("unsupported state file version " + state.version());
         }
+        requireCanonicalUuid(state.operationId());
         return state;
     }
 
@@ -213,6 +215,23 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
         return new PreparedOnboarding(state.operationId(), state.tenant(), state.keyArn(), state.alias(),
                 state.certificateChain(), state.spkiSha256(), state.createdAt(), state.importTokenExpiresAt(),
                 state.renewal(), state.discardedAt(), state.importedAt(), state.policy());
+    }
+
+    /**
+     * The operation id of a state is the one the tool generated, a canonical UUID: it ends up in the configuration row and
+     * as the correlation id of the audit events, so a state edited to carry any other text is refused.
+     */
+    private static void requireCanonicalUuid(String operationId) {
+        boolean canonical;
+        try {
+            canonical = operationId != null && UUID.fromString(operationId).toString().equals(operationId);
+        } catch (IllegalArgumentException _) {
+            canonical = false;
+        }
+        if (!canonical) {
+            throw new OnboardingFailedException("the state file does not hold a valid operation id: it was not written "
+                    + "by prepare, or it was edited");
+        }
     }
 
     /** A discarded preparation is still readable (to refuse it by name) even if its token file was removed. */

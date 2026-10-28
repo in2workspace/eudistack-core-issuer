@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.signing.infrastructure.onboarding;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFailedException;
 import es.in2.issuer.backend.signing.domain.onboarding.PreparedOnboarding;
 import org.junit.jupiter.api.Test;
@@ -20,8 +21,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class PreparedOnboardingFilesTest {
 
-    private static final PreparedOnboarding PREPARED = new PreparedOnboarding("op-1", "cgcom",
-            "arn:aws:kms:eu-west-1:000000000000:key/abc", "alias/own-key-cgcom-op-1", List.of("AAAA", "BBBB"),
+    private static final PreparedOnboarding PREPARED = new PreparedOnboarding("0f0e0d0c-0000-4000-8000-000000000001", "cgcom",
+            "arn:aws:kms:eu-west-1:000000000000:key/abc", "alias/own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001", List.of("AAAA", "BBBB"),
             "ab".repeat(32), Instant.parse("2026-10-27T12:00:00Z"), Instant.parse("2026-10-28T12:00:00Z"));
 
     @TempDir
@@ -31,7 +32,7 @@ class PreparedOnboardingFilesTest {
     void write_thenRead_returnsTheSameStateAndTokenWithoutNamingTheTokenFile() {
         new PreparedOnboardingFiles(directory.resolve("out")).write(PREPARED, new byte[] {1, 2, 3}, new byte[] {7, 8});
 
-        var loaded = PreparedOnboardingFiles.read(directory.resolve("out/own-key-cgcom-op-1.state.json"), null);
+        var loaded = PreparedOnboardingFiles.read(directory.resolve("out/own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json"), null);
 
         assertThat(loaded.prepared()).isEqualTo(PREPARED);
         assertThat(loaded.importToken()).containsExactly(7, 8);
@@ -41,9 +42,9 @@ class PreparedOnboardingFilesTest {
     void write_leavesTheWrappingKeyAsDerAndAsPem() throws Exception {
         new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1, 2, 3}, new byte[] {7, 8});
 
-        assertThat(Files.readAllBytes(directory.resolve("own-key-cgcom-op-1.wrapping-public-key.der")))
+        assertThat(Files.readAllBytes(directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.wrapping-public-key.der")))
                 .containsExactly(1, 2, 3);
-        assertThat(Files.readString(directory.resolve("own-key-cgcom-op-1.wrapping-public-key.pem"),
+        assertThat(Files.readString(directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.wrapping-public-key.pem"),
                 StandardCharsets.US_ASCII))
                 .isEqualTo("-----BEGIN PUBLIC KEY-----\nAQID\n-----END PUBLIC KEY-----\n");
     }
@@ -52,7 +53,7 @@ class PreparedOnboardingFilesTest {
     void write_stateFile_holdsNoSecretField() throws Exception {
         new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1, 2, 3}, new byte[] {7, 8});
 
-        assertThat(Files.readString(directory.resolve("own-key-cgcom-op-1.state.json")))
+        assertThat(Files.readString(directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json")))
                 .doesNotContainIgnoringCase("private").doesNotContainIgnoringCase("password")
                 .doesNotContainIgnoringCase("secret");
     }
@@ -71,7 +72,7 @@ class PreparedOnboardingFilesTest {
         new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
         Path token = Files.write(directory.resolve("other.bin"), new byte[] {5});
 
-        var loaded = PreparedOnboardingFiles.read(directory.resolve("own-key-cgcom-op-1.state.json"), token);
+        var loaded = PreparedOnboardingFiles.read(directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json"), token);
 
         assertThat(loaded.importToken()).containsExactly(5);
     }
@@ -95,15 +96,15 @@ class PreparedOnboardingFilesTest {
 
     @Test
     void write_renewal_leavesOnlyTheStateFileAndReadsBackWithoutAToken() throws Exception {
-        var renewal = new PreparedOnboarding("op-2", "cgcom", "arn:aws:kms:eu-west-1:000000000000:key/abc", null,
+        var renewal = new PreparedOnboarding("0f0e0d0c-0000-4000-8000-000000000002", "cgcom", "arn:aws:kms:eu-west-1:000000000000:key/abc", null,
                 List.of("AAAA"), "ab".repeat(32), Instant.parse("2026-10-27T12:00:00Z"), null, true, null);
 
         new PreparedOnboardingFiles(directory).write(renewal, null, null);
 
         try (var files = Files.list(directory)) {
-            assertThat(files.map(path -> path.getFileName().toString())).containsExactly("own-key-cgcom-op-2.state.json");
+            assertThat(files.map(path -> path.getFileName().toString())).containsExactly("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000002.state.json");
         }
-        var loaded = PreparedOnboardingFiles.read(directory.resolve("own-key-cgcom-op-2.state.json"), null);
+        var loaded = PreparedOnboardingFiles.read(directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000002.state.json"), null);
         assertThat(loaded.prepared()).isEqualTo(renewal);
         assertThat(loaded.importToken()).isNull();
     }
@@ -111,7 +112,7 @@ class PreparedOnboardingFilesTest {
     @Test
     void markDiscarded_rewritesTheStateFileThatWasGivenWithTheDate() {
         new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
-        Path state = directory.resolve("own-key-cgcom-op-1.state.json");
+        Path state = directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json");
         Instant when = Instant.parse("2026-10-27T13:00:00Z");
 
         PreparedOnboardingFiles.around(state).markDiscarded(PREPARED, when);
@@ -122,7 +123,7 @@ class PreparedOnboardingFilesTest {
     @Test
     void markImported_rewritesTheStateWithTheDateAndKeepsTheRest() {
         new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
-        Path state = directory.resolve("own-key-cgcom-op-1.state.json");
+        Path state = directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json");
         Instant when = Instant.parse("2026-10-27T13:00:00Z");
 
         PreparedOnboardingFiles.around(state).markImported(PREPARED, when);
@@ -136,7 +137,7 @@ class PreparedOnboardingFilesTest {
     @Test
     void current_readsTheMarksAnotherRunLeftSinceTheStateWasRead() {
         new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
-        Path state = directory.resolve("own-key-cgcom-op-1.state.json");
+        Path state = directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json");
         var readBefore = PreparedOnboardingFiles.read(state, null).prepared();
         Instant when = Instant.parse("2026-10-27T13:00:00Z");
         PreparedOnboardingFiles.around(state).markImported(readBefore, when);
@@ -148,10 +149,25 @@ class PreparedOnboardingFilesTest {
         assertThat(current.operationId()).isEqualTo(PREPARED.operationId());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"op-of-another-tenant", "0F0E0D0C-0000-4000-8000-000000000001",
+            "0f0e0d0c-0000-4000-8000-000000000001\r\nforged log line", ""})
+    void read_stateWhoseOperationIdIsNotACanonicalUuid_isRefused(String operationId) throws Exception {
+        new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
+        Path state = directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json");
+        String json = Files.readString(state);
+        Files.writeString(state, json.replace("\"" + PREPARED.operationId() + "\"",
+                new ObjectMapper().writeValueAsString(operationId)));
+
+        assertThatThrownBy(() -> PreparedOnboardingFiles.read(state, null))
+                .isInstanceOf(OnboardingFailedException.class)
+                .hasMessageContaining("operation id");
+    }
+
     @Test
     void current_ofAStateThatIsNoLongerThere_fails() throws Exception {
         new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
-        Path state = directory.resolve("own-key-cgcom-op-1.state.json");
+        Path state = directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json");
         Files.delete(state);
         var files = PreparedOnboardingFiles.around(state);
 
@@ -160,13 +176,13 @@ class PreparedOnboardingFilesTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"../secret.bin", "/etc/hostname", "sub/own-key-cgcom-op-1.import-token.bin",
-            "other.bin", "own-key-kpmg-op-1.import-token.bin"})
+    @ValueSource(strings = {"../secret.bin", "/etc/hostname", "sub/own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.import-token.bin",
+            "other.bin", "own-key-kpmg-0f0e0d0c-0000-4000-8000-000000000001.import-token.bin"})
     void read_stateNamingATokenFileThatIsNotAPlainNameOfThisPreparation_isRefusedAndNotRead(String tokenFile)
             throws Exception {
         new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
-        Path state = directory.resolve("own-key-cgcom-op-1.state.json");
-        Files.writeString(state, Files.readString(state).replace("own-key-cgcom-op-1.import-token.bin", tokenFile));
+        Path state = directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json");
+        Files.writeString(state, Files.readString(state).replace("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.import-token.bin", tokenFile));
 
         assertThatThrownBy(() -> PreparedOnboardingFiles.read(state, null))
                 .isInstanceOf(OnboardingFailedException.class)
@@ -195,7 +211,7 @@ class PreparedOnboardingFilesTest {
     @Test
     void markImported_onAPosixFileSystem_keepsTheStateFilePrivateAndLeavesNoTemporaryFile() throws Exception {
         new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
-        Path state = directory.resolve("own-key-cgcom-op-1.state.json");
+        Path state = directory.resolve("own-key-cgcom-0f0e0d0c-0000-4000-8000-000000000001.state.json");
 
         PreparedOnboardingFiles.around(state).markImported(PREPARED, Instant.parse("2026-10-27T13:00:00Z"));
 
