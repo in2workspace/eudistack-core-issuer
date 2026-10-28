@@ -265,7 +265,7 @@ public class OwnKeyOnboarding {
         if (command.dryRun()) {
             return runImport(command);
         }
-        try (OperationLock _ = lockOperation(prepared)) {
+        try (var _ = lockOperation(prepared)) {
             requireNotMarked(currentState(prepared, command.artifacts()));
             return runImport(command);
         }
@@ -506,7 +506,7 @@ public class OwnKeyOnboarding {
         if (command.dryRun()) {
             return runDiscard(command, prepared, startedAt);
         }
-        try (OperationLock _ = lockOperation(prepared)) {
+        try (var _ = lockOperation(prepared)) {
             PreparedOnboarding current = currentState(prepared, command.artifacts());
             if (current.discardedAt() != null) {
                 return new DiscardResult(prepared.keyArn(), DiscardOutcome.ALREADY_DISCARDED);

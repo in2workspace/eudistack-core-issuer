@@ -194,7 +194,7 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
                 token = readTokenUnlessDiscarded(tokenPath, state);
             }
             return new Loaded(prepared(state), token);
-        } catch (JsonProcessingException e) {
+        } catch (JsonProcessingException _) {
             throw new OnboardingFailedException("the state file " + stateFile + " is not a valid state file");
         } catch (IOException e) {
             throw new OnboardingFailedException("could not read " + stateFile + " or its import token", e);
