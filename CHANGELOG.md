@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.11.1] - 2026-10-28
+
+### Added
+- **EUD-301 — SD-JWT VC issuance keeps additional business attributes** as selectively disclosable claims. A name reserved by the issuer (`iss`, `vct`, `cnf`, `status`, `iat`, `exp`) is rejected. The payload is validated against the full per-format schema, including types without a `mandate` subtree such as Doctor ID.
+- **DOME issuer migration scripts (US05)** and the `created_at` backfill from the credential's valid-from date.
+
+### Changed
+- **EUD-305 — `ui` delivery returns the standard `openid-credential-offer://` offer** and no longer builds an https link to our wallet. The email service builds the tenant wallet link when `issuer.wallet_url` is set. Deploy together with credential-manager so the QR stays scannable.
+- **Emails use per-tenant branding.** The support link of the revoked, expired and failure emails comes from the tenant `support-url` instead of a hardcoded DOME address.
+
+### Fixed
+- **Dedalo #1071467 — an optional text field sent as null or empty, such as `mandator.serialNumber`, no longer fails issuance with `400 payload_validation_error`.** Those values are removed before validation and signing.
+- **Every credential-offer refresh that is not `DRAFT` returns `410 credential_offer_gone`.** The `credential_already_active` code is removed. Deploy together with credential-manager.
+
 ## [Unreleased]
 
 ### Changed (EUD-305)
