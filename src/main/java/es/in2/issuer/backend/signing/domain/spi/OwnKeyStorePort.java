@@ -36,8 +36,18 @@ public interface OwnKeyStorePort {
         }
     }
 
-    /** A reservation of an SPKI hash: the tenant that holds it and the configuration it was made for. */
-    record SpkiReservation(String tenantId, UUID configurationId) {}
+    /**
+     * A reservation of an SPKI hash: the tenant that holds it and the configuration it was made for.
+     *
+     * @param stale the configuration that holds it no longer waits for {@code reconcile} (its key was handled, or the row
+     *              is gone), so nothing will release it by itself
+     */
+    record SpkiReservation(String tenantId, UUID configurationId, boolean stale) {
+
+        public SpkiReservation(String tenantId, UUID configurationId) {
+            this(tenantId, configurationId, false);
+        }
+    }
 
     Optional<RegisteredTenant> findTenant(String tenantId);
 
@@ -165,9 +175,14 @@ public interface OwnKeyStorePort {
         /**
          * Marks the row as handled ({@code own_key_deleted_at}) because its KMS key is still referenced by an active
          * configuration and must not be retired, so the row is not selected again. The SPKI reservation of the row is
-         * NOT released: the key still signs, so its public key must stay reserved for its tenant.
+         * NOT released: the key still signs, so its public key must stay reserved. If the active configuration that uses
+         * the key is of the same tenant, the reservation passes to it, so that it is released when that configuration's
+         * key is retired and a renewal of it is recognised; if not (another tenant's), it stays on this row.
+         *
+         * @return the active configuration of the same tenant that now holds the reservation; empty if the key is used
+         *         by no active configuration of this tenant, and the reservation stayed on the row
          */
-        void markKeyStillInUse(String tenantId, WithdrawnOwnKey key);
+        Optional<UUID> markKeyStillInUse(String tenantId, WithdrawnOwnKey key);
 
         /** Stages the event in this transaction: it is only published if the transaction commits. */
         void stage(SigningConfigurationChanged event);

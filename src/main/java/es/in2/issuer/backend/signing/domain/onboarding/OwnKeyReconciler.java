@@ -34,11 +34,14 @@ import java.util.function.Supplier;
  *
  * <p>Every row leaves a {@code Retire} event: {@code Success} or {@code Denied} (key in use) staged in the
  * transaction that marks the row, {@code Failure} in a transaction of its own, since the row's transaction ends
- * without changes. The actor is the caller ARN. The correlation id is the operation id of the onboarding that activated
- * the row, the same as in its {@code Create} or {@code Replace} event, so the events of a key can be joined; it is
- * {@code null} for a row the onboarding tool did not write. The same transaction releases the SPKI reservation of the row of a key that
- * was retired: until then the public key is still reserved for its tenant. The reservation of a key that an active
- * configuration still references is not released, because the key still signs.
+ * without changes. The actor is the caller ARN. The correlation id is the operation id of the onboarding that
+ * activated the row, the same as in its {@code Create} or {@code Replace} event, so the events of a key can be joined;
+ * it is {@code null} for a row the onboarding tool did not write.
+ *
+ * <p>The transaction that marks the row of a retired key also releases its SPKI reservation: until then the public key
+ * is still reserved for its tenant. The reservation of a key that an active configuration still references is not
+ * released, because the key still signs: it passes to the active row of the same tenant that uses the key, or, if only
+ * another tenant uses it, stays on the row and an error is logged.
  *
  * <p>One transaction per row: the row is selected {@code FOR UPDATE SKIP LOCKED}, so two runs at the same
  * time never act on the same row, and a failure on one key leaves the others to proceed.
@@ -149,8 +152,13 @@ public class OwnKeyReconciler {
             if (store.isKeyReferenced(row.kmsKeyRef(), true)) {
                 log.warn("Tenant '{}', configuration {}: the key is referenced by an active configuration and is not "
                         + "retired", tenant, row.id());
-                // The key still signs: its row is handled, but its SPKI stays reserved for the tenant.
-                tx.markKeyStillInUse(tenant, row);
+                // The key still signs: its row is handled, but its SPKI stays reserved, with the active row of the
+                // tenant that uses it if there is one.
+                if (tx.markKeyStillInUse(tenant, row).isEmpty()) {
+                    log.error("Tenant '{}', configuration {}: the key is used by an active configuration of another "
+                            + "tenant. Its SPKI reservation stays on this row and nothing will release it: check by hand "
+                            + "which tenant must hold the key", tenant, row.id());
+                }
                 tx.stage(event(tenant, row, Result.DENIED, RejectionReason.KEY_IN_USE, actor, startedAt));
                 return new RowResult(row, null);
             }

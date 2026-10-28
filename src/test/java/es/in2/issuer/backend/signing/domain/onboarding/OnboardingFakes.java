@@ -130,6 +130,8 @@ final class OnboardingFakes {
         final Map<String, SpkiReservation> reservations = new HashMap<>();
         final Set<String> activeKeyRefs = new HashSet<>();
         final Set<String> otherKeyRefs = new HashSet<>();
+        /** Key reference to the id of the active row of the tenant being reconciled that uses it. */
+        final Map<String, UUID> sameTenantActiveRows = new HashMap<>();
         final List<String> committedOperations = new ArrayList<>();
         final List<SigningConfigurationChanged> committedEvents = new ArrayList<>();
         final List<SigningConfigurationChanged> eventsInOwnTransaction = new ArrayList<>();
@@ -213,6 +215,9 @@ final class OnboardingFakes {
             retired.addAll(transaction.retiredHere);
             retired.addAll(transaction.keptReservation);
             reservations.values().removeIf(reservation -> transaction.retiredHere.contains(reservation.configurationId()));
+            transaction.reservationMoves.forEach((from, to) -> reservations.replaceAll((hash, reservation) ->
+                    reservation.configurationId().equals(from)
+                            ? new SpkiReservation(reservation.tenantId(), to) : reservation));
             return result;
         }
 
@@ -231,6 +236,7 @@ final class OnboardingFakes {
             private final List<NewOwnKeyConfiguration> activatedHere = new ArrayList<>();
             private final Set<UUID> retiredHere = new HashSet<>();
             private final Set<UUID> keptReservation = new HashSet<>();
+            private final Map<UUID, UUID> reservationMoves = new HashMap<>();
 
             @Override
             public Optional<ActiveConfiguration> lockActiveConfiguration(String tenantId) {
@@ -286,10 +292,13 @@ final class OnboardingFakes {
             }
 
             @Override
-            public void markKeyStillInUse(String tenantId, WithdrawnOwnKey key) {
+            public Optional<UUID> markKeyStillInUse(String tenantId, WithdrawnOwnKey key) {
                 operations.add("markStillInUse:" + key.kmsKeyRef());
-                // handled, but its reservation stays
+                // handled, but its reservation stays, or passes to the active row of the tenant that uses the key
                 keptReservation.add(key.id());
+                Optional<UUID> holder = Optional.ofNullable(sameTenantActiveRows.get(key.kmsKeyRef()));
+                holder.ifPresent(active -> reservationMoves.put(key.id(), active));
+                return holder;
             }
 
             @Override

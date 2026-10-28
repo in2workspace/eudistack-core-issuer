@@ -827,14 +827,21 @@ public class OwnKeyOnboarding {
 
     /**
      * Who holds the reservation. When it is this very tenant, the key was in a configuration that has been replaced: the
-     * reservation lasts until {@code reconcile} retires that key, so the operator is told to wait for it.
+     * reservation lasts until {@code reconcile} retires that key, so the operator is told to wait for it, unless
+     * {@code reconcile} has handled that configuration already, and then nothing will release it.
      */
     private static String holderOf(SpkiReservation reservation, Attempt attempt) {
-        if (attempt.tenant.equals(reservation.tenantId())) {
-            return "a configuration of this same tenant: the key was replaced and its reservation is "
-                    + "released when reconcile retires it (after the grace period, in its next run)";
+        if (!attempt.tenant.equals(reservation.tenantId())) {
+            return tenantNamed(reservation.tenantId());
         }
-        return tenantNamed(reservation.tenantId());
+        if (reservation.stale()) {
+            return "a configuration of this same tenant that reconcile has already handled (configuration "
+                    + reservation.configurationId() + "): nothing will release that reservation, because the key is "
+                    + "used by a configuration of another tenant or the row is gone. Check public.signing_spki_reservation "
+                    + "and the configurations that use the key by hand";
+        }
+        return "a configuration of this same tenant: the key was replaced and its reservation is "
+                + "released when reconcile retires it (after the grace period, in its next run)";
     }
 
     private static String tenantNamed(String tenant) {

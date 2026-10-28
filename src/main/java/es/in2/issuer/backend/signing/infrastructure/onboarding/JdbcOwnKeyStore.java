@@ -215,16 +215,42 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
     @Override
     public Optional<SpkiReservation> findSpkiReservation(byte[] spkiSha256) {
         return read(connection -> {
+            String tenantId;
+            UUID configurationId;
             try (PreparedStatement statement = connection.prepareStatement("SELECT tenant_id, signing_configuration_id "
                     + "FROM public.signing_spki_reservation WHERE public_key_spki_sha256 = ?")) {
                 statement.setBytes(1, spkiSha256);
                 try (ResultSet rs = statement.executeQuery()) {
-                    return rs.next()
-                            ? Optional.of(new SpkiReservation(rs.getString(1), rs.getObject(2, UUID.class)))
-                            : Optional.<SpkiReservation>empty();
+                    if (!rs.next()) {
+                        return Optional.<SpkiReservation>empty();
+                    }
+                    tenantId = rs.getString(1);
+                    configurationId = rs.getObject(2, UUID.class);
                 }
             }
+            return Optional.of(new SpkiReservation(tenantId, configurationId,
+                    isStale(connection, tenantId, configurationId)));
         });
+    }
+
+    /**
+     * Whether the row that holds a reservation no longer waits for {@code reconcile}: it is gone, or its key was handled.
+     * Only said to explain a rejection: if the row cannot be read, the reservation is not called stale.
+     */
+    private static boolean isStale(Connection connection, String tenantId, UUID configurationId) {
+        if (tenantId == null || !TENANT_ID.matcher(tenantId).matches()) {
+            return false;
+        }
+        try (PreparedStatement statement = connection.prepareStatement("SELECT own_key_deleted_at IS NOT NULL FROM "
+                + table(tenantId) + " WHERE id = ?")) {
+            statement.setObject(1, configurationId);
+            try (ResultSet rs = statement.executeQuery()) {
+                return !rs.next() || rs.getBoolean(1);
+            }
+        } catch (SQLException e) {
+            log.debug("The holder of an SPKI reservation in tenant '{}' could not be read: {}", tenantId, e.getMessage());
+            return false;
+        }
     }
 
     /**
@@ -477,11 +503,32 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         }
 
         @Override
-        public void markKeyStillInUse(String tenantId, WithdrawnOwnKey key) {
-            run(() -> {
+        public Optional<UUID> markKeyStillInUse(String tenantId, WithdrawnOwnKey key) {
+            return run(() -> {
                 markHandled(tenantId, key);
-                return null;
+                Optional<UUID> holder = activeRowWithKey(tenantId, key.kmsKeyRef());
+                if (holder.isPresent()) {
+                    try (PreparedStatement statement = connection.prepareStatement("UPDATE "
+                            + "public.signing_spki_reservation SET signing_configuration_id = ? "
+                            + "WHERE tenant_id = ? AND signing_configuration_id = ?")) {
+                        statement.setObject(1, holder.get());
+                        statement.setString(2, tenantId);
+                        statement.setObject(3, key.id());
+                        statement.executeUpdate();
+                    }
+                }
+                return holder;
             });
+        }
+
+        private Optional<UUID> activeRowWithKey(String tenantId, String kmsKeyRef) throws SQLException {
+            try (PreparedStatement statement = connection.prepareStatement("SELECT id FROM " + table(tenantId)
+                    + " WHERE status = 'active' AND own_key_kms_key_ref = ?")) {
+                statement.setString(1, kmsKeyRef);
+                try (ResultSet rs = statement.executeQuery()) {
+                    return rs.next() ? Optional.of(rs.getObject(1, UUID.class)) : Optional.<UUID>empty();
+                }
+            }
         }
 
         private void markHandled(String tenantId, WithdrawnOwnKey key) throws SQLException {

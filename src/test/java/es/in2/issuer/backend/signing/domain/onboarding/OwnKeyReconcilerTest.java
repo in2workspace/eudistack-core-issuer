@@ -1,5 +1,9 @@
 package es.in2.issuer.backend.signing.domain.onboarding;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFakes.FakeKms;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFakes.FakeStore;
 import es.in2.issuer.backend.signing.domain.spi.KmsKeyAdministrationPort.KeyState;
@@ -8,6 +12,7 @@ import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.RegisteredTenant
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.WithdrawnOwnKey;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -325,6 +330,43 @@ class OwnKeyReconcilerTest {
         assertThat(store.retired).contains(row.id());
         assertThat(store.reservations).containsOnlyKeys("ab".repeat(32));
         assertThat(kms.calls).noneMatch(call -> call.startsWith("disableKey") || call.startsWith("scheduleKeyDeletion"));
+    }
+
+    @Test
+    void reconcile_keyStillUsedByAnActiveRowOfTheSameTenant_passesTheReservationToThatRow() {
+        var row = withdrawn("cgcom", KEY_A);
+        UUID activeRow = UUID.randomUUID();
+        store.reservations.put("ab".repeat(32), new OwnKeyStorePort.SpkiReservation("cgcom", row.id()));
+        store.activeKeyRefs.add(KEY_A);
+        store.sameTenantActiveRows.put(KEY_A, activeRow);
+
+        reconciler.reconcile(GRACE, false);
+
+        assertThat(store.reservations.get("ab".repeat(32)))
+                .isEqualTo(new OwnKeyStorePort.SpkiReservation("cgcom", activeRow));
+        assertThat(kms.calls).noneMatch(call -> call.startsWith("disableKey") || call.startsWith("scheduleKeyDeletion"));
+    }
+
+    @Test
+    void reconcile_keyStillUsedOnlyByAnotherTenant_keepsTheReservationOnTheRowAndLogsAnError() {
+        var row = withdrawn("cgcom", KEY_A);
+        store.reservations.put("ab".repeat(32), new OwnKeyStorePort.SpkiReservation("cgcom", row.id()));
+        store.activeKeyRefs.add(KEY_A);
+        Logger logger = (Logger) LoggerFactory.getLogger(OwnKeyReconciler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            reconciler.reconcile(GRACE, false);
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        assertThat(store.reservations.get("ab".repeat(32)).configurationId()).isEqualTo(row.id());
+        assertThat(appender.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+            assertThat(event.getFormattedMessage()).contains("another tenant", row.id().toString());
+        });
     }
 
     @Test

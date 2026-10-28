@@ -8,6 +8,7 @@ import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.ImportCo
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.PrepareCommand;
 import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChanged.Operation;
 import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChanged.Result;
+import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.ActiveConfiguration;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.RegisteredTenant;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
@@ -211,6 +212,20 @@ class OwnKeyOnboardingTest {
                 .isInstanceOfSatisfying(OnboardingRejectedException.class, e -> {
                     assertThat(e.getReason()).isEqualTo(RejectionReason.KEY_IN_USE);
                     assertThat(e.getMessage()).contains("same tenant", "was replaced", "reconcile");
+                });
+    }
+
+    @Test
+    void prepare_keyReservedByARowOfTheSameTenantThatReconcileAlreadyHandled_saysToCheckItByHand() {
+        String spki = new ValidatedOwnKeyCertificate(List.of(leaf.certificate())).spkiSha256Hex();
+        UUID holder = UUID.randomUUID();
+        store.reservations.put(spki, new OwnKeyStorePort.SpkiReservation(TENANT, holder, true));
+
+        assertThatThrownBy(() -> onboarding.prepare(prepareCommand(leaf.certificate(), false)))
+                .isInstanceOfSatisfying(OnboardingRejectedException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(RejectionReason.KEY_IN_USE);
+                    assertThat(e.getMessage()).contains("already handled", holder.toString(), "by hand")
+                            .doesNotContain("released when reconcile");
                 });
     }
 

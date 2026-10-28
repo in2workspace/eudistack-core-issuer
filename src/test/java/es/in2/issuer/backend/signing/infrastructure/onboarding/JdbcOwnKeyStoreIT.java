@@ -160,7 +160,8 @@ class JdbcOwnKeyStoreIT {
         UUID configuration = UUID.randomUUID();
         reserve(SPKI, "kpmg", configuration);
 
-        assertThat(store.findSpkiReservation(SPKI)).contains(new SpkiReservation("kpmg", configuration));
+        assertThat(store.findSpkiReservation(SPKI)).as("its row does not exist: nothing will release it")
+                .contains(new SpkiReservation("kpmg", configuration, true));
         assertThat(store.findSpkiReservation(OTHER_SPKI)).isEmpty();
     }
 
@@ -441,6 +442,48 @@ class JdbcOwnKeyStoreIT {
         assertThat(store.findWithdrawnOwnKeysPendingKms("cgcom", Duration.ZERO)).isEmpty();
         assertThat(store.findSpkiReservation(SPKI)).isPresent().get()
                 .satisfies(reservation -> assertThat(reservation.configurationId()).isEqualTo(id));
+    }
+
+    @Test
+    void markKeyStillInUse_keyOfAnActiveRowOfTheSameTenant_passesTheReservationToItUntilItsKeyIsRetired() {
+        String key = "arn:aws:kms:eu-west-1:000000000000:key/shared";
+        UUID withdrawn = insertOwnKey("cgcom", "withdrawn", key, 600, null);
+        UUID active = insertOwnKey("cgcom", "active", key, null, null);
+        reserve(SPKI, "cgcom", withdrawn);
+
+        var holder = store.inTransaction(tx -> tx.markKeyStillInUse("cgcom",
+                tx.lockNextWithdrawnOwnKey("cgcom", Duration.ofSeconds(160), Set.of()).orElseThrow()));
+
+        assertThat(holder).contains(active);
+        assertThat(store.findSpkiReservation(SPKI)).contains(new SpkiReservation("cgcom", active, false));
+        assertThat(store.findWithdrawnOwnKeysPendingKms("cgcom", Duration.ZERO)).isEmpty();
+
+        // the active row is replaced later, and reconcile retires its key: then the reservation is released
+        execute("UPDATE cgcom_issuer.tenant_signing_config SET status = 'withdrawn', withdrawn_at = now() - interval "
+                + "'10 minutes', withdrawn_by = 'arn:after' WHERE id = ?", active);
+        store.inTransaction(tx -> {
+            tx.markKeyRetired("cgcom", tx.lockNextWithdrawnOwnKey("cgcom", Duration.ofSeconds(160), Set.of())
+                    .orElseThrow());
+            return null;
+        });
+
+        assertThat(store.findSpkiReservation(SPKI)).isEmpty();
+    }
+
+    @Test
+    void markKeyStillInUse_keyUsedOnlyByAnotherTenant_keepsTheReservationOnTheRowWhichIsThenStale() {
+        String key = "arn:aws:kms:eu-west-1:000000000000:key/shared";
+        UUID withdrawn = insertOwnKey("cgcom", "withdrawn", key, 600, null);
+        insertOwnKey("kpmg", "active", key, null, null);
+        reserve(SPKI, "cgcom", withdrawn);
+        assertThat(store.findSpkiReservation(SPKI)).as("waiting for reconcile")
+                .contains(new SpkiReservation("cgcom", withdrawn, false));
+
+        var holder = store.inTransaction(tx -> tx.markKeyStillInUse("cgcom",
+                tx.lockNextWithdrawnOwnKey("cgcom", Duration.ofSeconds(160), Set.of()).orElseThrow()));
+
+        assertThat(holder).isEmpty();
+        assertThat(store.findSpkiReservation(SPKI)).contains(new SpkiReservation("cgcom", withdrawn, true));
     }
 
     @Test
