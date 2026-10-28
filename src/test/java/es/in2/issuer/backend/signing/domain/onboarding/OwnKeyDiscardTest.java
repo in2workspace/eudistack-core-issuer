@@ -113,8 +113,9 @@ class OwnKeyDiscardTest {
     @Test
     void discard_keyThatHasItsMaterialImported_isRefused() {
         kms.states.put(ARN, KeyState.ENABLED);
+        var command = command(false);
 
-        assertThatThrownBy(() -> onboarding.discard(command(false)))
+        assertThatThrownBy(() -> onboarding.discard(command))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessageContaining("imported");
 
@@ -124,8 +125,9 @@ class OwnKeyDiscardTest {
     @Test
     void discard_disabledKeyThatHadMaterial_isRefused() {
         kms.states.put(ARN, KeyState.DISABLED);
+        var command = command(false);
 
-        assertThatThrownBy(() -> onboarding.discard(command(false))).isInstanceOf(OnboardingRejectedException.class);
+        assertThatThrownBy(() -> onboarding.discard(command)).isInstanceOf(OnboardingRejectedException.class);
 
         assertNothingDestroyed();
     }
@@ -133,8 +135,9 @@ class OwnKeyDiscardTest {
     @Test
     void discard_keyWhoseOperationIdTagIsAnotherOnes_isRefused() {
         kms.tags.put("operationId", "op-other");
+        var command = command(false);
 
-        assertThatThrownBy(() -> onboarding.discard(command(false)))
+        assertThatThrownBy(() -> onboarding.discard(command))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessageContaining("tags");
 
@@ -170,8 +173,9 @@ class OwnKeyDiscardTest {
     @Test
     void discard_keyWhoseTenantTagIsAnotherTenants_isRefused() {
         kms.tags.put("Tenant", "kpmg");
+        var command = command(false);
 
-        assertThatThrownBy(() -> onboarding.discard(command(false))).isInstanceOf(OnboardingRejectedException.class);
+        assertThatThrownBy(() -> onboarding.discard(command)).isInstanceOf(OnboardingRejectedException.class);
 
         assertNothingDestroyed();
     }
@@ -179,8 +183,9 @@ class OwnKeyDiscardTest {
     @Test
     void discard_keyWithoutTags_isRefused() {
         kms.tags.clear();
+        var command = command(false);
 
-        assertThatThrownBy(() -> onboarding.discard(command(false))).isInstanceOf(OnboardingRejectedException.class);
+        assertThatThrownBy(() -> onboarding.discard(command)).isInstanceOf(OnboardingRejectedException.class);
 
         assertNothingDestroyed();
     }
@@ -188,8 +193,9 @@ class OwnKeyDiscardTest {
     @Test
     void discard_keyReferencedByASigningConfigurationOfAnyStatus_isRefused() {
         store.otherKeyRefs.add(ARN);
+        var command = command(false);
 
-        assertThatThrownBy(() -> onboarding.discard(command(false)))
+        assertThatThrownBy(() -> onboarding.discard(command))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessageContaining("references the key");
 
@@ -199,8 +205,9 @@ class OwnKeyDiscardTest {
     @Test
     void discard_referenceCheckThatCannotRead_failsAndTouchesNothing() {
         store.referenceCheckFailure = new OnboardingFailedException("cannot be shown to be unreferenced");
+        var command = command(false);
 
-        assertThatThrownBy(() -> onboarding.discard(command(false))).isInstanceOf(OnboardingFailedException.class);
+        assertThatThrownBy(() -> onboarding.discard(command)).isInstanceOf(OnboardingFailedException.class);
 
         assertNothingDestroyed();
     }
@@ -208,8 +215,9 @@ class OwnKeyDiscardTest {
     @Test
     void discard_keyReferencedByAnActiveConfiguration_isRefused() {
         store.activeKeyRefs.add(ARN);
+        var command = command(false);
 
-        assertThatThrownBy(() -> onboarding.discard(command(false))).isInstanceOf(OnboardingRejectedException.class);
+        assertThatThrownBy(() -> onboarding.discard(command)).isInstanceOf(OnboardingRejectedException.class);
 
         assertNothingDestroyed();
     }
@@ -256,8 +264,9 @@ class OwnKeyDiscardTest {
     @Test
     void discard_deletionThatCannotBeScheduled_failsAndLeavesTheStateUnmarked() {
         kms.failures.put("scheduleKeyDeletion", new OnboardingFailedException("KMS ScheduleKeyDeletion failed"));
+        var command = command(false);
 
-        assertThatThrownBy(() -> onboarding.discard(command(false))).isInstanceOf(OnboardingFailedException.class);
+        assertThatThrownBy(() -> onboarding.discard(command)).isInstanceOf(OnboardingFailedException.class);
 
         assertThat(artifacts.discarded).isNull();
         assertThat(kms.calls).noneMatch(call -> call.startsWith("deleteAlias"));
@@ -275,8 +284,9 @@ class OwnKeyDiscardTest {
     void discard_renewalState_hasNothingToDiscard() {
         var renewal = new PreparedOnboarding("op-2", "cgcom", ARN, null, prepared.certificateChain(),
                 prepared.spkiSha256(), NOW, null, true, null);
+        var command = new DiscardCommand(renewal, false, artifacts);
 
-        assertThatThrownBy(() -> onboarding.discard(new DiscardCommand(renewal, false, artifacts)))
+        assertThatThrownBy(() -> onboarding.discard(command))
                 .isInstanceOf(OnboardingFailedException.class)
                 .hasMessageContaining("nothing to discard");
 

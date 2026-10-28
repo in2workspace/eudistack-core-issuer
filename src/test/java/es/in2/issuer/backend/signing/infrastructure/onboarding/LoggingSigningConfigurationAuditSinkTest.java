@@ -112,7 +112,7 @@ class LoggingSigningConfigurationAuditSinkTest {
         new LoggingSigningConfigurationAuditSink().afterCommit(replacement());
 
         assertThat(appender.list).singleElement().satisfies(event -> {
-            assertThat(event.getLevel().toString()).isEqualTo("INFO");
+            assertThat(event.getLevel()).hasToString("INFO");
             assertThat(event.getFormattedMessage()).contains("\"type\":\"SigningConfigurationChanged\"");
         });
     }

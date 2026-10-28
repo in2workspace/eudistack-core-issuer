@@ -34,7 +34,9 @@ public class LoggingSigningConfigurationAuditSink implements SigningConfiguratio
     /** A failure to write the line is logged by the caller, as for any sink. */
     @Override
     public void afterCommit(SigningConfigurationChanged event) {
-        AUDIT.info(toJson(event));
+        if (AUDIT.isInfoEnabled()) {
+            AUDIT.info(toJson(event));
+        }
     }
 
     static String toJson(SigningConfigurationChanged event) {

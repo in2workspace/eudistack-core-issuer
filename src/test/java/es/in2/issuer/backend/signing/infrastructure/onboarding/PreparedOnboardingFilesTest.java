@@ -87,7 +87,9 @@ class PreparedOnboardingFilesTest {
 
     @Test
     void read_missingFile_fails() {
-        assertThatThrownBy(() -> PreparedOnboardingFiles.read(directory.resolve("missing.json"), null))
+        var missing = directory.resolve("missing.json");
+
+        assertThatThrownBy(() -> PreparedOnboardingFiles.read(missing, null))
                 .isInstanceOf(OnboardingFailedException.class);
     }
 
@@ -107,7 +109,7 @@ class PreparedOnboardingFilesTest {
     }
 
     @Test
-    void markDiscarded_rewritesTheStateFileThatWasGivenWithTheDate() throws Exception {
+    void markDiscarded_rewritesTheStateFileThatWasGivenWithTheDate() {
         new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
         Path state = directory.resolve("own-key-cgcom-op-1.state.json");
         Instant when = Instant.parse("2026-10-27T13:00:00Z");
@@ -118,7 +120,7 @@ class PreparedOnboardingFilesTest {
     }
 
     @Test
-    void markImported_rewritesTheStateWithTheDateAndKeepsTheRest() throws Exception {
+    void markImported_rewritesTheStateWithTheDateAndKeepsTheRest() {
         new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
         Path state = directory.resolve("own-key-cgcom-op-1.state.json");
         Instant when = Instant.parse("2026-10-27T13:00:00Z");
@@ -151,8 +153,9 @@ class PreparedOnboardingFilesTest {
         new PreparedOnboardingFiles(directory).write(PREPARED, new byte[] {1}, new byte[] {2});
         Path state = directory.resolve("own-key-cgcom-op-1.state.json");
         Files.delete(state);
+        var files = PreparedOnboardingFiles.around(state);
 
-        assertThatThrownBy(() -> PreparedOnboardingFiles.around(state).current(PREPARED))
+        assertThatThrownBy(() -> files.current(PREPARED))
                 .isInstanceOf(OnboardingFailedException.class);
     }
 

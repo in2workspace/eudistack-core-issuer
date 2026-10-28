@@ -37,7 +37,7 @@ class OnboardingWiringTest {
         try {
             Class.forName(OnboardingWiring.OUTBOX_SINK_FACTORY);
             return true;
-        } catch (ClassNotFoundException | NoClassDefFoundError e) {
+        } catch (ClassNotFoundException | NoClassDefFoundError _) {
             return false;
         }
     }
@@ -79,8 +79,10 @@ class OnboardingWiringTest {
     @Test
     void open_outboxSinkInABuildWithoutTheStarter_failsSayingSo() {
         assumeTrue(!starterIsInThisBuild(), "this build includes the audit starter");
+        var wiring = wiring();
+        var settings = settings(OnboardingSettings.AuditSinkMode.OUTBOX);
 
-        assertThatThrownBy(() -> wiring().open(settings(OnboardingSettings.AuditSinkMode.OUTBOX)))
+        assertThatThrownBy(() -> wiring.open(settings))
                 .isInstanceOf(OnboardingFailedException.class)
                 .hasMessageContaining("audit starter")
                 .hasMessageContaining("-PauditStarter");
@@ -100,8 +102,10 @@ class OnboardingWiringTest {
     void open_expectedAccountThatIsNotTheCallers_isRejectedBeforeKmsOrTheDatabaseAreUsed() throws Exception {
         HttpServer server = sts();
         try {
+            var wiring = wiring();
+            var settings = settingsExpecting("999999999999", uriOf(server));
             // The database URL cannot be reached: reaching the rejection proves nothing was opened before it.
-            assertThatThrownBy(() -> wiring().open(settingsExpecting("999999999999", uriOf(server))))
+            assertThatThrownBy(() -> wiring.open(settings))
                     .isInstanceOf(OnboardingRejectedException.class)
                     .hasMessageContaining("999999999999")
                     .hasMessageContaining("--expected-aws-account");
@@ -112,7 +116,10 @@ class OnboardingWiringTest {
 
     @Test
     void open_expectedAccountWhenTheIdentityCannotBeRead_failsWithAnError() {
-        assertThatThrownBy(() -> wiring().open(settingsExpecting(ACCOUNT, URI.create("http://127.0.0.1:1"))))
+        var wiring = wiring();
+        var settings = settingsExpecting(ACCOUNT, URI.create("http://127.0.0.1:1"));
+
+        assertThatThrownBy(() -> wiring.open(settings))
                 .isInstanceOf(OnboardingFailedException.class)
                 .hasMessageContaining("caller identity");
     }

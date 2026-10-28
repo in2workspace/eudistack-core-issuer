@@ -168,9 +168,10 @@ class OwnKeyRenewalTest {
         onboarding.importKey(new ImportCommand(staleCopy, null, new byte[0], OnboardingPolicy.nonProduction(), false,
                 artifacts));
         kms.calls.clear();
+        var command = new ImportCommand(staleCopy, null, new byte[0], OnboardingPolicy.nonProduction(), false,
+                artifacts);
 
-        assertThatThrownBy(() -> onboarding.importKey(new ImportCommand(staleCopy, null, new byte[0],
-                OnboardingPolicy.nonProduction(), false, artifacts)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingFailedException.class)
                 .hasMessageContaining("already imported");
 
@@ -232,8 +233,9 @@ class OwnKeyRenewalTest {
     void importKey_renewalStateWhoseTenantNoLongerHoldsTheKey_isRejectedAndTheKeyIsNeverTouched() {
         var prepared = prepared();
         store.reservations.clear();
+        var command = importCommand(prepared, false);
 
-        assertThatThrownBy(() -> onboarding.importKey(importCommand(prepared, false)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessageContaining("run prepare again");
 
@@ -245,8 +247,9 @@ class OwnKeyRenewalTest {
         var prepared = prepared();
         var discarded = new PreparedOnboarding(prepared.operationId(), prepared.tenant(), prepared.keyArn(), null,
                 prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(), null, false, NOW);
+        var command = importCommand(discarded, false);
 
-        assertThatThrownBy(() -> onboarding.importKey(importCommand(discarded, false)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingFailedException.class)
                 .hasMessageContaining("discarded");
 

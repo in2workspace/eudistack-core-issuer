@@ -87,10 +87,10 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
                     + table(tenantId) + " WHERE status = 'active'");
                  ResultSet rs = statement.executeQuery()) {
                 boolean active = "active".equals(status);
-                return rs.next()
-                        ? Optional.of(new RegisteredTenant(tenantId, active, true, modalityOf(rs.getString(2)),
-                                rs.getObject(1, UUID.class), rs.getString(3)))
-                        : Optional.of(new RegisteredTenant(tenantId, active, true, null, null, null));
+                return Optional.of(rs.next()
+                        ? new RegisteredTenant(tenantId, active, true, modalityOf(rs.getString(2)),
+                                rs.getObject(1, UUID.class), rs.getString(3))
+                        : new RegisteredTenant(tenantId, active, true, null, null, null));
             }
         });
     }
@@ -456,6 +456,14 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
                 return null;
             });
         }
+
+        private String chainJson(List<String> chain) throws SQLException {
+            try {
+                return objectMapper.writeValueAsString(chain);
+            } catch (JsonProcessingException e) {
+                throw new SQLException("The certificate chain cannot be serialised", e);
+            }
+        }
     }
 
     @FunctionalInterface
@@ -497,14 +505,6 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
             try (ResultSet rs = statement.executeQuery()) {
                 return rs.next() ? rs.getString(1) : null;
             }
-        }
-    }
-
-    private String chainJson(List<String> chain) throws SQLException {
-        try {
-            return objectMapper.writeValueAsString(chain);
-        } catch (JsonProcessingException e) {
-            throw new SQLException("The certificate chain cannot be serialised", e);
         }
     }
 

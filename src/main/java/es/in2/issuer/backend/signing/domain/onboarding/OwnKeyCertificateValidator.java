@@ -41,6 +41,7 @@ public final class OwnKeyCertificateValidator {
     private static final ASN1ObjectIdentifier QC_SSCD = new ASN1ObjectIdentifier("0.4.0.1862.1.4");
     private static final String CERTIFICATE_POLICIES_OID = "2.5.29.32";
     private static final String QC_STATEMENTS_OID = "1.3.6.1.5.5.7.1.3";
+    private static final String EMPTY_CHAIN = "the certificate chain holds no certificate";
 
     private OwnKeyCertificateValidator() {}
 
@@ -51,10 +52,10 @@ public final class OwnKeyCertificateValidator {
                     .generateCertificates(new ByteArrayInputStream(pem.getBytes(StandardCharsets.US_ASCII)));
             List<X509Certificate> chain = certificates.stream().map(X509Certificate.class::cast).toList();
             if (chain.isEmpty()) {
-                throw invalidCertificate("the certificate chain holds no certificate");
+                throw invalidCertificate(EMPTY_CHAIN);
             }
             return chain;
-        } catch (CertificateException e) {
+        } catch (CertificateException _) {
             throw invalidCertificate("the certificate chain cannot be read as PEM X.509 certificates");
         }
     }
@@ -62,12 +63,12 @@ public final class OwnKeyCertificateValidator {
     /** Parses the base64 DER certificates of a stored chain, leaf first. */
     public static List<X509Certificate> parseBase64Chain(List<String> base64Der) {
         if (base64Der == null || base64Der.isEmpty()) {
-            throw invalidCertificate("the certificate chain holds no certificate");
+            throw invalidCertificate(EMPTY_CHAIN);
         }
         try {
             CertificateFactory factory = CertificateFactory.getInstance("X.509");
             return base64Der.stream().map(der -> parse(factory, der)).toList();
-        } catch (CertificateException e) {
+        } catch (CertificateException _) {
             throw invalidCertificate("the certificate chain cannot be read");
         }
     }
@@ -76,7 +77,7 @@ public final class OwnKeyCertificateValidator {
         try {
             return (X509Certificate) factory.generateCertificate(
                     new ByteArrayInputStream(Base64.getDecoder().decode(base64Der)));
-        } catch (CertificateException | IllegalArgumentException e) {
+        } catch (CertificateException | IllegalArgumentException _) {
             throw invalidCertificate("the certificate chain cannot be read");
         }
     }
@@ -89,7 +90,7 @@ public final class OwnKeyCertificateValidator {
      */
     public static ValidatedOwnKeyCertificate validate(List<X509Certificate> chain, OnboardingPolicy policy, Instant now) {
         if (chain == null || chain.isEmpty()) {
-            throw invalidCertificate("the certificate chain holds no certificate");
+            throw invalidCertificate(EMPTY_CHAIN);
         }
         X509Certificate leaf = chain.getFirst();
         if (!SigningCertificateChecks.isP256(leaf)) {
@@ -129,7 +130,7 @@ public final class OwnKeyCertificateValidator {
         try {
             policyDeclared = declaresQscdPolicy(leaf);
             statementDeclared = declaresQcSscd(leaf);
-        } catch (RuntimeException e) {
+        } catch (RuntimeException _) {
             // Fail closed: a certificate whose policies cannot be read cannot be shown not to declare a QSCD.
             throw invalidCertificate("the certificate policies or qcStatements cannot be read");
         }
@@ -181,13 +182,17 @@ public final class OwnKeyCertificateValidator {
             }
             int position = i + 1;
             if (!SigningCertificateChecks.isValidAt(issuer, now)) {
-                throw invalidCertificate("certificate " + position + " of the chain is not valid now");
+                throw invalidCertificate(certificateAt(position) + " of the chain is not valid now");
             }
             if (SigningCertificateChecks.isEndEntity(issuer)) {
-                throw invalidCertificate("certificate " + position + " of the chain is not a CA");
+                throw invalidCertificate(certificateAt(position) + " of the chain is not a CA");
             }
-            throw invalidCertificate("certificate " + i + " of the chain is not issued by certificate " + position);
+            throw invalidCertificate(certificateAt(i) + " of the chain is not issued by " + certificateAt(position));
         }
+    }
+
+    private static String certificateAt(int position) {
+        return "certificate " + position;
     }
 
     private static void requireNotSelfSigned(X509Certificate leaf, OnboardingPolicy policy) {
@@ -217,7 +222,7 @@ public final class OwnKeyCertificateValidator {
     private static boolean sameCertificate(X509Certificate a, X509Certificate b) {
         try {
             return Arrays.equals(a.getEncoded(), b.getEncoded());
-        } catch (CertificateException e) {
+        } catch (CertificateException _) {
             return false;
         }
     }

@@ -92,8 +92,9 @@ class OwnKeyPolicyBindingTest {
     void importKey_withAnotherTrustAnchor_isRejectedAndTheKeyLeftAlone() throws Exception {
         var prepared = prepareWith(production());
         var other = new OnboardingPolicy(true, new OwnKeyTestPki().rootCertificate(), ORG);
+        var command = importWith(prepared, other);
 
-        assertThatThrownBy(() -> onboarding.importKey(importWith(prepared, other)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessageContaining("trust anchor");
 
@@ -104,8 +105,9 @@ class OwnKeyPolicyBindingTest {
     void importKey_withAnotherOrganizationIdentifier_isRejectedAndTheKeyLeftAlone() throws Exception {
         var prepared = prepareWith(production());
         var other = new OnboardingPolicy(true, pki.rootCertificate(), "VATES-Q9999999Z");
+        var command = importWith(prepared, other);
 
-        assertThatThrownBy(() -> onboarding.importKey(importWith(prepared, other)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessageContaining("organizationIdentifier");
 
@@ -149,9 +151,10 @@ class OwnKeyPolicyBindingTest {
 
     @Test
     void tenantIdUnknown_isNotAcceptedAsATenant() throws Exception {
-        assertThatThrownBy(() -> onboarding.prepare(new PrepareCommand("unknown",
-                OwnKeyCertificateValidatorTest.toPem(leaf.certificate()), OnboardingPolicy.nonProduction(), null,
-                false, artifacts))).isInstanceOf(OnboardingUsageException.class);
+        var command = new PrepareCommand("unknown", OwnKeyCertificateValidatorTest.toPem(leaf.certificate()),
+                OnboardingPolicy.nonProduction(), null, false, artifacts);
+
+        assertThatThrownBy(() -> onboarding.prepare(command)).isInstanceOf(OnboardingUsageException.class);
         assertThat(kms.calls).isEmpty();
     }
 

@@ -183,7 +183,7 @@ class OnboardingCliTest {
     }
 
     @Test
-    void run_missingDatabasePassword_isAUsageError() throws Exception {
+    void run_missingDatabasePassword_isAUsageError() {
         env.remove("SPRING_R2DBC_PASSWORD");
 
         assertThat(run("reconcile")).isEqualTo(OnboardingCli.EXIT_USAGE);
@@ -269,7 +269,7 @@ class OnboardingCliTest {
     }
 
     @Test
-    void run_importCommittedButStateNotMarkedAsConsumed_warnsOnStderrAndStillSucceeds() throws Exception {
+    void run_importCommittedButStateNotMarkedAsConsumed_warnsOnStderrAndStillSucceeds() {
         new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
         Path state = directory.resolve("own-key-cgcom-op-1.state.json");
         when(onboarding.importKey(any())).thenReturn(new ImportResult("arn:aws:kms:eu-west-1:000000000000:key/abc",
@@ -283,7 +283,7 @@ class OnboardingCliTest {
     }
 
     @Test
-    void run_importWithTheStateMarkedAsConsumed_printsNoWarning() throws Exception {
+    void run_importWithTheStateMarkedAsConsumed_printsNoWarning() {
         new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
         when(onboarding.importKey(any())).thenReturn(new ImportResult("arn:aws:kms:eu-west-1:000000000000:key/abc",
                 UUID.randomUUID(), Operation.CREATE, "ab".repeat(32)));
@@ -324,7 +324,7 @@ class OnboardingCliTest {
     }
 
     @Test
-    void run_productionImportNeedsTheTrustAnchorAndTheOrganizationToo() throws Exception {
+    void run_productionImportNeedsTheTrustAnchorAndTheOrganizationToo() {
         production = true;
         new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
 
@@ -557,7 +557,7 @@ class OnboardingCliTest {
     }
 
     @Test
-    void run_importDryRun_doesNotNeedTheKeyMaterial() throws Exception {
+    void run_importDryRun_doesNotNeedTheKeyMaterial() {
         new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
         when(onboarding.importKey(any())).thenReturn(new ImportResult("arn", null, Operation.CREATE, "ab"));
 
@@ -616,7 +616,7 @@ class OnboardingCliTest {
     }
 
     @Test
-    void run_importOfARenewal_needsNoKeyMaterial() throws Exception {
+    void run_importOfARenewal_needsNoKeyMaterial() {
         var renewal = new PreparedOnboarding("op-2", "cgcom", "arn:aws:kms:eu-west-1:000000000000:key/abc", null,
                 List.of("AAAA"), "ab".repeat(32), Instant.parse("2026-10-27T12:00:00Z"), null, true, null);
         new PreparedOnboardingFiles(directory).write(renewal, null, null);
@@ -632,7 +632,7 @@ class OnboardingCliTest {
     }
 
     @Test
-    void run_importOfANewKeyWithoutKeyMaterial_isAUsageError() throws Exception {
+    void run_importOfANewKeyWithoutKeyMaterial_isAUsageError() {
         new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
 
         assertThat(run("import", "--state", directory.resolve("own-key-cgcom-op-1.state.json").toString()))
@@ -640,7 +640,7 @@ class OnboardingCliTest {
     }
 
     @Test
-    void run_discard_readsTheStateAndReportsTheOutcome() throws Exception {
+    void run_discard_readsTheStateAndReportsTheOutcome() {
         new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
         when(onboarding.discard(any())).thenReturn(new DiscardResult("arn", DiscardOutcome.DISCARDED));
 
@@ -655,7 +655,7 @@ class OnboardingCliTest {
     }
 
     @Test
-    void run_discardDryRun_passesTheFlagOn() throws Exception {
+    void run_discardDryRun_passesTheFlagOn() {
         new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
         when(onboarding.discard(any())).thenReturn(new DiscardResult("arn", DiscardOutcome.WOULD_DISCARD));
 
@@ -668,7 +668,7 @@ class OnboardingCliTest {
     }
 
     @Test
-    void run_discardRefused_exitsWithTwo() throws Exception {
+    void run_discardRefused_exitsWithTwo() {
         new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
         when(onboarding.discard(any())).thenThrow(
                 new OnboardingRejectedException(RejectionReason.POLICY_DENIED, "the key has been imported"));

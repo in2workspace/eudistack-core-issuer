@@ -96,7 +96,9 @@ class OwnKeyOnboardingTest {
 
     @Test
     void prepare_dryRunWithRejectedCertificate_isRejectedWithoutRecordingAnything() {
-        assertThatThrownBy(() -> onboarding.prepare(prepareCommand(pki.rsaLeaf().certificate(), true)))
+        var command = prepareCommand(pki.rsaLeaf().certificate(), true);
+
+        assertThatThrownBy(() -> onboarding.prepare(command))
                 .isInstanceOf(OnboardingRejectedException.class);
 
         assertThat(store.eventsInOwnTransaction).isEmpty();
@@ -233,8 +235,9 @@ class OwnKeyOnboardingTest {
     @Test
     void prepare_failureAtGetParametersForImport_schedulesTheDeletionOfTheNewKey() {
         kms.failures.put("getParametersForImport", new OnboardingFailedException("KMS GetParametersForImport failed"));
+        var command = prepareCommand(leaf.certificate(), false);
 
-        assertThatThrownBy(() -> onboarding.prepare(prepareCommand(leaf.certificate(), false)))
+        assertThatThrownBy(() -> onboarding.prepare(command))
                 .isInstanceOf(OnboardingFailedException.class);
 
         assertKeyDiscarded();
@@ -348,8 +351,9 @@ class OwnKeyOnboardingTest {
     void importKey_commitWhoseOutcomeIsUnknown_doesNotDisableTheKey() {
         var prepared = prepared();
         store.failure = new CommitOutcomeUnknownException("the database did not confirm the commit", null);
+        var command = importCommand(prepared, false);
 
-        assertThatThrownBy(() -> onboarding.importKey(importCommand(prepared, false)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(CommitOutcomeUnknownException.class);
 
         assertThat(kms.calls).doesNotContain("disableKey:" + FakeKms.KEY_ARN)
@@ -406,8 +410,9 @@ class OwnKeyOnboardingTest {
         var prepared = prepared();
         var later = new OwnKeyOnboarding(kms, store, () -> CALLER,
                 Clock.fixed(Instant.parse("2100-01-01T00:00:00Z"), ZoneOffset.UTC), () -> "op-2", 7);
+        var command = importCommand(prepared, false);
 
-        assertThatThrownBy(() -> later.importKey(importCommand(prepared, false)))
+        assertThatThrownBy(() -> later.importKey(command))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessage("the certificate is not valid now");
         assertKeyDiscarded();
@@ -418,8 +423,9 @@ class OwnKeyOnboardingTest {
         var prepared = prepared();
         store.reserve(new ValidatedOwnKeyCertificate(List.of(leaf.certificate())).spkiSha256Hex(), "kpmg");
         kms.failures.put("disableKey", new OnboardingFailedException("KMS DisableKey failed (KMSInvalidStateException)"));
+        var command = importCommand(prepared, false);
 
-        assertThatThrownBy(() -> onboarding.importKey(importCommand(prepared, false)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingRejectedException.class);
 
         assertThat(kms.calls).contains("scheduleKeyDeletion:" + FakeKms.KEY_ARN + ":7");
@@ -430,8 +436,9 @@ class OwnKeyOnboardingTest {
         var prepared = prepared();
         var later = new OwnKeyOnboarding(kms, store, () -> CALLER, Clock.fixed(kms.tokenValidTo, ZoneOffset.UTC),
                 () -> "op-2", 7);
+        var command = importCommand(prepared, false);
 
-        assertThatThrownBy(() -> later.importKey(importCommand(prepared, false)))
+        assertThatThrownBy(() -> later.importKey(command))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessageContaining("run prepare again");
         assertKeyDiscarded();
@@ -444,8 +451,9 @@ class OwnKeyOnboardingTest {
         var tampered = new PreparedOnboarding(prepared.operationId(), prepared.tenant(), prepared.keyArn(),
                 prepared.alias(), prepared.certificateChain(), "00".repeat(32), prepared.createdAt(),
                 prepared.importTokenExpiresAt(), false, null, null, prepared.policy());
+        var command = importCommand(tampered, false);
 
-        assertThatThrownBy(() -> onboarding.importKey(importCommand(tampered, false)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingFailedException.class)
                 .hasMessageContaining("does not match");
 
@@ -457,8 +465,9 @@ class OwnKeyOnboardingTest {
         var prepared = prepared();
         kms.failures.put("importKeyMaterial",
                 new OnboardingRejectedException(RejectionReason.INVALID_KEY, "KMS refused the key material"));
+        var command = importCommand(prepared, false);
 
-        assertThatThrownBy(() -> onboarding.importKey(importCommand(prepared, false)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingRejectedException.class);
 
         assertKeyDiscarded();
@@ -471,8 +480,9 @@ class OwnKeyOnboardingTest {
         var prepared = prepared();
         kms.publicKey = pki.unrelatedPublicKeyDer();
         store.failureRecordingEvent = new OnboardingFailedException("database down");
+        var command = importCommand(prepared, false);
 
-        assertThatThrownBy(() -> onboarding.importKey(importCommand(prepared, false)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasSuppressedException(new OnboardingFailedException("database down"));
     }
@@ -483,7 +493,8 @@ class OwnKeyOnboardingTest {
         store.active = new ActiveConfiguration(UUID.randomUUID(), SigningModality.OWN_KEY);
         onboarding.importKey(importCommand(prepared, false));
         kms.publicKey = pki.unrelatedPublicKeyDer();
-        assertThatThrownBy(() -> onboarding.importKey(importCommand(prepared, false)))
+        var command = importCommand(prepared, false);
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingRejectedException.class);
 
         List<String> events = new ArrayList<>();

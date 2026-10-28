@@ -168,7 +168,7 @@ public class OwnKeyReconciler {
             return new RowResult(row.id(), null);
         } catch (RuntimeException e) {
             log.error("Tenant '{}', configuration {}: the key could not be retired: {}", tenant, row.id(), e.toString());
-            return new RowResult(row.id(), "tenant " + tenant + ", configuration " + row.id() + ": " + e.getMessage());
+            return new RowResult(row.id(), rowFailure(tenant, row, e));
         }
     }
 
@@ -204,10 +204,14 @@ public class OwnKeyReconciler {
                 log.info("Dry run. Tenant '{}', configuration {}: key is {}, would {}", tenant, row.id(), state,
                         actionFor(state));
             } catch (RuntimeException e) {
-                failures.add("tenant " + tenant + ", configuration " + row.id() + ": " + e.getMessage());
+                failures.add(rowFailure(tenant, row, e));
             }
         }
         return pending.size();
+    }
+
+    private static String rowFailure(String tenant, WithdrawnOwnKey row, RuntimeException e) {
+        return "tenant " + tenant + ", configuration " + row.id() + ": " + e.getMessage();
     }
 
     private static Action actionFor(KeyState state) {

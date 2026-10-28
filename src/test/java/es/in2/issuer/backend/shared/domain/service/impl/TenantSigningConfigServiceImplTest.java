@@ -46,9 +46,11 @@ class TenantSigningConfigServiceImplTest {
     @Mock
     private TenantSigningConfigRepository repository;
 
+    @Mock
+    private KmsSigningPort kms;
+
     private final AtomicLong nanos = new AtomicLong();
     private final Ticker ticker = nanos::get;
-    private final KmsSigningPort kms = mock(KmsSigningPort.class);
     private TenantSigningConfigServiceImpl service;
 
     private static ObjectProvider<KmsSigningPort> kmsProvider(KmsSigningPort port) {
@@ -304,8 +306,9 @@ class TenantSigningConfigServiceImplTest {
         assertThat(org.springframework.boot.convert.ApplicationConversionService.getSharedInstance()
                 .convert("5m", Duration.class)).isEqualTo(Duration.ofMinutes(5));
         ObjectMapper objectMapper = new ObjectMapper();
+        ObjectProvider<KmsSigningPort> provider = kmsProvider(kms);
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> new TenantSigningConfigServiceImpl(
-                        repository, objectMapper, Duration.ZERO, kmsProvider(kms), ticker))
+                        repository, objectMapper, Duration.ZERO, provider, ticker))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

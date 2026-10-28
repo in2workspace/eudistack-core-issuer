@@ -12,6 +12,7 @@ import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.PrepareC
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyReconciler;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyReconciler.ReconcileReport;
 import es.in2.issuer.backend.signing.domain.onboarding.PreparedOnboarding;
+import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChanged.Operation;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -300,14 +301,14 @@ public final class OnboardingCli {
         var result = onboarding.prepare(new PrepareCommand(tenant, chainPem, policy, invocation.get(Opt.ALIAS),
                 invocation.dryRun(), outDir == null ? null : new PreparedOnboardingFiles(outDir)));
         if (result.prepared() == null) {
-            out.println("dry run: the certificate chain and the tenant pass the validations (operation "
-                    + result.operation().catalogName() + "); nothing was created");
+            out.println("dry run: the certificate chain and the tenant pass the validations "
+                    + operation(result.operation()) + "; nothing was created");
             return;
         }
         var prepared = result.prepared();
         if (prepared.renewal()) {
             out.println("prepared the renewal " + prepared.operationId() + " for tenant " + prepared.tenant()
-                    + " (operation " + result.operation().catalogName() + "): the certificate renews the key "
+                    + " " + operation(result.operation()) + ": the certificate renews the key "
                     + prepared.keyArn() + ", which stays; nothing was created in KMS");
             out.println("next       : run import with --state " + outDir.resolve(prefixOf(prepared) + ".state.json")
                     + " (no key material is needed)");
@@ -315,7 +316,7 @@ public final class OnboardingCli {
         }
         String prefix = prefixOf(prepared);
         out.println("prepared onboarding " + prepared.operationId() + " for tenant " + prepared.tenant()
-                + " (operation " + result.operation().catalogName() + ")");
+                + " " + operation(result.operation()));
         out.println("key        : " + prepared.keyArn());
         out.println("alias      : " + prepared.alias());
         out.println("SPKI sha256: " + prepared.spkiSha256());
@@ -350,12 +351,11 @@ public final class OnboardingCli {
                 policy(invocation), invocation.dryRun(), PreparedOnboardingFiles.around(stateFile)));
         if (result.configurationId() == null) {
             out.println("dry run: the onboarding of tenant " + loaded.prepared().tenant()
-                    + " passes the validations (operation " + result.operation().catalogName() + "); nothing was imported");
+                    + " passes the validations " + operation(result.operation()) + "; nothing was imported");
             return;
         }
         out.println("tenant " + loaded.prepared().tenant() + " now signs with " + (loaded.prepared().renewal()
-                ? "the renewed certificate of its own key" : "its own key") + " (operation "
-                + result.operation().catalogName() + ")");
+                ? "the renewed certificate of its own key" : "its own key") + " " + operation(result.operation()));
         out.println("key           : " + result.keyArn());
         out.println("configuration : " + result.configurationId());
         out.println("SPKI sha256   : " + result.spkiSha256());
@@ -380,6 +380,10 @@ public final class OnboardingCli {
         out.println(what);
         out.println("key        : " + result.keyArn());
         return EXIT_OK;
+    }
+
+    private static String operation(Operation operation) {
+        return "(operation " + operation.catalogName() + ")";
     }
 
     private static String prefixOf(PreparedOnboarding prepared) {
@@ -621,7 +625,7 @@ public final class OnboardingCli {
     private static long parseLong(Opt option, String value) {
         try {
             return Long.parseLong(value.trim());
-        } catch (NumberFormatException e) {
+        } catch (NumberFormatException _) {
             throw new OnboardingUsageException("--" + option.flag + " must be a whole number");
         }
     }

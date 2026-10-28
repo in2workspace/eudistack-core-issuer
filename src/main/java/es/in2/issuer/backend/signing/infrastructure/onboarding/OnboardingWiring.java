@@ -96,7 +96,7 @@ public class OnboardingWiring implements OnboardingCli.Wiring {
         try {
             Class<?> factory = Class.forName(OUTBOX_SINK_FACTORY);
             return ((AuditSinkFactory) factory.getDeclaredConstructor().newInstance()).open(dataSource);
-        } catch (ClassNotFoundException | NoClassDefFoundError e) {
+        } catch (ClassNotFoundException | NoClassDefFoundError _) {
             closeQuietly(toCloseOnFailure);
             throw new OnboardingFailedException("OWN_KEY_AUDIT_SINK=outbox needs the audit starter and this build does "
                     + "not include it: it was built without -PauditStarter (see docs/own-key-onboarding-tool.md)");
@@ -110,7 +110,7 @@ public class OnboardingWiring implements OnboardingCli.Wiring {
         for (AutoCloseable closeable : closeables) {
             try {
                 closeable.close();
-            } catch (Exception e) {
+            } catch (Exception _) {
                 // The run is already failing with its own message.
             }
         }

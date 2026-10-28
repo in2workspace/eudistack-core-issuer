@@ -85,8 +85,9 @@ class OwnKeyImportSafetyTest {
         var consumed = new PreparedOnboarding(prepared.operationId(), prepared.tenant(), prepared.keyArn(),
                 prepared.alias(), prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),
                 prepared.importTokenExpiresAt(), false, null, NOW);
+        var command = importOf(consumed);
 
-        assertThatThrownBy(() -> onboarding.importKey(importOf(consumed)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingFailedException.class)
                 .hasMessageContaining("already imported");
 
@@ -108,8 +109,9 @@ class OwnKeyImportSafetyTest {
                 new SpkiReservation("cgcom", store.active.id()));
         kms.calls.clear();
         int operationsBefore = store.committedOperations.size();
+        var command = importOf(prepared);
 
-        assertThatThrownBy(() -> onboarding.importKey(importOf(prepared)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingRejectedException.class);
 
         assertNoKeyWasTouched();
@@ -136,8 +138,9 @@ class OwnKeyImportSafetyTest {
     @Test
     void importKey_stateWithAnotherTenantThanTheKeyWasTaggedFor_failsBeforeImporting() throws Exception {
         var prepared = prepared();
+        var command = importOf(with(prepared, "kpmg", prepared.keyArn()));
 
-        assertThatThrownBy(() -> onboarding.importKey(importOf(with(prepared, "kpmg", prepared.keyArn()))))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessageContaining("tags");
 
@@ -149,8 +152,9 @@ class OwnKeyImportSafetyTest {
     void importKey_stateWhoseOperationIdIsNotTheKeys_failsBeforeImportingAndTouchesNothing() throws Exception {
         var prepared = prepared();
         kms.tags.put("operationId", "another-operation");
+        var command = importOf(prepared);
 
-        assertThatThrownBy(() -> onboarding.importKey(importOf(prepared)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingRejectedException.class);
 
         assertNoKeyWasTouched();
@@ -160,8 +164,9 @@ class OwnKeyImportSafetyTest {
     void importKey_keyAlreadyHoldingMaterial_failsBeforeImportingAndTouchesNothing() throws Exception {
         var prepared = prepared();
         kms.states.put(prepared.keyArn(), KeyState.ENABLED);
+        var command = importOf(prepared);
 
-        assertThatThrownBy(() -> onboarding.importKey(importOf(prepared)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessageContaining("material is imported");
 
@@ -172,8 +177,9 @@ class OwnKeyImportSafetyTest {
     void importKey_keyReferencedByAConfiguration_failsBeforeImportingAndTouchesNothing() throws Exception {
         var prepared = prepared();
         store.otherKeyRefs.add(prepared.keyArn());
+        var command = importOf(prepared);
 
-        assertThatThrownBy(() -> onboarding.importKey(importOf(prepared)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessageContaining("references the key");
 
@@ -184,9 +190,10 @@ class OwnKeyImportSafetyTest {
     void importKey_dryRunWithAForeignKey_isRejectedWithoutRecordingAnything() throws Exception {
         var prepared = prepared();
         kms.tags.put("Tenant", "kpmg");
+        var command = new ImportCommand(prepared, null, new byte[0], OnboardingPolicy.nonProduction(), true,
+                artifacts);
 
-        assertThatThrownBy(() -> onboarding.importKey(new ImportCommand(prepared, null, new byte[0],
-                OnboardingPolicy.nonProduction(), true, artifacts)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingRejectedException.class);
 
         assertThat(store.eventsInOwnTransaction).isEmpty();
@@ -210,8 +217,9 @@ class OwnKeyImportSafetyTest {
                 renewal.certificateChain(), renewal.spkiSha256(), renewal.createdAt(), null, true, null, NOW);
         kms.calls.clear();
         int events = store.committedEvents.size();
+        var command = importOf(consumed);
 
-        assertThatThrownBy(() -> onboarding.importKey(importOf(consumed))).isInstanceOf(OnboardingFailedException.class);
+        assertThatThrownBy(() -> onboarding.importKey(command)).isInstanceOf(OnboardingFailedException.class);
 
         assertThat(kms.calls).isEmpty();
         assertThat(store.committedEvents).as("no spurious Replace").hasSize(events);
@@ -267,9 +275,10 @@ class OwnKeyImportSafetyTest {
         var prepared = prepared();
         store.failure = new OnboardingFailedException("database error");
         kms.failures.put("listTags", new OnboardingFailedException("KMS ListResourceTags failed"));
+        var command = importOf(prepared);
         // The first check (before the import) already fails: nothing is imported or destroyed.
 
-        assertThatThrownBy(() -> onboarding.importKey(importOf(prepared))).isInstanceOf(OnboardingFailedException.class);
+        assertThatThrownBy(() -> onboarding.importKey(command)).isInstanceOf(OnboardingFailedException.class);
 
         assertNoKeyWasTouched();
     }

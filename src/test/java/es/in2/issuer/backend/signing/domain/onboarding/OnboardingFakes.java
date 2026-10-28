@@ -41,7 +41,7 @@ final class OnboardingFakes {
         Runnable beforeImportKeyMaterial = () -> { };
         Runnable duringGetPublicKey = () -> { };
 
-        private void record(String call) {
+        private void recordCall(String call) {
             calls.add(call);
             RuntimeException failure = failures.get(call.contains(":") ? call.substring(0, call.indexOf(':')) : call);
             if (failure != null) {
@@ -51,7 +51,7 @@ final class OnboardingFakes {
 
         @Override
         public String createKey(String tenant, String operationId) {
-            record("createKey:" + tenant + ":" + operationId);
+            recordCall("createKey:" + tenant + ":" + operationId);
             states.put(KEY_ARN, KeyState.PENDING_IMPORT);
             tags.put("Tenant", tenant);
             tags.put("operationId", operationId);
@@ -60,62 +60,62 @@ final class OnboardingFakes {
 
         @Override
         public void createAlias(String alias, String keyArn) {
-            record("createAlias:" + alias);
+            recordCall("createAlias:" + alias);
             aliases.put(alias, keyArn);
         }
 
         @Override
         public ImportParameters getParametersForImport(String keyArn) {
-            record("getParametersForImport");
+            recordCall("getParametersForImport");
             return new ImportParameters(wrappingPublicKey, importToken, tokenValidTo);
         }
 
         @Override
         public void importKeyMaterial(String keyArn, byte[] token, byte[] encryptedKeyMaterial) {
             beforeImportKeyMaterial.run();
-            record("importKeyMaterial");
+            recordCall("importKeyMaterial");
             states.put(keyArn, KeyState.ENABLED);
         }
 
         @Override
         public byte[] getPublicKey(String keyArn) {
             duringGetPublicKey.run();
-            record("getPublicKey");
+            recordCall("getPublicKey");
             return publicKey;
         }
 
         @Override
         public KeyState describeKeyState(String keyArn) {
-            record("describeKey:" + keyArn);
+            recordCall("describeKey:" + keyArn);
             return states.getOrDefault(keyArn, KeyState.ENABLED);
         }
 
         @Override
         public java.util.Optional<String> resolveKeyArn(String keyIdOrAlias) {
-            record("resolveKeyArn:" + keyIdOrAlias);
+            recordCall("resolveKeyArn:" + keyIdOrAlias);
             return java.util.Optional.ofNullable(aliases.get(keyIdOrAlias));
         }
 
         @Override
         public Map<String, String> listTags(String keyArn) {
-            record("listTags:" + keyArn);
+            recordCall("listTags:" + keyArn);
             return tags;
         }
 
         @Override
         public void deleteAlias(String alias) {
-            record("deleteAlias:" + alias);
+            recordCall("deleteAlias:" + alias);
             aliases.remove(alias);
         }
 
         @Override
         public void disableKey(String keyArn) {
-            record("disableKey:" + keyArn);
+            recordCall("disableKey:" + keyArn);
         }
 
         @Override
         public void scheduleKeyDeletion(String keyArn, int pendingWindowDays) {
-            record("scheduleKeyDeletion:" + keyArn + ":" + pendingWindowDays);
+            recordCall("scheduleKeyDeletion:" + keyArn + ":" + pendingWindowDays);
         }
 
         List<String> calls(String operation) {
@@ -194,9 +194,9 @@ final class OnboardingFakes {
             }
             committedOperations.addAll(transaction.operations);
             committedEvents.addAll(transaction.events);
-            retired.addAll(transaction.retired);
+            retired.addAll(transaction.retiredHere);
             retired.addAll(transaction.keptReservation);
-            reservations.values().removeIf(reservation -> transaction.retired.contains(reservation.configurationId()));
+            reservations.values().removeIf(reservation -> transaction.retiredHere.contains(reservation.configurationId()));
             return result;
         }
 
@@ -212,7 +212,7 @@ final class OnboardingFakes {
 
             private final List<String> operations = new ArrayList<>();
             private final List<SigningConfigurationChanged> events = new ArrayList<>();
-            private final Set<UUID> retired = new HashSet<>();
+            private final Set<UUID> retiredHere = new HashSet<>();
             private final Set<UUID> keptReservation = new HashSet<>();
 
             @Override
@@ -236,7 +236,7 @@ final class OnboardingFakes {
             public void reserveSpki(byte[] spkiSha256, String tenantId, UUID configurationId) {
                 String hash = HexFormat.of().formatHex(spkiSha256);
                 var existing = reservations.get(hash);
-                if (existing != null && !retired.contains(existing.configurationId())) {
+                if (existing != null && !retiredHere.contains(existing.configurationId())) {
                     throw new OnboardingRejectedException(RejectionReason.KEY_IN_USE, "reserved in the meantime");
                 }
                 operations.add("reserve:" + tenantId);
@@ -255,7 +255,7 @@ final class OnboardingFakes {
 
             private Set<UUID> retired() {
                 Set<UUID> all = new HashSet<>(FakeStore.this.retired);
-                all.addAll(retired);
+                all.addAll(retiredHere);
                 all.addAll(keptReservation);
                 return all;
             }
@@ -264,7 +264,7 @@ final class OnboardingFakes {
             public void markKeyRetired(String tenantId, WithdrawnOwnKey key) {
                 operations.add("markHandled:" + key.kmsKeyRef());
                 // marking a row handled releases the reservation of its configuration
-                retired.add(key.id());
+                retiredHere.add(key.id());
             }
 
             @Override

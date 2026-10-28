@@ -88,8 +88,9 @@ class OwnKeyImportConcurrencyTest {
         Future<?> first = executor.submit(() -> onboarding.importKey(importOf(prepared)));
         assertThat(firstHasImported.await(10, TimeUnit.SECONDS)).isTrue();
         int kmsCallsOfTheFirst = kms.calls.size();
+        var command = importOf(prepared);
 
-        assertThatThrownBy(() -> onboarding.importKey(importOf(prepared)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingFailedException.class)
                 .hasMessageContaining("another run is importing or discarding");
 
@@ -107,8 +108,9 @@ class OwnKeyImportConcurrencyTest {
         var staleCopy = prepared();
         onboarding.importKey(importOf(staleCopy));
         kms.calls.clear();
+        var command = importOf(staleCopy);
 
-        assertThatThrownBy(() -> onboarding.importKey(importOf(staleCopy)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingFailedException.class)
                 .hasMessageContaining("already imported");
 
@@ -122,8 +124,9 @@ class OwnKeyImportConcurrencyTest {
         artifacts.current = new PreparedOnboarding(prepared.operationId(), prepared.tenant(), "arn:other",
                 prepared.alias(), prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),
                 prepared.importTokenExpiresAt());
+        var command = importOf(prepared);
 
-        assertThatThrownBy(() -> onboarding.importKey(importOf(prepared)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingFailedException.class)
                 .hasMessageContaining("state file changed");
 
@@ -142,8 +145,9 @@ class OwnKeyImportConcurrencyTest {
         Future<?> importer = executor.submit(() -> onboarding.importKey(importOf(prepared)));
         assertThat(importerHasImported.await(10, TimeUnit.SECONDS)).isTrue();
         int kmsCallsOfTheImporter = kms.calls.size();
+        var command = new OwnKeyOnboarding.DiscardCommand(prepared, false, artifacts);
 
-        assertThatThrownBy(() -> onboarding.discard(new OwnKeyOnboarding.DiscardCommand(prepared, false, artifacts)))
+        assertThatThrownBy(() -> onboarding.discard(command))
                 .isInstanceOf(OnboardingFailedException.class)
                 .hasMessageContaining("another run is importing or discarding");
 
@@ -182,8 +186,9 @@ class OwnKeyImportConcurrencyTest {
     void importKey_failingRun_releasesTheLock() throws Exception {
         var prepared = prepared();
         kms.failures.put("importKeyMaterial", new IllegalStateException("KMS refuses"));
+        var command = importOf(prepared);
 
-        assertThatThrownBy(() -> onboarding.importKey(importOf(prepared))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> onboarding.importKey(command)).isInstanceOf(IllegalStateException.class);
 
         assertThat(store.lockedOperations).isEmpty();
     }
@@ -205,8 +210,9 @@ class OwnKeyImportConcurrencyTest {
         // Something imported the material between the checks and the call of this run, which then fails.
         kms.beforeImportKeyMaterial = () -> kms.states.put(FakeKms.KEY_ARN, KeyState.ENABLED);
         kms.failures.put("importKeyMaterial", new IllegalStateException("the key already has material"));
+        var command = importOf(prepared);
 
-        assertThatThrownBy(() -> onboarding.importKey(importOf(prepared))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> onboarding.importKey(command)).isInstanceOf(IllegalStateException.class);
 
         assertNoKeyWasDisabledOrDeleted();
     }
@@ -215,8 +221,9 @@ class OwnKeyImportConcurrencyTest {
     void importKey_failureAfterThisRunImportedTheMaterial_disablesTheKeyItImported() throws Exception {
         var prepared = prepared();
         kms.failures.put("getPublicKey", new IllegalStateException("KMS unavailable"));
+        var command = importOf(prepared);
 
-        assertThatThrownBy(() -> onboarding.importKey(importOf(prepared))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> onboarding.importKey(command)).isInstanceOf(IllegalStateException.class);
 
         assertThat(kms.calls("disableKey")).hasSize(1);
         assertThat(kms.calls("scheduleKeyDeletion")).hasSize(1);
@@ -226,8 +233,9 @@ class OwnKeyImportConcurrencyTest {
     void importKey_keyNotEnabledAfterTheCommit_failsAndTheCommitStands() throws Exception {
         var prepared = prepared();
         store.onTransactionStart = () -> kms.states.put(FakeKms.KEY_ARN, KeyState.DISABLED);
+        var command = importOf(prepared);
 
-        assertThatThrownBy(() -> onboarding.importKey(importOf(prepared)))
+        assertThatThrownBy(() -> onboarding.importKey(command))
                 .isInstanceOf(OnboardingFailedException.class)
                 .hasMessageContaining("committed")
                 .hasMessageContaining("DISABLED");
@@ -272,7 +280,7 @@ class OwnKeyImportConcurrencyTest {
     private static void await(CountDownLatch latch) {
         try {
             latch.await(10, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
+        } catch (InterruptedException _) {
             Thread.currentThread().interrupt();
         }
     }

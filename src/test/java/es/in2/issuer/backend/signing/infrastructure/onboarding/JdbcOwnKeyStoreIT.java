@@ -221,8 +221,8 @@ class JdbcOwnKeyStoreIT {
         String config = (String) scalar("SELECT provider_specific_config::text FROM cgcom_issuer.tenant_signing_config "
                 + "WHERE id = ?", previous);
         assertThat(config).doesNotContain("credentialPwd", "clientSecret", "accessKey", "credentialId", "pwd",
-                "secret", "access", "credential\"");
-        assertThat(config).contains("\"url\"", "\"authUrl\"", "\"signPath\"", "\"clientId\"", "\"qtspTenantId\"");
+                "secret", "access", "credential\"")
+                .contains("\"url\"", "\"authUrl\"", "\"signPath\"", "\"clientId\"", "\"qtspTenantId\"");
         assertThat(query("SELECT status, modality, provider, activated_by, own_key_kms_key_ref, own_key_algorithm, "
                 + "own_key_certificate_chain::text, own_key_loaded_at IS NOT NULL FROM cgcom_issuer.tenant_signing_config "
                 + "WHERE id = ?", created)).singleElement().isEqualTo(List.of("active", "own_key", "aws-kms", CALLER,
@@ -475,7 +475,7 @@ class JdbcOwnKeyStoreIT {
     void tryLockOperation_aSecondRunOfTheSameOperationCannotTakeItUntilTheFirstReleasesIt() {
         JdbcOwnKeyStore anotherProcess = OnboardingTestDatabase.store(sink);
 
-        try (var held = store.tryLockOperation("op-1").orElseThrow()) {
+        try (var _ = store.tryLockOperation("op-1").orElseThrow()) {
             assertThat(anotherProcess.tryLockOperation("op-1")).as("the same operation").isEmpty();
             try (var other = anotherProcess.tryLockOperation("op-2").orElseThrow()) {
                 assertThat(other).as("another operation can be locked meanwhile").isNotNull();
@@ -491,7 +491,7 @@ class JdbcOwnKeyStoreIT {
     void tryLockOperation_theLockLastsAcrossTransactionsOfTheRun() {
         JdbcOwnKeyStore anotherProcess = OnboardingTestDatabase.store(sink);
 
-        try (var held = store.tryLockOperation("op-1").orElseThrow()) {
+        try (var _ = store.tryLockOperation("op-1").orElseThrow()) {
             store.inTransaction(tx -> tx.lockActiveConfiguration("cgcom"));
             store.findTenant("cgcom");
 

@@ -59,7 +59,9 @@ class OwnKeyCertificateValidatorTest {
 
     @Test
     void validate_expiredCertificate_isRejectedEvenOutsideProduction() {
-        assertThatThrownBy(() -> validate(pki.expiredLeaf().certificate()))
+        var certificate = pki.expiredLeaf().certificate();
+
+        assertThatThrownBy(() -> validate(certificate))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessage("the certificate is not valid now");
     }
@@ -67,8 +69,9 @@ class OwnKeyCertificateValidatorTest {
     @Test
     void validate_expiredIntermediate_isRejectedEvenOutsideProduction() {
         var chain = pki.chainWithExpiredIntermediate().certificates();
+        var policy = OnboardingPolicy.nonProduction();
 
-        assertThatThrownBy(() -> validate(chain, OnboardingPolicy.nonProduction()))
+        assertThatThrownBy(() -> validate(chain, policy))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessage("certificate 2 of the chain is not valid now");
     }
@@ -82,14 +85,18 @@ class OwnKeyCertificateValidatorTest {
 
     @Test
     void validate_certificateThatIsACa_isRejected() {
-        assertThatThrownBy(() -> validate(pki.caLeaf().certificate()))
+        var certificate = pki.caLeaf().certificate();
+
+        assertThatThrownBy(() -> validate(certificate))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessageContaining("CA certificate");
     }
 
     @Test
     void validate_keyUsageWithoutSigning_isRejected() {
-        assertThatThrownBy(() -> validate(pki.certSignOnlyLeaf().certificate()))
+        var certificate = pki.certSignOnlyLeaf().certificate();
+
+        assertThatThrownBy(() -> validate(certificate))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessageContaining("key usage does not allow signing");
     }
@@ -97,9 +104,10 @@ class OwnKeyCertificateValidatorTest {
     @Test
     void validate_chainWhoseCertificatesAreNotLinked_isRejected() {
         var leafOfIntermediate = pki.chainWithIntermediate().certificates().getFirst();
+        var chain = List.of(leafOfIntermediate, pki.rootCertificate());
+        var policy = OnboardingPolicy.nonProduction();
 
-        assertThatThrownBy(() -> validate(List.of(leafOfIntermediate, pki.rootCertificate()),
-                OnboardingPolicy.nonProduction()))
+        assertThatThrownBy(() -> validate(chain, policy))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessage("certificate 1 of the chain is not issued by certificate 2");
     }
@@ -107,29 +115,36 @@ class OwnKeyCertificateValidatorTest {
     @Test
     void validate_issuerThatIsNotACa_isRejected() {
         var chain = pki.chainWithNonCaIssuer().certificates();
+        var policy = OnboardingPolicy.nonProduction();
 
-        assertThatThrownBy(() -> validate(chain, OnboardingPolicy.nonProduction()))
+        assertThatThrownBy(() -> validate(chain, policy))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessage("certificate 2 of the chain is not a CA");
     }
 
     @Test
     void validate_qcpNQscdPolicy_isRejected() {
-        assertThatThrownBy(() -> validate(pki.leafWithPolicy("0.4.0.194112.1.2").certificate()))
+        var certificate = pki.leafWithPolicy("0.4.0.194112.1.2").certificate();
+
+        assertThatThrownBy(() -> validate(certificate))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessageContaining("QCP-n-qscd or QCP-l-qscd");
     }
 
     @Test
     void validate_qcpLQscdPolicy_isRejected() {
-        assertThatThrownBy(() -> validate(pki.leafWithPolicy("0.4.0.194112.1.3").certificate()))
+        var certificate = pki.leafWithPolicy("0.4.0.194112.1.3").certificate();
+
+        assertThatThrownBy(() -> validate(certificate))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessageContaining("QCP-n-qscd or QCP-l-qscd");
     }
 
     @Test
     void validate_qcSscdStatement_isRejected() {
-        assertThatThrownBy(() -> validate(pki.leafWithQcSscdStatement().certificate()))
+        var certificate = pki.leafWithQcSscdStatement().certificate();
+
+        assertThatThrownBy(() -> validate(certificate))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessageContaining("QcSSCD");
     }
@@ -147,8 +162,9 @@ class OwnKeyCertificateValidatorTest {
     @Test
     void validate_selfSignedInProduction_isRejected() {
         var policy = new OnboardingPolicy(true, pki.rootCertificate(), OwnKeyTestPki.ORGANIZATION_IDENTIFIER);
+        var chain = List.of(pki.selfSignedLeaf().certificate());
 
-        assertThatThrownBy(() -> validate(List.of(pki.selfSignedLeaf().certificate()), policy))
+        assertThatThrownBy(() -> validate(chain, policy))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessage("the certificate is self-signed (production)");
     }
@@ -177,8 +193,9 @@ class OwnKeyCertificateValidatorTest {
     @Test
     void validate_trustAnchorOfAnotherCa_isRejected() {
         var policy = new OnboardingPolicy(false, new OwnKeyTestPki().rootCertificate(), null);
+        var chain = List.of(pki.validP256Leaf().certificate());
 
-        assertThatThrownBy(() -> validate(List.of(pki.validP256Leaf().certificate()), policy))
+        assertThatThrownBy(() -> validate(chain, policy))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessage("the chain does not end in the agreed CA");
     }
@@ -194,8 +211,10 @@ class OwnKeyCertificateValidatorTest {
     @Test
     void validate_organizationIdentifierOfAnotherOrganization_isRejected() {
         var leaf = pki.leafWithOrganizationIdentifier("VATES-Q9999999Z").certificate();
+        var chain = List.of(leaf);
+        var policy = production();
 
-        assertThatThrownBy(() -> validate(List.of(leaf), production()))
+        assertThatThrownBy(() -> validate(chain, policy))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessage("the certificate organizationIdentifier is 'VATES-Q9999999Z', expected 'VATES-Q0000000X'");
     }
@@ -204,8 +223,9 @@ class OwnKeyCertificateValidatorTest {
     void validate_certificateWithoutOrganizationIdentifier_isRejectedWhenOneIsExpected() {
         var leaf = pki.leafWithoutOrganizationIdentifier().certificate();
         var policy = new OnboardingPolicy(false, null, OwnKeyTestPki.ORGANIZATION_IDENTIFIER);
+        var chain = List.of(leaf);
 
-        assertThatThrownBy(() -> validate(List.of(leaf), policy))
+        assertThatThrownBy(() -> validate(chain, policy))
                 .isInstanceOf(OnboardingRejectedException.class)
                 .hasMessage("the certificate organizationIdentifier is 'none', expected 'VATES-Q0000000X'");
     }
@@ -218,7 +238,9 @@ class OwnKeyCertificateValidatorTest {
 
     @Test
     void policy_productionWithoutOrganizationIdentifier_isAUsageError() {
-        assertThatThrownBy(() -> new OnboardingPolicy(true, pki.rootCertificate(), " "))
+        var trustAnchor = pki.rootCertificate();
+
+        assertThatThrownBy(() -> new OnboardingPolicy(true, trustAnchor, " "))
                 .isInstanceOf(OnboardingUsageException.class);
     }
 
