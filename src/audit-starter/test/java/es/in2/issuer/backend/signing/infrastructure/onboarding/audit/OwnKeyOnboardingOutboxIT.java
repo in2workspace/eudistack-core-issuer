@@ -58,7 +58,6 @@ class OwnKeyOnboardingOutboxIT {
         env.put("SPRING_FLYWAY_URL", OnboardingTestDatabase.POSTGRES.getJdbcUrl());
         env.put("SPRING_R2DBC_USERNAME", OnboardingTestDatabase.POSTGRES.getUsername());
         env.put("SPRING_R2DBC_PASSWORD", OnboardingTestDatabase.POSTGRES.getPassword());
-        env.put("OWN_KEY_NON_PRODUCTION", "true");
         env.put("ISSUER_SIGNING_KMS_REGION", LOCALSTACK.getRegion());
         env.put("ISSUER_SIGNING_KMS_ENDPOINT", LOCALSTACK.getEndpoint().toString());
         env.put("OWN_KEY_AUDIT_SINK", "outbox");
@@ -77,7 +76,7 @@ class OwnKeyOnboardingOutboxIT {
     @Test
     void prepare_rejectedForAnUnknownTenant_isInTheOutboxWithTheCallerAsActor() throws Exception {
         int exitCode = cli.run(new String[] {"prepare", "--tenant", "nobody", "--cert-chain", chainFile().toString(),
-                "--out-dir", directory.resolve("out").toString()}, env);
+                "--out-dir", directory.resolve("out").toString(), "--non-production"}, env);
 
         assertThat(exitCode).as(stderr.toString(StandardCharsets.UTF_8)).isEqualTo(OnboardingCli.EXIT_REJECTED);
         assertThat(query("SELECT tenant, event_type, status FROM public.audit_outbox"))
@@ -90,7 +89,7 @@ class OwnKeyOnboardingOutboxIT {
     void reconcile_withTheOutbox_startsAndEndsCleanlyWithoutEvents() {
         execute("DROP TABLE IF EXISTS public.audit_outbox");
 
-        int exitCode = cli.run(new String[] {"reconcile"}, env);
+        int exitCode = cli.run(new String[] {"reconcile", "--non-production"}, env);
 
         assertThat(exitCode).as(stderr.toString(StandardCharsets.UTF_8)).isZero();
         assertThat(scalar("SELECT count(*) FROM public.audit_outbox")).isEqualTo(0L);

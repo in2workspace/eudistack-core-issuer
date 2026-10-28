@@ -111,15 +111,17 @@ class OwnKeyOnboardingIT {
         env.put("SPRING_FLYWAY_URL", OnboardingTestDatabase.POSTGRES.getJdbcUrl());
         env.put("SPRING_R2DBC_USERNAME", OnboardingTestDatabase.POSTGRES.getUsername());
         env.put("SPRING_R2DBC_PASSWORD", OnboardingTestDatabase.POSTGRES.getPassword());
-        env.put("OWN_KEY_NON_PRODUCTION", "true");
         env.put("ISSUER_SIGNING_KMS_REGION", LOCALSTACK.getRegion());
         env.put("ISSUER_SIGNING_KMS_ENDPOINT", LOCALSTACK.getEndpoint().toString());
         cli = new OnboardingCli(new OnboardingWiring(CREDENTIALS), new PrintStream(stdout, true, StandardCharsets.UTF_8),
                 new PrintStream(stderr, true, StandardCharsets.UTF_8));
     }
 
+    /** The tests run without the production checks: a command line argument, as the tool asks. */
     private int run(String... args) {
-        return cli.run(args, env);
+        String[] withMode = java.util.Arrays.copyOf(args, args.length + 1);
+        withMode[args.length] = "--non-production";
+        return cli.run(withMode, env);
     }
 
     private String err() {

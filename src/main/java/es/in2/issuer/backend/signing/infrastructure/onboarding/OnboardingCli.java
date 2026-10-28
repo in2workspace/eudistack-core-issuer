@@ -31,6 +31,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 /**
@@ -97,7 +98,9 @@ public final class OnboardingCli {
         CERT_CHAIN("cert-chain", "OWN_KEY_CERT_CHAIN", false),
         OUT_DIR("out-dir", "OWN_KEY_OUT_DIR", false),
         ALIAS("alias", "OWN_KEY_ALIAS", false),
-        NON_PRODUCTION("non-production", "OWN_KEY_NON_PRODUCTION", true),
+        /** Command line only: an environment variable inherited from another environment must not weaken the checks. */
+        NON_PRODUCTION("non-production", null, true),
+        EXPECTED_AWS_ACCOUNT("expected-aws-account", "OWN_KEY_EXPECTED_AWS_ACCOUNT", false),
         KEY_POLICY("key-policy", "OWN_KEY_KEY_POLICY", false),
         TRUST_ANCHOR("trust-anchor", "OWN_KEY_TRUST_ANCHOR", false),
         EXPECTED_ORG_ID("expected-org-id", "OWN_KEY_EXPECTED_ORG_ID", false),
@@ -119,9 +122,13 @@ public final class OnboardingCli {
 
     private static final String ENV_DB_PASSWORD = "SPRING_R2DBC_PASSWORD";
     private static final String ENV_AWS_REGION = "AWS_REGION";
+    /** No longer read: its presence is an error, so that a leftover cannot go unnoticed. */
+    private static final String ENV_NON_PRODUCTION_REMOVED = "OWN_KEY_NON_PRODUCTION";
+    private static final String ENV_ENDPOINT_PREFIX = "AWS_ENDPOINT_URL";
+    private static final String PROPERTY_ENDPOINT_PREFIX = "aws.endpointUrl";
 
     private static final Set<Opt> COMMON = EnumSet.of(Opt.DB_URL, Opt.DB_USER, Opt.KMS_REGION, Opt.KMS_ENDPOINT,
-            Opt.DELETION_WINDOW_DAYS, Opt.DRY_RUN, Opt.AUDIT_SINK, Opt.NON_PRODUCTION);
+            Opt.DELETION_WINDOW_DAYS, Opt.DRY_RUN, Opt.AUDIT_SINK, Opt.NON_PRODUCTION, Opt.EXPECTED_AWS_ACCOUNT);
 
     private static final String HELP = """
             Own-key onboarding tool (EUD-289): puts a tenant's own signing key, held in AWS KMS, into service.
@@ -151,9 +158,14 @@ public final class OnboardingCli {
               --kms-endpoint <url>           [ISSUER_SIGNING_KMS_ENDPOINT] emulators only (needs --non-production); KMS and STS
               --deletion-window-days <7-30>  [OWN_KEY_DELETION_WINDOW_DAYS] default 7
               --dry-run                      [OWN_KEY_DRY_RUN]
-              --non-production               [OWN_KEY_NON_PRODUCTION] STG and local environments only: accepts a
-                                             self-signed certificate, a missing trust anchor, organization id and key
-                                             policy, and --kms-endpoint. Without it the production checks apply
+              --expected-aws-account <id>    [OWN_KEY_EXPECTED_AWS_ACCOUNT] 12-digit AWS account the credentials must
+                                             belong to (STS GetCallerIdentity); required unless --non-production.
+                                             A different account ends with exit 2 before KMS or the database are used
+              --non-production               command line only (an environment variable is not accepted): STG and
+                                             local environments only. Accepts a self-signed certificate, a missing trust
+                                             anchor, organization id, key policy and account, and --kms-endpoint and the
+                                             SDK endpoint variables. Without it the production checks apply, and the run
+                                             refuses AWS_ENDPOINT_URL* variables and aws.endpointUrl* properties
               --audit-sink <log|outbox>      [OWN_KEY_AUDIT_SINK] default log; outbox needs a build with the audit starter
 
             prepare
@@ -186,11 +198,18 @@ public final class OnboardingCli {
     private final Wiring wiring;
     private final PrintStream out;
     private final PrintStream err;
+    private final Properties systemProperties;
 
     public OnboardingCli(Wiring wiring, PrintStream out, PrintStream err) {
+        this(wiring, out, err, System.getProperties());
+    }
+
+    /** @param systemProperties where the {@code aws.endpointUrl*} properties of the SDK are looked for */
+    public OnboardingCli(Wiring wiring, PrintStream out, PrintStream err, Properties systemProperties) {
         this.wiring = wiring;
         this.out = out;
         this.err = err;
+        this.systemProperties = systemProperties;
     }
 
     /** The command line, resolved against the environment. */
@@ -251,6 +270,7 @@ public final class OnboardingCli {
     private int execute(Invocation invocation) {
         requireProductionSafeUsage(invocation);
         OnboardingSettings settings = settings(invocation);
+        announceChecks(invocation);
         try (Services services = wiring.open(settings)) {
             return switch (invocation.command()) {
                 case PREPARE -> prepare(invocation, services.onboarding());
@@ -359,7 +379,19 @@ public final class OnboardingCli {
      * anything is opened, so a bad call costs nothing.
      */
     private void requireProductionSafeUsage(Invocation invocation) {
+        if (invocation.env().containsKey(ENV_NON_PRODUCTION_REMOVED)) {
+            throw new OnboardingUsageException(ENV_NON_PRODUCTION_REMOVED + " is no longer accepted: --non-production is "
+                    + "only a command line argument, so that a variable inherited from another environment cannot "
+                    + "weaken the checks. Remove the variable");
+        }
         boolean production = !invocation.has(Opt.NON_PRODUCTION);
+        if (invocation.has(Opt.EXPECTED_AWS_ACCOUNT)) {
+            ExpectedAwsAccount.parse(invocation.get(Opt.EXPECTED_AWS_ACCOUNT));
+        }
+        if (production) {
+            requireNoSdkEndpointOverride(invocation);
+            requireForProduction(invocation, Opt.EXPECTED_AWS_ACCOUNT);
+        }
         if (production && invocation.has(Opt.KMS_ENDPOINT)) {
             throw new OnboardingUsageException("--kms-endpoint (an emulator) is only accepted with --non-production: "
                     + "a redirected STS would also make the identity recorded as the actor untrustworthy");
@@ -377,6 +409,35 @@ public final class OnboardingCli {
                 log.warn("No key policy was given (--non-production): the key is created with the KMS default policy, "
                         + "which delegates everything to IAM of the account. Never do this in STG or PRO.");
             }
+        }
+    }
+
+    /**
+     * The SDK reads endpoint URLs from the environment and the system properties: a redirected STS would make the identity
+     * recorded as the actor untrustworthy. Only the names are reported, never the values.
+     */
+    private void requireNoSdkEndpointOverride(Invocation invocation) {
+        List<String> configured = new ArrayList<>();
+        invocation.env().keySet().stream().filter(name -> name.toUpperCase(Locale.ROOT).startsWith(ENV_ENDPOINT_PREFIX))
+                .sorted().forEach(configured::add);
+        systemProperties.stringPropertyNames().stream().filter(name -> name.startsWith(PROPERTY_ENDPOINT_PREFIX))
+                .sorted().forEach(configured::add);
+        if (!configured.isEmpty()) {
+            throw new OnboardingUsageException("the AWS SDK endpoint override " + configured + " is configured: the "
+                    + "production checks refuse it, because a redirected STS would make the identity recorded as the "
+                    + "actor untrustworthy. Remove it (or use --non-production in an environment that is not production)");
+        }
+    }
+
+    /** The checks the run applies are said on stdout and in the log, so nobody takes a non-production run for another. */
+    private void announceChecks(Invocation invocation) {
+        if (invocation.has(Opt.NON_PRODUCTION)) {
+            log.warn("NON-PRODUCTION MODE: the production checks are OFF (self-signed certificate, missing trust anchor, "
+                    + "organization id, key policy and AWS account accepted). Never use it in STG or PRO.");
+            out.println("checks: NON-PRODUCTION (the production checks are off: never use this mode in STG or PRO)");
+        } else {
+            log.info("Checks: production");
+            out.println("checks: production");
         }
     }
 
@@ -440,9 +501,11 @@ public final class OnboardingCli {
         int days = invocation.has(Opt.DELETION_WINDOW_DAYS)
                 ? (int) parseLong(Opt.DELETION_WINDOW_DAYS, invocation.get(Opt.DELETION_WINDOW_DAYS))
                 : DEFAULT_DELETION_WINDOW_DAYS;
+        String account = invocation.has(Opt.EXPECTED_AWS_ACCOUNT)
+                ? ExpectedAwsAccount.parse(invocation.get(Opt.EXPECTED_AWS_ACCOUNT)) : null;
         return new OnboardingSettings(invocation.require(Opt.DB_URL), invocation.require(Opt.DB_USER), password,
                 region == null || region.isBlank() ? null : region, endpoint, days, auditSink(invocation),
-                keyPolicy(invocation));
+                keyPolicy(invocation), !invocation.has(Opt.NON_PRODUCTION), account);
     }
 
     /** @return the invocation, or {@code null} if help was asked for */
@@ -486,7 +549,7 @@ public final class OnboardingCli {
             }
         }
         for (Opt option : allowed) {
-            if (!values.containsKey(option) && env.get(option.env) != null && !env.get(option.env).isBlank()) {
+            if (option.env != null && !values.containsKey(option) && env.get(option.env) != null && !env.get(option.env).isBlank()) {
                 if (!option.isSwitch) {
                     values.put(option, env.get(option.env));
                 } else if (isTrue(env.get(option.env))) {

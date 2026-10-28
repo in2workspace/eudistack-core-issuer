@@ -44,7 +44,16 @@ intermediates are valid now (always); the certificate does not declare a QSCD (Q
 the tenant is active in `public.tenant_registry` and its `<tenant>_issuer` schema exists; the SPKI SHA-256 is not
 reserved by any tenant, except for a renewal of the tenant's own active key (above). The production checks are the **default**: the certificate is also not self-signed, the
 chain ends in the agreed CA (`--trust-anchor`) and the leaf carries the tenant's `organizationIdentifier`
-(`--expected-org-id`); both are mandatory and are checked whenever they are given. `--non-production` (`OWN_KEY_NON_PRODUCTION`) is for local and STG environments only: it accepts a self-signed certificate, a missing trust anchor and organization id, a missing key policy and `--kms-endpoint` (which is rejected without it). `prepare` stores a summary of its policy in the state file (production yes/no, SHA-256 of the trust anchor, organization id) and `import` rejects (`PolicyDenied`) a policy laxer than or different from it.
+(`--expected-org-id`); both are mandatory and are checked whenever they are given. `--non-production` is for local and STG environments only and exists **only as a command line argument** (see *Production mode* below): it accepts a self-signed certificate, a missing trust anchor and organization id, a missing key policy and account, `--kms-endpoint` (which is rejected without it) and the SDK endpoint variables. `prepare` stores a summary of its policy in the state file (production yes/no, SHA-256 of the trust anchor, organization id) and `import` rejects (`PolicyDenied`) a policy laxer than or different from it.
+
+## Production mode
+
+Production checks are the default and cannot be switched off by the environment:
+
+- `--non-production` is a **command line argument only**. The variable `OWN_KEY_NON_PRODUCTION` is no longer read, and if it is set in the environment the tool ends with a usage error (exit 64) that says so, so that a variable left in a task definition, an image or an `.env` copied from STG cannot weaken the checks without anyone noticing. `--non-production=false` is production.
+- In production mode `--expected-aws-account <12 digits>` (or `OWN_KEY_EXPECTED_AWS_ACCOUNT`) is mandatory, for every command. The tool compares it with the account of the credentials, as STS `GetCallerIdentity` reports it, before it touches KMS or the database; another account ends with **exit 2** and nothing is touched. With `--non-production` it is not required, and it is checked if given.
+- In production mode the run is refused (usage error, exit 64) if the AWS SDK is configured with an endpoint override: environment variables `AWS_ENDPOINT_URL` and `AWS_ENDPOINT_URL_<SERVICE>` or system properties `aws.endpointUrl*` (the error names them, never their values). The KMS and STS clients are also built with `aws.ignoreConfiguredEndpointUrls=true`, so an `endpoint_url` of the AWS profile is ignored too. Without this a redirected STS would make the actor of the audit event (the caller ARN) untrustworthy. In `--non-production` they are allowed, for emulators such as LocalStack.
+- Every run says its mode: `checks: production` or `checks: NON-PRODUCTION (...)` on stdout and a log line, which is a `WARN` in non-production. The mode is **not** a field of the audit event: the EUD-244 catalogue (2.2.0) allows no other `details` than `operation`, `previous_modality`, `new_modality` and `signing_certificate`, and the audit API rejects any other field. It is in the log and the output of the run.
 
 ## Local environments
 
@@ -97,7 +106,8 @@ Arguments or environment variables; an argument wins. The names of the database 
 | `prepare`: tenant, chain (PEM, leaf first, root excluded), output directory, alias | `--tenant`, `--cert-chain`, `--out-dir`, `--alias` | `OWN_KEY_TENANT`, `OWN_KEY_CERT_CHAIN`, `OWN_KEY_OUT_DIR`, `OWN_KEY_ALIAS` |
 | `import`: state, wrapped key material, import token (default: next to the state) | `--state`, `--key-material`, `--import-token` | `OWN_KEY_STATE`, `OWN_KEY_KEY_MATERIAL`, `OWN_KEY_IMPORT_TOKEN` |
 | `prepare` and `import`: trust anchor and expected organization id (mandatory unless `--non-production`) | `--trust-anchor`, `--expected-org-id` | `OWN_KEY_TRUST_ANCHOR`, `OWN_KEY_EXPECTED_ORG_ID` |
-| Skip the production checks (local and STG only) | `--non-production` | `OWN_KEY_NON_PRODUCTION` |
+| Skip the production checks (local and STG only) | `--non-production` | none: a command line argument only |
+| AWS account of the credentials (mandatory unless `--non-production`) | `--expected-aws-account` | `OWN_KEY_EXPECTED_AWS_ACCOUNT` |
 | `discard`: state file of the preparation | `--state` | `OWN_KEY_STATE` |
 | `reconcile`: grace period in seconds (default 160) | `--grace-seconds` | `OWN_KEY_GRACE_SECONDS` |
 
@@ -123,7 +133,7 @@ request without tenant.
 |------|---------|
 | 0 | Done (or `--help`). |
 | 1 | Any other error (KMS, database, files). `reconcile` ends with 1 if any key could not be reconciled; the rest were. |
-| 2 | Onboarding rejected by a validation: the reason is on stderr, nothing was put into service. |
+| 2 | Onboarding rejected by a validation, or the credentials belong to another account than `--expected-aws-account`: the reason is on stderr, nothing was put into service. |
 | 64 | Usage error. |
 
 Results go to stdout; logs and errors to stderr.

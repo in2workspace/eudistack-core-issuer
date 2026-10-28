@@ -30,9 +30,11 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -54,6 +56,10 @@ class OnboardingCliTest {
     private final ByteArrayOutputStream stdout = new ByteArrayOutputStream();
     private final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
     private final Map<String, String> env = new HashMap<>();
+    private final Properties systemProperties = new Properties();
+    /** The tests are of a non-production environment unless one sets this: production is the default of the tool. */
+    private boolean production;
+    private String account = "123456789012";
     private OnboardingCli cli;
 
     @TempDir
@@ -61,11 +67,10 @@ class OnboardingCliTest {
 
     @BeforeEach
     void setUp() {
+        when(reconciler.reconcile(any(), anyBoolean())).thenReturn(new ReconcileReport(0, List.of()));
         env.put("SPRING_FLYWAY_URL", "jdbc:postgresql://db:5432/issuer");
         env.put("SPRING_R2DBC_USERNAME", "operator");
         env.put("SPRING_R2DBC_PASSWORD", PASSWORD);
-        // The tests are of a non-production environment unless one removes this: production is the default.
-        env.put("OWN_KEY_NON_PRODUCTION", "true");
         cli = new OnboardingCli(settings -> {
             openedWith.set(settings);
             return new OnboardingCli.Services() {
@@ -84,11 +89,27 @@ class OnboardingCliTest {
                     // Nothing to release: the collaborators are mocks.
                 }
             };
-        }, new PrintStream(stdout, true, StandardCharsets.UTF_8), new PrintStream(stderr, true, StandardCharsets.UTF_8));
+        }, new PrintStream(stdout, true, StandardCharsets.UTF_8), new PrintStream(stderr, true, StandardCharsets.UTF_8),
+                systemProperties);
     }
 
     private int run(String... args) {
-        return cli.run(args, env);
+        return cli.run(withMode(args), env);
+    }
+
+    /** The mode is a command line argument: non-production, or production with the account it is for. */
+    private String[] withMode(String[] args) {
+        if (args.length == 0 || args[0].startsWith("-")) {
+            return args;
+        }
+        List<String> all = new ArrayList<>(List.of(args));
+        if (!production) {
+            all.add("--non-production");
+        } else if (account != null) {
+            all.add("--expected-aws-account");
+            all.add(account);
+        }
+        return all.toArray(String[]::new);
     }
 
     private String out() {
@@ -166,7 +187,7 @@ class OnboardingCliTest {
 
     @Test
     void run_withoutNonProduction_theProductionChecksApplyAndNeedTheTrustAnchor() throws Exception {
-        env.remove("OWN_KEY_NON_PRODUCTION");
+        production = true;
 
         assertThat(run("prepare", "--tenant", "cgcom", "--cert-chain", chainFile().toString(), "--out-dir",
                 directory.toString(), "--expected-org-id", "VATES-Q0000000X", "--key-policy", "k.json"))
@@ -178,7 +199,7 @@ class OnboardingCliTest {
 
     @Test
     void run_prepareInProductionWithoutAKeyPolicy_isAUsageError() throws Exception {
-        env.remove("OWN_KEY_NON_PRODUCTION");
+        production = true;
         Path anchor = chainFile();
 
         assertThat(run("prepare", "--tenant", "cgcom", "--cert-chain", chainFile().toString(), "--out-dir",
@@ -191,7 +212,7 @@ class OnboardingCliTest {
 
     @Test
     void run_prepareInProductionWithEverythingGiven_usesTheProductionPolicyAndTheKeyPolicy() throws Exception {
-        env.remove("OWN_KEY_NON_PRODUCTION");
+        production = true;
         when(onboarding.prepare(any())).thenReturn(new PrepareResult(prepared(), Operation.CREATE, "ab".repeat(32)));
         Path chain = chainFile();
         Path keyPolicy = Files.writeString(directory.resolve("policy.json"), "{\"Version\":\"2012-10-17\"}");
@@ -228,7 +249,7 @@ class OnboardingCliTest {
 
     @Test
     void run_kmsEndpointWithoutNonProduction_isAUsageError() {
-        env.remove("OWN_KEY_NON_PRODUCTION");
+        production = true;
 
         assertThat(run("reconcile", "--kms-endpoint", "http://localhost:4566")).isEqualTo(OnboardingCli.EXIT_USAGE);
 
@@ -238,12 +259,114 @@ class OnboardingCliTest {
 
     @Test
     void run_productionImportNeedsTheTrustAnchorAndTheOrganizationToo() throws Exception {
-        env.remove("OWN_KEY_NON_PRODUCTION");
+        production = true;
         new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
 
         assertThat(run("import", "--state", directory.resolve("own-key-cgcom-op-1.state.json").toString(),
                 "--key-material", directory.resolve("own-key-cgcom-op-1.import-token.bin").toString()))
                 .isEqualTo(OnboardingCli.EXIT_USAGE);
+    }
+
+    @Test
+    void run_nonProductionFromTheEnvironment_isAUsageErrorBecauseItIsNoLongerAccepted() {
+        env.put("OWN_KEY_NON_PRODUCTION", "true");
+
+        assertThat(run("reconcile")).isEqualTo(OnboardingCli.EXIT_USAGE);
+
+        assertThat(err()).contains("OWN_KEY_NON_PRODUCTION", "no longer accepted");
+        assertThat(openedWith.get()).isNull();
+    }
+
+    @Test
+    void run_nonProductionFalseOnTheCommandLine_isProduction() {
+        production = true;
+
+        assertThat(run("reconcile", "--non-production=false")).isEqualTo(OnboardingCli.EXIT_OK);
+
+        assertThat(openedWith.get().production()).isTrue();
+        assertThat(out()).contains("checks: production");
+    }
+
+    @Test
+    void run_production_needsTheExpectedAwsAccount() {
+        production = true;
+        account = null;
+
+        assertThat(run("reconcile")).isEqualTo(OnboardingCli.EXIT_USAGE);
+
+        assertThat(err()).contains("--expected-aws-account", "OWN_KEY_EXPECTED_AWS_ACCOUNT");
+        assertThat(openedWith.get()).isNull();
+    }
+
+    @Test
+    void run_productionWithTheAccountFromTheEnvironment_passesItToTheSettings() {
+        production = true;
+        account = null;
+        env.put("OWN_KEY_EXPECTED_AWS_ACCOUNT", "210987654321");
+
+        assertThat(run("reconcile")).isEqualTo(OnboardingCli.EXIT_OK);
+
+        assertThat(openedWith.get().expectedAwsAccount()).isEqualTo("210987654321");
+        assertThat(openedWith.get().production()).isTrue();
+    }
+
+    @Test
+    void run_expectedAwsAccountThatIsNotTwelveDigits_isAUsageError() {
+        assertThat(run("reconcile", "--expected-aws-account", "12345")).isEqualTo(OnboardingCli.EXIT_USAGE);
+
+        assertThat(err()).contains("12-digit");
+        assertThat(openedWith.get()).isNull();
+    }
+
+    @Test
+    void run_nonProduction_doesNotNeedTheAccountAndSaysItsModeOnStdout() {
+        account = null;
+
+        assertThat(run("reconcile")).isEqualTo(OnboardingCli.EXIT_OK);
+
+        assertThat(openedWith.get().expectedAwsAccount()).isNull();
+        assertThat(openedWith.get().production()).isFalse();
+        assertThat(out()).contains("checks: NON-PRODUCTION");
+    }
+
+    @Test
+    void run_productionWithAnSdkEndpointVariable_isRefused() {
+        production = true;
+        env.put("AWS_ENDPOINT_URL_STS", "http://localhost:4566");
+
+        assertThat(run("reconcile")).isEqualTo(OnboardingCli.EXIT_USAGE);
+
+        assertThat(err()).contains("AWS_ENDPOINT_URL_STS").doesNotContain("localhost:4566");
+        assertThat(openedWith.get()).isNull();
+    }
+
+    @Test
+    void run_productionWithTheGeneralSdkEndpointVariable_isRefused() {
+        production = true;
+        env.put("AWS_ENDPOINT_URL", "http://localhost:4566");
+
+        assertThat(run("reconcile")).isEqualTo(OnboardingCli.EXIT_USAGE);
+
+        assertThat(err()).contains("AWS_ENDPOINT_URL");
+    }
+
+    @Test
+    void run_productionWithAnSdkEndpointSystemProperty_isRefused() {
+        production = true;
+        systemProperties.setProperty("aws.endpointUrlSts", "http://localhost:4566");
+
+        assertThat(run("reconcile")).isEqualTo(OnboardingCli.EXIT_USAGE);
+
+        assertThat(err()).contains("aws.endpointUrlSts");
+        assertThat(openedWith.get()).isNull();
+    }
+
+    @Test
+    void run_nonProductionWithSdkEndpointVariables_isAllowed() {
+        env.put("AWS_ENDPOINT_URL", "http://localhost:4566");
+        systemProperties.setProperty("aws.endpointUrl", "http://localhost:4566");
+
+        assertThat(run("reconcile")).isEqualTo(OnboardingCli.EXIT_OK);
     }
 
     @Test

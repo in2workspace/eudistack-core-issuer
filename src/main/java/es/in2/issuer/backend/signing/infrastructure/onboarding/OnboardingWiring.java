@@ -33,15 +33,19 @@ public class OnboardingWiring implements OnboardingCli.Wiring {
 
     @Override
     public OnboardingCli.Services open(OnboardingSettings settings) {
-        KmsAsyncClient kmsClient = AwsOnboardingClients.kms(settings.kmsRegion(), settings.kmsEndpoint(), credentials);
-        StsAsyncClient stsClient = AwsOnboardingClients.sts(settings.kmsRegion(), settings.kmsEndpoint(), credentials);
+        KmsAsyncClient kmsClient = AwsOnboardingClients.kms(settings.kmsRegion(), settings.kmsEndpoint(), credentials,
+                settings.production());
+        StsAsyncClient stsClient = AwsOnboardingClients.sts(settings.kmsRegion(), settings.kmsEndpoint(), credentials,
+                settings.production());
+        var identity = new AwsCallerIdentityAdapter(stsClient);
+        requireExpectedAccount(settings, identity, kmsClient, stsClient);
         var kms = new AwsKmsKeyAdministrationAdapter(kmsClient, settings.keyPolicy());
         DataSource dataSource = new DriverManagerDataSource(settings.dbUrl(), settings.dbUser(), settings.dbPassword());
         AuditSinkHandle auditSink = openAuditSink(settings, dataSource, kmsClient, stsClient);
         var store = new JdbcOwnKeyStore(dataSource, auditSink.sink());
-        var onboarding = new OwnKeyOnboarding(kms, store, new AwsCallerIdentityAdapter(stsClient), Clock.systemUTC(),
+        var onboarding = new OwnKeyOnboarding(kms, store, identity, Clock.systemUTC(),
                 () -> UUID.randomUUID().toString(), settings.deletionWindowDays());
-        var reconciler = new OwnKeyReconciler(kms, store, new AwsCallerIdentityAdapter(stsClient), Clock.systemUTC(),
+        var reconciler = new OwnKeyReconciler(kms, store, identity, Clock.systemUTC(),
                 settings.deletionWindowDays());
         return new OnboardingCli.Services() {
             @Override
@@ -61,6 +65,23 @@ public class OnboardingWiring implements OnboardingCli.Wiring {
                 stsClient.close();
             }
         };
+    }
+
+    /**
+     * The credentials must belong to the account the operator named, checked before KMS or the database are used: the
+     * account of the run is what ties its checks to the environment.
+     */
+    private static void requireExpectedAccount(OnboardingSettings settings, AwsCallerIdentityAdapter identity,
+                                               AutoCloseable... toCloseOnFailure) {
+        if (settings.expectedAwsAccount() == null) {
+            return;
+        }
+        try {
+            ExpectedAwsAccount.requireMatch(settings.expectedAwsAccount(), identity.callerAccount());
+        } catch (RuntimeException e) {
+            closeQuietly(toCloseOnFailure);
+            throw e;
+        }
     }
 
     /**

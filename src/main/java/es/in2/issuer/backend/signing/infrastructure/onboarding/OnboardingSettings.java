@@ -17,6 +17,10 @@ import java.net.URI;
  * @param keyPolicy           JSON key policy for the keys {@code prepare} creates ({@code --key-policy}); {@code null}
  *                            leaves the KMS default, which is only accepted with {@code --non-production}
  * @param auditSink           where the audit events go ({@code OWN_KEY_AUDIT_SINK}, {@code log} or {@code outbox})
+ * @param production          the production checks apply (the default): the endpoint URLs the AWS SDK reads from its
+ *                            configuration are ignored
+ * @param expectedAwsAccount  the AWS account the credentials must belong to ({@code --expected-aws-account}); {@code null}
+ *                            skips the check, which is only allowed with {@code --non-production}
  */
 public record OnboardingSettings(
         String dbUrl,
@@ -26,12 +30,15 @@ public record OnboardingSettings(
         URI kmsEndpoint,
         int deletionWindowDays,
         AuditSinkMode auditSink,
-        String keyPolicy
+        String keyPolicy,
+        boolean production,
+        String expectedAwsAccount
 ) {
 
+    /** For tests against an emulator: no production checks and no expected account. */
     public OnboardingSettings(String dbUrl, String dbUser, String dbPassword, String kmsRegion, URI kmsEndpoint,
                               int deletionWindowDays, AuditSinkMode auditSink) {
-        this(dbUrl, dbUser, dbPassword, kmsRegion, kmsEndpoint, deletionWindowDays, auditSink, null);
+        this(dbUrl, dbUser, dbPassword, kmsRegion, kmsEndpoint, deletionWindowDays, auditSink, null, false, null);
     }
 
     /** Where the audit events go: the log (default) or the outbox of the EUD-244 starter, if the build has it. */
@@ -54,6 +61,7 @@ public record OnboardingSettings(
     @Override
     public String toString() {
         return "OnboardingSettings[dbUrl=" + dbUrl + ", dbUser=" + dbUser + ", kmsRegion=" + kmsRegion
-                + ", kmsEndpoint=" + kmsEndpoint + ", deletionWindowDays=" + deletionWindowDays + ", auditSink=" + auditSink + "]";
+                + ", kmsEndpoint=" + kmsEndpoint + ", deletionWindowDays=" + deletionWindowDays + ", auditSink=" + auditSink + ", production=" + production
+                + ", expectedAwsAccount=" + expectedAwsAccount + "]";
     }
 }
