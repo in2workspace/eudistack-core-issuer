@@ -50,6 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **EUD-289 — `import` and `discard` read the state again under the lock of the operation, and `discard` takes that lock too** (code review N1, security audit R-1): a state read before another run marked it could still be used, and a renewal would replace the configuration a second time; now, once the lock is held, the state file is read again (`OnboardingArtifactsPort.current`) and an imported or discarded state is refused, or reported as already discarded. `discard` took no lock and could run between the `ImportKeyMaterial` and the commit of an `import` of the same preparation; it now takes the same lock.
 - **EUD-289 — More runbook notes of the onboarding tool** (code review N2 and N8, security audit I-R6): `--db-url` must reach PostgreSQL directly, not through a pooler in transaction mode; a dry run in production needs STS; a client timeout on `ImportKeyMaterial` that KMS applied leaves a key to clean up by hand.
 
+### Changed (EUD-305)
+
+- **EUD-305 — The wallet link of the credential offer email is built by the email service.** `CredentialOfferServiceImpl` no longer reads `issuer.wallet_url` nor builds a wallet link: it hands the standard `openid-credential-offer://?credential_offer_uri=...` offer to the email service, which reads `issuer.wallet_url` (optional) and builds `<issuer.wallet_url>/protocol/callback?credential_offer_uri=...` for the "Open in Wallet" button and the QR, or keeps the standard offer when the tenant configures no wallet. No change for the holder: the email carries the same links as before. The template variable for the button is now `walletLink`.
+
 ### Added (EUD-301)
 
 - **EUD-301 — Additional business attributes in SD-JWT VC issuance**: attributes that a profile's `sd_claims` does not list are no longer dropped silently; they are issued as selectively disclosable claims.
