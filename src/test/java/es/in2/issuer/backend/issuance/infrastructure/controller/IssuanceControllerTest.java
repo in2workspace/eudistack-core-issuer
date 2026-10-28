@@ -35,6 +35,7 @@ import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.context.annotation.Import;
@@ -720,12 +721,30 @@ class IssuanceControllerTest {
         // Given
         String issuanceId = UUID.randomUUID().toString();
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(issuanceService.getIssuanceById(issuanceId)).thenReturn(Mono.just(storedIn("VATES-STORED")));
         when(revocationWorkflow.revoke(anyString(), eq("Bearer testToken"), eq(issuanceId), isNull(), eq(PUBLIC_ISSUER_BASE_URL)))
                 .thenReturn(Mono.empty());
 
         // When / Then
         patchStatus(issuanceId, CredentialStatusEnum.REVOKED).expectStatus().isNoContent();
         verifyNoInteractions(powerAuthorizationService);
+    }
+
+    /** Round 2 (N-2): a process that is not in the tenant is decided (and traced) before it is not found. */
+    @ParameterizedTest
+    @ValueSource(strings = {"00000000-0000-0000-0000-000000000000", "not-a-uuid"})
+    void IssuanceController_updateIssuanceStatus_revokeOfAMissingProcessIsDecidedBeforeItIsNotFound(String issuanceId)
+            throws JsonProcessingException {
+        // Given
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(issuanceService.getIssuanceById(issuanceId)).thenReturn(Mono.empty());
+        when(powerAuthorizationService.authorize(PowerAuthorizationService.REVOKE, null, issuanceId))
+                .thenReturn(Mono.just(organizationAdminDecision("org")));
+
+        // When / Then: not found -- never a 500 for a malformed id -- and the workflow is not reached
+        patchStatus(issuanceId, CredentialStatusEnum.REVOKED).expectStatus().value(status -> assertThat(status).isNotIn(204, 500));
+        verify(powerAuthorizationService).authorize(PowerAuthorizationService.REVOKE, null, issuanceId);
+        verifyNoInteractions(revocationWorkflow);
     }
 
     @Test

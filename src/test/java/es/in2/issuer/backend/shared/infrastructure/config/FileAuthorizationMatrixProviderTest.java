@@ -144,7 +144,16 @@ class FileAuthorizationMatrixProviderTest {
                 Arguments.of(Named.of("an action the issuer decides goes missing", "  - id: R2\n"), "  - id: R2-renamed\n"),
                 Arguments.of(Named.of("renamed user type: its holders would silently read as USER",
                         "recognition_order: [platform_admin, tenant_admin,"),
-                        "recognition_order: [platform_admin, tenant_administrator,"));
+                        "recognition_order: [platform_admin, tenant_administrator,"),
+                // Round 2 (W-N1): removing a key that protects a permission
+                Arguments.of(Named.of("E4 without grants: anyone who can issue would grant the tenant administrator power",
+                        "    grants: { type: organization, domain: \"{tenant}\", function: Onboarding, action: Execute }\n"), ""),
+                Arguments.of(Named.of("E6 without requires_power: every user type would issue product certifications",
+                        "    requires_power: { type: domain, domain: \"{tenant}\", function: Certification, action: Attest }\n"), ""),
+                Arguments.of(Named.of("misspelt platform_tenant: the platform administrator could write from the platform tenant",
+                        "    platform_tenant: read_only\n"), "    platform_tenant: readonly\n"),
+                Arguments.of(Named.of("platform_tenant removed from the platform administrator",
+                        "    platform_tenant: read_only\n"), ""));
     }
 
     @ParameterizedTest

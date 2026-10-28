@@ -62,7 +62,14 @@ public record AuthorizationMatrix(
      *   <li>every power pattern states its type, domain, function and action;</li>
      *   <li>every action has a unique id, states whether it writes, and gives the scope of every
      *       user type;</li>
-     *   <li>the actions the issuer decides exist, and one rule covers powers outside the tenant.</li>
+     *   <li>the actions the issuer decides exist, and one rule covers powers outside the tenant;</li>
+     *   <li>every power of the tenant that recognizes a user type or that an action requires has
+     *       a rule saying who grants it -- without one, anyone who can issue could grant it;</li>
+     *   <li>an action for given attestation types (product certification) states the power it
+     *       requires -- without it, every user type could issue them;</li>
+     *   <li>{@code platform_tenant} is {@code read_only} or absent, and present for a user type
+     *       recognized by a platform power -- a misspelt value would make it able to write from the
+     *       platform tenant.</li>
      * </ul>
      *
      * @param requiredActionIds the action ids the issuer decides with this matrix
@@ -82,7 +89,19 @@ public record AuthorizationMatrix(
         }
         require(actions.stream().anyMatch(ActionRule::grantsOutsideTenant),
                 "Authorization matrix needs a rule for granting powers outside the tenant (grants_outside_tenant)");
+        validateGrantRules();
         return this;
+    }
+
+    /** Every power of the tenant the matrix relies on is granted by an explicit rule. */
+    private void validateGrantRules() {
+        Stream<PowerPattern> recognizing = userTypes.values().stream().flatMap(rule -> rule.recognizedByOrEmpty().stream());
+        Stream<PowerPattern> required = actions.stream().map(ActionRule::requiresPower).filter(Objects::nonNull);
+        Stream.concat(recognizing, required)
+                .filter(pattern -> TENANT_PLACEHOLDER.equals(pattern.domain()))
+                .distinct()
+                .forEach(pattern -> require(actions.stream().anyMatch(action -> pattern.equals(action.grants())),
+                        "No rule says who grants " + pattern + " (an action with grants)"));
     }
 
     private void validateUserTypes() {
@@ -104,6 +123,13 @@ public record AuthorizationMatrix(
                         "User type " + type + " is recognized by no power; only the last one may be");
             }
             rule.recognizedByOrEmpty().forEach(pattern -> pattern.validate("recognized_by of " + type));
+            require(rule.platformTenant() == null || rule.readOnlyInPlatformTenant(),
+                    "platform_tenant of " + type + " must be " + UserTypeRule.READ_ONLY + " or absent");
+            boolean platformPower = rule.recognizedByOrEmpty().stream()
+                    .anyMatch(pattern -> !TENANT_PLACEHOLDER.equals(pattern.domain()));
+            require(!platformPower || rule.readOnlyInPlatformTenant(),
+                    "User type " + type + " is recognized by a platform power and must be "
+                            + UserTypeRule.READ_ONLY + " in the platform tenant");
         }
     }
 
@@ -116,6 +142,8 @@ public record AuthorizationMatrix(
         Stream.of(action.grants(), action.requiresPower())
                 .filter(Objects::nonNull)
                 .forEach(pattern -> pattern.validate("action " + action.id()));
+        require(action.credentialTypesOrEmpty().isEmpty() || action.requiresPower() != null,
+                "Action " + action.id() + " lists credential_types and must state requires_power");
     }
 
     private static void require(boolean condition, String message) {

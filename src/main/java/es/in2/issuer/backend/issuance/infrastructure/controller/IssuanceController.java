@@ -104,7 +104,11 @@ public class IssuanceController {
         String processId = UUID.randomUUID().toString();
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
         return switch (request.status()) {
-            case REVOKED -> revocationWorkflow.revoke(processId, authorizationHeader, id, null, publicIssuerBaseUrl);
+            // The revocation workflow decides R1 on the process it loads; one that is not in the tenant
+            // is decided here first, like E7 and R2, so it is traced and never answers differently.
+            case REVOKED -> storedOrganization(id).hasElement().flatMap(found -> Boolean.TRUE.equals(found)
+                    ? revocationWorkflow.revoke(processId, authorizationHeader, id, null, publicIssuerBaseUrl)
+                    : decideThenNotFound(PowerAuthorizationService.REVOKE, id).then());
             case WITHDRAWN -> authorizeOnStoredIssuance(PowerAuthorizationService.WITHDRAW, id)
                     .then(Mono.defer(() -> issuanceService.withdrawIssuance(id)));
             case ARCHIVED -> authorizeOnStoredIssuance(PowerAuthorizationService.ARCHIVE, id)
@@ -123,9 +127,16 @@ public class IssuanceController {
     private Mono<AuthorizationDecision> authorizeOnStoredIssuance(String actionId, String id) {
         return storedOrganization(id)
                 .flatMap(organization -> powerAuthorizationService.authorize(actionId, organization, id))
-                .switchIfEmpty(Mono.defer(() -> powerAuthorizationService.authorize(actionId, null, id)
-                        .then(Mono.<AuthorizationDecision>error(
-                                new IssuanceNotFoundException("No issuance found for issuanceId: " + id)))));
+                .switchIfEmpty(Mono.defer(() -> decideThenNotFound(actionId, id)));
+    }
+
+    /**
+     * A process that is not in the tenant: decided without a resource, then not found. The id is not
+     * echoed back -- it may be any string the client sent.
+     */
+    private Mono<AuthorizationDecision> decideThenNotFound(String actionId, String id) {
+        return powerAuthorizationService.authorize(actionId, null, id)
+                .then(Mono.error(new IssuanceNotFoundException("No issuance found for the given id")));
     }
 
     /**
