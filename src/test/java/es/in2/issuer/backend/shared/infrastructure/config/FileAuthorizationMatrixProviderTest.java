@@ -30,8 +30,12 @@ import static org.mockito.Mockito.verify;
 /** FR-15 / AC-13: the rules are configuration and a change applies to the next request without a restart. */
 class FileAuthorizationMatrixProviderTest {
 
-    private static final String R1_OWN = "  - id: R1\n    name: Revoke an attestation\n    writes: true\n"
-            + "    scope: { platform_admin: any_organization, tenant_admin: any_organization, organization_admin: own_organization, user: deny }";
+    private static final String R1_OWN = """
+              - id: R1
+                name: Revoke an attestation
+                writes: true
+                scope: { platform_admin: any_organization, tenant_admin: any_organization, organization_admin: own_organization, user: deny }\
+            """;
     private static final String R1_DENY = R1_OWN.replace("organization_admin: own_organization", "organization_admin: deny");
 
     @TempDir
@@ -68,7 +72,7 @@ class FileAuthorizationMatrixProviderTest {
 
         // Then
         assertThat(matrix.recognitionOrder()).containsExactly("platform_admin", "tenant_admin", "organization_admin", "user");
-        assertThat(matrix.action("E4").scope().get("tenant_admin")).isEqualTo(Scope.DENY);
+        assertThat(matrix.action("E4").scope()).containsEntry("tenant_admin", Scope.DENY);
         assertThat(matrix.action("E6").credentialTypesOrEmpty()).contains("gx:LabelCredential", "gx.labelcredential.*");
         assertThat(matrix.action("E9").grantsOutsideTenant()).isTrue();
         assertThat(revokeScopeOfOrganizationAdmin(matrix)).isEqualTo(Scope.OWN_ORGANIZATION);
@@ -198,9 +202,10 @@ class FileAuthorizationMatrixProviderTest {
         // Given
         Path file = dir.resolve("broken.yaml");
         Files.writeString(file, "version: 1\nuser_types: {}\n");
+        String path = file.toString();
 
         // When / Then
-        assertThatThrownBy(() -> new FileAuthorizationMatrixProvider(file.toString(), auditService))
+        assertThatThrownBy(() -> new FileAuthorizationMatrixProvider(path, auditService))
                 .isInstanceOf(IllegalStateException.class);
     }
 

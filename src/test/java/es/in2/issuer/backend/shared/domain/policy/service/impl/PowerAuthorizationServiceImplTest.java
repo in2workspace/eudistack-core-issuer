@@ -15,7 +15,6 @@ import es.in2.issuer.backend.shared.domain.policy.AuthorizationMatrix.Scope;
 import es.in2.issuer.backend.shared.domain.policy.Caller;
 import es.in2.issuer.backend.shared.domain.policy.IssuanceAuthorization;
 import es.in2.issuer.backend.shared.domain.policy.RecognizedCaller;
-import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.shared.infrastructure.config.FileAuthorizationMatrixProvider;
@@ -438,7 +437,7 @@ class PowerAuthorizationServiceImplTest {
     }
 
     private static String actionOf(Power p) {
-        return p.action() instanceof List<?> list && !list.isEmpty() ? String.valueOf(list.get(0)) : String.valueOf(p.action());
+        return String.valueOf(p.action() instanceof List<?> list && !list.isEmpty() ? list.get(0) : p.action());
     }
 
     // --- E1..E6, E9: issuance ---

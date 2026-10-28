@@ -47,6 +47,8 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
     static final String EVENT_DENY = "authorization.deny";
     static final String RESOURCE_OUT_OF_SCOPE = "resource_out_of_scope";
 
+    private static final String ACTION = "action";
+
     /** Denial code of each action that is not simply "the caller has no power for it". */
     private static final Map<String, Reason> DENIAL_REASONS = Map.of(
             ISSUE_ON_BEHALF, Reason.ON_BEHALF_REQUIRES_TENANT_ADMIN,
@@ -230,7 +232,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
     }
 
     private Power reading(JsonNode item, boolean aliasFirst) {
-        JsonNode action = field(item, "action", aliasFirst);
+        JsonNode action = field(item, ACTION, aliasFirst);
         return new Power(action == null ? null : objectMapper.convertValue(action, Object.class),
                 text(field(item, "domain", aliasFirst)), text(field(item, "function", aliasFirst)),
                 text(field(item, "type", aliasFirst)));
@@ -241,11 +243,21 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
         JsonNode alias = item.get("tmf_" + name);
         JsonNode first = aliasFirst ? alias : plain;
         JsonNode second = aliasFirst ? plain : alias;
-        return first != null && !first.isNull() ? first : second != null && !second.isNull() ? second : null;
+        if (present(first)) {
+            return first;
+        }
+        return present(second) ? second : null;
+    }
+
+    private static boolean present(JsonNode node) {
+        return node != null && !node.isNull();
     }
 
     private static String text(JsonNode node) {
-        return node == null ? null : node.isTextual() ? node.asText() : node.toString();
+        if (node == null) {
+            return null;
+        }
+        return node.isTextual() ? node.asText() : node.toString();
     }
 
     /** Returns the caller's scope on the action, or throws when the action is denied. */
@@ -361,7 +373,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
 
     private void permit(Trace trace) {
         try {
-            auditService.auditSuccess(EVENT_PERMIT, trace.actor(), "action", trace.actionId, trace.details());
+            auditService.auditSuccess(EVENT_PERMIT, trace.actor(), ACTION, trace.actionId, trace.details());
         } catch (RuntimeException e) {
             log.warn("Failed to audit authorization permit: {}", e.toString());
         }
@@ -385,7 +397,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
 
         Trace action(String id) {
             this.actionId = id;
-            return with("action", id);
+            return with(ACTION, id);
         }
 
         Trace recognized(RecognizedCaller recognized, String recognizedByPower) {

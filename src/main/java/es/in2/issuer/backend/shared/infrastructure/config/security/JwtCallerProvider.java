@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config.security;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,6 +18,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
+import java.text.ParseException;
 import java.util.List;
 
 /**
@@ -55,7 +57,7 @@ public class JwtCallerProvider implements CallerProvider {
                 .onErrorMap(e -> e instanceof InvalidTokenException ? e : new InvalidTokenException());
     }
 
-    private Caller parse(String token) throws Exception {
+    private Caller parse(String token) throws ParseException, JsonProcessingException, InvalidTokenException {
         JsonNode root = objectMapper.readTree(SignedJWT.parse(token).getPayload().toString());
         String organization = text(at(root, issuerProperties.getManagementTokenOrgIdJsonPath()));
         if (organization == null || organization.isBlank()) {

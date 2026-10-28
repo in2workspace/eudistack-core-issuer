@@ -44,7 +44,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.SCHEMA_SUFFIX;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
 import static org.assertj.core.api.Assertions.assertThat;

@@ -20,6 +20,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Loads the issuer action matrix (FR-15) from an external YAML file, or from the copy bundled in
@@ -56,7 +57,7 @@ public class FileAuthorizationMatrixProvider implements AuthorizationMatrixProvi
     private final Path externalPath;
     private final AuditService auditService;
 
-    private volatile AuthorizationMatrix matrix;
+    private final AtomicReference<AuthorizationMatrix> matrix = new AtomicReference<>();
     /** Digest of the last content seen, applied or rejected, so a rejected file is not re-reported. */
     private volatile String lastSeenDigest;
 
@@ -64,12 +65,12 @@ public class FileAuthorizationMatrixProvider implements AuthorizationMatrixProvi
                                            AuditService auditService) {
         this.externalPath = matrixPath == null || matrixPath.isBlank() ? null : Path.of(matrixPath);
         this.auditService = auditService;
-        this.matrix = externalPath != null ? loadExternal() : loadBundled();
+        this.matrix.set(externalPath != null ? loadExternal() : loadBundled());
     }
 
     @Override
     public AuthorizationMatrix current() {
-        return matrix;
+        return matrix.get();
     }
 
     @Scheduled(fixedDelay = CHECK_INTERVAL_MS, initialDelay = CHECK_INTERVAL_MS)
@@ -94,7 +95,7 @@ public class FileAuthorizationMatrixProvider implements AuthorizationMatrixProvi
         lastSeenDigest = digest;
         try {
             AuthorizationMatrix reloaded = parse(content);
-            matrix = reloaded;
+            matrix.set(reloaded);
             loaded(reloaded, digest, "Reloaded");
         } catch (IOException | RuntimeException e) {
             reject("invalid", digest, e);
