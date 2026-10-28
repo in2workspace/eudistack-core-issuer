@@ -136,6 +136,31 @@ Arguments or environment variables; an argument wins. The names of the database 
 
 The default alias is `alias/own-key-<tenant>-<operationId>`.
 
+**Database user.** In STG and PRO the tool connects with a **database user of its own**, not the master user of the
+instance nor the Issuer's. Its task definition uses the same variable names as the Issuer (`SPRING_R2DBC_USERNAME`,
+`SPRING_R2DBC_PASSWORD`, and `SPRING_FLYWAY_URL` for the URL) with the values of that user. In Dev it may keep using the
+master user. The tool runs no migration (the Issuer does), so the user needs no `CREATE`; it needs:
+
+| Object | Privileges |
+|--------|------------|
+| every tenant schema `<tenant>_issuer` | `USAGE` |
+| `<tenant>_issuer.tenant_signing_config`, in every tenant schema | `SELECT`, `INSERT`, `UPDATE` |
+| `public.tenant_registry` | `SELECT` |
+| `public.signing_spki_reservation` | `SELECT`, `INSERT`, `UPDATE`, `DELETE` |
+| `public.audit_outbox`, once the outbox sink is active | what the EUD-244 starter needs to stage an event (`INSERT`) |
+
+```sql
+GRANT USAGE ON SCHEMA <tenant>_issuer TO <tool user>;
+GRANT SELECT, INSERT, UPDATE ON <tenant>_issuer.tenant_signing_config TO <tool user>;
+GRANT SELECT ON public.tenant_registry TO <tool user>;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.signing_spki_reservation TO <tool user>;
+```
+
+**The provisioning of a new tenant must include its two grants** (`USAGE` on the schema and the privileges on its
+`tenant_signing_config`). Without them the tool takes the tenant as not provisioned, and the check "is this key referenced
+by any configuration" fails closed for every tenant: `import`, `discard` and `reconcile` end with exit 1 and touch no key
+until the grants are given.
+
 **Key policy.** `prepare` passes a JSON key policy to `CreateKey`, taken from one of two sources, never both (both
 set is a usage error, exit 64):
 
