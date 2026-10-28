@@ -444,4 +444,49 @@ class PowerAuthorizationServiceImplTest {
                     Reason.PLATFORM_TENANT_READ_ONLY);
         }
     }
+
+    // --- FR-13: the trace of every decision ---
+
+    /** AC-14: every decision, permitted or denied, is audited with who, power, resource, result and reason. */
+    @Nested
+    class Audit {
+
+        @Test
+        void permittedDecision_isAuditedWithWhoPowerAndResource() {
+            StepVerifier.create(revoke(caller(ORG, TENANT, TENANT_ADMIN), OTHER_ORG)).expectNextCount(1).verifyComplete();
+
+            verify(auditService).auditSuccess(eq("authorization.permit"), eq("sub-" + ORG), eq("action"), eq(REVOKE), any());
+            assertThat(lastPermitDetails()).containsEntry("callerSubject", "sub-" + ORG)
+                    .containsEntry("callerOrganization", ORG)
+                    .containsEntry("recognizedByPower", "organization · sandbox · Onboarding · [Execute]")
+                    .containsEntry("resourceOrganization", OTHER_ORG)
+                    .containsEntry("resourceId", "issuance-1")
+                    .containsEntry("scope", Scope.ANY_ORGANIZATION.value());
+        }
+
+        @Test
+        void deniedDecision_isAuditedWithWhoPowerResourceAndReason() {
+            StepVerifier.create(revoke(caller(ORG, TENANT, ORG_ADMIN), OTHER_ORG))
+                    .expectError(IssuanceNotFoundException.class).verify();
+
+            verify(auditService).auditFailure(eq("authorization.deny"), eq("sub-" + ORG), eq("resource_out_of_scope"), any());
+            assertThat(lastDenyDetails("resource_out_of_scope")).containsEntry("callerSubject", "sub-" + ORG)
+                    .containsEntry("recognizedByPower", "domain · sandbox · Onboarding · [Execute]")
+                    .containsEntry("resourceOrganization", OTHER_ORG)
+                    .containsEntry("resourceId", "issuance-1");
+            verify(auditService, never()).auditSuccess(eq("authorization.permit"), any(), any(), any(), any());
+        }
+
+        @Test
+        void deniedForAMissingPower_isAuditedWithThePowerEvaluatedAndTheReason() {
+            when(callerResolver.fromSecurityContext()).thenReturn(Mono.just(caller(ORG, TENANT, ORG_ADMIN)));
+            expectReason(inTenant(service.authorizeIssuance("process-1", "gx.labelcredential.w3c.2", LABEL_TYPE,
+                    null, objectMapper.createObjectNode()), TENANT), Reason.CERTIFICATION_POWER_REQUIRED);
+
+            assertThat(lastDenyDetails(Reason.CERTIFICATION_POWER_REQUIRED.getCode()))
+                    .containsEntry("powerEvaluated", "domain · {tenant} · Certification · Attest")
+                    .containsEntry("processId", "process-1")
+                    .containsEntry("callerSubject", "sub-" + ORG);
+        }
+    }
 }

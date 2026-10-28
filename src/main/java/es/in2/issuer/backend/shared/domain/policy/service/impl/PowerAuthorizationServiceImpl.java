@@ -83,7 +83,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
                     .with("resourceId", resourceId);
             requireTenantMatch(caller, tenant, trace);
             RecognizedCaller recognized = recognize(matrix, caller, tenant);
-            trace.recognized(recognized);
+            trace.recognized(recognized, recognizingPower(matrix, recognized));
 
             Scope scope;
             try {
@@ -112,7 +112,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
                             .with("credentialConfigurationId", credentialConfigurationId);
                     requireTenantMatch(caller, tenant, trace);
                     RecognizedCaller recognized = recognize(matrix, caller, tenant);
-                    trace.recognized(recognized);
+                    trace.recognized(recognized, recognizingPower(matrix, recognized));
 
                     String organization = requestedOrganization == null || requestedOrganization.isBlank()
                             ? caller.organizationIdentifier() : requestedOrganization;
@@ -238,6 +238,16 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
         throw new IllegalStateException("Authorization matrix recognizes no user type (missing a catch-all type)");
     }
 
+    /** FR-13: the caller's power that gave it its user type, on which every scope decision rests. */
+    private static String recognizingPower(AuthorizationMatrix matrix, RecognizedCaller recognized) {
+        List<AuthorizationMatrix.PowerPattern> patterns = matrix.userTypes().get(recognized.userType()).recognizedByOrEmpty();
+        return recognized.caller().powers().stream()
+                .filter(power -> patterns.stream().anyMatch(pattern -> pattern.isHeldBy(power, recognized.tenant())))
+                .findFirst()
+                .map(power -> power.type() + " · " + power.domain() + " · " + power.function() + " · " + power.action())
+                .orElse(null);
+    }
+
     /** FR-02: the token must have been issued for the request's tenant, also for the platform administrator. */
     private void requireTenantMatch(Caller caller, String tenant, Trace trace) {
         String tokenTenant = caller.tokenTenant();
@@ -315,8 +325,9 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
             return with("action", id);
         }
 
-        Trace recognized(RecognizedCaller recognized) {
+        Trace recognized(RecognizedCaller recognized, String recognizedByPower) {
             with("userType", recognized.userType());
+            with("recognizedByPower", recognizedByPower);
             with("actsAs", recognized.actsAs());
             return with("securityAction", recognized.securityAction());
         }
