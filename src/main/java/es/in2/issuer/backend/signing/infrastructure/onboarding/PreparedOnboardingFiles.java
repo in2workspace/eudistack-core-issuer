@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFailedException;
+import es.in2.issuer.backend.signing.domain.onboarding.PolicySummary;
 import es.in2.issuer.backend.signing.domain.onboarding.PreparedOnboarding;
 import es.in2.issuer.backend.signing.domain.spi.OnboardingArtifactsPort;
 
@@ -75,7 +76,8 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
             String importTokenFile,
             boolean renewal,
             Instant discardedAt,
-            Instant importedAt
+            Instant importedAt,
+            PolicySummary policy
     ) {}
 
     @Override
@@ -100,7 +102,7 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
     public void markDiscarded(PreparedOnboarding prepared, Instant discardedAt) {
         rewrite(new PreparedOnboarding(prepared.operationId(), prepared.tenant(), prepared.keyArn(), prepared.alias(),
                 prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),
-                prepared.importTokenExpiresAt(), prepared.renewal(), discardedAt, prepared.importedAt()));
+                prepared.importTokenExpiresAt(), prepared.renewal(), discardedAt, prepared.importedAt(), prepared.policy()));
     }
 
     /** Rewrites the state file with {@code importedAt}: a consumed state is refused by {@code import}. */
@@ -108,7 +110,7 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
     public void markImported(PreparedOnboarding prepared, Instant importedAt) {
         rewrite(new PreparedOnboarding(prepared.operationId(), prepared.tenant(), prepared.keyArn(), prepared.alias(),
                 prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),
-                prepared.importTokenExpiresAt(), prepared.renewal(), prepared.discardedAt(), importedAt));
+                prepared.importTokenExpiresAt(), prepared.renewal(), prepared.discardedAt(), importedAt, prepared.policy()));
     }
 
     private void rewrite(PreparedOnboarding marked) {
@@ -128,7 +130,7 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
     private static StateDocument document(PreparedOnboarding prepared, String tokenFile) {
         return new StateDocument(STATE_VERSION, prepared.operationId(), prepared.tenant(), prepared.keyArn(),
                 prepared.alias(), prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),
-                prepared.importTokenExpiresAt(), tokenFile, prepared.renewal(), prepared.discardedAt(), prepared.importedAt());
+                prepared.importTokenExpiresAt(), tokenFile, prepared.renewal(), prepared.discardedAt(), prepared.importedAt(), prepared.policy());
     }
 
     /**
@@ -149,7 +151,7 @@ public class PreparedOnboardingFiles implements OnboardingArtifactsPort {
             }
             return new Loaded(new PreparedOnboarding(state.operationId(), state.tenant(), state.keyArn(), state.alias(),
                     state.certificateChain(), state.spkiSha256(), state.createdAt(), state.importTokenExpiresAt(),
-                    state.renewal(), state.discardedAt(), state.importedAt()), token);
+                    state.renewal(), state.discardedAt(), state.importedAt(), state.policy()), token);
         } catch (JsonProcessingException e) {
             throw new OnboardingFailedException("the state file " + stateFile + " is not a valid state file");
         } catch (IOException e) {

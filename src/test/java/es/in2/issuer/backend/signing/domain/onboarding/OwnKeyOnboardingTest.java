@@ -214,7 +214,7 @@ class OwnKeyOnboardingTest {
     void prepare_invalidTenantId_isAUsageError() {
         var command = new PrepareCommand("Cg com;", pemOf(leaf), OnboardingPolicy.nonProduction(), null, false, artifacts);
 
-        assertThatThrownBy(() -> onboarding.prepare(command)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> onboarding.prepare(command)).isInstanceOf(OnboardingUsageException.class);
         assertThat(kms.calls).isEmpty();
     }
 

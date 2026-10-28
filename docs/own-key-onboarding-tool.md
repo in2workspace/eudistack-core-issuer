@@ -42,9 +42,9 @@ The chain parses; the key is P-256; the leaf is an end-entity certificate whose 
 `digitalSignature` or `nonRepudiation`; every certificate links to the next, which is a CA; the leaf and the
 intermediates are valid now (always); the certificate does not declare a QSCD (QCP-n-qscd, QCP-l-qscd, QcSSCD);
 the tenant is active in `public.tenant_registry` and its `<tenant>_issuer` schema exists; the SPKI SHA-256 is not
-reserved by any tenant, except for a renewal of the tenant's own active key (above). With `--production` the certificate is also not self-signed, the
+reserved by any tenant, except for a renewal of the tenant's own active key (above). The production checks are the **default**: the certificate is also not self-signed, the
 chain ends in the agreed CA (`--trust-anchor`) and the leaf carries the tenant's `organizationIdentifier`
-(`--expected-org-id`); both are mandatory with `--production` and are checked whenever they are given.
+(`--expected-org-id`); both are mandatory and are checked whenever they are given. `--non-production` (`OWN_KEY_NON_PRODUCTION`) is for local and STG environments only: it accepts a self-signed certificate, a missing trust anchor and organization id, a missing key policy and `--kms-endpoint` (which is rejected without it). `prepare` stores a summary of its policy in the state file (production yes/no, SHA-256 of the trust anchor, organization id) and `import` rejects (`PolicyDenied`) a policy laxer than or different from it.
 
 ## Launching it
 
@@ -87,7 +87,8 @@ Arguments or environment variables; an argument wins. The names of the database 
 | Where the audit events go: `log` (default) or `outbox` | `--audit-sink` | `OWN_KEY_AUDIT_SINK` |
 | `prepare`: tenant, chain (PEM, leaf first, root excluded), output directory, alias | `--tenant`, `--cert-chain`, `--out-dir`, `--alias` | `OWN_KEY_TENANT`, `OWN_KEY_CERT_CHAIN`, `OWN_KEY_OUT_DIR`, `OWN_KEY_ALIAS` |
 | `import`: state, wrapped key material, import token (default: next to the state) | `--state`, `--key-material`, `--import-token` | `OWN_KEY_STATE`, `OWN_KEY_KEY_MATERIAL`, `OWN_KEY_IMPORT_TOKEN` |
-| `prepare` and `import`: production checks | `--production`, `--trust-anchor`, `--expected-org-id` | `OWN_KEY_PRODUCTION`, `OWN_KEY_TRUST_ANCHOR`, `OWN_KEY_EXPECTED_ORG_ID` |
+| `prepare` and `import`: trust anchor and expected organization id (mandatory unless `--non-production`) | `--trust-anchor`, `--expected-org-id` | `OWN_KEY_TRUST_ANCHOR`, `OWN_KEY_EXPECTED_ORG_ID` |
+| Skip the production checks (local and STG only) | `--non-production` | `OWN_KEY_NON_PRODUCTION` |
 | `discard`: state file of the preparation | `--state` | `OWN_KEY_STATE` |
 | `reconcile`: grace period in seconds (default 160) | `--grace-seconds` | `OWN_KEY_GRACE_SECONDS` |
 

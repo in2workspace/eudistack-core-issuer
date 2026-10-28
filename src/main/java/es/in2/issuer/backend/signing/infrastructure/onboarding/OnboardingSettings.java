@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.signing.infrastructure.onboarding;
 
+import es.in2.issuer.backend.signing.domain.onboarding.OnboardingUsageException;
+
 import java.net.URI;
 
 /**
@@ -12,6 +14,8 @@ import java.net.URI;
  * @param kmsRegion           AWS region ({@code ISSUER_SIGNING_KMS_REGION}, then {@code AWS_REGION}); {@code null} lets the SDK resolve it
  * @param kmsEndpoint         endpoint override for emulators such as LocalStack ({@code ISSUER_SIGNING_KMS_ENDPOINT}); applies to KMS and STS
  * @param deletionWindowDays  waiting period of {@code ScheduleKeyDeletion}, 7 to 30 days
+ * @param keyPolicy           JSON key policy for the keys {@code prepare} creates ({@code --key-policy}); {@code null}
+ *                            leaves the KMS default, which is only accepted with {@code --non-production}
  * @param auditSink           where the audit events go ({@code OWN_KEY_AUDIT_SINK}, {@code log} or {@code outbox})
  */
 public record OnboardingSettings(
@@ -21,8 +25,14 @@ public record OnboardingSettings(
         String kmsRegion,
         URI kmsEndpoint,
         int deletionWindowDays,
-        AuditSinkMode auditSink
+        AuditSinkMode auditSink,
+        String keyPolicy
 ) {
+
+    public OnboardingSettings(String dbUrl, String dbUser, String dbPassword, String kmsRegion, URI kmsEndpoint,
+                              int deletionWindowDays, AuditSinkMode auditSink) {
+        this(dbUrl, dbUser, dbPassword, kmsRegion, kmsEndpoint, deletionWindowDays, auditSink, null);
+    }
 
     /** Where the audit events go: the log (default) or the outbox of the EUD-244 starter, if the build has it. */
     public enum AuditSinkMode {
@@ -35,7 +45,7 @@ public record OnboardingSettings(
 
     public OnboardingSettings {
         if (deletionWindowDays < MIN_DELETION_WINDOW_DAYS || deletionWindowDays > MAX_DELETION_WINDOW_DAYS) {
-            throw new IllegalArgumentException("the deletion window must be between " + MIN_DELETION_WINDOW_DAYS
+            throw new OnboardingUsageException("the deletion window must be between " + MIN_DELETION_WINDOW_DAYS
                     + " and " + MAX_DELETION_WINDOW_DAYS + " days");
         }
     }

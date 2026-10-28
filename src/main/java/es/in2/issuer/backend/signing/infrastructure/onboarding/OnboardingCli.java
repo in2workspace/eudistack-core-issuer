@@ -2,6 +2,7 @@ package es.in2.issuer.backend.signing.infrastructure.onboarding;
 
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFailedException;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingPolicy;
+import es.in2.issuer.backend.signing.domain.onboarding.OnboardingUsageException;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingRejectedException;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyCertificateValidator;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding;
@@ -11,6 +12,10 @@ import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.PrepareC
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyReconciler;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyReconciler.ReconcileReport;
 import es.in2.issuer.backend.signing.domain.onboarding.PreparedOnboarding;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.io.PrintStream;
@@ -40,6 +45,7 @@ import java.util.Set;
  * <p>There is no withdrawal command: a configuration is withdrawn by its replacement ({@code import}), and
  * {@code reconcile} retires the KMS key of a replaced configuration once the grace period has passed.
  */
+@Slf4j
 public final class OnboardingCli {
 
     public static final int EXIT_OK = 0;
@@ -91,7 +97,8 @@ public final class OnboardingCli {
         CERT_CHAIN("cert-chain", "OWN_KEY_CERT_CHAIN", false),
         OUT_DIR("out-dir", "OWN_KEY_OUT_DIR", false),
         ALIAS("alias", "OWN_KEY_ALIAS", false),
-        PRODUCTION("production", "OWN_KEY_PRODUCTION", true),
+        NON_PRODUCTION("non-production", "OWN_KEY_NON_PRODUCTION", true),
+        KEY_POLICY("key-policy", "OWN_KEY_KEY_POLICY", false),
         TRUST_ANCHOR("trust-anchor", "OWN_KEY_TRUST_ANCHOR", false),
         EXPECTED_ORG_ID("expected-org-id", "OWN_KEY_EXPECTED_ORG_ID", false),
         STATE("state", "OWN_KEY_STATE", false),
@@ -114,7 +121,7 @@ public final class OnboardingCli {
     private static final String ENV_AWS_REGION = "AWS_REGION";
 
     private static final Set<Opt> COMMON = EnumSet.of(Opt.DB_URL, Opt.DB_USER, Opt.KMS_REGION, Opt.KMS_ENDPOINT,
-            Opt.DELETION_WINDOW_DAYS, Opt.DRY_RUN, Opt.AUDIT_SINK);
+            Opt.DELETION_WINDOW_DAYS, Opt.DRY_RUN, Opt.AUDIT_SINK, Opt.NON_PRODUCTION);
 
     private static final String HELP = """
             Own-key onboarding tool (EUD-289): puts a tenant's own signing key, held in AWS KMS, into service.
@@ -141,9 +148,12 @@ public final class OnboardingCli {
               --db-user <user>               [SPRING_R2DBC_USERNAME]
               (database password)            [SPRING_R2DBC_PASSWORD], environment only
               --kms-region <region>          [ISSUER_SIGNING_KMS_REGION, then AWS_REGION]
-              --kms-endpoint <url>           [ISSUER_SIGNING_KMS_ENDPOINT] emulators only; applies to KMS and STS
+              --kms-endpoint <url>           [ISSUER_SIGNING_KMS_ENDPOINT] emulators only (needs --non-production); KMS and STS
               --deletion-window-days <7-30>  [OWN_KEY_DELETION_WINDOW_DAYS] default 7
               --dry-run                      [OWN_KEY_DRY_RUN]
+              --non-production               [OWN_KEY_NON_PRODUCTION] STG and local environments only: accepts a
+                                             self-signed certificate, a missing trust anchor, organization id and key
+                                             policy, and --kms-endpoint. Without it the production checks apply
               --audit-sink <log|outbox>      [OWN_KEY_AUDIT_SINK] default log; outbox needs a build with the audit starter
 
             prepare
@@ -151,6 +161,8 @@ public final class OnboardingCli {
               --cert-chain <pem file>        [OWN_KEY_CERT_CHAIN] leaf first, root excluded
               --out-dir <dir>                [OWN_KEY_OUT_DIR]
               --alias <alias/name>           [OWN_KEY_ALIAS] default alias/own-key-<tenant>-<operation id>
+              --key-policy <json file>       [OWN_KEY_KEY_POLICY] key policy of the new key; required unless
+                                             --non-production (then, without it, the KMS default policy is used)
             import
               --state <file>                 [OWN_KEY_STATE] the state file written by prepare
               --key-material <file>          [OWN_KEY_KEY_MATERIAL] the private key wrapped by the customer;
@@ -159,9 +171,11 @@ public final class OnboardingCli {
             discard
               --state <file>                 [OWN_KEY_STATE] the state file of the preparation to give up
             prepare and import
-              --production                   [OWN_KEY_PRODUCTION] adds the production checks; requires the next two
-              --trust-anchor <pem file>      [OWN_KEY_TRUST_ANCHOR] the CA agreed with the tenant (root or intermediate)
-              --expected-org-id <id>         [OWN_KEY_EXPECTED_ORG_ID] organizationIdentifier of the tenant
+              --trust-anchor <pem file>      [OWN_KEY_TRUST_ANCHOR] the CA agreed with the tenant (root or intermediate);
+                                             required unless --non-production
+              --expected-org-id <id>         [OWN_KEY_EXPECTED_ORG_ID] organizationIdentifier of the tenant;
+                                             required unless --non-production
+              import refuses a policy laxer than or different from the one prepare ran with
             reconcile
               --grace-seconds <n>            [OWN_KEY_GRACE_SECONDS] default 160
 
@@ -179,13 +193,6 @@ public final class OnboardingCli {
         this.err = err;
     }
 
-    /** A bad command line: the message says what to correct. */
-    private static final class UsageException extends RuntimeException {
-        private UsageException(String message) {
-            super(message);
-        }
-    }
-
     /** The command line, resolved against the environment. */
     private record Invocation(Command command, Map<Opt, String> values, Map<String, String> env) {
 
@@ -200,7 +207,7 @@ public final class OnboardingCli {
         private String require(Opt option) {
             String value = values.get(option);
             if (value == null || value.isBlank()) {
-                throw new UsageException("--" + option.flag + " (or " + option.env + ") is required");
+                throw new OnboardingUsageException("--" + option.flag + " (or " + option.env + ") is required");
             }
             return value;
         }
@@ -214,7 +221,7 @@ public final class OnboardingCli {
     public int run(String[] args, Map<String, String> env) {
         try {
             if (args.length == 0) {
-                throw new UsageException("a command is required: prepare, import, discard or reconcile");
+                throw new OnboardingUsageException("a command is required: prepare, import, discard or reconcile");
             }
             if (List.of("--help", "-h", "help").contains(args[0])) {
                 out.print(HELP);
@@ -226,7 +233,7 @@ public final class OnboardingCli {
                 return EXIT_OK;
             }
             return execute(invocation);
-        } catch (UsageException | IllegalArgumentException e) {
+        } catch (OnboardingUsageException e) {
             err.println("USAGE: " + e.getMessage() + " (run with --help)");
             return EXIT_USAGE;
         } catch (OnboardingRejectedException e) {
@@ -242,6 +249,7 @@ public final class OnboardingCli {
     }
 
     private int execute(Invocation invocation) {
+        requireProductionSafeUsage(invocation);
         OnboardingSettings settings = settings(invocation);
         try (Services services = wiring.open(settings)) {
             return switch (invocation.command()) {
@@ -335,7 +343,7 @@ public final class OnboardingCli {
         long seconds = invocation.has(Opt.GRACE_SECONDS) ? parseLong(Opt.GRACE_SECONDS, invocation.get(Opt.GRACE_SECONDS))
                 : DEFAULT_GRACE_SECONDS;
         if (seconds < 0) {
-            throw new UsageException("--grace-seconds must not be negative");
+            throw new OnboardingUsageException("--grace-seconds must not be negative");
         }
         ReconcileReport report = reconciler.reconcile(Duration.ofSeconds(seconds), invocation.dryRun());
         out.println((invocation.dryRun() ? "dry run: keys that would be retired: " : "keys retired: ") + report.retired());
@@ -346,6 +354,52 @@ public final class OnboardingCli {
         return EXIT_OK;
     }
 
+    /**
+     * The production checks are the default: what a non-production environment may skip must be said. Checked before
+     * anything is opened, so a bad call costs nothing.
+     */
+    private void requireProductionSafeUsage(Invocation invocation) {
+        boolean production = !invocation.has(Opt.NON_PRODUCTION);
+        if (production && invocation.has(Opt.KMS_ENDPOINT)) {
+            throw new OnboardingUsageException("--kms-endpoint (an emulator) is only accepted with --non-production: "
+                    + "a redirected STS would also make the identity recorded as the actor untrustworthy");
+        }
+        if (production && (invocation.command() == Command.PREPARE || invocation.command() == Command.IMPORT)) {
+            requireForProduction(invocation, Opt.TRUST_ANCHOR);
+            requireForProduction(invocation, Opt.EXPECTED_ORG_ID);
+        }
+        if (invocation.command() == Command.PREPARE && !invocation.dryRun()) {
+            if (production && !invocation.has(Opt.KEY_POLICY)) {
+                throw new OnboardingUsageException("prepare does not create a key without an explicit key policy: "
+                        + "--key-policy <json file> (or --non-production outside production)");
+            }
+            if (!production && !invocation.has(Opt.KEY_POLICY)) {
+                log.warn("No key policy was given (--non-production): the key is created with the KMS default policy, "
+                        + "which delegates everything to IAM of the account. Never do this in STG or PRO.");
+            }
+        }
+    }
+
+    private static void requireForProduction(Invocation invocation, Opt option) {
+        if (!invocation.has(option) || invocation.get(option).isBlank()) {
+            throw new OnboardingUsageException("--" + option.flag + " (or " + option.env + ") is required: the "
+                    + "production checks apply unless --non-production is given");
+        }
+    }
+
+    private String keyPolicy(Invocation invocation) {
+        if (invocation.command() != Command.PREPARE || !invocation.has(Opt.KEY_POLICY)) {
+            return null;
+        }
+        String policy = readString(Path.of(invocation.get(Opt.KEY_POLICY)));
+        try {
+            new ObjectMapper().readTree(policy);
+        } catch (JsonProcessingException e) {
+            throw new OnboardingUsageException("--key-policy must be a JSON file");
+        }
+        return policy;
+    }
+
     private OnboardingPolicy policy(Invocation invocation) {
         X509Certificate anchor = null;
         if (invocation.has(Opt.TRUST_ANCHOR)) {
@@ -353,7 +407,15 @@ public final class OnboardingCli {
                     readString(Path.of(invocation.get(Opt.TRUST_ANCHOR))));
             anchor = anchors.getFirst();
         }
-        return new OnboardingPolicy(invocation.has(Opt.PRODUCTION), anchor, invocation.get(Opt.EXPECTED_ORG_ID));
+        return new OnboardingPolicy(!invocation.has(Opt.NON_PRODUCTION), anchor, invocation.get(Opt.EXPECTED_ORG_ID));
+    }
+
+    private static URI endpoint(String value) {
+        try {
+            return URI.create(value);
+        } catch (IllegalArgumentException e) {
+            throw new OnboardingUsageException("--kms-endpoint is not a valid URL");
+        }
     }
 
     private static OnboardingSettings.AuditSinkMode auditSink(Invocation invocation) {
@@ -361,25 +423,26 @@ public final class OnboardingCli {
         return switch (value.toLowerCase(Locale.ROOT)) {
             case "log" -> OnboardingSettings.AuditSinkMode.LOG;
             case "outbox" -> OnboardingSettings.AuditSinkMode.OUTBOX;
-            default -> throw new UsageException("--audit-sink must be log or outbox");
+            default -> throw new OnboardingUsageException("--audit-sink must be log or outbox");
         };
     }
 
     private OnboardingSettings settings(Invocation invocation) {
         String password = invocation.env().get(ENV_DB_PASSWORD);
         if (password == null) {
-            throw new UsageException(ENV_DB_PASSWORD + " is required (the database password is never an argument)");
+            throw new OnboardingUsageException(ENV_DB_PASSWORD + " is required (the database password is never an argument)");
         }
         String region = invocation.get(Opt.KMS_REGION);
         if (region == null || region.isBlank()) {
             region = invocation.env().get(ENV_AWS_REGION);
         }
-        URI endpoint = invocation.has(Opt.KMS_ENDPOINT) ? URI.create(invocation.get(Opt.KMS_ENDPOINT)) : null;
+        URI endpoint = invocation.has(Opt.KMS_ENDPOINT) ? endpoint(invocation.get(Opt.KMS_ENDPOINT)) : null;
         int days = invocation.has(Opt.DELETION_WINDOW_DAYS)
                 ? (int) parseLong(Opt.DELETION_WINDOW_DAYS, invocation.get(Opt.DELETION_WINDOW_DAYS))
                 : DEFAULT_DELETION_WINDOW_DAYS;
         return new OnboardingSettings(invocation.require(Opt.DB_URL), invocation.require(Opt.DB_USER), password,
-                region == null || region.isBlank() ? null : region, endpoint, days, auditSink(invocation));
+                region == null || region.isBlank() ? null : region, endpoint, days, auditSink(invocation),
+                keyPolicy(invocation));
     }
 
     /** @return the invocation, or {@code null} if help was asked for */
@@ -391,7 +454,7 @@ public final class OnboardingCli {
             }
         }
         if (command == null) {
-            throw new UsageException("unknown command '" + args[0] + "': prepare, import, discard or reconcile");
+            throw new OnboardingUsageException("unknown command '" + args[0] + "': prepare, import, discard or reconcile");
         }
         Set<Opt> allowed = allowedOptions(command);
         Map<Opt, String> values = new EnumMap<>(Opt.class);
@@ -401,14 +464,14 @@ public final class OnboardingCli {
                 return null;
             }
             if (!token.startsWith("--")) {
-                throw new UsageException("unexpected argument '" + token + "'");
+                throw new OnboardingUsageException("unexpected argument '" + token + "'");
             }
             int equals = token.indexOf('=');
             String name = equals < 0 ? token.substring(2) : token.substring(2, equals);
             Opt option = allowed.stream().filter(o -> o.flag.equals(name)).findFirst()
-                    .orElseThrow(() -> new UsageException("unknown option --" + name + " for " + args[0]));
+                    .orElseThrow(() -> new OnboardingUsageException("unknown option --" + name + " for " + args[0]));
             if (values.containsKey(option)) {
-                throw new UsageException("--" + name + " is given twice");
+                throw new OnboardingUsageException("--" + name + " is given twice");
             }
             if (option.isSwitch) {
                 if (equals < 0 || isTrue(token.substring(equals + 1))) {
@@ -419,7 +482,7 @@ public final class OnboardingCli {
             } else if (i + 1 < args.length) {
                 values.put(option, args[++i]);
             } else {
-                throw new UsageException("--" + name + " needs a value");
+                throw new OnboardingUsageException("--" + name + " needs a value");
             }
         }
         for (Opt option : allowed) {
@@ -437,9 +500,9 @@ public final class OnboardingCli {
     private static Set<Opt> allowedOptions(Command command) {
         Set<Opt> allowed = EnumSet.copyOf(COMMON);
         switch (command) {
-            case PREPARE -> allowed.addAll(List.of(Opt.TENANT, Opt.CERT_CHAIN, Opt.OUT_DIR, Opt.ALIAS, Opt.PRODUCTION,
+            case PREPARE -> allowed.addAll(List.of(Opt.TENANT, Opt.CERT_CHAIN, Opt.OUT_DIR, Opt.ALIAS, Opt.KEY_POLICY,
                     Opt.TRUST_ANCHOR, Opt.EXPECTED_ORG_ID));
-            case IMPORT -> allowed.addAll(List.of(Opt.STATE, Opt.KEY_MATERIAL, Opt.IMPORT_TOKEN, Opt.PRODUCTION,
+            case IMPORT -> allowed.addAll(List.of(Opt.STATE, Opt.KEY_MATERIAL, Opt.IMPORT_TOKEN,
                     Opt.TRUST_ANCHOR, Opt.EXPECTED_ORG_ID));
             case DISCARD -> allowed.add(Opt.STATE);
             case RECONCILE -> allowed.add(Opt.GRACE_SECONDS);
@@ -455,7 +518,7 @@ public final class OnboardingCli {
         try {
             return Long.parseLong(value.trim());
         } catch (NumberFormatException e) {
-            throw new UsageException("--" + option.flag + " must be a whole number");
+            throw new OnboardingUsageException("--" + option.flag + " must be a whole number");
         }
     }
 

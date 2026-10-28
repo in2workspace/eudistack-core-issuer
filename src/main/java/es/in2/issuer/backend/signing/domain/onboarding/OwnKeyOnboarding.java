@@ -60,6 +60,7 @@ public class OwnKeyOnboarding {
 
     /** Same shape as the tenant schema names the Issuer accepts. */
     private static final Pattern TENANT_ID = Pattern.compile("^[a-z][a-z0-9_-]{0,62}$");
+    private static final String RESERVED_TENANT = "unknown";
 
     private final KmsKeyAdministrationPort kms;
     private final OwnKeyStorePort store;
@@ -184,7 +185,7 @@ public class OwnKeyOnboarding {
         if (attempt.renewalKeyArn != null) {
             PreparedOnboarding renewal = new PreparedOnboarding(attempt.operationId, command.tenant(),
                     attempt.renewalKeyArn, null, certificate.chainBase64(), certificate.spkiSha256Hex(),
-                    clock.instant(), null, true, null);
+                    clock.instant(), null, true, null, null, command.policy().summary());
             command.artifacts().write(renewal, null, null);
             return new PrepareResult(renewal, attempt.operation(), certificate.spkiSha256Hex());
         }
@@ -194,7 +195,8 @@ public class OwnKeyOnboarding {
             kms.createAlias(alias, keyArn);
             ImportParameters parameters = kms.getParametersForImport(keyArn);
             PreparedOnboarding prepared = new PreparedOnboarding(attempt.operationId, command.tenant(), keyArn, alias,
-                    certificate.chainBase64(), certificate.spkiSha256Hex(), clock.instant(), parameters.validTo());
+                    certificate.chainBase64(), certificate.spkiSha256Hex(), clock.instant(), parameters.validTo(), false, null,
+                    null, command.policy().summary());
             command.artifacts().write(prepared, parameters.wrappingPublicKeyDer(), parameters.importToken());
             return new PrepareResult(prepared, attempt.operation(), certificate.spkiSha256Hex());
         } catch (RuntimeException e) {
@@ -223,6 +225,7 @@ public class OwnKeyOnboarding {
         if (!prepared.renewal()) {
             requireTheKeyOfThisPreparation(key, attempt, command.dryRun());
         }
+        requireNoLaxerPolicyThanPrepare(prepared, command, attempt);
         ValidatedOwnKeyCertificate certificate;
         try {
             certificate = validatedOrRejected(attempt,
@@ -263,6 +266,27 @@ public class OwnKeyOnboarding {
         OnboardingRejectedException rejected = new OnboardingRejectedException(RejectionReason.POLICY_DENIED,
                 "the key named by the state is not the one of this preparation (" + problem + "): nothing was imported");
         if (!dryRun) {
+            recordRejection(attempt, rejected);
+        }
+        throw rejected;
+    }
+
+    /**
+     * The checks that {@code prepare} ran with are the ones the tenant's certificate was accepted under: {@code import}
+     * must not run with laxer or different ones. The key of the preparation is left as it is, so that the operator can
+     * repeat the import with the right policy.
+     */
+    private void requireNoLaxerPolicyThanPrepare(PreparedOnboarding prepared, ImportCommand command, Attempt attempt) {
+        if (prepared.policy() == null) {
+            return;
+        }
+        String problem = prepared.policy().whyNotCoveredBy(command.policy().summary());
+        if (problem == null) {
+            return;
+        }
+        OnboardingRejectedException rejected = new OnboardingRejectedException(RejectionReason.POLICY_DENIED,
+                "the policy of import is laxer than or different from the one of prepare (" + problem + ")");
+        if (!command.dryRun()) {
             recordRejection(attempt, rejected);
         }
         throw rejected;
@@ -600,8 +624,12 @@ public class OwnKeyOnboarding {
 
     private static void requireTenantId(String tenant) {
         if (tenant == null || !TENANT_ID.matcher(tenant).matches()) {
-            throw new IllegalArgumentException("the tenant id must be lowercase letters, digits, '-' or '_', "
+            throw new OnboardingUsageException("the tenant id must be lowercase letters, digits, '-' or '_', "
                     + "start with a letter and have at most 63 characters");
+        }
+        if (RESERVED_TENANT.equals(tenant)) {
+            // The Issuer takes "unknown" for a request without tenant: a key tagged Tenant=unknown must not exist.
+            throw new OnboardingUsageException("'" + RESERVED_TENANT + "' is not a tenant id the tool accepts");
         }
     }
 }

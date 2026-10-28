@@ -35,7 +35,7 @@ public class OnboardingWiring implements OnboardingCli.Wiring {
     public OnboardingCli.Services open(OnboardingSettings settings) {
         KmsAsyncClient kmsClient = AwsOnboardingClients.kms(settings.kmsRegion(), settings.kmsEndpoint(), credentials);
         StsAsyncClient stsClient = AwsOnboardingClients.sts(settings.kmsRegion(), settings.kmsEndpoint(), credentials);
-        var kms = new AwsKmsKeyAdministrationAdapter(kmsClient, null);
+        var kms = new AwsKmsKeyAdministrationAdapter(kmsClient, settings.keyPolicy());
         DataSource dataSource = new DriverManagerDataSource(settings.dbUrl(), settings.dbUser(), settings.dbPassword());
         AuditSinkHandle auditSink = openAuditSink(settings, dataSource, kmsClient, stsClient);
         var store = new JdbcOwnKeyStore(dataSource, auditSink.sink());

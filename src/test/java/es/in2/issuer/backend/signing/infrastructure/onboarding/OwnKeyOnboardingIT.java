@@ -111,6 +111,7 @@ class OwnKeyOnboardingIT {
         env.put("SPRING_FLYWAY_URL", OnboardingTestDatabase.POSTGRES.getJdbcUrl());
         env.put("SPRING_R2DBC_USERNAME", OnboardingTestDatabase.POSTGRES.getUsername());
         env.put("SPRING_R2DBC_PASSWORD", OnboardingTestDatabase.POSTGRES.getPassword());
+        env.put("OWN_KEY_NON_PRODUCTION", "true");
         env.put("ISSUER_SIGNING_KMS_REGION", LOCALSTACK.getRegion());
         env.put("ISSUER_SIGNING_KMS_ENDPOINT", LOCALSTACK.getEndpoint().toString());
         cli = new OnboardingCli(new OnboardingWiring(CREDENTIALS), new PrintStream(stdout, true, StandardCharsets.UTF_8),

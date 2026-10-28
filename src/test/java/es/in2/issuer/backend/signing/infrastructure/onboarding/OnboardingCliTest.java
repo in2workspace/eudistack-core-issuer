@@ -2,6 +2,7 @@ package es.in2.issuer.backend.signing.infrastructure.onboarding;
 
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFailedException;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingRejectedException;
+import es.in2.issuer.backend.signing.domain.onboarding.OnboardingUsageException;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.DiscardCommand;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.DiscardOutcome;
@@ -63,6 +64,8 @@ class OnboardingCliTest {
         env.put("SPRING_FLYWAY_URL", "jdbc:postgresql://db:5432/issuer");
         env.put("SPRING_R2DBC_USERNAME", "operator");
         env.put("SPRING_R2DBC_PASSWORD", PASSWORD);
+        // The tests are of a non-production environment unless one removes this: production is the default.
+        env.put("OWN_KEY_NON_PRODUCTION", "true");
         cli = new OnboardingCli(settings -> {
             openedWith.set(settings);
             return new OnboardingCli.Services() {
@@ -162,12 +165,101 @@ class OnboardingCliTest {
     }
 
     @Test
-    void run_productionWithoutTrustAnchor_isAUsageError() throws Exception {
+    void run_withoutNonProduction_theProductionChecksApplyAndNeedTheTrustAnchor() throws Exception {
+        env.remove("OWN_KEY_NON_PRODUCTION");
+
         assertThat(run("prepare", "--tenant", "cgcom", "--cert-chain", chainFile().toString(), "--out-dir",
-                directory.toString(), "--production", "--expected-org-id", "VATES-Q0000000X"))
+                directory.toString(), "--expected-org-id", "VATES-Q0000000X", "--key-policy", "k.json"))
                 .isEqualTo(OnboardingCli.EXIT_USAGE);
 
+        assertThat(err()).contains("--trust-anchor", "--non-production");
         verifyNoInteractions(onboarding);
+    }
+
+    @Test
+    void run_prepareInProductionWithoutAKeyPolicy_isAUsageError() throws Exception {
+        env.remove("OWN_KEY_NON_PRODUCTION");
+        Path anchor = chainFile();
+
+        assertThat(run("prepare", "--tenant", "cgcom", "--cert-chain", chainFile().toString(), "--out-dir",
+                directory.toString(), "--expected-org-id", "VATES-Q0000000X", "--trust-anchor", anchor.toString()))
+                .isEqualTo(OnboardingCli.EXIT_USAGE);
+
+        assertThat(err()).contains("explicit key policy");
+        verifyNoInteractions(onboarding);
+    }
+
+    @Test
+    void run_prepareInProductionWithEverythingGiven_usesTheProductionPolicyAndTheKeyPolicy() throws Exception {
+        env.remove("OWN_KEY_NON_PRODUCTION");
+        when(onboarding.prepare(any())).thenReturn(new PrepareResult(prepared(), Operation.CREATE, "ab".repeat(32)));
+        Path chain = chainFile();
+        Path keyPolicy = Files.writeString(directory.resolve("policy.json"), "{\"Version\":\"2012-10-17\"}");
+
+        int exitCode = run("prepare", "--tenant", "cgcom", "--cert-chain", chain.toString(), "--out-dir",
+                directory.toString(), "--trust-anchor", chain.toString(), "--expected-org-id", "VATES-Q0000000X",
+                "--key-policy", keyPolicy.toString());
+
+        assertThat(exitCode).as(err()).isEqualTo(OnboardingCli.EXIT_OK);
+        ArgumentCaptor<PrepareCommand> command = ArgumentCaptor.forClass(PrepareCommand.class);
+        verify(onboarding).prepare(command.capture());
+        assertThat(command.getValue().policy().production()).isTrue();
+        assertThat(command.getValue().policy().expectedOrganizationIdentifier()).isEqualTo("VATES-Q0000000X");
+        assertThat(openedWith.get().keyPolicy()).isEqualTo("{\"Version\":\"2012-10-17\"}");
+    }
+
+    @Test
+    void run_keyPolicyThatIsNotJson_isAUsageError() throws Exception {
+        Path notJson = Files.writeString(directory.resolve("policy.json"), "not json");
+
+        assertThat(run("prepare", "--tenant", "cgcom", "--cert-chain", chainFile().toString(), "--out-dir",
+                directory.toString(), "--key-policy", notJson.toString())).isEqualTo(OnboardingCli.EXIT_USAGE);
+    }
+
+    @Test
+    void run_nonProductionWithoutAKeyPolicy_goesAheadWithTheKmsDefault() throws Exception {
+        when(onboarding.prepare(any())).thenReturn(new PrepareResult(prepared(), Operation.CREATE, "ab".repeat(32)));
+
+        assertThat(run("prepare", "--tenant", "cgcom", "--cert-chain", chainFile().toString(), "--out-dir",
+                directory.toString())).isEqualTo(OnboardingCli.EXIT_OK);
+
+        assertThat(openedWith.get().keyPolicy()).isNull();
+    }
+
+    @Test
+    void run_kmsEndpointWithoutNonProduction_isAUsageError() {
+        env.remove("OWN_KEY_NON_PRODUCTION");
+
+        assertThat(run("reconcile", "--kms-endpoint", "http://localhost:4566")).isEqualTo(OnboardingCli.EXIT_USAGE);
+
+        assertThat(err()).contains("--non-production");
+        assertThat(openedWith.get()).isNull();
+    }
+
+    @Test
+    void run_productionImportNeedsTheTrustAnchorAndTheOrganizationToo() throws Exception {
+        env.remove("OWN_KEY_NON_PRODUCTION");
+        new PreparedOnboardingFiles(directory).write(prepared(), new byte[] {1}, new byte[] {7});
+
+        assertThat(run("import", "--state", directory.resolve("own-key-cgcom-op-1.state.json").toString(),
+                "--key-material", directory.resolve("own-key-cgcom-op-1.import-token.bin").toString()))
+                .isEqualTo(OnboardingCli.EXIT_USAGE);
+    }
+
+    @Test
+    void run_tenantIdUnknown_isAUsageError() throws Exception {
+        when(onboarding.prepare(any())).thenThrow(new OnboardingUsageException("'unknown' is not a tenant id"));
+
+        assertThat(run("prepare", "--tenant", "unknown", "--cert-chain", chainFile().toString(), "--out-dir",
+                directory.toString())).isEqualTo(OnboardingCli.EXIT_USAGE);
+    }
+
+    @Test
+    void run_anIllegalArgumentExceptionOfALibrary_isNotAUsageError() throws Exception {
+        when(onboarding.prepare(any())).thenThrow(new IllegalArgumentException("boom"));
+
+        assertThat(run("prepare", "--tenant", "cgcom", "--cert-chain", chainFile().toString(), "--out-dir",
+                directory.toString())).isEqualTo(OnboardingCli.EXIT_ERROR);
     }
 
     @Test

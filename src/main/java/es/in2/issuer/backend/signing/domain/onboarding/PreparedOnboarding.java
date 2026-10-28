@@ -21,6 +21,8 @@ import java.util.List;
  * @param discardedAt         when {@code discard} gave the preparation up; {@code null} if it was not
  * @param importedAt          when a successful {@code import} consumed it; {@code null} if it did not. A consumed
  *                            state is refused, so that repeating {@code import} cannot touch anything
+ * @param policy              the policy {@code prepare} ran with; {@code import} refuses a laxer or different one.
+ *                            {@code null} (a state without it) is taken as the laxest policy
  */
 public record PreparedOnboarding(
         String operationId,
@@ -33,7 +35,8 @@ public record PreparedOnboarding(
         Instant importTokenExpiresAt,
         boolean renewal,
         Instant discardedAt,
-        Instant importedAt
+        Instant importedAt,
+        PolicySummary policy
 ) {
 
     public PreparedOnboarding {
@@ -45,6 +48,13 @@ public record PreparedOnboarding(
                               Instant importTokenExpiresAt, boolean renewal, Instant discardedAt) {
         this(operationId, tenant, keyArn, alias, certificateChain, spkiSha256, createdAt, importTokenExpiresAt,
                 renewal, discardedAt, null);
+    }
+
+    public PreparedOnboarding(String operationId, String tenant, String keyArn, String alias,
+                              List<String> certificateChain, String spkiSha256, Instant createdAt,
+                              Instant importTokenExpiresAt, boolean renewal, Instant discardedAt, Instant importedAt) {
+        this(operationId, tenant, keyArn, alias, certificateChain, spkiSha256, createdAt, importTokenExpiresAt,
+                renewal, discardedAt, importedAt, null);
     }
 
     /** A preparation of a new key: neither a renewal nor discarded. */

@@ -213,13 +213,13 @@ class OwnKeyCertificateValidatorTest {
     @Test
     void policy_productionWithoutTrustAnchor_isAUsageError() {
         assertThatThrownBy(() -> new OnboardingPolicy(true, null, OwnKeyTestPki.ORGANIZATION_IDENTIFIER))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(OnboardingUsageException.class);
     }
 
     @Test
     void policy_productionWithoutOrganizationIdentifier_isAUsageError() {
         assertThatThrownBy(() -> new OnboardingPolicy(true, pki.rootCertificate(), " "))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(OnboardingUsageException.class);
     }
 
     @Test
