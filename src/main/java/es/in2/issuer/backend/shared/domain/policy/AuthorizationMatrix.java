@@ -130,6 +130,9 @@ public record AuthorizationMatrix(
             require(!platformPower || rule.readOnlyInPlatformTenant(),
                     "User type " + type + " is recognized by a platform power and must be "
                             + UserTypeRule.READ_ONLY + " in the platform tenant");
+            // From the platform tenant, a read-only caller sees every tenant: only a platform power may open that view.
+            require(platformPower || rule.platformTenant() == null,
+                    "platform_tenant only applies to a user type recognized by a platform power: " + type);
         }
     }
 

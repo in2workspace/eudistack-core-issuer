@@ -735,15 +735,16 @@ class IssuanceControllerTest {
     @ValueSource(strings = {"00000000-0000-0000-0000-000000000000", "not-a-uuid"})
     void IssuanceController_updateIssuanceStatus_revokeOfAMissingProcessIsDecidedBeforeItIsNotFound(String issuanceId)
             throws JsonProcessingException {
-        // Given
+        // Given: a malformed id is traced as a fixed marker, never as the string the client sent (L1)
+        String tracedId = "not-a-uuid".equals(issuanceId) ? IssuanceController.MALFORMED_ID : issuanceId;
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(issuanceService.getIssuanceById(issuanceId)).thenReturn(Mono.empty());
-        when(powerAuthorizationService.authorize(PowerAuthorizationService.REVOKE, null, issuanceId))
+        when(powerAuthorizationService.authorize(PowerAuthorizationService.REVOKE, null, tracedId))
                 .thenReturn(Mono.just(organizationAdminDecision("org")));
 
         // When / Then: not found -- never a 500 for a malformed id -- and the workflow is not reached
         patchStatus(issuanceId, CredentialStatusEnum.REVOKED).expectStatus().value(status -> assertThat(status).isNotIn(204, 500));
-        verify(powerAuthorizationService).authorize(PowerAuthorizationService.REVOKE, null, issuanceId);
+        verify(powerAuthorizationService).authorize(PowerAuthorizationService.REVOKE, null, tracedId);
         verifyNoInteractions(revocationWorkflow);
     }
 

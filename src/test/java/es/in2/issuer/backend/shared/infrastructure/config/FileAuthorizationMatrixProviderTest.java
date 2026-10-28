@@ -125,6 +125,9 @@ class FileAuthorizationMatrixProviderTest {
     }
 
     /** F4: every misspelt or missing key that would open a permission is rejected, not read as "absent". */
+    private static final String ORG_ADMIN_RECOGNITION =
+            "    recognized_by:\n      - { type: domain, domain: \"{tenant}\", function: Onboarding, action: Execute }\n";
+
     static Stream<Arguments> matricesThatWouldOpenAPermission() {
         return Stream.of(
                 Arguments.of(Named.of("misspelt recognized_by: the platform administrator recognized by no power",
@@ -153,7 +156,10 @@ class FileAuthorizationMatrixProviderTest {
                 Arguments.of(Named.of("misspelt platform_tenant: the platform administrator could write from the platform tenant",
                         "    platform_tenant: read_only\n"), "    platform_tenant: readonly\n"),
                 Arguments.of(Named.of("platform_tenant removed from the platform administrator",
-                        "    platform_tenant: read_only\n"), ""));
+                        "    platform_tenant: read_only\n"), ""),
+                // Round 4 (N-R1): the read-only view of every tenant is only for a platform power
+                Arguments.of(Named.of("platform_tenant on the organization administrator: it would see every tenant",
+                        ORG_ADMIN_RECOGNITION), ORG_ADMIN_RECOGNITION + "    platform_tenant: read_only\n"));
     }
 
     @ParameterizedTest

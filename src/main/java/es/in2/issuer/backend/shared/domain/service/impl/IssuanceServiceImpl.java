@@ -175,7 +175,7 @@ public class IssuanceServiceImpl implements IssuanceService {
             return Mono.error(new NoCredentialFoundException("No credential found for a malformed issuanceId"));
         }
         Mono<Issuance> issuanceMono;
-        if (decision.caller().readOnly()) {
+        if (decision.caller().crossTenantView()) {
             log.debug("Platform admin cross-tenant access for issuanceId: {}", id);
             issuanceMono = tenantRegistryService.getActiveTenantSchemas()
                     .flatMapMany(Flux::fromIterable)
@@ -308,7 +308,7 @@ public class IssuanceServiceImpl implements IssuanceService {
         // - platform administrator in the platform tenant → cross-tenant read-only view (with tenant column)
         // - scope on any organization                     → all issuances within the current tenant
         // - scope on its own organization                 → only issuances from its organization
-        if (decision.caller().readOnly()) {
+        if (decision.caller().crossTenantView()) {
             return buildCrossTenantIssuanceList();
         }
         if (decision.anyOrganization()) {

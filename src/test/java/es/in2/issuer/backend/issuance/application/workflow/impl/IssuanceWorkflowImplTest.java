@@ -1,11 +1,11 @@
 package es.in2.issuer.backend.issuance.application.workflow.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
+import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
 import es.in2.issuer.backend.shared.domain.exception.CredentialTypeUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.TenantNotResolvedException;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
@@ -1401,7 +1401,7 @@ class IssuanceWorkflowImplTest {
     }
 
     @Test
-    void issueCredentialShouldPassValidationWhenProfileRequiresIdTokenAndTokenIsProvided() {
+    void issueCredentialShouldPassValidationForAProfileWithoutCnf() {
         UUID issuanceId = UUID.randomUUID();
         JsonNode payload = new ObjectMapper().createObjectNode();
         IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null);

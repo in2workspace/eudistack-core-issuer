@@ -441,6 +441,26 @@ class PowerAuthorizationServiceImplTest {
                     Reason.ONBOARDING_DELEGATION_REQUIRES_TENANT_ADMIN);
         }
 
+        /**
+         * Round 4 of the EUD-272 security review (F5-R): a power that names a field twice, plain and with its
+         * tmf_ alias, is decided under both readings, whichever one a consumer of the attestation reads.
+         */
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "{\"type\":\"organization\",\"domain\":\"sandbox\",\"function\":\"Onboarding\",\"tmf_function\":\"Nope\",\"action\":[\"Execute\"]}",
+                "{\"type\":\"organization\",\"domain\":\"sandbox\",\"tmf_function\":\"Onboarding\",\"function\":\"Nope\",\"action\":[\"Execute\"]}"
+        })
+        void PowerAuthorizationService_authorizeIssuance_aPowerHiddenBehindItsTmfAliasStillNeedsItsGrantRule(String power)
+                throws Exception {
+            // Given: an organization administrator granting the tenant administrator power under one of the two readings
+            ObjectNode payload = objectMapper.createObjectNode();
+            payload.putArray("power").add(objectMapper.readTree(power));
+
+            // When / Then
+            expectReason(issue(caller(ORG, TENANT, ORG_ADMIN), EMPLOYEE_TYPE, null, payload),
+                    Reason.TENANT_ADMIN_DELEGATION_REQUIRES_PLATFORM_ADMIN);
+        }
+
         /** E9: a power never leaves its domain -- not even the platform administrator's. */
         @Test
         void PowerAuthorizationService_authorizeIssuance_grantingAPowerOutsideTheTenantIsOnlyForThePlatformAdmin() {

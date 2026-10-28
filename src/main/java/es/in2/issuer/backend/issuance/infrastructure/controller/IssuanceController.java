@@ -39,6 +39,9 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ISSUAN
 @RequiredArgsConstructor
 public class IssuanceController {
 
+    /** Resource id traced for a path id that is not a process id. */
+    static final String MALFORMED_ID = "<malformed>";
+
     private final IssuanceWorkflow issuanceWorkflow;
     private final IssuanceService issuanceService;
     private final PowerAuthorizationService powerAuthorizationService;
@@ -135,7 +138,7 @@ public class IssuanceController {
      * echoed back -- it may be any string the client sent.
      */
     private Mono<AuthorizationDecision> decideThenNotFound(String actionId, String id) {
-        return powerAuthorizationService.authorize(actionId, null, id)
+        return powerAuthorizationService.authorize(actionId, null, isUuid(id) ? id : MALFORMED_ID)
                 .then(Mono.error(new IssuanceNotFoundException("No issuance found for the given id")));
     }
 
@@ -144,13 +147,21 @@ public class IssuanceController {
      * (issued before EUD-272), which no organization matches; empty when there is no such process.
      */
     private Mono<String> storedOrganization(String id) {
-        try {
-            UUID.fromString(id);
-        } catch (IllegalArgumentException _) {
+        if (!isUuid(id)) {
             return Mono.empty();
         }
         return issuanceService.getIssuanceById(id)
                 .map(issuance -> Objects.requireNonNullElse(issuance.getOrganizationIdentifier(), ""));
+    }
+
+    /** Whether the path id is a process id; any other string the client sent never reaches the trace. */
+    private static boolean isUuid(String id) {
+        try {
+            UUID.fromString(id);
+            return true;
+        } catch (IllegalArgumentException _) {
+            return false;
+        }
     }
 
     private ResponseEntity<IssuanceHttpResponse> toResponseEntity(IssuanceResponse response) {

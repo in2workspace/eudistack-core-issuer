@@ -27,4 +27,9 @@ public record RecognizedCaller(
     public String organizationIdentifier() {
         return caller.organizationIdentifier();
     }
+
+    /** True for the platform administrator in the platform tenant: the read-only view of every tenant. */
+    public boolean crossTenantView() {
+        return readOnly && PLATFORM_ADMIN.equals(userType);
+    }
 }

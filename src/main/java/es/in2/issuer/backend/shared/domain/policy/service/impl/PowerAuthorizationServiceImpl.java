@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.shared.domain.policy.service.impl;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
@@ -191,12 +190,45 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
         return null;
     }
 
+    /**
+     * The powers the attestation grants. A power may name a field twice, plain and with its {@code tmf_}
+     * alias; consumers do not agree on which one they read, so a power whose two readings differ is
+     * decided under both and the grant rules must cover each.
+     */
     private List<Power> grantedPowers(JsonNode payload) {
         JsonNode powers = payload != null ? payload.path("power") : null;
         if (powers == null || !powers.isArray()) {
             return List.of();
         }
-        return objectMapper.convertValue(powers, new TypeReference<>() {});
+        List<Power> readings = new ArrayList<>();
+        for (JsonNode item : powers) {
+            Power plain = reading(item, false);
+            Power alias = reading(item, true);
+            readings.add(plain);
+            if (!plain.equals(alias)) {
+                readings.add(alias);
+            }
+        }
+        return readings;
+    }
+
+    private Power reading(JsonNode item, boolean aliasFirst) {
+        JsonNode action = field(item, "action", aliasFirst);
+        return new Power(action == null ? null : objectMapper.convertValue(action, Object.class),
+                text(field(item, "domain", aliasFirst)), text(field(item, "function", aliasFirst)),
+                text(field(item, "type", aliasFirst)));
+    }
+
+    private static JsonNode field(JsonNode item, String name, boolean aliasFirst) {
+        JsonNode plain = item.get(name);
+        JsonNode alias = item.get("tmf_" + name);
+        JsonNode first = aliasFirst ? alias : plain;
+        JsonNode second = aliasFirst ? plain : alias;
+        return first != null && !first.isNull() ? first : second != null && !second.isNull() ? second : null;
+    }
+
+    private static String text(JsonNode node) {
+        return node == null ? null : node.isTextual() ? node.asText() : node.toString();
     }
 
     /** Returns the caller's scope on the action, or throws when the action is denied. */
