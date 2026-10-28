@@ -206,29 +206,11 @@ class OwnKeyOnboardingIT {
         // prepare: a key waiting for its material, tagged for the tenant, with an alias and the artifacts for the customer
         Path preparedFirst = prepare(first, "first");
         String firstArn = keyArnOf(preparedFirst);
-        assertThat(keyState(firstArn)).isEqualTo("PendingImport");
-        assertThat(kms.listResourceTags(ListResourceTagsRequest.builder().keyId(firstArn).build()).get().tags())
-                .extracting(Tag::tagKey, Tag::tagValue)
-                .contains(tuple("Tenant", "cgcom"));
-        assertThat(kms.listResourceTags(ListResourceTagsRequest.builder().keyId(firstArn).build()).get().tags())
-                .extracting(Tag::tagKey).contains("operationId");
-        assertThat(kms.listAliases(ListAliasesRequest.builder().build()).get().aliases())
-                .anyMatch(alias -> alias.aliasName().startsWith("alias/own-key-cgcom-"));
-        assertThat(file(preparedFirst, ".wrapping-public-key.pem")).isNotNull();
-        assertThat(scalar("SELECT count(*) FROM cgcom_issuer.tenant_signing_config")).isEqualTo(0L);
+        assertPreparedAndWaitingForMaterial(firstArn, preparedFirst);
 
         // import: the key is the certificate's, and the database says so
         assertThat(importKey(preparedFirst, wrap(preparedFirst, first.keyPair().getPrivate(), "first"))).as(err()).isZero();
-        assertThat(keyState(firstArn)).isEqualTo("Enabled");
-        assertThat(query("SELECT status, modality, provider, activated_by, own_key_kms_key_ref, own_key_algorithm, "
-                + "jsonb_array_length(own_key_certificate_chain) FROM cgcom_issuer.tenant_signing_config"))
-                .singleElement().isEqualTo(List.of("active", "own_key", "aws-kms", callerArn, firstArn,
-                        "ES256", 1));
-        UUID firstConfiguration = (UUID) scalar("SELECT id FROM cgcom_issuer.tenant_signing_config");
-        assertThat(query("SELECT tenant_id, signing_configuration_id FROM public.signing_spki_reservation "
-                + "WHERE public_key_spki_sha256 = ?", (Object) sha256(first.spki()))).singleElement()
-                .isEqualTo(List.of("cgcom", firstConfiguration));
-        assertSignatureVerifies(firstArn, first.keyPair().getPublic());
+        assertImportedAsTheActiveConfiguration(firstArn, first);
 
         // replacement: the previous row is withdrawn with who did it; its reservation stays until its key is retired
         Material second = newMaterial("second");
@@ -236,6 +218,45 @@ class OwnKeyOnboardingIT {
         String secondArn = keyArnOf(preparedSecond);
         assertThat(importKey(preparedSecond, wrap(preparedSecond, second.keyPair().getPrivate(), "second")))
                 .as(err()).isZero();
+        assertReplaced(first, firstArn, second, secondArn);
+
+        // reconcile: inside the grace period nothing happens; after it the replaced key is retired once
+        assertThat(run("reconcile")).isZero();
+        assertThat(keyState(firstArn)).isEqualTo("Enabled");
+        assertThat(run("reconcile", "--grace-seconds", "0")).as(err()).isZero();
+        assertRetiredByReconcile(first, firstArn, second, secondArn);
+        stdout.reset();
+        assertThat(run("reconcile", "--grace-seconds", "0")).isZero();
+        assertThat(stdout.toString(StandardCharsets.UTF_8)).contains("keys retired: 0");
+    }
+
+    private void assertPreparedAndWaitingForMaterial(String keyArn, Path prepared) throws Exception {
+        assertThat(keyState(keyArn)).isEqualTo("PendingImport");
+        assertThat(kms.listResourceTags(ListResourceTagsRequest.builder().keyId(keyArn).build()).get().tags())
+                .extracting(Tag::tagKey, Tag::tagValue)
+                .contains(tuple("Tenant", "cgcom"));
+        assertThat(kms.listResourceTags(ListResourceTagsRequest.builder().keyId(keyArn).build()).get().tags())
+                .extracting(Tag::tagKey).contains("operationId");
+        assertThat(kms.listAliases(ListAliasesRequest.builder().build()).get().aliases())
+                .anyMatch(alias -> alias.aliasName().startsWith("alias/own-key-cgcom-"));
+        assertThat(file(prepared, ".wrapping-public-key.pem")).isNotNull();
+        assertThat(scalar("SELECT count(*) FROM cgcom_issuer.tenant_signing_config")).isEqualTo(0L);
+    }
+
+    private void assertImportedAsTheActiveConfiguration(String keyArn, Material material) throws Exception {
+        assertThat(keyState(keyArn)).isEqualTo("Enabled");
+        assertThat(query("SELECT status, modality, provider, activated_by, own_key_kms_key_ref, own_key_algorithm, "
+                + "jsonb_array_length(own_key_certificate_chain) FROM cgcom_issuer.tenant_signing_config"))
+                .singleElement().isEqualTo(List.of("active", "own_key", "aws-kms", callerArn, keyArn,
+                        "ES256", 1));
+        UUID configuration = (UUID) scalar("SELECT id FROM cgcom_issuer.tenant_signing_config");
+        assertThat(query("SELECT tenant_id, signing_configuration_id FROM public.signing_spki_reservation "
+                + "WHERE public_key_spki_sha256 = ?", (Object) sha256(material.spki()))).singleElement()
+                .isEqualTo(List.of("cgcom", configuration));
+        assertSignatureVerifies(keyArn, material.keyPair().getPublic());
+    }
+
+    private void assertReplaced(Material first, String firstArn, Material second, String secondArn) throws Exception {
         assertThat(query("SELECT status, withdrawn_by, activated_by FROM cgcom_issuer.tenant_signing_config "
                 + "WHERE own_key_kms_key_ref = ?", firstArn)).singleElement()
                 .isEqualTo(List.of("withdrawn", callerArn, callerArn));
@@ -246,11 +267,10 @@ class OwnKeyOnboardingIT {
         assertThat(scalar("SELECT count(*) FROM public.signing_spki_reservation WHERE public_key_spki_sha256 = ?",
                 (Object) sha256(second.spki()))).isEqualTo(1L);
         assertThat(keyState(firstArn)).as("KMS is only touched by reconcile").isEqualTo("Enabled");
+    }
 
-        // reconcile: inside the grace period nothing happens; after it the replaced key is retired once
-        assertThat(run("reconcile")).isZero();
-        assertThat(keyState(firstArn)).isEqualTo("Enabled");
-        assertThat(run("reconcile", "--grace-seconds", "0")).as(err()).isZero();
+    private void assertRetiredByReconcile(Material first, String firstArn, Material second, String secondArn)
+            throws Exception {
         assertThat(keyState(firstArn)).isEqualTo("PendingDeletion");
         assertThat(keyState(secondArn)).isEqualTo("Enabled");
         assertThat(scalar("SELECT count(*) FROM public.signing_spki_reservation WHERE public_key_spki_sha256 = ?",
@@ -261,9 +281,6 @@ class OwnKeyOnboardingIT {
                 + "WHERE own_key_kms_key_ref = ?", firstArn)).isEqualTo(true);
         assertThat(scalar("SELECT own_key_deleted_at IS NULL FROM cgcom_issuer.tenant_signing_config "
                 + "WHERE own_key_kms_key_ref = ?", secondArn)).isEqualTo(true);
-        stdout.reset();
-        assertThat(run("reconcile", "--grace-seconds", "0")).isZero();
-        assertThat(stdout.toString(StandardCharsets.UTF_8)).contains("keys retired: 0");
     }
 
     @Test
