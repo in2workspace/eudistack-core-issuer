@@ -12,6 +12,7 @@ import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.ActiveConfiguration;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.RegisteredTenant;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
+import es.in2.issuer.backend.signing.infrastructure.onboarding.BouncyCastleCertificateExtensions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -47,7 +48,7 @@ class OwnKeyOnboardingTest {
     @BeforeEach
     void setUp() {
         store.tenants.put(TENANT, OnboardingFakes.activeTenant(TENANT, null));
-        onboarding = new OwnKeyOnboarding(kms, store, () -> {
+        onboarding = new OwnKeyOnboarding(kms, store, new BouncyCastleCertificateExtensions(), () -> {
             identityCalls.incrementAndGet();
             return CALLER;
         }, Clock.fixed(NOW, ZoneOffset.UTC), () -> "op-1", 7);
@@ -425,7 +426,7 @@ class OwnKeyOnboardingTest {
     @Test
     void importKey_certificateExpiredAfterPrepare_isRejected() {
         var prepared = prepared();
-        var later = new OwnKeyOnboarding(kms, store, () -> CALLER,
+        var later = new OwnKeyOnboarding(kms, store, new BouncyCastleCertificateExtensions(), () -> CALLER,
                 Clock.fixed(Instant.parse("2100-01-01T00:00:00Z"), ZoneOffset.UTC), () -> "op-2", 7);
         var command = importCommand(prepared, false);
 
@@ -451,7 +452,8 @@ class OwnKeyOnboardingTest {
     @Test
     void importKey_expiredImportToken_failsAndDiscardsTheKey() {
         var prepared = prepared();
-        var later = new OwnKeyOnboarding(kms, store, () -> CALLER, Clock.fixed(kms.tokenValidTo, ZoneOffset.UTC),
+        var later = new OwnKeyOnboarding(kms, store, new BouncyCastleCertificateExtensions(),
+                () -> CALLER, Clock.fixed(kms.tokenValidTo, ZoneOffset.UTC),
                 () -> "op-2", 7);
         var command = importCommand(prepared, false);
 

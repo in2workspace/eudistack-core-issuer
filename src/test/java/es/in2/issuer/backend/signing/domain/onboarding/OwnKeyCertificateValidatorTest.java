@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.signing.domain.onboarding;
 
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
+import es.in2.issuer.backend.signing.infrastructure.onboarding.BouncyCastleCertificateExtensions;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
@@ -20,7 +21,7 @@ class OwnKeyCertificateValidatorTest {
     private final OwnKeyTestPki pki = new OwnKeyTestPki();
 
     private ValidatedOwnKeyCertificate validate(List<X509Certificate> chain, OnboardingPolicy policy) {
-        return OwnKeyCertificateValidator.validate(chain, policy, NOW);
+        return new OwnKeyCertificateValidator(new BouncyCastleCertificateExtensions()).validate(chain, policy, NOW);
     }
 
     private ValidatedOwnKeyCertificate validate(X509Certificate leaf) {

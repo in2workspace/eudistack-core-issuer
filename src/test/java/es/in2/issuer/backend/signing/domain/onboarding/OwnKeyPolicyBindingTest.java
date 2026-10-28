@@ -6,6 +6,7 @@ import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFakes.Recording
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.ImportCommand;
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.PrepareCommand;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
+import es.in2.issuer.backend.signing.infrastructure.onboarding.BouncyCastleCertificateExtensions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -32,7 +33,8 @@ class OwnKeyPolicyBindingTest {
     @BeforeEach
     void setUp() {
         store.tenants.put("cgcom", OnboardingFakes.activeTenant("cgcom", null));
-        onboarding = new OwnKeyOnboarding(kms, store, () -> "arn:caller", Clock.fixed(NOW, ZoneOffset.UTC),
+        onboarding = new OwnKeyOnboarding(kms, store, new BouncyCastleCertificateExtensions(),
+                () -> "arn:caller", Clock.fixed(NOW, ZoneOffset.UTC),
                 () -> "op-1", 7);
         kms.publicKey = leaf.publicKeyDer();
     }

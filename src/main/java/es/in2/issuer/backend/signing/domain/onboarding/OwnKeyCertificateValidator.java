@@ -1,16 +1,8 @@
 package es.in2.issuer.backend.signing.domain.onboarding;
 
+import es.in2.issuer.backend.signing.domain.spi.CertificateExtensionsPort;
 import es.in2.issuer.backend.signing.domain.util.SigningCertificateChecks;
 import lombok.extern.slf4j.Slf4j;
-import org.bouncycastle.asn1.ASN1ObjectIdentifier;
-import org.bouncycastle.asn1.ASN1OctetString;
-import org.bouncycastle.asn1.ASN1Sequence;
-import org.bouncycastle.asn1.x500.RDN;
-import org.bouncycastle.asn1.x500.X500Name;
-import org.bouncycastle.asn1.x500.style.BCStyle;
-import org.bouncycastle.asn1.x500.style.IETFUtils;
-import org.bouncycastle.asn1.x509.CertificatePolicies;
-import org.bouncycastle.asn1.x509.PolicyInformation;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -30,7 +22,8 @@ import java.util.Set;
  * {@link OwnKeyOnboarding}.
  *
  * <p>The trust anchor is only checked when the policy carries one (always in production): trust in the
- * chain by signature is tech-debt 9 (EUD-264) and is out of scope.
+ * chain by signature is tech-debt 9 (EUD-264) and is out of scope. The extensions the JDK does not decode
+ * (policies, qcStatements, {@code organizationIdentifier}) are read through {@link CertificateExtensionsPort}.
  */
 @Slf4j
 public final class OwnKeyCertificateValidator {
@@ -38,12 +31,14 @@ public final class OwnKeyCertificateValidator {
     /** QCP-n-qscd and QCP-l-qscd (ETSI EN 319 411-2): the certificate states that its key is in a QSCD. */
     private static final Set<String> QSCD_POLICIES = Set.of("0.4.0.194112.1.2", "0.4.0.194112.1.3");
     /** QcSSCD statement inside {@code qcStatements} (ETSI EN 319 412-5): the key is in a QSCD. */
-    private static final ASN1ObjectIdentifier QC_SSCD = new ASN1ObjectIdentifier("0.4.0.1862.1.4");
-    private static final String CERTIFICATE_POLICIES_OID = "2.5.29.32";
-    private static final String QC_STATEMENTS_OID = "1.3.6.1.5.5.7.1.3";
+    private static final String QC_SSCD = "0.4.0.1862.1.4";
     private static final String EMPTY_CHAIN = "the certificate chain holds no certificate";
 
-    private OwnKeyCertificateValidator() {}
+    private final CertificateExtensionsPort extensions;
+
+    public OwnKeyCertificateValidator(CertificateExtensionsPort extensions) {
+        this.extensions = extensions;
+    }
 
     /** Parses a PEM bundle, leaf first; the chain stored for a tenant is exactly this list. */
     public static List<X509Certificate> parsePemChain(String pem) {
@@ -88,7 +83,7 @@ public final class OwnKeyCertificateValidator {
      * @param now    the instant the validity is checked at
      * @throws OnboardingRejectedException with the first check that fails
      */
-    public static ValidatedOwnKeyCertificate validate(List<X509Certificate> chain, OnboardingPolicy policy, Instant now) {
+    public ValidatedOwnKeyCertificate validate(List<X509Certificate> chain, OnboardingPolicy policy, Instant now) {
         if (chain == null || chain.isEmpty()) {
             throw invalidCertificate(EMPTY_CHAIN);
         }
@@ -124,7 +119,7 @@ public final class OwnKeyCertificateValidator {
     }
 
     /** A certificate stating that its key is in a QSCD: KMS is not one, so the seal would not be qualified. */
-    private static void requireNoQscdDeclaration(X509Certificate leaf) {
+    private void requireNoQscdDeclaration(X509Certificate leaf) {
         boolean policyDeclared;
         boolean statementDeclared;
         try {
@@ -143,33 +138,12 @@ public final class OwnKeyCertificateValidator {
         }
     }
 
-    private static boolean declaresQscdPolicy(X509Certificate certificate) {
-        ASN1Sequence policies = extensionValue(certificate, CERTIFICATE_POLICIES_OID);
-        if (policies == null) {
-            return false;
-        }
-        return Arrays.stream(CertificatePolicies.getInstance(policies).getPolicyInformation())
-                .map(PolicyInformation::getPolicyIdentifier)
-                .anyMatch(oid -> QSCD_POLICIES.contains(oid.getId()));
+    private boolean declaresQscdPolicy(X509Certificate certificate) {
+        return extensions.policyIdentifiers(certificate).stream().anyMatch(QSCD_POLICIES::contains);
     }
 
-    private static boolean declaresQcSscd(X509Certificate certificate) {
-        ASN1Sequence statements = extensionValue(certificate, QC_STATEMENTS_OID);
-        if (statements == null) {
-            return false;
-        }
-        for (var statement : statements) {
-            if (QC_SSCD.equals(ASN1Sequence.getInstance(statement).getObjectAt(0))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** The extension value as an ASN.1 sequence ({@code getExtensionValue} wraps it in an OCTET STRING), or {@code null}. */
-    private static ASN1Sequence extensionValue(X509Certificate certificate, String oid) {
-        byte[] value = certificate.getExtensionValue(oid);
-        return value == null ? null : ASN1Sequence.getInstance(ASN1OctetString.getInstance(value).getOctets());
+    private boolean declaresQcSscd(X509Certificate certificate) {
+        return extensions.qcStatementIdentifiers(certificate).contains(QC_SSCD);
     }
 
     /** Each certificate is issued by the next, which is a CA valid now; the failing pair is named. */
@@ -227,18 +201,12 @@ public final class OwnKeyCertificateValidator {
         }
     }
 
-    private static void requireOrganizationIdentifier(X509Certificate leaf, String expected) {
-        String actual = organizationIdentifier(leaf);
+    private void requireOrganizationIdentifier(X509Certificate leaf, String expected) {
+        String actual = extensions.organizationIdentifier(leaf).orElse(null);
         if (!expected.equals(actual)) {
             throw invalidCertificate("the certificate organizationIdentifier is '"
                     + (actual == null ? "none" : actual) + "', expected '" + expected + "'");
         }
-    }
-
-    private static String organizationIdentifier(X509Certificate certificate) {
-        RDN[] rdns = X500Name.getInstance(certificate.getSubjectX500Principal().getEncoded())
-                .getRDNs(BCStyle.ORGANIZATION_IDENTIFIER);
-        return rdns.length == 0 ? null : IETFUtils.valueToString(rdns[0].getFirst().getValue());
     }
 
     private static OnboardingRejectedException invalidCertificate(String message) {

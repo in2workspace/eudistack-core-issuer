@@ -8,6 +8,7 @@ import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.DiscardO
 import es.in2.issuer.backend.signing.domain.onboarding.OwnKeyOnboarding.PrepareCommand;
 import es.in2.issuer.backend.signing.domain.spi.KmsKeyAdministrationPort.KeyState;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
+import es.in2.issuer.backend.signing.infrastructure.onboarding.BouncyCastleCertificateExtensions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -34,7 +35,8 @@ class OwnKeyDiscardTest {
     @BeforeEach
     void setUp() throws Exception {
         store.tenants.put("cgcom", OnboardingFakes.activeTenant("cgcom", null));
-        onboarding = new OwnKeyOnboarding(kms, store, () -> "arn:caller", Clock.fixed(NOW, ZoneOffset.UTC),
+        onboarding = new OwnKeyOnboarding(kms, store, new BouncyCastleCertificateExtensions(),
+                () -> "arn:caller", Clock.fixed(NOW, ZoneOffset.UTC),
                 () -> "op-1", 7);
         var leaf = pki.validP256Leaf();
         onboarding.prepare(new PrepareCommand("cgcom", OwnKeyCertificateValidatorTest.toPem(leaf.certificate()),

@@ -43,7 +43,8 @@ public class OnboardingWiring implements OnboardingCli.Wiring {
         DataSource dataSource = new DriverManagerDataSource(settings.dbUrl(), settings.dbUser(), settings.dbPassword());
         AuditSinkHandle auditSink = openAuditSink(settings, dataSource, kmsClient, stsClient);
         var store = new JdbcOwnKeyStore(dataSource, auditSink.sink());
-        var onboarding = new OwnKeyOnboarding(kms, store, identity, Clock.systemUTC(),
+        var onboarding = new OwnKeyOnboarding(kms, store, new BouncyCastleCertificateExtensions(), identity,
+                Clock.systemUTC(),
                 () -> UUID.randomUUID().toString(), settings.deletionWindowDays());
         var reconciler = new OwnKeyReconciler(kms, store, identity, Clock.systemUTC(),
                 settings.deletionWindowDays());

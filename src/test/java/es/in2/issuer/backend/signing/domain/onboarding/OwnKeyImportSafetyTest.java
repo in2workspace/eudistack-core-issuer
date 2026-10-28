@@ -11,6 +11,7 @@ import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.ActiveConfigurat
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.RegisteredTenant;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.SpkiReservation;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
+import es.in2.issuer.backend.signing.infrastructure.onboarding.BouncyCastleCertificateExtensions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -44,7 +45,8 @@ class OwnKeyImportSafetyTest {
     void setUp() {
         store.tenants.put("cgcom", OnboardingFakes.activeTenant("cgcom", null));
         store.tenants.put("kpmg", OnboardingFakes.activeTenant("kpmg", null));
-        onboarding = new OwnKeyOnboarding(kms, store, () -> CALLER, Clock.fixed(NOW, ZoneOffset.UTC), () -> "op-1", 7);
+        onboarding = new OwnKeyOnboarding(kms, store, new BouncyCastleCertificateExtensions(),
+                () -> CALLER, Clock.fixed(NOW, ZoneOffset.UTC), () -> "op-1", 7);
         kms.publicKey = leaf.publicKeyDer();
     }
 

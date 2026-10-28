@@ -123,6 +123,19 @@ class ArchUnitTest {
                     .should().dependOnClassesThat().resideInAPackage("io.github.novacrypto..");
 
     @ArchTest
+    static final ArchRule signingDomainShouldNotDependOnBouncyCastle =
+            noClasses()
+                    .that().resideInAPackage(BASE_PACKAGE + ".signing.domain..")
+                    // Test fixtures (OwnKeyTestPki and the like) build test certificates with BouncyCastle.
+                    .and(DescribedPredicate.describe("are production classes",
+                            (JavaClass javaClass) -> javaClass.getSource()
+                                    .map(source -> !source.getUri().toString().contains("/test/"))
+                                    .orElse(true)))
+                    .should().dependOnClassesThat().resideInAPackage("org.bouncycastle..")
+                    .because("hexagonal boundary: BouncyCastle is an infrastructure library; the signing domain reads "
+                            + "the X.509 extensions it needs through CertificateExtensionsPort");
+
+    @ArchTest
     static final ArchRule domainShouldNotDependOnSpringData =
             noClasses()
                     .that().resideInAPackage(BASE_PACKAGE + "..domain..")

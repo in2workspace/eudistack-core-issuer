@@ -12,6 +12,7 @@ import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.ActiveConfigurat
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.RegisteredTenant;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.SpkiReservation;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
+import es.in2.issuer.backend.signing.infrastructure.onboarding.BouncyCastleCertificateExtensions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -44,7 +45,8 @@ class OwnKeyRenewalTest {
 
     @BeforeEach
     void setUp() {
-        onboarding = new OwnKeyOnboarding(kms, store, () -> CALLER, Clock.fixed(NOW, ZoneOffset.UTC), () -> "op-1", 7);
+        onboarding = new OwnKeyOnboarding(kms, store, new BouncyCastleCertificateExtensions(),
+                () -> CALLER, Clock.fixed(NOW, ZoneOffset.UTC), () -> "op-1", 7);
         kms.publicKey = leaf.publicKeyDer();
         store.tenants.put(TENANT, new RegisteredTenant(TENANT, true, true, SigningModality.OWN_KEY, ACTIVE_ID,
                 FakeKms.KEY_ARN));

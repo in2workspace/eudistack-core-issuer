@@ -2,6 +2,7 @@ package es.in2.issuer.backend.signing.domain.onboarding;
 
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
 import es.in2.issuer.backend.signing.domain.spi.CallerIdentityPort;
+import es.in2.issuer.backend.signing.domain.spi.CertificateExtensionsPort;
 import es.in2.issuer.backend.signing.domain.spi.KmsKeyAdministrationPort;
 import es.in2.issuer.backend.signing.domain.spi.KmsKeyAdministrationPort.ImportParameters;
 import es.in2.issuer.backend.signing.domain.spi.KmsKeyAdministrationPort.KeyState;
@@ -67,19 +68,23 @@ public class OwnKeyOnboarding {
 
     private final KmsKeyAdministrationPort kms;
     private final OwnKeyStorePort store;
+    private final OwnKeyCertificateValidator validator;
     private final CallerIdentityPort identity;
     private final Clock clock;
     private final Supplier<String> operationIds;
     private final int pendingDeletionDays;
 
     /**
+     * @param certificates        reads the extensions of the certificates the validator checks
      * @param operationIds        generates the id of each onboarding
      * @param pendingDeletionDays waiting period of {@code ScheduleKeyDeletion} for a key that is cleaned up
      */
-    public OwnKeyOnboarding(KmsKeyAdministrationPort kms, OwnKeyStorePort store, CallerIdentityPort identity,
-                            Clock clock, Supplier<String> operationIds, int pendingDeletionDays) {
+    public OwnKeyOnboarding(KmsKeyAdministrationPort kms, OwnKeyStorePort store, CertificateExtensionsPort certificates,
+                            CallerIdentityPort identity, Clock clock, Supplier<String> operationIds,
+                            int pendingDeletionDays) {
         this.kms = kms;
         this.store = store;
+        this.validator = new OwnKeyCertificateValidator(certificates);
         this.identity = identity;
         this.clock = clock;
         this.operationIds = operationIds;
@@ -824,7 +829,7 @@ public class OwnKeyOnboarding {
 
     private ValidatedOwnKeyCertificate validate(Attempt attempt, List<X509Certificate> chain, OnboardingPolicy policy) {
         attempt.certificateSha256 = new ValidatedOwnKeyCertificate(chain).certificateSha256Hex();
-        ValidatedOwnKeyCertificate certificate = OwnKeyCertificateValidator.validate(chain, policy, clock.instant());
+        ValidatedOwnKeyCertificate certificate = validator.validate(chain, policy, clock.instant());
         RegisteredTenant tenant = store.findTenant(attempt.tenant).orElseThrow(() -> unavailableTenant(
                 attempt, tenantNamed(attempt.tenant) + " is not in the tenant registry"));
         if (!tenant.active()) {

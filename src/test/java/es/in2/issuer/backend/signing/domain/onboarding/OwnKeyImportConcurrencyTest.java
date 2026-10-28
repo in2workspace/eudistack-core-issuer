@@ -11,6 +11,7 @@ import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChang
 import es.in2.issuer.backend.signing.domain.spi.KmsKeyAdministrationPort.KeyState;
 import es.in2.issuer.backend.signing.domain.spi.OnboardingArtifactsPort;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
+import es.in2.issuer.backend.signing.infrastructure.onboarding.BouncyCastleCertificateExtensions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,7 +50,8 @@ class OwnKeyImportConcurrencyTest {
     @BeforeEach
     void setUp() {
         store.tenants.put("cgcom", OnboardingFakes.activeTenant("cgcom", null));
-        onboarding = new OwnKeyOnboarding(kms, store, () -> CALLER, Clock.fixed(NOW, ZoneOffset.UTC), () -> "op-1", 7);
+        onboarding = new OwnKeyOnboarding(kms, store, new BouncyCastleCertificateExtensions(),
+                () -> CALLER, Clock.fixed(NOW, ZoneOffset.UTC), () -> "op-1", 7);
         kms.publicKey = leaf.publicKeyDer();
     }
 
