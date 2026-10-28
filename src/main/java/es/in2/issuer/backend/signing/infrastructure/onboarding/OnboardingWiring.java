@@ -41,7 +41,8 @@ public class OnboardingWiring implements OnboardingCli.Wiring {
         var store = new JdbcOwnKeyStore(dataSource, auditSink.sink());
         var onboarding = new OwnKeyOnboarding(kms, store, new AwsCallerIdentityAdapter(stsClient), Clock.systemUTC(),
                 () -> UUID.randomUUID().toString(), settings.deletionWindowDays());
-        var reconciler = new OwnKeyReconciler(kms, store, settings.deletionWindowDays());
+        var reconciler = new OwnKeyReconciler(kms, store, new AwsCallerIdentityAdapter(stsClient), Clock.systemUTC(),
+                settings.deletionWindowDays());
         return new OnboardingCli.Services() {
             @Override
             public OwnKeyOnboarding onboarding() {

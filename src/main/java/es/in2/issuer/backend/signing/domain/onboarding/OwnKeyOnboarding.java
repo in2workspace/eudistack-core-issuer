@@ -362,6 +362,7 @@ public class OwnKeyOnboarding {
     public DiscardResult discard(DiscardCommand command) {
         PreparedOnboarding prepared = command.prepared();
         requireTenantId(prepared.tenant());
+        Instant startedAt = clock.instant();
         if (prepared.renewal()) {
             throw new OnboardingFailedException("a renewal created no KMS key: there is nothing to discard");
         }
@@ -378,8 +379,12 @@ public class OwnKeyOnboarding {
         OwnKey key = OwnKey.of(prepared);
         String problem = whyNotAnOwnNewKey(key, PENDING_ONLY, state);
         if (problem != null) {
-            throw new OnboardingRejectedException(RejectionReason.POLICY_DENIED,
+            OnboardingRejectedException rejected = new OnboardingRejectedException(RejectionReason.POLICY_DENIED,
                     "the key is not discarded (" + problem + ")");
+            if (!command.dryRun()) {
+                recordDiscardRejection(prepared, rejected, startedAt);
+            }
+            throw rejected;
         }
         if (command.dryRun()) {
             return new DiscardResult(prepared.keyArn(), DiscardOutcome.WOULD_DISCARD);
@@ -387,6 +392,20 @@ public class OwnKeyOnboarding {
         retireVerifiedKey(key);
         command.artifacts().markDiscarded(prepared, clock.instant());
         return new DiscardResult(prepared.keyArn(), DiscardOutcome.DISCARDED);
+    }
+
+    /** A refused discard is a denied retirement of a key: audited like any other rejection. */
+    private void recordDiscardRejection(PreparedOnboarding prepared, OnboardingRejectedException rejected,
+                                        Instant startedAt) {
+        try {
+            Instant now = clock.instant();
+            store.recordInOwnTransaction(SigningConfigurationChanged.retire(prepared.tenant(), Result.DENIED,
+                    rejected.getReason(), identity.callerArn(), Duration.between(startedAt, now), now,
+                    prepared.operationId()));
+        } catch (RuntimeException e) {
+            log.error("The refused discard of tenant '{}' could not be recorded: {}", prepared.tenant(), e.toString());
+            rejected.addSuppressed(e);
+        }
     }
 
     private static final Set<KeyState> PENDING_ONLY = EnumSet.of(KeyState.PENDING_IMPORT);

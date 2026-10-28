@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.signing.domain.onboarding;
 
+import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChanged.Result;
+import es.in2.issuer.backend.signing.domain.spi.CallerIdentityPort;
 import es.in2.issuer.backend.signing.domain.spi.KmsKeyAdministrationPort;
 import es.in2.issuer.backend.signing.domain.spi.KmsKeyAdministrationPort.KeyState;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort;
@@ -7,7 +9,9 @@ import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.RegisteredTenant
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.WithdrawnOwnKey;
 import lombok.extern.slf4j.Slf4j;
 
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -27,6 +31,11 @@ import java.util.UUID;
  * the key of the configuration it replaces): the row is only marked. {@code DeleteImportedKeyMaterial} is not called: during the deletion window the key is
  * disabled but recoverable if the replacement was a mistake.
  *
+ * <p>Every row leaves a {@code Retire} event: {@code Success} or {@code Denied} (key in use) staged in the
+ * transaction that marks the row, {@code Failure} in a transaction of its own, since the row's transaction ends
+ * without changes. The actor is the caller ARN. The same transaction releases the SPKI reservation of the row: until
+ * then the public key is still reserved for its tenant.
+ *
  * <p>One transaction per row: the row is selected {@code FOR UPDATE SKIP LOCKED}, so two runs at the same
  * time never act on the same row, and a failure on one key leaves the others to proceed.
  */
@@ -35,12 +44,17 @@ public class OwnKeyReconciler {
 
     private final KmsKeyAdministrationPort kms;
     private final OwnKeyStorePort store;
+    private final CallerIdentityPort identity;
+    private final Clock clock;
     private final int pendingDeletionDays;
 
     /** @param pendingDeletionDays waiting period of {@code ScheduleKeyDeletion} (KMS minimum is 7) */
-    public OwnKeyReconciler(KmsKeyAdministrationPort kms, OwnKeyStorePort store, int pendingDeletionDays) {
+    public OwnKeyReconciler(KmsKeyAdministrationPort kms, OwnKeyStorePort store, CallerIdentityPort identity,
+                            Clock clock, int pendingDeletionDays) {
         this.kms = kms;
         this.store = store;
+        this.identity = identity;
+        this.clock = clock;
         this.pendingDeletionDays = pendingDeletionDays;
     }
 
@@ -67,6 +81,7 @@ public class OwnKeyReconciler {
     public ReconcileReport reconcile(Duration grace, boolean dryRun) {
         int retired = 0;
         List<String> failures = new ArrayList<>();
+        String actor = dryRun ? null : identity.callerArn();
         for (String tenant : store.findActiveTenants()) {
             if (!store.findTenant(tenant).map(RegisteredTenant::schemaProvisioned).orElse(false)) {
                 // Registered but not migrated yet (the Issuer creates the schema at startup): nothing to reconcile.
@@ -74,7 +89,7 @@ public class OwnKeyReconciler {
                 continue;
             }
             try {
-                retired += dryRun ? planTenant(tenant, grace, failures) : reconcileTenant(tenant, grace, failures);
+                retired += dryRun ? planTenant(tenant, grace, failures) : reconcileTenant(tenant, grace, actor, failures);
             } catch (RuntimeException e) {
                 log.error("Reconcile of tenant '{}' failed: {}", tenant, e.toString());
                 failures.add("tenant " + tenant + ": " + e.getMessage());
@@ -83,12 +98,12 @@ public class OwnKeyReconciler {
         return new ReconcileReport(retired, failures);
     }
 
-    private int reconcileTenant(String tenant, Duration grace, List<String> failures) {
+    private int reconcileTenant(String tenant, Duration grace, String actor, List<String> failures) {
         Set<UUID> failed = new HashSet<>();
         int retired = 0;
         while (true) {
             Optional<RowResult> result = store.inTransaction(tx -> tx.lockNextWithdrawnOwnKey(tenant, grace, failed)
-                    .map(row -> retire(tx, tenant, row)));
+                    .map(row -> retire(tx, tenant, row, actor)));
             if (result.isEmpty()) {
                 return retired;
             }
@@ -97,17 +112,21 @@ public class OwnKeyReconciler {
             } else {
                 failed.add(result.get().id());
                 failures.add(result.get().failure());
+                recordFailure(tenant, result.get().id(), actor);
             }
         }
     }
 
     /** A failure is returned, not thrown, so the transaction ends and the row stays as it was. */
-    private RowResult retire(OwnKeyStorePort.ConfigurationTransaction tx, String tenant, WithdrawnOwnKey row) {
+    private RowResult retire(OwnKeyStorePort.ConfigurationTransaction tx, String tenant, WithdrawnOwnKey row,
+                             String actor) {
+        Instant startedAt = clock.instant();
         try {
             if (store.isKeyReferenced(row.kmsKeyRef(), true)) {
                 log.warn("Tenant '{}', configuration {}: the key is referenced by an active configuration and is not "
                         + "retired", tenant, row.id());
                 tx.markKeyRetired(tenant, row);
+                tx.stage(event(tenant, row, Result.DENIED, RejectionReason.KEY_IN_USE, actor, startedAt));
                 return new RowResult(row.id(), null);
             }
             KeyState state = kms.describeKeyState(row.kmsKeyRef());
@@ -121,11 +140,30 @@ public class OwnKeyReconciler {
                 case UNEXPECTED_STATE -> throw new OnboardingFailedException("the key is in an unexpected state");
             }
             tx.markKeyRetired(tenant, row);
+            tx.stage(event(tenant, row, Result.SUCCESS, null, actor, startedAt));
             log.info("Tenant '{}', configuration {}: key retired (was {})", tenant, row.id(), state);
             return new RowResult(row.id(), null);
         } catch (RuntimeException e) {
             log.error("Tenant '{}', configuration {}: the key could not be retired: {}", tenant, row.id(), e.toString());
             return new RowResult(row.id(), "tenant " + tenant + ", configuration " + row.id() + ": " + e.getMessage());
+        }
+    }
+
+    private SigningConfigurationChanged event(String tenant, WithdrawnOwnKey row, Result result, RejectionReason reason,
+                                              String actor, Instant startedAt) {
+        Instant now = clock.instant();
+        return SigningConfigurationChanged.retire(tenant, result, reason, actor, Duration.between(startedAt, now), now,
+                row.id().toString());
+    }
+
+    /** The row's transaction made no change, so the failure goes in a transaction of its own. */
+    private void recordFailure(String tenant, UUID configurationId, String actor) {
+        try {
+            store.recordInOwnTransaction(SigningConfigurationChanged.retire(tenant, Result.FAILURE, null, actor,
+                    Duration.ZERO, clock.instant(), configurationId.toString()));
+        } catch (RuntimeException e) {
+            log.error("Tenant '{}', configuration {}: the failed retirement could not be recorded: {}", tenant,
+                    configurationId, e.toString());
         }
     }
 

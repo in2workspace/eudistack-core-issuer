@@ -107,6 +107,30 @@ class OwnKeyDiscardTest {
     }
 
     @Test
+    void discard_refused_isAuditedAsADeniedRetire() {
+        kms.tags.put("operationId", "op-other");
+
+        assertThatThrownBy(() -> onboarding.discard(command(false))).isInstanceOf(OnboardingRejectedException.class);
+
+        assertThat(store.eventsInOwnTransaction).singleElement().satisfies(event -> {
+            assertThat(event.operation()).isEqualTo(SigningConfigurationChanged.Operation.RETIRE);
+            assertThat(event.result()).isEqualTo(SigningConfigurationChanged.Result.DENIED);
+            assertThat(event.reason()).isEqualTo(RejectionReason.POLICY_DENIED);
+            assertThat(event.actor()).isEqualTo("arn:caller");
+            assertThat(event.toString()).doesNotContain(ARN);
+        });
+    }
+
+    @Test
+    void discard_refusedDryRun_recordsNothing() {
+        kms.tags.put("operationId", "op-other");
+
+        assertThatThrownBy(() -> onboarding.discard(command(true))).isInstanceOf(OnboardingRejectedException.class);
+
+        assertThat(store.eventsInOwnTransaction).isEmpty();
+    }
+
+    @Test
     void discard_keyWhoseTenantTagIsAnotherTenants_isRefused() {
         kms.tags.put("Tenant", "kpmg");
 

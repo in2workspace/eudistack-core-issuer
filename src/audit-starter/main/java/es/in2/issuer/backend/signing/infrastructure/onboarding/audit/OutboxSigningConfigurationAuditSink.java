@@ -29,6 +29,8 @@ public class OutboxSigningConfigurationAuditSink implements SigningConfiguration
 
     static final String EVENT_TYPE = "SigningConfigurationChanged";
     static final String ACTION = "ConfigureSigning";
+    /** Reason of a failed retirement: a failure carries no rejection reason of its own. */
+    static final String FAILURE_REASON = "OperationFailed";
     /** The module that owns the event (DT-002 §3.9.3); the process is the Issuer's, whose source is {@code issuer}. */
     static final String SOURCE = "signing";
 
@@ -52,14 +54,14 @@ public class OutboxSigningConfigurationAuditSink implements SigningConfiguration
                 .source(SOURCE)
                 .detail("operation", event.operation().catalogName())
                 .detail("previous_modality", event.previousModality() == null ? null : modality(event.previousModality()))
-                .detail("new_modality", modality(event.newModality()))
+                .detail("new_modality", event.newModality() == null ? null : modality(event.newModality()))
                 .detail("signing_certificate", event.signingCertificateSha256() == null
                         ? null : "sha256:" + event.signingCertificateSha256())
                 .build();
         return switch (event.result()) {
             case SUCCESS -> AuditDraft.success(fact);
             case DENIED -> AuditDraft.denied(fact, event.reason().catalogName());
-            case FAILURE -> AuditDraft.failure(fact, event.reason().catalogName());
+            case FAILURE -> AuditDraft.failure(fact, event.reason() == null ? FAILURE_REASON : event.reason().catalogName());
         };
     }
 

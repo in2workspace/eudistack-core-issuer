@@ -228,7 +228,7 @@ class OwnKeyOnboardingIT {
                 .isEqualTo(List.of("cgcom", firstConfiguration));
         assertSignatureVerifies(firstArn, first.keyPair().getPublic());
 
-        // replacement: the previous row is withdrawn with who did it, and its reservation is released
+        // replacement: the previous row is withdrawn with who did it; its reservation stays until its key is retired
         Material second = newMaterial("second");
         Path preparedSecond = prepare(second, "second");
         String secondArn = keyArnOf(preparedSecond);
@@ -240,7 +240,7 @@ class OwnKeyOnboardingIT {
         assertThat(scalar("SELECT status FROM cgcom_issuer.tenant_signing_config WHERE own_key_kms_key_ref = ?",
                 secondArn)).isEqualTo("active");
         assertThat(scalar("SELECT count(*) FROM public.signing_spki_reservation WHERE public_key_spki_sha256 = ?",
-                (Object) sha256(first.spki()))).isEqualTo(0L);
+                (Object) sha256(first.spki()))).as("reserved while its key exists").isEqualTo(1L);
         assertThat(scalar("SELECT count(*) FROM public.signing_spki_reservation WHERE public_key_spki_sha256 = ?",
                 (Object) sha256(second.spki()))).isEqualTo(1L);
         assertThat(keyState(firstArn)).as("KMS is only touched by reconcile").isEqualTo("Enabled");
@@ -251,6 +251,10 @@ class OwnKeyOnboardingIT {
         assertThat(run("reconcile", "--grace-seconds", "0")).as(err()).isZero();
         assertThat(keyState(firstArn)).isEqualTo("PendingDeletion");
         assertThat(keyState(secondArn)).isEqualTo("Enabled");
+        assertThat(scalar("SELECT count(*) FROM public.signing_spki_reservation WHERE public_key_spki_sha256 = ?",
+                (Object) sha256(first.spki()))).as("released by reconcile").isEqualTo(0L);
+        assertThat(scalar("SELECT count(*) FROM public.signing_spki_reservation WHERE public_key_spki_sha256 = ?",
+                (Object) sha256(second.spki()))).isEqualTo(1L);
         assertThat(scalar("SELECT own_key_deleted_at IS NOT NULL FROM cgcom_issuer.tenant_signing_config "
                 + "WHERE own_key_kms_key_ref = ?", firstArn)).isEqualTo(true);
         assertThat(scalar("SELECT own_key_deleted_at IS NULL FROM cgcom_issuer.tenant_signing_config "

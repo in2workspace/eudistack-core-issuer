@@ -287,14 +287,6 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
                     statement.setObject(3, configuration.id());
                     requireOneRow(statement.executeUpdate(), "withdraw the active signing configuration");
                 }
-                if (configuration.modality() == SigningModality.OWN_KEY) {
-                    try (PreparedStatement statement = connection.prepareStatement("DELETE FROM "
-                            + "public.signing_spki_reservation WHERE tenant_id = ? AND signing_configuration_id = ?")) {
-                        statement.setString(1, tenantId);
-                        statement.setObject(2, configuration.id());
-                        statement.executeUpdate();
-                    }
-                }
                 return null;
             });
         }
@@ -365,6 +357,14 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
                         + " SET own_key_deleted_at = now(), updated_at = now() WHERE id = ?")) {
                     statement.setObject(1, key.id());
                     requireOneRow(statement.executeUpdate(), "mark the retired key");
+                }
+                // The public key stays reserved for the tenant until its key is retired. A renewal marks the old row
+                // handled before it reserves the same key for the new one, which is how the reservation moves.
+                try (PreparedStatement statement = connection.prepareStatement("DELETE FROM "
+                        + "public.signing_spki_reservation WHERE tenant_id = ? AND signing_configuration_id = ?")) {
+                    statement.setString(1, tenantId);
+                    statement.setObject(2, key.id());
+                    statement.executeUpdate();
                 }
                 return null;
             });

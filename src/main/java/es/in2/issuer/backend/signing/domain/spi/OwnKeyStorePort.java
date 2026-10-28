@@ -91,7 +91,9 @@ public interface OwnKeyStorePort {
         /**
          * The row becomes {@code withdrawn}. A QTSP row loses its four secret fields
          * ({@code credentialPwd}, {@code clientSecret}, {@code accessKey}, {@code credentialId}) and keeps
-         * the rest; an own-key row loses its SPKI reservation. A withdrawn row is never active again.
+         * the rest. An own-key row keeps its SPKI reservation until {@link #markKeyRetired}: the key still
+         * exists in KMS, and its public key must not be onboarded for another tenant. A withdrawn row is never
+         * active again.
          */
         void withdraw(String tenantId, ActiveConfiguration configuration, String withdrawnBy);
 
@@ -112,7 +114,8 @@ public interface OwnKeyStorePort {
 
         /**
          * Marks the row as handled ({@code own_key_deleted_at}): its KMS key was retired, or is still in use by
-         * an active configuration and must not be, so the row is not selected again.
+         * an active configuration and must not be, so the row is not selected again. It also releases the SPKI
+         * reservation of the row, if it holds one, in the same transaction.
          */
         void markKeyRetired(String tenantId, WithdrawnOwnKey key);
 

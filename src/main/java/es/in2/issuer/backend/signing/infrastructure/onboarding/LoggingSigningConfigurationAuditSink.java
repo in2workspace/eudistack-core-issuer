@@ -61,7 +61,9 @@ public class LoggingSigningConfigurationAuditSink implements SigningConfiguratio
         if (event.previousModality() != null) {
             details.put("previous_modality", modality(event.previousModality()));
         }
-        details.put("new_modality", modality(event.newModality()));
+        if (event.newModality() != null) {
+            details.put("new_modality", modality(event.newModality()));
+        }
         if (event.signingCertificateSha256() != null) {
             details.put("signing_certificate", event.signingCertificateSha256());
         }

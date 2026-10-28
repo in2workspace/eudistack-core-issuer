@@ -8,7 +8,7 @@ the Issuer's certificate checks.
 It runs with the **operation role**: `kms:CreateKey`, `kms:TagResource`, `kms:CreateAlias`,
 `kms:GetParametersForImport`, `kms:ImportKeyMaterial`, `kms:GetPublicKey`, `kms:DisableKey`,
 `kms:ScheduleKeyDeletion`, `kms:DescribeKey` (reconcile, discard), `kms:ListResourceTags` (discard) and
-`kms:DeleteAlias` (discard). `sts:GetCallerIdentity` needs no permission. It has no `kms:Sign`: the key is checked by comparing its public key with the
+`kms:DeleteAlias` (discard). `reconcile` and `discard` call `kms:DescribeKey` (also on the alias, to check it points to the key). `sts:GetCallerIdentity` needs no permission. It has no `kms:Sign`: the key is checked by comparing its public key with the
 certificate. It never receives a private key in clear.
 
 ## Commands
@@ -16,9 +16,9 @@ certificate. It never receives a private key in clear.
 | Command | What it does |
 |---------|--------------|
 | `prepare` | Validates the certificate chain and the tenant. Creates the KMS key (external origin, ECC_NIST_P256, SIGN_VERIFY, tags `Tenant=<tenant>` and `operationId=<uuid>`) with an alias, asks KMS for the import parameters (`RSA_AES_KEY_WRAP_SHA_256`, RSA_4096) and writes to `--out-dir`: `own-key-<tenant>-<operationId>.{wrapping-public-key.der,wrapping-public-key.pem,import-token.bin,state.json}`. Nothing in them is secret. If anything fails after `CreateKey`, the new key is disabled and its deletion scheduled. |
-| `import` | Reads the state file and the key material the customer wrapped with the wrapping public key. Validates again (the state may be stale), imports with `KEY_MATERIAL_DOES_NOT_EXPIRE`, requires `GetPublicKey` to be byte-identical to the certificate's SPKI and, in **one database transaction**, locks the tenant's active row, withdraws it (a QTSP row loses `credentialPwd`, `clientSecret`, `accessKey`, `credentialId`; an own-key row loses its SPKI reservation), inserts the new active `own_key` row, reserves the SPKI in `public.signing_spki_reservation` and stages the audit event. If anything fails after the import, the key is disabled and its deletion scheduled and the database is unchanged. |
-| `discard` | Gives up a preparation that was never imported (`--state`): checks that the KMS key is the one of that preparation (tags `operationId` and `Tenant` equal the state's), that it is still waiting for its key material (PendingImport) and that no `tenant_signing_config` row of any tenant references its ARN; then disables it if possible, schedules its deletion, deletes its alias and marks the state file (`discardedAt`), which `import` then refuses. It refuses with exit 2 a key that has material imported, other tags or a reference. A key already pending deletion or gone only gets the state marked, so it can be repeated. A renewal has nothing to discard. |
-| `reconcile` | For every active tenant, takes (`FOR UPDATE SKIP LOCKED`, one transaction per row) the `own_key` rows withdrawn for longer than the grace period (default 160 s) whose key is not marked yet, checks the key state, disables it if enabled, schedules its deletion (default 7 days, the KMS minimum) and sets `own_key_deleted_at`. Idempotent: a second run makes no KMS call. |
+| `import` | Reads the state file and the key material the customer wrapped with the wrapping public key. Validates again (the state may be stale), imports with `KEY_MATERIAL_DOES_NOT_EXPIRE`, requires `GetPublicKey` to be byte-identical to the certificate's SPKI and, in **one database transaction**, locks the tenant's active row, withdraws it (a QTSP row loses `credentialPwd`, `clientSecret`, `accessKey`, `credentialId`; an own-key row keeps its SPKI reservation until `reconcile` retires its key), inserts the new active `own_key` row, reserves the SPKI in `public.signing_spki_reservation` and stages the audit event. If anything fails after the import, the key is disabled and its deletion scheduled and the database is unchanged. |
+| `discard` | Gives up a preparation that was never imported (`--state`): checks that the KMS key is the one of that preparation (tags `operationId` and `Tenant` equal the state's), that it is still waiting for its key material (PendingImport) and that no `tenant_signing_config` row of any tenant references its ARN; then disables it if possible, schedules its deletion, deletes its alias and marks the state file (`discardedAt`), which `import` then refuses. It refuses with exit 2 a key that has material imported, other tags or a reference. A key already pending deletion or gone only gets the state marked, so it can be repeated. A refusal is audited as a denied `Retire`. A renewal has nothing to discard. |
+| `reconcile` | For every active tenant, takes (`FOR UPDATE SKIP LOCKED`, one transaction per row) the `own_key` rows withdrawn for longer than the grace period (default 160 s) whose key is not marked yet, checks the key state, disables it if enabled, schedules its deletion (default 7 days, the KMS minimum), sets `own_key_deleted_at` and, in the same transaction, **releases the SPKI reservation** of that row, and stages a `Retire` event. Idempotent: a second run makes no KMS call. |
 
 **Renewal keeping the key.** If the certificate's SPKI is reserved by the same tenant and by that tenant's
 currently active own-key row, it is a renewal of that row's certificate: the key material is already in its KMS
@@ -45,6 +45,15 @@ the tenant is active in `public.tenant_registry` and its `<tenant>_issuer` schem
 reserved by any tenant, except for a renewal of the tenant's own active key (above). The production checks are the **default**: the certificate is also not self-signed, the
 chain ends in the agreed CA (`--trust-anchor`) and the leaf carries the tenant's `organizationIdentifier`
 (`--expected-org-id`); both are mandatory and are checked whenever they are given. `--non-production` (`OWN_KEY_NON_PRODUCTION`) is for local and STG environments only: it accepts a self-signed certificate, a missing trust anchor and organization id, a missing key policy and `--kms-endpoint` (which is rejected without it). `prepare` stores a summary of its policy in the state file (production yes/no, SHA-256 of the trust anchor, organization id) and `import` rejects (`PolicyDenied`) a policy laxer than or different from it.
+
+## Local environments
+
+Keys onboarded before M1 (for example with the bash tool `local-onboard-cgcom.sh`) have no `Tenant` tag, and the Issuer
+refuses to sign with a KMS key that is not tagged for the request tenant. Tag them, or onboard them again with this tool:
+
+```bash
+awslocal kms tag-resource --key-id <id> --tags TagKey=Tenant,TagValue=<tenant>
+```
 
 ## Launching it
 
@@ -92,8 +101,21 @@ Arguments or environment variables; an argument wins. The names of the database 
 | `discard`: state file of the preparation | `--state` | `OWN_KEY_STATE` |
 | `reconcile`: grace period in seconds (default 160) | `--grace-seconds` | `OWN_KEY_GRACE_SECONDS` |
 
-The default alias is `alias/own-key-<tenant>-<operationId>`. The key policy is the KMS default until Infra defines
-a fixed one; it is injected through the constructor of `AwsKmsKeyAdministrationAdapter`.
+The default alias is `alias/own-key-<tenant>-<operationId>`.
+
+**Key policy.** `prepare` passes the JSON of `--key-policy` (`OWN_KEY_KEY_POLICY`) to `CreateKey`. In production mode
+(the default) it refuses to create a key without it, so the key never gets the KMS default policy, which delegates
+everything to the IAM of the account. With `--non-production` and no policy it logs a warning and uses the KMS default
+policy. Infra owns the content of the policy; the tool only checks that the file is JSON. `--dry-run` creates no key and
+needs none.
+
+**State file.** `prepare` stores, next to the key and the certificate, a summary of its policy (production yes/no,
+SHA-256 of the trust anchor, organization id). A successful `import` marks the state `importedAt`: it is consumed and
+`import` refuses it afterwards, before any call to KMS. Where the file system is POSIX the output directory `prepare` creates is
+`0700` and every file `0600` (on Windows the defaults of the file system apply); the state file is rewritten through a
+temporary file and an atomic move; and the token file the state names must be a plain file name starting with
+`own-key-<tenant>-<operationId>`, otherwise it is not read. The tenant id `unknown` is refused: the Issuer takes it for a
+request without tenant.
 
 ## Exit codes
 
@@ -108,14 +130,24 @@ Results go to stdout; logs and errors to stderr.
 
 ## Audit
 
-Each created or replaced configuration, and each rejected onboarding, produces a `SigningConfigurationChanged`
-event (EUD-244 catalogue: `operation` Create or Replace, previous and new modality, certificate fingerprint, result
+Each created or replaced configuration, each key retired by `reconcile` and each rejected onboarding or discard produces a
+`SigningConfigurationChanged` event (EUD-244 catalogue: `operation` Create, Replace or Retire, previous and new modality, certificate fingerprint, result
 and, if rejected, reason `PolicyDenied`, `InvalidKey`, `InvalidCertificate` or `KeyInUse`; actor = the caller ARN;
 duration). A rejection because the tenant is not in `public.tenant_registry` or is not active is audited like any other, with the tenant id as given (the audit API keeps the events of an unknown tenant as rejected events of its own), and also leaves a warn log line. The event is staged in the same transaction as the change; a rejection is recorded in a transaction of its
 own. Until the outbox of EUD-244 exists, `LoggingSigningConfigurationAuditSink` writes it as a JSON line to the
 logger `es.in2.issuer.backend.signing.onboarding.audit` after the commit. The event holds no secrets and no key
 ARN. To use the outbox, implement `SigningConfigurationAuditSink.stage` (an insert on the given connection, or the
 EUD-244 starter); nothing else changes.
+
+`Retire` (by `reconcile`): `Success` when the key was disabled and its deletion scheduled (or was already), `Denied` with
+`KeyInUse` when an active configuration references the key and it is left alone, `Failure` (recorded in its own transaction,
+reason `OperationFailed` in the outbox) when it could not be retired. It has no new modality and no certificate; the
+correlation id is the id of the withdrawn configuration. A refused `discard` is a `Retire` with `Denied`. No event holds a key
+ARN.
+
+**With the `log` sink the audit trail is not acceptable for production.** It is a log line written after the commit,
+with no guarantee of delivery or retention. Until the outbox sink is active (below), do not use the tool in production for
+anything that must be auditable.
 
 `activated_by` and `withdrawn_by` hold the caller ARN from STS `GetCallerIdentity`, never free text.
 

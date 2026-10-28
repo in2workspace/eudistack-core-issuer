@@ -28,6 +28,7 @@ import static es.in2.issuer.backend.signing.infrastructure.onboarding.Onboarding
 import static es.in2.issuer.backend.signing.infrastructure.onboarding.OnboardingTestDatabase.query;
 import static es.in2.issuer.backend.signing.infrastructure.onboarding.OnboardingTestDatabase.scalar;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** {@link JdbcOwnKeyStore} against a real Postgres with the real migrations of the Issuer. */
@@ -231,18 +232,39 @@ class JdbcOwnKeyStoreIT {
     }
 
     @Test
-    void replacement_ofAnOwnKeyConfiguration_withdrawsItAndDeletesItsReservation() {
-        UUID previous = insertOwnKey("cgcom", "active", "arn:aws:kms:eu-west-1:000000000000:key/old", null, null);
+    void replacement_ofAnOwnKeyConfiguration_withdrawsItAndKeepsItsReservationUntilItsKeyIsRetired() {
+        String oldKey = "arn:aws:kms:eu-west-1:000000000000:key/old";
+        UUID previous = insertOwnKey("cgcom", "active", oldKey, null, null);
         reserve(OTHER_SPKI, "cgcom", previous);
 
         UUID created = replaceActive("cgcom", SPKI);
 
         assertThat(scalar("SELECT status FROM cgcom_issuer.tenant_signing_config WHERE id = ?", previous))
                 .isEqualTo("withdrawn");
-        assertThat(scalar("SELECT count(*) FROM public.signing_spki_reservation WHERE public_key_spki_sha256 = ?",
-                (Object) OTHER_SPKI)).isEqualTo(0L);
+        assertThat(scalar("SELECT signing_configuration_id FROM public.signing_spki_reservation "
+                + "WHERE public_key_spki_sha256 = ?", (Object) OTHER_SPKI)).isEqualTo(previous);
         assertThat(scalar("SELECT signing_configuration_id FROM public.signing_spki_reservation "
                 + "WHERE public_key_spki_sha256 = ?", (Object) SPKI)).isEqualTo(created);
+        // the replaced key still exists in KMS: the same public key cannot go to another tenant yet
+        assertThatThrownBy(() -> store.inTransaction(tx -> {
+            tx.reserveSpki(OTHER_SPKI, "kpmg", UUID.randomUUID());
+            return null;
+        })).isInstanceOfSatisfying(OnboardingRejectedException.class,
+                e -> assertThat(e.getReason()).isEqualTo(RejectionReason.KEY_IN_USE));
+
+        store.inTransaction(tx -> {
+            tx.markKeyRetired("cgcom", new WithdrawnOwnKey(previous, "cgcom", oldKey));
+            return null;
+        });
+
+        assertThat(scalar("SELECT count(*) FROM public.signing_spki_reservation WHERE public_key_spki_sha256 = ?",
+                (Object) OTHER_SPKI)).isEqualTo(0L);
+        assertThat(scalar("SELECT count(*) FROM public.signing_spki_reservation WHERE public_key_spki_sha256 = ?",
+                (Object) SPKI)).isEqualTo(1L);
+        assertThatCode(() -> store.inTransaction(tx -> {
+            tx.reserveSpki(OTHER_SPKI, "kpmg", UUID.randomUUID());
+            return null;
+        })).doesNotThrowAnyException();
     }
 
     @Test

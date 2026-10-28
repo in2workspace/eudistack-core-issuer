@@ -183,6 +183,7 @@ final class OnboardingFakes {
             committedOperations.addAll(transaction.operations);
             committedEvents.addAll(transaction.events);
             retired.addAll(transaction.retired);
+            reservations.values().removeIf(reservation -> transaction.retired.contains(reservation.configurationId()));
             return result;
         }
 
@@ -199,7 +200,6 @@ final class OnboardingFakes {
             private final List<String> operations = new ArrayList<>();
             private final List<SigningConfigurationChanged> events = new ArrayList<>();
             private final Set<UUID> retired = new HashSet<>();
-            private final Set<UUID> withdrawnIds = new HashSet<>();
 
             @Override
             public Optional<ActiveConfiguration> lockActiveConfiguration(String tenantId) {
@@ -210,7 +210,6 @@ final class OnboardingFakes {
             @Override
             public void withdraw(String tenantId, ActiveConfiguration configuration, String withdrawnBy) {
                 operations.add("withdraw:" + configuration.modality() + ":" + withdrawnBy);
-                withdrawnIds.add(configuration.id());
             }
 
             @Override
@@ -223,7 +222,7 @@ final class OnboardingFakes {
             public void reserveSpki(byte[] spkiSha256, String tenantId, UUID configurationId) {
                 String hash = HexFormat.of().formatHex(spkiSha256);
                 var existing = reservations.get(hash);
-                if (existing != null && !withdrawnIds.contains(existing.configurationId())) {
+                if (existing != null && !retired.contains(existing.configurationId())) {
                     throw new OnboardingRejectedException(RejectionReason.KEY_IN_USE, "reserved in the meantime");
                 }
                 operations.add("reserve:" + tenantId);
@@ -249,6 +248,7 @@ final class OnboardingFakes {
             @Override
             public void markKeyRetired(String tenantId, WithdrawnOwnKey key) {
                 operations.add("markHandled:" + key.kmsKeyRef());
+                // marking a row handled releases the reservation of its configuration
                 retired.add(key.id());
             }
 

@@ -3,25 +3,31 @@ package es.in2.issuer.backend.signing.domain.onboarding;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFakes.FakeKms;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingFakes.FakeStore;
 import es.in2.issuer.backend.signing.domain.spi.KmsKeyAdministrationPort.KeyState;
+import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.RegisteredTenant;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyStorePort.WithdrawnOwnKey;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class OwnKeyReconcilerTest {
 
+    private static final String CALLER = "arn:aws:iam::000000000000:role/operation";
     private static final Duration GRACE = Duration.ofSeconds(160);
     private static final String KEY_A = "arn:aws:kms:eu-west-1:000000000000:key/aaaa";
     private static final String KEY_B = "arn:aws:kms:eu-west-1:000000000000:key/bbbb";
 
     private final FakeKms kms = new FakeKms();
     private final FakeStore store = new FakeStore();
-    private final OwnKeyReconciler reconciler = new OwnKeyReconciler(kms, store, 7);
+    private final OwnKeyReconciler reconciler = new OwnKeyReconciler(kms, store, () -> CALLER,
+            Clock.fixed(Instant.parse("2026-10-28T10:00:00Z"), ZoneOffset.UTC), 7);
 
     @BeforeEach
     void setUp() {
@@ -195,5 +201,71 @@ class OwnKeyReconcilerTest {
         assertThat(store.retired).isEmpty();
         assertThat(store.transactions).isZero();
         assertThat(report.retired()).isEqualTo(1);
+    }
+
+    @Test
+    void reconcile_retiredKey_leavesARetireSuccessEventWithTheCallerAndNoKeyReference() {
+        var row = withdrawn("cgcom", KEY_A);
+
+        reconciler.reconcile(GRACE, false);
+
+        assertThat(store.committedEvents).singleElement().satisfies(event -> {
+            assertThat(event.operation()).isEqualTo(SigningConfigurationChanged.Operation.RETIRE);
+            assertThat(event.result()).isEqualTo(SigningConfigurationChanged.Result.SUCCESS);
+            assertThat(event.tenant()).isEqualTo("cgcom");
+            assertThat(event.actor()).isEqualTo(CALLER);
+            assertThat(event.correlationId()).isEqualTo(row.id().toString());
+            assertThat(event.toString()).doesNotContain(KEY_A);
+        });
+    }
+
+    @Test
+    void reconcile_keyStillReferencedByAnActiveConfiguration_leavesARetireDeniedEvent() {
+        withdrawn("cgcom", KEY_A);
+        store.activeKeyRefs.add(KEY_A);
+
+        reconciler.reconcile(GRACE, false);
+
+        assertThat(store.committedEvents).singleElement().satisfies(event -> {
+            assertThat(event.result()).isEqualTo(SigningConfigurationChanged.Result.DENIED);
+            assertThat(event.reason()).isEqualTo(RejectionReason.KEY_IN_USE);
+        });
+    }
+
+    @Test
+    void reconcile_failureOnAKey_recordsARetireFailureEventInATransactionOfItsOwn() {
+        var failing = withdrawn("cgcom", KEY_A);
+        kms.states.put(KEY_A, KeyState.OTHER);
+
+        reconciler.reconcile(GRACE, false);
+
+        assertThat(store.committedEvents).isEmpty();
+        assertThat(store.eventsInOwnTransaction).singleElement().satisfies(event -> {
+            assertThat(event.operation()).isEqualTo(SigningConfigurationChanged.Operation.RETIRE);
+            assertThat(event.result()).isEqualTo(SigningConfigurationChanged.Result.FAILURE);
+            assertThat(event.actor()).isEqualTo(CALLER);
+            assertThat(event.correlationId()).isEqualTo(failing.id().toString());
+        });
+    }
+
+    @Test
+    void reconcile_dryRun_recordsNoEvent() {
+        withdrawn("cgcom", KEY_A);
+
+        reconciler.reconcile(GRACE, true);
+
+        assertThat(store.committedEvents).isEmpty();
+        assertThat(store.eventsInOwnTransaction).isEmpty();
+    }
+
+    @Test
+    void reconcile_retiredKey_releasesTheSpkiReservationOfItsRow() {
+        var row = withdrawn("cgcom", KEY_A);
+        store.reservations.put("ab".repeat(32), new OwnKeyStorePort.SpkiReservation("cgcom", row.id()));
+        store.reservations.put("cd".repeat(32), new OwnKeyStorePort.SpkiReservation("cgcom", UUID.randomUUID()));
+
+        reconciler.reconcile(GRACE, false);
+
+        assertThat(store.reservations).containsOnlyKeys("cd".repeat(32));
     }
 }
