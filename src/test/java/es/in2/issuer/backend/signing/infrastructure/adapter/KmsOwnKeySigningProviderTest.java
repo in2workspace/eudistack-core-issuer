@@ -86,18 +86,13 @@ class KmsOwnKeySigningProviderTest {
 
     private FakeKms kms;
     private KmsOwnKeySigningProvider provider;
+    private final Logger providerLogger = (Logger) LoggerFactory.getLogger(KmsOwnKeySigningProvider.class);
+    private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
 
     @BeforeEach
     void setUp() {
         kms = new FakeKms(PKI.validP256Leaf().keyPair());
         provider = providerWith(kms, NOW);
-    }
-
-    private final Logger providerLogger = (Logger) LoggerFactory.getLogger(KmsOwnKeySigningProvider.class);
-    private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
-
-    @BeforeEach
-    void attachAppender() {
         logs.start();
         providerLogger.addAppender(logs);
     }
