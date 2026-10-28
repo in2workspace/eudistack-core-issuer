@@ -441,7 +441,7 @@ class OwnKeyOnboardingTest {
         var prepared = prepared();
         var tampered = new PreparedOnboarding(prepared.operationId(), prepared.tenant(), prepared.keyArn(),
                 prepared.alias(), prepared.certificateChain(), "00".repeat(32), prepared.createdAt(),
-                prepared.importTokenExpiresAt());
+                prepared.importTokenExpiresAt(), false, null, null, prepared.policy());
 
         assertThatThrownBy(() -> onboarding.importKey(importCommand(tampered, false)))
                 .isInstanceOf(OnboardingFailedException.class)

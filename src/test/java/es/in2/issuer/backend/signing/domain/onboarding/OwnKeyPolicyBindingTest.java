@@ -119,15 +119,32 @@ class OwnKeyPolicyBindingTest {
         assertThat(onboarding.importKey(importWith(prepared, production())).configurationId()).isNotNull();
     }
 
-    @Test
-    void importKey_stateWithoutAPolicy_isTakenAsTheLaxestOne() throws Exception {
+    private PreparedOnboarding withoutPolicy() throws Exception {
         var prepared = prepareWith(production());
-        var withoutPolicy = new PreparedOnboarding(prepared.operationId(), prepared.tenant(), prepared.keyArn(),
+        return new PreparedOnboarding(prepared.operationId(), prepared.tenant(), prepared.keyArn(),
                 prepared.alias(), prepared.certificateChain(), prepared.spkiSha256(), prepared.createdAt(),
                 prepared.importTokenExpiresAt());
+    }
 
-        assertThat(onboarding.importKey(importWith(withoutPolicy, OnboardingPolicy.nonProduction()))
-                .configurationId()).isNotNull();
+    @Test
+    void importKey_stateWithoutAPolicyAndWithoutTheProductionChecks_isTakenAsProductionAndRejected() throws Exception {
+        var withoutPolicy = withoutPolicy();
+
+        assertThatThrownBy(() -> onboarding.importKey(importWith(withoutPolicy, OnboardingPolicy.nonProduction())))
+                .isInstanceOfSatisfying(OnboardingRejectedException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(RejectionReason.POLICY_DENIED);
+                    assertThat(e.getMessage()).contains("no policy summary").contains("production checks");
+                });
+
+        assertTheKeyOfThePreparationWasLeftAlone();
+        assertThat(store.eventsInOwnTransaction).hasSize(1);
+    }
+
+    @Test
+    void importKey_stateWithoutAPolicyWithTheProductionChecks_isAccepted() throws Exception {
+        var withoutPolicy = withoutPolicy();
+
+        assertThat(onboarding.importKey(importWith(withoutPolicy, production())).configurationId()).isNotNull();
     }
 
     @Test

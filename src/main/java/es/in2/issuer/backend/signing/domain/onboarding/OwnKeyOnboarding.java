@@ -295,13 +295,14 @@ public class OwnKeyOnboarding {
     /**
      * The checks that {@code prepare} ran with are the ones the tenant's certificate was accepted under: {@code import}
      * must not run with laxer or different ones. The key of the preparation is left as it is, so that the operator can
-     * repeat the import with the right policy.
+     * repeat the import with the right policy. A state without a policy summary (an old one, or one edited by hand) says
+     * nothing about the checks it was prepared with, so it counts as prepared with the strictest ones: production.
      */
     private void requireNoLaxerPolicyThanPrepare(PreparedOnboarding prepared, ImportCommand command, Attempt attempt) {
-        if (prepared.policy() == null) {
-            return;
-        }
-        String problem = prepared.policy().whyNotCoveredBy(command.policy().summary());
+        String problem = prepared.policy() == null
+                ? (command.policy().production() ? null : "the state has no policy summary, so it counts as prepared "
+                        + "with the production checks, and import runs without them")
+                : prepared.policy().whyNotCoveredBy(command.policy().summary());
         if (problem == null) {
             return;
         }
