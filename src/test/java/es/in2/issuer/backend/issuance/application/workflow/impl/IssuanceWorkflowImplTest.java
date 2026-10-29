@@ -337,6 +337,7 @@ class IssuanceWorkflowImplTest {
                 .verifyComplete();
 
         verifyNoInteractions(issuancePdpService);
+        assertEquals(List.of("issuer-bootstrap"), auditTrail.systemScopes());
     }
 
     // --- New tests ---

@@ -71,6 +71,8 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private static final String DEFAULT_DELIVERY = "email";
+    /** The bootstrap endpoint carries no caller, so what it issues is audited as done by the Issuer itself. */
+    private static final String BOOTSTRAP_ACTOR = "issuer-bootstrap";
 
     private final IssuanceService issuanceService;
     private final CredentialOfferService credentialOfferService;
@@ -197,10 +199,10 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         String delivery = request.delivery() != null ? request.delivery() : DEFAULT_DELIVERY;
 
-        return Mono.fromCallable(() -> keepOnlyOid4vciDeliveryModes(delivery))
+        return auditTrail.asSystem(BOOTSTRAP_ACTOR, Mono.fromCallable(() -> keepOnlyOid4vciDeliveryModes(delivery))
                 .flatMap(safeDelivery -> validateRequest(request, null)
                         .then(Mono.defer(() -> payloadSchemaValidator.validate(request.credentialConfigurationId(), request.payload())))
-                        .then(Mono.defer(() -> performIssuanceFlow(processId, request, token, publicIssuerBaseUrl, safeDelivery))));
+                        .then(Mono.defer(() -> performIssuanceFlow(processId, request, token, publicIssuerBaseUrl, safeDelivery)))));
     }
 
     private Mono<Void> validateRequest(IssuanceRequest request, String idToken) {

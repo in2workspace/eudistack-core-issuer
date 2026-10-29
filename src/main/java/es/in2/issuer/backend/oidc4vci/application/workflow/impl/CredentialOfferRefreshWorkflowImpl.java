@@ -43,7 +43,7 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
                             ? issuance.getGrantType()
                             : AUTHORIZATION_CODE;
                     String issuanceId = issuance.getIssuanceId().toString();
-                    return auditTrail.withCorrelationId(issuanceId,
+                    return auditTrail.asHolder(issuanceId,
                             credentialOfferService.createAndDeliverCredentialOffer(
                                             issuanceId,
                                             issuance.getCredentialType(),

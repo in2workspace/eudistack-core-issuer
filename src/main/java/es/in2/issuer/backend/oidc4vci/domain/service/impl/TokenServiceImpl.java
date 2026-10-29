@@ -171,7 +171,7 @@ public class TokenServiceImpl implements TokenService {
                         return Mono.empty();
                     }
                     log.warn("Invalid tx_code for pre-authorized code");
-                    return auditTrail.withCorrelationId(data.issuanceId(), auditTrail.stageBestEffort(
+                    return auditTrail.asHolder(data.issuanceId(), auditTrail.stageBestEffort(
                                     IssuanceAuditEvents.attemptFailed(data.issuanceId(), "InvalidTransactionCode",
                                             null, null, null)))
                             .then(Mono.error(OAuthTokenException.invalidGrant("Invalid tx code")));
