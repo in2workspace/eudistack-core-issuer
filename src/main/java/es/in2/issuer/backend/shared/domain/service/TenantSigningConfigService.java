@@ -17,14 +17,14 @@ public interface TenantSigningConfigService {
      * row is corrupt.
      *
      * <p>Within a {@code SigningConfigScope}, every read after the first returns the configuration of
-     * the first one (EUD-289 M4).
+     * the first one.
      */
     Mono<ActiveSigningConfig> getActiveSigningConfig();
 
     /**
      * Like {@link #getActiveSigningConfig()}, but discards this instance's cached configuration of the
      * current tenant first, so the row is read again. For a cached configuration that has stopped
-     * working, e.g. an own key disabled in KMS when it was replaced or withdrawn (EUD-289 D-3).
+     * working, e.g. an own key disabled in KMS when it was replaced or withdrawn.
      *
      * <p>Within a {@code SigningConfigScope}, if the row read again differs from the configuration the
      * request already used, it fails with {@code SigningConfigurationChangedException} and the scope

@@ -344,7 +344,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         StatusListFormat statusFormat = DC_SD_JWT.equals(credentialFormat)
                 ? StatusListFormat.TOKEN_JWT : StatusListFormat.BITSTRING_VC;
 
-        // Steps 1 to 4 use one signing configuration (EUD-289 M4): if it changes between bindIssuer and the
+        // Steps 1 to 4 use one signing configuration: if it changes between bindIssuer and the
         // signature, the scope runs them again. That is safe: bindIssuer starts again from the persisted
         // dataSet, the status list entry is keyed by issuanceId (see ISSUABLE_STATUSES), and step 3 overwrites
         // the dataSet cached by the first run, which carried the old certificate's issuer.

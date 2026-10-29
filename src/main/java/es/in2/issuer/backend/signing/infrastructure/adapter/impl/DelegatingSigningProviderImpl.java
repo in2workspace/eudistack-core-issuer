@@ -38,7 +38,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  * management service (future EUDI-090).
  *
  * <p>This is the single choke point of signing: every attempt, for either modality, is recorded
- * through {@link SigningAuditor} (EUD-289 AC-19), including those that fail before a configuration
+ * through {@link SigningAuditor}, including those that fail before a configuration
  * is resolved (modality and provider then read {@code unknown}).
  */
 @Slf4j
@@ -75,7 +75,7 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
 
     /**
      * An own key that KMS no longer lets sign. When a key is replaced or withdrawn it is disabled in
-     * KMS at once (EUD-289 D-3), while this instance may still hold the old configuration in cache.
+     * KMS at once, while this instance may still hold the old configuration in cache.
      */
     private static boolean isDisabledOwnKey(ActiveSigningConfig config, Throwable error) {
         return config.modality() == SigningModality.OWN_KEY
@@ -88,7 +88,7 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
      *
      * <p>Within a {@code SigningConfigScope} the payload was built with the old configuration, so a
      * replacement is not signed here: the reload fails with {@code SigningConfigurationChangedException}
-     * and the scope runs the request again with the new one (EUD-289 M4).
+     * and the scope runs the request again with the new one.
      */
     private Mono<SigningResult> reloadAndSign(SigningRequest request, AtomicReference<ActiveSigningConfig> resolved) {
         log.info("Own key not usable, reloading the signing configuration");
@@ -123,7 +123,7 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
     }
 
     /**
-     * Coarse reason for QTSP-path failures (EUD-289 D-7): a reason already carried in the cause
+     * Coarse reason for QTSP-path failures: a reason already carried in the cause
      * chain is kept; otherwise a recoverable (transient) failure is {@code PROVIDER_UNAVAILABLE}.
      * Anything else stays as it is and reads as {@code OTHER}.
      */

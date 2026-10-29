@@ -469,7 +469,7 @@ class OwnKeyOnboardingIT {
     }
 
     private void assertSignatureVerifies(String keyArn, PublicKey publicKey) throws Exception {
-        byte[] message = "EUD-289 onboarding test".getBytes(StandardCharsets.UTF_8);
+        byte[] message = "own-key onboarding test".getBytes(StandardCharsets.UTF_8);
         byte[] signature = kms.sign(SignRequest.builder().keyId(keyArn).message(SdkBytes.fromByteArray(message))
                         .messageType(MessageType.RAW).signingAlgorithm(SigningAlgorithmSpec.ECDSA_SHA_256).build())
                 .get().signature().asByteArray();

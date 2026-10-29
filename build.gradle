@@ -69,7 +69,7 @@ dependencies {
     implementation 'com.nimbusds:oauth2-oidc-sdk:11.21.1'
     implementation 'org.bouncycastle:bcprov-jdk18on:1.84'
 
-    // --- AWS KMS (EUD-289: own-key signing; async Netty client only, so the Apache sync client is excluded) ---
+    // --- AWS KMS (own-key signing; async Netty client only, so the Apache sync client is excluded) ---
     implementation platform('software.amazon.awssdk:bom:2.55.12')
     implementation('software.amazon.awssdk:kms') {
         exclude group: 'software.amazon.awssdk', module: 'apache-client'
@@ -140,9 +140,9 @@ dependencies {
     testImplementation 'org.awaitility:awaitility'
 }
 
-// --- Opt-in: outbox audit sink of the onboarding tool (EUD-289, EUD-244 starter) ---
+// --- Opt-in: outbox audit sink of the onboarding tool (EUD-244 starter) ---
 // Off by default: without -PauditStarter the build has no extra repository, no dependency and no extra source,
-// and does not need GitHub Packages. To switch it on for good, drop the condition (docs/own-key-onboarding-tool.md).
+// and does not need GitHub Packages. To switch it on for good, drop the condition.
 // Until the starter can be resolved in CI and in the Docker build, use a copy built locally:
 //   git clone --branch v0.1.0 https://github.com/in2workspace/eudistack-platform-audit-starter && ./gradlew publishToMavenLocal
 if (project.hasProperty('auditStarter')) {

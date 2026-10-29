@@ -78,7 +78,7 @@ public class TenantSchemaFlywayMigrator implements ApplicationRunner {
     }
 
     /**
-     * The Issuer's own objects in {@code public} (EUD-289: {@code signing_spki_reservation}). Their
+     * The Issuer's own objects in {@code public} ({@code signing_spki_reservation}). Their
      * history table is not {@code flyway_schema_history}, so nothing else in {@code public}
      * (provisioned by the platform) can collide with it. {@code public} is never empty
      * ({@code tenant_registry} lives there), so the first run needs {@code baselineOnMigrate};

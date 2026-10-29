@@ -362,7 +362,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
 
     // --- Signing ---
 
-    // The issuer of the list and its signature come from the same signing configuration (EUD-289 M4).
+    // The issuer of the list and its signature come from the same signing configuration.
     private Mono<String> getIssuerAndSignCredential(StatusList saved, String token, String publicIssuerBaseUrl) {
         return SigningConfigScope.run(() -> issueAndSign(saved, token, publicIssuerBaseUrl));
     }

@@ -24,7 +24,7 @@ import java.util.concurrent.TimeoutException;
 
 /**
  * Classifies KMS failures into a {@link SigningFailureReason} and decides which are worth
- * retrying (AC-10, ES-01). Lives in infrastructure because it inspects AWS SDK types.
+ * retrying. Lives in infrastructure because it inspects AWS SDK types.
  *
  * <p>Like {@code QtspRetryPolicy}, it walks the whole cause chain: the first cause that
  * matches a known case decides. An {@code SdkClientException} is only treated as

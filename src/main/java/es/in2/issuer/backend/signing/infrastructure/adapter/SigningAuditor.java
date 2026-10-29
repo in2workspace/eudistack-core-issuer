@@ -10,7 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Records signing attempts in the audit trail (EUD-289 AC-19), through {@link AuditService}.
+ * Records signing attempts in the audit trail, through {@link AuditService}.
  *
  * <p>Every attempt carries tenant, object, modality, provider, outcome, reason (failures) and
  * duration. It never carries the payload, the JWS, tokens, the KMS key reference, digests, e-mail or
@@ -18,7 +18,7 @@ import java.util.Map;
  * {@code SigningFailureReason} name, never an exception message.
  *
  * <p>Out of scope here: audit of configuration changes (alta, sustitución, retirada, alta rechazada).
- * Those operations are performed by the onboarding tool (EUD-289 task B8), not by the Issuer, so the
+ * Those operations are performed by the onboarding tool, not by the Issuer, so the
  * Issuer cannot record them.
  *
  * <p>Best-effort: a failure of the audit channel is logged and never reaches the signing flow.

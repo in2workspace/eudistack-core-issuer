@@ -201,7 +201,7 @@ class Oid4VciCredentialWorkflowImplTest {
         verify(credentialIssuedLogger, never()).logFailed(any(), any());
     }
 
-    /** EUD-289 M4: the signing configuration changed after bindIssuer, so the issuer is bound again. */
+    /** The signing configuration changed after bindIssuer, so the issuer is bound again. */
     @Test
     void createCredentialResponse_signingConfigurationChanges_bindsTheIssuerAgainAndSignsOnce() {
         Issuance issuance = buildProcedure(JWT_VC_JSON);

@@ -41,7 +41,7 @@ import static org.mockito.Mockito.verify;
 
 /**
  * Signing path against LocalStack. LocalStack proves the KMS API path only; it does not model
- * AWS validations, limits or IAM (notas-tecnicas §6), and it cannot inject delays or throttling.
+ * AWS validations, limits or IAM, and it cannot inject delays or throttling.
  */
 @Testcontainers
 class KmsSigningAdapterIT {

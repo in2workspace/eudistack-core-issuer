@@ -64,7 +64,7 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
         }
         this.repository = repository;
         // EUD-251 design AD-5: during the TTL (5 min by default) an instance can keep using a replaced
-        // or withdrawn configuration. Accepted deviation from AC-15 and EC-02, see the design §16.
+        // or withdrawn configuration. Accepted deviation, see the design §16.
         this.configCache = Caffeine.newBuilder()
                 .expireAfterWrite(configCacheTtl)
                 .ticker(ticker)
@@ -93,7 +93,7 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
     /**
      * Within a {@link SigningConfigScope}, a reload that finds another configuration than the one the
      * request already used fails with {@link SigningConfigurationChangedException}, so the scope runs the
-     * request again instead of signing with a configuration its payload does not match (EUD-289 M4).
+     * request again instead of signing with a configuration its payload does not match.
      */
     @Override
     public Mono<ActiveSigningConfig> reloadActiveSigningConfig() {

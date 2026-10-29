@@ -609,7 +609,7 @@ class IssuanceWorkflowImplTest {
         verify(credentialIssuedLogger, never()).logFailed(any(), any());
     }
 
-    /** EUD-289 M4: the signing configuration changed after bindIssuer, so the issuer is bound again. */
+    /** The signing configuration changed after bindIssuer, so the issuer is bound again. */
     @Test
     void directDeliveryWhoseSigningConfigurationChanges_bindsTheIssuerAgainAndSignsOnce() {
         JsonNode payload = new ObjectMapper().createObjectNode();

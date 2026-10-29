@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * EUD-289: proves {@code db/public/V1__signing_spki_reservation.sql} and the public-schema step of
+ * Proves {@code db/public/V1__signing_spki_reservation.sql} and the public-schema step of
  * {@link TenantSchemaFlywayMigrator} against a real Postgres. The application has already started,
  * so the migrator has run once on a {@code public} schema that was not empty: it held
  * {@code tenant_registry} from the Testcontainers init script.

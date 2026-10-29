@@ -36,7 +36,7 @@ import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /**
- * Onboarding of a tenant's own key in KMS (EUD-289 B8), in two executions because the customer wraps its
+ * Onboarding of a tenant's own key in KMS, in two executions because the customer wraps its
  * private key with a public key that only KMS can give once the key exists:
  *
  * <ol>

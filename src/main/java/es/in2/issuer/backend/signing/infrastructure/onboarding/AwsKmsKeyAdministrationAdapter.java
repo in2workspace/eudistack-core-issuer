@@ -48,7 +48,7 @@ import java.util.function.Supplier;
  */
 public class AwsKmsKeyAdministrationAdapter implements KmsKeyAdministrationPort {
 
-    /** Tag the Issuer checks before signing: its value is the tenant the key belongs to (M1). */
+    /** Tag the Issuer checks before signing: its value is the tenant the key belongs to. */
     static final String TENANT_TAG_KEY = "Tenant";
     static final String OPERATION_ID_TAG_KEY = "operationId";
 

@@ -330,7 +330,7 @@ class TenantSigningConfigServiceImplTest {
         verify(repository, times(2)).findFirstByStatusOrderByCreatedAtDesc("active");
     }
 
-    // --- One configuration per request (EUD-289 M4) ---
+    // --- One configuration per request ---
 
     private static <T> Mono<T> inTenant(Mono<T> mono, String tenant) {
         return mono.contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant));

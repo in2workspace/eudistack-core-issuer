@@ -1,6 +1,6 @@
 -- =============================================================================
 -- V15__tenant_signing_config_modality_and_own_key.sql
--- EUD-289: adds the signing modality (QTSP or own key in AWS KMS), the lifecycle
+-- Adds the signing modality (QTSP or own key in AWS KMS), the lifecycle
 -- status and the own-key metadata block to tenant_signing_config (same table,
 -- no separate own_key table).
 --

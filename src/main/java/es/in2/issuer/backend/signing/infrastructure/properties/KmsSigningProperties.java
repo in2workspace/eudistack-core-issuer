@@ -8,7 +8,7 @@ import java.time.Duration;
 import java.util.Objects;
 
 /**
- * KMS own-key signing settings (EUD-289). Disabled by default; {@code endpoint} is only for
+ * KMS own-key signing settings. Disabled by default; {@code endpoint} is only for
  * emulators such as LocalStack.
  */
 @ConfigurationProperties(prefix = "issuer.signing.kms")

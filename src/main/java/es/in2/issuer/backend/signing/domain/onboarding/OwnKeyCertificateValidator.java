@@ -16,8 +16,8 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * The checks an own-key certificate chain must pass before anything is created in KMS (PRD §3.3, AC-12,
- * AC-13). Every failure is an {@link OnboardingRejectedException} with its reason. Nothing here touches
+ * The checks an own-key certificate chain must pass before anything is created in KMS (PRD §3.3).
+ * Every failure is an {@link OnboardingRejectedException} with its reason. Nothing here touches
  * KMS or the database; the checks that need them (tenant, reserved SPKI) are made by
  * {@link OwnKeyOnboarding}.
  *

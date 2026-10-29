@@ -10,7 +10,7 @@ import java.util.List;
  * KMS key when the configuration is loaded, and it travels with the configuration in the cache so
  * that it is not read on every signature. Being part of the record, it takes part in equality: a
  * configuration reloaded with another tag (the key was re-tagged) is not the one a request already
- * used, which the signing configuration scope handles as any other configuration change (EUD-289 M4).
+ * used, which the signing configuration scope handles as any other configuration change.
  *
  * @param kmsKeyRef         KMS key identifier (ARN)
  * @param algorithm         JWS algorithm of the key; only {@value #ES256} is supported

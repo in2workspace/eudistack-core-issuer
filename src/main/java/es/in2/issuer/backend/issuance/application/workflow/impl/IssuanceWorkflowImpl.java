@@ -460,7 +460,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                           Map<String, Object> cnf) {
         UUID issuanceId = UUID.randomUUID();
 
-        // bindIssuer and the signature use the same signing configuration (EUD-289 M4). If it changes in
+        // bindIssuer and the signature use the same signing configuration. If it changes in
         // between, the scope runs issueDirectly again with the same issuanceId: a failure before the save
         // releases the status list entry, and the credential built the first time never left the Issuer.
         return SigningConfigScope.run(() ->

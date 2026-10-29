@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /**
- * One signing configuration per request (EUD-289 M4). A request reads the tenant's configuration twice:
+ * One signing configuration per request. A request reads the tenant's configuration twice:
  * to put the issuer in the payload ({@code IssuerFactory}) and to sign it. Within {@link #run} the first
  * read is kept in the Reactor context and the second one reuses it, so the payload and the signature
  * always come from the same certificate.

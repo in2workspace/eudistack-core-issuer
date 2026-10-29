@@ -146,7 +146,7 @@ public final class OnboardingCli {
             Opt.DELETION_WINDOW_DAYS, Opt.DRY_RUN, Opt.AUDIT_SINK, Opt.NON_PRODUCTION, Opt.EXPECTED_AWS_ACCOUNT);
 
     private static final String HELP = """
-            Own-key onboarding tool (EUD-289): puts a tenant's own signing key, held in AWS KMS, into service.
+            Own-key onboarding tool: puts a tenant's own signing key, held in AWS KMS, into service.
 
             Usage: <launcher> <command> [options]
 

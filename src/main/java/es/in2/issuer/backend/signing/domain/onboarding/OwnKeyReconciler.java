@@ -21,7 +21,7 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
- * Makes KMS reflect what the database says (EUD-289 B8): a withdrawn own-key configuration cannot be
+ * Makes KMS reflect what the database says: a withdrawn own-key configuration cannot be
  * withdrawn in KMS in the same step, so once it has been withdrawn for longer than the grace period its
  * key is disabled and scheduled for deletion. The grace period covers the Issuer instances that still hold
  * the previous configuration in cache.

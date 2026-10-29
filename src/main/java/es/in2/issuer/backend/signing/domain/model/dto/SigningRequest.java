@@ -14,7 +14,7 @@ import lombok.Builder;
  * after reading from {@code tenant_signing_config}. All downstream components
  * (CscPortRouter, IssuerCertificateService, SignDocService)
  * read the tenant's QTSP config from this field instead of a global configuration.
- * {@code ownKey} is the same for the own-key modality (EUD-289): set by
+ * {@code ownKey} is the same for the own-key modality: set by
  * {@link DelegatingSigningProviderImpl} and read by the KMS provider.
  */
 @Builder

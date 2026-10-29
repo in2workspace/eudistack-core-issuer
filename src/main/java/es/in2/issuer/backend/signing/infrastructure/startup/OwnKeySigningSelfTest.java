@@ -34,9 +34,9 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 
 /**
  * Signs a fixed probe for every active own-key tenant once the application is ready, so a key that
- * cannot sign shows up in the logs at startup instead of at the first issuance (EUD-289 AC-18).
+ * cannot sign shows up in the logs at startup instead of at the first issuance.
  *
- * <p>It is purely informative and never prevents or delays startup (NFR-4): it runs on a bounded
+ * <p>It is purely informative and never prevents or delays startup: it runs on a bounded
  * scheduler after {@link ApplicationReadyEvent}, each tenant has a timeout, and every error is
  * swallowed. Unless configured, the timeout covers the worst case of a KMS call with all its
  * retries, so a slow KMS is reported as {@code PROVIDER_UNAVAILABLE} and not cut short. QTSP

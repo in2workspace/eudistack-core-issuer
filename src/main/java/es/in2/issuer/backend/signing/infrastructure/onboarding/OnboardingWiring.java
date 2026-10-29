@@ -100,7 +100,7 @@ public class OnboardingWiring implements OnboardingCli.Wiring {
         } catch (ClassNotFoundException | NoClassDefFoundError _) {
             closeQuietly(toCloseOnFailure);
             throw new OnboardingFailedException("OWN_KEY_AUDIT_SINK=outbox needs the audit starter and this build does "
-                    + "not include it: it was built without -PauditStarter (see docs/own-key-onboarding-tool.md)");
+                    + "not include it: it was built without -PauditStarter");
         } catch (ReflectiveOperationException e) {
             closeQuietly(toCloseOnFailure);
             throw new OnboardingFailedException("the outbox audit sink could not be created", e);

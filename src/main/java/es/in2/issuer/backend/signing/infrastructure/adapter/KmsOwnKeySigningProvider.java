@@ -39,15 +39,15 @@ import java.util.List;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 /**
- * Signs a JAdES JWS with the tenant's own ES256 key held in KMS (EUD-289).
+ * Signs a JAdES JWS with the tenant's own ES256 key held in KMS.
  *
  * <p>Registered in {@code SigningProviderResolver} as {@link SigningProviderType#AWS_KMS}, next to the
  * CSC providers. {@code DelegatingSigningProviderImpl} resolves it for the own-key modality and puts
  * the tenant's own-key configuration in {@link SigningRequest#ownKey()}.
  *
- * <p>No user token is used: the KMS authorizes with the issuer's runtime role (AC-04).
+ * <p>No user token is used: the KMS authorizes with the issuer's runtime role.
  * The returned signature is always verified against the stored leaf certificate first, so a
- * signature the credential's {@code x5c} could not validate is never returned (AC-11).
+ * signature the credential's {@code x5c} could not validate is never returned.
  */
 @Slf4j
 @Service

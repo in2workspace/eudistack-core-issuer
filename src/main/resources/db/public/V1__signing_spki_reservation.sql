@@ -1,6 +1,6 @@
 -- =============================================================================
 -- V1__signing_spki_reservation.sql
--- EUD-289 / EUD-251 AD-10: one public key, one tenant. Reserves the SHA-256 of the
+-- EUD-251 AD-10: one public key, one tenant. Reserves the SHA-256 of the
 -- SubjectPublicKeyInfo (SPKI) of every own-key signing certificate, so the same
 -- key cannot be onboarded for two tenants.
 --

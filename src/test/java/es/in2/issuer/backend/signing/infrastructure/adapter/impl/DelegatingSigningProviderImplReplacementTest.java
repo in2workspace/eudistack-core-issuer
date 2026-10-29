@@ -36,7 +36,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * An own key replaced while this instance still has the old configuration in cache (EUD-289 D-3, M4):
+ * An own key replaced while this instance still has the old configuration in cache:
  * the old key is disabled, so signing with it fails with {@code KEY_UNUSABLE} and the configuration is
  * read again. With the real configuration service, this checks which certificate the payload and the
  * signature end up with, with and without a {@link SigningConfigScope}.

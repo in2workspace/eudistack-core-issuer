@@ -35,7 +35,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-/** Audit trail of signing attempts (EUD-289 AC-19, AC-11), through the real {@link SigningAuditor}. */
+/** Audit trail of signing attempts, through the real {@link SigningAuditor}. */
 class DelegatingSigningProviderImplAuditTest {
 
     private static final String PAYLOAD = "{\"vc\":\"top-secret-payload\"}";

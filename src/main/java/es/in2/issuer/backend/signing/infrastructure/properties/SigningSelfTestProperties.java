@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 import java.time.Duration;
 
 /**
- * Startup signing self-test of own-key tenants (EUD-289 AC-18). {@code enabled} is the kill switch;
+ * Startup signing self-test of own-key tenants. {@code enabled} is the kill switch;
  * {@code tenantTimeout} bounds the probe of each tenant so a slow KMS can never hold anything up.
  * Unset, it is derived from the KMS call timeout and retries (see {@code OwnKeySigningSelfTest}).
  * {@code certificateExpiryWarning}: a signing certificate that expires within it is logged as a

@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * EUD-289 B1 (EC-01, EC-03): proves {@code V15__tenant_signing_config_modality_and_own_key.sql}
+ * Proves {@code V15__tenant_signing_config_modality_and_own_key.sql}
  * against a real Postgres. Each test creates its own unregistered tenant schema and drives
  * Flyway by hand: migrate to V14, seed legacy rows, then migrate to the latest version.
  */

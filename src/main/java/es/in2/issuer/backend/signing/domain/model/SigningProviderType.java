@@ -8,7 +8,7 @@ import java.util.stream.Collectors;
 /**
  * Key of every {@link es.in2.issuer.backend.signing.domain.spi.SigningProvider}: the two CSC
  * operations of the QTSP modality ({@code signingOperation} of its configuration) and KMS for the
- * own-key modality (EUD-289).
+ * own-key modality.
  */
 public enum SigningProviderType {
 

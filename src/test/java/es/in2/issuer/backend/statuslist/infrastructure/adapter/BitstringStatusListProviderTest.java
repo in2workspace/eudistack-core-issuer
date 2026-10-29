@@ -521,7 +521,7 @@ class BitstringStatusListProviderTest {
         verify(statusListIndexReservationService).reserve(TEST_LIST_ID, TEST_ISSUANCE_ID);
     }
 
-    /** EUD-289 M4: the signing configuration changed after the issuer was read, so it is read again. */
+    /** The signing configuration changed after the issuer was read, so it is read again. */
     @Test
     void allocateEntry_signingConfigurationChanges_readsTheIssuerAgainAndSignsOnce() {
         // Arrange
@@ -607,7 +607,7 @@ class BitstringStatusListProviderTest {
     }
 
     /**
-     * EUD-289 M4, as in production: the list is created inside an issuance scope. The status list scope
+     * As in production, the list is created inside an issuance scope. The status list scope
      * joins it, the half-created list is rolled back, and the issuance scope runs everything again.
      */
     @Test
