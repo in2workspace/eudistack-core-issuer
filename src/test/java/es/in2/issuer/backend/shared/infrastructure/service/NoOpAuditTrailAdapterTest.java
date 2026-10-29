@@ -54,4 +54,16 @@ class NoOpAuditTrailAdapterTest {
         // Assert
         StepVerifier.create(scoped).expectNext("result").verifyComplete();
     }
+
+    @Test
+    void asHolder_aFlow_returnsTheSameFlowUntouched() {
+        // Arrange
+        Mono<String> flow = Mono.just("result");
+
+        // Act
+        Mono<String> scoped = adapter.asHolder("issuance-1", flow);
+
+        // Assert
+        StepVerifier.create(scoped).expectNext("result").verifyComplete();
+    }
 }

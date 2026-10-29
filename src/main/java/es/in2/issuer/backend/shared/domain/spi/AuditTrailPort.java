@@ -42,6 +42,15 @@ public interface AuditTrailPort {
     /** Runs {@code flow} with the audit context of a background process acting on {@code tenant}. */
     <T> Mono<T> asSystem(String tenant, String actorId, Mono<T> flow);
 
+    /** Runs {@code flow} as the system {@code actorId} acting on the tenant of the request, for requests that carry no caller. */
+    <T> Mono<T> asSystem(String actorId, Mono<T> flow);
+
+    /**
+     * Runs {@code flow} for the holder of the issuance, in the tenant of the request and under the issuance
+     * id as correlation id: for the steps of the holder's exchange that carry no authenticated caller.
+     */
+    <T> Mono<T> asHolder(String issuanceId, Mono<T> flow);
+
     /**
      * Lets {@code flow} fail as it would anyway and, before the error propagates, stages the entry the
      * classifier derives from it in a transaction of its own. An error without an audit entry (no

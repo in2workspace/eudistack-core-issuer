@@ -16,6 +16,7 @@ public class RecordingAuditTrail implements AuditTrailPort {
     private final List<AuditEntry> stagedInNewTransaction = new ArrayList<>();
     private final List<String> correlationIds = new ArrayList<>();
     private final List<String> systemScopes = new ArrayList<>();
+    private final List<String> holderScopes = new ArrayList<>();
     private boolean failOnNewTransaction;
     private boolean failOnStage;
 
@@ -48,6 +49,27 @@ public class RecordingAuditTrail implements AuditTrailPort {
     @Override
     public <T> Mono<T> withCorrelationId(String correlationId, Mono<T> flow) {
         return Mono.fromRunnable(() -> correlationIds.add(correlationId)).then(flow);
+    }
+
+    @Override
+    public <T> Mono<T> asSystem(String actorId, Mono<T> flow) {
+        return Mono.defer(() -> {
+            systemScopes.add(actorId);
+            return flow;
+        });
+    }
+
+    @Override
+    public <T> Mono<T> asHolder(String issuanceId, Mono<T> flow) {
+        return Mono.defer(() -> {
+            holderScopes.add(issuanceId);
+            correlationIds.add(issuanceId);
+            return flow;
+        });
+    }
+
+    public List<String> holderScopes() {
+        return holderScopes;
     }
 
     @Override
