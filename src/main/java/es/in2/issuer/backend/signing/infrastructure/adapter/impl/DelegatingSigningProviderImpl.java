@@ -21,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -101,8 +102,7 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
     /** Audit data of one attempt: classification only, never the payload, tokens or key reference. */
     private static SigningAuditor.Attempt attempt(String tenant, SigningRequest request,
                                                   ActiveSigningConfig config, long startNanos) {
-        String object = request.typ() == null ? String.valueOf(request.type())
-                : request.type() + "/" + request.typ();
+        String object = objectOf(request);
         String issuanceId = request.context() == null ? null : request.context().issuanceId();
         String modality = SigningAuditor.UNKNOWN;
         String provider = SigningAuditor.UNKNOWN;
@@ -153,11 +153,35 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
 
     private Mono<SigningResult> sign(SigningRequest request, ActiveSigningConfig config) {
 
+        return Mono.deferContextual(ctx -> {
+            // The size of the signed content goes to the application log, not to the audit event: the
+            // SignatureRequested event of the audit catalogue, which will replace signing.attempt, has no
+            // field for it. The content itself is never logged.
+            log.info("Signing attempt tenant={} modality={} object={} payloadBytes={}",
+                    ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, SigningAuditor.UNKNOWN),
+                    modalityOf(config), objectOf(request), payloadBytes(request));
+            return switch (config.modality()) {
+                case QTSP -> sign(request, config.qtsp());
+                case OWN_KEY -> signingProviderResolver.resolve(SigningProviderType.AWS_KMS)
+                        .sign(withOwnKey(request, config.ownKey()));
+            };
+        });
+    }
+
+    private static String modalityOf(ActiveSigningConfig config) {
         return switch (config.modality()) {
-            case QTSP -> sign(request, config.qtsp());
-            case OWN_KEY -> signingProviderResolver.resolve(SigningProviderType.AWS_KMS)
-                    .sign(withOwnKey(request, config.ownKey()));
+            case QTSP -> SigningAuditor.QTSP_MODALITY;
+            case OWN_KEY -> SigningAuditor.OWN_KEY_MODALITY;
         };
+    }
+
+    private static String objectOf(SigningRequest request) {
+        return request.typ() == null ? String.valueOf(request.type()) : request.type() + "/" + request.typ();
+    }
+
+    /** UTF-8 size of the content handed to the signer. */
+    private static int payloadBytes(SigningRequest request) {
+        return request.data() == null ? 0 : request.data().getBytes(StandardCharsets.UTF_8).length;
     }
 
     private Mono<SigningResult> sign(

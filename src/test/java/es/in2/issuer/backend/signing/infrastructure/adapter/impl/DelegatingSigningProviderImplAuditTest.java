@@ -1,5 +1,9 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter.impl;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
@@ -19,9 +23,11 @@ import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDt
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -35,7 +41,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-/** Audit trail of signing attempts, through the real {@link SigningAuditor}. */
+/** Audit trail and log line of signing attempts, through the real {@link SigningAuditor}. */
 class DelegatingSigningProviderImplAuditTest {
 
     private static final String PAYLOAD = "{\"vc\":\"top-secret-payload\"}";
@@ -218,5 +224,52 @@ class DelegatingSigningProviderImplAuditTest {
         StepVerifier.create(signAs("kpmg"))
                 .expectErrorSatisfies(e -> assertThat(e).isInstanceOf(KmsSigningException.class))
                 .verify();
+    }
+
+    @Test
+    void sign_ownKey_logsTheSizeOfTheSignedContentButNotTheContent() {
+        when(configService.getActiveSigningConfig()).thenReturn(Mono.just(ownKey()));
+        when(kmsProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "jws-value")));
+
+        List<String> messages = infoMessagesWhile(() ->
+                StepVerifier.create(signAs("cgcom")).expectNextCount(1).verifyComplete());
+
+        assertThat(messages).contains("Signing attempt tenant=cgcom modality=own_key object=JADES/jwt payloadBytes="
+                + PAYLOAD.getBytes(StandardCharsets.UTF_8).length);
+        String all = String.join("\n", messages);
+        FORBIDDEN.forEach(forbidden -> assertThat(all).doesNotContain(forbidden));
+    }
+
+    @Test
+    void sign_qtsp_logsTheSizeOfTheSignedContentInUtf8Bytes() {
+        String content = "{\"name\":\"N\u00fa\u00f1ez\"}";
+        SigningRequest withAccents = SigningRequest.builder().type(SigningType.JADES).data(content).typ("jwt").build();
+        when(configService.getActiveSigningConfig()).thenReturn(Mono.just(qtsp()));
+        when(resolver.resolveFromValue("sign-hash")).thenReturn(qtspProvider);
+        when(qtspProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "jws-value")));
+
+        List<String> messages = infoMessagesWhile(() -> StepVerifier.create(delegating.sign(withAccents)
+                        .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "sandbox")))
+                .expectNextCount(1).verifyComplete());
+
+        // Two characters take two bytes each in UTF-8.
+        assertThat(messages).contains("Signing attempt tenant=sandbox modality=qtsp object=JADES/jwt payloadBytes="
+                + (content.length() + 2));
+    }
+
+    private static List<String> infoMessagesWhile(Runnable action) {
+        Logger logger = (Logger) LoggerFactory.getLogger(DelegatingSigningProviderImpl.class);
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        logs.start();
+        logger.addAppender(logs);
+        try {
+            action.run();
+        } finally {
+            logger.detachAppender(logs);
+        }
+        return logs.list.stream()
+                .filter(event -> event.getLevel() == Level.INFO)
+                .map(ILoggingEvent::getFormattedMessage)
+                .toList();
     }
 }
