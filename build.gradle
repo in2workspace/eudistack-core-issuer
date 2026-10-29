@@ -11,7 +11,7 @@ plugins {
 }
 
 group = 'com.eudistack'
-version = '3.11.0'
+version = '3.12.0'
 
 ext['netty.version'] = '4.1.132.Final'
 
@@ -33,6 +33,14 @@ configurations {
 
 repositories {
     mavenCentral()
+    maven {
+        name = 'GitHubPackages'
+        url = uri('https://maven.pkg.github.com/in2workspace/eudistack-platform-audit-starter')
+        credentials {
+            username = System.getenv('GITHUB_ACTOR') ?: findProperty('gpr.user')
+            password = System.getenv('GITHUB_TOKEN') ?: findProperty('gpr.token')
+        }
+    }
 }
 
 dependencies {
@@ -100,6 +108,9 @@ dependencies {
     implementation 'io.grpc:grpc-netty-shaded'
     implementation 'io.grpc:grpc-stub'
     implementation 'io.grpc:grpc-protobuf'
+
+    // --- Audit outbox (EUD-244) ---
+    implementation 'com.eudistack:auditoria-spring-boot-starter:0.1.0'
 
     // --- DevTools ---
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
