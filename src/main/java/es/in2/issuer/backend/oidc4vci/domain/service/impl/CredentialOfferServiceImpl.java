@@ -18,6 +18,7 @@ import reactor.core.publisher.Mono;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 
@@ -116,7 +117,13 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                 .map(emailError -> CredentialOfferResult.builder()
                         .credentialOfferUri(uri)
                         .emailError(NO_EMAIL_ERROR.equals(emailError) ? null : emailError)
+                        .offerExpiresAt(newOfferExpiry())
                         .build());
+    }
+
+    @Override
+    public Instant newOfferExpiry() {
+        return credentialOfferCacheRepository.newOfferExpiry();
     }
 
     private String describeEmailFailure(Throwable ex) {

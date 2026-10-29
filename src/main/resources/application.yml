@@ -264,3 +264,12 @@ issuer:
       # model (AD-7). Set to true ONLY for the local Docker Compose profile, whose bundled
       # RabbitMQ container has no TLS listener configured -- never in STG/PROD.
       allow-insecure-transport: ${ISSUER_MESSAGING_REVOCATION_ALLOW_INSECURE_TRANSPORT:false}
+
+# Audit outbox starter (EUD-244). Both switches off: the Issuer behaves as before.
+# With the dispatcher on, also set AUDITORIA_CLIENT_BASEURL and AUDITORIA_CLIENT_AUDIENCE.
+auditoria:
+  source: issuer
+  publisher:
+    enabled: ${AUDIT_PUBLISHER_ENABLED:false}
+  dispatcher:
+    enabled: ${AUDIT_DISPATCHER_ENABLED:false}

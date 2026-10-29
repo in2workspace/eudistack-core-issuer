@@ -14,6 +14,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
+import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Named;
@@ -26,6 +27,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -61,14 +63,18 @@ class IssuanceServiceImplBranchesTest {
     private CredentialProfileRegistry credentialProfileRegistry;
     @Mock
     private TenantRegistryService tenantRegistryService;
+    @Mock
+    private TransactionalOperator transactionalOperator;
 
     private IssuanceServiceImpl service;
 
     @BeforeEach
     void setUp() {
         service = new IssuanceServiceImpl(appConfig, issuancePort, new ObjectMapper(),
-                credentialProfileRegistry, tenantRegistryService);
+                credentialProfileRegistry, tenantRegistryService, new RecordingAuditTrail(), transactionalOperator);
         lenient().when(appConfig.getSysTenant()).thenReturn(SYS_TENANT);
+        lenient().when(transactionalOperator.transactional(any(Mono.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     // --- getCredentialTypeByIssuanceId ---

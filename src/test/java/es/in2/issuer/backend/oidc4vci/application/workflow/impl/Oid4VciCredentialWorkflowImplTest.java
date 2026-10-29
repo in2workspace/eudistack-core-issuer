@@ -15,6 +15,14 @@ import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflo
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.oidc4vci.domain.exception.UnknownCredentialIdentifierException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
+import es.in2.issuer.backend.shared.infrastructure.audit.IssuanceCompletionRecorder;
+import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
+import es.in2.issuer.backend.signing.domain.service.IssuerCertificateService;
+import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
 import es.in2.issuer.backend.shared.domain.model.dto.AccessTokenContext;
 import es.in2.issuer.backend.shared.domain.model.dto.Proof;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.CredentialStatus;
@@ -29,13 +37,18 @@ import es.in2.issuer.backend.shared.domain.service.CredentialIssuerMetadataServi
 import es.in2.issuer.backend.shared.domain.service.HolderDidFallbackAuditor;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.ProofValidationService;
+import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
+import es.in2.issuer.backend.signing.domain.exception.NoActiveSigningConfigurationException;
 import es.in2.issuer.backend.statuslist.application.StatusListWorkflow;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListEntry;
 import es.in2.issuer.backend.statuslist.domain.model.StatusListFormat;
 import es.in2.issuer.backend.statuslist.domain.model.StatusPurpose;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Base64;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -61,6 +74,10 @@ class Oid4VciCredentialWorkflowImplTest {
     private CredentialIssuedLogger credentialIssuedLogger;
     private AuditService auditService;
     private HolderDidFallbackAuditor holderDidFallbackAuditor;
+    private TenantSigningConfigService signingConfigService;
+    private IssuerCertificateService certificateService;
+    private RemoteSignatureDto signingConfig;
+    private final RecordingAuditTrail auditTrail = new RecordingAuditTrail();
 
     private Oid4VciCredentialWorkflowImpl workflow;
 
@@ -97,6 +114,12 @@ class Oid4VciCredentialWorkflowImplTest {
         // Real instance wrapping the mocked port, not a mock itself: assertions below still verify
         // the auditFailure call end-to-end, exactly as when this logic lived inline in the workflow.
         holderDidFallbackAuditor = new HolderDidFallbackAuditor(auditService);
+        signingConfigService = mock(TenantSigningConfigService.class);
+        certificateService = mock(IssuerCertificateService.class);
+        signingConfig = mock(RemoteSignatureDto.class);
+        lenient().when(signingConfigService.getRemoteSignature()).thenReturn(Mono.just(signingConfig));
+        lenient().when(certificateService.resolveRemoteDetailedIssuer(signingConfig)).thenReturn(Mono.just(
+                new DetailedIssuer("did:elsi:VATES-A1", "VATES-A1", "ACME SL", "ES", "cn", "serial")));
 
         workflow = new Oid4VciCredentialWorkflowImpl(
                 credentialSignerWorkflow,
@@ -110,7 +133,9 @@ class Oid4VciCredentialWorkflowImplTest {
                 notificationCacheStore,
                 credentialIssuedLogger,
                 holderDidFallbackAuditor,
-                auditService
+                auditService,
+                auditTrail,
+                new IssuanceCompletionRecorder(auditTrail, signingConfigService, certificateService)
         );
 
         // Common mocks to avoid NPE when a test reaches further than expected
@@ -132,6 +157,94 @@ class Oid4VciCredentialWorkflowImplTest {
                 .thenReturn(Mono.just(Issuance.builder().build()));
         lenient().when(proofValidationService.verifyProof(any(), any(), any()))
                 .thenReturn(Mono.just(false));
+    }
+
+    private Mono<?> credentialRequestForTheStandardIssuance() {
+        return credentialRequestFor(buildProcedure(JWT_VC_JSON));
+    }
+
+    private Mono<?> credentialRequestFor(Issuance issuance) {
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(issuance));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL))
+                .thenReturn(Mono.just(buildMetadata(null)));
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(buildProfile(false));
+        CredentialRequest request = CredentialRequest.builder()
+                .credentialConfigurationId(CREDENTIAL_TYPE)
+                .format(JWT_VC_JSON)
+                .build();
+        AccessTokenContext context = AccessTokenContext.builder()
+                .rawToken(RAW_TOKEN)
+                .issuanceId(ISSUANCE_ID)
+                .build();
+        return workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL);
+    }
+
+    @Test
+    void createCredentialResponse_statusListCannotReserve_stagesAttemptFailedStatusListUnavailable() {
+        // Arrange
+        when(statusListWorkflow.allocateEntry(any(), any(), any(), any(), any()))
+                .thenReturn(Mono.error(new IllegalStateException("status list down")));
+
+        // Act
+        Mono<?> credential = credentialRequestForTheStandardIssuance();
+
+        // Assert
+        StepVerifier.create(credential).expectError(IllegalStateException.class).verify();
+        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        assertThat(entry.type()).isEqualTo(AuditEventType.ISSUANCE_ATTEMPT_FAILED);
+        assertThat(entry.result()).isEqualTo(AuditResult.FAILURE);
+        assertThat(entry.reason()).isEqualTo("StatusListUnavailable");
+        assertThat(entry.resource()).isEqualTo("issuance:" + ISSUANCE_ID);
+        assertThat(entry.details()).containsEntry("attestation_type", CREDENTIAL_TYPE);
+        assertThat(auditTrail.correlationIds()).containsExactly(ISSUANCE_ID);
+    }
+
+    @Test
+    void createCredentialResponse_signingFails_stagesAttemptFailedSigningFailed() {
+        // Arrange
+        when(credentialSignerWorkflow.signCredential(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.error(new IllegalStateException("qtsp down")));
+
+        // Act
+        Mono<?> credential = credentialRequestForTheStandardIssuance();
+
+        // Assert
+        StepVerifier.create(credential).expectError(IllegalStateException.class).verify();
+        assertThat(auditTrail.stagedInNewTransaction().getFirst().reason()).isEqualTo("SigningFailed");
+    }
+
+    @Test
+    void createCredentialResponse_noSigningConfiguration_stagesAttemptFailedInvalidConfiguration() {
+        // Arrange
+        when(credentialSignerWorkflow.signCredential(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.error(new NoActiveSigningConfigurationException("no config")));
+
+        // Act
+        Mono<?> credential = credentialRequestForTheStandardIssuance();
+
+        // Assert
+        StepVerifier.create(credential).expectError(NoActiveSigningConfigurationException.class).verify();
+        assertThat(auditTrail.stagedInNewTransaction().getFirst().reason()).isEqualTo("InvalidConfiguration");
+    }
+
+    @Test
+    void createCredentialResponse_issuanceIsNoLongerIssuable_stagesNothingBecauseTheDenialHasNoCatalogueReason() {
+        // Arrange
+        Issuance withdrawn = buildProcedure(JWT_VC_JSON);
+        withdrawn.setCredentialStatus(CredentialStatusEnum.WITHDRAWN);
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(withdrawn));
+        when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL))
+                .thenReturn(Mono.just(buildMetadata(null)));
+        when(credentialProfileRegistry.getByConfigurationId(CREDENTIAL_TYPE)).thenReturn(buildProfile(false));
+        CredentialRequest request = CredentialRequest.builder().credentialConfigurationId(CREDENTIAL_TYPE).format(JWT_VC_JSON).build();
+        AccessTokenContext context = AccessTokenContext.builder().rawToken(RAW_TOKEN).issuanceId(ISSUANCE_ID).build();
+
+        // Act
+        Mono<?> credential = workflow.createCredentialResponse(PROCESS_ID, request, context, PUBLIC_BASE_URL);
+
+        // Assert
+        StepVerifier.create(credential).expectError(CredentialRequestDeniedException.class).verify();
+        assertThat(auditTrail.all()).isEmpty();
     }
 
     @Test
@@ -198,6 +311,102 @@ class Oid4VciCredentialWorkflowImplTest {
 
         verify(credentialIssuedLogger).logIssued(CREDENTIAL_TYPE);
         verify(credentialIssuedLogger, never()).logFailed(any(), any());
+    }
+
+    @Test
+    void createCredentialResponse_draftSignedAsJws_stagesIssuanceCompletedWithoutWaitingForTheWallet() {
+        // Arrange
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+        issuance.setDelivery("email");
+        issuance.setGrantType("urn:ietf:params:oauth:grant-type:pre-authorized_code");
+        lenient().when(credentialSignerWorkflow.signCredential(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(signedJws()));
+
+        // Act
+        StepVerifier.create(credentialRequestFor(issuance)).expectNextCount(1).verifyComplete();
+
+        // Assert
+        AuditEntry completed = auditTrail.stagedInNewTransaction().getFirst();
+        assertThat(completed.type()).isEqualTo(AuditEventType.ISSUANCE_COMPLETED);
+        assertThat(completed.resource()).isEqualTo("issuance:" + ISSUANCE_ID);
+        assertThat(completed.details())
+                .containsEntry("provider_legal_name", "ACME SL")
+                .containsEntry("provider_registration_id", "VATES-A1")
+                .containsEntry("attestation_type", CREDENTIAL_TYPE)
+                .containsEntry("delivery_method", "email")
+                .containsEntry("signature_algorithm", "ES256")
+                .containsEntry("accepted_by_holder", true)
+                .containsEntry("wallet_interaction", Map.of(
+                        "protocol", "oid4vci",
+                        "grant_type", "urn:ietf:params:oauth:grant-type:pre-authorized_code",
+                        "format", JWT_VC_JSON));
+        assertThat(completed.details().get("attestation_hash").toString()).startsWith("sha256:");
+        assertThat(completed.details().get("signing_certificate").toString()).startsWith("sha256:");
+    }
+
+    @Test
+    void createCredentialResponse_repeatedRequestAfterTheWalletAccepted_stagesNoSecondCompletion() {
+        // Arrange
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+        issuance.setCredentialStatus(CredentialStatusEnum.VALID);
+        lenient().when(credentialSignerWorkflow.signCredential(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(signedJws()));
+
+        // Act
+        StepVerifier.create(credentialRequestFor(issuance)).expectNextCount(1).verifyComplete();
+
+        // Assert
+        assertThat(auditTrail.all()).isEmpty();
+    }
+
+    @Test
+    void createCredentialResponse_deliveryAlreadyAttempted_stagesNoSecondCompletion() {
+        // Arrange
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+        issuance.setDeliveryAttemptedAt(Instant.now());
+        lenient().when(credentialSignerWorkflow.signCredential(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(signedJws()));
+
+        // Act
+        StepVerifier.create(credentialRequestFor(issuance)).expectNextCount(1).verifyComplete();
+
+        // Assert
+        assertThat(auditTrail.all()).isEmpty();
+    }
+
+    @Test
+    void createCredentialResponse_signatureWithoutAJwsHeader_stagesNoCompletionAndStillAnswers() {
+        // Arrange
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+
+        // Act
+        StepVerifier.create(credentialRequestFor(issuance)).expectNextCount(1).verifyComplete();
+
+        // Assert
+        assertThat(auditTrail.all()).isEmpty();
+    }
+
+    @Test
+    void createCredentialResponse_issuerOrganizationUnknown_stagesNoCompletionAndStillAnswers() {
+        // Arrange
+        Issuance issuance = buildProcedure(JWT_VC_JSON);
+        lenient().when(credentialSignerWorkflow.signCredential(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(signedJws()));
+        when(certificateService.resolveRemoteDetailedIssuer(signingConfig)).thenReturn(Mono.just(
+                new DetailedIssuer("did:elsi:VATES-A1", null, null, "ES", "cn", "serial")));
+
+        // Act
+        StepVerifier.create(credentialRequestFor(issuance)).expectNextCount(1).verifyComplete();
+
+        // Assert
+        assertThat(auditTrail.all()).isEmpty();
+    }
+
+    private static String signedJws() {
+        String header = Base64.getUrlEncoder().withoutPadding().encodeToString(
+                ("{\"alg\":\"ES256\",\"x5c\":[\"" + Base64.getEncoder().encodeToString("cert".getBytes(StandardCharsets.UTF_8)) + "\"]}")
+                        .getBytes(StandardCharsets.UTF_8));
+        return header + ".payload.signature";
     }
 
     @Test

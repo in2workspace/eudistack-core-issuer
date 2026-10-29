@@ -5,11 +5,14 @@ import es.in2.issuer.backend.shared.domain.exception.CredentialConfigurationNotE
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidDeliveryConfigException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.TenantCredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
+import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.repository.TenantCredentialProfileRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,6 +39,8 @@ import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -58,11 +63,15 @@ class TenantCredentialProfileServiceImplTest {
     @Mock private SchemaDeliveryCeiling schemaDeliveryCeiling;
     @Mock private TransactionalOperator transactionalOperator;
 
+    private final RecordingAuditTrail auditTrail = new RecordingAuditTrail();
+
     private TenantCredentialProfileServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new TenantCredentialProfileServiceImpl(repository, registry, schemaDeliveryCeiling, transactionalOperator);
+        service = new TenantCredentialProfileServiceImpl(
+                repository, registry, schemaDeliveryCeiling, transactionalOperator, auditTrail);
+        when(repository.findAllByEnabledTrue()).thenReturn(Flux.empty());
         // Pass-through transaction: return the wrapped Mono unchanged.
         when(transactionalOperator.transactional(any(Mono.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
@@ -453,6 +462,78 @@ class TenantCredentialProfileServiceImplTest {
         verify(repository, times(1)).upsert(eq("A"), eq(true), isNull(), any());
     }
 
+    @Test
+    void updateCatalog_enablingANewType_stagesCatalogEntryChangedEnableInTheTransaction() {
+        // Arrange
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
+        when(repository.upsert(eq("A"), eq(true), isNull(), any())).thenReturn(Mono.just(1));
+        when(repository.deleteAllByCredentialConfigurationIdNotIn(Set.of("A"))).thenReturn(Mono.just(0));
+
+        // Act
+        Mono<Void> updated = service.updateCatalog(Set.of("A")).contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT));
+
+        // Assert
+        StepVerifier.create(updated).verifyComplete();
+        assertEquals(1, auditTrail.staged().size());
+        AuditEntry entry = auditTrail.staged().getFirst();
+        assertEquals(AuditEventType.CATALOG_ENTRY_CHANGED, entry.type());
+        assertEquals("Enable", entry.details().get("operation"));
+        assertEquals("A", entry.details().get("credential_configuration_id"));
+    }
+
+    @Test
+    void updateCatalog_disablingAType_stagesCatalogEntryChangedDisable() {
+        // Arrange
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A"), "B", profile("B", "B")));
+        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("A", null), row("B", "email")));
+        when(repository.upsert(eq("A"), eq(true), isNull(), any())).thenReturn(Mono.just(1));
+        when(repository.deleteAllByCredentialConfigurationIdNotIn(Set.of("A"))).thenReturn(Mono.just(1));
+
+        // Act
+        Mono<Void> updated = service.updateCatalog(Set.of("A")).contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT));
+
+        // Assert
+        StepVerifier.create(updated).verifyComplete();
+        assertEquals(1, auditTrail.staged().size());
+        assertEquals("Disable", auditTrail.staged().getFirst().details().get("operation"));
+        assertEquals("B", auditTrail.staged().getFirst().details().get("credential_configuration_id"));
+    }
+
+    @Test
+    void updateCatalog_changingTheDeliveryModes_stagesCatalogEntryChangedUpdateWithOldAndNew() {
+        // Arrange
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
+        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("A", "email")));
+        when(repository.upsert(eq("A"), eq(true), eq("email,ui"), any())).thenReturn(Mono.just(1));
+        when(repository.deleteAllByCredentialConfigurationIdNotIn(Set.of("A"))).thenReturn(Mono.just(0));
+
+        // Act
+        Mono<Void> updated = service.updateCatalog(Set.of("A"), Map.of("A", Set.of(DeliveryMode.EMAIL, DeliveryMode.UI)))
+                .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT));
+
+        // Assert
+        StepVerifier.create(updated).verifyComplete();
+        AuditEntry entry = auditTrail.staged().getFirst();
+        assertEquals("Update", entry.details().get("operation"));
+        assertEquals(Map.of("delivery_modes", Map.of("old", "email", "new", "email,ui")), entry.details().get("changes"));
+    }
+
+    @Test
+    void updateCatalog_typeKeptWithoutDeclaringModes_stagesNothingBecauseTheStoredModesAreKept() {
+        // Arrange
+        when(registry.getAllProfiles()).thenReturn(Map.of("A", profile("A", "A")));
+        when(repository.findAllByEnabledTrue()).thenReturn(Flux.just(row("A", "email")));
+        when(repository.upsert(eq("A"), eq(true), isNull(), any())).thenReturn(Mono.just(1));
+        when(repository.deleteAllByCredentialConfigurationIdNotIn(Set.of("A"))).thenReturn(Mono.just(0));
+
+        // Act
+        Mono<Void> updated = service.updateCatalog(Set.of("A")).contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT));
+
+        // Assert
+        StepVerifier.create(updated).verifyComplete();
+        assertTrue(auditTrail.all().isEmpty());
+    }
+
     /**
      * EC-02: disabling a type prunes its row (and with it, its stored delivery modes).
      */
@@ -503,7 +584,8 @@ class TenantCredentialProfileServiceImplTest {
         service.getEnabledConfigurationIds()
                 .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)).block();
 
-        verify(repository, times(2)).findAllByEnabledTrue();
+        // Priming read, snapshot of the stored catalogue taken by the update for its audit entries, and the re-read.
+        verify(repository, times(3)).findAllByEnabledTrue();
     }
 
     @Test
