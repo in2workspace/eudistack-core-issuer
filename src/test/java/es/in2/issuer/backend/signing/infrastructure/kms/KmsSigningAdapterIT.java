@@ -58,7 +58,8 @@ class KmsSigningAdapterIT {
     @BeforeAll
     static void setUpClient() {
         properties = new KmsSigningProperties(true, LOCALSTACK.getRegion(), LOCALSTACK.getEndpoint(),
-                Duration.ofSeconds(10), 3, Duration.ofMillis(50), Duration.ofMillis(200));
+                Duration.ofSeconds(10), 3, Duration.ofMillis(50), Duration.ofMillis(200),
+                Duration.ofSeconds(45));
         plainClient = KmsSigningConfig.clientBuilder(properties)
                 .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create("test", "test")))
                 .build();

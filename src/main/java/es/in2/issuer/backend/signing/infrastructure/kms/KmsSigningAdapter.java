@@ -20,7 +20,8 @@ import java.util.Objects;
 
 /**
  * {@link KmsSigningPort} over the AWS KMS async client. SDK retries are disabled in the client;
- * retries and the per-attempt timeout are applied here with Reactor ({@link KmsRetryPolicy}).
+ * retries, the per-attempt timeout and the deadline of each operation are applied here with Reactor
+ * ({@link KmsRetryPolicy}).
  */
 @Slf4j
 public class KmsSigningAdapter implements KmsSigningPort {
@@ -50,13 +51,15 @@ public class KmsSigningAdapter implements KmsSigningPort {
                 .timeout(properties.callTimeout())
                 .map(this::validSignature)
                 .retryWhen(KmsRetryPolicy.retrySpec(properties, OP_SIGN, keyRef))
+                .timeout(properties.deadline(), Mono.error(() -> deadlineExceeded(OP_SIGN)))
                 .onErrorMap(ex -> failure(OP_SIGN, keyRef, ex));
     }
 
     /**
      * Pages are read one after the other until KMS reports no more ({@code Truncated} / {@code NextMarker}).
      * Each page has the same per-attempt timeout and retries as {@code Sign}; a page that still fails
-     * fails the whole read, so a partial list is never taken for the tags of the key.
+     * fails the whole read, so a partial list is never taken for the tags of the key. The deadline
+     * applies to the whole read, not to each page.
      */
     @Override
     public Mono<String> findTenantTag(String keyRef) {
@@ -69,6 +72,7 @@ public class KmsSigningAdapter implements KmsSigningPort {
                 .map(Tag::tagValue)
                 .filter(Objects::nonNull)
                 .next()
+                .timeout(properties.deadline(), Mono.error(() -> deadlineExceeded(OP_LIST_TAGS)))
                 .onErrorMap(ex -> failure(OP_LIST_TAGS, keyRef, ex));
     }
 
@@ -91,6 +95,12 @@ public class KmsSigningAdapter implements KmsSigningPort {
                     "KMS Sign returned an unexpected signing algorithm: " + response.signingAlgorithmAsString());
         }
         return response.signature().asByteArray();
+    }
+
+    /** Failure of an operation cut by the deadline; the deadline sits outside the retries, so it is never retried. */
+    private KmsSigningException deadlineExceeded(String operation) {
+        return new KmsSigningException(SigningFailureReason.PROVIDER_UNAVAILABLE,
+                "KMS " + operation + " did not complete within " + properties.deadline());
     }
 
     private KmsSigningException failure(String operation, String keyRef, Throwable error) {

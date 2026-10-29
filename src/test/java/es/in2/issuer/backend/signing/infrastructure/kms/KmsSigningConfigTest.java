@@ -32,8 +32,9 @@ class KmsSigningConfigTest {
             assertThat(props.enabled()).isFalse();
             assertThat(props.callTimeout()).isEqualTo(Duration.ofSeconds(10));
             assertThat(props.maxRetries()).isEqualTo(3);
-            assertThat(props.initialBackoff()).isEqualTo(Duration.ofSeconds(1));
+            assertThat(props.initialBackoff()).isEqualTo(Duration.ofMillis(200));
             assertThat(props.maxBackoff()).isEqualTo(Duration.ofSeconds(5));
+            assertThat(props.deadline()).isEqualTo(Duration.ofSeconds(45));
         });
     }
 
@@ -46,12 +47,39 @@ class KmsSigningConfigTest {
     @Test
     void properties_enabledWithoutRegion_failsFast() {
         Duration callTimeout = Duration.ofSeconds(10);
-        Duration initialBackoff = Duration.ofSeconds(1);
+        Duration initialBackoff = Duration.ofMillis(200);
         Duration maxBackoff = Duration.ofSeconds(5);
+        Duration deadline = Duration.ofSeconds(45);
 
         assertThatThrownBy(() -> new KmsSigningProperties(
-                true, " ", null, callTimeout, 3, initialBackoff, maxBackoff))
+                true, " ", null, callTimeout, 3, initialBackoff, maxBackoff, deadline))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("region");
+    }
+
+    @Test
+    void properties_deadlineShorterThanTheCallTimeout_failsFast() {
+        Duration callTimeout = Duration.ofSeconds(10);
+        Duration initialBackoff = Duration.ofMillis(200);
+        Duration maxBackoff = Duration.ofSeconds(5);
+        Duration deadline = Duration.ofSeconds(9);
+
+        assertThatThrownBy(() -> new KmsSigningProperties(
+                true, "eu-west-1", null, callTimeout, 3, initialBackoff, maxBackoff, deadline))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("deadline");
+    }
+
+    @Test
+    void worstCaseSigningDuration_neverExceedsTheDeadline() {
+        Duration callTimeout = Duration.ofSeconds(10);
+        Duration initialBackoff = Duration.ofMillis(200);
+        Duration maxBackoff = Duration.ofSeconds(5);
+
+        // 4 attempts of 10 s and 3 waits of at most 5 s would be 55 s: the deadline caps it.
+        assertThat(new KmsSigningProperties(false, null, null, callTimeout, 3, initialBackoff, maxBackoff,
+                Duration.ofSeconds(45)).worstCaseSigningDuration()).isEqualTo(Duration.ofSeconds(45));
+        assertThat(new KmsSigningProperties(false, null, null, callTimeout, 3, initialBackoff, maxBackoff,
+                Duration.ofSeconds(60)).worstCaseSigningDuration()).isEqualTo(Duration.ofSeconds(55));
     }
 }

@@ -64,7 +64,7 @@ class OwnKeySigningSelfTestTest {
     private final KmsOwnKeySigningProvider kmsProvider = mock(KmsOwnKeySigningProvider.class);
     private final SigningAuditor auditor = mock(SigningAuditor.class);
     private final KmsSigningProperties kmsProperties = new KmsSigningProperties(false, null, null,
-            Duration.ofSeconds(10), 3, Duration.ofSeconds(1), Duration.ofSeconds(5));
+            Duration.ofSeconds(10), 3, Duration.ofSeconds(1), Duration.ofSeconds(5), Duration.ofSeconds(45));
     private final Logger logger = (Logger) LoggerFactory.getLogger(OwnKeySigningSelfTest.class);
     private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
 
@@ -233,9 +233,9 @@ class OwnKeySigningSelfTestTest {
     void tenantTimeout_unset_coversTheWorstKmsCallWithItsRetries() {
         var derived = selfTest(new SigningSelfTestProperties(true, null, Duration.ofDays(30)), NOW);
 
-        // 4 attempts of 10 s, 3 waits of at most 5 s, plus the 5 s margin.
-        assertThat(kmsProperties.worstCaseSigningDuration()).isEqualTo(Duration.ofSeconds(55));
-        assertThat(derived.tenantTimeout()).isEqualTo(Duration.ofSeconds(60));
+        // 4 attempts of 10 s and 3 waits of at most 5 s, capped by the 45 s deadline, plus the 5 s margin.
+        assertThat(kmsProperties.worstCaseSigningDuration()).isEqualTo(Duration.ofSeconds(45));
+        assertThat(derived.tenantTimeout()).isEqualTo(Duration.ofSeconds(50));
         assertThat(selfTest(true).tenantTimeout()).isEqualTo(Duration.ofSeconds(5));
     }
 

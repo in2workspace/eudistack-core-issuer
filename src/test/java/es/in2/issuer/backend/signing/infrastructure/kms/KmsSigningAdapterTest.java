@@ -6,6 +6,7 @@ import es.in2.issuer.backend.signing.infrastructure.properties.KmsSigningPropert
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
@@ -25,6 +26,7 @@ import software.amazon.awssdk.services.kms.model.Tag;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -47,8 +49,13 @@ class KmsSigningAdapterTest {
     @BeforeEach
     void setUp() {
         client = mock(KmsAsyncClient.class);
-        adapter = new KmsSigningAdapter(client, new KmsSigningProperties(
-                true, "eu-west-1", null, Duration.ofSeconds(10), 3, Duration.ofSeconds(1), Duration.ofSeconds(5)));
+        adapter = new KmsSigningAdapter(client, properties(Duration.ofSeconds(45)));
+    }
+
+    /** The default settings, with the given deadline. */
+    private static KmsSigningProperties properties(Duration deadline) {
+        return new KmsSigningProperties(true, "eu-west-1", null, Duration.ofSeconds(10), 3,
+                Duration.ofMillis(200), Duration.ofSeconds(5), deadline);
     }
 
     @Test
@@ -134,14 +141,37 @@ class KmsSigningAdapterTest {
                 .thenAwait(Duration.ofSeconds(9))
                 .then(() -> verify(client, times(1)).sign(any(SignRequest.class)))
                 .thenAwait(Duration.ofSeconds(1))
-                // Past the 10 s timeout the policy backs off (>= 0.5 s with jitter), then calls again
-                .thenAwait(Duration.ofSeconds(2))
+                // Past the 10 s timeout the policy backs off (at most 0.3 s with jitter), then calls again
+                .thenAwait(Duration.ofSeconds(1))
                 .then(() -> verify(client, times(2)).sign(any(SignRequest.class)))
                 .thenAwait(WAIT_ALL_RETRIES)
-                .expectErrorSatisfies(ex -> assertReason(ex, SigningFailureReason.PROVIDER_UNAVAILABLE))
+                // The four attempts end before the 45 s deadline: the retries run out, the deadline does not cut them
+                .expectErrorSatisfies(ex -> {
+                    assertReason(ex, SigningFailureReason.PROVIDER_UNAVAILABLE);
+                    assertThat(ex).hasMessageContaining("after 3 retries");
+                })
                 .verify();
 
         verify(client, times(4)).sign(any(SignRequest.class));
+    }
+
+    @Test
+    void sign_attemptsLastingPastTheDeadline_failProviderUnavailableAtTheDeadline() {
+        adapter = new KmsSigningAdapter(client, properties(Duration.ofSeconds(25)));
+        when(client.sign(any(SignRequest.class))).thenAnswer(inv -> new CompletableFuture<SignResponse>());
+
+        // Attempts start at 0 s, about 10.2 s and about 20.6 s; the deadline cuts the third one at 25 s.
+        StepVerifier.withVirtualTime(() -> adapter.sign(KEY_REF, DIGEST))
+                .expectSubscription()
+                .expectNoEvent(Duration.ofSeconds(24))
+                .thenAwait(Duration.ofSeconds(1))
+                .expectErrorSatisfies(ex -> {
+                    assertReason(ex, SigningFailureReason.PROVIDER_UNAVAILABLE);
+                    assertThat(ex).hasMessageContaining("did not complete within PT25S");
+                })
+                .verify();
+
+        verify(client, times(3)).sign(any(SignRequest.class));
     }
 
     @Test
@@ -310,6 +340,33 @@ class KmsSigningAdapterTest {
                 .verifyComplete();
 
         verify(client, times(3)).listResourceTags(any(ListResourceTagsRequest.class));
+    }
+
+    @Test
+    void findTenantTag_pagesLastingPastTheDeadline_failProviderUnavailableForTheWholeRead() {
+        adapter = new KmsSigningAdapter(client, properties(Duration.ofSeconds(15)));
+        // Every page answers after 8 s, within its 10 s timeout, so no page is retried; the second one would end at 16 s.
+        AtomicInteger calls = new AtomicInteger();
+        when(client.listResourceTags(any(ListResourceTagsRequest.class))).thenAnswer(inv -> {
+            int n = calls.incrementAndGet();
+            return Mono.delay(Duration.ofSeconds(8)).thenReturn(ListResourceTagsResponse.builder()
+                    .tags(tag("A", String.valueOf(n)))
+                    .truncated(true)
+                    .nextMarker("m" + n)
+                    .build()).toFuture();
+        });
+
+        StepVerifier.withVirtualTime(() -> adapter.findTenantTag(KEY_REF))
+                .expectSubscription()
+                .expectNoEvent(Duration.ofSeconds(14))
+                .thenAwait(Duration.ofSeconds(1))
+                .expectErrorSatisfies(ex -> {
+                    assertReason(ex, SigningFailureReason.PROVIDER_UNAVAILABLE);
+                    assertThat(ex).hasMessageContaining("ListResourceTags did not complete within PT15S");
+                })
+                .verify();
+
+        assertThat(calls).hasValue(2);
     }
 
     @Test
