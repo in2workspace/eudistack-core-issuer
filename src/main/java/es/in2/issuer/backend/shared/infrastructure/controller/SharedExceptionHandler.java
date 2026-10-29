@@ -169,21 +169,6 @@ public class SharedExceptionHandler {
         );
     }
 
-    @ExceptionHandler(NoCredentialFoundException.class)
-    @ResponseStatus(HttpStatus.NOT_FOUND)
-    public Mono<GlobalErrorMessage> handleNoCredentialFoundException(
-            NoCredentialFoundException ex,
-            ServerHttpRequest request
-    ) {
-        return errors.handleWith(
-                ex, request,
-                GlobalErrorTypes.CREDENTIAL_NOT_FOUND.getCode(),
-                "Credential not found",
-                HttpStatus.NOT_FOUND,
-                "No credential found."
-        );
-    }
-
     @ExceptionHandler(PreAuthorizationCodeGetException.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public Mono<GlobalErrorMessage> handlePreAuthorizationCodeGetException(
@@ -478,6 +463,24 @@ public class SharedExceptionHandler {
                 "Issuance not found",
                 HttpStatus.NOT_FOUND,
                 "The requested issuance was not found"
+        );
+    }
+
+    // EUD-307: the public guides answer a {id} that is not a UUID with 400 BAD_REQUEST -- the type they
+    // document for a malformed request, and the one a failed request validation already carries --
+    // never a 404, which would read as "no such process".
+    @ExceptionHandler(MalformedIssuanceIdException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleMalformedIssuanceIdException(
+            MalformedIssuanceIdException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.BAD_REQUEST.getCode(),
+                HttpStatus.BAD_REQUEST.getReasonPhrase(),
+                HttpStatus.BAD_REQUEST,
+                "The issuance id is not a UUID"
         );
     }
 

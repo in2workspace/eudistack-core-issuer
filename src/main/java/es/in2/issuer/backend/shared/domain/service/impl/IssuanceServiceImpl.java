@@ -8,7 +8,8 @@ import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateExc
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
-import es.in2.issuer.backend.shared.domain.exception.NoCredentialFoundException;
+import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
+import es.in2.issuer.backend.shared.domain.exception.MalformedIssuanceIdException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
@@ -18,6 +19,7 @@ import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
+import es.in2.issuer.backend.shared.domain.util.IssuanceIds;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import lombok.RequiredArgsConstructor;
@@ -168,12 +170,11 @@ public class IssuanceServiceImpl implements IssuanceService {
         // Platform administrator from the platform tenant → cross-tenant read-only search.
         // Scope on any organization → any issuance within the current tenant.
         // Scope on its own organization → filtered by organization (another one's reads as not found).
-        UUID id;
-        try {
-            id = UUID.fromString(issuanceId);
-        } catch (IllegalArgumentException _) {
-            return Mono.error(new NoCredentialFoundException("No credential found for a malformed issuanceId"));
+        Optional<UUID> parsedId = IssuanceIds.parse(issuanceId);
+        if (parsedId.isEmpty()) {
+            return Mono.error(new MalformedIssuanceIdException());
         }
+        UUID id = parsedId.get();
         Mono<Issuance> issuanceMono;
         if (decision.caller().crossTenantView()) {
             log.debug("Platform admin cross-tenant access for issuanceId: {}", id);
@@ -191,7 +192,7 @@ public class IssuanceServiceImpl implements IssuanceService {
             issuanceMono = issuancePort.findByIssuanceIdAndOrganizationIdentifier(id, decision.caller().organizationIdentifier());
         }
         return issuanceMono
-                .switchIfEmpty(Mono.error(new NoCredentialFoundException("No credential found for issuanceId: " + issuanceId)))
+                .switchIfEmpty(Mono.error(new IssuanceNotFoundException("No issuance found for the given id")))
                 .flatMap(issuance -> {
                     try {
                         return Mono.just(CredentialDetails.builder()

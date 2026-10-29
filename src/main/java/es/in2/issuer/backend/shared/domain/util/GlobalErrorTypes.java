@@ -18,7 +18,6 @@ public enum GlobalErrorTypes {
     SAD_ERROR("sad_error"),
     NO_SUCH_ELEMENT("no_such_element"),
     PARSE_ERROR("parse_error"),
-    CREDENTIAL_NOT_FOUND("credential_not_found"),
     PRE_AUTHORIZATION_CODE_GET("pre_authorization_code_get_error"),
     CREDENTIAL_OFFER_NOT_FOUND("credential_offer_not_found"),
     CREDENTIAL_OFFER_GONE("credential_offer_gone"),
@@ -54,6 +53,8 @@ public enum GlobalErrorTypes {
     INVALID_CREDENTIAL_STATUS_TRANSITION("invalid_credential_status_transition"),
     INVALID_DELIVERY_CONFIG("invalid_delivery_config"),
     INVALID_REQUEST("invalid_request"),
+    // The code the public API guides document for a malformed request (EUD-307).
+    BAD_REQUEST("BAD_REQUEST"),
     DELIVERY_MODE_NOT_ELIGIBLE("delivery_mode_not_eligible"),
     INVALID_HOLDER_KEY("invalid_holder_key"),
     UNKNOWN_CREDENTIAL_CONFIGURATION("unknown_credential_configuration"),

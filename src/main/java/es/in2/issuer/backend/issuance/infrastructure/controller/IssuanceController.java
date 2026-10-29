@@ -9,10 +9,12 @@ import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceHttpResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
+import es.in2.issuer.backend.shared.domain.exception.MalformedIssuanceIdException;
 import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
+import es.in2.issuer.backend.shared.domain.util.IssuanceIds;
 import es.in2.issuer.backend.statuslist.application.RevocationWorkflow;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -78,7 +80,8 @@ public class IssuanceController {
      * C1/C2 on one attestation, decided with the organization stored with it: another organization's
      * reads as not found and is traced as out of scope (FR-13). An id that is not in the tenant is
      * decided without a resource -- the platform administrator's cross-tenant view finds it in
-     * another schema, everyone else gets not found from the lookup.
+     * another schema, everyone else gets not found from the lookup. An id that is not a UUID is
+     * decided too, so a caller who may not query is still denied, and then rejected as a bad request.
      */
     @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
@@ -86,7 +89,7 @@ public class IssuanceController {
         return storedOrganization(id)
                 .map(Optional::of)
                 .defaultIfEmpty(Optional.empty())
-                .flatMap(organization -> powerAuthorizationService.authorizeQuery(organization.orElse(null), id))
+                .flatMap(organization -> powerAuthorizationService.authorizeQuery(organization.orElse(null), tracedId(id)))
                 .flatMap(decision -> issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(decision, id));
     }
 
@@ -110,7 +113,7 @@ public class IssuanceController {
             // is decided here first, like E7 and R2, so it is traced and never answers differently.
             case REVOKED -> storedOrganization(id).hasElement().flatMap(found -> Boolean.TRUE.equals(found)
                     ? revocationWorkflow.revoke(processId, authorizationHeader, id, null, publicIssuerBaseUrl)
-                    : decideThenNotFound(PowerAuthorizationService.REVOKE, id).then());
+                    : decideThenReject(PowerAuthorizationService.REVOKE, id).then());
             case WITHDRAWN -> authorizeOnStoredIssuance(PowerAuthorizationService.WITHDRAW, id)
                     .then(Mono.defer(() -> issuanceService.withdrawIssuance(id)));
             case ARCHIVED -> authorizeOnStoredIssuance(PowerAuthorizationService.ARCHIVE, id)
@@ -129,16 +132,20 @@ public class IssuanceController {
     private Mono<AuthorizationDecision> authorizeOnStoredIssuance(String actionId, String id) {
         return storedOrganization(id)
                 .flatMap(organization -> powerAuthorizationService.authorize(actionId, organization, id))
-                .switchIfEmpty(Mono.defer(() -> decideThenNotFound(actionId, id)));
+                .switchIfEmpty(Mono.defer(() -> decideThenReject(actionId, id)));
     }
 
     /**
-     * A process that is not in the tenant: decided without a resource, then not found. The id is not
-     * echoed back -- it may be any string the client sent.
+     * A process that is not in the tenant: decided without a resource, then not found -- or, for an id
+     * that is not a UUID, a bad request (EUD-307). The id is not echoed back -- it may be any string
+     * the client sent.
      */
-    private Mono<AuthorizationDecision> decideThenNotFound(String actionId, String id) {
-        return powerAuthorizationService.authorize(actionId, null, isUuid(id) ? id : MALFORMED_ID)
-                .then(Mono.error(new IssuanceNotFoundException("No issuance found for the given id")));
+    private Mono<AuthorizationDecision> decideThenReject(String actionId, String id) {
+        RuntimeException rejection = isUuid(id)
+                ? new IssuanceNotFoundException("No issuance found for the given id")
+                : new MalformedIssuanceIdException();
+        return powerAuthorizationService.authorize(actionId, null, tracedId(id))
+                .then(Mono.error(rejection));
     }
 
     /**
@@ -153,14 +160,14 @@ public class IssuanceController {
                 .map(issuance -> Objects.requireNonNullElse(issuance.getOrganizationIdentifier(), ""));
     }
 
-    /** Whether the path id is a process id; any other string the client sent never reaches the trace. */
+    /** The path id as traced: any string the client sent that is not a process id never reaches the trace. */
+    private static String tracedId(String id) {
+        return isUuid(id) ? id : MALFORMED_ID;
+    }
+
+    /** Whether the path id is a process id: a UUID in its canonical form. */
     private static boolean isUuid(String id) {
-        try {
-            UUID.fromString(id);
-            return true;
-        } catch (IllegalArgumentException _) {
-            return false;
-        }
+        return IssuanceIds.parse(id).isPresent();
     }
 
     private ResponseEntity<IssuanceHttpResponse> toResponseEntity(IssuanceResponse response) {

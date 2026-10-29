@@ -23,6 +23,7 @@ import es.in2.issuer.backend.shared.domain.model.dto.IssuanceSummary;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
+import es.in2.issuer.backend.shared.domain.exception.MalformedIssuanceIdException;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
@@ -756,6 +757,106 @@ class IssuanceControllerTest {
 
         // When / Then
         patchStatus(issuanceId, CredentialStatusEnum.VALID).expectStatus().isBadRequest();
+    }
+
+    /** EUD-307: an id that is not a UUID is decided (traced as a marker) and then rejected as 400 BAD_REQUEST. */
+    @Test
+    void IssuanceController_getIssuance_malformedIdIsDecidedThenRejectedAsBadRequest() {
+        // Given
+        AuthorizationDecision authCtx = organizationAdminDecision("org");
+        when(powerAuthorizationService.authorizeQuery(null, IssuanceController.MALFORMED_ID))
+                .thenReturn(Mono.just(authCtx));
+        when(issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(authCtx, "not-a-uuid"))
+                .thenReturn(Mono.error(new MalformedIssuanceIdException()));
+        stubBadRequestProblem();
+
+        // When / Then
+        webTestClient
+                .get()
+                .uri(ISSUANCES_PATH + "/{id}", "not-a-uuid")
+                .header("Authorization", "Bearer testToken")
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("BAD_REQUEST");
+        verify(issuanceService, never()).getIssuanceById(anyString());
+    }
+
+    /** EUD-307: a caller who may not query is denied (403) before its malformed id is looked at. */
+    @Test
+    void IssuanceController_getIssuance_malformedIdOfADeniedCallerIsForbidden() {
+        // Given
+        when(powerAuthorizationService.authorizeQuery(null, IssuanceController.MALFORMED_ID))
+                .thenReturn(Mono.error(new LearIssuancePolicyException(
+                        LearIssuancePolicyException.Reason.OPERATOR_LACKS_ONBOARDING, "no power")));
+        when(errorResponseFactory.handleSafe(any(LearIssuancePolicyException.class), any(), eq("insufficient_permission"),
+                anyString(), eq(HttpStatus.FORBIDDEN), anyString()))
+                .thenReturn(Mono.just(new GlobalErrorMessage(
+                        "insufficient_permission", "Insufficient permission", HttpStatus.FORBIDDEN.value(),
+                        "no power", UUID.randomUUID().toString())));
+
+        // When / Then
+        webTestClient
+                .get()
+                .uri(ISSUANCES_PATH + "/{id}", "not-a-uuid")
+                .header("Authorization", "Bearer testToken")
+                .exchange()
+                .expectStatus().isForbidden()
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("insufficient_permission");
+        verify(issuanceService, never()).getIssuanceDetailByIssuanceIdAndOrganizationId(any(), anyString());
+    }
+
+    /** EUD-307: a non-canonical id ("1-1-1-1-1", accepted by UUID.fromString) is malformed: never looked up nor traced. */
+    @Test
+    void IssuanceController_getIssuance_nonCanonicalIdIsTracedAsMalformed() {
+        // Given
+        AuthorizationDecision authCtx = organizationAdminDecision("org");
+        when(powerAuthorizationService.authorizeQuery(null, IssuanceController.MALFORMED_ID))
+                .thenReturn(Mono.just(authCtx));
+        when(issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(authCtx, "1-1-1-1-1"))
+                .thenReturn(Mono.error(new MalformedIssuanceIdException()));
+        stubBadRequestProblem();
+
+        // When / Then
+        webTestClient
+                .get()
+                .uri(ISSUANCES_PATH + "/{id}", "1-1-1-1-1")
+                .header("Authorization", "Bearer testToken")
+                .exchange()
+                .expectStatus().isBadRequest();
+        verify(powerAuthorizationService).authorizeQuery(null, IssuanceController.MALFORMED_ID);
+        verify(issuanceService, never()).getIssuanceById(anyString());
+    }
+
+    /** EUD-307: revoking, withdrawing or archiving an id that is not a UUID is decided, then rejected as 400 BAD_REQUEST. */
+    @ParameterizedTest
+    @EnumSource(value = CredentialStatusEnum.class, names = {"REVOKED", "WITHDRAWN", "ARCHIVED"})
+    void IssuanceController_updateIssuanceStatus_malformedIdIsDecidedThenRejectedAsBadRequest(CredentialStatusEnum target)
+            throws JsonProcessingException {
+        // Given
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(powerAuthorizationService.authorize(anyString(), isNull(), eq(IssuanceController.MALFORMED_ID)))
+                .thenReturn(Mono.just(organizationAdminDecision("org")));
+        stubBadRequestProblem();
+
+        // When / Then
+        patchStatus("not-a-uuid", target)
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("BAD_REQUEST");
+        verify(issuanceService, never()).getIssuanceById(anyString());
+        verify(issuanceService, never()).withdrawIssuance(any());
+        verify(issuanceService, never()).archiveIssuance(any());
+        verifyNoInteractions(revocationWorkflow);
+    }
+
+    private void stubBadRequestProblem() {
+        when(errorResponseFactory.handleWith(any(MalformedIssuanceIdException.class), any(), eq("BAD_REQUEST"),
+                anyString(), eq(HttpStatus.BAD_REQUEST), anyString()))
+                .thenReturn(Mono.just(new GlobalErrorMessage(
+                        "BAD_REQUEST", "Bad Request", HttpStatus.BAD_REQUEST.value(),
+                        "The issuance id is not a UUID", UUID.randomUUID().toString())));
     }
 
     private WebTestClient.ResponseSpec patchStatus(String issuanceId, CredentialStatusEnum target) throws JsonProcessingException {

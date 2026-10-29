@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (EUD-307)
+
+- **EUD-307 — The issuances API answers as the public guides say.** Built on EUD-272, which already requires `Onboarding · Execute` of the tenant for the listing, the detail, withdrawing and archiving (`403 insufficient_permission`), and issues product certifications with `delivery: direct` without `X-Id-Token`.
+  - A `{id}` that is not a UUID in its canonical form answers `400 BAD_REQUEST` (new `MalformedIssuanceIdException`, read by `IssuanceIds`) on `GET` and `PATCH /api/v1/issuances/{id}`, instead of `404`. It is still decided first, so a caller who may not do the action gets `403`, and it is traced as `<malformed>`. Shortened forms that `UUID.fromString` accepts (`1-1-1-1-1`) are malformed too.
+  - The detail of a process that does not exist, or is out of scope, answers `404 issuance_not_found` instead of `credential_not_found`, with the same `detail` as the other actions (the id is not echoed back). `NoCredentialFoundException` and the `credential_not_found` type, no longer used, are removed.
+  - Every error of the management API (`/api/**`) written by `ErrorResponseFactory` (Problem Details) is served as `application/problem+json` (RFC 9457), also from endpoints that declare `produces = application/json` and for clients that accept only `application/json`. The new `ExchangeContextWebFilter` puts the exchange in the Reactor context so the factory can set the header; a response already committed is left as it is. The protocol endpoints (OAuth, OID4VCI, well-known) keep `application/json`, as RFC 6749 and OID4VCI require.
+
 ### Changed (EUD-305)
 
 - **EUD-305 — The wallet link of the credential offer email is built by the email service.** `CredentialOfferServiceImpl` no longer reads `issuer.wallet_url` nor builds a wallet link: it hands the standard `openid-credential-offer://?credential_offer_uri=...` offer to the email service, which reads `issuer.wallet_url` (optional) and builds `<issuer.wallet_url>/protocol/callback?credential_offer_uri=...` for the "Open in Wallet" button and the QR, or keeps the standard offer when the tenant configures no wallet. No change for the holder: the email carries the same links as before. The template variable for the button is now `walletLink`.
