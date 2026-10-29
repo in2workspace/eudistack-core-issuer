@@ -1,0 +1,153 @@
+# Issuer action matrix.
+# Annex A of the prd.md of the feature "Autorización por poderes" (EUD-253).
+#
+# Describes the target state in a format the system can read. The tool that applies it
+# is chosen by the Tech Lead; this file is the definition of the rules.
+#
+# Scope values:
+#   any_organization  any organization of the request's tenant
+#   own_organization  only the organization represented by the caller's attestation
+#   deny              not allowed
+#   allow             allowed on a tenant resource that belongs to no organization
+#
+# {tenant} is the request's tenant, taken from the X-Tenant header.
+#
+# The organization of an issued attestation is set at issuance and stored with it: the caller's
+# organization or, when a tenant administrator indicates another organization of the tenant in the
+# request (action E2), that one. The attestation content never takes part in a decision. Issuance
+# also requires the attestation type to be enabled in the tenant.
+
+version: 1
+
+user_types:
+  platform_admin:
+    name: Platform administrator
+    recognized_by:
+      - { type: organization, domain: EUDISTACK, function: System, action: Administration }
+    # Inside a tenant it acts as that tenant's administrator, with the same checks.
+    acts_as: tenant_admin
+    # From the platform tenant it can only perform actions that do not write.
+    platform_tenant: read_only
+    security_trace: true
+
+  tenant_admin:
+    name: Tenant administrator
+    recognized_by:
+      - { type: organization, domain: "{tenant}", function: Onboarding, action: Execute }
+
+  organization_admin:
+    name: Organization administrator
+    recognized_by:
+      - { type: domain, domain: "{tenant}", function: Onboarding, action: Execute }
+
+  user:
+    name: User
+    # Attestation of the tenant without any of the powers above.
+    recognized_by: []
+
+# Recognition order: the first type whose power the attestation holds.
+recognition_order: [platform_admin, tenant_admin, organization_admin, user]
+
+actions:
+  # Issuance
+  - id: E1
+    name: Issue an attestation of an enabled type for one's own organization
+    writes: true
+    scope: { platform_admin: own_organization, tenant_admin: own_organization, organization_admin: own_organization, user: deny }
+
+  - id: E2
+    name: Issue an attestation of an enabled type for another organization of the tenant
+    writes: true
+    scope: { platform_admin: any_organization, tenant_admin: any_organization, organization_admin: deny, user: deny }
+
+  - id: E3
+    name: Grant the power to administer an organization
+    writes: true
+    grants: { type: domain, domain: "{tenant}", function: Onboarding, action: Execute }
+    scope: { platform_admin: any_organization, tenant_admin: any_organization, organization_admin: deny, user: deny }
+
+  - id: E4
+    name: Grant the power to administer the tenant
+    writes: true
+    grants: { type: organization, domain: "{tenant}", function: Onboarding, action: Execute }
+    # Exception: only the platform administrator, even though it acts as a tenant administrator.
+    scope: { platform_admin: any_organization, tenant_admin: deny, organization_admin: deny, user: deny }
+
+  - id: E5
+    name: Grant the power to certify
+    writes: true
+    grants: { type: domain, domain: "{tenant}", function: Certification, action: Attest }
+    scope: { platform_admin: any_organization, tenant_admin: any_organization, organization_admin: deny, user: deny }
+
+  - id: E6
+    name: Issue a product certification
+    writes: true
+    # Does not depend on the user type: holding this power is enough. The organization is the domain.
+    requires_power: { type: domain, domain: "{tenant}", function: Certification, action: Attest }
+    # Attestation types that are product certifications: credential_definition.type or
+    # credential_configuration_id; a trailing * matches a whole family (every version).
+    credential_types: ["gx:LabelCredential", "gx.labelcredential.*"]
+    scope: { platform_admin: any_organization, tenant_admin: any_organization, organization_admin: any_organization, user: any_organization }
+
+  - id: E9
+    name: Grant a power whose domain is not the tenant (e.g. the platform administrator's)
+    writes: true
+    # A power never leaves its domain: only the platform administrator can grant one outside the tenant.
+    grants_outside_tenant: true
+    scope: { platform_admin: any_organization, tenant_admin: deny, organization_admin: deny, user: deny }
+
+  - id: E7
+    name: Withdraw a draft issuance process
+    writes: true
+    scope: { platform_admin: any_organization, tenant_admin: any_organization, organization_admin: own_organization, user: deny }
+
+  - id: E8
+    name: View the attestation types and delivery modes enabled in the tenant
+    writes: false
+    # The issuance form belongs to the tenant: anyone who can issue can use it.
+    scope: { platform_admin: allow, tenant_admin: allow, organization_admin: allow, user: deny }
+
+  # Query
+  - id: C1
+    name: View the list and detail of issued attestations
+    writes: false
+    scope: { platform_admin: any_organization, tenant_admin: any_organization, organization_admin: own_organization, user: deny }
+
+  - id: C2
+    name: Query a person's attestations from a system
+    writes: false
+    scope: { platform_admin: any_organization, tenant_admin: any_organization, organization_admin: own_organization, user: deny }
+
+  # Lifecycle
+  - id: R1
+    name: Revoke an attestation
+    writes: true
+    scope: { platform_admin: any_organization, tenant_admin: any_organization, organization_admin: own_organization, user: deny }
+
+  - id: R2
+    name: Archive a finished process (withdrawn, revoked or expired)
+    writes: true
+    scope: { platform_admin: any_organization, tenant_admin: any_organization, organization_admin: own_organization, user: deny }
+
+  # Information
+  - id: I1
+    name: Receive or query issuance and revocation events
+    writes: false
+    scope: { platform_admin: any_organization, tenant_admin: any_organization, organization_admin: own_organization, user: deny }
+
+  # Configuration
+  - id: K1
+    name: View the full attestation catalog, including types not enabled in the tenant
+    writes: false
+    scope: { platform_admin: any_organization, tenant_admin: any_organization, organization_admin: deny, user: deny }
+
+  - id: K2
+    name: Change the tenant's attestation catalogue
+    writes: true
+    scope: { platform_admin: any_organization, tenant_admin: any_organization, organization_admin: deny, user: deny }
+
+  # Attestation types (Attestation Registry)
+  - id: T1
+    name: Define, validate and publish the tenant's attestation types
+    writes: true
+    scope: { platform_admin: any_organization, tenant_admin: any_organization, organization_admin: deny, user: deny }

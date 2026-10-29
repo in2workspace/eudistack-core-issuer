@@ -3,8 +3,11 @@ package es.in2.issuer.backend.shared.infrastructure.controller.error;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
+import org.springframework.mock.web.server.MockServerWebExchange;
+import org.springframework.web.filter.reactive.ServerWebExchangeContextFilter;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -205,6 +208,82 @@ class ErrorResponseFactoryTest {
         assertDoesNotThrow(() -> UUID.fromString(m1.instance()));
         assertDoesNotThrow(() -> UUID.fromString(m2.instance()));
         assertDoesNotThrow(() -> UUID.fromString(m3.instance()));
+    }
+
+    @Test
+    void ErrorResponseFactory_handleWith_servesAManagementApiErrorAsProblemJson() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/v1/issuances/x"));
+
+        StepVerifier.create(withExchange(factory.handleWith(new IllegalStateException("boom"), exchange.getRequest(),
+                        "t", "Title", HttpStatus.NOT_FOUND, "fallback"), exchange))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        assertEquals(MediaType.APPLICATION_PROBLEM_JSON, exchange.getResponse().getHeaders().getContentType());
+    }
+
+    @Test
+    void ErrorResponseFactory_handleSafe_servesAManagementApiErrorAsProblemJson() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/v1/issuances"));
+
+        StepVerifier.create(withExchange(factory.handleSafe(new RuntimeException("x"), exchange.getRequest(),
+                        "t", "Title", HttpStatus.INTERNAL_SERVER_ERROR, "detail"), exchange))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        assertEquals(MediaType.APPLICATION_PROBLEM_JSON, exchange.getResponse().getHeaders().getContentType());
+    }
+
+    @Test
+    void ErrorResponseFactory_handleWithViolations_servesAManagementApiErrorAsProblemJson() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.post("/api/v1/issuances"));
+
+        StepVerifier.create(withExchange(factory.handleWithViolations(new RuntimeException("x"), exchange.getRequest(),
+                        "t", "Title", HttpStatus.BAD_REQUEST, "detail",
+                        List.of(new GlobalErrorMessage.FieldViolation("f", "m"))), exchange))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        assertEquals(MediaType.APPLICATION_PROBLEM_JSON, exchange.getResponse().getHeaders().getContentType());
+    }
+
+    /** RFC 6749 / OID4VCI: the errors of the protocol endpoints stay application/json. */
+    @Test
+    void ErrorResponseFactory_handleWith_leavesAProtocolEndpointErrorUntouched() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.post("/oid4vci/v1/token"));
+
+        StepVerifier.create(withExchange(factory.handleWith(new IllegalArgumentException("bad pkce"), exchange.getRequest(),
+                        "t", "Title", HttpStatus.BAD_REQUEST, "fallback"), exchange))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        assertNull(exchange.getResponse().getHeaders().getContentType());
+    }
+
+    @Test
+    void ErrorResponseFactory_handleWith_leavesACommittedResponseUntouched() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/v1/issuances/x"));
+        exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
+        exchange.getResponse().setComplete().block();
+
+        StepVerifier.create(withExchange(factory.handleWith(new IllegalStateException("late"), exchange.getRequest(),
+                        "t", "Title", HttpStatus.INTERNAL_SERVER_ERROR, "fallback"), exchange))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        assertEquals(MediaType.APPLICATION_JSON, exchange.getResponse().getHeaders().getContentType());
+    }
+
+    @Test
+    void ErrorResponseFactory_handleWith_stillBuildsTheBodyWithoutAnExchangeInTheContext() {
+        StepVerifier.create(factory.handleWith(new RuntimeException("x"), mockRequest,
+                        "t", "Title", HttpStatus.NOT_FOUND, "fallback"))
+                .assertNext(msg -> assertEquals("x", msg.detail()))
+                .verifyComplete();
+    }
+
+    private static Mono<GlobalErrorMessage> withExchange(Mono<GlobalErrorMessage> mono, MockServerWebExchange exchange) {
+        return mono.contextWrite(ctx -> ctx.put(ServerWebExchangeContextFilter.EXCHANGE_CONTEXT_ATTRIBUTE, exchange));
     }
 
 }

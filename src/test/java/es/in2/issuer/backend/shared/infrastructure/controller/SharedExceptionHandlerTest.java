@@ -295,21 +295,24 @@ class SharedExceptionHandlerTest {
         verify(errors).handleWith(ex, request, type, title, st, fallback);
     }
 
-    // -------------------- handleNoCredentialFoundException --------------------
+    // -------------------- handleMalformedIssuanceIdException --------------------
 
     @Test
-    void handleNoCredentialFoundException() {
-        var ex = new NoCredentialFoundException("nothing here");
-        var type = GlobalErrorTypes.CREDENTIAL_NOT_FOUND.getCode();
-        var title = "Credential not found";
-        var st = HttpStatus.NOT_FOUND;
-        var fallback = "No credential found.";
-        var expected = new GlobalErrorMessage(type, title, st.value(), "nothing here", UUID.randomUUID().toString());
+    void handleMalformedIssuanceIdException_mapsToBadRequestType() {
+        var ex = new MalformedIssuanceIdException();
+        var type = GlobalErrorTypes.BAD_REQUEST.getCode();
+        var title = "Bad Request";
+        var st = HttpStatus.BAD_REQUEST;
+        var fallback = "The issuance id is not a UUID";
+        var expected = new GlobalErrorMessage(type, title, st.value(), "The issuance id is not a UUID", UUID.randomUUID().toString());
 
         when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
 
-        StepVerifier.create(handler.handleNoCredentialFoundException(ex, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, "nothing here"))
+        StepVerifier.create(handler.handleMalformedIssuanceIdException(ex, request))
+                .assertNext(gem -> {
+                    assertGem(gem, type, title, st, "The issuance id is not a UUID");
+                    assertEquals("BAD_REQUEST", gem.type());
+                })
                 .verifyComplete();
 
         verify(errors).handleWith(ex, request, type, title, st, fallback);
@@ -459,22 +462,25 @@ class SharedExceptionHandlerTest {
 
     @Test
     void handleLearIssuancePolicyExceptionAddsReasonCode() {
+        // Security review (EUD-272 F8): handleSafe -- the message names matrix actions and powers.
         var ex = new LearIssuancePolicyException(
-                LearIssuancePolicyException.Reason.ONBOARDING_DELEGATION_SAME_ORG, "same org");
+                LearIssuancePolicyException.Reason.ON_BEHALF_REQUIRES_TENANT_ADMIN,
+                "Authorization denied: action E2 not allowed for organization_admin");
         var type = GlobalErrorTypes.INSUFFICIENT_PERMISSION.getCode();
         var title = "Insufficient permission";
         var st = HttpStatus.FORBIDDEN;
-        var fallback = "The client who made the issuance request do not have the required permissions";
-        var expected = new GlobalErrorMessage(type, title, st.value(), "same org", UUID.randomUUID().toString());
+        var detail = "The client who made the issuance request do not have the required permissions";
+        var expected = new GlobalErrorMessage(type, title, st.value(), detail, UUID.randomUUID().toString());
 
-        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+        when(errors.handleSafe(ex, request, type, title, st, detail)).thenReturn(Mono.just(expected));
 
         StepVerifier.create(handler.handleLearIssuancePolicyException(ex, request))
                 .assertNext(gem -> {
-                    assertGem(gem, type, title, st, "same org");
-                    assertEquals("onboarding_delegation_same_org", gem.reason());
+                    assertGem(gem, type, title, st, detail);
+                    assertEquals("on_behalf_requires_tenant_admin", gem.reason());
                 })
                 .verifyComplete();
+        verify(errors).handleSafe(ex, request, type, title, st, detail);
     }
 
     // -------------------- handleUnauthorizedRoleException --------------------
