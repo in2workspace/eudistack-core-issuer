@@ -7,7 +7,6 @@ import com.networknt.schema.SpecVersion;
 import es.in2.issuer.backend.shared.domain.exception.PayloadValidationException;
 import es.in2.issuer.backend.shared.domain.service.PayloadSchemaValidator;
 import es.in2.issuer.backend.shared.domain.util.sdjwt.SdJwtReservedClaims;
-import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
@@ -17,21 +16,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static es.in2.issuer.backend.shared.domain.util.Constants.DC_SD_JWT;
-import static es.in2.issuer.backend.shared.domain.util.Constants.JWT_VC_JSON;
-
 @Slf4j
 @Service
 public class PayloadSchemaValidatorImpl implements PayloadSchemaValidator {
 
-    private static final String DIRECT_STRATEGY = "direct";
-
-    private final CredentialProfileRegistry credentialProfileRegistry;
+    private final PayloadSubschemaResolver payloadSubschemaResolver;
     private final JsonSchemaFactory schemaFactory;
     private final Map<String, PayloadSchema> schemaCache = new ConcurrentHashMap<>();
 
-    public PayloadSchemaValidatorImpl(CredentialProfileRegistry credentialProfileRegistry) {
-        this.credentialProfileRegistry = credentialProfileRegistry;
+    public PayloadSchemaValidatorImpl(PayloadSubschemaResolver payloadSubschemaResolver) {
+        this.payloadSubschemaResolver = payloadSubschemaResolver;
         this.schemaFactory = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012);
     }
 
@@ -72,34 +66,9 @@ public class PayloadSchemaValidatorImpl implements PayloadSchemaValidator {
     }
 
     private PayloadSchema buildPayloadSchema(String credentialConfigurationId) {
-        JsonNode rawProfile = credentialProfileRegistry.getRawProfile(credentialConfigurationId);
-        if (rawProfile == null) {
-            return null;
-        }
-
-        var profile = credentialProfileRegistry.getByConfigurationId(credentialConfigurationId);
-        String format = profile != null ? profile.format() : JWT_VC_JSON;
-        boolean directSubject = profile != null && DIRECT_STRATEGY.equals(profile.credentialSubjectStrategy());
-        boolean claimsAtRoot = DC_SD_JWT.equals(format) && directSubject;
-
-        // W3C: properties.credentialSubject.properties.mandate
-        // SD-JWT with direct subject: the profile root, as the claims sit at the top level
-        // SD-JWT with mandate wrapper: properties.mandate
-        JsonNode schemaNode;
-        if (JWT_VC_JSON.equals(format)) {
-            schemaNode = rawProfile.at("/properties/credentialSubject/properties/mandate");
-        } else if (claimsAtRoot) {
-            schemaNode = rawProfile;
-        } else {
-            schemaNode = rawProfile.at("/properties/mandate");
-        }
-
-        if (schemaNode.isMissingNode()) {
-            log.warn("No payload schema found in profile '{}'", credentialConfigurationId);
-            return null;
-        }
-
-        return new PayloadSchema(schemaFactory.getSchema(schemaNode), claimsAtRoot);
+        return payloadSubschemaResolver.resolve(credentialConfigurationId)
+                .map(subschema -> new PayloadSchema(schemaFactory.getSchema(subschema.schema()), subschema.claimsAtRoot()))
+                .orElse(null);
     }
 
     private record PayloadSchema(JsonSchema schema, boolean claimsAtRoot) {}

@@ -37,11 +37,6 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
     private static final String GRANT_TYPE_PRE_AUTHORIZED_CODE = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
     /** Sentinel for "no email failure", so the reactive chain carries a value rather than a null. */
     private static final String NO_EMAIL_ERROR = "";
-    /**
-     * Base URL of the wallet the tenant's credential offer emails link to (EUD-305). Optional: the
-     * client supplies it as tenant configuration; the issuer never derives one.
-     */
-    private static final String WALLET_URL_CONFIG_KEY = "issuer.wallet_url";
 
     private final PreAuthorizedCodeService preAuthorizedCodeService;
     private final TransientStore<String> issuerStateCacheStore;
@@ -95,14 +90,14 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
         // used to reach describeEmailFailure() raw, bypassing the safe constant below entirely.
         Mono<Void> emailTask = sendEmail
                 ? issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuanceId)
-                        .flatMap(emailInfo -> Mono.zip(
-                                        buildRefreshUrl(credentialOfferRefreshToken),
-                                        buildEmailOfferLink(credentialOfferUri))
-                                .flatMap(links -> Mono.deferContextual(ctx -> {
+                        .flatMap(emailInfo -> buildRefreshUrl(credentialOfferRefreshToken)
+                                // The standard offer goes to the email as is: turning it into a link to
+                                // the tenant's wallet is the email's job, not this service's (EUD-305).
+                                .flatMap(refreshUrl -> Mono.deferContextual(ctx -> {
                                     String tenantDomain = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "");
                                     return tenantDomain.contains("kpmg")
-                                            ? sendBrandedCredentialOfferEmail(links.getT2(), links.getT1(), emailInfo)
-                                            : sendLegacyCredentialOfferEmail(links.getT2(), links.getT1(), emailInfo);
+                                            ? sendBrandedCredentialOfferEmail(credentialOfferUri, refreshUrl, emailInfo)
+                                            : sendLegacyCredentialOfferEmail(credentialOfferUri, refreshUrl, emailInfo);
                                 }))
                                 .doOnSuccess(v -> log.info("Credential offer email sent for issuanceId={}", issuanceId)))
                         .doOnError(ex -> log.error("Email delivery failed for issuanceId={}: {}",
@@ -136,48 +131,26 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
         return (message == null || message.isBlank()) ? ex.getClass().getSimpleName() : message;
     }
 
-    private Mono<Void> sendLegacyCredentialOfferEmail(String credentialOfferLink, String refreshUrl,
+    private Mono<Void> sendLegacyCredentialOfferEmail(String credentialOfferUri, String refreshUrl,
                                                       CredentialOfferEmailNotificationInfo emailInfo) {
         return emailService.sendCredentialOfferEmail(
                 emailInfo.email(),
-                credentialOfferLink,
+                credentialOfferUri,
                 refreshUrl,
                 emailInfo.organization(),
                 null
         );
     }
 
-    private Mono<Void> sendBrandedCredentialOfferEmail(String credentialOfferLink, String refreshUrl,
+    private Mono<Void> sendBrandedCredentialOfferEmail(String credentialOfferUri, String refreshUrl,
                                                        CredentialOfferEmailNotificationInfo emailInfo) {
         return emailService.sendBrandedCredentialOfferEmail(
                 emailInfo.email(),
                 CREDENTIAL_ACTIVATION_EMAIL_SUBJECT,
-                credentialOfferLink,
+                credentialOfferUri,
                 refreshUrl,
                 emailInfo.organization()
         );
-    }
-
-    /**
-     * What the email's button and QR carry: a link to the tenant's wallet when the tenant configures
-     * one ({@code issuer.wallet_url}), otherwise the standard {@code openid-credential-offer://} form.
-     * There is no default wallet: a missing key never stops the email.
-     */
-    private Mono<String> buildEmailOfferLink(String credentialOfferUri) {
-        return tenantConfigService.getString(WALLET_URL_CONFIG_KEY)
-                .filter(walletUrl -> !walletUrl.isBlank())
-                .map(walletUrl -> buildWalletLink(credentialOfferUri, walletUrl.strip()))
-                .defaultIfEmpty(credentialOfferUri);
-    }
-
-    /** Reuses the already-encoded https offer URL after {@code credential_offer_uri=}, so it is not encoded twice. */
-    private String buildWalletLink(String credentialOfferUri, String walletUrl) {
-        String encodedHttpsUrl = credentialOfferUri.startsWith(CREDENTIAL_OFFER_PREFIX)
-                ? credentialOfferUri.substring(CREDENTIAL_OFFER_PREFIX.length())
-                : URLEncoder.encode(credentialOfferUri, StandardCharsets.UTF_8);
-        String walletBase = walletUrl.endsWith("/") ? walletUrl.substring(0, walletUrl.length() - 1) : walletUrl;
-
-        return walletBase + WALLET_PROTOCOL_CALLBACK + "?" + CREDENTIAL_OFFER_URI_PARAMETER + "=" + encodedHttpsUrl;
     }
 
     private Mono<String> buildRefreshUrl(String credentialOfferRefreshToken) {

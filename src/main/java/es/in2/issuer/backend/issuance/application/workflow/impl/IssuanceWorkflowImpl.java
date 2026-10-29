@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.issuance.application.workflow.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.oidc4vci.application.workflow.impl.Oid4VciCredentialWorkflowImpl;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
@@ -56,6 +57,7 @@ import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -77,6 +79,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private final IssuanceService issuanceService;
     private final CredentialOfferService credentialOfferService;
     private final IssuancePdpService issuancePdpService;
+    private final IssuancePayloadNormalizer issuancePayloadNormalizer;
     private final PayloadSchemaValidator payloadSchemaValidator;
     private final CredentialProfileRegistry credentialProfileRegistry;
     private final IssuanceMetrics issuanceMetrics;
@@ -106,14 +109,16 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         String configId = request.credentialConfigurationId();
         String delivery = request.delivery() != null ? request.delivery() : DEFAULT_DELIVERY;
 
-        Mono<Void> requestChecks = requireResolvedTenant()
+        Mono<IssuanceRequest> requestChecks = requireResolvedTenant()
                 .then(Mono.defer(() -> validateRequest(request, idToken)))
-                .then(Mono.defer(() -> payloadSchemaValidator.validate(configId, request.payload())));
+                .then(Mono.fromSupplier(() -> normalized(request)))
+                .flatMap(normalizedRequest -> payloadSchemaValidator.validate(configId, normalizedRequest.payload())
+                        .thenReturn(normalizedRequest));
 
         return auditTrail.withCorrelationId(processId, auditTrail.stageOnError(requestChecks,
                         error -> requestRefusal(processId, request, error)))
-                .then(Mono.defer(() -> issuancePdpService.authorize(configId, request.payload(), idToken)))
-                .then(Mono.defer(() -> performIssuanceFlow(processId, request, bearerToken, publicIssuerBaseUrl, delivery)))
+                .flatMap(normalizedRequest -> issuancePdpService.authorize(configId, normalizedRequest.payload(), idToken)
+                        .then(Mono.defer(() -> performIssuanceFlow(processId, normalizedRequest, bearerToken, publicIssuerBaseUrl, delivery))))
                 .transformDeferredContextual((flow, ctx) -> {
                     String tenant = ctx.hasKey(TENANT_DOMAIN_CONTEXT_KEY) ? ctx.get(TENANT_DOMAIN_CONTEXT_KEY) : null;
                     return flow
@@ -201,8 +206,16 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         return auditTrail.asSystem(BOOTSTRAP_ACTOR, Mono.fromCallable(() -> keepOnlyOid4vciDeliveryModes(delivery))
                 .flatMap(safeDelivery -> validateRequest(request, null)
-                        .then(Mono.defer(() -> payloadSchemaValidator.validate(request.credentialConfigurationId(), request.payload())))
-                        .then(Mono.defer(() -> performIssuanceFlow(processId, request, token, publicIssuerBaseUrl, safeDelivery)))));
+                        .then(Mono.fromSupplier(() -> normalized(request)))
+                        .flatMap(normalizedRequest -> payloadSchemaValidator.validate(normalizedRequest.credentialConfigurationId(), normalizedRequest.payload())
+                                .then(Mono.defer(() -> performIssuanceFlow(processId, normalizedRequest, token, publicIssuerBaseUrl, safeDelivery))))));
+    }
+
+    private IssuanceRequest normalized(IssuanceRequest request) {
+        JsonNode normalizedPayload = Objects.requireNonNull(
+                issuancePayloadNormalizer.normalize(request.credentialConfigurationId(), request.payload()),
+                "The issuance payload normalizer must not return null");
+        return request.withPayload(normalizedPayload);
     }
 
     private Mono<Void> validateRequest(IssuanceRequest request, String idToken) {
