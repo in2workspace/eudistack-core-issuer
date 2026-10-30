@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (EUD-208)
+
+- **The service reports as `eudistack-core-issuer`** (was `in2-issuer-backend`) in traces, metrics and logs: `spring.application.name` is now `${OTEL_SERVICE_NAME:eudistack-core-issuer}`, the same pattern as the Verifier and the Wallet EBW. OpenObserve filters or dashboards on `in2-issuer-backend` must use the new name.
+
 ### Changed (EUD-305)
 
 - **EUD-305 — The wallet link of the credential offer email is built by the email service.** `CredentialOfferServiceImpl` no longer reads `issuer.wallet_url` nor builds a wallet link: it hands the standard `openid-credential-offer://?credential_offer_uri=...` offer to the email service, which reads `issuer.wallet_url` (optional) and builds `<issuer.wallet_url>/protocol/callback?credential_offer_uri=...` for the "Open in Wallet" button and the QR, or keeps the standard offer when the tenant configures no wallet. No change for the holder: the email carries the same links as before. The template variable for the button is now `walletLink`.
