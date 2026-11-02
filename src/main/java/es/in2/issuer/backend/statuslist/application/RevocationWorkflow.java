@@ -146,6 +146,12 @@ public class RevocationWorkflow {
                 .then(Mono.defer(() -> requireRevocable(issuance)));
     }
 
+    private Mono<Void> authorizeOperatorWithoutResource(String token, String issuanceId) {
+        return callerProvider.fromToken(token)
+                .flatMap(caller -> powerAuthorizationService.authorize(PowerAuthorizationService.REVOKE, caller, null, issuanceId))
+                .then();
+    }
+
     private static Mono<Void> requireRevocable(Issuance issuance) {
         if (issuance.getCredentialStatus() == CredentialStatusEnum.VALID) {
             return Mono.empty();
@@ -270,7 +276,11 @@ public class RevocationWorkflow {
                     return issuanceService.getIssuanceById(issuanceId)
                             .switchIfEmpty(Mono.defer(() -> {
                                 safeAuditAttempted(actor, null, issuanceId, reason, processId, action, tenantSource);
-                                return Mono.<Issuance>error(new IssuanceNotFoundException("No issuance found for the given id"));
+                                // An operator is decided without a resource first, so one who may not revoke
+                                // is denied rather than told whether the id exists. A system trigger has no caller.
+                                return token.map(callerToken -> authorizeOperatorWithoutResource(callerToken, issuanceId))
+                                        .orElseGet(Mono::empty)
+                                        .then(Mono.<Issuance>error(new IssuanceNotFoundException("No issuance found for the given id")));
                             }))
                             .doOnSuccess(p -> log.debug(
                                     "processId={} action={} step=issuanceLoaded issuanceId={} credentialStatus={}",

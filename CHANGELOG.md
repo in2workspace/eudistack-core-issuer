@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Only a user type recognized by a platform power may be `platform_tenant: read_only` (the matrix is rejected otherwise), and the read-only view of every tenant is only for the platform administrator.
   - The tenant is taken only from the `X-Tenant` header, never from the request host (point 12). **Deploy note:** the entry infrastructure must always set it (EUD-274).
   - A process out of the caller's scope and one that does not exist answer the same `404 issuance_not_found`, with the same `detail` and without echoing the id, so the response does not reveal that the process exists.
+  - `POST /w3c/v1/credentials/status/revoke` decides an id that does not exist too, like `PATCH /api/v1/issuances/{id}`: a caller who may not revoke gets `403` whether or not the id exists.
   - New `LearIssuancePolicyException` reason codes: `tenant_admin_delegation_requires_platform_admin`, `foreign_domain_delegation_requires_platform_admin`, `certification_power_required`, `platform_tenant_read_only`, `authorization_rule_missing`, `credential_type_not_enabled`; removed `onboarding_delegation_requires_multi_org`, `onboarding_delegation_same_org`, `certification_delegation_requires_multi_org`, `mandator_organization_missing`, `on_behalf_requires_multi_org` (deploy with the matching `eudistack-mfe-credential-manager`).
 
 ### Removed (EUD-272)

@@ -397,6 +397,16 @@ class BitstringStatusListControllerRevokeIT {
                 .expectStatus().isEqualTo(400);
     }
 
+    /** Without the power the answer is the same whether or not the id exists: it does not reveal it. */
+    @Test
+    void revoke_withoutThePower_nonExistentIssuanceId_returns403() throws Exception {
+        String bearer = token("ORG-A", TENANT_A, List.of());
+
+        revoke(TENANT_A, bearer, UUID.randomUUID().toString())
+                .expectStatus().isEqualTo(403)
+                .expectBody().jsonPath("$.type").isEqualTo("insufficient_permission");
+    }
+
     @Test
     void revoke_nonExistentIssuanceId_returns404() throws Exception {
         String bearer = token("ORG-A", TENANT_A, List.of(executePower(TENANT_A)));
