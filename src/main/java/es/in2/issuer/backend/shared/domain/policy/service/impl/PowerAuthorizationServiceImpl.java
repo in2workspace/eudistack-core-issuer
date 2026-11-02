@@ -115,7 +115,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
             if (scope == Scope.OWN_ORGANIZATION && resourceOrganization != null
                     && !resourceOrganization.equals(recognized.organizationIdentifier())) {
                 deny(trace, RESOURCE_OUT_OF_SCOPE);
-                return Mono.error(new IssuanceNotFoundException("No issuance found for issuanceId: " + resourceId));
+                return Mono.error(new IssuanceNotFoundException("No issuance found for the given id"));
             }
             permit(trace.with("scope", scope.value()));
             return Mono.just(new AuthorizationDecision(actionId, recognized, scope));

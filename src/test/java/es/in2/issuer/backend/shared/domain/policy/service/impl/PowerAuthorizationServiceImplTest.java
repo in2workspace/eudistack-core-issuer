@@ -221,7 +221,10 @@ class PowerAuthorizationServiceImplTest {
         void PowerAuthorizationService_authorize_organizationAdminOnAnotherOrganizationFailsAsNotFound(String action) {
             // When / Then
             StepVerifier.create(decide(action, caller(ORG, TENANT, ORG_ADMIN), OTHER_ORG))
-                    .expectError(IssuanceNotFoundException.class)
+                    .expectErrorSatisfies(error -> assertThat(error)
+                            .isInstanceOf(IssuanceNotFoundException.class)
+                            // the same detail as an id that does not exist, so it does not reveal the process exists
+                            .hasMessage("No issuance found for the given id"))
                     .verify();
 
             // Then: the trace keeps the real reason
