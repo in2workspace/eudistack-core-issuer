@@ -270,8 +270,7 @@ public class RevocationWorkflow {
                     return issuanceService.getIssuanceById(issuanceId)
                             .switchIfEmpty(Mono.defer(() -> {
                                 safeAuditAttempted(actor, null, issuanceId, reason, processId, action, tenantSource);
-                                return Mono.<Issuance>error(new IssuanceNotFoundException(
-                                        "No issuance found for issuanceId: " + issuanceId));
+                                return Mono.<Issuance>error(new IssuanceNotFoundException("No issuance found for the given id"));
                             }))
                             .doOnSuccess(p -> log.debug(
                                     "processId={} action={} step=issuanceLoaded issuanceId={} credentialStatus={}",

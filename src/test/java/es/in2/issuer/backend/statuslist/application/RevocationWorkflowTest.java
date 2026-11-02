@@ -152,7 +152,9 @@ class RevocationWorkflowTest {
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.empty());
 
         StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com"))
-                .expectError(IssuanceNotFoundException.class)
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(IssuanceNotFoundException.class)
+                        .hasMessage("No issuance found for the given id"))
                 .verify();
 
         verifyNoInteractions(powerAuthorizationService, statusListProvider);
