@@ -17,6 +17,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 @Configuration
 public class ObservationConfig {
 
+    private static final String TENANT_TAG = "tenant";
     private static final String UNKNOWN_TENANT = "unknown";
 
     /**
@@ -28,12 +29,19 @@ public class ObservationConfig {
         return new ObservedAspect(observationRegistry);
     }
 
-    /** Tags every observation (spans and the metrics derived from it) with the component and tenant. */
+    /**
+     * Tags every observation (spans and the metrics derived from it) with the component and tenant.
+     * A tenant already on the observation stays: Micrometer applies the convention first, and
+     * TenantServerRequestObservationConvention reads it from the exchange because the MDC is empty
+     * by the time an HTTP observation stops.
+     */
     @Bean
     public ObservationFilter globalObservationFilter() {
         return context -> {
             context.addLowCardinalityKeyValue(KeyValue.of("component", MicrometerMetricsConfig.COMPONENT));
-            context.addLowCardinalityKeyValue(KeyValue.of("tenant", currentTenant()));
+            if (context.getLowCardinalityKeyValue(TENANT_TAG) == null) {
+                context.addLowCardinalityKeyValue(KeyValue.of(TENANT_TAG, currentTenant()));
+            }
             return context;
         };
     }

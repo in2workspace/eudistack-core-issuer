@@ -5,11 +5,18 @@ import ch.qos.logback.classic.Logger;
 import es.in2.issuer.backend.shared.infrastructure.observability.CustomObservationHandler;
 import io.micrometer.common.KeyValue;
 import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationHandler;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.http.server.reactive.observation.ServerRequestObservationContext;
+import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
+import org.springframework.mock.http.server.reactive.MockServerHttpResponse;
+
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -52,6 +59,42 @@ class ObservationConfigTest {
         config.globalObservationFilter().map(context);
 
         assertThat(context.getLowCardinalityKeyValue("tenant")).isEqualTo(KeyValue.of("tenant", "unknown"));
+    }
+
+    @Test
+    void globalObservationFilter_HttpObservationAfterTheMdcIsCleared_KeepsTheConventionTenant() {
+        assertThat(stoppedHttpObservationTenant(Map.of("tenantDomain", "sandbox"))).isEqualTo("sandbox");
+    }
+
+    @Test
+    void globalObservationFilter_HttpObservationWithoutTenant_ReportsTheUnknownTenant() {
+        assertThat(stoppedHttpObservationTenant(Map.of())).isEqualTo("unknown");
+    }
+
+    /** Runs the real convention and filter in the order Micrometer applies them when an observation stops. */
+    private String stoppedHttpObservationTenant(Map<String, Object> exchangeAttributes) {
+        ServerRequestObservationContext context = new ServerRequestObservationContext(
+                MockServerHttpRequest.get("/issuer/api").build(), new MockServerHttpResponse(), exchangeAttributes);
+        AtomicReference<String> tenant = new AtomicReference<>();
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationFilter(config.globalObservationFilter());
+        registry.observationConfig().observationHandler(new ObservationHandler<>() {
+            @Override
+            public boolean supportsContext(Observation.Context ignored) {
+                return true;
+            }
+
+            @Override
+            public void onStop(Observation.Context stopped) {
+                tenant.set(stopped.getLowCardinalityKeyValue("tenant").getValue());
+            }
+        });
+
+        Observation.createNotStarted(new TenantServerRequestObservationConvention(), () -> context, registry)
+                .start()
+                .stop();
+
+        return tenant.get();
     }
 
     @Test
