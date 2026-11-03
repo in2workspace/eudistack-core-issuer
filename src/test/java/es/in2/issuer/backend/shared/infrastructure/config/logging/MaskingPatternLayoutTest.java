@@ -5,6 +5,8 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static es.in2.issuer.backend.shared.infrastructure.config.logging.MaskingPatternLayout.REPLACEMENT;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -510,6 +512,48 @@ class MaskingPatternLayoutTest {
         // Assert
         assertThat(result).isEqualTo(notAJwt);
     }
+
+    @Test
+    void mask_AuthorizationCodeInQueryString_MasksCodeKeepingOtherParams() {
+        String result = MaskingPatternLayout.mask(
+                "grant_type=authorization_code&code=AUTH-CODE-123&redirect_uri=https://app.example.com/cb");
+
+        assertThat(result)
+                .isEqualTo("grant_type=authorization_code&code=" + REPLACEMENT + "&redirect_uri=https://app.example.com/cb");
+    }
+
+    @Test
+    void mask_CodeAsJsonField_MasksCode() {
+        assertThat(MaskingPatternLayout.mask("{\"code\":\"482913\"}")).doesNotContain("482913");
+    }
+
+    @Test
+    void mask_OtpAsKeyValue_MasksOtp() {
+        assertThat(MaskingPatternLayout.mask("Verifying otp=482913 for tenant sandbox"))
+                .isEqualTo("Verifying otp=" + REPLACEMENT + " for tenant sandbox");
+    }
+
+    @Test
+    void mask_CamelCaseRefreshToken_MasksToken() {
+        assertThat(MaskingPatternLayout.mask("{\"refreshToken\":\"rT_abc123\"}")).doesNotContain("rT_abc123");
+    }
+
+    @Test
+    void mask_Uuid_IsLeftUnchanged() {
+        String input = "Processing procedure 550e8400-e29b-41d4-a716-446655440000";
+
+        assertThat(MaskingPatternLayout.mask(input)).isEqualTo(input);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "error_code=expired_code notsecret=value",
+            "Failed to send a verification code: org.springframework.mail.MailSendException",
+            "Failed to resolve name. status=Status{code=UNAVAILABLE, description=Unable to resolve host}",
+            "{\"code\":\"invalid_request\"}",
+            "eyJ.onlyone"
+    })
+    void mask_LooksSensitiveButIsNot_ReturnsUnchanged(String input) {
+        assertThat(MaskingPatternLayout.mask(input)).isEqualTo(input);
+    }
 }
-
-

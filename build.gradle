@@ -85,6 +85,7 @@ dependencies {
 
     // --- Observability ---
     implementation 'org.springframework.boot:spring-boot-starter-aop'
+    implementation 'io.micrometer:context-propagation'
     implementation 'io.micrometer:micrometer-tracing-bridge-otel'
     implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
     runtimeOnly 'io.micrometer:micrometer-registry-prometheus'

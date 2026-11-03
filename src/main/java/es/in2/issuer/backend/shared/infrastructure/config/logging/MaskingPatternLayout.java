@@ -8,6 +8,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
+/**
+ * Redacts PII and secrets from every rendered log line: emails, JWTs, bearer tokens, OTPs,
+ * authorization codes and tokens or secrets written as {@code key=value} / JSON fields.
+ */
 public class MaskingPatternLayout extends PatternLayout {
 
     static final String REPLACEMENT = "***";
@@ -22,21 +26,33 @@ public class MaskingPatternLayout extends PatternLayout {
             new AbstractMap.SimpleImmutableEntry<>(
                     Pattern.compile("(?i)(Bearer\\s+)\\S+"),
                     "$1" + REPLACEMENT),
-
+            keyValueMask("tx_code|otp"),
+            // The OTP or authorization code travels as "code": only as a JSON field or code=, since
+            // prose such as "Failed to send a verification code: <exception>" is not a secret, and
+            // only when the value has a digit, since status names such as gRPC's code=UNAVAILABLE
+            // are not either
             new AbstractMap.SimpleImmutableEntry<>(
                     Pattern.compile(
-                            "(?i)(?<!\\w)(\"?(?:tx_code|access_token|refresh_token|password"
-                                    + "|client_secret|secret)\"?\\s*[:=]\\s*\"?)([^\"&\\s,}]+)"),
-                    "$1" + REPLACEMENT)
+                            "(?i)(?<!\\w)(\"code\"\\s*:\\s*\"?|code\\s*=\\s*)(?=[^\"&\\s,}]*\\d)[^\"&\\s,}]+"),
+                    "$1" + REPLACEMENT),
+            keyValueMask("token|access_?token|refresh_?token|id_?token"),
+            keyValueMask("password|client_?secret|secret")
     );
 
-    // PatternLayout override
+    // Masks the value of the given keys written as key=value or as a JSON field ("key":"value").
+    // The keys must not be the suffix of a longer word: error_code is not code.
+    private static Map.Entry<Pattern, String> keyValueMask(String keys) {
+        return new AbstractMap.SimpleImmutableEntry<>(
+                Pattern.compile("(?i)(?<!\\w)(\"?(?:" + keys + ")\"?\\s*[:=]\\s*\"?)[^\"&\\s,}]+"),
+                "$1" + REPLACEMENT);
+    }
+
     @Override
     public String doLayout(ILoggingEvent event) {
         return mask(super.doLayout(event));
     }
 
-    // Shared masking logic
+    // Shared with MaskingOpenTelemetryAppender, which reads the raw event and bypasses doLayout
     static String mask(final String input) {
         if (input == null || input.isBlank()) {
             return input;
@@ -48,4 +64,3 @@ public class MaskingPatternLayout extends PatternLayout {
         return result;
     }
 }
-

@@ -72,13 +72,10 @@ email-branding:
 
 # Logging
 logging:
-  pattern:
-    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-},%X{tenantDomain:-}]"
+  # The console pattern (service name, traceId, spanId, tenant) and the PII masking live in logback-spring.xml
   level:
     org.springframework.security: ${LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY:INFO}
     es.in2.issuer: ${LOGGING_LEVEL_ES_IN2_ISSUER:INFO}
-    io.micrometer.registry.otlp: DEBUG
-    io.opentelemetry.exporter: DEBUG
 
 # Actuator & Observability
 management:
@@ -114,8 +111,6 @@ management:
     readinessstate:
       enabled: true
   tracing:
-    # Local dev → true (Spring exports to Jaeger); AWS → false (ADOT agent handles X-Ray)
-    enabled: ${MANAGEMENT_TRACING_ENABLED:true}
     sampling:
       probability: ${OTEL_SAMPLING_PROBABILITY:1.0}
     propagation:
@@ -123,14 +118,9 @@ management:
   observations:
     key-values:
       service: ${spring.application.name}
+  # OTLP/gRPC export to the OTel Collector → OpenObserve. Exports default off:
+  # local runs and tests must not try to export.
   otlp:
-    tracing:
-      # Primary export: HTTP → Jaeger (unchanged). A second, gRPC → OTel Collector → Zipkin
-      # export is added independently via OtlpGrpcTracingConfig (dual export, opt-in).
-      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
-      grpc:
-        enabled: ${MANAGEMENT_OTLP_GRPC_TRACING_ENABLED:false}
-        endpoint: ${OTEL_COLLECTOR_GRPC_URL:http://127.0.0.1:4317}
     metrics:
       export:
         enabled: ${MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED:false}
@@ -138,9 +128,13 @@ management:
         step: 5s
         resource-attributes:
           service.name: ${spring.application.name}
+    tracing:
+      transport: grpc
+      endpoint: ${OTEL_COLLECTOR_GRPC_URL:http://127.0.0.1:4317}
+      export:
+        enabled: ${MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED:false}
     logging:
-      # Reuses the same OTel Collector gRPC endpoint as the metrics export above.
-      # Default off: local runs / tests must not try to export.
+      # INFO and above only (threshold of the OTLP appender in logback-spring.xml)
       endpoint: ${OTEL_COLLECTOR_GRPC_URL:http://127.0.0.1:4317}
       transport: ${MANAGEMENT_OTLP_LOGGING_TRANSPORT:grpc}
       export:

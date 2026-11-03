@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (EUD-208)
 
+- **Observability aligned with the Wallet EBW, the reference configuration.**
+- **Traces use Spring Boot's native OTLP/gRPC exporter** (`management.otlp.tracing.transport: grpc`). Deployments must set `MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED=true` and remove `SPRING_AUTOCONFIGURE_EXCLUDE`, which would turn this exporter off, `MANAGEMENT_OTLP_GRPC_TRACING_ENABLED` and `OTEL_EXPORTER_OTLP_ENDPOINT`. `OtlpGrpcTracingConfig` is removed: its dual export (HTTP to Jaeger plus gRPC to the collector) is no longer used in any environment.
+- **Masking**: authorization codes (`code=` or a JSON `code` field whose value has a digit), `otp`, `id_token` and camelCase token keys are now masked. An empty argument array replaces `null` in masked events, and a null MDC no longer fails.
+- **Reactive context**: `ReactorContextPropagationConfig` replaces the hook in `IssuerApiApplication.main`, and `CustomObservationHandler` logs each observation's lifecycle at DEBUG.
+- **Console pattern**: the same as the other services, now with the service name and tenant. The `io.micrometer.registry.otlp` and `io.opentelemetry.exporter` loggers leave DEBUG, and `SpringApplicationProperties`, which only `MicrometerMetricsConfig` read, is removed.
 - **The service reports as `eudistack-core-issuer`** (was `in2-issuer-backend`) in traces, metrics and logs: `spring.application.name` is now `${OTEL_SERVICE_NAME:eudistack-core-issuer}`, the same pattern as the Verifier and the Wallet EBW. OpenObserve filters or dashboards on `in2-issuer-backend` must use the new name.
 
 ### Changed (EUD-305)
