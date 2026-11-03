@@ -410,7 +410,7 @@ class RevocationControllerIT {
     }
 
     @Test
-    void revoke_withoutToken_isUnauthorized() throws Exception {
+    void revoke_withoutToken_isUnauthorized() {
         Issuance issuance = seed(CredentialStatusEnum.VALID, ORG);
 
         client.post().uri("/issuer" + path(issuance.getIssuanceId()))

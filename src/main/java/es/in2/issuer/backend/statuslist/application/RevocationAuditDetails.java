@@ -104,7 +104,10 @@ public final class RevocationAuditDetails {
         if (value == null) {
             return null;
         }
-        String normalized = CONTROL_CHARS.matcher(value.trim()).replaceAll("");
+        // CONTROL_CHARS already covers \n and \r. The literal replacements are there because CodeQL
+        // java/log-injection only recognizes those as removing line breaks, not a compiled Pattern.
+        String withoutLineBreaks = value.trim().replace("\n", "").replace("\r", "");
+        String normalized = CONTROL_CHARS.matcher(withoutLineBreaks).replaceAll("");
         // Counted in code points: a UTF-16 cut could split a surrogate pair and drop a character
         // that the reason's limit of 280 characters admits.
         if (normalized.codePointCount(0, normalized.length()) <= maxLength) {

@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **EUD-271 — A lost race on a status list is detected.** `StatusListRepository.updateSignedAndEncodedIfUnchanged` lacked `@Modifying`, so it never returned the affected rows and the optimistic check on the list did not run: two simultaneous revocations of attestations of one list could lose a bit. The loser now retries against the current list.
 - **EUD-271 — The revocation audit identifies the holder in clear.** For operators and systems (new route, alias and `PATCH`), `credential.revoked` and `credential.revoke.failed` carry `holderName`, `holderEmail` and `holderDocument` (empty when the attestation type has none); the queue and the OID4VCI notification keep a trace without personal data. The route of the contract also traces rejected requests, `requesterOrganizationId`, and identifies a system or an SD-JWT attestation by its token instead of `anonymous`. No token nor attestation content is logged.
 
+### Fixed (EUD-271)
+
+- **EUD-271 — A malformed id on `PATCH /api/v1/issuances/{id}` can no longer forge a log line.** With `status=REVOKED` the route does not check the shape of its id, and the JDK repeats it in the message of `UUID.fromString`, which reached the `status=failed` log line with its line breaks. The error text now goes through `RevocationAuditDetails.quoteIfNeeded`, and `sanitize` removes line breaks in a form that CodeQL `java/log-injection` recognizes.
+
 ### Deprecated (EUD-271)
 
 - **`POST /w3c/v1/credentials/status/revoke` is a deprecated alias** of the new route, with its current body and error codes, because the portal calls it without a reason. Each call logs `deprecated=true`.

@@ -449,9 +449,9 @@ public class RevocationWorkflow {
         String action = path.action();
         Map<String, Object> auditContext = path.auditContext();
         AtomicReference<Issuance> issuanceRef = new AtomicReference<>();
-        // issuanceId is boundary-validated as a well-formed UUID on both callers (the operator
-        // DTO's @Pattern and the queue mapper's UUID.fromString) by the time it reaches here,
-        // but this method's log statements are a shared sink for both paths. quoteIfNeeded
+        // issuanceId is boundary-validated as a well-formed UUID on the contract route, the alias
+        // (the DTO's @Pattern) and the queue (the mapper's UUID.fromString), but not on PATCH, and
+        // this method's log statements are a shared sink for all of them. quoteIfNeeded
         // (for logging only -- the real lookups/audit calls below keep the raw value) both
         // strips control characters and quotes/escapes an embedded '=' or '"', unlike plain
         // sanitize() alone (CodeQL java/log-injection, EUD-225 PR review -- see the note on
@@ -520,9 +520,11 @@ public class RevocationWorkflow {
                     safeAuditSuccess(actor, issuanceRef.get(), issuanceId, reason, processId, action, outcomeContext(path, issuanceRef.get()));
                 })
                 .doOnError(e -> {
+                    // The JDK repeats a malformed id in the message of UUID.fromString.
                     log.warn(
                             "processId={} action={} status=failed issuanceId={} error={}",
-                            processId, action, safeIssuanceId, e.toString()
+                            processId, action, safeIssuanceId,
+                            RevocationAuditDetails.quoteIfNeeded(e.toString(), RevocationAuditDetails.MAX_LOG_VALUE_LENGTH)
                     );
                     safeAuditFailure(actor, issuanceRef.get(), issuanceId, reason, processId, action, e, outcomeContext(path, issuanceRef.get()));
                 });

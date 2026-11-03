@@ -1,5 +1,8 @@
 package es.in2.issuer.backend.statuslist.application;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
@@ -32,6 +35,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import reactor.core.publisher.Mono;
@@ -106,6 +110,29 @@ class RevocationWorkflowTest {
                 .verifyComplete();
 
         verify(statusListProvider).revoke(eq(ISSUANCE_ID), eq(CLEAN_TOKEN), eq("https://issuer.example.com"), any());
+    }
+
+    /** The PATCH route does not check the shape of its id, and the JDK repeats a malformed one in its message. */
+    @Test
+    void revoke_malformedId_cannotForgeALogLine() {
+        String forged = "x\nFAKE action=forged";
+        Logger logger = (Logger) LoggerFactory.getLogger(RevocationWorkflow.class);
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        logs.start();
+        logger.addAppender(logs);
+        when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
+        when(issuanceService.getIssuanceById(forged)).thenThrow(new IllegalArgumentException("Invalid UUID string: " + forged));
+
+        try {
+            StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, forged, null, "https://issuer.example.com"))
+                    .verifyError(IllegalArgumentException.class);
+        } finally {
+            logger.detachAppender(logs);
+        }
+
+        assertThat(logs.list).extracting(ILoggingEvent::getFormattedMessage)
+                .isNotEmpty()
+                .noneMatch(message -> message.contains("\n"));
     }
 
     @Test
