@@ -72,6 +72,11 @@ dependencies {
         exclude group: 'software.amazon.awssdk', module: 'apache-client'
         exclude group: 'software.amazon.awssdk', module: 'apache5-client'
     }
+    // S3: the certificate of each own-key tenant, published by infra
+    implementation('software.amazon.awssdk:s3') {
+        exclude group: 'software.amazon.awssdk', module: 'apache-client'
+        exclude group: 'software.amazon.awssdk', module: 'apache5-client'
+    }
 
     // --- Email ---
     implementation 'org.springframework.boot:spring-boot-starter-mail'

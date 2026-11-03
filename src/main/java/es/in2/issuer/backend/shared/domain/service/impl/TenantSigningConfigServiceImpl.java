@@ -14,6 +14,7 @@ import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
+import es.in2.issuer.backend.signing.domain.service.OwnKeySigningConfigLoader;
 import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import lombok.extern.slf4j.Slf4j;
@@ -37,16 +38,19 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
     private final TenantSigningConfigRepository repository;
     private final Cache<String, ActiveSigningConfig> configCache;
     private final ObjectMapper objectMapper;
+    private final OwnKeySigningConfigLoader ownKeySigningConfigLoader;
 
     @Autowired
     public TenantSigningConfigServiceImpl(TenantSigningConfigRepository repository,
                                           ObjectMapper objectMapper,
+                                          OwnKeySigningConfigLoader ownKeySigningConfigLoader,
                                           @Value("${issuer.signing.config-cache-ttl:5m}") Duration configCacheTtl) {
-        this(repository, objectMapper, configCacheTtl, Ticker.systemTicker());
+        this(repository, objectMapper, ownKeySigningConfigLoader, configCacheTtl, Ticker.systemTicker());
     }
 
     TenantSigningConfigServiceImpl(TenantSigningConfigRepository repository,
                                    ObjectMapper objectMapper,
+                                   OwnKeySigningConfigLoader ownKeySigningConfigLoader,
                                    Duration configCacheTtl,
                                    Ticker ticker) {
         if (configCacheTtl == null || configCacheTtl.isZero() || configCacheTtl.isNegative()) {
@@ -61,6 +65,7 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
                 .maximumSize(50)
                 .build();
         this.objectMapper = objectMapper;
+        this.ownKeySigningConfigLoader = ownKeySigningConfigLoader;
     }
 
     @Override
@@ -122,14 +127,9 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
     private Mono<ActiveSigningConfig> toActiveSigningConfig(String tenant, TenantSigningConfig row) {
         return switch (modalityOf(tenant, row)) {
             case QTSP -> Mono.just(ActiveSigningConfig.qtsp(toRemoteSignatureDto(row)));
-            case OWN_KEY -> Mono.error(() -> ownKeyNotAvailable(tenant));
+            // The key and the certificate of an own key are not in the database: they come from its certificate.
+            case OWN_KEY -> ownKeySigningConfigLoader.load(tenant).map(ActiveSigningConfig::ownKey);
         };
-    }
-
-    /** The key and the certificate of an own-key configuration are not stored in the database. */
-    private static SigningException ownKeyNotAvailable(String tenant) {
-        log.error("Active own-key signing config of tenant '{}' has no source for its key and certificate", tenant);
-        return invalidConfiguration();
     }
 
     private static SigningModality modalityOf(String tenant, TenantSigningConfig row) {

@@ -138,6 +138,22 @@ public final class OwnKeyTestPki {
         }
     }
 
+    /** P-256 leaf without organizationIdentifier in its subject, issued by the root, whose name has one. */
+    public Leaf leafWithOrganizationIdentifierOnlyInItsIssuer() {
+        try {
+            KeyPair keyPair = generateEc();
+            X500Name subject = new X500NameBuilder(BCStyle.INSTANCE)
+                    .addRDN(BCStyle.C, "ES")
+                    .addRDN(BCStyle.O, "CGCOM PRUEBAS (ficticio)")
+                    .addRDN(BCStyle.CN, "Sello sin identificador")
+                    .build();
+            return new Leaf(issue(subject, rootKeyPair, name("Raiz de pruebas"), keyPair.getPublic(),
+                    "2024-01-01T00:00:00Z", "2099-01-01T00:00:00Z"), keyPair);
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not issue the leaf", e);
+        }
+    }
+
     /** A valid leaf certificate issued by the root for an externally held public key (e.g. a KMS key). */
     public X509Certificate certificateFor(java.security.PublicKey publicKey) {
         try {

@@ -182,4 +182,17 @@ class IssuerCertificateServiceImplTest {
 
         verifyNoInteractions(cscPort);
     }
+
+    @Test
+    void resolveOwnKeyDetailedIssuer_organizationIdentifierOnlyInTheIssuerOfTheLeaf_fails() throws Exception {
+        var leaf = new OwnKeyTestPki().leafWithOrganizationIdentifierOnlyInItsIssuer().certificate();
+        var config = new OwnKeySigningConfig("alias/own-key-abc", "ES256",
+                List.of(Base64.getEncoder().encodeToString(leaf.getEncoded())));
+
+        StepVerifier.create(issuerCertificateService.resolveOwnKeyDetailedIssuer(config))
+                .expectError(es.in2.issuer.backend.signing.domain.exception.OrganizationIdentifierNotFoundException.class)
+                .verify();
+
+        verifyNoInteractions(cscPort);
+    }
 }

@@ -9,6 +9,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.service.IssuerCertificateService;
 import es.in2.issuer.backend.signing.domain.spi.CscPort;
+import es.in2.issuer.backend.signing.domain.util.OwnKeyCertificates;
 import es.in2.issuer.backend.signing.domain.util.StoredCertificateInfo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -89,15 +90,22 @@ public class IssuerCertificateServiceImpl implements IssuerCertificateService {
 
     @Override
     public Mono<DetailedIssuer> resolveOwnKeyDetailedIssuer(OwnKeySigningConfig cfg) {
-        // qualifiedSeal is irrelevant to the issuer identity, so it is not computed here.
-        return Mono.defer(() -> extractIssuerFromCertificateInfo(StoredCertificateInfo.from(cfg, false)));
+        // qualifiedSeal is irrelevant to the issuer identity, so it is not computed here. The
+        // organizationIdentifier is read only from the subject of the leaf, the value the certificate was
+        // checked against the tenant with; the QTSP extraction below may also find the issuer's.
+        return Mono.defer(() -> toDetailedIssuer(StoredCertificateInfo.from(cfg, false),
+                Mono.justOrEmpty(OwnKeyCertificates.subjectOrganizationIdentifier(StoredCertificateInfo.leaf(cfg)))));
     }
 
     private Mono<DetailedIssuer> extractIssuerFromCertificateInfo(CertificateInfo certInfo) {
+        return toDetailedIssuer(certInfo, extractOrganizationIdentifier(certInfo.certificates()));
+    }
+
+    private Mono<DetailedIssuer> toDetailedIssuer(CertificateInfo certInfo, Mono<String> organizationIdentifier) {
         try {
             log.info("Extracting issuer from certificate info");
             Map<String, String> dnAttributes = parseDnAttributes(certInfo.subjectDN());
-            return extractOrganizationIdentifier(certInfo.certificates())
+            return organizationIdentifier
                     .switchIfEmpty(Mono.error(new OrganizationIdentifierNotFoundException(
                             "organizationIdentifier not found in the certificate.")))
                     .map(orgId -> DetailedIssuer.builder()
