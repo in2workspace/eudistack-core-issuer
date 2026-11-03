@@ -34,12 +34,12 @@ public record CredentialProfile(
         @JsonProperty("credential_signing_alg_values_supported") Set<String> credentialSigningAlgValuesSupported,
         @JsonProperty("proof_types_supported") Map<String, ProofTypeConfig> proofTypesSupported,
         @JsonProperty("credential_metadata") CredentialMetadata credentialMetadata,
-        @Deprecated(since = "3.12.0", forRemoval = true) @JsonProperty("validity_days") int validityDays,
+        @Deprecated(since = "3.12.0", forRemoval = true) @JsonProperty("validity_days") int validityDays, // NOSONAR java:S1133 - removal is out of EUD-266 (catalog tech debt, points 2, 4, 6, 7 and 8)
         @JsonProperty("issuer_type") IssuerType issuerType,
         @JsonProperty("cnf_required") boolean cnfRequired,
         @JsonProperty("binding_type") String bindingType,
         @JsonProperty("description") String description,
-        @Deprecated(since = "3.12.0", forRemoval = true) @JsonProperty("subject_extraction") SubjectExtraction subjectExtraction,
+        @Deprecated(since = "3.12.0", forRemoval = true) @JsonProperty("subject_extraction") SubjectExtraction subjectExtraction, // NOSONAR java:S1133 - removal is out of EUD-266 (catalog tech debt, points 2, 4, 6, 7 and 8)
         @JsonProperty("organization_extraction") OrganizationExtraction organizationExtraction,
         @JsonProperty("sd_jwt") SdJwtConfig sdJwt,
         @JsonProperty("credential_subject_strategy") String credentialSubjectStrategy,
