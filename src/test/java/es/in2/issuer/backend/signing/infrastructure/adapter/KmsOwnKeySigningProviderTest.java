@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter;
 
-import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -62,12 +61,6 @@ class KmsOwnKeySigningProviderTest {
 
         FakeKms(KeyPair signingKey) {
             this.signingKey = signingKey;
-        }
-
-        /** The provider works with the tag cached in the configuration and never reads it from KMS. */
-        @Override
-        public Mono<String> findTenantTag(String keyRef) {
-            return Mono.error(new AssertionError("the provider must not read the key tags"));
         }
 
         @Override
@@ -136,7 +129,7 @@ class KmsOwnKeySigningProviderTest {
             for (var certificate : chain) {
                 encoded.add(Base64.getEncoder().encodeToString(certificate.getEncoded()));
             }
-            return new OwnKeySigningConfig(KEY_REF, "ES256", encoded, TENANT);
+            return new OwnKeySigningConfig(KEY_REF, "ES256", encoded);
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
@@ -305,70 +298,6 @@ class KmsOwnKeySigningProviderTest {
         StepVerifier.create(signInTenant(provider, jades(null)))
                 .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.NO_CONFIGURATION))
                 .verify();
-    }
-
-    @Test
-    void sign_keyTaggedForTheTenantOfTheRequest_signs() {
-        var config = configFor(PKI.validP256Leaf()).withKeyTenantTag("sandbox");
-
-        StepVerifier.create(provider.sign(withOwnKey(jades(null), config))
-                        .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, "sandbox")))
-                .expectNextCount(1)
-                .verifyComplete();
-        assertThat(kms.signCalls).hasValue(1);
-        assertThat(logs.list).noneMatch(e -> e.getFormattedMessage().contains("KEY_TENANT_MISMATCH"));
-    }
-
-    @Test
-    void sign_keyWithoutTenantTag_failsWithNoConfigurationWithoutCallingKms() {
-        var config = configFor(PKI.validP256Leaf()).withKeyTenantTag(null);
-
-        StepVerifier.create(signInTenant(provider, withOwnKey(jades(null), config)))
-                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.NO_CONFIGURATION))
-                .verify();
-        assertThat(kms.signCalls).hasValue(0);
-        assertThat(mismatchLogs()).singleElement().satisfies(message -> {
-            assertThat(message).contains("tenant=cgcom", "keyRef=key/own-key", "keyTenantTag=missing");
-            assertThat(message).doesNotContain("111122223333");
-        });
-    }
-
-    @Test
-    void sign_keyTaggedForAnotherTenant_failsWithNoConfigurationWithoutCallingKms() {
-        var config = configFor(PKI.validP256Leaf()).withKeyTenantTag("kpmg");
-
-        StepVerifier.create(signInTenant(provider, withOwnKey(jades(null), config)))
-                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.NO_CONFIGURATION))
-                .verify();
-        assertThat(kms.signCalls).hasValue(0);
-        assertThat(mismatchLogs()).singleElement()
-                .satisfies(message -> assertThat(message).contains("tenant=cgcom", "keyTenantTag=kpmg"));
-        assertThat(logs.list).filteredOn(e -> e.getLevel() == Level.ERROR).hasSize(1);
-    }
-
-    @Test
-    void sign_requestWithoutTenantInContext_isNotSignedEvenWithATaggedKey() {
-        StepVerifier.create(provider.sign(withOwnKey(jades(null), configFor(PKI.validP256Leaf()))))
-                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.NO_CONFIGURATION))
-                .verify();
-        assertThat(kms.signCalls).hasValue(0);
-    }
-
-    @Test
-    void sign_tenantComparisonIsExact() {
-        var config = configFor(PKI.validP256Leaf()).withKeyTenantTag("CGCOM");
-
-        StepVerifier.create(signInTenant(provider, withOwnKey(jades(null), config)))
-                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.NO_CONFIGURATION))
-                .verify();
-    }
-
-    private List<String> mismatchLogs() {
-        return logs.list.stream()
-                .filter(e -> e.getLevel() == Level.ERROR)
-                .map(ILoggingEvent::getFormattedMessage)
-                .filter(message -> message.startsWith("KEY_TENANT_MISMATCH"))
-                .toList();
     }
 
     @Test

@@ -29,7 +29,6 @@ import software.amazon.awssdk.services.kms.model.CreateKeyRequest;
 import software.amazon.awssdk.services.kms.model.GetPublicKeyRequest;
 import software.amazon.awssdk.services.kms.model.KeySpec;
 import software.amazon.awssdk.services.kms.model.KeyUsageType;
-import software.amazon.awssdk.services.kms.model.Tag;
 
 import java.security.KeyFactory;
 import java.security.interfaces.ECPublicKey;
@@ -81,7 +80,6 @@ class KmsOwnKeySigningProviderIT {
         String keyId = client.createKey(CreateKeyRequest.builder()
                         .keySpec(KeySpec.ECC_NIST_P256)
                         .keyUsage(KeyUsageType.SIGN_VERIFY)
-                        .tags(Tag.builder().tagKey("Tenant").tagValue("cgcom").build())
                         .build())
                 .get().keyMetadata().keyId();
         KmsSigningPort adapter = new KmsSigningAdapter(client, properties);
@@ -90,8 +88,7 @@ class KmsOwnKeySigningProviderIT {
         ECPublicKey kmsPublicKey = (ECPublicKey) KeyFactory.getInstance("EC").generatePublic(new X509EncodedKeySpec(spki));
         var certificate = new OwnKeyTestPki().certificateFor(kmsPublicKey);
         var config = new OwnKeySigningConfig(keyId, "ES256",
-                List.of(Base64.getEncoder().encodeToString(certificate.getEncoded())),
-                adapter.findTenantTag(keyId).block(Duration.ofSeconds(30)));
+                List.of(Base64.getEncoder().encodeToString(certificate.getEncoded())));
 
         @SuppressWarnings("unchecked")
         ObjectProvider<KmsSigningPort> port = mock(ObjectProvider.class);

@@ -6,7 +6,6 @@ import es.in2.issuer.backend.signing.infrastructure.properties.KmsSigningPropert
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
@@ -14,24 +13,19 @@ import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.kms.KmsAsyncClient;
 import software.amazon.awssdk.services.kms.model.DisabledException;
 import software.amazon.awssdk.services.kms.model.KmsInvalidStateException;
-import software.amazon.awssdk.services.kms.model.ListResourceTagsRequest;
-import software.amazon.awssdk.services.kms.model.ListResourceTagsResponse;
 import software.amazon.awssdk.services.kms.model.MessageType;
 import software.amazon.awssdk.services.kms.model.NotFoundException;
 import software.amazon.awssdk.services.kms.model.SignRequest;
 import software.amazon.awssdk.services.kms.model.SignResponse;
 import software.amazon.awssdk.services.kms.model.SigningAlgorithmSpec;
-import software.amazon.awssdk.services.kms.model.Tag;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -263,155 +257,6 @@ class KmsSigningAdapterTest {
                     assertThat(ex.getCause().getCause()).isNull();
                 })
                 .verify();
-    }
-
-    @Test
-    void findTenantTag_keyTaggedForATenant_returnsTheValueOfTheTenantTag() {
-        when(client.listResourceTags(any(ListResourceTagsRequest.class))).thenReturn(page(false, null,
-                tag("Environment", "stg"), tag("Tenant", "cgcom")));
-
-        StepVerifier.create(adapter.findTenantTag(KEY_REF)).expectNext("cgcom").verifyComplete();
-
-        ArgumentCaptor<ListResourceTagsRequest> captor = ArgumentCaptor.forClass(ListResourceTagsRequest.class);
-        verify(client).listResourceTags(captor.capture());
-        assertThat(captor.getValue().keyId()).isEqualTo(KEY_REF);
-        assertThat(captor.getValue().marker()).isNull();
-    }
-
-    @Test
-    void findTenantTag_keyWithoutTenantTag_isEmpty() {
-        when(client.listResourceTags(any(ListResourceTagsRequest.class))).thenReturn(page(false, null,
-                tag("Environment", "stg"), tag("tenant", "cgcom")));
-
-        StepVerifier.create(adapter.findTenantTag(KEY_REF)).verifyComplete();
-    }
-
-    @Test
-    void findTenantTag_keyWithNoTags_isEmpty() {
-        when(client.listResourceTags(any(ListResourceTagsRequest.class))).thenReturn(page(false, null));
-
-        StepVerifier.create(adapter.findTenantTag(KEY_REF)).verifyComplete();
-    }
-
-    @Test
-    void findTenantTag_tagOnALaterPage_followsTheMarkerUntilItIsFound() {
-        when(client.listResourceTags(any(ListResourceTagsRequest.class))).thenReturn(
-                page(true, "m1", tag("A", "1")),
-                page(true, "m2", tag("B", "2")),
-                page(false, null, tag("Tenant", "kpmg")));
-
-        StepVerifier.create(adapter.findTenantTag(KEY_REF)).expectNext("kpmg").verifyComplete();
-
-        ArgumentCaptor<ListResourceTagsRequest> captor = ArgumentCaptor.forClass(ListResourceTagsRequest.class);
-        verify(client, times(3)).listResourceTags(captor.capture());
-        assertThat(captor.getAllValues()).extracting(ListResourceTagsRequest::marker)
-                .containsExactly(null, "m1", "m2");
-    }
-
-    @Test
-    void findTenantTag_noTenantTagInAnyPage_isEmptyAfterTheLastPage() {
-        when(client.listResourceTags(any(ListResourceTagsRequest.class))).thenReturn(
-                page(true, "m1", tag("A", "1")),
-                page(false, null, tag("B", "2")));
-
-        StepVerifier.create(adapter.findTenantTag(KEY_REF)).verifyComplete();
-
-        verify(client, times(2)).listResourceTags(any(ListResourceTagsRequest.class));
-    }
-
-    @Test
-    void findTenantTag_tagOnTheFirstPage_doesNotAskForMore() {
-        when(client.listResourceTags(any(ListResourceTagsRequest.class)))
-                .thenReturn(page(true, "m1", tag("Tenant", "cgcom")));
-
-        StepVerifier.create(adapter.findTenantTag(KEY_REF)).expectNext("cgcom").verifyComplete();
-
-        verify(client, times(1)).listResourceTags(any(ListResourceTagsRequest.class));
-    }
-
-    @Test
-    void findTenantTag_throttledTwiceThenOk_retriesAndReturnsTheTag() {
-        when(client.listResourceTags(any(ListResourceTagsRequest.class))).thenReturn(
-                failed(throttling()), failed(throttling()), page(false, null, tag("Tenant", "cgcom")));
-
-        StepVerifier.withVirtualTime(() -> adapter.findTenantTag(KEY_REF))
-                .thenAwait(WAIT_ALL_RETRIES)
-                .expectNext("cgcom")
-                .verifyComplete();
-
-        verify(client, times(3)).listResourceTags(any(ListResourceTagsRequest.class));
-    }
-
-    @Test
-    void findTenantTag_pagesLastingPastTheDeadline_failProviderUnavailableForTheWholeRead() {
-        adapter = new KmsSigningAdapter(client, properties(Duration.ofSeconds(15)));
-        // Every page answers after 8 s, within its 10 s timeout, so no page is retried; the second one would end at 16 s.
-        AtomicInteger calls = new AtomicInteger();
-        when(client.listResourceTags(any(ListResourceTagsRequest.class))).thenAnswer(inv -> {
-            int n = calls.incrementAndGet();
-            return Mono.delay(Duration.ofSeconds(8)).thenReturn(ListResourceTagsResponse.builder()
-                    .tags(tag("A", String.valueOf(n)))
-                    .truncated(true)
-                    .nextMarker("m" + n)
-                    .build()).toFuture();
-        });
-
-        StepVerifier.withVirtualTime(() -> adapter.findTenantTag(KEY_REF))
-                .expectSubscription()
-                .expectNoEvent(Duration.ofSeconds(14))
-                .thenAwait(Duration.ofSeconds(1))
-                .expectErrorSatisfies(ex -> {
-                    assertReason(ex, SigningFailureReason.PROVIDER_UNAVAILABLE);
-                    assertThat(ex).hasMessageContaining("ListResourceTags did not complete within PT15S");
-                })
-                .verify();
-
-        assertThat(calls).hasValue(2);
-    }
-
-    @Test
-    void findTenantTag_laterPageFails_failsAsAWholeInsteadOfReturningAPartialAnswer() {
-        when(client.listResourceTags(any(ListResourceTagsRequest.class))).thenReturn(
-                page(true, "m1", tag("A", "1")),
-                failed(new IllegalStateException("boom")));
-
-        StepVerifier.create(adapter.findTenantTag(KEY_REF))
-                .expectErrorSatisfies(ex -> assertReason(ex, SigningFailureReason.OTHER))
-                .verify();
-    }
-
-    @Test
-    void findTenantTag_keyNotFound_failsKeyUnusableWithoutRetry() {
-        when(client.listResourceTags(any(ListResourceTagsRequest.class)))
-                .thenReturn(failed(NotFoundException.builder().message("missing").build()));
-
-        StepVerifier.withVirtualTime(() -> adapter.findTenantTag(KEY_REF))
-                .thenAwait(WAIT_ALL_RETRIES)
-                .expectErrorSatisfies(ex -> assertReason(ex, SigningFailureReason.KEY_UNUSABLE))
-                .verify();
-
-        verify(client, times(1)).listResourceTags(any(ListResourceTagsRequest.class));
-    }
-
-    @Test
-    void findTenantTag_doesNotSign() {
-        when(client.listResourceTags(any(ListResourceTagsRequest.class))).thenReturn(page(false, null));
-
-        StepVerifier.create(adapter.findTenantTag(KEY_REF)).verifyComplete();
-
-        verify(client, never()).sign(any(SignRequest.class));
-    }
-
-    private static Tag tag(String key, String value) {
-        return Tag.builder().tagKey(key).tagValue(value).build();
-    }
-
-    private static CompletableFuture<ListResourceTagsResponse> page(boolean truncated, String nextMarker, Tag... tags) {
-        return CompletableFuture.completedFuture(ListResourceTagsResponse.builder()
-                .tags(tags)
-                .truncated(truncated)
-                .nextMarker(nextMarker)
-                .build());
     }
 
     private void assertNotRetried(Throwable failure) {

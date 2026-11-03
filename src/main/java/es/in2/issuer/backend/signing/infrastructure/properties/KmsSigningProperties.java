@@ -12,9 +12,8 @@ import java.util.Objects;
  * emulators such as LocalStack.
  *
  * <p>{@code callTimeout} bounds each attempt, {@code maxRetries} the retries after the first attempt
- * and {@code deadline} a whole KMS operation with its retries: one {@code Sign}, or the reading of all
- * the tag pages of a key. With the defaults the deadline is not reached before the last retry ends; it
- * only stops a call that would otherwise last longer.
+ * and {@code deadline} a whole {@code Sign} with its retries. With the defaults the deadline is not
+ * reached before the last retry ends; it only stops a call that would otherwise last longer.
  */
 @ConfigurationProperties(prefix = "issuer.signing.kms")
 public record KmsSigningProperties(
