@@ -1,10 +1,13 @@
 package es.in2.issuer.backend.shared.domain.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.InvalidTokenException;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntryChange;
 import es.in2.issuer.backend.shared.domain.model.catalog.ClaimPath;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
+import es.in2.issuer.backend.shared.domain.service.impl.JWTServiceImpl;
+import es.in2.issuer.backend.shared.infrastructure.crypto.CryptoComponent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,6 +18,8 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import reactor.util.context.Context;
@@ -32,6 +37,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -118,6 +124,34 @@ class CatalogEntryChangeAuditorTest {
         verify(auditService).auditSuccess(anyString(), anyString(), anyString(), anyString(), anyString(),
                 details.capture());
         assertThat(details.getValue()).containsEntry("operation", "Create").doesNotContainKeys("changes", "version");
+    }
+
+    /**
+     * AC-12 with the token the portal really sends: the verifier's LEAR SD-JWT access token, with no ID token.
+     * The security context is built as {@code CustomAuthenticationManager} builds it, so the person comes from
+     * {@link JWTServiceImpl#resolvePrincipal} and not from a hand-made principal.
+     */
+    @Test
+    void audit_withTheVerifierSdJwtAccessToken_recordsTheMandateeEmail() {
+        Jwt accessToken = new Jwt("token", Instant.now(), Instant.now().plusSeconds(3600), Map.of("alg", "ES256"),
+                Map.of(
+                        "sub", PERSON,
+                        "mandatee", Map.of("email", PERSON),
+                        "vc", Map.of(
+                                "vct", "learcredential.employee.sd.1",
+                                "mandator", Map.of("organizationIdentifier", ORGANIZATION),
+                                "mandate", Map.of("mandatee", Map.of("email", PERSON)))));
+        JWTServiceImpl jwtService = new JWTServiceImpl(new ObjectMapper(), mock(CryptoComponent.class));
+        JwtAuthenticationToken authentication =
+                new JwtAuthenticationToken(accessToken, List.of(), jwtService.resolvePrincipal(accessToken));
+
+        StepVerifier.create(auditor.audit(CatalogEntryChange.created(entry(true, 0)))
+                        .contextWrite(ReactiveSecurityContextHolder.withAuthentication(authentication))
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .verifyComplete();
+
+        verify(auditService).auditSuccess(eq("CatalogEntryChanged"), eq(PERSON), eq(ORGANIZATION),
+                eq("attestation-catalog"), eq(TENANT), any());
     }
 
     // ---- denied writes ---------------------------------------------------------
