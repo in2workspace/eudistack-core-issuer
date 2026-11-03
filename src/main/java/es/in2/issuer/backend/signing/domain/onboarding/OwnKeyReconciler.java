@@ -26,7 +26,7 @@ import java.util.function.Supplier;
  * key is disabled and scheduled for deletion. The grace period covers the Issuer instances that still hold
  * the previous configuration in cache.
  *
- * <p>Idempotent: a row whose key was retired is marked ({@code own_key_deleted_at}) and never selected
+ * <p>Idempotent: a row whose key was retired is marked ({@code tenant_own_key.deleted_at}) and never selected
  * again, so a second run makes no KMS call. The key state is checked before acting, so an interrupted run
  * can be repeated. A key that an active configuration of any tenant references is never touched (a renewal keeps
  * the key of the configuration it replaces): the row is only marked. {@code DeleteImportedKeyMaterial} is not called: during the deletion window the key is

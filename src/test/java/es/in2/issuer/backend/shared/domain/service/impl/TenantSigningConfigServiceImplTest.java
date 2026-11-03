@@ -3,6 +3,8 @@ package es.in2.issuer.backend.shared.domain.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Ticker;
 import es.in2.issuer.backend.shared.domain.model.entities.TenantSigningConfig;
+import es.in2.issuer.backend.shared.infrastructure.persistence.TenantOwnKeyEntity;
+import es.in2.issuer.backend.shared.infrastructure.repository.TenantOwnKeyRepository;
 import es.in2.issuer.backend.shared.infrastructure.repository.TenantSigningConfigRepository;
 import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
 import es.in2.issuer.backend.signing.domain.exception.SigningConfigurationChangedException;
@@ -25,6 +27,8 @@ import reactor.test.StepVerifier;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -36,6 +40,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -45,6 +50,12 @@ class TenantSigningConfigServiceImplTest {
 
     @Mock
     private TenantSigningConfigRepository repository;
+
+    @Mock
+    private TenantOwnKeyRepository ownKeyRepository;
+
+    /** The own-key rows {@link #ownKeyRow} writes, by configuration id. */
+    private final Map<UUID, TenantOwnKeyEntity> ownKeys = new HashMap<>();
 
     @Mock
     private KmsSigningPort kms;
@@ -63,7 +74,9 @@ class TenantSigningConfigServiceImplTest {
     @BeforeEach
     void setUp() {
         lenient().when(kms.findTenantTag(KMS_REF)).thenReturn(Mono.just("t1"));
-        service = new TenantSigningConfigServiceImpl(repository, new ObjectMapper(),
+        lenient().when(ownKeyRepository.findBySigningConfigurationId(any(UUID.class)))
+                .thenAnswer(invocation -> Mono.justOrEmpty(ownKeys.get(invocation.<UUID>getArgument(0))));
+        service = new TenantSigningConfigServiceImpl(repository, ownKeyRepository, new ObjectMapper(),
                 Duration.ofSeconds(30), kmsProvider(kms), ticker);
     }
 
@@ -71,14 +84,19 @@ class TenantSigningConfigServiceImplTest {
         return new TenantSigningConfig(UUID.randomUUID(), "digitel", "v2",
                 "{\"url\":\"https://qtsp.test\",\"credentialId\":\"cred-1\",\"credentialPwd\":\"pwd\","
                         + "\"clientId\":\"cid\",\"clientSecret\":\"secret\",\"certCacheTtl\":\"PT10M\"}",
-                null, null, "qtsp", "active", null, null,
-                null, null, null, null, null);
+                null, null, "qtsp", "active", null, null);
     }
 
-    private static TenantSigningConfig ownKeyRow(String algorithm, String chainJson, String keyRef) {
-        return new TenantSigningConfig(UUID.randomUUID(), "aws-kms", null, null, null, null,
-                "own_key", "active", null, null,
-                keyRef, algorithm, chainJson, null, null);
+    /** An active own_key configuration and its own-key row. */
+    private TenantSigningConfig ownKeyRow(String algorithm, String chainJson, String keyRef) {
+        UUID id = UUID.randomUUID();
+        ownKeys.put(id, new TenantOwnKeyEntity(id, keyRef, algorithm, chainJson, null, null));
+        return ownKeyConfigurationWithoutRow(id);
+    }
+
+    private static TenantSigningConfig ownKeyConfigurationWithoutRow(UUID id) {
+        return new TenantSigningConfig(id, "aws-kms", null, null, null, null,
+                "own_key", "active", null, null);
     }
 
     private Mono<ActiveSigningConfig> load(String tenant) {
@@ -166,7 +184,7 @@ class TenantSigningConfigServiceImplTest {
 
     @Test
     void getActiveSigningConfig_kmsSigningDisabled_readsNoTagsAndLoadsWithNoTag() {
-        service = new TenantSigningConfigServiceImpl(repository, new ObjectMapper(),
+        service = new TenantSigningConfigServiceImpl(repository, ownKeyRepository, new ObjectMapper(),
                 Duration.ofSeconds(30), kmsProvider(null), ticker);
         when(repository.findFirstByStatusOrderByCreatedAtDesc("active"))
                 .thenReturn(Mono.just(ownKeyRow("ES256", "[\"MIIB-leaf\"]", KMS_REF)));
@@ -248,11 +266,22 @@ class TenantSigningConfigServiceImplTest {
     }
 
     @Test
+    void getActiveSigningConfig_ownKeyConfigurationWithoutItsOwnKeyRow_failsWithNoConfiguration() {
+        when(repository.findFirstByStatusOrderByCreatedAtDesc("active"))
+                .thenReturn(Mono.just(ownKeyConfigurationWithoutRow(UUID.randomUUID())));
+
+        StepVerifier.create(load("t1"))
+                .expectErrorSatisfies(err -> assertThat(((SigningException) err).getReason())
+                        .isEqualTo(SigningFailureReason.NO_CONFIGURATION))
+                .verify();
+        verifyNoInteractions(kms);
+    }
+
+    @Test
     void getActiveSigningConfig_unknownModality_failsWithNoConfiguration() {
         TenantSigningConfig row = qtspRow();
         var unknown = new TenantSigningConfig(row.id(), row.provider(), row.cscApiVersion(),
-                row.providerSpecificConfig(), null, null, "hsm", "active", null, null,
-                null, null, null, null, null);
+                row.providerSpecificConfig(), null, null, "hsm", "active", null, null);
         when(repository.findFirstByStatusOrderByCreatedAtDesc("active")).thenReturn(Mono.just(unknown));
 
         StepVerifier.create(load("t1"))
@@ -300,15 +329,16 @@ class TenantSigningConfigServiceImplTest {
     @Test
     void cacheTtl_defaultIs5Minutes_andNonPositiveIsRejected() throws NoSuchMethodException {
         var ttl = TenantSigningConfigServiceImpl.class.getConstructor(
-                        TenantSigningConfigRepository.class, ObjectMapper.class, Duration.class, ObjectProvider.class)
-                .getParameters()[2].getAnnotation(org.springframework.beans.factory.annotation.Value.class);
+                        TenantSigningConfigRepository.class, TenantOwnKeyRepository.class, ObjectMapper.class,
+                        Duration.class, ObjectProvider.class)
+                .getParameters()[3].getAnnotation(org.springframework.beans.factory.annotation.Value.class);
         assertThat(ttl.value()).isEqualTo("${issuer.signing.config-cache-ttl:5m}");
         assertThat(org.springframework.boot.convert.ApplicationConversionService.getSharedInstance()
                 .convert("5m", Duration.class)).isEqualTo(Duration.ofMinutes(5));
         ObjectMapper objectMapper = new ObjectMapper();
         ObjectProvider<KmsSigningPort> provider = kmsProvider(kms);
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> new TenantSigningConfigServiceImpl(
-                        repository, objectMapper, Duration.ZERO, provider, ticker))
+                        repository, ownKeyRepository, objectMapper, Duration.ZERO, provider, ticker))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

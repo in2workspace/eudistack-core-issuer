@@ -18,9 +18,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Proves {@code V15__tenant_signing_config_modality_and_own_key.sql}
+ * Proves {@code V15__tenant_signing_config_modality_and_own_key.sql} and {@code V16__tenant_own_key.sql}
  * against a real Postgres. Each test creates its own unregistered tenant schema and drives
- * Flyway by hand: migrate to V14, seed legacy rows, then migrate to the latest version.
+ * Flyway by hand: migrate to V14 (or V15), seed legacy rows, then migrate to the latest version.
  */
 class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
 
@@ -176,36 +176,112 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
     void ownKeyRow_withoutKmsRef_isRejected() {
         String schema = migratedSchemaWithOneActiveRow("tsc-nokms");
 
-        assertOwnKeyInsertRejected(schema, "NULL", "'ES256'", CHAIN);
+        assertOwnKeyInsertRejected(schema, "NULL", "'ES256'", CHAIN, OPERATOR, "kms_key_ref");
+    }
+
+    @Test
+    void ownKeyRow_withAKeyIdOrAnAliasInsteadOfTheArn_isRejected() {
+        String schema = migratedSchemaWithOneActiveRow("tsc-keyid");
+
+        assertOwnKeyInsertRejected(schema, "'1234abcd-12ab-34cd-56ef-1234567890ab'", "'ES256'", CHAIN, OPERATOR,
+                "chk_tenant_own_key_kms_key_ref");
+        assertOwnKeyInsertRejected(schema, "'alias/own-key-cgcom'", "'ES256'", CHAIN, OPERATOR,
+                "chk_tenant_own_key_kms_key_ref");
     }
 
     @Test
     void ownKeyRow_withoutAlgorithm_isRejected() {
         String schema = migratedSchemaWithOneActiveRow("tsc-noalg");
 
-        assertOwnKeyInsertRejected(schema, KMS_REF, "NULL", CHAIN);
+        assertOwnKeyInsertRejected(schema, KMS_REF, "NULL", CHAIN, OPERATOR, "algorithm");
     }
 
     @Test
     void ownKeyRow_withoutChain_isRejected() {
         String schema = migratedSchemaWithOneActiveRow("tsc-nochain");
 
-        assertOwnKeyInsertRejected(schema, KMS_REF, "'ES256'", "NULL");
+        assertOwnKeyInsertRejected(schema, KMS_REF, "'ES256'", "NULL", OPERATOR, "certificate_chain");
     }
 
     @Test
     void ownKeyRow_withoutActivatedBy_isRejected() {
         String schema = migratedSchemaWithOneActiveRow("tsc-noactor");
 
-        assertOwnKeyInsertRejected(schema, KMS_REF, "'ES256'", CHAIN, "NULL");
+        assertOwnKeyInsertRejected(schema, KMS_REF, "'ES256'", CHAIN, "NULL",
+                "chk_tenant_signing_config_own_key_activated_by");
     }
 
     @Test
     void ownKeyRow_withEmptyOrNonArrayChain_isRejected() {
         String schema = migratedSchemaWithOneActiveRow("tsc-badchain");
 
-        assertOwnKeyInsertRejected(schema, KMS_REF, "'ES256'", "'[]'::jsonb");
-        assertOwnKeyInsertRejected(schema, KMS_REF, "'ES256'", "'{\"a\":1}'::jsonb");
+        assertOwnKeyInsertRejected(schema, KMS_REF, "'ES256'", "'[]'::jsonb", OPERATOR,
+                "chk_tenant_own_key_certificate_chain");
+        assertOwnKeyInsertRejected(schema, KMS_REF, "'ES256'", "'{\"a\":1}'::jsonb", OPERATOR,
+                "chk_tenant_own_key_certificate_chain");
+    }
+
+    @Test
+    void ownKeyConfiguration_withoutItsOwnKeyRow_isRejectedAtCommit() {
+        String schema = migratedSchemaWithOneActiveRow("tsc-noownkeyrow");
+
+        assertThatThrownBy(() -> exec("INSERT INTO \"" + schema + "\".tenant_signing_config "
+                + "(provider, modality, status, activated_by, withdrawn_at, withdrawn_by) "
+                + "VALUES ('aws-kms', 'own_key', 'withdrawn', " + OPERATOR + ", now(), " + OPERATOR + ")"))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("has no tenant_own_key row");
+        assertThat(count(schema)).isEqualTo(1);
+    }
+
+    @Test
+    void ownKeyRow_ofAQtspConfiguration_isRejected() {
+        String schema = migratedSchemaWithOneActiveRow("tsc-ownkeyofqtsp");
+
+        assertThatThrownBy(() -> exec("INSERT INTO \"" + schema + "\".tenant_own_key "
+                + "(signing_configuration_id, kms_key_ref, algorithm, certificate_chain) "
+                + "VALUES ('" + ID_1 + "', " + KMS_REF + ", 'ES256', " + CHAIN + ")"))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("fk_tenant_own_key_configuration");
+    }
+
+    @Test
+    void ownKeyRow_withSomeCertificateDetailsOnly_isRejected() {
+        String schema = migratedSchemaWithOneActiveRow("tsc-halfdetails");
+
+        String sql = ownKeyInsert(schema, "withdrawn", "now()")
+                .replace("(signing_configuration_id, kms_key_ref, algorithm, certificate_chain)",
+                        "(signing_configuration_id, kms_key_ref, algorithm, certificate_chain, certificate_subject)")
+                .replace(", " + CHAIN + " FROM", ", " + CHAIN + ", 'CN=leaf' FROM");
+
+        assertThatThrownBy(() -> exec(sql))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_tenant_own_key_certificate_details");
+    }
+
+    @Test
+    void migrationToV16_movesTheOwnKeyBlockOfEveryOwnKeyRow() {
+        String schema = createSchemaAndMigrateTo("tsc-v16-move", "15");
+        exec("INSERT INTO \"" + schema + "\".tenant_signing_config "
+                + "(id, provider, modality, status, activated_at, activated_by, withdrawn_at, withdrawn_by, "
+                + "own_key_kms_key_ref, own_key_algorithm, own_key_certificate_chain, own_key_loaded_at, "
+                + "own_key_deleted_at, own_key_operation_id) VALUES ('" + ID_2 + "', 'aws-kms', 'own_key', 'withdrawn', "
+                + "'2026-01-01T10:00:00Z', " + OPERATOR + ", now(), " + OPERATOR + ", " + KMS_REF + ", 'ES256', "
+                + CHAIN + ", '2026-01-01T10:00:00Z', '2026-01-02T10:00:00Z', 'op-1')");
+
+        migrateFully(schema);
+
+        Map<String, Object> ownKey = databaseClient.sql("SELECT * FROM \"" + schema + "\".tenant_own_key")
+                .fetch().one().block();
+        assertThat(ownKey).isNotNull();
+        assertThat(ownKey.get("signing_configuration_id")).hasToString(ID_2);
+        assertThat(ownKey.get("kms_key_ref")).isEqualTo("arn:aws:kms:eu-west-1:111122223333:key/k");
+        assertThat(ownKey.get("algorithm")).isEqualTo("ES256");
+        assertThat(ownKey.get("operation_id")).isEqualTo("op-1");
+        assertThat(ownKey.get("loaded_at")).isNotNull();
+        assertThat(ownKey.get("deleted_at")).isNotNull();
+        assertThat(ownKey.get("certificate_subject")).isNull();
+        assertThat(scalar(schema, "SELECT count(*) FROM information_schema.columns WHERE table_schema = '%s' "
+                + "AND table_name = 'tenant_signing_config' AND column_name LIKE 'own_key%%'")).isEqualTo("0");
     }
 
     @Test
@@ -285,29 +361,28 @@ class TenantSigningConfigOwnKeyMigrationIT extends PostgresIntegrationBase {
     }
 
     private void assertOwnKeyInsertRejected(String schema, String kmsRef, String algorithm,
-                                            String chain) {
-        assertOwnKeyInsertRejected(schema, kmsRef, algorithm, chain, OPERATOR);
-    }
-
-    private void assertOwnKeyInsertRejected(String schema, String kmsRef, String algorithm,
-                                            String chain, String activatedBy) {
-        String sql = "INSERT INTO \"" + schema + "\".tenant_signing_config "
-                + "(provider, modality, status, activated_by, withdrawn_at, withdrawn_by, own_key_kms_key_ref, "
-                + "own_key_algorithm, own_key_certificate_chain) "
-                + "VALUES ('aws-kms', 'own_key', 'withdrawn', " + activatedBy + ", now(), " + OPERATOR + ", "
-                + kmsRef + ", " + algorithm + ", " + chain + ")";
+                                            String chain, String activatedBy, String expectedViolation) {
+        String sql = ownKeyInsert(schema, "withdrawn", "now()", activatedBy, kmsRef, algorithm, chain);
         assertThatThrownBy(() -> exec(sql))
                 .isInstanceOf(DataIntegrityViolationException.class)
-                .hasMessageContaining("chk_tenant_signing_config_own_key_required");
+                .hasMessageContaining(expectedViolation);
     }
 
     private String ownKeyInsert(String schema, String status, String withdrawnAt) {
+        return ownKeyInsert(schema, status, withdrawnAt, OPERATOR, KMS_REF, "'ES256'", CHAIN);
+    }
+
+    /** An own_key configuration and its own-key row, in one statement, so in one transaction. */
+    private static String ownKeyInsert(String schema, String status, String withdrawnAt, String activatedBy,
+                                       String kmsRef, String algorithm, String chain) {
         String withdrawnBy = "NULL".equals(withdrawnAt) ? "NULL" : OPERATOR;
-        return "INSERT INTO \"" + schema + "\".tenant_signing_config "
-                + "(provider, modality, status, activated_by, withdrawn_at, withdrawn_by, own_key_kms_key_ref, "
-                + "own_key_algorithm, own_key_certificate_chain) "
-                + "VALUES ('aws-kms', 'own_key', '" + status + "', " + OPERATOR + ", " + withdrawnAt + ", "
-                + withdrawnBy + ", " + KMS_REF + ", 'ES256', " + CHAIN + ")";
+        return "WITH c AS (INSERT INTO \"" + schema + "\".tenant_signing_config "
+                + "(provider, modality, status, activated_by, withdrawn_at, withdrawn_by) "
+                + "VALUES ('aws-kms', 'own_key', '" + status + "', " + activatedBy + ", " + withdrawnAt + ", "
+                + withdrawnBy + ") RETURNING id) "
+                + "INSERT INTO \"" + schema + "\".tenant_own_key "
+                + "(signing_configuration_id, kms_key_ref, algorithm, certificate_chain) "
+                + "SELECT id, " + kmsRef + ", " + algorithm + ", " + chain + " FROM c";
     }
 
     private String migratedSchemaWithOneActiveRow(String tenant) {

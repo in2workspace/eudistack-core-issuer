@@ -70,6 +70,10 @@ import static org.assertj.core.api.Assertions.tuple;
 @Testcontainers
 class OwnKeyOnboardingIT {
 
+    /** The own_key configurations of {@code cgcom} with their own-key rows: {@code c} and {@code k}. */
+    private static final String OWN_KEY_CONFIGURATIONS = "cgcom_issuer.tenant_signing_config c "
+            + "JOIN cgcom_issuer.tenant_own_key k ON k.signing_configuration_id = c.id";
+
     private static final DockerImageName LOCALSTACK_IMAGE = DockerImageName.parse("localstack/localstack:4.14.0");
     private static final StaticCredentialsProvider CREDENTIALS =
             StaticCredentialsProvider.create(AwsBasicCredentials.create("test", "test"));
@@ -247,8 +251,8 @@ class OwnKeyOnboardingIT {
     private void assertImportedAsTheActiveConfiguration(String keyArn, Material material) throws Exception {
         assertThat(keyState(keyArn)).isEqualTo("Enabled");
         assertThat(KeyRefs.isKeyArn(keyArn)).as("the configuration stores the full ARN of the key: " + keyArn).isTrue();
-        assertThat(query("SELECT status, modality, provider, activated_by, own_key_kms_key_ref, own_key_algorithm, "
-                + "jsonb_array_length(own_key_certificate_chain) FROM cgcom_issuer.tenant_signing_config"))
+        assertThat(query("SELECT c.status, c.modality, c.provider, c.activated_by, k.kms_key_ref, k.algorithm, "
+                + "jsonb_array_length(k.certificate_chain) FROM " + OWN_KEY_CONFIGURATIONS))
                 .singleElement().isEqualTo(List.of("active", "own_key", "aws-kms", callerArn, keyArn,
                         "ES256", 1));
         UUID configuration = (UUID) scalar("SELECT id FROM cgcom_issuer.tenant_signing_config");
@@ -259,10 +263,10 @@ class OwnKeyOnboardingIT {
     }
 
     private void assertReplaced(Material first, String firstArn, Material second, String secondArn) throws Exception {
-        assertThat(query("SELECT status, withdrawn_by, activated_by FROM cgcom_issuer.tenant_signing_config "
-                + "WHERE own_key_kms_key_ref = ?", firstArn)).singleElement()
+        assertThat(query("SELECT c.status, c.withdrawn_by, c.activated_by FROM " + OWN_KEY_CONFIGURATIONS
+                + " WHERE k.kms_key_ref = ?", firstArn)).singleElement()
                 .isEqualTo(List.of("withdrawn", callerArn, callerArn));
-        assertThat(scalar("SELECT status FROM cgcom_issuer.tenant_signing_config WHERE own_key_kms_key_ref = ?",
+        assertThat(scalar("SELECT c.status FROM " + OWN_KEY_CONFIGURATIONS + " WHERE k.kms_key_ref = ?",
                 secondArn)).isEqualTo("active");
         assertThat(scalar("SELECT count(*) FROM public.signing_spki_reservation WHERE public_key_spki_sha256 = ?",
                 (Object) sha256(first.spki()))).as("reserved while its key exists").isEqualTo(1L);
@@ -279,10 +283,10 @@ class OwnKeyOnboardingIT {
                 (Object) sha256(first.spki()))).as("released by reconcile").isEqualTo(0L);
         assertThat(scalar("SELECT count(*) FROM public.signing_spki_reservation WHERE public_key_spki_sha256 = ?",
                 (Object) sha256(second.spki()))).isEqualTo(1L);
-        assertThat(scalar("SELECT own_key_deleted_at IS NOT NULL FROM cgcom_issuer.tenant_signing_config "
-                + "WHERE own_key_kms_key_ref = ?", firstArn)).isEqualTo(true);
-        assertThat(scalar("SELECT own_key_deleted_at IS NULL FROM cgcom_issuer.tenant_signing_config "
-                + "WHERE own_key_kms_key_ref = ?", secondArn)).isEqualTo(true);
+        assertThat(scalar("SELECT deleted_at IS NOT NULL FROM cgcom_issuer.tenant_own_key "
+                + "WHERE kms_key_ref = ?", firstArn)).isEqualTo(true);
+        assertThat(scalar("SELECT deleted_at IS NULL FROM cgcom_issuer.tenant_own_key "
+                + "WHERE kms_key_ref = ?", secondArn)).isEqualTo(true);
     }
 
     @Test
@@ -374,11 +378,11 @@ class OwnKeyOnboardingIT {
         assertThat(run("import", "--state", file(out, ".state.json").toString())).as(err()).isZero();
 
         assertThat(keyArnOf(out)).isEqualTo(arn);
-        assertThat(query("SELECT status, own_key_deleted_at IS NOT NULL FROM cgcom_issuer.tenant_signing_config "
-                + "ORDER BY created_at")).containsExactly(List.of("withdrawn", true), List.of("active", false));
-        assertThat(scalar("SELECT count(DISTINCT own_key_kms_key_ref) FROM cgcom_issuer.tenant_signing_config"))
+        assertThat(query("SELECT c.status, k.deleted_at IS NOT NULL FROM " + OWN_KEY_CONFIGURATIONS
+                + " ORDER BY c.created_at")).containsExactly(List.of("withdrawn", true), List.of("active", false));
+        assertThat(scalar("SELECT count(DISTINCT kms_key_ref) FROM cgcom_issuer.tenant_own_key"))
                 .isEqualTo(1L);
-        assertThat(scalar("SELECT own_key_kms_key_ref FROM cgcom_issuer.tenant_signing_config WHERE status = 'active'"))
+        assertThat(scalar("SELECT k.kms_key_ref FROM " + OWN_KEY_CONFIGURATIONS + " WHERE c.status = 'active'"))
                 .as("the renewal stores the full ARN too").isEqualTo(arn)
                 .satisfies(stored -> assertThat(KeyRefs.isKeyArn((String) stored)).isTrue());
         UUID active = (UUID) scalar("SELECT id FROM cgcom_issuer.tenant_signing_config WHERE status = 'active'");

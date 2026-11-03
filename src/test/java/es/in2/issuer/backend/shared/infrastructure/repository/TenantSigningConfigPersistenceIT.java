@@ -20,6 +20,7 @@ class TenantSigningConfigPersistenceIT extends PostgresIntegrationBase {
 
     private static final String TENANT = "e2e";
     private static final String TABLE = "\"" + TENANT + SCHEMA_SUFFIX + "\".tenant_signing_config";
+    private static final String OWN_KEY_TABLE = "\"" + TENANT + SCHEMA_SUFFIX + "\".tenant_own_key";
 
     @Autowired
     private TenantSigningConfigRepository repository;
@@ -30,6 +31,7 @@ class TenantSigningConfigPersistenceIT extends PostgresIntegrationBase {
     @BeforeEach
     @AfterEach
     void cleanTable() {
+        exec("DELETE FROM " + OWN_KEY_TABLE);
         exec("DELETE FROM " + TABLE);
     }
 
@@ -44,9 +46,11 @@ class TenantSigningConfigPersistenceIT extends PostgresIntegrationBase {
     }
 
     private void insertActiveOwnKey() {
-        exec("INSERT INTO " + TABLE + " (provider, modality, status, activated_by, own_key_kms_key_ref, "
-                + "own_key_algorithm, own_key_certificate_chain) VALUES ('aws-kms', 'own_key', 'active', "
-                + "'operator@example.invalid', 'arn:aws:kms:eu-west-1:111122223333:key/k', 'ES256', '[\"MIIB-leaf\",\"MIIB-int\"]'::jsonb)");
+        exec("WITH c AS (INSERT INTO " + TABLE + " (provider, modality, status, activated_by) "
+                + "VALUES ('aws-kms', 'own_key', 'active', 'operator@example.invalid') RETURNING id) "
+                + "INSERT INTO " + OWN_KEY_TABLE + " (signing_configuration_id, kms_key_ref, algorithm, certificate_chain) "
+                + "SELECT id, 'arn:aws:kms:eu-west-1:111122223333:key/k', 'ES256', '[\"MIIB-leaf\",\"MIIB-int\"]'::jsonb "
+                + "FROM c");
     }
 
     @Test

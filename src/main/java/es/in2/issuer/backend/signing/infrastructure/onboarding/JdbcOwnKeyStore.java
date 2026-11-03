@@ -16,13 +16,22 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.io.ByteArrayInputStream;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Duration;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
@@ -30,6 +39,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.regex.Pattern;
+import javax.security.auth.x500.X500Principal;
 import javax.sql.DataSource;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.SCHEMA_SUFFIX;
@@ -97,8 +107,9 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
             if (!provisioned) {
                 return Optional.of(new RegisteredTenant(tenantId, "active".equals(status), false, null, null, null));
             }
-            try (PreparedStatement statement = connection.prepareStatement("SELECT id, modality, own_key_kms_key_ref FROM "
-                    + table(tenantId) + " WHERE status = 'active'");
+            try (PreparedStatement statement = connection.prepareStatement("SELECT c.id, c.modality, k.kms_key_ref FROM "
+                    + table(tenantId) + " c LEFT JOIN " + ownKeyTable(tenantId)
+                    + " k ON k.signing_configuration_id = c.id WHERE c.status = 'active'");
                  ResultSet rs = statement.executeQuery()) {
                 boolean active = "active".equals(status);
                 return Optional.of(rs.next()
@@ -241,8 +252,8 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         if (tenantId == null || !TENANT_ID.matcher(tenantId).matches()) {
             return false;
         }
-        try (PreparedStatement statement = connection.prepareStatement("SELECT own_key_deleted_at IS NOT NULL FROM "
-                + table(tenantId) + " WHERE id = ?")) {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT deleted_at IS NOT NULL FROM "
+                + ownKeyTable(tenantId) + " WHERE signing_configuration_id = ?")) {
             statement.setObject(1, configurationId);
             try (ResultSet rs = statement.executeQuery()) {
                 return !rs.next() || rs.getBoolean(1);
@@ -295,7 +306,8 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
     private static boolean tenantReferencesKey(Connection connection, String tenant, String kmsKeyRef,
                                                boolean activeOnly) {
         try (PreparedStatement statement = connection.prepareStatement("SELECT EXISTS (SELECT 1 FROM " + table(tenant)
-                + " WHERE own_key_kms_key_ref = ?" + (activeOnly ? " AND status = 'active'" : "") + ")")) {
+                + " c JOIN " + ownKeyTable(tenant) + " k ON k.signing_configuration_id = c.id"
+                + " WHERE k.kms_key_ref = ?" + (activeOnly ? " AND c.status = 'active'" : "") + ")")) {
             statement.setString(1, kmsKeyRef);
             try (ResultSet rs = statement.executeQuery()) {
                 return rs.next() && rs.getBoolean(1);
@@ -312,9 +324,10 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         return read(connection -> {
             List<WithdrawnOwnKey> rows = new ArrayList<>();
             try (PreparedStatement statement = connection.prepareStatement(
-                    "SELECT id, own_key_kms_key_ref, own_key_operation_id FROM " + table(tenantId)
-                            + " WHERE modality = 'own_key' AND status = 'withdrawn' AND own_key_deleted_at IS NULL "
-                            + "AND withdrawn_at < now() - make_interval(secs => ?) ORDER BY withdrawn_at")) {
+                    "SELECT c.id, k.kms_key_ref, k.operation_id FROM " + table(tenantId) + " c JOIN "
+                            + ownKeyTable(tenantId) + " k ON k.signing_configuration_id = c.id"
+                            + " WHERE c.modality = 'own_key' AND c.status = 'withdrawn' AND k.deleted_at IS NULL "
+                            + "AND c.withdrawn_at < now() - make_interval(secs => ?) ORDER BY c.withdrawn_at")) {
                 statement.setDouble(1, seconds(grace));
                 try (ResultSet rs = statement.executeQuery()) {
                     while (rs.next()) {
@@ -415,8 +428,9 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
                     lock.setString(2, tenantId);
                     lock.execute();
                 }
-                try (PreparedStatement statement = connection.prepareStatement("SELECT id, modality, own_key_kms_key_ref FROM "
-                        + table(tenantId) + " WHERE status = 'active' FOR UPDATE");
+                try (PreparedStatement statement = connection.prepareStatement("SELECT c.id, c.modality, k.kms_key_ref FROM "
+                        + table(tenantId) + " c LEFT JOIN " + ownKeyTable(tenantId)
+                        + " k ON k.signing_configuration_id = c.id WHERE c.status = 'active' FOR UPDATE OF c");
                      ResultSet rs = statement.executeQuery()) {
                     return rs.next()
                             ? Optional.of(new ActiveConfiguration(rs.getObject(1, UUID.class),
@@ -446,21 +460,35 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         @Override
         public UUID activateOwnKey(String tenantId, NewOwnKeyConfiguration configuration, String activatedBy) {
             return run(() -> {
+                UUID id;
                 try (PreparedStatement statement = connection.prepareStatement("INSERT INTO " + table(tenantId)
-                        + " (provider, modality, status, activated_at, activated_by, own_key_kms_key_ref, "
-                        + "own_key_algorithm, own_key_certificate_chain, own_key_loaded_at, own_key_operation_id) "
-                        + "VALUES (?, 'own_key', 'active', now(), ?, ?, ?, ?::jsonb, now(), ?) RETURNING id")) {
+                        + " (provider, modality, status, activated_at, activated_by) "
+                        + "VALUES (?, 'own_key', 'active', now(), ?) RETURNING id")) {
                     statement.setString(1, PROVIDER_AWS_KMS);
                     statement.setString(2, activatedBy);
-                    statement.setString(3, configuration.kmsKeyRef());
-                    statement.setString(4, ALGORITHM_ES256);
-                    statement.setString(5, chainJson(configuration.certificateChain()));
-                    statement.setString(6, configuration.operationId());
                     try (ResultSet rs = statement.executeQuery()) {
                         rs.next();
-                        return rs.getObject(1, UUID.class);
+                        id = rs.getObject(1, UUID.class);
                     }
                 }
+                X509Certificate leaf = leafOf(configuration.certificateChain());
+                try (PreparedStatement statement = connection.prepareStatement("INSERT INTO " + ownKeyTable(tenantId)
+                        + " (signing_configuration_id, kms_key_ref, algorithm, certificate_chain, certificate_subject, "
+                        + "certificate_issuer, certificate_serial_number, certificate_not_before, certificate_not_after, "
+                        + "loaded_at, operation_id) VALUES (?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, now(), ?)")) {
+                    statement.setObject(1, id);
+                    statement.setString(2, configuration.kmsKeyRef());
+                    statement.setString(3, ALGORITHM_ES256);
+                    statement.setString(4, chainJson(configuration.certificateChain()));
+                    statement.setString(5, leaf.getSubjectX500Principal().getName(X500Principal.RFC2253));
+                    statement.setString(6, leaf.getIssuerX500Principal().getName(X500Principal.RFC2253));
+                    statement.setString(7, leaf.getSerialNumber().toString(16).toUpperCase(Locale.ROOT));
+                    statement.setObject(8, OffsetDateTime.ofInstant(leaf.getNotBefore().toInstant(), ZoneOffset.UTC));
+                    statement.setObject(9, OffsetDateTime.ofInstant(leaf.getNotAfter().toInstant(), ZoneOffset.UTC));
+                    statement.setString(10, configuration.operationId());
+                    statement.executeUpdate();
+                }
+                return id;
             });
         }
 
@@ -488,11 +516,12 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         @Override
         public Optional<WithdrawnOwnKey> lockNextWithdrawnOwnKey(String tenantId, Duration grace, Set<UUID> excluding) {
             return run(() -> {
-                try (PreparedStatement statement = connection.prepareStatement("SELECT id, own_key_kms_key_ref, "
-                        + "own_key_operation_id FROM " + table(tenantId) + " WHERE modality = 'own_key' "
-                        + "AND status = 'withdrawn' AND own_key_deleted_at IS NULL "
-                        + "AND withdrawn_at < now() - make_interval(secs => ?) "
-                        + "AND id <> ALL (?) ORDER BY withdrawn_at LIMIT 1 FOR UPDATE SKIP LOCKED")) {
+                try (PreparedStatement statement = connection.prepareStatement("SELECT c.id, k.kms_key_ref, "
+                        + "k.operation_id FROM " + table(tenantId) + " c JOIN " + ownKeyTable(tenantId)
+                        + " k ON k.signing_configuration_id = c.id WHERE c.modality = 'own_key' "
+                        + "AND c.status = 'withdrawn' AND k.deleted_at IS NULL "
+                        + "AND c.withdrawn_at < now() - make_interval(secs => ?) "
+                        + "AND c.id <> ALL (?) ORDER BY c.withdrawn_at LIMIT 1 FOR UPDATE OF c, k SKIP LOCKED")) {
                     statement.setDouble(1, seconds(grace));
                     statement.setArray(2, connection.createArrayOf("uuid", excluding.toArray()));
                     try (ResultSet rs = statement.executeQuery()) {
@@ -522,8 +551,9 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         }
 
         private Optional<UUID> activeRowWithKey(String tenantId, String kmsKeyRef) throws SQLException {
-            try (PreparedStatement statement = connection.prepareStatement("SELECT id FROM " + table(tenantId)
-                    + " WHERE status = 'active' AND own_key_kms_key_ref = ?")) {
+            try (PreparedStatement statement = connection.prepareStatement("SELECT c.id FROM " + table(tenantId)
+                    + " c JOIN " + ownKeyTable(tenantId) + " k ON k.signing_configuration_id = c.id"
+                    + " WHERE c.status = 'active' AND k.kms_key_ref = ?")) {
                 statement.setString(1, kmsKeyRef);
                 try (ResultSet rs = statement.executeQuery()) {
                     return rs.next() ? Optional.of(rs.getObject(1, UUID.class)) : Optional.<UUID>empty();
@@ -532,8 +562,8 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         }
 
         private void markHandled(String tenantId, WithdrawnOwnKey key) throws SQLException {
-            try (PreparedStatement statement = connection.prepareStatement("UPDATE " + table(tenantId)
-                    + " SET own_key_deleted_at = now(), updated_at = now() WHERE id = ?")) {
+            try (PreparedStatement statement = connection.prepareStatement("UPDATE " + ownKeyTable(tenantId)
+                    + " SET deleted_at = now() WHERE signing_configuration_id = ?")) {
                 statement.setObject(1, key.id());
                 requireOneRow(statement.executeUpdate(), "mark the handled key");
             }
@@ -621,7 +651,7 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
         }
     }
 
-    /** A row of {@code id, own_key_kms_key_ref, own_key_operation_id}. */
+    /** A row of {@code id, kms_key_ref, operation_id}. */
     private static WithdrawnOwnKey withdrawnOwnKey(ResultSet rs, String tenantId) throws SQLException {
         return new WithdrawnOwnKey(rs.getObject(1, UUID.class), tenantId, rs.getString(2), rs.getString(3));
     }
@@ -647,6 +677,25 @@ public class JdbcOwnKeyStore implements OwnKeyStorePort {
     /** The schema-qualified, quoted table of a tenant. */
     private static String table(String tenantId) {
         return "\"" + schemaName(tenantId) + "\".tenant_signing_config";
+    }
+
+    /** The schema-qualified, quoted own-key table of a tenant: one row per own_key configuration. */
+    private static String ownKeyTable(String tenantId) {
+        return "\"" + schemaName(tenantId) + "\".tenant_own_key";
+    }
+
+    /**
+     * The leaf of a chain as stored ({@code x5c}: base64 DER, leaf first). The certificate columns of the own-key row
+     * are read from it, so they always describe the certificate that is stored and published.
+     */
+    private static X509Certificate leafOf(List<String> chain) throws SQLException {
+        try {
+            byte[] der = Base64.getDecoder().decode(chain.getFirst());
+            return (X509Certificate) CertificateFactory.getInstance("X.509")
+                    .generateCertificate(new ByteArrayInputStream(der));
+        } catch (CertificateException | IllegalArgumentException | NoSuchElementException e) {
+            throw new SQLException("The leaf of the certificate chain cannot be read", e);
+        }
     }
 
     /** The message is the driver's, which has no credentials: the URL and the SQL state at most. */

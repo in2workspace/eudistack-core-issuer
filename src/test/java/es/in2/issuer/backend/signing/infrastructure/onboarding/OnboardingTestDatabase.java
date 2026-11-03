@@ -56,9 +56,10 @@ public final class OnboardingTestDatabase {
         return new JdbcOwnKeyStore(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword(), sink);
     }
 
-    /** Empties the signing configurations of the tenants and the reservations. */
+    /** Empties the signing configurations of the tenants, their own-key rows and the reservations. */
     public static void reset() {
-        execute("TRUNCATE cgcom_issuer.tenant_signing_config, kpmg_issuer.tenant_signing_config, "
+        execute("TRUNCATE cgcom_issuer.tenant_own_key, kpmg_issuer.tenant_own_key, dormant_issuer.tenant_own_key, "
+                + "cgcom_issuer.tenant_signing_config, kpmg_issuer.tenant_signing_config, "
                 + "dormant_issuer.tenant_signing_config, public.signing_spki_reservation");
     }
 

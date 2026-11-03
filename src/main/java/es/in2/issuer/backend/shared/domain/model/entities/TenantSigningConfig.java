@@ -37,21 +37,6 @@ public record TenantSigningConfig(
         Instant activatedAt,
 
         @Column("withdrawn_at")
-        Instant withdrawnAt,
-
-        @Column("own_key_kms_key_ref")
-        String ownKeyKmsKeyRef,
-
-        @Column("own_key_algorithm")
-        String ownKeyAlgorithm,
-
-        @Column("own_key_certificate_chain")
-        String ownKeyCertificateChain,
-
-        @Column("own_key_loaded_at")
-        Instant ownKeyLoadedAt,
-
-        @Column("own_key_deleted_at")
-        Instant ownKeyDeletedAt
+        Instant withdrawnAt
 ) {
 }

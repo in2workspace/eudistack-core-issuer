@@ -24,9 +24,12 @@ class JdbcOwnKeyStoreFailClosedIT {
         execute("CREATE ROLE " + READER + " LOGIN PASSWORD '" + READER_PASSWORD + "'");
         execute("CREATE SCHEMA locked_issuer");
         execute("CREATE TABLE locked_issuer.tenant_signing_config (LIKE cgcom_issuer.tenant_signing_config INCLUDING ALL)");
-        execute("INSERT INTO locked_issuer.tenant_signing_config (provider, modality, status, activated_by, "
-                + "own_key_kms_key_ref, own_key_algorithm, own_key_certificate_chain) "
-                + "VALUES ('aws-kms', 'own_key', 'active', 'x', 'arn:aws:kms:eu-west-1:000000000000:key/the-locked-key', 'ES256', '[\"AAAA\"]'::jsonb)");
+        execute("CREATE TABLE locked_issuer.tenant_own_key (LIKE cgcom_issuer.tenant_own_key INCLUDING ALL)");
+        execute("WITH c AS (INSERT INTO locked_issuer.tenant_signing_config (provider, modality, status, activated_by) "
+                + "VALUES ('aws-kms', 'own_key', 'active', 'x') RETURNING id) "
+                + "INSERT INTO locked_issuer.tenant_own_key (signing_configuration_id, kms_key_ref, algorithm, "
+                + "certificate_chain) SELECT id, 'arn:aws:kms:eu-west-1:000000000000:key/the-locked-key', 'ES256', "
+                + "'[\"AAAA\"]'::jsonb FROM c");
         execute("GRANT SELECT ON public.tenant_registry TO " + READER);
         for (String tenant : new String[] {"cgcom", "kpmg", "dormant"}) {
             execute("GRANT USAGE ON SCHEMA " + tenant + "_issuer TO " + READER);

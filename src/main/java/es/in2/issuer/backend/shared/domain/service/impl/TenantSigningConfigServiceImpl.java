@@ -7,8 +7,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Ticker;
+import es.in2.issuer.backend.shared.infrastructure.persistence.TenantOwnKeyEntity;
 import es.in2.issuer.backend.shared.domain.model.entities.TenantSigningConfig;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
+import es.in2.issuer.backend.shared.infrastructure.repository.TenantOwnKeyRepository;
 import es.in2.issuer.backend.shared.infrastructure.repository.TenantSigningConfigRepository;
 import es.in2.issuer.backend.signing.domain.exception.SigningConfigurationChangedException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
@@ -41,6 +43,7 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
 
     private final TenantSigningConfigRepository repository;
+    private final TenantOwnKeyRepository ownKeyRepository;
     private final Cache<String, ActiveSigningConfig> configCache;
     private final ObjectMapper objectMapper;
     /** The port exists only when {@code issuer.signing.kms.enabled=true}. */
@@ -48,13 +51,15 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
 
     @Autowired
     public TenantSigningConfigServiceImpl(TenantSigningConfigRepository repository,
+                                          TenantOwnKeyRepository ownKeyRepository,
                                           ObjectMapper objectMapper,
                                           @Value("${issuer.signing.config-cache-ttl:5m}") Duration configCacheTtl,
                                           ObjectProvider<KmsSigningPort> kmsSigningPort) {
-        this(repository, objectMapper, configCacheTtl, kmsSigningPort, Ticker.systemTicker());
+        this(repository, ownKeyRepository, objectMapper, configCacheTtl, kmsSigningPort, Ticker.systemTicker());
     }
 
     TenantSigningConfigServiceImpl(TenantSigningConfigRepository repository,
+                                   TenantOwnKeyRepository ownKeyRepository,
                                    ObjectMapper objectMapper,
                                    Duration configCacheTtl,
                                    ObjectProvider<KmsSigningPort> kmsSigningPort,
@@ -63,6 +68,7 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
             throw new IllegalArgumentException("issuer.signing.config-cache-ttl must be positive");
         }
         this.repository = repository;
+        this.ownKeyRepository = ownKeyRepository;
         // EUD-251 design AD-5: during the TTL (5 min by default) an instance can keep using a replaced
         // or withdrawn configuration. Accepted deviation, see the design §16.
         this.configCache = Caffeine.newBuilder()
@@ -133,8 +139,18 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
     private Mono<ActiveSigningConfig> toActiveSigningConfig(String tenant, TenantSigningConfig row) {
         return switch (modalityOf(tenant, row)) {
             case QTSP -> Mono.just(ActiveSigningConfig.qtsp(toRemoteSignatureDto(row)));
-            case OWN_KEY -> withKeyTenantTag(toOwnKeySigningConfig(tenant, row)).map(ActiveSigningConfig::ownKey);
+            case OWN_KEY -> ownKeyRepository.findBySigningConfigurationId(row.id())
+                    .switchIfEmpty(Mono.error(() -> missingOwnKey(tenant)))
+                    .map(ownKey -> toOwnKeySigningConfig(tenant, ownKey))
+                    .flatMap(this::withKeyTenantTag)
+                    .map(ActiveSigningConfig::ownKey);
         };
+    }
+
+    /** The database requires the row at commit, so its absence means a corrupt configuration. */
+    private static SigningException missingOwnKey(String tenant) {
+        log.error("Active own-key signing config of tenant '{}' has no own-key row", tenant);
+        return invalidConfiguration();
     }
 
     /**
@@ -170,14 +186,14 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
      * configuration. It is not {@code KEY_UNUSABLE} (the key itself was never reached) nor
      * {@code CERTIFICATE_INVALID} (the certificate was never checked).
      */
-    private OwnKeySigningConfig toOwnKeySigningConfig(String tenant, TenantSigningConfig row) {
+    private OwnKeySigningConfig toOwnKeySigningConfig(String tenant, TenantOwnKeyEntity row) {
         try {
-            List<String> chain = row.ownKeyCertificateChain() == null
+            List<String> chain = row.certificateChain() == null
                     ? List.of()
-                    : objectMapper.readValue(row.ownKeyCertificateChain(), STRING_LIST);
+                    : objectMapper.readValue(row.certificateChain(), STRING_LIST);
             return new OwnKeySigningConfig(
-                    row.ownKeyKmsKeyRef(),
-                    row.ownKeyAlgorithm(),
+                    row.kmsKeyRef(),
+                    row.algorithm(),
                     chain);
         } catch (IllegalArgumentException | JsonProcessingException e) {
             log.error("Active own-key signing config of tenant '{}' is invalid: {}",

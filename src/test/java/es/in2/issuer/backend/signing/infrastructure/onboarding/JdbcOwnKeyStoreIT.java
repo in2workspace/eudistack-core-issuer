@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.signing.infrastructure.onboarding;
 
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
+import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
 import es.in2.issuer.backend.signing.domain.onboarding.OnboardingRejectedException;
 import es.in2.issuer.backend.signing.domain.onboarding.RejectionReason;
 import es.in2.issuer.backend.signing.domain.onboarding.SigningConfigurationChanged;
@@ -15,14 +16,20 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import javax.security.auth.x500.X500Principal;
+
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.security.cert.CertificateEncodingException;
+import java.security.cert.X509Certificate;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
@@ -38,6 +45,11 @@ class JdbcOwnKeyStoreIT {
 
     private static final String CALLER = "arn:aws:sts::000000000000:assumed-role/own-key-operation/jane";
     private static final String NEW_KEY = "arn:aws:kms:eu-west-1:000000000000:key/new";
+    private static final OwnKeyTestPki PKI = new OwnKeyTestPki();
+    private static final X509Certificate LEAF_CERTIFICATE = PKI.validP256Leaf().certificate();
+    /** The x5c of a real certificate: the store reads the certificate columns of the own-key row from it. */
+    private static final String LEAF = base64(LEAF_CERTIFICATE);
+    private static final String ROOT = base64(PKI.rootCertificate());
     private static final byte[] SPKI = HexFormat.of().parseHex("11".repeat(32));
     private static final byte[] OTHER_SPKI = HexFormat.of().parseHex("22".repeat(32));
     private static final String QTSP_CONFIG = """
@@ -92,15 +104,25 @@ class JdbcOwnKeyStoreIT {
     private static UUID insertOwnKey(String tenant, String status, String keyRef, Integer withdrawnSecondsAgo,
                                      Instant deletedAt) {
         UUID id = UUID.randomUUID();
-        execute("INSERT INTO " + tenant + "_issuer.tenant_signing_config (id, provider, modality, status, activated_by, "
-                + "withdrawn_at, withdrawn_by, own_key_kms_key_ref, own_key_algorithm, own_key_certificate_chain, "
-                + "own_key_loaded_at, own_key_deleted_at) VALUES (?, 'aws-kms', 'own_key', ?, 'arn:before', "
+        // One statement, so the configuration and its own-key row are written in one transaction.
+        execute("WITH c AS (INSERT INTO " + tenant + "_issuer.tenant_signing_config (id, provider, modality, status, "
+                + "activated_by, withdrawn_at, withdrawn_by) VALUES (?, 'aws-kms', 'own_key', ?, 'arn:before', "
                 + "CASE WHEN ?::int IS NULL THEN NULL ELSE now() - make_interval(secs => ?::int) END, "
-                + "CASE WHEN ?::int IS NULL THEN NULL ELSE 'arn:before' END, ?, 'ES256', '[\"AAAA\"]'::jsonb, now(), "
-                + "?::timestamptz)",
+                + "CASE WHEN ?::int IS NULL THEN NULL ELSE 'arn:before' END) RETURNING id) "
+                + "INSERT INTO " + tenant + "_issuer.tenant_own_key (signing_configuration_id, kms_key_ref, algorithm, "
+                + "certificate_chain, loaded_at, deleted_at) "
+                + "SELECT id, ?, 'ES256', '[\"AAAA\"]'::jsonb, now(), ?::timestamptz FROM c",
                 id, status, withdrawnSecondsAgo, withdrawnSecondsAgo, withdrawnSecondsAgo, keyRef,
                 deletedAt == null ? null : Timestamp.from(deletedAt));
         return id;
+    }
+
+    private static String base64(X509Certificate certificate) {
+        try {
+            return Base64.getEncoder().encodeToString(certificate.getEncoded());
+        } catch (CertificateEncodingException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private static void reserve(byte[] spki, String tenant, UUID configurationId) {
@@ -112,7 +134,7 @@ class JdbcOwnKeyStoreIT {
         return store.inTransaction(tx -> {
             var previous = tx.lockActiveConfiguration(tenant);
             previous.ifPresent(active -> tx.withdraw(tenant, active, CALLER));
-            UUID id = tx.activateOwnKey(tenant, new NewOwnKeyConfiguration(NEW_KEY, List.of("QUJD", "REVG")), CALLER);
+            UUID id = tx.activateOwnKey(tenant, new NewOwnKeyConfiguration(NEW_KEY, List.of(LEAF, ROOT)), CALLER);
             tx.reserveSpki(spki, tenant, id);
             tx.stage(new SigningConfigurationChanged(tenant, previous.isPresent() ? Operation.REPLACE : Operation.CREATE,
                     Result.SUCCESS, null, previous.map(ActiveConfiguration::modality).orElse(null),
@@ -198,15 +220,16 @@ class JdbcOwnKeyStoreIT {
             var active = tx.lockActiveConfiguration("cgcom").orElseThrow();
             tx.withdraw("cgcom", active, CALLER);
             tx.markKeyRetired("cgcom", new WithdrawnOwnKey(active.id(), "cgcom", active.kmsKeyRef()));
-            UUID id = tx.activateOwnKey("cgcom", new NewOwnKeyConfiguration(key, List.of("QUJD")), CALLER);
+            UUID id = tx.activateOwnKey("cgcom", new NewOwnKeyConfiguration(key, List.of(LEAF)), CALLER);
             tx.reserveSpki(SPKI, "cgcom", id);
             return id;
         });
 
-        assertThat(query("SELECT status, own_key_deleted_at IS NOT NULL FROM cgcom_issuer.tenant_signing_config "
-                + "WHERE id = ?", previous)).singleElement().isEqualTo(List.of("withdrawn", true));
-        assertThat(scalar("SELECT own_key_kms_key_ref FROM cgcom_issuer.tenant_signing_config WHERE id = ?", created))
-                .isEqualTo(key);
+        assertThat(query("SELECT c.status, k.deleted_at IS NOT NULL FROM cgcom_issuer.tenant_signing_config c "
+                + "JOIN cgcom_issuer.tenant_own_key k ON k.signing_configuration_id = c.id WHERE c.id = ?", previous))
+                .singleElement().isEqualTo(List.of("withdrawn", true));
+        assertThat(scalar("SELECT kms_key_ref FROM cgcom_issuer.tenant_own_key WHERE signing_configuration_id = ?",
+                created)).isEqualTo(key);
         assertThat(scalar("SELECT signing_configuration_id FROM public.signing_spki_reservation "
                 + "WHERE public_key_spki_sha256 = ?", (Object) SPKI)).isEqualTo(created);
         assertThat(store.findWithdrawnOwnKeysPendingKms("cgcom", Duration.ZERO)).isEmpty();
@@ -226,10 +249,19 @@ class JdbcOwnKeyStoreIT {
         assertThat(config).doesNotContain("credentialPwd", "clientSecret", "accessKey", "credentialId", "pwd",
                 "secret", "access", "credential\"")
                 .contains("\"url\"", "\"authUrl\"", "\"signPath\"", "\"clientId\"", "\"qtspTenantId\"");
-        assertThat(query("SELECT status, modality, provider, activated_by, own_key_kms_key_ref, own_key_algorithm, "
-                + "own_key_certificate_chain::text, own_key_loaded_at IS NOT NULL FROM cgcom_issuer.tenant_signing_config "
-                + "WHERE id = ?", created)).singleElement().isEqualTo(List.of("active", "own_key", "aws-kms", CALLER,
-                NEW_KEY, "ES256", "[\"QUJD\", \"REVG\"]", true));
+        assertThat(query("SELECT c.status, c.modality, c.provider, c.activated_by, k.kms_key_ref, k.algorithm, "
+                + "k.certificate_chain::text, k.loaded_at IS NOT NULL FROM cgcom_issuer.tenant_signing_config c "
+                + "JOIN cgcom_issuer.tenant_own_key k ON k.signing_configuration_id = c.id WHERE c.id = ?", created))
+                .singleElement().isEqualTo(List.of("active", "own_key", "aws-kms", CALLER,
+                NEW_KEY, "ES256", "[\"" + LEAF + "\", \"" + ROOT + "\"]", true));
+        assertThat(query("SELECT certificate_subject, certificate_issuer, certificate_serial_number, "
+                + "certificate_not_before = ?, certificate_not_after = ? FROM cgcom_issuer.tenant_own_key "
+                + "WHERE signing_configuration_id = ?", Timestamp.from(LEAF_CERTIFICATE.getNotBefore().toInstant()),
+                Timestamp.from(LEAF_CERTIFICATE.getNotAfter().toInstant()), created))
+                .singleElement().isEqualTo(List.of(
+                        LEAF_CERTIFICATE.getSubjectX500Principal().getName(X500Principal.RFC2253),
+                        LEAF_CERTIFICATE.getIssuerX500Principal().getName(X500Principal.RFC2253),
+                        LEAF_CERTIFICATE.getSerialNumber().toString(16).toUpperCase(Locale.ROOT), true, true));
         assertThat(query("SELECT tenant_id, signing_configuration_id FROM public.signing_spki_reservation "
                 + "WHERE public_key_spki_sha256 = ?", (Object) SPKI)).singleElement().isEqualTo(List.of("cgcom", created));
     }
@@ -387,7 +419,7 @@ class JdbcOwnKeyStoreIT {
     @Test
     void activateOwnKey_keepsTheOperationThatActivatedTheRow_andTheReconcileReadsItBack() {
         UUID first = store.inTransaction(tx -> tx.activateOwnKey("cgcom",
-                new NewOwnKeyConfiguration(NEW_KEY, List.of("QUJD"), "op-first"), CALLER));
+                new NewOwnKeyConfiguration(NEW_KEY, List.of(LEAF), "op-first"), CALLER));
         replaceActive("cgcom", SPKI);
         execute("UPDATE cgcom_issuer.tenant_signing_config SET withdrawn_at = now() - interval '10 minutes' WHERE id = ?",
                 first);
@@ -395,7 +427,8 @@ class JdbcOwnKeyStoreIT {
         var pending = store.findWithdrawnOwnKeysPendingKms("cgcom", Duration.ofSeconds(160));
         var locked = store.inTransaction(tx -> tx.lockNextWithdrawnOwnKey("cgcom", Duration.ofSeconds(160), Set.of()));
 
-        assertThat(scalar("SELECT own_key_operation_id FROM cgcom_issuer.tenant_signing_config WHERE id = ?", first))
+        assertThat(scalar("SELECT operation_id FROM cgcom_issuer.tenant_own_key WHERE signing_configuration_id = ?",
+                first))
                 .isEqualTo("op-first");
         assertThat(pending).singleElement().satisfies(row -> assertThat(row.operationId()).isEqualTo("op-first"));
         assertThat(locked).map(WithdrawnOwnKey::operationId).contains("op-first");
@@ -415,7 +448,7 @@ class JdbcOwnKeyStoreIT {
             "arn:aws:kms:eu-west-1:000000000000:alias/own-key-cgcom", "arn:aws:kms:eu-west-1:0000:key/short-account"})
     void activateOwnKey_referenceThatIsNotTheFullArnOfAKey_isRefusedByTheDatabase(String keyRef) {
         assertThatThrownBy(() -> store.inTransaction(tx -> tx.activateOwnKey("cgcom",
-                new NewOwnKeyConfiguration(keyRef, List.of("QUJD"), null), CALLER)))
+                new NewOwnKeyConfiguration(keyRef, List.of(LEAF), null), CALLER)))
                 .hasMessageContaining("23514");
 
         assertThat(scalar("SELECT count(*) FROM cgcom_issuer.tenant_signing_config")).isEqualTo(0L);
@@ -426,9 +459,9 @@ class JdbcOwnKeyStoreIT {
         String keyRef = "arn:aws-us-gov:kms:us-gov-west-1:000000000000:key/1234abcd-12ab-34cd-56ef-1234567890ab";
 
         UUID id = store.inTransaction(tx -> tx.activateOwnKey("cgcom",
-                new NewOwnKeyConfiguration(keyRef, List.of("QUJD"), null), CALLER));
+                new NewOwnKeyConfiguration(keyRef, List.of(LEAF), null), CALLER));
 
-        assertThat(scalar("SELECT own_key_kms_key_ref FROM cgcom_issuer.tenant_signing_config WHERE id = ?", id))
+        assertThat(scalar("SELECT kms_key_ref FROM cgcom_issuer.tenant_own_key WHERE signing_configuration_id = ?", id))
                 .isEqualTo(keyRef);
     }
 
@@ -442,8 +475,8 @@ class JdbcOwnKeyStoreIT {
             return null;
         });
 
-        assertThat(scalar("SELECT own_key_deleted_at IS NOT NULL FROM cgcom_issuer.tenant_signing_config WHERE id = ?",
-                id)).isEqualTo(true);
+        assertThat(scalar("SELECT deleted_at IS NOT NULL FROM cgcom_issuer.tenant_own_key "
+                + "WHERE signing_configuration_id = ?", id)).isEqualTo(true);
         assertThat(store.findWithdrawnOwnKeysPendingKms("cgcom", Duration.ZERO)).isEmpty();
     }
 
@@ -461,8 +494,8 @@ class JdbcOwnKeyStoreIT {
             return null;
         });
 
-        assertThat(scalar("SELECT own_key_deleted_at IS NOT NULL FROM cgcom_issuer.tenant_signing_config WHERE id = ?",
-                id)).isEqualTo(true);
+        assertThat(scalar("SELECT deleted_at IS NOT NULL FROM cgcom_issuer.tenant_own_key "
+                + "WHERE signing_configuration_id = ?", id)).isEqualTo(true);
         assertThat(store.findWithdrawnOwnKeysPendingKms("cgcom", Duration.ZERO)).isEmpty();
         assertThat(store.findSpkiReservation(SPKI)).isPresent().get()
                 .satisfies(reservation -> assertThat(reservation.configurationId()).isEqualTo(id));

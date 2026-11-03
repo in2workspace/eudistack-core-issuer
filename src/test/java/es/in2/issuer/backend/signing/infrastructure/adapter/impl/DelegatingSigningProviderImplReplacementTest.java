@@ -1,8 +1,10 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import es.in2.issuer.backend.shared.infrastructure.persistence.TenantOwnKeyEntity;
 import es.in2.issuer.backend.shared.domain.model.entities.TenantSigningConfig;
 import es.in2.issuer.backend.shared.domain.service.impl.TenantSigningConfigServiceImpl;
+import es.in2.issuer.backend.shared.infrastructure.repository.TenantOwnKeyRepository;
 import es.in2.issuer.backend.shared.infrastructure.repository.TenantSigningConfigRepository;
 import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
@@ -26,6 +28,8 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -50,7 +54,11 @@ class DelegatingSigningProviderImplReplacementTest {
     @Mock
     private TenantSigningConfigRepository repository;
     @Mock
+    private TenantOwnKeyRepository ownKeyRepository;
+    @Mock
     private SigningProviderResolver signingProviderResolver;
+
+    private final Map<UUID, TenantOwnKeyEntity> ownKeys = new HashMap<>();
     @Mock
     private SigningProvider kmsProvider;
     @Mock
@@ -67,7 +75,10 @@ class DelegatingSigningProviderImplReplacementTest {
         // KMS signing disabled: the tag is not read, the provider is a mock here.
         @SuppressWarnings("unchecked")
         ObjectProvider<KmsSigningPort> noKms = mock(ObjectProvider.class);
-        configService = new TenantSigningConfigServiceImpl(repository, new ObjectMapper(), Duration.ofMinutes(5), noKms);
+        when(ownKeyRepository.findBySigningConfigurationId(any(UUID.class)))
+                .thenAnswer(invocation -> Mono.justOrEmpty(ownKeys.get(invocation.<UUID>getArgument(0))));
+        configService = new TenantSigningConfigServiceImpl(repository, ownKeyRepository, new ObjectMapper(),
+                Duration.ofMinutes(5), noKms);
         signingProvider = new DelegatingSigningProviderImpl(configService, signingProviderResolver, signingAuditor);
 
         // The cache holds the old key; the database already has its replacement.
@@ -84,10 +95,12 @@ class DelegatingSigningProviderImplReplacementTest {
         StepVerifier.create(inTenant(configService.getActiveSigningConfig())).expectNextCount(1).verifyComplete();
     }
 
-    private static TenantSigningConfig ownKeyRow(String keyRef) {
-        return new TenantSigningConfig(UUID.randomUUID(), "aws-kms", null, null, null, null,
-                "own_key", "active", null, null,
-                keyRef, "ES256", "[\"MIIB-leaf\"]", null, null);
+    /** An active own_key configuration and its own-key row. */
+    private TenantSigningConfig ownKeyRow(String keyRef) {
+        UUID id = UUID.randomUUID();
+        ownKeys.put(id, new TenantOwnKeyEntity(id, keyRef, "ES256", "[\"MIIB-leaf\"]", null, null));
+        return new TenantSigningConfig(id, "aws-kms", null, null, null, null,
+                "own_key", "active", null, null);
     }
 
     private static <T> Mono<T> inTenant(Mono<T> mono) {
