@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
 import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException.Reason;
+import es.in2.issuer.backend.shared.domain.exception.PayloadValidationException;
 import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.port.AuthorizationMatrixProvider;
@@ -46,6 +47,7 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
     static final String EVENT_PERMIT = "authorization.permit";
     static final String EVENT_DENY = "authorization.deny";
     static final String RESOURCE_OUT_OF_SCOPE = "resource_out_of_scope";
+    static final String POWER_ALIAS_CONFLICT = "power_alias_conflict";
 
     private static final String ACTION = "action";
 
@@ -105,6 +107,10 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
             requireTenantMatch(caller, tenant, trace);
             RecognizedCaller recognized = recognize(matrix, caller, tenant);
             trace.recognized(recognized, recognizingPower(matrix, recognized));
+            // FR-13: probing ids reads as such. The cross-tenant view may still find it in another schema.
+            if (resourceId != null && resourceOrganization == null && !recognized.crossTenantView()) {
+                trace.with("resourceFound", false);
+            }
 
             Scope scope;
             try {
@@ -138,6 +144,13 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
                     String organization = requestedOrganization == null || requestedOrganization.isBlank()
                             ? caller.organizationIdentifier() : requestedOrganization;
                     trace.with("organization", organization);
+
+                    if (hasPowerWithConflictingAlias(payload)) {
+                        deny(trace, POWER_ALIAS_CONFLICT);
+                        return Mono.error(new PayloadValidationException("A power names a field twice with different values",
+                                List.of(new PayloadValidationException.Violation("$.power",
+                                        "a field and its tmf_ alias must have the same value"))));
+                    }
 
                     List<String> actionIds = issuanceActions(matrix, List.of(credentialConfigurationId, String.valueOf(credentialType)),
                             organization, caller, payload, tenant);
@@ -209,44 +222,48 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
         return null;
     }
 
+    private static boolean hasPowerWithConflictingAlias(JsonNode payload) {
+        JsonNode powers = payload != null ? payload.path("power") : null;
+        if (powers == null || !powers.isArray()) {
+            return false;
+        }
+        for (JsonNode item : powers) {
+            if (Power.hasConflictingAlias(item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
-     * The powers the attestation grants. A power may name a field twice, plain and with its {@code tmf_}
-     * alias; consumers do not agree on which one they read, so a power whose two readings differ is
-     * decided under both and the grant rules must cover each.
+     * The powers the attestation grants. A power with a field and its {@code tmf_} alias that differ was
+     * rejected before this, so each power has one reading, the one its consumers get.
      */
     private List<Power> grantedPowers(JsonNode payload) {
         JsonNode powers = payload != null ? payload.path("power") : null;
         if (powers == null || !powers.isArray()) {
             return List.of();
         }
-        List<Power> readings = new ArrayList<>();
+        List<Power> granted = new ArrayList<>();
         for (JsonNode item : powers) {
-            Power plain = reading(item, false);
-            Power alias = reading(item, true);
-            readings.add(plain);
-            if (!plain.equals(alias)) {
-                readings.add(alias);
-            }
+            granted.add(reading(item));
         }
-        return readings;
+        return granted;
     }
 
-    private Power reading(JsonNode item, boolean aliasFirst) {
-        JsonNode action = field(item, ACTION, aliasFirst);
+    private Power reading(JsonNode item) {
+        JsonNode action = field(item, ACTION);
         return new Power(action == null ? null : objectMapper.convertValue(action, Object.class),
-                text(field(item, "domain", aliasFirst)), text(field(item, "function", aliasFirst)),
-                text(field(item, "type", aliasFirst)));
+                text(field(item, "domain")), text(field(item, "function")), text(field(item, "type")));
     }
 
-    private static JsonNode field(JsonNode item, String name, boolean aliasFirst) {
+    private static JsonNode field(JsonNode item, String name) {
         JsonNode plain = item.get(name);
-        JsonNode alias = item.get("tmf_" + name);
-        JsonNode first = aliasFirst ? alias : plain;
-        JsonNode second = aliasFirst ? plain : alias;
-        if (present(first)) {
-            return first;
+        if (present(plain)) {
+            return plain;
         }
-        return present(second) ? second : null;
+        JsonNode alias = item.get("tmf_" + name);
+        return present(alias) ? alias : null;
     }
 
     private static boolean present(JsonNode node) {

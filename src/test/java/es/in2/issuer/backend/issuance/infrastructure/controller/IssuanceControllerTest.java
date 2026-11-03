@@ -611,6 +611,26 @@ class IssuanceControllerTest {
                 .jsonPath("$.lifeCycleStatus").isEqualTo("VALID");
     }
 
+    /** A string that is not a process id does not reach the trace, as on the other routes. */
+    @Test
+    void IssuanceController_getIssuance_doesNotTraceAMalformedId() {
+        // Given
+        AuthorizationDecision authCtx = organizationAdminDecision("org");
+        when(powerAuthorizationService.authorizeQuery(null, IssuanceController.MALFORMED_ID))
+                .thenReturn(Mono.just(authCtx));
+        when(issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(authCtx, "not-a-uuid"))
+                .thenReturn(Mono.just(CredentialDetails.builder().lifeCycleStatus("VALID").build()));
+
+        // When / Then
+        webTestClient
+                .get()
+                .uri(ISSUANCES_PATH + "/{id}", "not-a-uuid")
+                .header("Authorization", "Bearer testToken")
+                .exchange()
+                .expectStatus().isOk();
+        verify(powerAuthorizationService).authorizeQuery(null, IssuanceController.MALFORMED_ID);
+    }
+
     /** An id that is not in the tenant is decided without a resource (the platform administrator's cross-tenant view). */
     @Test
     void IssuanceController_getIssuance_decidesWithoutResourceWhenTheTenantHasNoSuchAttestation() {

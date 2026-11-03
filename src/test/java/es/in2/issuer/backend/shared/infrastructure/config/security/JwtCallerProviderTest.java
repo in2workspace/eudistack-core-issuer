@@ -5,10 +5,13 @@ import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jose.util.JSONObjectUtils;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.InvalidTokenException;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -128,6 +131,53 @@ class JwtCallerProviderTest {
                     assertThat(caller.tokenTenant()).isNull();
                     assertThat(caller.attestationId()).isNull();
                 })
+                .verifyComplete();
+    }
+
+    /** A combination of both sets of keys that no rule decided (Jackson resolves each field on its own). */
+    @Test
+    void JwtCallerProvider_fromToken_aPowerWhoseFieldAndAliasDifferDoesNotCount() throws Exception {
+        // Given
+        Map<String, Object> crossed = Map.of("type", "zzz", "tmf_type", "organization", "tmf_function", "zzz",
+                "function", "Onboarding", "domain", "sandbox", "action", List.of("Execute"));
+        Map<String, Object> certify = Map.of("type", "domain", "function", "Certification",
+                "domain", "sandbox", "action", List.of("Attest"));
+        String token = token(claimsOf("VATES-A").claim("power", List.of(crossed, certify)).build());
+
+        // When / Then
+        StepVerifier.create(provider.fromToken(token))
+                .assertNext(caller -> assertThat(caller.powers()).singleElement()
+                        .satisfies(power -> assertThat(power.function()).isEqualTo("Certification")))
+                .verifyComplete();
+    }
+
+    /** Jackson would fail on the alias arriving once it has all the fields of the record, and drop every power. */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"tmf_type\":\"domain\",\"type\":\"domain\",\"function\":\"Certification\",\"domain\":\"sandbox\",\"action\":[\"Attest\"]}",
+            "{\"type\":\"domain\",\"function\":\"Certification\",\"domain\":\"sandbox\",\"action\":[\"Attest\"],\"tmf_type\":\"domain\"}"
+    })
+    void JwtCallerProvider_fromToken_aPowerWithTheSameValueInBothKeysCountsWhateverTheirOrder(String power) throws Exception {
+        // Given
+        String token = token(claimsOf("VATES-A").claim("power", List.of(JSONObjectUtils.parse(power))).build());
+
+        // When / Then
+        StepVerifier.create(provider.fromToken(token))
+                .assertNext(caller -> assertThat(caller.powers()).singleElement()
+                        .satisfies(granted -> assertThat(granted.type()).isEqualTo("domain")))
+                .verifyComplete();
+    }
+
+    @Test
+    void JwtCallerProvider_fromToken_readsAPowerUnderItsTmfAliases() throws Exception {
+        // Given
+        String power = "{\"tmf_type\":\"domain\",\"tmf_function\":\"Certification\",\"tmf_domain\":\"sandbox\",\"tmf_action\":[\"Attest\"]}";
+        String token = token(claimsOf("VATES-A").claim("power", List.of(JSONObjectUtils.parse(power))).build());
+
+        // When / Then
+        StepVerifier.create(provider.fromToken(token))
+                .assertNext(caller -> assertThat(caller.powers()).singleElement()
+                        .satisfies(granted -> assertThat(granted.function()).isEqualTo("Certification")))
                 .verifyComplete();
     }
 

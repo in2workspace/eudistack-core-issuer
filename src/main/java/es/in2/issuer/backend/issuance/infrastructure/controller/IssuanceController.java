@@ -86,7 +86,7 @@ public class IssuanceController {
         return storedOrganization(id)
                 .map(Optional::of)
                 .defaultIfEmpty(Optional.empty())
-                .flatMap(organization -> powerAuthorizationService.authorizeQuery(organization.orElse(null), id))
+                .flatMap(organization -> powerAuthorizationService.authorizeQuery(organization.orElse(null), tracedId(id)))
                 .flatMap(decision -> issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(decision, id));
     }
 
@@ -137,7 +137,7 @@ public class IssuanceController {
      * echoed back -- it may be any string the client sent.
      */
     private Mono<AuthorizationDecision> decideThenNotFound(String actionId, String id) {
-        return powerAuthorizationService.authorize(actionId, null, isUuid(id) ? id : MALFORMED_ID)
+        return powerAuthorizationService.authorize(actionId, null, tracedId(id))
                 .then(Mono.error(new IssuanceNotFoundException("No issuance found for the given id")));
     }
 
@@ -153,7 +153,11 @@ public class IssuanceController {
                 .map(issuance -> Objects.requireNonNullElse(issuance.getOrganizationIdentifier(), ""));
     }
 
-    /** Whether the path id is a process id; any other string the client sent never reaches the trace. */
+    /** The path id for the trace: any string that is not a process id never reaches it. */
+    private static String tracedId(String id) {
+        return isUuid(id) ? id : MALFORMED_ID;
+    }
+
     private static boolean isUuid(String id) {
         try {
             UUID.fromString(id);

@@ -8,7 +8,7 @@ import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateExc
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
-import es.in2.issuer.backend.shared.domain.exception.NoCredentialFoundException;
+import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
@@ -172,7 +172,7 @@ public class IssuanceServiceImpl implements IssuanceService {
         try {
             id = UUID.fromString(issuanceId);
         } catch (IllegalArgumentException _) {
-            return Mono.error(new NoCredentialFoundException("No credential found for a malformed issuanceId"));
+            return Mono.error(new IssuanceNotFoundException("No issuance found for the given id"));
         }
         Mono<Issuance> issuanceMono;
         if (decision.caller().crossTenantView()) {
@@ -191,7 +191,7 @@ public class IssuanceServiceImpl implements IssuanceService {
             issuanceMono = issuancePort.findByIssuanceIdAndOrganizationIdentifier(id, decision.caller().organizationIdentifier());
         }
         return issuanceMono
-                .switchIfEmpty(Mono.error(new NoCredentialFoundException("No credential found for issuanceId: " + issuanceId)))
+                .switchIfEmpty(Mono.error(new IssuanceNotFoundException("No issuance found for the given id")))
                 .flatMap(issuance -> {
                     try {
                         return Mono.just(CredentialDetails.builder()

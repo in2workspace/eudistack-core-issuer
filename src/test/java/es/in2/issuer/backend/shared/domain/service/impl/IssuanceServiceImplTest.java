@@ -7,7 +7,7 @@ import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateExc
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
-import es.in2.issuer.backend.shared.domain.exception.NoCredentialFoundException;
+import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
@@ -446,8 +446,8 @@ class IssuanceServiceImplTest {
         // Then
         StepVerifier.create(result)
                 .expectErrorSatisfies(err -> {
-                    assertInstanceOf(NoCredentialFoundException.class, err);
-                    assertTrue(err.getMessage().contains(issuanceId));
+                    assertInstanceOf(IssuanceNotFoundException.class, err);
+                    assertFalse(err.getMessage().contains(issuanceId));
                 })
                 .verify();
     }
@@ -467,7 +467,7 @@ class IssuanceServiceImplTest {
 
         // Then
         StepVerifier.create(result)
-                .expectError(NoCredentialFoundException.class)
+                .expectError(IssuanceNotFoundException.class)
                 .verify();
     }
 
@@ -480,7 +480,7 @@ class IssuanceServiceImplTest {
         // Then
         StepVerifier.create(result)
                 .expectErrorSatisfies(err -> {
-                    assertInstanceOf(NoCredentialFoundException.class, err);
+                    assertInstanceOf(IssuanceNotFoundException.class, err);
                     assertFalse(err.getMessage().contains("not-a-uuid"));
                 })
                 .verify();

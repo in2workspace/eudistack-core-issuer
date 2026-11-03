@@ -19,6 +19,7 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
 import java.text.ParseException;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -100,8 +101,16 @@ public class JwtCallerProvider implements CallerProvider {
         if (!node.isArray()) {
             return List.of();
         }
+        List<JsonNode> unambiguous = new ArrayList<>();
+        for (JsonNode power : node) {
+            if (Power.hasConflictingAlias(power)) {
+                log.warn("Ignored a power of the token whose field and tmf_ alias differ");
+            } else {
+                unambiguous.add(Power.withoutAliases(power));
+            }
+        }
         try {
-            return objectMapper.convertValue(node, new TypeReference<>() {});
+            return objectMapper.convertValue(unambiguous, new TypeReference<>() {});
         } catch (IllegalArgumentException e) {
             log.debug("Unreadable power claim: {}", e.getMessage());
             return List.of();
