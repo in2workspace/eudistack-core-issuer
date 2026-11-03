@@ -178,4 +178,109 @@ class StatusListPdpServiceImplTest {
 
         verifyNoInteractions(policyContextFactory);
     }
+
+    // ---------------------------------------------------------------- EUD-271
+
+    @Test
+    void validateRevokeScope_otherOrganization_readsAsNotFound_whateverTheStatus() {
+        Issuance issuance = mock(Issuance.class);
+        when(issuance.getOrganizationIdentifier()).thenReturn("ORG_2");
+        when(policyContextFactory.fromTokenSimple(eq("token"), any())).thenReturn(Mono.just(buildContext("ORG_1", false)));
+
+        StepVerifier.create(service.validateRevokeScope("p", "token", issuance))
+                .expectError(es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException.class)
+                .verify();
+    }
+
+    @Test
+    void validateRevokeScope_sameOrganization_doesNotLookAtTheStatus() {
+        Issuance issuance = mock(Issuance.class);
+        when(issuance.getOrganizationIdentifier()).thenReturn("ORG_1");
+        when(policyContextFactory.fromTokenSimple(eq("token"), any())).thenReturn(Mono.just(buildContext("ORG_1", false)));
+
+        StepVerifier.create(service.validateRevokeScope("p", "token", issuance)).verifyComplete();
+
+        verify(issuance, never()).getCredentialStatus();
+    }
+
+    @Test
+    void validateRevokeScope_withoutThePower_isInsufficientPermission_notNotFound() {
+        Issuance issuance = mock(Issuance.class);
+        when(policyContextFactory.fromTokenSimple(eq("token"), any())).thenReturn(Mono.just(buildContextNoPowers("ORG_1", false)));
+
+        StepVerifier.create(service.validateRevokeScope("p", "token", issuance))
+                .expectError(es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException.class)
+                .verify();
+    }
+
+    @Test
+    void validateRevokePermission_decidesWithoutAProcess() {
+        when(policyContextFactory.fromTokenSimple(eq("token"), any())).thenReturn(Mono.just(buildContextNoPowers("ORG_1", false)));
+
+        StepVerifier.create(service.validateRevokePermission("p", "token"))
+                .expectError(es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException.class)
+                .verify();
+    }
+
+    @Test
+    void validateRevokePermission_withThePower_completes() {
+        when(policyContextFactory.fromTokenSimple(eq("token"), any())).thenReturn(Mono.just(buildContext("ORG_1", false)));
+
+        StepVerifier.create(service.validateRevokePermission("p", "token")).verifyComplete();
+    }
+
+    private PolicyContext sysAdminOn(String tenant) {
+        return new PolicyContext("ORG_1", Collections.emptyList(), null, null, "learcredential.employee.w3c.4",
+                true, false, tenant, tenant, null);
+    }
+
+    @Test
+    void validateRevokeScope_sysAdminOnPlatformTenant_isReadOnly() {
+        Issuance issuance = mock(Issuance.class);
+        when(policyContextFactory.fromTokenSimple(eq("token"), any())).thenReturn(Mono.just(sysAdminOn("platform")));
+
+        StepVerifier.create(service.validateRevokeScope("p", "token", issuance))
+                .expectError(es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException.class)
+                .verify();
+    }
+
+    @Test
+    void validateRevokePermission_sysAdminOnPlatformTenant_isReadOnly() {
+        when(policyContextFactory.fromTokenSimple(eq("token"), any())).thenReturn(Mono.just(sysAdminOn("platform")));
+
+        StepVerifier.create(service.validateRevokePermission("p", "token"))
+                .expectError(es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException.class)
+                .verify();
+    }
+
+    @Test
+    void validateRevokeScope_sysAdminOnAnotherTenant_canRevoke() {
+        Issuance issuance = mock(Issuance.class);
+        when(policyContextFactory.fromTokenSimple(eq("token"), any())).thenReturn(Mono.just(sysAdminOn("sandbox")));
+
+        StepVerifier.create(service.validateRevokeScope("p", "token", issuance)).verifyComplete();
+    }
+
+    @Test
+    void validateRevokePermission_tokenWithoutOrganization_isInvalidToken() {
+        when(policyContextFactory.fromTokenSimple(eq("token"), any())).thenReturn(Mono.just(buildContext(null, false)));
+
+        StepVerifier.create(service.validateRevokePermission("p", "token"))
+                .expectError(es.in2.issuer.backend.shared.domain.exception.InvalidTokenException.class)
+                .verify();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(classes = {
+            es.in2.issuer.backend.shared.domain.exception.JWTClaimMissingException.class,
+            es.in2.issuer.backend.shared.domain.exception.JWTParsingException.class,
+            es.in2.issuer.backend.shared.domain.exception.InvalidCredentialFormatException.class})
+    void validateRevokePermission_unreadableToken_isInvalidToken(Class<? extends RuntimeException> failure) throws Exception {
+        RuntimeException error = failure.getConstructor(String.class).newInstance("broken");
+        when(policyContextFactory.fromTokenSimple(eq("token"), any())).thenReturn(Mono.error(error));
+
+        StepVerifier.create(service.validateRevokePermission("p", "token"))
+                .expectError(es.in2.issuer.backend.shared.domain.exception.InvalidTokenException.class)
+                .verify();
+    }
 }

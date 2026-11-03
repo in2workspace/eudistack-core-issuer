@@ -44,6 +44,10 @@ public class BitstringStatusListController {
                 .map(jwt -> ResponseEntity.ok().contentType(VC_JWT).body(jwt));
     }
 
+    /**
+     * Deprecated alias of {@code POST /api/v1/issuances/{id}/revocation}, kept with today's body and
+     * error codes until no client uses it (EUD-247 AD-2): the portal calls it without a reason.
+     */
     @PostMapping("/revoke")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public Mono<Void> revokeCredential(
@@ -53,6 +57,7 @@ public class BitstringStatusListController {
     ) {
         String processId = UUID.randomUUID().toString();
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
+        log.warn("processId={} action=revokeCredential deprecated=true replacement=POST /api/v1/issuances/<id>/revocation", processId);
 
         return revocationWorkflow.revoke(processId, bearerToken, request.issuanceId(), request.reason(), publicIssuerBaseUrl)
                 .doFirst(() -> log.info("Process ID: {} - Revoking Credential...", processId))

@@ -12,7 +12,9 @@ import java.util.regex.Pattern;
  * Builds the details map for revocation audit events (conv-quality-security-gates.md §10.2).
  * Single point of PII/secret redaction (§10.3) for the attempted/success/failure events emitted
  * by {@link RevocationWorkflow} — never accepts an {@code Issuance} or raw exception, only the
- * primitive identifiers/strings that are safe to log, so email/subject/token can't leak in.
+ * primitive identifiers/strings that are safe to log, so a token or the attestation can't leak in.
+ * The holder is the deliberate exception (EUD-247 AC-13, AD-6): {@link #holderFields} adds their
+ * name, email and document in clear, protected by the encryption at rest of the audit store.
  */
 public final class RevocationAuditDetails {
 
@@ -70,6 +72,19 @@ public final class RevocationAuditDetails {
         return Map.copyOf(details);
     }
 
+    /** The holder in clear (AC-13). A value the attestation does not have stays empty. */
+    public static Map<String, Object> holderFields(String name, String email, String document) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("holderName", holderValue(name));
+        fields.put("holderEmail", holderValue(email));
+        fields.put("holderDocument", holderValue(document));
+        return fields;
+    }
+
+    private static String holderValue(String value) {
+        return value == null ? "" : sanitize(value, MAX_LOG_VALUE_LENGTH);
+    }
+
     static String sanitizeReason(String reason) {
         if (reason == null || reason.isBlank()) {
             return REASON_NOT_PROVIDED;
@@ -90,10 +105,12 @@ public final class RevocationAuditDetails {
             return null;
         }
         String normalized = CONTROL_CHARS.matcher(value.trim()).replaceAll("");
-        if (normalized.length() <= maxLength) {
+        // Counted in code points: a UTF-16 cut could split a surrogate pair and drop a character
+        // that the reason's limit of 280 characters admits.
+        if (normalized.codePointCount(0, normalized.length()) <= maxLength) {
             return normalized;
         }
-        return normalized.substring(0, maxLength);
+        return normalized.substring(0, normalized.offsetByCodePoints(0, maxLength));
     }
 
     // Same trigger set as AuditServiceImpl's private formatValue -- a value with none of

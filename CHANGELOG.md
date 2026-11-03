@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (EUD-271)
+
+- **EUD-271 (EUD-247) — `POST /api/v1/issuances/{id}/revocation`, the revocation contract for operators and systems.** The process is identified in the path and `reason` (1 to 280 characters, internal, never sent to the holder) in the body; `204` with no body. Rejections, all as `application/problem+json` with `instance` set to the request path and rejecting without changes:
+  - `400 BAD_REQUEST` with `violations` for an `id` that is not a UUID or a missing, blank or longer `reason`.
+  - `401 invalid_token` for a token without `credential_type` or an organization, or of an unknown type.
+  - `403 insufficient_permission` / `tenant_mismatch`, also for an `id` that does not exist and for a SysAdmin on the `platform` tenant, whose view is read-only.
+  - `404 issuance_not_found` for a process that does not exist or is out of the caller's scope, with the same body.
+  - `409 already_revoked` for a revoked attestation, without repeating any effect, and `409 not_revocable` for any other non-Valid status or an attestation with no position in a status list.
+  - `503 status_list_unavailable` with `Retry-After: 5` when the list cannot be marked.
+
+### Changed (EUD-271)
+
+- **EUD-271 — The status list and the issuance process commit in one transaction.** The list is sealed first, outside the transaction, so a QTSP failure writes nothing; then the conditional update of the list and the move to `REVOKED` commit together or not at all, on every revocation path (new route, alias, `PATCH`, queue and OID4VCI notification). Of two simultaneous revocations one applies and the other gets `already_revoked`, and the holder gets one notice. A bit left set by an older divergence, with the process still `VALID`, is completed by the next revocation.
+- **EUD-271 — A lost race on a status list is detected.** `StatusListRepository.updateSignedAndEncodedIfUnchanged` lacked `@Modifying`, so it never returned the affected rows and the optimistic check on the list did not run: two simultaneous revocations of attestations of one list could lose a bit. The loser now retries against the current list.
+- **EUD-271 — The revocation audit identifies the holder in clear.** For operators and systems (new route, alias and `PATCH`), `credential.revoked` and `credential.revoke.failed` carry `holderName`, `holderEmail` and `holderDocument` (empty when the attestation type has none); the queue and the OID4VCI notification keep a trace without personal data. The route of the contract also traces rejected requests, `requesterOrganizationId`, and identifies a system or an SD-JWT attestation by its token instead of `anonymous`. No token nor attestation content is logged.
+
+### Deprecated (EUD-271)
+
+- **`POST /w3c/v1/credentials/status/revoke` is a deprecated alias** of the new route, with its current body and error codes, because the portal calls it without a reason. Each call logs `deprecated=true`.
+
 ### Changed (EUD-305)
 
 - **EUD-305 — The wallet link of the credential offer email is built by the email service.** `CredentialOfferServiceImpl` no longer reads `issuer.wallet_url` nor builds a wallet link: it hands the standard `openid-credential-offer://?credential_offer_uri=...` offer to the email service, which reads `issuer.wallet_url` (optional) and builds `<issuer.wallet_url>/protocol/callback?credential_offer_uri=...` for the "Open in Wallet" button and the QR, or keeps the standard offer when the tenant configures no wallet. No change for the holder: the email carries the same links as before. The template variable for the button is now `walletLink`.
