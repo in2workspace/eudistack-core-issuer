@@ -84,7 +84,7 @@ class PayloadSchemaValidatorImplTest {
 
     @BeforeEach
     void setUp() {
-        payloadSchemaValidator = new PayloadSchemaValidatorImpl(credentialProfileRegistry);
+        payloadSchemaValidator = new PayloadSchemaValidatorImpl(new PayloadSubschemaResolver(credentialProfileRegistry));
     }
 
     private void mockMandateSchema() throws Exception {

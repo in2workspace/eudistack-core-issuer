@@ -85,13 +85,11 @@ class CredentialOfferServiceImplTest {
     }
 
     @Test
-    void createAndDeliverCredentialOffer_uiIgnoresTheTenantWalletUrl() {
+    void createAndDeliverCredentialOffer_emailAndUi_bothGetTheStandardOffer() {
         stubPreAuthorizedCodeGrant();
         stubOfferCache();
         stubEmailInfo("test-issuance-id");
         stubFrontendUrl();
-        when(tenantConfigService.getString(WALLET_URL_KEY))
-                .thenReturn(Mono.just("https://wallet.example.com/wallet"));
         when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), isNull()))
                 .thenReturn(Mono.empty());
 
@@ -102,21 +100,22 @@ class CredentialOfferServiceImplTest {
                 .assertNext(result -> assertThat(result.credentialOfferUri()).isEqualTo(STANDARD_OFFER_URI))
                 .verifyComplete();
 
-        verify(emailService).sendCredentialOfferEmail(eq("test@example.com"),
-                eq("https://wallet.example.com/wallet/protocol/callback?credential_offer_uri=" + ENCODED_OFFER_URL),
+        verify(emailService).sendCredentialOfferEmail(eq("test@example.com"), eq(STANDARD_OFFER_URI),
                 anyString(), eq("TestOrg"), isNull());
     }
 
-    // ── email: link to the tenant's wallet, or the standard form ─────────────
+    // ── email: the standard offer goes to the email service as is ────────────
 
+    /**
+     * EUD-305: building the link to the tenant's wallet is the email's job. This service passes the
+     * standard offer and never reads {@code issuer.wallet_url}.
+     */
     @Test
-    void createAndDeliverCredentialOffer_emailWithTenantWalletUrl_linksToTheWalletCallback() {
+    void createAndDeliverCredentialOffer_email_passesTheStandardOfferWithoutReadingTheWalletUrl() {
         stubPreAuthorizedCodeGrant();
         stubOfferCache();
         stubEmailInfo("test-issuance-id");
         stubFrontendUrl();
-        when(tenantConfigService.getString(WALLET_URL_KEY))
-                .thenReturn(Mono.just("https://wallet.example.com/wallet"));
         when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), isNull()))
                 .thenReturn(Mono.empty());
 
@@ -130,78 +129,10 @@ class CredentialOfferServiceImplTest {
                 })
                 .verifyComplete();
 
-        verify(emailService).sendCredentialOfferEmail(eq("test@example.com"),
-                eq("https://wallet.example.com/wallet/protocol/callback?credential_offer_uri=" + ENCODED_OFFER_URL),
+        verify(emailService).sendCredentialOfferEmail(eq("test@example.com"), eq(STANDARD_OFFER_URI),
                 eq("https://frontend.example.com/issuer/credential-offer-refresh/refresh-token"),
                 eq("TestOrg"), isNull());
-    }
-
-    @Test
-    void createAndDeliverCredentialOffer_emailWithTrailingSlashWalletUrl_doesNotDoubleTheSlash() {
-        stubPreAuthorizedCodeGrant();
-        stubOfferCache();
-        stubEmailInfo("test-issuance-id");
-        stubFrontendUrl();
-        when(tenantConfigService.getString(WALLET_URL_KEY))
-                .thenReturn(Mono.just("https://wallet.example.com/wallet/"));
-        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), isNull()))
-                .thenReturn(Mono.empty());
-
-        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
-                        "test-issuance-id", "learcredential.employee.w3c.4",
-                        "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "email",
-                        "refresh-token", ISSUER_BASE_URL))
-                .expectNextCount(1)
-                .verifyComplete();
-
-        verify(emailService).sendCredentialOfferEmail(anyString(),
-                eq("https://wallet.example.com/wallet/protocol/callback?credential_offer_uri=" + ENCODED_OFFER_URL),
-                anyString(), anyString(), isNull());
-    }
-
-    @Test
-    void createAndDeliverCredentialOffer_emailWithoutTenantWalletUrl_sendsTheStandardOfferUri() {
-        stubPreAuthorizedCodeGrant();
-        stubOfferCache();
-        stubEmailInfo("test-issuance-id");
-        stubFrontendUrl();
-        when(tenantConfigService.getString(WALLET_URL_KEY)).thenReturn(Mono.empty());
-        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), isNull()))
-                .thenReturn(Mono.empty());
-
-        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
-                        "test-issuance-id", "learcredential.employee.w3c.4",
-                        "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "email",
-                        "refresh-token", ISSUER_BASE_URL))
-                .assertNext(result -> {
-                    assertThat(result.credentialOfferUri()).isNull();
-                    assertThat(result.emailError()).isNull();
-                })
-                .verifyComplete();
-
-        verify(emailService).sendCredentialOfferEmail(eq("test@example.com"),
-                eq(STANDARD_OFFER_URI), anyString(), eq("TestOrg"), isNull());
-    }
-
-    @Test
-    void createAndDeliverCredentialOffer_emailWithBlankTenantWalletUrl_sendsTheStandardOfferUri() {
-        when(issuerStateCacheStore.add(anyString(), eq("test-issuance-id")))
-                .thenReturn(Mono.just("cached"));
-        stubOfferCache();
-        stubEmailInfo("test-issuance-id");
-        stubFrontendUrl();
-        when(tenantConfigService.getString(WALLET_URL_KEY)).thenReturn(Mono.just("  "));
-        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), isNull()))
-                .thenReturn(Mono.empty());
-
-        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
-                        "test-issuance-id", "learcredential.employee.w3c.4", "authorization_code",
-                        "test@example.com", "email", "refresh-token", ISSUER_BASE_URL))
-                .assertNext(result -> assertThat(result.credentialOfferUri()).isNull())
-                .verifyComplete();
-
-        verify(emailService).sendCredentialOfferEmail(eq("test@example.com"),
-                eq(STANDARD_OFFER_URI), anyString(), eq("TestOrg"), isNull());
+        verify(tenantConfigService, never()).getString(WALLET_URL_KEY);
     }
 
     /**
@@ -238,8 +169,6 @@ class CredentialOfferServiceImplTest {
     void createAndDeliverCredentialOffer_withKpmgTenantAndEmailDelivery_callsSendBrandedEmail() {
         when(tenantConfigService.getStringOrThrow("issuer.frontend_url"))
                 .thenReturn(Mono.just("https://kpmg.eudistack.net/issuer"));
-        when(tenantConfigService.getString(WALLET_URL_KEY))
-                .thenReturn(Mono.just("https://kpmg.eudistack.net/wallet"));
         stubPreAuthorizedCodeGrant();
         when(credentialOfferCacheRepository.saveCredentialOffer(any()))
                 .thenReturn(Mono.just("nonce"));
@@ -258,7 +187,7 @@ class CredentialOfferServiceImplTest {
 
         verify(emailService).sendBrandedCredentialOfferEmail(
                 eq("user@kpmg.com"), anyString(),
-                argThat(url -> url.startsWith("https://kpmg.eudistack.net/wallet/protocol/callback?credential_offer_uri=")),
+                argThat(uri -> uri.startsWith("openid-credential-offer://?credential_offer_uri=")),
                 anyString(), eq("KPMG"));
         verify(emailService, never()).sendCredentialOfferEmail(any(), any(), any(), any(), any());
     }
@@ -267,8 +196,6 @@ class CredentialOfferServiceImplTest {
     void createAndDeliverCredentialOffer_withNonKpmgTenantAndEmailDelivery_callsSendLegacyEmail() {
         when(tenantConfigService.getStringOrThrow("issuer.frontend_url"))
                 .thenReturn(Mono.just("https://sandbox.eudistack.net/issuer"));
-        when(tenantConfigService.getString(WALLET_URL_KEY))
-                .thenReturn(Mono.just("https://sandbox.eudistack.net/wallet"));
         stubPreAuthorizedCodeGrant();
         when(credentialOfferCacheRepository.saveCredentialOffer(any()))
                 .thenReturn(Mono.just("nonce"));
@@ -287,7 +214,7 @@ class CredentialOfferServiceImplTest {
 
         verify(emailService).sendCredentialOfferEmail(
                 eq("user@sandbox.com"),
-                argThat(url -> url.startsWith("https://sandbox.eudistack.net/wallet/protocol/callback?credential_offer_uri=")),
+                argThat(uri -> uri.startsWith("openid-credential-offer://?credential_offer_uri=")),
                 any(), eq("Sandbox Org"), isNull());
         verify(emailService, never()).sendBrandedCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), anyString());
     }

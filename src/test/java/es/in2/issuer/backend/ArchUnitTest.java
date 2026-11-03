@@ -38,6 +38,7 @@ class ArchUnitTest {
                     BASE_PACKAGE + ".shared.infrastructure.config.health.VerifierHealthIndicator",
                     // Spring-managed beans discovered via interface or component scanning (no direct class references)
                     BASE_PACKAGE + ".shared.infrastructure.service.PayloadSchemaValidatorImpl",
+                    BASE_PACKAGE + ".shared.infrastructure.service.IssuancePayloadNormalizerImpl",
                     BASE_PACKAGE + ".shared.infrastructure.config.ObservationConfig",
                     BASE_PACKAGE + ".shared.infrastructure.config.RateLimitFilter",
                     BASE_PACKAGE + ".shared.infrastructure.config.FlywayConfig",

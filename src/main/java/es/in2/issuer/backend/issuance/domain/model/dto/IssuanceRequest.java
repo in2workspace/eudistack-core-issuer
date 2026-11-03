@@ -40,4 +40,8 @@ public record IssuanceRequest(
                            String email, String grantType) {
         this(credentialConfigurationId, payload, delivery, email, grantType, null);
     }
+
+    public IssuanceRequest withPayload(JsonNode newPayload) {
+        return new IssuanceRequest(credentialConfigurationId, newPayload, delivery, email, grantType, holderKey);
+    }
 }
