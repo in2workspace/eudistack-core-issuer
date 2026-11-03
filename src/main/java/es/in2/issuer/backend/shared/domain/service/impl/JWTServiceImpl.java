@@ -51,6 +51,8 @@ import java.util.Optional;
 public class JWTServiceImpl implements JWTService {
 
     private static final String DID_KEY_PREFIX = "did:key:";
+    private static final String MANDATE = "mandate";
+    private static final String MANDATEE = "mandatee";
 
     private final ObjectMapper objectMapper;
     private final CryptoComponent cryptoComponent;
@@ -328,12 +330,12 @@ public class JWTServiceImpl implements JWTService {
 
         // Resolve VC from either 'vc' (object) or 'vc_json' (stringified JSON)
         Map<String, Object> vc = resolveVc(claims);
-        Map<String, Object> w3cMandate = asMap(asMap(vc.get("credentialSubject")).get("mandate"));
-        Map<String, Object> sdJwtMandate = asMap(vc.get("mandate"));
+        Map<String, Object> w3cMandate = asMap(asMap(vc.get("credentialSubject")).get(MANDATE));
+        Map<String, Object> sdJwtMandate = asMap(vc.get(MANDATE));
 
-        return emailOf(asMap(w3cMandate.get("mandatee")))
-                .or(() -> emailOf(asMap(sdJwtMandate.get("mandatee"))))
-                .or(() -> emailOf(asMap(claims.get("mandatee"))))
+        return emailOf(asMap(w3cMandate.get(MANDATEE)))
+                .or(() -> emailOf(asMap(sdJwtMandate.get(MANDATEE))))
+                .or(() -> emailOf(asMap(claims.get(MANDATEE))))
                 .or(() -> emailOf(claims))
                 .or(() -> Optional.ofNullable(claims.get("sub"))
                         .filter(String.class::isInstance)
