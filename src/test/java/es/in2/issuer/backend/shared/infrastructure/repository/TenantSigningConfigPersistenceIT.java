@@ -14,13 +14,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * The active signing configuration is read from a real Postgres with the V15
- * schema (JSONB chain, TIMESTAMPTZ columns, status filter).
+ * schema (modality and status filter).
  */
 class TenantSigningConfigPersistenceIT extends PostgresIntegrationBase {
 
     private static final String TENANT = "e2e";
     private static final String TABLE = "\"" + TENANT + SCHEMA_SUFFIX + "\".tenant_signing_config";
-    private static final String OWN_KEY_TABLE = "\"" + TENANT + SCHEMA_SUFFIX + "\".tenant_own_key";
 
     @Autowired
     private TenantSigningConfigRepository repository;
@@ -31,7 +30,6 @@ class TenantSigningConfigPersistenceIT extends PostgresIntegrationBase {
     @BeforeEach
     @AfterEach
     void cleanTable() {
-        exec("DELETE FROM " + OWN_KEY_TABLE);
         exec("DELETE FROM " + TABLE);
     }
 
@@ -40,17 +38,17 @@ class TenantSigningConfigPersistenceIT extends PostgresIntegrationBase {
     }
 
     private void insertWithdrawnQtsp() {
-        exec("INSERT INTO " + TABLE + " (provider, csc_api_version, provider_specific_config, status, withdrawn_at, "
-                + "withdrawn_by, created_at) VALUES ('old', 'v2', '{\"url\":\"https://old.test\"}'::jsonb, 'withdrawn', "
-                + "now(), 'operator@example.invalid', now() + interval '1 hour')");
+        exec("INSERT INTO " + TABLE + " (provider, csc_api_version, provider_specific_config, status, created_at) "
+                + "VALUES ('old', 'v2', '{\"url\":\"https://old.test\"}'::jsonb, 'withdrawn', now() + interval '1 hour')");
     }
 
     private void insertActiveOwnKey() {
-        exec("WITH c AS (INSERT INTO " + TABLE + " (provider, modality, status, activated_by) "
-                + "VALUES ('aws-kms', 'own_key', 'active', 'operator@example.invalid') RETURNING id) "
-                + "INSERT INTO " + OWN_KEY_TABLE + " (signing_configuration_id, kms_key_ref, algorithm, certificate_chain) "
-                + "SELECT id, 'arn:aws:kms:eu-west-1:111122223333:key/k', 'ES256', '[\"MIIB-leaf\",\"MIIB-int\"]'::jsonb "
-                + "FROM c");
+        exec("INSERT INTO " + TABLE + " (provider, modality, status) VALUES ('aws-kms', 'own_key', 'active')");
+    }
+
+    private void insertActiveQtsp() {
+        exec("INSERT INTO " + TABLE + " (provider, csc_api_version, provider_specific_config) "
+                + "VALUES ('digitel', 'v2', '{\"url\":\"https://qtsp.test\",\"credentialId\":\"cred-1\"}'::jsonb)");
     }
 
     @Test
@@ -79,16 +77,16 @@ class TenantSigningConfigPersistenceIT extends PostgresIntegrationBase {
     }
 
     @Test
-    void getActiveSigningConfig_ownKeyRow_roundTripsChain() {
+    void getActiveSigningConfig_qtspRow_roundTripsTheProviderConfig() {
         insertWithdrawnQtsp();
-        insertActiveOwnKey();
+        insertActiveQtsp();
 
         var config = service.getActiveSigningConfig()
                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT))
                 .block();
 
         assertThat(config).isNotNull();
-        assertThat(config.modality()).isEqualTo(SigningModality.OWN_KEY);
-        assertThat(config.ownKey().certificateChain()).containsExactly("MIIB-leaf", "MIIB-int");
+        assertThat(config.modality()).isEqualTo(SigningModality.QTSP);
+        assertThat(config.qtsp().credentialId()).isEqualTo("cred-1");
     }
 }

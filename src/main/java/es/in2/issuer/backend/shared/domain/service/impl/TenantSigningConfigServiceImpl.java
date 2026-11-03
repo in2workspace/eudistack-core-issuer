@@ -1,28 +1,22 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Ticker;
-import es.in2.issuer.backend.shared.infrastructure.persistence.TenantOwnKeyEntity;
 import es.in2.issuer.backend.shared.domain.model.entities.TenantSigningConfig;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
-import es.in2.issuer.backend.shared.infrastructure.repository.TenantOwnKeyRepository;
 import es.in2.issuer.backend.shared.infrastructure.repository.TenantSigningConfigRepository;
 import es.in2.issuer.backend.signing.domain.exception.SigningConfigurationChangedException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
-import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
-import es.in2.issuer.backend.signing.domain.spi.KmsSigningPort;
 import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -30,7 +24,6 @@ import reactor.core.publisher.Mono;
 import reactor.util.context.ContextView;
 
 import java.time.Duration;
-import java.util.List;
 import java.util.Optional;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
@@ -40,35 +33,26 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 public class TenantSigningConfigServiceImpl implements TenantSigningConfigService {
 
     private static final String ACTIVE_STATUS = "active";
-    private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
 
     private final TenantSigningConfigRepository repository;
-    private final TenantOwnKeyRepository ownKeyRepository;
     private final Cache<String, ActiveSigningConfig> configCache;
     private final ObjectMapper objectMapper;
-    /** The port exists only when {@code issuer.signing.kms.enabled=true}. */
-    private final ObjectProvider<KmsSigningPort> kmsSigningPort;
 
     @Autowired
     public TenantSigningConfigServiceImpl(TenantSigningConfigRepository repository,
-                                          TenantOwnKeyRepository ownKeyRepository,
                                           ObjectMapper objectMapper,
-                                          @Value("${issuer.signing.config-cache-ttl:5m}") Duration configCacheTtl,
-                                          ObjectProvider<KmsSigningPort> kmsSigningPort) {
-        this(repository, ownKeyRepository, objectMapper, configCacheTtl, kmsSigningPort, Ticker.systemTicker());
+                                          @Value("${issuer.signing.config-cache-ttl:5m}") Duration configCacheTtl) {
+        this(repository, objectMapper, configCacheTtl, Ticker.systemTicker());
     }
 
     TenantSigningConfigServiceImpl(TenantSigningConfigRepository repository,
-                                   TenantOwnKeyRepository ownKeyRepository,
                                    ObjectMapper objectMapper,
                                    Duration configCacheTtl,
-                                   ObjectProvider<KmsSigningPort> kmsSigningPort,
                                    Ticker ticker) {
         if (configCacheTtl == null || configCacheTtl.isZero() || configCacheTtl.isNegative()) {
             throw new IllegalArgumentException("issuer.signing.config-cache-ttl must be positive");
         }
         this.repository = repository;
-        this.ownKeyRepository = ownKeyRepository;
         // EUD-251 design AD-5: during the TTL (5 min by default) an instance can keep using a replaced
         // or withdrawn configuration. Accepted deviation, see the design §16.
         this.configCache = Caffeine.newBuilder()
@@ -77,7 +61,6 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
                 .maximumSize(50)
                 .build();
         this.objectMapper = objectMapper;
-        this.kmsSigningPort = kmsSigningPort;
     }
 
     @Override
@@ -139,35 +122,14 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
     private Mono<ActiveSigningConfig> toActiveSigningConfig(String tenant, TenantSigningConfig row) {
         return switch (modalityOf(tenant, row)) {
             case QTSP -> Mono.just(ActiveSigningConfig.qtsp(toRemoteSignatureDto(row)));
-            case OWN_KEY -> ownKeyRepository.findBySigningConfigurationId(row.id())
-                    .switchIfEmpty(Mono.error(() -> missingOwnKey(tenant)))
-                    .map(ownKey -> toOwnKeySigningConfig(tenant, ownKey))
-                    .flatMap(this::withKeyTenantTag)
-                    .map(ActiveSigningConfig::ownKey);
+            case OWN_KEY -> Mono.error(() -> ownKeyNotAvailable(tenant));
         };
     }
 
-    /** The database requires the row at commit, so its absence means a corrupt configuration. */
-    private static SigningException missingOwnKey(String tenant) {
-        log.error("Active own-key signing config of tenant '{}' has no own-key row", tenant);
+    /** The key and the certificate of an own-key configuration are not stored in the database. */
+    private static SigningException ownKeyNotAvailable(String tenant) {
+        log.error("Active own-key signing config of tenant '{}' has no source for its key and certificate", tenant);
         return invalidConfiguration();
-    }
-
-    /**
-     * Reads the {@code Tenant} tag of the KMS key once, when the configuration is loaded, so the cache
-     * keeps it with the configuration and signing does not ask KMS for it. If the tags cannot be read
-     * the load fails with the reason of the KMS failure and nothing is cached. A key without the tag
-     * is loaded with no tag: {@code KmsOwnKeySigningProvider} refuses to sign with it. When KMS signing
-     * is not enabled on this issuer there is nothing to read; the provider reports that case itself.
-     */
-    private Mono<OwnKeySigningConfig> withKeyTenantTag(OwnKeySigningConfig config) {
-        KmsSigningPort port = kmsSigningPort.getIfAvailable();
-        if (port == null) {
-            return Mono.just(config);
-        }
-        return port.findTenantTag(config.kmsKeyRef())
-                .map(config::withKeyTenantTag)
-                .defaultIfEmpty(config);
     }
 
     private static SigningModality modalityOf(String tenant, TenantSigningConfig row) {
@@ -179,27 +141,6 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
         }
         log.error("Active signing config of tenant '{}' has an unknown modality", tenant);
         throw invalidConfiguration();
-    }
-
-    /**
-     * A corrupt own-key row is reported as {@code NO_CONFIGURATION}: the tenant has no usable
-     * configuration. It is not {@code KEY_UNUSABLE} (the key itself was never reached) nor
-     * {@code CERTIFICATE_INVALID} (the certificate was never checked).
-     */
-    private OwnKeySigningConfig toOwnKeySigningConfig(String tenant, TenantOwnKeyEntity row) {
-        try {
-            List<String> chain = row.certificateChain() == null
-                    ? List.of()
-                    : objectMapper.readValue(row.certificateChain(), STRING_LIST);
-            return new OwnKeySigningConfig(
-                    row.kmsKeyRef(),
-                    row.algorithm(),
-                    chain);
-        } catch (IllegalArgumentException | JsonProcessingException e) {
-            log.error("Active own-key signing config of tenant '{}' is invalid: {}",
-                    tenant, e.getClass().getSimpleName());
-            throw invalidConfiguration();
-        }
     }
 
     private static SigningException invalidConfiguration() {

@@ -31,12 +31,6 @@ public record TenantSigningConfig(
         String modality,
 
         @Column("status")
-        String status,
-
-        @Column("activated_at")
-        Instant activatedAt,
-
-        @Column("withdrawn_at")
-        Instant withdrawnAt
+        String status
 ) {
 }
