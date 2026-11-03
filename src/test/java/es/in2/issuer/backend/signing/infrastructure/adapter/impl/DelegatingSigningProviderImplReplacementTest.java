@@ -6,7 +6,7 @@ import es.in2.issuer.backend.shared.domain.service.impl.TenantSigningConfigServi
 import es.in2.issuer.backend.shared.infrastructure.repository.TenantSigningConfigRepository;
 import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
-import es.in2.issuer.backend.signing.domain.model.SigningProviderType;
+import es.in2.issuer.backend.signing.domain.model.SigningModality;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
@@ -74,7 +74,7 @@ class DelegatingSigningProviderImplReplacementTest {
         when(repository.findFirstByStatusOrderByCreatedAtDesc("active"))
                 .thenReturn(Mono.just(ownKeyRow(OLD_KEY)))
                 .thenReturn(Mono.just(ownKeyRow(NEW_KEY)));
-        when(signingProviderResolver.resolve(SigningProviderType.AWS_KMS)).thenReturn(kmsProvider);
+        when(signingProviderResolver.resolve(SigningModality.OWN_KEY)).thenReturn(kmsProvider);
         when(kmsProvider.sign(any())).thenAnswer(invocation -> {
             String keyRef = invocation.<SigningRequest>getArgument(0).ownKey().kmsKeyRef();
             return OLD_KEY.equals(keyRef)

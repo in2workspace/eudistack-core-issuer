@@ -4,9 +4,10 @@ import com.nimbusds.jose.JWSAlgorithm;
 import es.in2.issuer.backend.signing.domain.exception.HashGenerationException;
 import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
-import es.in2.issuer.backend.signing.domain.model.SigningProviderType;
+import es.in2.issuer.backend.signing.domain.model.SigningModality;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
@@ -41,9 +42,9 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 /**
  * Signs a JAdES JWS with the tenant's own ES256 key held in KMS.
  *
- * <p>Registered in {@code SigningProviderResolver} as {@link SigningProviderType#AWS_KMS}, next to the
- * CSC providers. {@code DelegatingSigningProviderImpl} resolves it for the own-key modality and puts
- * the tenant's own-key configuration in {@link SigningRequest#ownKey()}.
+ * <p>The provider of the own-key modality in {@code SigningProviderResolver}.
+ * {@code DelegatingSigningProviderImpl} resolves it for that modality and puts the tenant's own-key
+ * configuration in {@link SigningRequest#ownKey()}.
  *
  * <p>No user token is used: the KMS authorizes with the issuer's runtime role.
  * The returned signature is always verified against the stored leaf certificate first, so a
@@ -64,8 +65,14 @@ public class KmsOwnKeySigningProvider implements SigningProvider {
     private final Clock clock;
 
     @Override
-    public SigningProviderType supportedProvider() {
-        return SigningProviderType.AWS_KMS;
+    public SigningModality modality() {
+        return SigningModality.OWN_KEY;
+    }
+
+    /** The chain stored with the configuration; no network call. */
+    @Override
+    public Mono<List<String>> resolveChain(ActiveSigningConfig config) {
+        return config.ownKey() == null ? Mono.empty() : Mono.just(config.ownKey().certificateChain());
     }
 
     @Override

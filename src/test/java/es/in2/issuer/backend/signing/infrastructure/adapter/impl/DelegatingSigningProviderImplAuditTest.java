@@ -16,7 +16,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
-import es.in2.issuer.backend.signing.domain.model.SigningProviderType;
+import es.in2.issuer.backend.signing.domain.model.SigningModality;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningAuditor;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningProviderResolver;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
@@ -58,7 +58,7 @@ class DelegatingSigningProviderImplAuditTest {
 
     @BeforeEach
     void setUp() {
-        when(resolver.resolve(SigningProviderType.AWS_KMS)).thenReturn(kmsProvider);
+        when(resolver.resolve(SigningModality.OWN_KEY)).thenReturn(kmsProvider);
         delegating = new DelegatingSigningProviderImpl(configService, resolver, new SigningAuditor(auditService));
     }
 
@@ -110,7 +110,7 @@ class DelegatingSigningProviderImplAuditTest {
     @Test
     void sign_qtspSuccess_auditsSuccessWithModalityProviderAndDuration() {
         when(configService.getActiveSigningConfig()).thenReturn(Mono.just(qtsp()));
-        when(resolver.resolveFromValue("sign-hash")).thenReturn(qtspProvider);
+        when(resolver.resolve(SigningModality.QTSP)).thenReturn(qtspProvider);
         when(qtspProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "jws-value")));
 
         StepVerifier.create(signAs("sandbox")).expectNextCount(1).verifyComplete();
@@ -129,7 +129,7 @@ class DelegatingSigningProviderImplAuditTest {
     @Test
     void sign_qtspFailure_auditsFailureWithClassifiedReason() {
         when(configService.getActiveSigningConfig()).thenReturn(Mono.just(qtsp()));
-        when(resolver.resolveFromValue("sign-hash")).thenReturn(qtspProvider);
+        when(resolver.resolve(SigningModality.QTSP)).thenReturn(qtspProvider);
         when(qtspProvider.sign(any())).thenReturn(Mono.error(
                 new SigningException(SigningFailureReason.PROVIDER_UNAVAILABLE, "qtsp down: client-secret")));
 
@@ -245,7 +245,7 @@ class DelegatingSigningProviderImplAuditTest {
         String content = "{\"name\":\"N\u00fa\u00f1ez\"}";
         SigningRequest withAccents = SigningRequest.builder().type(SigningType.JADES).data(content).typ("jwt").build();
         when(configService.getActiveSigningConfig()).thenReturn(Mono.just(qtsp()));
-        when(resolver.resolveFromValue("sign-hash")).thenReturn(qtspProvider);
+        when(resolver.resolve(SigningModality.QTSP)).thenReturn(qtspProvider);
         when(qtspProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "jws-value")));
 
         List<String> messages = infoMessagesWhile(() -> StepVerifier.create(delegating.sign(withAccents)

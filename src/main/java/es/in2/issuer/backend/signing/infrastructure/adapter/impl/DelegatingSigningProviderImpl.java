@@ -6,13 +6,11 @@ import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
-import es.in2.issuer.backend.signing.domain.model.SigningProviderType;
 import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
 import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
-import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.DelegatingSigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningAuditor;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningProviderResolver;
@@ -28,8 +26,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 /**
- * Routes signing requests by the active tenant's signing modality, through {@link SigningProviderResolver}:
- * to the CSC operation configured for its QTSP, or to the KMS own-key provider. Reads signing config
+ * Routes signing requests to the provider of the active tenant's signing modality, through
+ * {@link SigningProviderResolver}: the QTSP provider or the KMS own-key provider. Reads signing config
  * per-tenant from the database (via {@link TenantSigningConfigService}) and injects it into the {@link
  * SigningRequest} before delegating.
  *
@@ -160,11 +158,11 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
             log.info("Signing attempt tenant={} modality={} object={} payloadBytes={}",
                     ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, SigningAuditor.UNKNOWN),
                     modalityOf(config), objectOf(request), payloadBytes(request));
-            return switch (config.modality()) {
-                case QTSP -> sign(request, config.qtsp());
-                case OWN_KEY -> signingProviderResolver.resolve(SigningProviderType.AWS_KMS)
-                        .sign(withOwnKey(request, config.ownKey()));
+            SigningRequest withConfig = switch (config.modality()) {
+                case QTSP -> enrich(request, config.qtsp());
+                case OWN_KEY -> withOwnKey(request, config.ownKey());
             };
+            return signingProviderResolver.resolve(config.modality()).sign(withConfig);
         });
     }
 
@@ -182,43 +180,6 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
     /** UTF-8 size of the content handed to the signer. */
     private static int payloadBytes(SigningRequest request) {
         return request.data() == null ? 0 : request.data().getBytes(StandardCharsets.UTF_8).length;
-    }
-
-    private Mono<SigningResult> sign(
-            SigningRequest signingRequest,
-            RemoteSignatureDto remoteSignatureDto
-    ) {
-
-        validateSigningOperation(remoteSignatureDto.signingOperation());
-
-        SigningProvider signingProvider =
-                signingProviderResolver.resolveFromValue(
-                        remoteSignatureDto.signingOperation()
-                );
-
-        log.info(
-                "Signing via operation='{}' type='{}' url='{}'",
-                remoteSignatureDto.signingOperation(),
-                signingRequest.type(),
-                remoteSignatureDto.url()
-        );
-
-        return signingProvider.sign(
-                enrich(signingRequest, remoteSignatureDto)
-        );
-    }
-
-    private void validateSigningOperation(String operation) {
-
-        if (operation == null || operation.isBlank()) {
-
-            throw new SigningException(
-                    """
-                            signingOperation is required in the QTSP configuration.
-                            Set it to 'sign-hash' or 'sign-doc'.
-                            """
-            );
-        }
     }
 
     private static SigningRequest withOwnKey(SigningRequest original, OwnKeySigningConfig ownKey) {

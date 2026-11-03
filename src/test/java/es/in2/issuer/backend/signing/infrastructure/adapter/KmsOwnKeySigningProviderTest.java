@@ -9,10 +9,11 @@ import com.nimbusds.jose.crypto.ECDSAVerifier;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.JadesProfile;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
-import es.in2.issuer.backend.signing.domain.model.SigningProviderType;
+import es.in2.issuer.backend.signing.domain.model.SigningModality;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningContext;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
@@ -284,8 +285,19 @@ class KmsOwnKeySigningProviderTest {
     }
 
     @Test
-    void supportedProvider_isAwsKms() {
-        assertThat(provider.supportedProvider()).isEqualTo(SigningProviderType.AWS_KMS);
+    void modality_isOwnKey() {
+        assertThat(provider.modality()).isEqualTo(SigningModality.OWN_KEY);
+    }
+
+    @Test
+    void resolveChain_returnsTheStoredChainWithoutCallingKms() {
+        OwnKeySigningConfig config = configFor(PKI.validP256Leaf());
+
+        StepVerifier.create(provider.resolveChain(ActiveSigningConfig.ownKey(config)))
+                .expectNext(config.certificateChain())
+                .verifyComplete();
+
+        assertThat(kms.signCalls).hasValue(0);
     }
 
     @Test
