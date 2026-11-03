@@ -132,8 +132,7 @@ class ArchUnitTest {
                                     .map(source -> !source.getUri().toString().contains("/test/"))
                                     .orElse(true)))
                     .should().dependOnClassesThat().resideInAPackage("org.bouncycastle..")
-                    .because("hexagonal boundary: BouncyCastle is an infrastructure library; the signing domain reads "
-                            + "the X.509 extensions it needs through CertificateExtensionsPort");
+                    .because("hexagonal boundary: BouncyCastle is an infrastructure library");
 
     @ArchTest
     static final ArchRule domainShouldNotDependOnSpringData =

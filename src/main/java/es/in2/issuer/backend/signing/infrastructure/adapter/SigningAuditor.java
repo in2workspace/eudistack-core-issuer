@@ -18,8 +18,7 @@ import java.util.Map;
  * {@code SigningFailureReason} name, never an exception message.
  *
  * <p>Out of scope here: audit of configuration changes (alta, sustitución, retirada, alta rechazada).
- * Those operations are performed by the onboarding tool, not by the Issuer, so the
- * Issuer cannot record them.
+ * Those operations are performed outside the Issuer, so the Issuer cannot record them.
  *
  * <p>Best-effort: a failure of the audit channel is logged and never reaches the signing flow.
  */
