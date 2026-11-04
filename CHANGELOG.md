@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed (EUD-271)
 
+- **EUD-271 — The trace of a revocation names a system by its DID.** A system has no email, so its actor came from the token's `sub`, which is the IP address its attestation declares. It is now the `id` of the token's `mandatee`, and the `email` for a person of an SD-JWT attestation. It applies to the new route, the alias and `PATCH`, which traced such callers as `anonymous`.
+- **EUD-271 — A revocation rejected with a 401 leaves a trace (EUD-247 AC-10).** The security chain answers it before any controller, so it left none (or only `auth.failure`). `POST /api/v1/issuances/{id}/revocation` now records `credential.revoke.failed` with the id, the reason if the body has one (at most 8 KB are read), the error type and the client address. Nothing in such a request is verified, so the actor is `anonymous` and the token is not read.
 - **EUD-271 — A `reason` that is not a JSON string is rejected.** Jackson turned a number or a boolean into text, so `{"reason": 5}` revoked the attestation. It now answers `400 BAD_REQUEST` with the violation on `reason`.
 - **EUD-271 — A malformed id on `PATCH /api/v1/issuances/{id}` can no longer forge a log line.** With `status=REVOKED` the route does not check the shape of its id, and the JDK repeats it in the message of `UUID.fromString`, which reached the `status=failed` log line with its line breaks. The error text now goes through `RevocationAuditDetails.quoteIfNeeded`, and `sanitize` removes line breaks in a form that CodeQL `java/log-injection` recognizes.
 

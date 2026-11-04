@@ -14,6 +14,7 @@ import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
+import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.VerifierService;
 import es.in2.issuer.backend.shared.domain.spi.IssuancePort;
@@ -139,6 +140,9 @@ class RevocationControllerIT {
 
     @MockitoSpyBean
     private IssuancePort issuancePort;
+
+    @MockitoSpyBean
+    private AuditService auditService;
 
     @MockitoBean
     private VerifierService verifierService;
@@ -421,6 +425,11 @@ class RevocationControllerIT {
                 .exchange()
                 .expectStatus().isUnauthorized()
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON);
+
+        org.mockito.ArgumentCaptor<java.util.Map<String, Object>> details = org.mockito.ArgumentCaptor.captor();
+        org.mockito.Mockito.verify(auditService).auditFailure(org.mockito.ArgumentMatchers.eq("credential.revoke.failed"),
+                org.mockito.ArgumentMatchers.eq("anonymous"), org.mockito.ArgumentMatchers.anyString(), details.capture());
+        assertThat(details.getValue()).containsKeys("resourceId", "reason", "clientAddress");
     }
 
     // ---------------------------------------------------------------- AC-08

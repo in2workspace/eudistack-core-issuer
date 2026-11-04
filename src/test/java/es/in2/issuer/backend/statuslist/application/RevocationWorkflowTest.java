@@ -510,6 +510,69 @@ class RevocationWorkflowTest {
         assertThat(capturedSuccessDetails()).containsEntry("holderDocument", "");
     }
 
+    /** A system's sub is the IP its attestation declares: the DID of its mandatee is what identifies it. */
+    @Test
+    void revokeIssuance_systemToken_tracesTheDidOfTheMandateeAsActor_notItsSub() throws Exception {
+        mockProcedure.setCredentialStatus(CredentialStatusEnum.VALID);
+        mockContractPathUpToStatus();
+        mockMarkAndNotify();
+        SignedJWT jwt = mock(SignedJWT.class);
+        when(jwt.getJWTClaimsSet()).thenReturn(new JWTClaimsSet.Builder().subject("127.0.0.1")
+                .claim("mandatee", Map.of("id", "did:key:system", "ipAddress", "127.0.0.1")).build());
+        when(jwtService.parseJWT(CLEAN_TOKEN)).thenReturn(jwt);
+
+        StepVerifier.create(revokeIssuance(REASON)
+                        .contextWrite(ReactiveSecurityContextHolder.withAuthentication(
+                                new UsernamePasswordAuthenticationToken("anonymous", "n/a", List.of()))))
+                .verifyComplete();
+
+        verify(auditService).auditSuccess(eq("credential.revoked"), eq("did:key:system"), eq("credential"), eq(UUID_ID), any());
+    }
+
+    /** The person of an SD-JWT attestation arrives as anonymous too, and is named by their email. */
+    @Test
+    void revoke_alias_sdJwtPerson_tracesTheEmailOfTheMandateeAsActor() throws Exception {
+        when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
+        permitRevocation();
+        when(statusListProvider.revoke(eq(ISSUANCE_ID), eq(CLEAN_TOKEN), eq(BASE_URL), any())).thenReturn(Mono.error(new RuntimeException("stop")));
+        SignedJWT jwt = mock(SignedJWT.class);
+        when(jwt.getJWTClaimsSet()).thenReturn(new JWTClaimsSet.Builder().subject("other")
+                .claim("mandatee", Map.of("email", "person@example.com", "id", "did:key:x")).build());
+        when(jwtService.parseJWT(CLEAN_TOKEN)).thenReturn(jwt);
+
+        StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, BASE_URL)
+                        .contextWrite(ReactiveSecurityContextHolder.withAuthentication(
+                                new UsernamePasswordAuthenticationToken("anonymous", "n/a", List.of()))))
+                .expectError()
+                .verify();
+
+        verify(auditService).auditFailure(eq("credential.revoke.failed"), eq("person@example.com"), any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void traceUnauthenticated_namesAnAnonymousActor_andSanitizesWhatTheClientSent() {
+        revocationWorkflow.traceUnauthenticated("id\nforged=1", "motivo\r\nforged=2", "invalid_token", "203.0.113.7");
+
+        ArgumentCaptor<Map<String, Object>> details = ArgumentCaptor.forClass(Map.class);
+        verify(auditService).auditFailure(eq("credential.revoke.failed"), eq("anonymous"), eq("invalid_token"), details.capture());
+        assertThat(details.getValue())
+                .containsEntry("actor", "anonymous")
+                .containsEntry("reason", "motivoforged=2")
+                .containsEntry("resourceId", "idforged=1")
+                .containsEntry("clientAddress", "203.0.113.7")
+                .containsEntry("errorType", "invalid_token");
+    }
+
+    @Test
+    void traceUnauthenticated_aFailingAuditNeverPropagates() {
+        org.mockito.Mockito.doThrow(new RuntimeException("audit down")).when(auditService).auditFailure(any(), any(), any(), any());
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() ->
+                revocationWorkflow.traceUnauthenticated(UUID_ID, null, "invalid_token", ""));
+    }
+
     @Test
     void revokeIssuance_anonymousPrincipal_tracesTheTokensIdentifierAsActor() throws Exception {
         mockProcedure.setCredentialStatus(CredentialStatusEnum.VALID);

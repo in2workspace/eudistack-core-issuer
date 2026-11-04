@@ -37,7 +37,7 @@ class ProblemAuthenticationEntryPointTest {
         objectMapper = mock(ObjectMapper.class);
         errorResponseFactory = mock(ErrorResponseFactory.class);
         resolver = mock(SecurityProblemResolver.class);
-        entryPoint = new ProblemAuthenticationEntryPoint(objectMapper, errorResponseFactory, resolver);
+        entryPoint = new ProblemAuthenticationEntryPoint(objectMapper, errorResponseFactory, resolver, java.util.List.of());
     }
 
     @Test

@@ -40,8 +40,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.UnaryOperator;
+import java.util.stream.Stream;
 
 import static es.in2.issuer.backend.statuslist.domain.util.Constants.REVOKED;
 import static es.in2.issuer.backend.statuslist.domain.util.Preconditions.requireNonNullParam;
@@ -59,8 +61,14 @@ public class RevocationWorkflow {
     private static final String ACTION_REVOKE_ISSUANCE = "revokeIssuance";
     private static final String ERROR_TYPE_BAD_REQUEST = "BAD_REQUEST";
 
-    /** Token claims naming a requester whose principal is not an email: a system, or an SD-JWT attestation. */
-    private static final List<String> REQUESTER_CLAIMS = List.of("sub", "client_id", "azp", "jti");
+    /**
+     * Who the token says the requester is, when the principal is not an email: the mandatee, by the email
+     * of a person (an SD-JWT attestation) or the DID of a system. {@code sub} comes after them because a
+     * system's is the IP address its attestation declares, which does not identify it.
+     */
+    private static final String MANDATEE_CLAIM = "mandatee";
+    private static final List<String> MANDATEE_FIELDS = List.of("email", "id");
+    private static final List<String> REQUESTER_CLAIMS = List.of("client_id", "sub", "azp", "jti");
 
     /**
      * Where each attestation type keeps the holder's document, in {@code credential_data_set}
@@ -128,10 +136,9 @@ public class RevocationWorkflow {
         requireNonNullParam(bearerToken, "bearerToken");
         requireNonNullParam(issuanceId, "issuanceId");
         requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
-        return resolveActor()
-                .flatMap(actor ->
-                        accessTokenService.getCleanBearerToken(bearerToken)
-                                .flatMap(token -> revokeInternal(
+        return accessTokenService.getCleanBearerToken(bearerToken)
+                .flatMap(token -> resolveRequesterActor(token)
+                        .flatMap(actor -> revokeInternal(
                                         processId,
                                         Optional.of(token),
                                         issuanceId,
@@ -327,24 +334,45 @@ public class RevocationWorkflow {
 
     /**
      * A principal is resolved only from an email in the token, so a system or an SD-JWT attestation
-     * arrives as {@code anonymous}: the token's own identifier names them in the trace (AC-10).
+     * arrives as {@code anonymous}: the mandatee in the token names them in the trace (AC-10).
      */
     private Mono<Requester> resolveRequester(String bearerToken, String token) {
         Mono<String> organization = accessTokenService.getOrganizationId(bearerToken)
                 .onErrorResume(e -> Mono.empty())
                 .defaultIfEmpty("");
+        return resolveRequesterActor(token).zipWith(organization, Requester::new);
+    }
+
+    private Mono<String> resolveRequesterActor(String token) {
         return resolveActor()
                 .map(actor -> ANONYMOUS_ACTOR.equals(actor) || UNKNOWN_ACTOR.equals(actor)
                         ? actorFromToken(token).orElse(actor)
-                        : actor)
-                .zipWith(organization, Requester::new);
+                        : actor);
+    }
+
+    /**
+     * A request the security chain rejected (AC-10): nothing in it is verified, so the actor is anonymous
+     * and the token is not read. The values come from whoever sent it, so they are sanitized here. Never fails.
+     */
+    public void traceUnauthenticated(String issuanceId, String reason, String errorType, String clientAddress) {
+        try {
+            String safeId = RevocationAuditDetails.sanitize(issuanceId, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH);
+            Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
+                    ANONYMOUS_ACTOR, null, safeId, reason, "failure", errorType));
+            details.put("processId", UUID.randomUUID().toString());
+            details.put("workflowAction", ACTION_REVOKE_ISSUANCE);
+            details.put("clientAddress", RevocationAuditDetails.sanitize(clientAddress, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH));
+            auditService.auditFailure(EVENT_FAILED, ANONYMOUS_ACTOR, errorType, details);
+        } catch (Exception e) {
+            log.warn("Revocation audit: rejected request not traced: {}", e.getClass().getSimpleName());
+        }
     }
 
     private Optional<String> actorFromToken(String token) {
         try {
             Map<String, Object> claims = jwtService.parseJWT(token).getJWTClaimsSet().getClaims();
-            return REQUESTER_CLAIMS.stream()
-                    .map(claims::get)
+            Map<?, ?> mandatee = claims.get(MANDATEE_CLAIM) instanceof Map<?, ?> map ? map : Map.of();
+            return Stream.concat(MANDATEE_FIELDS.stream().map(mandatee::get), REQUESTER_CLAIMS.stream().map(claims::get))
                     .filter(String.class::isInstance)
                     .map(String.class::cast)
                     .filter(value -> !value.isBlank())

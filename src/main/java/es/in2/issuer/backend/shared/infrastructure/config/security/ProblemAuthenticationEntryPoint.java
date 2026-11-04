@@ -9,9 +9,11 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.server.ServerAuthenticationEntryPoint;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -21,6 +23,7 @@ public class ProblemAuthenticationEntryPoint implements ServerAuthenticationEntr
     private final ObjectMapper objectMapper;
     private final ErrorResponseFactory errors;
     private final SecurityProblemResolver resolver;
+    private final List<AuthenticationRejectionListener> rejectionListeners;
 
     @Override
     public Mono<Void> commence(ServerWebExchange exchange, AuthenticationException ex) {
@@ -42,13 +45,25 @@ public class ProblemAuthenticationEntryPoint implements ServerAuthenticationEntr
                 spec.fallbackDetail()
         );
 
+        byte[] body;
         try {
-            byte[] body = objectMapper.writeValueAsBytes(msg);
-            return response.writeWith(Mono.just(response.bufferFactory().wrap(body)));
+            body = objectMapper.writeValueAsBytes(msg);
         } catch (Exception e) {
-            byte[] fallback = "{\"title\":\"Unauthorized\",\"status\":401}"
-                    .getBytes(StandardCharsets.UTF_8);
-            return response.writeWith(Mono.just(response.bufferFactory().wrap(fallback)));
+            body = "{\"title\":\"Unauthorized\",\"status\":401}".getBytes(StandardCharsets.UTF_8);
         }
+        byte[] problem = body;
+        return notifyListeners(exchange, spec.type())
+                .then(Mono.defer(() -> response.writeWith(Mono.just(response.bufferFactory().wrap(problem)))));
+    }
+
+    /** A listener that fails never changes the answer to the client. */
+    private Mono<Void> notifyListeners(ServerWebExchange exchange, String errorType) {
+        return Flux.fromIterable(rejectionListeners)
+                .concatMap(listener -> listener.onRejected(exchange, errorType)
+                        .onErrorResume(e -> {
+                            log.warn("Authentication rejection listener failed: {}", e.getClass().getSimpleName());
+                            return Mono.empty();
+                        }))
+                .then();
     }
 }
