@@ -5,6 +5,7 @@ import es.in2.issuer.backend.issuance.domain.exception.RenewalDeliveryFailedExce
 import es.in2.issuer.backend.issuance.domain.exception.RenewalInvalidIssuanceIdException;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalIssuanceNotFoundException;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalPermissionDeniedException;
+import es.in2.issuer.backend.issuance.domain.exception.RenewalTenantMismatchException;
 import es.in2.issuer.backend.issuance.domain.model.CredentialOfferRenewal;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
@@ -32,10 +33,10 @@ import reactor.test.StepVerifier;
 import java.util.List;
 import java.util.UUID;
 
+import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -46,6 +47,7 @@ import static org.mockito.Mockito.when;
 class CredentialOfferRenewalWorkflowImplTest {
 
     private static final String AUTH = "Bearer token";
+    private static final String TENANT = "sandbox";
     private static final String BASE_URL = "https://issuer.example.com";
     private static final UUID ID = UUID.fromString("0b6f1d2e-8c4a-4b1f-9e2d-7a5c3f8e1b90");
     private static final String ORG = "VATES-B99999999";
@@ -79,7 +81,7 @@ class CredentialOfferRenewalWorkflowImplTest {
         givenIssuanceOfOrganization(draft("ui"));
         givenOfferDelivered("ui", OFFER_URI, null);
 
-        StepVerifier.create(workflow.renewCredentialOffer(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
                 .expectNext(new CredentialOfferRenewal(DeliveryMode.UI, OFFER_URI))
                 .verifyComplete();
     }
@@ -90,7 +92,7 @@ class CredentialOfferRenewalWorkflowImplTest {
         givenIssuanceOfOrganization(draft("email"));
         givenOfferDelivered("email", null, null);
 
-        StepVerifier.create(workflow.renewCredentialOffer(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
                 .expectNext(new CredentialOfferRenewal(DeliveryMode.EMAIL, null))
                 .verifyComplete();
     }
@@ -102,7 +104,7 @@ class CredentialOfferRenewalWorkflowImplTest {
         givenIssuanceOfOrganization(draft("email,ui"));
         givenOfferDelivered("ui", OFFER_URI, null);
 
-        StepVerifier.create(workflow.renewCredentialOffer(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
                 .expectNext(new CredentialOfferRenewal(DeliveryMode.UI, OFFER_URI))
                 .verifyComplete();
     }
@@ -115,7 +117,7 @@ class CredentialOfferRenewalWorkflowImplTest {
         givenIssuanceOfOrganization(issuance);
         givenOfferDelivered("ui", OFFER_URI, null);
 
-        StepVerifier.create(workflow.renewCredentialOffer(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
                 .expectNextCount(1)
                 .verifyComplete();
 
@@ -132,7 +134,7 @@ class CredentialOfferRenewalWorkflowImplTest {
         givenIssuanceOfOrganization(issuance);
         givenOfferDelivered("ui", OFFER_URI, null);
 
-        StepVerifier.create(workflow.renewCredentialOffer(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
                 .expectNextCount(1)
                 .verifyComplete();
 
@@ -146,7 +148,7 @@ class CredentialOfferRenewalWorkflowImplTest {
         givenIssuanceOfOrganization(draft("ui"));
         givenOfferDelivered("ui", OFFER_URI, null);
 
-        StepVerifier.create(workflow.renewCredentialOffer(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
                 .expectNextCount(1)
                 .verifyComplete();
     }
@@ -158,7 +160,7 @@ class CredentialOfferRenewalWorkflowImplTest {
         when(issuanceService.getIssuanceById(ID.toString())).thenReturn(Mono.just(draft("ui")));
         givenOfferDelivered("ui", OFFER_URI, null);
 
-        StepVerifier.create(workflow.renewCredentialOffer(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
                 .expectNextCount(1)
                 .verifyComplete();
 
@@ -172,20 +174,44 @@ class CredentialOfferRenewalWorkflowImplTest {
         when(issuanceService.getIssuanceById(ID.toString())).thenReturn(Mono.just(draft("ui")));
         givenOfferDelivered("ui", OFFER_URI, null);
 
-        StepVerifier.create(workflow.renewCredentialOffer(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
                 .expectNextCount(1)
                 .verifyComplete();
     }
 
     // ── Order of the checks: id, permission, scope, status ────────────────────────────────
 
+    /** ES-05: a token for another tenant is rejected first, even with a malformed id. */
     @Test
-    void renew_idNotUuid_isInvalidIdBeforeAnything() {
-        StepVerifier.create(workflow.renewCredentialOffer(AUTH, "abc", BASE_URL))
+    void renew_tokenOfAnotherTenant_isTenantMismatchBeforeTheId() {
+        givenRequesterOfTenant("kpmg", UserRole.SYSADMIN, false);
+
+        StepVerifier.create(renew(AUTH, "abc", BASE_URL))
+                .expectError(RenewalTenantMismatchException.class)
+                .verify();
+
+        verifyNoInteractions(issuanceService, credentialOfferService);
+    }
+
+    @Test
+    void renew_tokenWithoutTenant_isTenantMismatch() {
+        givenRequesterOfTenant(null, UserRole.LEAR, false, ONBOARDING_EXECUTE);
+
+        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
+                .expectError(RenewalTenantMismatchException.class)
+                .verify();
+    }
+
+    /** ES-01, and before the permission: who may not issue still gets 400 for a malformed id. */
+    @Test
+    void renew_idNotUuid_isInvalidIdBeforeThePermission() {
+        givenRequester(UserRole.LEAR, false, PRODUCT_OFFERING);
+
+        StepVerifier.create(renew(AUTH, "abc", BASE_URL))
                 .expectError(RenewalInvalidIssuanceIdException.class)
                 .verify();
 
-        verifyNoInteractions(accessTokenService, issuanceService, credentialOfferService);
+        verifyNoInteractions(issuanceService, credentialOfferService);
     }
 
     /** AC-11: who may not issue gets 403 without the issuance being looked up. */
@@ -193,7 +219,7 @@ class CredentialOfferRenewalWorkflowImplTest {
     void renew_withoutIssuingPower_isPermissionDeniedBeforeLookingUpTheIssuance() {
         givenRequester(UserRole.LEAR, false, PRODUCT_OFFERING);
 
-        StepVerifier.create(workflow.renewCredentialOffer(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
                 .expectError(RenewalPermissionDeniedException.class)
                 .verify();
 
@@ -205,7 +231,7 @@ class CredentialOfferRenewalWorkflowImplTest {
     void renew_readOnly_isPermissionDenied() {
         givenRequester(UserRole.SYSADMIN, true);
 
-        StepVerifier.create(workflow.renewCredentialOffer(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
                 .expectError(RenewalPermissionDeniedException.class)
                 .verify();
 
@@ -218,7 +244,7 @@ class CredentialOfferRenewalWorkflowImplTest {
         givenRequester(UserRole.LEAR, false, ONBOARDING_EXECUTE);
         when(issuanceService.getIssuanceByIdAndOrganization(ID, ORG)).thenReturn(Mono.empty());
 
-        StepVerifier.create(workflow.renewCredentialOffer(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
                 .expectError(RenewalIssuanceNotFoundException.class)
                 .verify();
 
@@ -234,7 +260,7 @@ class CredentialOfferRenewalWorkflowImplTest {
         issuance.setCredentialStatus(status);
         givenIssuanceOfOrganization(issuance);
 
-        StepVerifier.create(workflow.renewCredentialOffer(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
                 .expectError(OfferNotRenewableException.class)
                 .verify();
 
@@ -247,7 +273,7 @@ class CredentialOfferRenewalWorkflowImplTest {
         givenRequester(UserRole.LEAR, false, ONBOARDING_EXECUTE);
         givenIssuanceOfOrganization(draft("direct"));
 
-        StepVerifier.create(workflow.renewCredentialOffer(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
                 .expectError(OfferNotRenewableException.class)
                 .verify();
 
@@ -263,7 +289,7 @@ class CredentialOfferRenewalWorkflowImplTest {
         givenIssuanceOfOrganization(draft("email"));
         givenOfferDelivered("email", null, "Error during communication with the mail server");
 
-        StepVerifier.create(workflow.renewCredentialOffer(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
                 .expectError(RenewalDeliveryFailedException.class)
                 .verify();
     }
@@ -276,19 +302,30 @@ class CredentialOfferRenewalWorkflowImplTest {
                 anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.error(new IllegalStateException("cache down")));
 
-        StepVerifier.create(workflow.renewCredentialOffer(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
                 .expectError(RenewalDeliveryFailedException.class)
                 .verify();
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────────────
 
+    /** As TenantDomainWebFilter does: the request's tenant travels in the Reactor context. */
+    private Mono<CredentialOfferRenewal> renew(String authorizationHeader, String issuanceId, String baseUrl) {
+        return workflow.renewCredentialOffer(authorizationHeader, issuanceId, baseUrl)
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT));
+    }
+
     private void givenRequester(UserRole role, boolean readOnly, Power... powers) {
+        givenRequesterOfTenant(TENANT, role, readOnly, powers);
+    }
+
+    /** The request's tenant is always {@link #TENANT}; the token's is {@code tokenTenant}. */
+    private void givenRequesterOfTenant(String tokenTenant, UserRole role, boolean readOnly, Power... powers) {
         when(accessTokenService.getAuthorizationContext(AUTH))
                 .thenReturn(Mono.just(new AuthorizationContext(ORG, role, readOnly, "multi_org")));
-        when(policyContextFactory.fromTokenSimple(eq("token"), isNull()))
+        when(policyContextFactory.fromTokenSimple("token", TENANT))
                 .thenReturn(Mono.just(new PolicyContext(ORG, List.of(powers), null, null, null,
-                        role == UserRole.SYSADMIN, role == UserRole.TENANT_ADMIN, null, null, "multi_org")));
+                        role == UserRole.SYSADMIN, role == UserRole.TENANT_ADMIN, TENANT, tokenTenant, "multi_org")));
     }
 
     private void givenIssuanceOfOrganization(Issuance issuance) {

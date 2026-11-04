@@ -5,6 +5,7 @@ import es.in2.issuer.backend.issuance.domain.exception.RenewalDeliveryFailedExce
 import es.in2.issuer.backend.issuance.domain.exception.RenewalInvalidIssuanceIdException;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalIssuanceNotFoundException;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalPermissionDeniedException;
+import es.in2.issuer.backend.issuance.domain.exception.RenewalTenantMismatchException;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,6 +40,13 @@ class CredentialOfferRenewalErrorHandlingTest {
         var response = handler.handleRenewalInvalidIssuanceId(new RenewalInvalidIssuanceIdException("abc"), request);
 
         assertProblem(response, 400, "BAD_REQUEST");
+    }
+
+    @Test
+    void renewal_tenantMismatch_isTenantMismatchProblem() {
+        var response = handler.handleRenewalTenantMismatch(new RenewalTenantMismatchException("kpmg"), request);
+
+        assertProblem(response, 403, "tenant_mismatch");
     }
 
     @Test

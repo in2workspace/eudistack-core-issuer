@@ -6,6 +6,7 @@ import es.in2.issuer.backend.issuance.domain.exception.RenewalDeliveryFailedExce
 import es.in2.issuer.backend.issuance.domain.exception.RenewalInvalidIssuanceIdException;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalIssuanceNotFoundException;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalPermissionDeniedException;
+import es.in2.issuer.backend.issuance.domain.exception.RenewalTenantMismatchException;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
@@ -110,6 +111,13 @@ public class IssuanceExceptionHandler {
             RenewalInvalidIssuanceIdException ex, ServerHttpRequest request) {
         return errors.problem(ex, request, GlobalErrorTypes.BAD_REQUEST.getCode(), "Bad request",
                 HttpStatus.BAD_REQUEST, "The issuance id is not a valid UUID", null);
+    }
+
+    @ExceptionHandler(RenewalTenantMismatchException.class)
+    public ResponseEntity<GlobalErrorMessage> handleRenewalTenantMismatch(
+            RenewalTenantMismatchException ex, ServerHttpRequest request) {
+        return errors.problem(ex, request, GlobalErrorTypes.TENANT_MISMATCH.getCode(), "Tenant mismatch",
+                HttpStatus.FORBIDDEN, "The token's organization does not match the requested tenant", null);
     }
 
     @ExceptionHandler(RenewalPermissionDeniedException.class)
