@@ -556,4 +556,14 @@ class MaskingPatternLayoutTest {
     void mask_LooksSensitiveButIsNot_ReturnsUnchanged(String input) {
         assertThat(MaskingPatternLayout.mask(input)).isEqualTo(input);
     }
+
+    @Test
+    void mask_UrlEncodedEmailInQueryString_MasksEmail() {
+        String input = "Securing GET /error?client_id=mask.test%40example.com"
+                + "&login_hint=john.doe%2Bfilter%40mail.company.org&response_type=code";
+
+        assertThat(MaskingPatternLayout.mask(input))
+                .isEqualTo("Securing GET /error?client_id=" + REPLACEMENT
+                        + "&login_hint=" + REPLACEMENT + "&response_type=code");
+    }
 }
