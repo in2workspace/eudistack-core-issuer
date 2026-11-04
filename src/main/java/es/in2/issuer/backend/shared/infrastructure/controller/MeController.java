@@ -18,8 +18,8 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ME_PAT
 
 /**
  * Exposes the authorization role of the current caller resolved against the
- * current tenant. Lets frontends render UI without knowing the tenant's
- * admin_organization_id (which lives in tenant_config and is backend-only).
+ * current tenant, from the powers of its attestation alone (EUD-253). Lets frontends
+ * render UI without knowing which powers make each role.
  */
 @RestController
 @RequestMapping(ME_PATH)
