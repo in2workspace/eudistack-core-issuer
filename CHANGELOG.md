@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added (EUD-289, version 3.12.0)
+### Added (EUD-289, version 3.13.0)
 
 - **EUD-289 — Pure crypto utilities for own-key signing**: ES256 signature verification against a certificate and certificate predicates (P-256, validity window).
 - **EUD-289 — KMS signing port and adapter**: `KmsSigningPort` (digest-only ECDSA_SHA_256 `Sign`) with an AWS KMS async-client adapter, its own Reactor retry policy (3 retries with a growing backoff from 200 ms on throttling, service errors and timeouts, 10 s per attempt and a 45 s deadline for the whole operation, `issuer.signing.kms.deadline`; none on disabled, invalid-state or access-denied keys; an operation cut by the deadline fails with `PROVIDER_UNAVAILABLE` and is not retried) and a classified failure reason. Disabled by default (`issuer.signing.kms.enabled=false`). A KMS failure is kept as the cause with its type, AWS error code and stack trace but without its message, which carries the key ARN (account and region), so it does not reach logs that print the cause chain.
