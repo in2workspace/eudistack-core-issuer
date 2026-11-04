@@ -33,6 +33,14 @@ configurations {
 
 repositories {
     mavenCentral()
+    maven {
+        name = 'GitHubPackages'
+        url = uri('https://maven.pkg.github.com/in2workspace/eudistack-platform-audit-starter')
+        credentials {
+            username = System.getenv('GITHUB_ACTOR') ?: findProperty('gpr.user')
+            password = System.getenv('GITHUB_TOKEN') ?: findProperty('gpr.token')
+        }
+    }
 }
 
 dependencies {

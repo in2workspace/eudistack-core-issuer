@@ -41,7 +41,8 @@ public interface PowerAuthorizationService {
 
     /**
      * Decides an action on a resource (or on no resource when {@code resourceOrganization} is null:
-     * a listing, whose results the decision's scope then narrows).
+     * a listing, whose results the decision's scope then narrows). A {@code resourceId} without its
+     * organization is a resource that is not in the tenant, and its trace says {@code resourceFound=false}.
      *
      * <p>A resource outside the caller's scope fails as {@code IssuanceNotFoundException}, so its
      * existence is not disclosed; the trace keeps the real reason.

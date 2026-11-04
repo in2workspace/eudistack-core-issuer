@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
 import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException.Reason;
+import es.in2.issuer.backend.shared.domain.exception.PayloadValidationException;
 import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
@@ -510,17 +511,36 @@ class PowerAuthorizationServiceImplTest {
         }
 
         /**
-         * Round 4 of the EUD-272 security review (F5-R): a power that names a field twice, plain and with its
-         * tmf_ alias, is decided under both readings, whichever one a consumer of the attestation reads.
+         * Jackson resolves each field on its own, the last key wins: with keys crossed between fields, the
+         * power a consumer reads ({@code organization · sandbox · Onboarding · Execute}) is neither the plain
+         * reading nor the alias one, so it must not get as far as being decided.
          */
         @ParameterizedTest
         @ValueSource(strings = {
+                "{\"type\":\"zzz\",\"tmf_type\":\"organization\",\"tmf_function\":\"zzz\",\"function\":\"Onboarding\",\"domain\":\"sandbox\",\"action\":[\"Execute\"]}",
                 "{\"type\":\"organization\",\"domain\":\"sandbox\",\"function\":\"Onboarding\",\"tmf_function\":\"Nope\",\"action\":[\"Execute\"]}",
-                "{\"type\":\"organization\",\"domain\":\"sandbox\",\"tmf_function\":\"Onboarding\",\"function\":\"Nope\",\"action\":[\"Execute\"]}"
+                "{\"type\":\"organization\",\"domain\":\"sandbox\",\"function\":\"Onboarding\",\"tmf_function\":null,\"action\":[\"Execute\"]}"
         })
-        void PowerAuthorizationService_authorizeIssuance_aPowerHiddenBehindItsTmfAliasStillNeedsItsGrantRule(String power)
-                throws Exception {
-            // Given: an organization administrator granting the tenant administrator power under one of the two readings
+        void PowerAuthorizationService_authorizeIssuance_aPowerWhoseFieldAndAliasDifferIsRejected(String power) throws Exception {
+            // Given
+            ObjectNode payload = objectMapper.createObjectNode();
+            payload.putArray("power").add(objectMapper.readTree(power));
+
+            // When / Then
+            StepVerifier.create(issue(caller(ORG, TENANT, ORG_ADMIN), EMPLOYEE_TYPE, null, payload))
+                    .expectError(PayloadValidationException.class)
+                    .verify();
+            assertThat(lastDenyDetails(PowerAuthorizationServiceImpl.POWER_ALIAS_CONFLICT)).containsEntry("tenant", TENANT);
+        }
+
+        /** Only the alias, or the same value in both keys: one reading, which needs its grant rule like any other. */
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "{\"type\":\"organization\",\"domain\":\"sandbox\",\"tmf_function\":\"Onboarding\",\"action\":[\"Execute\"]}",
+                "{\"type\":\"organization\",\"tmf_type\":\"organization\",\"domain\":\"sandbox\",\"function\":\"Onboarding\",\"action\":[\"Execute\"]}"
+        })
+        void PowerAuthorizationService_authorizeIssuance_aPowerUnderItsTmfAliasStillNeedsItsGrantRule(String power) throws Exception {
+            // Given: an organization administrator granting the tenant administrator power
             ObjectNode payload = objectMapper.createObjectNode();
             payload.putArray("power").add(objectMapper.readTree(power));
 
@@ -620,6 +640,21 @@ class PowerAuthorizationServiceImplTest {
     /** AC-14: every decision, permitted or denied, is audited with who, power, resource, result and reason. */
     @Nested
     class Audit {
+
+        /** FR-13: probing ids does not read as a permitted access to a process. */
+        @Test
+        void PowerAuthorizationService_authorize_aProcessThatIsNotInTheTenantIsTracedAsNotFound() {
+            StepVerifier.create(decide(REVOKE, caller(ORG, TENANT, TENANT_ADMIN), null)).expectNextCount(1).verifyComplete();
+
+            assertThat(lastPermitDetails()).containsEntry("resourceFound", false);
+        }
+
+        @Test
+        void PowerAuthorizationService_authorize_aProcessOfTheTenantIsNotTracedAsNotFound() {
+            StepVerifier.create(decide(REVOKE, caller(ORG, TENANT, TENANT_ADMIN), OTHER_ORG)).expectNextCount(1).verifyComplete();
+
+            assertThat(lastPermitDetails()).doesNotContainKey("resourceFound");
+        }
 
         @Test
         void PowerAuthorizationService_authorize_permittedDecisionIsAuditedWithWhoPowerAndResource() {

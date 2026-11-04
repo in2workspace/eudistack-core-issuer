@@ -1,5 +1,7 @@
 # Issuer action matrix.
 # Annex A of the prd.md of the feature "Autorización por poderes" (EUD-253).
+# Diverges from the annex, for product: credential_types of E6 and action E9, which this issuer
+# needs and the annex does not have (see tech-debt.md of the feature).
 #
 # Describes the target state in a format the system can read. The tool that applies it
 # is chosen by the Tech Lead; this file is the definition of the rules.
