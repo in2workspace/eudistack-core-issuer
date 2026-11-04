@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -18,8 +20,9 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The detail of a process of another organization answers like one that does not exist or has a
- * malformed id, so an organization administrator holding an id cannot tell whether it exists.
+ * The detail of a process of another organization answers like one that does not exist, so an
+ * organization administrator holding an id cannot tell whether it exists. An id that is not a UUID cannot
+ * name a process, so it answers 400 and discloses nothing (EUD-307).
  */
 class IssuanceDetailNotFoundIT extends PostgresIntegrationBase {
 
@@ -32,33 +35,43 @@ class IssuanceDetailNotFoundIT extends PostgresIntegrationBase {
     private IssuancePort issuancePort;
 
     @Test
-    void getIssuance_outOfScopeUnknownAndMalformed_answerTheSame() {
+    void getIssuance_outOfScopeAndUnknown_answerTheSame() {
         // Given
         String outOfScope = seedIssuanceOf(OTHER_ORGANIZATION).toString();
         String unknown = UUID.randomUUID().toString();
-        String malformed = "not-a-uuid";
 
         // When
-        Map<String, Object> outOfScopeBody = notFoundBody(outOfScope);
-        Map<String, Object> unknownBody = notFoundBody(unknown);
-        Map<String, Object> malformedBody = notFoundBody(malformed);
+        Map<String, Object> outOfScopeBody = errorBody(outOfScope, HttpStatus.NOT_FOUND);
+        Map<String, Object> unknownBody = errorBody(unknown, HttpStatus.NOT_FOUND);
 
         // Then
         assertThat(outOfScopeBody).containsEntry("type", "issuance_not_found");
         assertThat(withoutInstance(unknownBody)).isEqualTo(withoutInstance(outOfScopeBody));
-        assertThat(withoutInstance(malformedBody)).isEqualTo(withoutInstance(outOfScopeBody));
         assertThat(outOfScopeBody.toString()).doesNotContain(outOfScope);
         assertThat(unknownBody.toString()).doesNotContain(unknown);
-        assertThat(malformedBody.toString()).doesNotContain(malformed);
     }
 
-    private Map<String, Object> notFoundBody(String id) {
+    @Test
+    void getIssuance_malformedId_answersBadRequestWithoutEchoingIt() {
+        // Given
+        String malformed = "not-a-uuid";
+
+        // When
+        Map<String, Object> body = errorBody(malformed, HttpStatus.BAD_REQUEST);
+
+        // Then
+        assertThat(body).containsEntry("type", "BAD_REQUEST");
+        assertThat(body.toString()).doesNotContain(malformed);
+    }
+
+    private Map<String, Object> errorBody(String id, HttpStatus status) {
         return webTestClient()
                 .get().uri("/api/v1/issuances/{id}", id)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + mintOperatorAccessToken(TENANT, ORGANIZATION))
                 .header(X_TENANT_HEADER, TENANT)
                 .exchange()
-                .expectStatus().isNotFound()
+                .expectStatus().isEqualTo(status)
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody(new ParameterizedTypeReference<Map<String, Object>>() {})
                 .returnResult()
                 .getResponseBody();
