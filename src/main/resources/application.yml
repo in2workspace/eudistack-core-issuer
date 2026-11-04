@@ -8,7 +8,7 @@
 
 spring:
   application:
-    name: ${OTEL_SERVICE_NAME:eudistack-core-issuer}
+    name: ${OTEL_SERVICE_NAME:issuer-core}
   main:
     web-application-type: reactive
   config:
