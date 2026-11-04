@@ -2,7 +2,9 @@ package es.in2.issuer.backend.signing.domain.service.impl;
 
 import es.in2.issuer.backend.shared.domain.exception.TenantConfigMissingException;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
+import es.in2.issuer.backend.signing.domain.exception.CertificateCheckException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.model.CertificateCheck;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.service.OwnKeySigningConfigLoader;
@@ -65,15 +67,17 @@ public class OwnKeySigningConfigLoaderImpl implements OwnKeySigningConfigLoader 
     private static OwnKeySigningConfig toConfig(String tenant, List<X509Certificate> chain, String organization) {
         X509Certificate leaf = chain.getFirst();
         String certificateOrganization = OwnKeyCertificates.subjectOrganizationIdentifier(leaf)
-                .orElseThrow(() -> new SigningException(SigningFailureReason.CERTIFICATE_INVALID,
+                .orElseThrow(() -> new CertificateCheckException(CertificateCheck.NO_ORGANIZATION_IDENTIFIER,
                         "The own-key certificate has no organizationIdentifier in its subject"));
         if (!certificateOrganization.equals(organization)) {
             log.error("CERTIFICATE_TENANT_MISMATCH tenant={} expected={} certificate={}",
                     tenant, organization, certificateOrganization);
-            throw noConfiguration("The own-key certificate belongs to another organization");
+            throw new CertificateCheckException(SigningFailureReason.NO_CONFIGURATION,
+                    CertificateCheck.ORGANIZATION_MISMATCH, "The own-key certificate belongs to another organization",
+                    null);
         }
         if (!SigningCertificateChecks.isP256(leaf)) {
-            throw new SigningException(SigningFailureReason.CERTIFICATE_INVALID,
+            throw new CertificateCheckException(CertificateCheck.NOT_P256,
                     "The own-key certificate does not hold a P-256 key");
         }
         return new OwnKeySigningConfig(OwnKeyCertificates.keyAlias(leaf), OwnKeySigningConfig.ES256,

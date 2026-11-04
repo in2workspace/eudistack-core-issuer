@@ -6,9 +6,11 @@ import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.crypto.ECDSAVerifier;
 import com.nimbusds.jwt.SignedJWT;
+import es.in2.issuer.backend.signing.domain.exception.CertificateCheckException;
 import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
+import es.in2.issuer.backend.signing.domain.model.CertificateCheck;
 import es.in2.issuer.backend.signing.domain.model.JadesProfile;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
@@ -149,6 +151,11 @@ class KmsOwnKeySigningProviderTest {
         assertThat(((SigningException) error).getReason()).isEqualTo(expected);
     }
 
+    private static void assertCertificateCheck(Throwable error, CertificateCheck expected) {
+        assertReason(error, SigningFailureReason.CERTIFICATE_INVALID);
+        assertThat(CertificateCheckException.of(error)).contains(expected);
+    }
+
     @Test
     void sign_happyPath_returnsAJwsThatVerifiesWithTheLeafCertificate() {
         var config = configFor(PKI.validP256Leaf());
@@ -214,7 +221,7 @@ class KmsOwnKeySigningProviderTest {
     @Test
     void sign_expiredLeaf_failsWithCertificateInvalidWithoutCallingKms() {
         StepVerifier.create(signInTenant(provider, withOwnKey(jades(null), configFor(PKI.expiredLeaf()))))
-                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.CERTIFICATE_INVALID))
+                .expectErrorSatisfies(e -> assertCertificateCheck(e, CertificateCheck.EXPIRED))
                 .verify();
         assertThat(kms.signCalls).hasValue(0);
     }
@@ -224,7 +231,7 @@ class KmsOwnKeySigningProviderTest {
         provider = providerWith(kms, Clock.fixed(Instant.parse("2023-01-01T00:00:00Z"), ZoneOffset.UTC));
 
         StepVerifier.create(signInTenant(provider, withOwnKey(jades(null), configFor(PKI.validP256Leaf()))))
-                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.CERTIFICATE_INVALID))
+                .expectErrorSatisfies(e -> assertCertificateCheck(e, CertificateCheck.NOT_YET_VALID))
                 .verify();
         assertThat(kms.signCalls).hasValue(0);
     }
@@ -232,7 +239,7 @@ class KmsOwnKeySigningProviderTest {
     @Test
     void sign_nonP256Leaf_failsWithCertificateInvalidWithoutCallingKms() {
         StepVerifier.create(signInTenant(provider, withOwnKey(jades(null), configFor(PKI.p384Leaf()))))
-                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.CERTIFICATE_INVALID))
+                .expectErrorSatisfies(e -> assertCertificateCheck(e, CertificateCheck.NOT_P256))
                 .verify();
         assertThat(kms.signCalls).hasValue(0);
     }
@@ -313,7 +320,7 @@ class KmsOwnKeySigningProviderTest {
     @Test
     void sign_caLeaf_failsWithCertificateInvalidWithoutCallingKms() {
         StepVerifier.create(signInTenant(provider, withOwnKey(jades(null), configFor(PKI.caLeaf()))))
-                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.CERTIFICATE_INVALID))
+                .expectErrorSatisfies(e -> assertCertificateCheck(e, CertificateCheck.CA_CERTIFICATE))
                 .verify();
         assertThat(kms.signCalls).hasValue(0);
     }
@@ -321,7 +328,7 @@ class KmsOwnKeySigningProviderTest {
     @Test
     void sign_leafWhoseKeyUsageDoesNotAllowSigning_failsWithCertificateInvalidWithoutCallingKms() {
         StepVerifier.create(signInTenant(provider, withOwnKey(jades(null), configFor(PKI.certSignOnlyLeaf()))))
-                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.CERTIFICATE_INVALID))
+                .expectErrorSatisfies(e -> assertCertificateCheck(e, CertificateCheck.SIGNING_NOT_ALLOWED))
                 .verify();
         assertThat(kms.signCalls).hasValue(0);
     }
@@ -332,7 +339,7 @@ class KmsOwnKeySigningProviderTest {
         var chain = List.of(PKI.validP256Leaf().certificate(), unrelatedIntermediate);
 
         StepVerifier.create(signInTenant(provider, withOwnKey(jades(null), configFor(chain))))
-                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.CERTIFICATE_INVALID))
+                .expectErrorSatisfies(e -> assertCertificateCheck(e, CertificateCheck.CHAIN_INVALID))
                 .verify();
         assertThat(kms.signCalls).hasValue(0);
     }
@@ -343,7 +350,7 @@ class KmsOwnKeySigningProviderTest {
         provider = providerWith(new FakeKms(chain.leafKeyPair()), NOW);
 
         StepVerifier.create(signInTenant(provider, withOwnKey(jades(null), configFor(chain.certificates()))))
-                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.CERTIFICATE_INVALID))
+                .expectErrorSatisfies(e -> assertCertificateCheck(e, CertificateCheck.CHAIN_INVALID))
                 .verify();
     }
 }

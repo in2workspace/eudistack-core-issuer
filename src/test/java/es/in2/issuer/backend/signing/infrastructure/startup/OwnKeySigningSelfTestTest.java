@@ -136,6 +136,7 @@ class OwnKeySigningSelfTestTest {
         assertThat(good.getValue().tenant()).isEqualTo("good");
         assertThat(good.getValue().modality()).isEqualTo("own_key");
         assertThat(good.getValue().provider()).isEqualTo("aws-kms");
+        assertThat(good.getValue().qualifiedCertificate()).isFalse();
         var bad = ArgumentCaptor.forClass(SigningAuditor.Attempt.class);
         var error = ArgumentCaptor.forClass(Throwable.class);
         verify(auditor).failure(eq(SigningAuditor.SELF_TEST_EVENT), bad.capture(), error.capture());
@@ -282,6 +283,7 @@ class OwnKeySigningSelfTestTest {
         assertThat(attempt.getValue().tenant()).isEqualTo("empty");
         assertThat(attempt.getValue().modality()).isEqualTo(SigningAuditor.UNKNOWN);
         assertThat(attempt.getValue().provider()).isEqualTo(SigningAuditor.UNKNOWN);
+        assertThat(attempt.getValue().qualifiedCertificate()).isNull();
         assertThat(SigningFailureReasons.of(error.getValue())).isEqualTo(SigningFailureReason.NO_CONFIGURATION);
         verifyNoInteractions(kmsProvider);
     }

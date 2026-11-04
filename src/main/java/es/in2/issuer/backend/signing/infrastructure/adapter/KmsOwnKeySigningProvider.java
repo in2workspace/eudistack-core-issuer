@@ -1,10 +1,12 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter;
 
 import com.nimbusds.jose.JWSAlgorithm;
+import es.in2.issuer.backend.signing.domain.exception.CertificateCheckException;
 import es.in2.issuer.backend.signing.domain.exception.HashGenerationException;
 import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
+import es.in2.issuer.backend.signing.domain.model.CertificateCheck;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
@@ -107,16 +109,28 @@ public class KmsOwnKeySigningProvider implements SigningProvider {
         Instant now = clock.instant();
         // Trust validation of the chain is out of scope here (tech-debt 9 / EUD-264): the leaf must be a
         // valid P-256 end-entity signing certificate and the chain must link, but its anchor is not checked.
-        if (!SigningCertificateChecks.isValidAt(leaf, now) || !SigningCertificateChecks.isP256(leaf)) {
-            return Mono.error(new SigningException(SigningFailureReason.CERTIFICATE_INVALID,
-                    "The stored signing certificate is expired, not yet valid or not a P-256 certificate"));
+        // Each check fails with its own CertificateCheck, so the audit trail says which one failed.
+        if (!SigningCertificateChecks.isValidAt(leaf, now)) {
+            return now.isBefore(leaf.getNotBefore().toInstant())
+                    ? Mono.error(new CertificateCheckException(CertificateCheck.NOT_YET_VALID,
+                            "The stored signing certificate is not yet valid"))
+                    : Mono.error(new CertificateCheckException(CertificateCheck.EXPIRED,
+                            "The stored signing certificate is expired"));
         }
-        if (!SigningCertificateChecks.isEndEntity(leaf) || !SigningCertificateChecks.allowsSigning(leaf)) {
-            return Mono.error(new SigningException(SigningFailureReason.CERTIFICATE_INVALID,
-                    "The stored signing certificate is a CA certificate or its key usage does not allow signing"));
+        if (!SigningCertificateChecks.isP256(leaf)) {
+            return Mono.error(new CertificateCheckException(CertificateCheck.NOT_P256,
+                    "The stored signing certificate is not a P-256 certificate"));
+        }
+        if (!SigningCertificateChecks.isEndEntity(leaf)) {
+            return Mono.error(new CertificateCheckException(CertificateCheck.CA_CERTIFICATE,
+                    "The stored signing certificate is a CA certificate"));
+        }
+        if (!SigningCertificateChecks.allowsSigning(leaf)) {
+            return Mono.error(new CertificateCheckException(CertificateCheck.SIGNING_NOT_ALLOWED,
+                    "The key usage of the stored signing certificate does not allow signing"));
         }
         if (!SigningCertificateChecks.isLinkedChain(chain, now)) {
-            return Mono.error(new SigningException(SigningFailureReason.CERTIFICATE_INVALID,
+            return Mono.error(new CertificateCheckException(CertificateCheck.CHAIN_INVALID,
                     "The stored certificate chain does not link or holds an invalid intermediate certificate"));
         }
 

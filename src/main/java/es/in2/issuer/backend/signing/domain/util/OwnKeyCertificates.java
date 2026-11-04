@@ -1,7 +1,8 @@
 package es.in2.issuer.backend.signing.domain.util;
 
+import es.in2.issuer.backend.signing.domain.exception.CertificateCheckException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
-import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
+import es.in2.issuer.backend.signing.domain.model.CertificateCheck;
 
 import javax.naming.InvalidNameException;
 import javax.naming.ldap.LdapName;
@@ -107,6 +108,6 @@ public final class OwnKeyCertificates {
     }
 
     private static SigningException invalid(String message, Throwable cause) {
-        return new SigningException(SigningFailureReason.CERTIFICATE_INVALID, message, cause);
+        return new CertificateCheckException(CertificateCheck.UNPARSABLE, message, cause);
     }
 }

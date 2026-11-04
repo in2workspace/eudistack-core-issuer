@@ -115,7 +115,8 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
             }
         }
         long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
-        return new SigningAuditor.Attempt(tenant, object, issuanceId, modality, provider, durationMs);
+        return new SigningAuditor.Attempt(tenant, object, issuanceId, modality, provider, durationMs,
+                SigningAuditor.qualifiedCertificate(config));
     }
 
     /**

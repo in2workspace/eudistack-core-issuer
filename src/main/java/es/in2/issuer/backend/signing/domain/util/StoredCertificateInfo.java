@@ -1,8 +1,9 @@
 package es.in2.issuer.backend.signing.domain.util;
 
+import es.in2.issuer.backend.signing.domain.exception.CertificateCheckException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.model.CertificateCheck;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
-import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.dto.CertificateInfo;
 
 import java.io.ByteArrayInputStream;
@@ -66,7 +67,7 @@ public final class StoredCertificateInfo {
             return (X509Certificate) CertificateFactory.getInstance("X.509")
                     .generateCertificate(new ByteArrayInputStream(der));
         } catch (GeneralSecurityException | IllegalArgumentException e) {
-            throw new SigningException(SigningFailureReason.CERTIFICATE_INVALID,
+            throw new CertificateCheckException(CertificateCheck.UNPARSABLE,
                     "The stored signing certificate cannot be parsed", e);
         }
     }

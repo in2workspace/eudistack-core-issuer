@@ -2,7 +2,9 @@ package es.in2.issuer.backend.signing.domain.service.impl;
 
 import es.in2.issuer.backend.shared.domain.exception.TenantConfigMissingException;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
+import es.in2.issuer.backend.signing.domain.exception.CertificateCheckException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.model.CertificateCheck;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyCertificatePort;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyCertificates;
@@ -59,6 +61,11 @@ class OwnKeySigningConfigLoaderImplTest {
         assertThat(error).isInstanceOfSatisfying(SigningException.class, e -> assertThat(e.getReason()).isEqualTo(reason));
     }
 
+    private static void assertCheck(Throwable error, SigningFailureReason reason, CertificateCheck check) {
+        assertReason(error, reason);
+        assertThat(CertificateCheckException.of(error)).contains(check);
+    }
+
     @Test
     void load_certificateOfTheTenantOrganization_namesTheKeyAfterItAndKeepsTheChain() throws Exception {
         var chain = PKI.chainWithIntermediate().certificates();
@@ -88,7 +95,7 @@ class OwnKeySigningConfigLoaderImplTest {
         when(port.findCertificateChainPem(TENANT)).thenReturn(Mono.just(pem(leaf)));
 
         StepVerifier.create(loader.load(TENANT))
-                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.NO_CONFIGURATION))
+                .expectErrorSatisfies(e -> assertCheck(e, SigningFailureReason.NO_CONFIGURATION, CertificateCheck.ORGANIZATION_MISMATCH))
                 .verify();
     }
 
@@ -98,7 +105,7 @@ class OwnKeySigningConfigLoaderImplTest {
         when(port.findCertificateChainPem(TENANT)).thenReturn(Mono.just(pem(leaf)));
 
         StepVerifier.create(loader.load(TENANT))
-                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.CERTIFICATE_INVALID))
+                .expectErrorSatisfies(e -> assertCheck(e, SigningFailureReason.CERTIFICATE_INVALID, CertificateCheck.NO_ORGANIZATION_IDENTIFIER))
                 .verify();
     }
 
@@ -107,7 +114,7 @@ class OwnKeySigningConfigLoaderImplTest {
         when(port.findCertificateChainPem(TENANT)).thenReturn(Mono.just(pem(PKI.rsaLeaf().certificate())));
 
         StepVerifier.create(loader.load(TENANT))
-                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.CERTIFICATE_INVALID))
+                .expectErrorSatisfies(e -> assertCheck(e, SigningFailureReason.CERTIFICATE_INVALID, CertificateCheck.NOT_P256))
                 .verify();
     }
 
@@ -116,7 +123,7 @@ class OwnKeySigningConfigLoaderImplTest {
         when(port.findCertificateChainPem(TENANT)).thenReturn(Mono.just("not a certificate"));
 
         StepVerifier.create(loader.load(TENANT))
-                .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.CERTIFICATE_INVALID))
+                .expectErrorSatisfies(e -> assertCheck(e, SigningFailureReason.CERTIFICATE_INVALID, CertificateCheck.UNPARSABLE))
                 .verify();
     }
 

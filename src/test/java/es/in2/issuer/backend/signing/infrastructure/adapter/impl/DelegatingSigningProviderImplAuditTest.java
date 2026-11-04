@@ -6,9 +6,11 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
+import es.in2.issuer.backend.signing.domain.exception.CertificateCheckException;
 import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
+import es.in2.issuer.backend.signing.domain.model.CertificateCheck;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
@@ -19,6 +21,7 @@ import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningAuditor;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningProviderResolver;
+import es.in2.issuer.backend.signing.infrastructure.csc.TestCertificates;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -123,6 +126,7 @@ class DelegatingSigningProviderImplAuditTest {
                 .containsEntry("provider", "namirial")
                 .containsEntry("outcome", "success");
         assertThat((Long) details.get("durationMs")).isNotNegative();
+        assertThat(details).doesNotContainKeys("certificateCheck", "certificateQualified", "trustValidation");
         assertNoForbiddenData(details);
     }
 
@@ -152,7 +156,10 @@ class DelegatingSigningProviderImplAuditTest {
         assertThat(details).containsEntry("tenant", "kpmg")
                 .containsEntry("modality", "own_key")
                 .containsEntry("provider", "aws-kms")
-                .containsEntry("outcome", "success");
+                .containsEntry("outcome", "success")
+                .containsEntry("certificateCheck", "passed")
+                .containsEntry("certificateQualified", false)
+                .containsEntry("trustValidation", "not_performed");
         assertNoForbiddenData(details);
         verifyNoInteractions(qtspProvider);
     }
@@ -167,8 +174,47 @@ class DelegatingSigningProviderImplAuditTest {
 
         var details = failureDetails("INVALID_RESPONSE");
         assertThat(details).containsEntry("modality", "own_key").containsEntry("provider", "aws-kms")
-                .containsEntry("outcome", "failure");
+                .containsEntry("outcome", "failure")
+                .containsEntry("trustValidation", "not_performed")
+                .doesNotContainKey("certificateCheck");
         assertNoForbiddenData(details);
+    }
+
+    @Test
+    void sign_ownKeyQualifiedCertificate_auditsItAsQualified() {
+        var qualified = ActiveSigningConfig.ownKey(new OwnKeySigningConfig(KEY_REF, "ES256",
+                List.of(TestCertificates.base64Cert("CN=Seal,O=Org,C=ES", TestCertificates.QCP_L_QSCD))));
+        when(configService.getActiveSigningConfig()).thenReturn(Mono.just(qualified));
+        when(kmsProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "jws-value")));
+
+        StepVerifier.create(signAs("kpmg")).expectNextCount(1).verifyComplete();
+
+        assertThat(successDetails()).containsEntry("certificateQualified", true);
+    }
+
+    @Test
+    void sign_ownKeyCertificateFailingACheck_auditsTheFailedCheck() {
+        when(configService.getActiveSigningConfig()).thenReturn(Mono.just(ownKey()));
+        when(kmsProvider.sign(any())).thenReturn(Mono.error(
+                new CertificateCheckException(CertificateCheck.EXPIRED, "expired")));
+
+        StepVerifier.create(signAs("kpmg")).expectError(CertificateCheckException.class).verify();
+
+        assertThat(failureDetails("CERTIFICATE_INVALID")).containsEntry("modality", "own_key")
+                .containsEntry("certificateCheck", "expired")
+                .containsEntry("trustValidation", "not_performed");
+    }
+
+    @Test
+    void sign_certificateRejectedWhileLoadingTheConfiguration_auditsTheFailedCheck() {
+        when(configService.getActiveSigningConfig()).thenReturn(Mono.error(new CertificateCheckException(
+                SigningFailureReason.NO_CONFIGURATION, CertificateCheck.ORGANIZATION_MISMATCH, "mismatch", null)));
+
+        StepVerifier.create(signAs("kpmg")).expectError(CertificateCheckException.class).verify();
+
+        assertThat(failureDetails("NO_CONFIGURATION")).containsEntry("modality", "unknown")
+                .containsEntry("certificateCheck", "organization_mismatch")
+                .doesNotContainKeys("certificateQualified", "trustValidation");
     }
 
     @Test

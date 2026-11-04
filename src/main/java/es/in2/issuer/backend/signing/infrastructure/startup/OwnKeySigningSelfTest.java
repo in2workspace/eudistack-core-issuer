@@ -96,13 +96,17 @@ public class OwnKeySigningSelfTest {
     private Mono<Void> selfTest(String tenant) {
         long startNanos = System.nanoTime();
         AtomicReference<String> modality = new AtomicReference<>(SigningAuditor.UNKNOWN);
+        AtomicReference<Boolean> qualified = new AtomicReference<>();
         return Mono.defer(tenantSigningConfigService::getActiveSigningConfig)
                 .switchIfEmpty(Mono.defer(() -> {
                     reportMissingConfiguration(tenant, startNanos);
                     return Mono.empty();
                 }))
-                .doOnNext(config -> modality.set(config.modality() == SigningModality.OWN_KEY
-                        ? SigningAuditor.OWN_KEY_MODALITY : SigningAuditor.QTSP_MODALITY))
+                .doOnNext(config -> {
+                    modality.set(config.modality() == SigningModality.OWN_KEY
+                            ? SigningAuditor.OWN_KEY_MODALITY : SigningAuditor.QTSP_MODALITY);
+                    qualified.set(SigningAuditor.qualifiedCertificate(config));
+                })
                 .filter(config -> config.modality() == SigningModality.OWN_KEY)
                 .flatMap(config -> probe(config).doOnNext(result -> warnIfExpiringSoon(tenant, config)))
                 .timeout(tenantTimeout(), Mono.error(() -> new SigningException(
@@ -110,13 +114,13 @@ public class OwnKeySigningSelfTest {
                 .doOnNext(result -> {
                     log.info("own-key signing self-test passed tenant={}", tenant);
                     signingAuditor.success(SigningAuditor.SELF_TEST_EVENT,
-                            attempt(tenant, modality.get(), startNanos));
+                            attempt(tenant, modality.get(), qualified.get(), startNanos));
                 })
                 .doOnError(e -> {
                     log.warn("own-key signing self-test failed tenant={} reason={}",
                             tenant, SigningFailureReasons.of(e));
                     signingAuditor.failure(SigningAuditor.SELF_TEST_EVENT,
-                            attempt(tenant, modality.get(), startNanos), e);
+                            attempt(tenant, modality.get(), qualified.get(), startNanos), e);
                 })
                 .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant))
                 .onErrorResume(e -> Mono.empty())
@@ -150,16 +154,18 @@ public class OwnKeySigningSelfTest {
     private void reportMissingConfiguration(String tenant, long startNanos) {
         log.warn("signing self-test: no active signing configuration tenant={}", tenant);
         signingAuditor.failure(SigningAuditor.SELF_TEST_EVENT,
-                attempt(tenant, SigningAuditor.UNKNOWN, SigningAuditor.UNKNOWN, startNanos),
+                attempt(tenant, SigningAuditor.UNKNOWN, SigningAuditor.UNKNOWN, null, startNanos),
                 new SigningException(SigningFailureReason.NO_CONFIGURATION, "No active signing configuration"));
     }
 
-    private static SigningAuditor.Attempt attempt(String tenant, String modality, long startNanos) {
-        return attempt(tenant, modality, SigningAuditor.KMS_PROVIDER, startNanos);
+    private static SigningAuditor.Attempt attempt(String tenant, String modality, Boolean qualified,
+                                                  long startNanos) {
+        return attempt(tenant, modality, SigningAuditor.KMS_PROVIDER, qualified, startNanos);
     }
 
-    private static SigningAuditor.Attempt attempt(String tenant, String modality, String provider, long startNanos) {
+    private static SigningAuditor.Attempt attempt(String tenant, String modality, String provider, Boolean qualified,
+                                                  long startNanos) {
         return new SigningAuditor.Attempt(tenant, "self-test", null, modality, provider,
-                TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos));
+                TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos), qualified);
     }
 }
