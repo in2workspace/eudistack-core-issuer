@@ -38,13 +38,10 @@ class CredentialCatalogHttpAuthorizationIT extends PostgresIntegrationBase {
     private static final String TENANT_A = "e2e-tenant-a";
     private static final String TENANT_B = "e2e-tenant-b";
     private static final String CONFIG_ID = "learcredential.employee.w3c.4";
-    private static final String ADMIN_ORG_ID = "admin-org-for-authz-it";
     private static final String OPERATOR_ORG_ID = "operator-org-for-authz-it";
 
     @BeforeEach
     void seedTenants() {
-        seedAdminOrganizationId(TENANT_A);
-        seedAdminOrganizationId(TENANT_B);
         seedEnabledProfile(TENANT_A);
     }
 
@@ -89,16 +86,20 @@ class CredentialCatalogHttpAuthorizationIT extends PostgresIntegrationBase {
                 .expectStatus().isForbidden();
     }
 
-    // ---- helpers ---------------------------------------------------------------
+    /** EUD-253 point 6: an attestation of the tenant without administration powers is not an operator. */
+    @Test
+    void userWithoutPowers_cannotReadTheCatalog() {
+        String token = mintUserAccessToken(TENANT_A, OPERATOR_ORG_ID, java.util.List.of());
 
-    private void seedAdminOrganizationId(String tenant) {
-        String schema = tenant + SCHEMA_SUFFIX;
-        databaseClient.sql("INSERT INTO \"" + schema + "\".tenant_config (config_key, config_value) "
-                        + "VALUES ('admin_organization_id', :value) "
-                        + "ON CONFLICT (config_key) DO UPDATE SET config_value = EXCLUDED.config_value")
-                .bind("value", ADMIN_ORG_ID)
-                .then().block();
+        webTestClient()
+                .get().uri(CREDENTIAL_CATALOG_PATH)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .header(X_TENANT_HEADER, TENANT_A)
+                .exchange()
+                .expectStatus().isForbidden();
     }
+
+    // ---- helpers ---------------------------------------------------------------
 
     private void seedEnabledProfile(String tenant) {
         String schema = tenant + SCHEMA_SUFFIX;
