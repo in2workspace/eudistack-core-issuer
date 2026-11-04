@@ -67,7 +67,17 @@ public class KmsSigningAdapter implements KmsSigningPort {
 
     private KmsSigningException failure(String operation, String keyRef, Throwable error) {
         KmsSigningException ex = KmsRetryPolicy.toSigningException(error, operation);
-        log.error("KMS {} failed. keyRef={} reason={}", operation, KmsKeyRefs.forLog(keyRef), ex.getReason());
+        log.error("KMS {} failed. keyRef={} reason={} error={}", operation, KmsKeyRefs.forLog(keyRef),
+                ex.getReason(), awsError(error));
         return ex;
+    }
+
+    /**
+     * The AWS error code of a failure KMS answered, so that KEY_UNUSABLE tells a disabled or missing key
+     * apart from a denied access. Never the message: it carries the key ARN. Failures raised here (empty
+     * response, deadline, retries exhausted) have none; the retry warnings already log the code of each try.
+     */
+    private static String awsError(Throwable error) {
+        return error instanceof KmsSigningException ? "n/a" : KmsRetryPolicy.describe(error);
     }
 }
