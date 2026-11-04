@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (EUD-295)
+
+- **EUD-295 — `POST /api/v1/issuances/{id}/credential-offer` renews the credential offer of a draft issuance** (`renewCredentialOffer` of the issuance API contract, EUD-254). It creates a new offer with the issuance's grant and delivers it with a single mode: `ui` (returns the new `credential_offer_uri`) if the issuance stored it, otherwise `email` (re-sent to the holder). The response is the `responses` envelope with one entry. Allowed to whoever may issue today (`Onboarding/Execute` or `Certification/Attest`, or the platform administrator) and may write, within the scope of `GET /api/v1/issuances/{id}`. Errors are `application/problem+json`: `400 BAD_REQUEST` (id not a UUID), `403 tenant_mismatch` / `insufficient_permission` (decided before looking up the issuance), `404 issuance_not_found` (nonexistent or out of scope, same answer), `409 offer_not_renewable` (not `DRAFT`, or `direct`), `503 wallet_delivery_timeout` with `Retry-After` (nothing changed). Other endpoints keep their error responses.
+
+### Changed (EUD-295)
+
+- **EUD-295 — A new credential offer voids the previous one of the same issuance**, with its pre-authorized code or `issuer_state`: the previous offer answers `410` like a used one and its grant no longer gets a token. Only once the new offer reached the holder; an offer that reached nobody is voided itself and the previous one keeps working. Applies to the renewal endpoint and to the refresh from the email link (`POST /credential-offer/refresh/{token}`), whose contract is otherwise unchanged. The index of the current offer lives in memory, like the offers.
+- **EUD-295 — The `429` of the rate limit carries a body on every route**: `application/problem+json` with `type` `rate_limited` and `Retry-After`. It had no body before. The key (IP) and the limit do not change (EUD-269).
+
 ### Changed (EUD-26)
 
 - **Observability aligned with the Wallet EBW, the reference configuration.**
