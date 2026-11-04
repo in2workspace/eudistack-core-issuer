@@ -355,7 +355,8 @@ class RevocationControllerIT {
     void revoke_outOfScopeAndUnknown_answerTheSame() throws Exception {
         Issuance foreign = seed(CredentialStatusEnum.VALID, "ORG-B");
         UUID unknown = UUID.randomUUID();
-        String bearer = operator();
+        // The administrator of one organization: a tenant administrator's scope is the whole tenant (EUD-272).
+        String bearer = token(ORG, List.of(Map.of("function", "Onboarding", "action", "Execute", "domain", TENANT, "type", "domain")));
 
         expectProblem(revoke(bearer, foreign), 404, "issuance_not_found", foreign.getIssuanceId());
         expectProblem(revoke(bearer, unknown, "{\"reason\":\"x\"}"), 404, "issuance_not_found", unknown);
@@ -386,7 +387,7 @@ class RevocationControllerIT {
         String bearer = operator();
         String tooLong = "{\"reason\":\"" + "x".repeat(281) + "\"}";
 
-        for (String body : new String[]{null, "{}", "{\"reason\":\"\"}", "{\"reason\":null}", tooLong, "{not json"}) {
+        for (String body : new String[]{null, "{}", "{\"reason\":\"\"}", "{\"reason\":null}", "{\"reason\":5}", "{\"reason\":true}", "{\"reason\":[\"x\"]}", tooLong, "{not json"}) {
             WebTestClient.ResponseSpec response = revoke(bearer, id, body);
             response.expectStatus().isBadRequest()
                     .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
@@ -572,12 +573,13 @@ class RevocationControllerIT {
     }
 
     @Test
-    void revoke_tokenWithoutCredentialType_isInvalidToken_notAnError() throws Exception {
-        Issuance issuance = seed(CredentialStatusEnum.VALID, ORG);
+    void revoke_tokenWithoutCredentialType_isDecidedByItsPowers() throws Exception {
+        // EUD-272: the decision reads the powers, so the claim is not needed; a draft shows it was decided.
+        Issuance issuance = seed(CredentialStatusEnum.DRAFT, ORG);
 
-        expectProblem(revoke(tokenWithout("credential_type"), issuance), 401, "invalid_token", issuance.getIssuanceId());
+        expectProblem(revoke(tokenWithout("credential_type"), issuance), 409, "not_revocable", issuance.getIssuanceId());
 
-        assertThat(status(issuance)).isEqualTo(CredentialStatusEnum.VALID);
+        assertThat(status(issuance)).isEqualTo(CredentialStatusEnum.DRAFT);
     }
 
     @Test

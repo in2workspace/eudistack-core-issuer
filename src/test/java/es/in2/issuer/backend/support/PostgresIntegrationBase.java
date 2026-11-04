@@ -125,11 +125,10 @@ public abstract class PostgresIntegrationBase {
      * (TENANT_ADMIN / LEAR), which no fixture in this base class could do before --
      * {@link #requestToken} only covers the M2M {@code client_credentials} grant.
      *
-     * <p>Role resolution ({@code AccessTokenServiceImpl.resolveRole}) is driven entirely
-     * by the claims here: an empty {@code powers} list with an {@code organizationIdentifier}
-     * that doesn't match the tenant's {@code admin_organization_id} resolves to {@code LEAR};
-     * matching org id plus the tenant's Onboarding/Execute domain power resolves to
-     * {@code TENANT_ADMIN}.
+     * <p>Role resolution is driven entirely by the {@code powers} here (EUD-253, the action
+     * matrix's recognition): {@code domain · <tenant> · Onboarding · Execute} resolves to
+     * {@code LEAR}, {@code organization · <tenant> · Onboarding · Execute} to
+     * {@code TENANT_ADMIN}, and none of them to {@code USER}.
      */
     protected String mintUserAccessToken(String tenantClaim, String organizationIdentifier,
                                          List<Map<String, Object>> powers) {
@@ -146,10 +145,10 @@ public abstract class PostgresIntegrationBase {
         return jwtService.issueJWT(payload.toString());
     }
 
-    /** {@link #mintUserAccessToken(String, String, List)} with no powers -- the shape that
-     *  always resolves to {@code LEAR} (the operator role), since it never matches
-     *  {@code TENANT_ADMIN}'s org+power requirement nor SysAdmin's power. */
+    /** {@link #mintUserAccessToken(String, String, List)} for the operator role ({@code LEAR}, the
+     *  organization administrator): {@code domain · <tenant> · Onboarding · Execute}. */
     protected String mintOperatorAccessToken(String tenantClaim, String organizationIdentifier) {
-        return mintUserAccessToken(tenantClaim, organizationIdentifier, List.of());
+        return mintUserAccessToken(tenantClaim, organizationIdentifier, List.of(Map.of(
+                "type", "domain", "domain", tenantClaim, "function", "Onboarding", "action", List.of("Execute"))));
     }
 }

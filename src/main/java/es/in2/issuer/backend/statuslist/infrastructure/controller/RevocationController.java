@@ -50,7 +50,7 @@ public class RevocationController {
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
 
         return request
-                .mapNotNull(RevokeIssuanceRequest::reason)
+                .mapNotNull(RevokeIssuanceRequest::reasonText)
                 .onErrorResume(ServerWebInputException.class, e -> Mono.empty())
                 .map(Optional::of)
                 .defaultIfEmpty(Optional.empty())

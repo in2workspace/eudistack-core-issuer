@@ -15,7 +15,8 @@ import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.service.JWTService;
-import es.in2.issuer.backend.shared.domain.policy.service.StatusListPdpService;
+import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
+import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.statuslist.domain.exception.AlreadyRevokedException;
 import es.in2.issuer.backend.statuslist.domain.exception.InvalidRevocationRequestException;
 import es.in2.issuer.backend.statuslist.domain.exception.NotRevocableException;
@@ -37,6 +38,7 @@ import java.text.ParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.UnaryOperator;
@@ -79,7 +81,8 @@ public class RevocationWorkflow {
 
     private final StatusListProvider statusListProvider;
     private final AccessTokenService accessTokenService;
-    private final StatusListPdpService statusListPdpService;
+    private final CallerProvider callerProvider;
+    private final PowerAuthorizationService powerAuthorizationService;
     private final IssuanceService issuanceService;
     private final EmailService emailService;
     private final AuditService auditService;
@@ -137,8 +140,8 @@ public class RevocationWorkflow {
                                         publicIssuerBaseUrl,
                                         new RevocationPath(
                                                 "revokeCredential",
-                                                (pid, t, issuance) -> statusListPdpService.validateRevokeCredential(pid, t, issuance),
-                                                Mono.empty(),
+                                                this::authorizeOperatorRevocation,
+                                                Mono.defer(() -> authorizeOperatorWithoutResource(token, issuanceId)),
                                                 UnaryOperator.identity(),
                                                 Map.of(),
                                                 true
@@ -174,9 +177,9 @@ public class RevocationWorkflow {
                                     publicIssuerBaseUrl,
                                     new RevocationPath(
                                             ACTION_REVOKE_ISSUANCE,
-                                            (pid, t, issuance) -> statusListPdpService.validateRevokeScope(pid, t, issuance)
+                                            (pid, t, issuance) -> decideRevocation(t, issuance)
                                                     .then(Mono.defer(() -> requireRevocable(issuanceId, issuance))),
-                                            Mono.defer(() -> statusListPdpService.validateRevokePermission(processId, token)),
+                                            Mono.defer(() -> authorizeOperatorWithoutResource(token, issuanceId)),
                                             error -> toContractFailure(issuanceId, error),
                                             auditContext,
                                             true
@@ -265,13 +268,50 @@ public class RevocationWorkflow {
                 publicIssuerBaseUrl,
                 new RevocationPath(
                         "revokeSystemCredential",
-                        (pid, t, issuance) -> statusListPdpService.validateRevokeCredentialSystem(pid, issuance),
+                        (pid, t, issuance) -> requireRevocable(issuance),
                         Mono.empty(),
                         UnaryOperator.identity(),
                         tenantSource != null && !tenantSource.isBlank() ? Map.of("tenantSource", tenantSource) : Map.of(),
                         false
                 )
         );
+    }
+
+    /**
+     * R1 (EUD-253): decided by the caller's powers and the organization stored with the process, the
+     * same for a person and a system. The decision goes first so that an attestation outside the
+     * caller's scope reads as not found whatever its status, and the platform administrator's attempt
+     * on an already revoked one is traced as a security action before it is rejected (AC-10).
+     *
+     * <p>A process stored without an organization (issued before EUD-272, e.g. Doctor ID) belongs to
+     * no organization: it is passed as {@code ""}, never {@code null}, which the decision point reads
+     * as "no resource" and would let an organization administrator through.
+     */
+    private Mono<Void> authorizeOperatorRevocation(String processId, String token, Issuance issuance) {
+        log.info("Process ID: {} - Validating 'revoke' action...", processId);
+        return decideRevocation(token, issuance)
+                .then(Mono.defer(() -> requireRevocable(issuance)));
+    }
+
+    private Mono<Void> decideRevocation(String token, Issuance issuance) {
+        String organization = Objects.requireNonNullElse(issuance.getOrganizationIdentifier(), "");
+        return callerProvider.fromToken(token)
+                .flatMap(caller -> powerAuthorizationService.authorize(PowerAuthorizationService.REVOKE, caller,
+                        organization, String.valueOf(issuance.getIssuanceId())))
+                .then();
+    }
+
+    private Mono<Void> authorizeOperatorWithoutResource(String token, String issuanceId) {
+        return callerProvider.fromToken(token)
+                .flatMap(caller -> powerAuthorizationService.authorize(PowerAuthorizationService.REVOKE, caller, null, issuanceId))
+                .then();
+    }
+
+    private static Mono<Void> requireRevocable(Issuance issuance) {
+        if (issuance.getCredentialStatus() == CredentialStatusEnum.VALID) {
+            return Mono.empty();
+        }
+        return Mono.error(new InvalidStatusException("Invalid status: " + issuance.getCredentialStatus()));
     }
 
     private Mono<String> resolveActor() {
@@ -463,8 +503,9 @@ public class RevocationWorkflow {
                     return issuanceService.getIssuanceById(issuanceId)
                             .switchIfEmpty(Mono.defer(() -> {
                                 safeAuditAttempted(actor, null, issuanceId, reason, processId, action, auditContext);
-                                return path.whenMissing().then(Mono.<Issuance>error(new IssuanceNotFoundException(
-                                        "No issuance found for issuanceId: " + issuanceId)));
+                                // A caller is decided without a resource first, so one who may not revoke is
+                                // denied rather than told whether the id exists. A system trigger has no caller.
+                                return path.whenMissing().then(Mono.<Issuance>error(new IssuanceNotFoundException("No issuance found for the given id")));
                             }))
                             .doOnSuccess(p -> log.debug(
                                     "processId={} action={} step=issuanceLoaded issuanceId={} credentialStatus={}",

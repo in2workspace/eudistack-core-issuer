@@ -1,7 +1,7 @@
 package es.in2.issuer.backend.shared.domain.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
+import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialDetails;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferEmailNotificationInfo;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
@@ -24,11 +24,11 @@ public interface IssuanceService {
 
     Flux<String> getAllIssuedCredentialByOrganizationIdentifier(String organizationIdentifier);
 
-    Mono<IssuanceList> getAllIssuancesVisibleFor(AuthorizationContext ctx);
+    Mono<IssuanceList> getAllIssuancesVisibleFor(AuthorizationDecision decision);
 
     Mono<IssuanceList> getAllIssuanceSummariesByOrganizationId(String organizationIdentifier);
 
-    Mono<CredentialDetails> getIssuanceDetailByIssuanceIdAndOrganizationId(AuthorizationContext ctx, String issuanceId);
+    Mono<CredentialDetails> getIssuanceDetailByIssuanceIdAndOrganizationId(AuthorizationDecision decision, String issuanceId);
 
     Mono<Void> updateIssuanceStatusToValidByIssuanceId(String issuanceId);
 
