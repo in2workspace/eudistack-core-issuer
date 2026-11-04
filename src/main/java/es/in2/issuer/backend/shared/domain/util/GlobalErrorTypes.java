@@ -62,7 +62,10 @@ public enum GlobalErrorTypes {
     INVALID_HOLDER_KEY("invalid_holder_key"),
     UNKNOWN_CREDENTIAL_CONFIGURATION("unknown_credential_configuration"),
     CREDENTIAL_CATALOG_NOT_CONFIGURED("credential_catalog_not_configured"),
-    CREDENTIAL_CONFIGURATION_NOT_ENABLED("credential_configuration_not_enabled");
+    CREDENTIAL_CONFIGURATION_NOT_ENABLED("credential_configuration_not_enabled"),
+    OFFER_NOT_RENEWABLE("offer_not_renewable"),
+    // Upper case: the code the issuance API contract (EUD-254) fixes for a malformed request.
+    BAD_REQUEST("BAD_REQUEST");
 
     private final String code;
 

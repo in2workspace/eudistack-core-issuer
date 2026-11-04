@@ -286,4 +286,23 @@ class ErrorResponseFactoryTest {
         return mono.contextWrite(ctx -> ctx.put(ServerWebExchangeContextFilter.EXCHANGE_CONTEXT_ATTRIBUTE, exchange));
     }
 
+
+    @Test
+    void ErrorResponseFactory_problem_isProblemJsonWithTheGivenDetailNotTheMessage() {
+        var response = factory.problem(new RuntimeException("internal detail"), mockRequest,
+                "issuance_not_found", "Issuance not found", HttpStatus.NOT_FOUND, "The issuance does not exist", null);
+
+        assertEquals(404, response.getStatusCode().value());
+        assertEquals(MediaType.APPLICATION_PROBLEM_JSON, response.getHeaders().getContentType());
+        assertEquals("The issuance does not exist", response.getBody().detail());
+        assertNull(response.getHeaders().getFirst("Retry-After"));
+    }
+
+    @Test
+    void ErrorResponseFactory_problem_addsRetryAfterWhenGiven() {
+        var response = factory.problem(new RuntimeException(), mockRequest,
+                "wallet_delivery_timeout", "Wallet delivery timeout", HttpStatus.SERVICE_UNAVAILABLE, "d", 30);
+
+        assertEquals("30", response.getHeaders().getFirst("Retry-After"));
+    }
 }
