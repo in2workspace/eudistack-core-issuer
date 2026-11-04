@@ -28,13 +28,11 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 /**
  * Routes signing requests to the provider of the active tenant's signing modality, through
  * {@link SigningProviderResolver}: the QTSP provider or the KMS own-key provider. Reads signing config
- * per-tenant from the database (via {@link TenantSigningConfigService}) and injects it into the {@link
- * SigningRequest} before delegating.
+ * per-tenant (via {@link TenantSigningConfigService}) and injects it into the {@link SigningRequest}
+ * before delegating.
  *
- * <p>There is no global fallback: if {@code tenant_signing_config} has no
- * row for the active tenant, a {@link SigningException} is thrown. Seed
- * the row via {@code seed-tenants[.stg].sql} or via the per-tenant config
- * management service (future EUDI-090).
+ * <p>There is no global fallback: if {@code tenant_signing_config} has no active
+ * row for the tenant, a {@link SigningException} is thrown.
  *
  * <p>This is the single choke point of signing: every attempt, for either modality, is recorded
  * through {@link SigningAuditor}, including those that fail before a configuration
@@ -73,8 +71,8 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
     }
 
     /**
-     * An own key that KMS no longer lets sign. When a key is replaced or withdrawn it is disabled in
-     * KMS at once, while this instance may still hold the old configuration in cache.
+     * An own key that KMS no longer lets sign, for example disabled by infra when it replaced or withdrew
+     * the certificate of the tenant, while this instance may still hold the old configuration in cache.
      */
     private static boolean isDisabledOwnKey(ActiveSigningConfig config, Throwable error) {
         return config.modality() == SigningModality.OWN_KEY
@@ -82,8 +80,8 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
     }
 
     /**
-     * Reads the tenant's configuration again and signs once more with it: the replacement when the key
-     * was replaced, {@code NO_CONFIGURATION} when it was withdrawn. A second failure is not retried.
+     * Reads the tenant's configuration again and signs once more with it: the key of the new certificate
+     * when infra replaced it, {@code NO_CONFIGURATION} when it removed it. A second failure is not retried.
      *
      * <p>Within a {@code SigningConfigScope} the payload was built with the old configuration, so a
      * replacement is not signed here: the reload fails with {@code SigningConfigurationChangedException}

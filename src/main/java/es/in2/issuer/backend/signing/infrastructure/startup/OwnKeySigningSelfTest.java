@@ -42,7 +42,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  * retries, so a slow KMS is reported as {@code PROVIDER_UNAVAILABLE} and not cut short. QTSP
  * tenants are skipped: no QTSP is called at startup. A tenant without an active configuration, of
  * either modality, is reported as {@code NO_CONFIGURATION}: it cannot issue anything. The probe goes
- * through {@link KmsOwnKeySigningProvider}, which verifies the signature against the stored certificate.
+ * through {@link KmsOwnKeySigningProvider}, which verifies the signature against the certificate.
  * The probe payload and the signature are never logged. Each own-key tenant's outcome is also
  * recorded in the audit trail (event {@code signing.self_test}). A signing certificate that expires
  * within {@code certificateExpiryWarning} is logged as a warning: from its expiry the issuer refuses

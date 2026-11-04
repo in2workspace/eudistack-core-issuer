@@ -11,6 +11,6 @@ public interface IssuerCertificateService {
     Mono<CertificateInfo> requestCertificateInfo(RemoteSignatureDto cfg, String accessToken, String credentialId);
     Mono<DetailedIssuer> resolveRemoteDetailedIssuer(RemoteSignatureDto cfg);
 
-    /** Issuer identity read from the stored certificate of an own-key tenant; no QTSP is called. */
+    /** Issuer identity read from the certificate of an own-key configuration; no QTSP is called. */
     Mono<DetailedIssuer> resolveOwnKeyDetailedIssuer(OwnKeySigningConfig cfg);
 }

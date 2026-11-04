@@ -127,7 +127,8 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
     private Mono<ActiveSigningConfig> toActiveSigningConfig(String tenant, TenantSigningConfig row) {
         return switch (modalityOf(tenant, row)) {
             case QTSP -> Mono.just(ActiveSigningConfig.qtsp(toRemoteSignatureDto(row)));
-            // The key and the certificate of an own key are not in the database: they come from its certificate.
+            // The certificate of an own key and the alias of its key are not in the database: they come from
+            // the certificate infra publishes for the tenant.
             case OWN_KEY -> ownKeySigningConfigLoader.load(tenant).map(ActiveSigningConfig::ownKey);
         };
     }

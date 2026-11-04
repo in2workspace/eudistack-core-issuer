@@ -6,7 +6,7 @@ import java.util.List;
  * Own-key signing configuration of a tenant: a reference to the KMS key plus the public
  * certificate material. Never holds secrets.
  *
- * @param kmsKeyRef         KMS key identifier
+ * @param kmsKeyRef         KMS key identifier: the alias derived from the leaf certificate
  * @param algorithm         JWS algorithm of the key; only {@value #ES256} is supported
  * @param certificateChain  base64 DER certificates, leaf first, root excluded (the JWS {@code x5c} value)
  */

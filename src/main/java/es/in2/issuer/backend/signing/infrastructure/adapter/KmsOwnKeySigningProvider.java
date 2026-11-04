@@ -47,7 +47,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  * configuration in {@link SigningRequest#ownKey()}.
  *
  * <p>No user token is used: the KMS authorizes with the issuer's runtime role.
- * The returned signature is always verified against the stored leaf certificate first, so a
+ * The returned signature is always verified against the leaf certificate of the configuration first, so a
  * signature the credential's {@code x5c} could not validate is never returned.
  */
 @Slf4j
@@ -69,7 +69,7 @@ public class KmsOwnKeySigningProvider implements SigningProvider {
         return SigningModality.OWN_KEY;
     }
 
-    /** The chain stored with the configuration; no network call. */
+    /** The chain of the configuration, read with it; no network call. */
     @Override
     public Mono<List<String>> resolveChain(ActiveSigningConfig config) {
         return config.ownKey() == null ? Mono.empty() : Mono.just(config.ownKey().certificateChain());

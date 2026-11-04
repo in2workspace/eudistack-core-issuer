@@ -38,7 +38,7 @@ public class IssuerFactory {
 
     private Mono<DetailedIssuer> resolveIssuer(ActiveSigningConfig config) {
         return switch (config.modality()) {
-            // Only the QTSP call is retried: the own-key identity is read from the stored certificate.
+            // Only the QTSP call is retried: the own-key identity is read from the certificate of the configuration.
             case QTSP -> issuerCertificateService.resolveRemoteDetailedIssuer(config.qtsp())
                     .retryWhen(buildRetrySpec());
             case OWN_KEY -> issuerCertificateService.resolveOwnKeyDetailedIssuer(config.ownKey());

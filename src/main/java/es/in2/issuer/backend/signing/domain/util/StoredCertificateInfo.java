@@ -14,7 +14,7 @@ import java.util.List;
 
 /**
  * Builds the {@link CertificateInfo} that a QTSP would answer from {@code credentials/info}, but
- * from the certificate chain stored for an own-key tenant. Own-key tenants have no QTSP to ask,
+ * from the certificate chain of an own-key configuration. Own-key tenants have no QTSP to ask,
  * so the issuer identity and the JAdES header are derived from the same value object as on the
  * QTSP path.
  *
@@ -50,12 +50,12 @@ public final class StoredCertificateInfo {
                 qualifiedSeal);
     }
 
-    /** The first certificate of the stored chain, parsed. */
+    /** The first certificate of the chain, parsed. */
     public static X509Certificate leaf(OwnKeySigningConfig config) {
         return parse(config.certificateChain().getFirst());
     }
 
-    /** The whole stored chain, leaf first, parsed. */
+    /** The whole chain, leaf first, parsed. */
     public static List<X509Certificate> chain(OwnKeySigningConfig config) {
         return config.certificateChain().stream().map(StoredCertificateInfo::parse).toList();
     }

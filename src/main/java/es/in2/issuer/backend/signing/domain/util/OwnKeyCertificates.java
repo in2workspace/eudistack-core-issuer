@@ -29,7 +29,7 @@ import java.util.Optional;
  */
 public final class OwnKeyCertificates {
 
-    /** Prefix of every own-key alias; the IAM policy of the Issuer allows signing only with these aliases. */
+    /** Prefix of every own-key alias; the runtime role of the Issuer is meant to sign only with these aliases. */
     public static final String ALIAS_PREFIX = "alias/own-key-";
 
     private static final String ORGANIZATION_IDENTIFIER_OID = "2.5.4.97";
