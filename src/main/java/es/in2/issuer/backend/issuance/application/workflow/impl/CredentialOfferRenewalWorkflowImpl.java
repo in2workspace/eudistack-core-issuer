@@ -9,6 +9,8 @@ import es.in2.issuer.backend.issuance.domain.exception.RenewalPermissionDeniedEx
 import es.in2.issuer.backend.issuance.domain.exception.RenewalTenantMismatchException;
 import es.in2.issuer.backend.issuance.domain.model.CredentialOfferRenewal;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
+import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialFormatException;
+import es.in2.issuer.backend.shared.domain.exception.JWTClaimMissingException;
 import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
 import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferResult;
@@ -68,11 +70,23 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
     /** What the access token says about the requester: role and scope, and powers and tenant. */
     private record Requester(AuthorizationContext authorization, PolicyContext policy) {}
 
+    /**
+     * A genuine token that does not say which credential the requester holds ({@code credential_type}
+     * missing, or a type without a profile) cannot be authorized: 403 {@code insufficient_permission}
+     * of the contract, not the shared API's 400 (EUD-295 review W5).
+     */
     private Mono<Requester> resolveRequester(String authorizationHeader) {
         return Mono.deferContextual(reactorCtx -> {
             String tenantDomain = reactorCtx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null);
             Mono<PolicyContext> policy = accessTokenService.getCleanBearerToken(authorizationHeader)
-                    .flatMap(token -> policyContextFactory.fromTokenSimple(token, tenantDomain));
+                    .flatMap(token -> policyContextFactory.fromTokenSimple(token, tenantDomain))
+                    .onErrorMap(ex -> ex instanceof JWTClaimMissingException
+                                    || ex instanceof InvalidCredentialFormatException,
+                            ex -> {
+                                log.info("Credential offer renewal denied: the token has no usable credential type");
+                                return new RenewalPermissionDeniedException(
+                                        "The token does not say which credential the requester holds");
+                            });
             return accessTokenService.getAuthorizationContext(authorizationHeader)
                     .zipWith(policy, Requester::new);
         });

@@ -331,6 +331,15 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
         openOffer(ownOffer).expectStatus().isOk();
     }
 
+    /** W5: a genuine token without credential_type gets the contract's 403, not the shared API's 400. */
+    @Test
+    void renew_tokenWithoutCredentialType_is403InsufficientPermission() {
+        UUID id = seedIssuance(TENANT, OPERATOR_ORG, "DRAFT", "ui", "authorization_code");
+        String withoutCredentialType = mintUserAccessToken(TENANT, OPERATOR_ORG, List.of(ONBOARDING_EXECUTE), null);
+
+        expectProblem(renew(withoutCredentialType, id), HttpStatus.FORBIDDEN, "insufficient_permission");
+    }
+
     /** ES-05. */
     @Test
     void renew_tokenOfAnotherTenant_is403TenantMismatch() {

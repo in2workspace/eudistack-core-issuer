@@ -8,6 +8,8 @@ import es.in2.issuer.backend.issuance.domain.exception.RenewalPermissionDeniedEx
 import es.in2.issuer.backend.issuance.domain.exception.RenewalTenantMismatchException;
 import es.in2.issuer.backend.issuance.domain.model.CredentialOfferRenewal;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
+import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialFormatException;
+import es.in2.issuer.backend.shared.domain.exception.JWTClaimMissingException;
 import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferResult;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
@@ -24,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -32,6 +35,7 @@ import reactor.test.StepVerifier;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.mockito.ArgumentMatchers.any;
@@ -191,6 +195,26 @@ class CredentialOfferRenewalWorkflowImplTest {
                 .verify();
 
         verifyNoInteractions(issuanceService, credentialOfferService);
+    }
+
+    /** W5: a token without credential_type, or with a type that has no profile, cannot be authorized. */
+    @ParameterizedTest
+    @MethodSource("tokensWithoutAUsableCredentialType")
+    void renew_tokenWithoutAUsableCredentialType_isPermissionDenied(RuntimeException fromTheToken) {
+        when(accessTokenService.getAuthorizationContext(AUTH))
+                .thenReturn(Mono.just(new AuthorizationContext(ORG, UserRole.LEAR, false, "multi_org")));
+        when(policyContextFactory.fromTokenSimple("token", TENANT)).thenReturn(Mono.error(fromTheToken));
+
+        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
+                .expectError(RenewalPermissionDeniedException.class)
+                .verify();
+
+        verifyNoInteractions(issuanceService, credentialOfferService);
+    }
+
+    static Stream<RuntimeException> tokensWithoutAUsableCredentialType() {
+        return Stream.of(new JWTClaimMissingException("credential_type"),
+                new InvalidCredentialFormatException("No profile found for credential type: unknown"));
     }
 
     @Test
