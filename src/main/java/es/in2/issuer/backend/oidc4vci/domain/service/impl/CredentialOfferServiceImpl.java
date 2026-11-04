@@ -21,6 +21,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.TX_CODE_SIZE;
 import static es.in2.issuer.backend.oidc4vci.domain.util.Constants.TX_INPUT_MODE;
@@ -73,10 +74,29 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                             .map(nonce -> new ActiveCredentialOffer(
                                     nonce, grantResult.preAuthorizedCode, grantResult.issuerState));
                 })
-                .flatMap(newOffer -> buildCredentialOfferUri(publicIssuerBaseUrl, newOffer.nonce())
-                        .flatMap(uri -> deliverOffer(uri, issuanceId, credentialOfferRefreshToken, delivery))
-                        .flatMap(result -> settleOffer(issuanceId, newOffer, result).thenReturn(result))
-                        .onErrorResume(ex -> invalidate(newOffer).then(Mono.error(ex))));
+                .flatMap(newOffer -> {
+                    AtomicBoolean settled = new AtomicBoolean(false);
+                    return buildCredentialOfferUri(publicIssuerBaseUrl, newOffer.nonce())
+                            .flatMap(uri -> deliverOffer(uri, issuanceId, credentialOfferRefreshToken, delivery))
+                            .flatMap(result -> settleOffer(issuanceId, newOffer, result, settled).thenReturn(result))
+                            .onErrorResume(ex -> invalidate(newOffer).then(Mono.error(ex)))
+                            .doOnCancel(() -> discardIfUnsettled(issuanceId, newOffer, settled));
+                });
+    }
+
+    /**
+     * The request was cancelled (the client went away) before the new offer became the current
+     * one: nobody tracks it, so no later renewal could void it. It is voided now, and the previous
+     * offer stays the current one (EUD-295 review N1). Once settled, it is left alone: it may
+     * already have reached the holder.
+     */
+    private void discardIfUnsettled(String issuanceId, ActiveCredentialOffer newOffer, AtomicBoolean settled) {
+        if (settled.get()) {
+            return;
+        }
+        log.info("Credential offer delivery for issuance={} was cancelled; discarding the new offer", issuanceId);
+        invalidate(newOffer).subscribe(null, ex -> log.warn(
+                "Could not discard the cancelled credential offer for issuance={}: {}", issuanceId, ex.toString()));
     }
 
     /**
@@ -86,13 +106,15 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
      * A URI returned while the email failed counts as delivered: that is the issuance with
      * {@code email,ui} whose email bounced (FR-11), and its URI must keep working.
      */
-    private Mono<Void> settleOffer(String issuanceId, ActiveCredentialOffer newOffer, CredentialOfferResult result) {
+    private Mono<Void> settleOffer(String issuanceId, ActiveCredentialOffer newOffer, CredentialOfferResult result,
+                                   AtomicBoolean settled) {
         boolean delivered = result.credentialOfferUri() != null || result.emailError() == null;
         if (!delivered) {
             log.info("Credential offer for issuance={} was not delivered; discarding it", issuanceId);
             return invalidate(newOffer);
         }
         return activeCredentialOfferCacheStore.replace(issuanceId, newOffer)
+                .doOnTerminate(() -> settled.set(true))
                 .doOnNext(previous -> log.info("Retiring previous credential offer for issuance={}", issuanceId))
                 .flatMap(this::invalidate);
     }

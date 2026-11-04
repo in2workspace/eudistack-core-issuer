@@ -72,6 +72,9 @@ public class RateLimitFilter implements WebFilter {
             response.setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
             response.getHeaders().set(HttpHeaders.RETRY_AFTER, String.valueOf(RETRY_AFTER_SECONDS));
             response.getHeaders().setContentType(MediaType.APPLICATION_PROBLEM_JSON);
+            // Written before Spring Security's header writer runs, so the 429 sets its own (§8.1).
+            response.getHeaders().set("X-Content-Type-Options", "nosniff");
+            response.getHeaders().setCacheControl("no-store");
             return response.writeWith(Mono.just(response.bufferFactory().wrap(RATE_LIMITED_PROBLEM)));
         }
 

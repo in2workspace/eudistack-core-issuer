@@ -320,6 +320,29 @@ class CredentialOfferServiceImplTest {
         verify(credentialOfferCacheRepository, never()).invalidateCredentialOffer(NONCE);
     }
 
+    /** N1: the client went away while the email was being sent; the untracked new offer is voided. */
+    @Test
+    void createAndDeliverCredentialOffer_whenCancelledBeforeSettling_discardsTheNewOffer() {
+        stubPreAuthorizedCodeGrant();
+        stubOfferCache();
+        stubEmailInfo("test-issuance-id");
+        stubFrontendUrl();
+        when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), anyString(), isNull()))
+                .thenReturn(Mono.never());
+
+        StepVerifier.create(credentialOfferService.createAndDeliverCredentialOffer(
+                        "test-issuance-id", "learcredential.employee.w3c.4",
+                        "urn:ietf:params:oauth:grant-type:pre-authorized_code", "test@example.com", "email",
+                        "refresh-token", ISSUER_BASE_URL))
+                .thenAwait()
+                .thenCancel()
+                .verify();
+
+        verify(credentialOfferCacheRepository).invalidateCredentialOffer(NONCE);
+        verify(preAuthorizedCodeService).revokePreAuthorizedCode("pre-auth-code-123");
+        verify(activeCredentialOfferCacheStore, never()).replace(anyString(), any());
+    }
+
     private void stubPreAuthorizedCodeGrant() {
         when(preAuthorizedCodeService.issuePreAuthorizedCode(anyString(), any()))
                 .thenReturn(Mono.just(PreAuthorizedCodeResponse.builder()

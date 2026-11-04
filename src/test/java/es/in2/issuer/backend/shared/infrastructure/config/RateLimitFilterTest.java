@@ -54,6 +54,19 @@ class RateLimitFilterTest {
                 .verifyComplete();
     }
 
+    /** N3: the 429 is written before Spring Security's header writer, so it sets its own. */
+    @Test
+    void RateLimitFilter_filter_overTheLimitIsNotSniffedNorCached() {
+        RateLimitFilter filter = new RateLimitFilter(1);
+        StepVerifier.create(filter.filter(post("10.0.0.2"), chain)).verifyComplete();
+
+        MockServerWebExchange rejected = post("10.0.0.2");
+        StepVerifier.create(filter.filter(rejected, chain)).verifyComplete();
+
+        assertThat(rejected.getResponse().getHeaders().getFirst("X-Content-Type-Options")).isEqualTo("nosniff");
+        assertThat(rejected.getResponse().getHeaders().getCacheControl()).isEqualTo("no-store");
+    }
+
     @Test
     void RateLimitFilter_filter_countsEachIpApart() {
         RateLimitFilter filter = new RateLimitFilter(1);
