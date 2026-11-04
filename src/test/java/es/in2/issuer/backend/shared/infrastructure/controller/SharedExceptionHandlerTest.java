@@ -295,6 +295,29 @@ class SharedExceptionHandlerTest {
         verify(errors).handleWith(ex, request, type, title, st, fallback);
     }
 
+    // -------------------- handleMalformedIssuanceIdException --------------------
+
+    @Test
+    void handleMalformedIssuanceIdException_mapsToBadRequestType() {
+        var ex = new MalformedIssuanceIdException();
+        var type = GlobalErrorTypes.BAD_REQUEST.getCode();
+        var title = "Bad Request";
+        var st = HttpStatus.BAD_REQUEST;
+        var fallback = "The issuance id is not a UUID";
+        var expected = new GlobalErrorMessage(type, title, st.value(), "The issuance id is not a UUID", UUID.randomUUID().toString());
+
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleMalformedIssuanceIdException(ex, request))
+                .assertNext(gem -> {
+                    assertGem(gem, type, title, st, "The issuance id is not a UUID");
+                    assertEquals("BAD_REQUEST", gem.type());
+                })
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
+    }
+
     // -------------------- handlePreAuthorizationCodeGetException --------------------
 
     @Test
