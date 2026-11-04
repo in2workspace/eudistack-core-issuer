@@ -653,6 +653,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                     return auditTrail.withCorrelationId(issuanceId.toString(),
                             saveDraftAndStageRequest(issuance, request, buildResult, oid4vciDelivery)
                                     .doOnSuccess(saved -> log.debug("ProcessId: {} - Created OID4VCI issuance: {}", processId, saved.getIssuanceId()))
+                                    .doOnSuccess(saved -> auditIssuanceCreatedBestEffort(processId, issuance))
                                     .flatMap(saved -> credentialOfferService.createAndDeliverCredentialOffer(
                                                     saved.getIssuanceId().toString(), configId, grantType, request.email(),
                                                     oid4vciDelivery, saved.getCredentialOfferRefreshToken(),
