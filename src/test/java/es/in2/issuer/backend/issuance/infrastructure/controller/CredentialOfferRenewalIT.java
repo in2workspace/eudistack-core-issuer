@@ -1,11 +1,15 @@
 package es.in2.issuer.backend.issuance.infrastructure.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import es.in2.issuer.backend.oidc4vci.domain.model.ActiveCredentialOffer;
+import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferData;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
+import es.in2.issuer.backend.shared.domain.spi.TransientStore;
 import es.in2.issuer.backend.support.PostgresIntegrationBase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -18,10 +22,19 @@ import reactor.core.publisher.Mono;
 
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.SCHEMA_SUFFIX;
 import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER;
@@ -71,6 +84,12 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
     @MockitoBean
     private EmailService emailService;
 
+    @Autowired
+    private TransientStore<ActiveCredentialOffer> activeCredentialOfferStore;
+
+    @Autowired
+    private TransientStore<CredentialOfferData> credentialOfferStore;
+
     /** Each test speaks from its own address, so the volume limit of one never reaches another. */
     private String clientIp;
 
@@ -87,7 +106,11 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
 
     // ── 200 ───────────────────────────────────────────────────────────────────────────────
 
-    /** AC-01 and AC-05: a new offer with a new pre-authorized code; the previous offer and code no longer work. */
+    /**
+     * AC-01 and AC-05: a new offer with a new pre-authorized code; the previous offer and code no
+     * longer work. The previous offer is never opened before the renewal, so its 410 can only come
+     * from the renewal voiding it.
+     */
     @Test
     void renew_ui_returnsANewOfferAndVoidsThePreviousOneWithItsCode() {
         UUID id = seedIssuance(TENANT, OPERATOR_ORG, "DRAFT", "ui", PRE_AUTHORIZED);
@@ -95,9 +118,10 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
         long issuancesBefore = issuanceCount(TENANT, OPERATOR_ORG);
 
         String firstOffer = offerUri(renew(operator, id).expectStatus().isOk());
-        JsonNode first = openOffer(firstOffer).expectStatus().isOk().expectBody(JsonNode.class).returnResult().getResponseBody();
-        String firstCode = preAuthorizedCode(first);
-        String firstPin = lastPin();
+        ActiveCredentialOffer first = activeOffer(id);
+        String firstCode = first.preAuthorizedCode();
+        String firstPin = storedOffer(first.nonce()).txCode();
+        assertThat(firstCode).isNotBlank();
 
         JsonNode secondResponse = renew(operator, id)
                 .expectStatus().isOk()
@@ -118,6 +142,74 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
         verify(emailService, never()).sendCredentialOfferEmail(anyString(), anyString(), anyString(), any(), any());
         assertThat(issuanceStatus(TENANT, id)).isEqualTo("DRAFT");
         assertThat(issuanceCount(TENANT, OPERATOR_ORG)).isEqualTo(issuancesBefore);
+    }
+
+    /** EC-05: the wallet already opened the previous offer without collecting the attestation. */
+    @Test
+    void renew_previousOfferAlreadyOpened_isRenewed() {
+        UUID id = seedIssuance(TENANT, OPERATOR_ORG, "DRAFT", "ui", PRE_AUTHORIZED);
+        String previousOffer = offerUri(renew(operatorToken(), id).expectStatus().isOk());
+        openOffer(previousOffer).expectStatus().isOk();
+
+        String newOffer = offerUri(renew(operatorToken(), id).expectStatus().isOk());
+
+        JsonNode opened = openOffer(newOffer).expectStatus().isOk().expectBody(JsonNode.class).returnResult().getResponseBody();
+        token(preAuthorizedCode(opened), lastPin()).expectStatus().isOk();
+    }
+
+    /** EC-03: the previous offer expired long ago; the new one is served for 10 minutes. */
+    @Test
+    void renew_previousOfferExpired_isRenewedWithATenMinuteOffer() {
+        UUID id = seedIssuance(TENANT, OPERATOR_ORG, "DRAFT", "ui", PRE_AUTHORIZED);
+        String previousOffer = offerUri(renew(operatorToken(), id).expectStatus().isOk());
+        String previousNonce = activeOffer(id).nonce();
+        CredentialOfferData previous = storedOffer(previousNonce);
+        credentialOfferStore.add(previousNonce,
+                previous.toBuilder().expiresAt(Instant.now().minus(Duration.ofMinutes(11))).build()).block();
+        openOffer(previousOffer).expectStatus().isEqualTo(HttpStatus.GONE);
+
+        Instant renewedAt = Instant.now();
+        String newOffer = offerUri(renew(operatorToken(), id).expectStatus().isOk());
+
+        assertThat(storedOffer(activeOffer(id).nonce()).expiresAt())
+                .isBetween(renewedAt.plus(Duration.ofMinutes(10)).minusSeconds(5),
+                        Instant.now().plus(Duration.ofMinutes(10)));
+        openOffer(newOffer).expectStatus().isOk();
+    }
+
+    /** EC-02: renewals at the same time; at most one new offer works, never the one before them. */
+    @Test
+    void renew_concurrently_leavesAtMostOneNewOfferUsable() throws Exception {
+        UUID id = seedIssuance(TENANT, OPERATOR_ORG, "DRAFT", "ui", PRE_AUTHORIZED);
+        String operator = operatorToken();
+        String original = offerUri(renew(operator, id).expectStatus().isOk());
+
+        int renewals = 6;
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(renewals);
+        try {
+            List<Future<String>> futures = new ArrayList<>();
+            for (int i = 0; i < renewals; i++) {
+                futures.add(pool.submit(() -> {
+                    start.await();
+                    return offerUri(renew(operator, id).expectStatus().isOk());
+                }));
+            }
+            start.countDown();
+            List<String> newOffers = new ArrayList<>();
+            for (Future<String> future : futures) {
+                newOffers.add(future.get(30, TimeUnit.SECONDS));
+            }
+
+            assertThat(newOffers).doesNotHaveDuplicates().doesNotContain(original);
+            openOffer(original).expectStatus().isEqualTo(HttpStatus.GONE);
+            long usable = newOffers.stream()
+                    .filter(offer -> openOffer(offer).expectBody().returnResult().getStatus().value() == 200)
+                    .count();
+            assertThat(usable).isEqualTo(1);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     /** AC-02: the new offer goes to the holder's email; the response has no body. */
@@ -156,7 +248,10 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
         renew(mintUserAccessToken(TENANT, ADMIN_ORG, List.of(ONBOARDING_EXECUTE), PORTAL_CREDENTIAL_TYPE), id).expectStatus().isOk();
     }
 
-    /** AC-10: the email link keeps working and now voids the previous offer too. */
+    /**
+     * AC-10: the email link keeps working and now voids the previous offer too. EC-02 in both
+     * orders: API then link, and link then API.
+     */
     @Test
     void refreshLink_stillSendsANewOfferAndVoidsThePreviousOne() {
         UUID id = seedIssuance(TENANT, OPERATOR_ORG, "DRAFT", "email,ui", "authorization_code");
@@ -168,8 +263,16 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
                 .exchange()
                 .expectStatus().isOk();
 
-        verify(emailService, atLeastOnce()).sendCredentialOfferEmail(eq(HOLDER), anyString(), anyString(), any(), isNull());
+        ArgumentCaptor<String> sent = ArgumentCaptor.forClass(String.class);
+        verify(emailService, atLeastOnce()).sendCredentialOfferEmail(eq(HOLDER), sent.capture(), anyString(), any(), isNull());
+        String linkOffer = sent.getValue();
         openOffer(previousOffer).expectStatus().isEqualTo(HttpStatus.GONE);
+
+        String apiOffer = offerUri(renew(operatorToken(), id).expectStatus().isOk());
+
+        openOffer(linkOffer).expectStatus().isEqualTo(HttpStatus.GONE);
+        openOffer(apiOffer).expectStatus().isOk();
+        assertThat(issuanceStatus(TENANT, id)).isEqualTo("DRAFT");
     }
 
     // ── Errors: problem+json with the contract's type ─────────────────────────────────────
@@ -190,10 +293,11 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
         expectProblem(renew(operatorToken(), id), HttpStatus.CONFLICT, "offer_not_renewable");
     }
 
-    /** AC-06 / ES-02: out of scope answers exactly like nonexistent, without the id. */
+    /** AC-06 / ES-02 / NFR-1: out of scope answers exactly like nonexistent, without the id, and B's offer still works. */
     @Test
     void renew_outOfScopeAndNonexistent_areTheSame404() {
         UUID otherOrgs = seedIssuance(TENANT, OTHER_ORG, "DRAFT", "ui", "authorization_code");
+        String otherOrgsOffer = offerUri(renew(tenantAdminToken(), otherOrgs).expectStatus().isOk());
         UUID unknown = UUID.randomUUID();
 
         JsonNode outOfScope = expectProblem(renew(operatorToken(), otherOrgs), HttpStatus.NOT_FOUND, "issuance_not_found");
@@ -201,6 +305,7 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
 
         assertThat(outOfScope.get("detail")).isEqualTo(nonexistent.get("detail"));
         assertThat(outOfScope.toString()).doesNotContain(otherOrgs.toString());
+        openOffer(otherOrgsOffer).expectStatus().isOk();
     }
 
     /** EC-04: an issuance of another tenant is not found from this one. */
@@ -211,14 +316,19 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
         expectProblem(renew(operatorToken(), id), HttpStatus.NOT_FOUND, "issuance_not_found");
     }
 
-    /** AC-11: who may not issue gets 403, whether or not the issuance exists. */
+    /** AC-11 / NFR-1: who may not issue gets 403, whether or not the issuance exists, and the offer still works. */
     @Test
     void renew_withoutIssuingPower_is403EvenForANonexistentIssuance() {
         String viewer = mintUserAccessToken(TENANT, OPERATOR_ORG, List.of(PRODUCT_OFFERING), PORTAL_CREDENTIAL_TYPE);
         UUID own = seedIssuance(TENANT, OPERATOR_ORG, "DRAFT", "ui", "authorization_code");
+        UUID otherOrgs = seedIssuance(TENANT, OTHER_ORG, "DRAFT", "ui", "authorization_code");
+        String ownOffer = offerUri(renew(operatorToken(), own).expectStatus().isOk());
 
         expectProblem(renew(viewer, own), HttpStatus.FORBIDDEN, "insufficient_permission");
         expectProblem(renew(viewer, UUID.randomUUID()), HttpStatus.FORBIDDEN, "insufficient_permission");
+        expectProblem(renew(viewer, otherOrgs), HttpStatus.FORBIDDEN, "insufficient_permission");
+
+        openOffer(ownOffer).expectStatus().isOk();
     }
 
     /** ES-05. */
@@ -246,7 +356,23 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON);
     }
 
-    /** ES-06 and NFR-1: the email fails, 503 with Retry-After, and the previous offer still works. */
+    /** ES-03: a token whose signature does not verify. */
+    @Test
+    void renew_badlySignedToken_is401ProblemJson() {
+        UUID id = seedIssuance(TENANT, OPERATOR_ORG, "DRAFT", "ui", "authorization_code");
+        String valid = operatorToken();
+        byte[] otherSignature = new byte[64];
+        ThreadLocalRandom.current().nextBytes(otherSignature);
+        String forged = valid.substring(0, valid.lastIndexOf('.') + 1)
+                + Base64.getUrlEncoder().withoutPadding().encodeToString(otherSignature);
+
+        expectUnauthorized(renew(forged, id));
+    }
+
+    /**
+     * ES-06 and NFR-1: the email fails, 503 with Retry-After; the previous offer still works and
+     * the offer created for the failed attempt does not.
+     */
     @Test
     void renew_emailFails_is503AndThePreviousOfferStillWorks() {
         UUID id = seedIssuance(TENANT, OPERATOR_ORG, "DRAFT", "email,ui", "authorization_code");
@@ -256,8 +382,15 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
         when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), any(), any()))
                 .thenReturn(Mono.error(new IllegalStateException("smtp down")));
 
-        expectProblem(renew(operatorToken(), id), HttpStatus.SERVICE_UNAVAILABLE, "wallet_delivery_timeout");
+        WebTestClient.ResponseSpec failed = renew(operatorToken(), id);
+        failed.expectHeader().valueEquals(HttpHeaders.RETRY_AFTER, "30");
+        expectProblem(failed, HttpStatus.SERVICE_UNAVAILABLE, "wallet_delivery_timeout");
 
+        ArgumentCaptor<String> attempted = ArgumentCaptor.forClass(String.class);
+        verify(emailService, atLeastOnce()).sendCredentialOfferEmail(eq(HOLDER), attempted.capture(), anyString(), any(), isNull());
+        String failedAttemptOffer = attempted.getValue();
+        assertThat(failedAttemptOffer).isNotEqualTo(previousOffer);
+        openOffer(failedAttemptOffer).expectStatus().isEqualTo(HttpStatus.GONE);
         openOffer(previousOffer).expectStatus().isOk();
     }
 
@@ -281,6 +414,34 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
 
     private String operatorToken() {
         return mintUserAccessToken(TENANT, OPERATOR_ORG, List.of(ONBOARDING_EXECUTE), PORTAL_CREDENTIAL_TYPE);
+    }
+
+    private String tenantAdminToken() {
+        return mintUserAccessToken(TENANT, ADMIN_ORG, List.of(ONBOARDING_EXECUTE), PORTAL_CREDENTIAL_TYPE);
+    }
+
+    private static void expectUnauthorized(WebTestClient.ResponseSpec response) {
+        JsonNode body = response
+                .expectStatus().isUnauthorized()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody(JsonNode.class).returnResult().getResponseBody();
+        assertThat(body).isNotNull();
+        assertThat(body.path("type").asText()).isIn("invalid_token", "authentication_error");
+        assertThat(body.path("status").asInt()).isEqualTo(401);
+    }
+
+    /** The issuance's current offer, as the in-memory index holds it. */
+    private ActiveCredentialOffer activeOffer(UUID id) {
+        ActiveCredentialOffer offer = activeCredentialOfferStore.get(id.toString()).block();
+        assertThat(offer).isNotNull();
+        return offer;
+    }
+
+    /** An offer as stored under its nonce, read without redeeming it. */
+    private CredentialOfferData storedOffer(String nonce) {
+        CredentialOfferData offer = credentialOfferStore.get(nonce).block();
+        assertThat(offer).isNotNull();
+        return offer;
     }
 
     private WebTestClient.ResponseSpec renew(String token, UUID id) {
