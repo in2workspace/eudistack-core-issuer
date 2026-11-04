@@ -253,7 +253,7 @@ class MaskingOpenTelemetryAppenderTest {
 
     @Test
     void mask_EventWithoutKeyValuePairs_HasNoPairs() {
-        assertThat(MaskingOpenTelemetryAppender.mask(failureEvent(null)).getKeyValuePairs()).isNullOrEmpty();
+        assertThat(MaskingOpenTelemetryAppender.mask(failureEvent(null)).getKeyValuePairs()).isEmpty();
     }
 
     @Test
