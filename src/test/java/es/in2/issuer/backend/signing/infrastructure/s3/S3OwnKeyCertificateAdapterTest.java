@@ -63,13 +63,13 @@ class S3OwnKeyCertificateAdapterTest {
         ArgumentCaptor<GetObjectRequest> request = ArgumentCaptor.forClass(GetObjectRequest.class);
         verify(client).getObject(request.capture(), any(AsyncResponseTransformer.class));
         assertThat(request.getValue().bucket()).isEqualTo("certs-bucket");
-        assertThat(request.getValue().key()).isEqualTo("issuer/own-key/cgcom/latest");
+        assertThat(request.getValue().key()).isEqualTo("issuer/own-key/cgcom/latest/cert.pem");
     }
 
     @Test
     void objectKey_withoutPrefix_isTheTenantFolder() {
-        assertThat(adapterAt("s3://certs-bucket").objectKey("cgcom")).isEqualTo("cgcom/latest");
-        assertThat(adapterAt("s3://certs-bucket/").objectKey("cgcom")).isEqualTo("cgcom/latest");
+        assertThat(adapterAt("s3://certs-bucket").objectKey("cgcom")).isEqualTo("cgcom/latest/cert.pem");
+        assertThat(adapterAt("s3://certs-bucket/").objectKey("cgcom")).isEqualTo("cgcom/latest/cert.pem");
     }
 
     @Test

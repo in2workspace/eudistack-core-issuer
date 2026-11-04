@@ -48,7 +48,7 @@ class S3OwnKeyCertificateAdapterIT {
                 .build();
         adapter = new S3OwnKeyCertificateAdapter(client, properties);
         client.createBucket(CreateBucketRequest.builder().bucket(BUCKET).build()).join();
-        client.putObject(PutObjectRequest.builder().bucket(BUCKET).key("issuer/cgcom/latest").build(),
+        client.putObject(PutObjectRequest.builder().bucket(BUCKET).key("issuer/cgcom/latest/cert.pem").build(),
                 AsyncRequestBody.fromString(PEM)).join();
     }
 

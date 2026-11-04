@@ -9,7 +9,7 @@ import java.util.Objects;
 
 /**
  * Where the own-key certificates are read from. {@code location} is {@code s3://<bucket>/<prefix>}: the
- * certificate of a tenant is the object {@code <prefix>/<tenant>/latest}. Without it the Issuer reads no
+ * certificate of a tenant is the object {@code <prefix>/<tenant>/latest/cert.pem}. Without it the Issuer reads no
  * certificate and own-key tenants cannot sign. {@code endpoint} is only for emulators such as LocalStack.
  * {@code timeout} bounds one read, retries of the SDK included.
  */

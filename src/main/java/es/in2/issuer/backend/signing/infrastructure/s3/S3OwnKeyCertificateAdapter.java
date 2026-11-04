@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
 
 /**
  * {@link OwnKeyCertificatePort} over S3: the certificate of a tenant is the object
- * {@code <prefix>/<tenant>/latest} of the configured bucket.
+ * {@code <prefix>/<tenant>/latest/cert.pem} of the configured bucket.
  *
  * <p>A missing object is a tenant without certificate. Without {@code s3:ListBucket} S3 answers a missing
  * object with 403 instead of 404, so a refused read is reported as a missing configuration too, and
@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
 @Slf4j
 public class S3OwnKeyCertificateAdapter implements OwnKeyCertificatePort {
 
-    static final String LATEST = "latest";
+    static final String CERTIFICATE_OBJECT = "latest/cert.pem";
     private static final int FORBIDDEN = 403;
     /** The tenant id becomes part of the object key: nothing that could leave its folder. */
     private static final Pattern TENANT_ID = Pattern.compile("^[a-z0-9][a-z0-9_-]{0,62}$");
@@ -60,7 +60,7 @@ public class S3OwnKeyCertificateAdapter implements OwnKeyCertificatePort {
 
     String objectKey(String tenant) {
         String prefix = properties.prefix();
-        return (prefix.isEmpty() ? "" : prefix + "/") + tenant + "/" + LATEST;
+        return (prefix.isEmpty() ? "" : prefix + "/") + tenant + "/" + CERTIFICATE_OBJECT;
     }
 
     private static boolean isMissing(Throwable error) {

@@ -114,7 +114,7 @@ class OwnKeySigningFromS3IT {
                 .aliasName(OwnKeyCertificates.keyAlias(certificate)).targetKeyId(keyId).build()).get();
         String pem = "-----BEGIN CERTIFICATE-----\n" + Base64.getMimeEncoder().encodeToString(certificate.getEncoded())
                 + "\n-----END CERTIFICATE-----\n";
-        s3.putObject(PutObjectRequest.builder().bucket(BUCKET).key("issuer/" + TENANT + "/latest").build(),
+        s3.putObject(PutObjectRequest.builder().bucket(BUCKET).key("issuer/" + TENANT + "/latest/cert.pem").build(),
                 AsyncRequestBody.fromString(pem)).join();
 
         OwnKeyCertificatePort certificates = new S3OwnKeyCertificateAdapter(s3, new OwnKeyCertificateProperties(
