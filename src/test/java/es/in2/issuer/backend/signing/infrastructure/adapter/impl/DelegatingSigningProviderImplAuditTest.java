@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.signing.domain.exception.CertificateCheckException;
@@ -142,6 +143,22 @@ class DelegatingSigningProviderImplAuditTest {
         var details = failureDetails("PROVIDER_UNAVAILABLE");
         assertThat(details).containsEntry("modality", "qtsp").containsEntry("provider", "namirial")
                 .containsEntry("outcome", "failure").containsKey("durationMs");
+        assertNoForbiddenData(details);
+    }
+
+    /** The error is not replaced, but the audit trail still classifies a transient QTSP failure. */
+    @Test
+    void sign_transientQtspFailure_isAuditedAsProviderUnavailableAndReachesTheCallerUnchanged() {
+        var unreachable = new RemoteSignatureException("Signature service unreachable",
+                new java.net.ConnectException("refused"));
+        when(configService.getActiveSigningConfig()).thenReturn(Mono.just(qtsp()));
+        when(resolver.resolve(SigningModality.QTSP)).thenReturn(qtspProvider);
+        when(qtspProvider.sign(any())).thenReturn(Mono.error(unreachable));
+
+        StepVerifier.create(signAs("sandbox")).expectErrorMatches(error -> error == unreachable).verify();
+
+        var details = failureDetails("PROVIDER_UNAVAILABLE");
+        assertThat(details).containsEntry("modality", "qtsp").containsEntry("outcome", "failure");
         assertNoForbiddenData(details);
     }
 

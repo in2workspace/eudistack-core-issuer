@@ -6,7 +6,6 @@ import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
-import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
 import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
@@ -61,8 +60,7 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
                     .doOnNext(resolved::set)
                     .flatMap(config -> sign(request, config)
                             .onErrorResume(error -> isDisabledOwnKey(config, error),
-                                    error -> reloadAndSign(request, resolved))
-                            .onErrorMap(DelegatingSigningProviderImpl::classify))
+                                    error -> reloadAndSign(request, resolved)))
                     .doOnNext(result -> signingAuditor.success(SigningAuditor.SIGN_EVENT,
                             attempt(tenant, request, resolved.get(), startNanos)))
                     .doOnError(error -> signingAuditor.failure(SigningAuditor.SIGN_EVENT,
@@ -117,19 +115,6 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
         long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
         return new SigningAuditor.Attempt(tenant, object, issuanceId, modality, provider, durationMs,
                 SigningAuditor.qualifiedCertificate(config));
-    }
-
-    /**
-     * Coarse reason for QTSP-path failures: a reason already carried in the cause
-     * chain is kept; otherwise a recoverable (transient) failure is {@code PROVIDER_UNAVAILABLE}.
-     * Anything else stays as it is and reads as {@code OTHER}.
-     */
-    private static Throwable classify(Throwable error) {
-        if (SigningFailureReasons.of(error) != SigningFailureReason.OTHER
-                || !QtspRetryPolicy.isRecoverable(error)) {
-            return error;
-        }
-        return new SigningException(SigningFailureReason.PROVIDER_UNAVAILABLE, error.getMessage(), error);
     }
 
     private Mono<ActiveSigningConfig> loadActiveSigningConfig() {

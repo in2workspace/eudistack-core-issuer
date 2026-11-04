@@ -3,7 +3,9 @@ package es.in2.issuer.backend.signing.infrastructure.adapter;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.signing.domain.exception.CertificateCheckException;
 import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
+import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
+import es.in2.issuer.backend.signing.domain.util.QtspRetryPolicy;
 import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
 import es.in2.issuer.backend.signing.infrastructure.csc.CertificateQualificationUtils;
 import lombok.RequiredArgsConstructor;
@@ -74,11 +76,23 @@ public class SigningAuditor {
 
     public void failure(String event, Attempt attempt, Throwable error) {
         try {
-            auditService.auditFailure(event, null, SigningFailureReasons.of(error).name(),
-                    details(attempt, "failure", error));
+            auditService.auditFailure(event, null, reasonOf(error).name(), details(attempt, "failure", error));
         } catch (RuntimeException e) {
             logAuditFailure(event, e);
         }
+    }
+
+    /**
+     * The reason carried in the cause chain; otherwise a transient failure, such as a QTSP that does not
+     * answer, reads {@code PROVIDER_UNAVAILABLE}. The error itself is left as it is, so the HTTP response
+     * of a QTSP failure does not change.
+     */
+    static SigningFailureReason reasonOf(Throwable error) {
+        SigningFailureReason reason = SigningFailureReasons.of(error);
+        if (reason == SigningFailureReason.OTHER && QtspRetryPolicy.isRecoverable(error)) {
+            return SigningFailureReason.PROVIDER_UNAVAILABLE;
+        }
+        return reason;
     }
 
     private static Map<String, Object> details(Attempt attempt, String outcome, Throwable error) {

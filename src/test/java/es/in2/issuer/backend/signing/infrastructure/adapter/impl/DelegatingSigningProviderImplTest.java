@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter.impl;
 
+import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
+
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
@@ -149,29 +151,25 @@ class DelegatingSigningProviderImplTest {
         when(qtspProvider.sign(any())).thenReturn(Mono.error(error));
     }
 
+    /** The QTSP error reaches the caller as it is, so its HTTP response (502) is the one it had before. */
     @Test
-    void sign_recoverableFailure_isClassifiedAsProviderUnavailable() {
-        var recoverable = new SigningException("Signing failed", new java.net.ConnectException("refused"));
-        givenSignHashFailsWith(recoverable);
+    void sign_transientQtspFailure_reachesTheCallerUnchanged() {
+        var unreachable = new RemoteSignatureException("Signature service unreachable",
+                new java.net.ConnectException("refused"));
+        givenSignHashFailsWith(unreachable);
 
         StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
-                .expectErrorSatisfies(ex -> {
-                    assertEquals(SigningFailureReason.PROVIDER_UNAVAILABLE, ((SigningException) ex).getReason());
-                    assertSame(recoverable, ex.getCause());
-                    assertEquals("Signing failed", ex.getMessage());
-                })
+                .expectErrorSatisfies(ex -> assertSame(unreachable, ex))
                 .verify();
     }
 
     @Test
-    void sign_recoverableNonSigningFailure_isWrappedAsProviderUnavailable() {
-        givenSignHashFailsWith(new java.util.concurrent.TimeoutException("slow"));
+    void sign_transientNonSigningFailure_reachesTheCallerUnchanged() {
+        var slow = new java.util.concurrent.TimeoutException("slow");
+        givenSignHashFailsWith(slow);
 
         StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
-                .expectErrorSatisfies(ex -> {
-                    assertInstanceOf(SigningException.class, ex);
-                    assertEquals(SigningFailureReason.PROVIDER_UNAVAILABLE, ((SigningException) ex).getReason());
-                })
+                .expectErrorSatisfies(ex -> assertSame(slow, ex))
                 .verify();
     }
 
