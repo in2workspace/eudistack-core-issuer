@@ -77,8 +77,8 @@ public final class OwnKeyCertificates {
 
     /**
      * The {@code organizationIdentifier} (2.5.4.97) of the subject of the certificate, and only of the
-     * subject: never of its issuer nor of another certificate of the chain. Only a single-valued RDN counts,
-     * as before; one inside a multi-valued RDN is not read.
+     * subject: never of its issuer nor of another certificate of the chain. It is read wherever it is in the
+     * subject, also inside a multi-valued RDN.
      *
      * @throws CertificateCheckException {@code DUPLICATED_ORGANIZATION_IDENTIFIER} if the subject holds more
      *                                   than one, multi-valued RDNs included: the organization would be ambiguous
@@ -88,32 +88,33 @@ public final class OwnKeyCertificates {
         String name = certificate.getSubjectX500Principal()
                 .getName(X500Principal.RFC2253, Map.of(ORGANIZATION_IDENTIFIER_OID, ORGANIZATION_IDENTIFIER));
         try {
-            List<Rdn> rdns = new LdapName(name).getRdns();
-            if (organizationIdentifierCount(rdns) > 1) {
+            List<Object> values = organizationIdentifierValues(new LdapName(name).getRdns());
+            if (values.size() > 1) {
                 throw new CertificateCheckException(CertificateCheck.DUPLICATED_ORGANIZATION_IDENTIFIER,
                         "The subject of the own-key certificate holds more than one organizationIdentifier");
             }
-            for (Rdn rdn : rdns) {
-                if (rdn.size() == 1 && ORGANIZATION_IDENTIFIER.equalsIgnoreCase(rdn.getType())
-                        && rdn.getValue() instanceof String value && !value.isBlank()) {
-                    return Optional.of(value);
-                }
-            }
-            return Optional.empty();
+            return values.stream()
+                    .filter(String.class::isInstance)
+                    .map(String.class::cast)
+                    .filter(value -> !value.isBlank())
+                    .findFirst();
         } catch (InvalidNameException e) {
             return Optional.empty();
         }
     }
 
-    private static int organizationIdentifierCount(List<Rdn> rdns) {
-        int count = 0;
+    /** Every organizationIdentifier value of the subject, in single- and multi-valued RDNs alike. */
+    private static List<Object> organizationIdentifierValues(List<Rdn> rdns) {
+        List<Object> values = new ArrayList<>();
         for (Rdn rdn : rdns) {
             try {
                 NamingEnumeration<? extends Attribute> attributes = rdn.toAttributes().getAll();
                 while (attributes.hasMore()) {
                     Attribute attribute = attributes.next();
                     if (ORGANIZATION_IDENTIFIER.equalsIgnoreCase(attribute.getID())) {
-                        count += attribute.size();
+                        for (int i = 0; i < attribute.size(); i++) {
+                            values.add(attribute.get(i));
+                        }
                     }
                 }
             } catch (NamingException e) {
@@ -121,7 +122,7 @@ public final class OwnKeyCertificates {
                         "The subject of the own-key certificate cannot be read", e);
             }
         }
-        return count;
+        return values;
     }
 
     /**

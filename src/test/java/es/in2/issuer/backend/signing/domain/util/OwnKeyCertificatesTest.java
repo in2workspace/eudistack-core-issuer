@@ -77,6 +77,13 @@ class OwnKeyCertificatesTest {
         assertThat(OwnKeyCertificates.subjectOrganizationIdentifier(leaf)).isEmpty();
     }
 
+    @Test
+    void subjectOrganizationIdentifier_insideAMultiValuedRdn_isRead() {
+        var leaf = PKI.leafWithOrganizationIdentifierInAMultiValuedRdn("VATES-B60645900").certificate();
+
+        assertThat(OwnKeyCertificates.subjectOrganizationIdentifier(leaf)).contains("VATES-B60645900");
+    }
+
     /** The first one would otherwise win, and a verifier reading the other would attribute it to another organization. */
     @ParameterizedTest
     @ValueSource(booleans = {false, true})

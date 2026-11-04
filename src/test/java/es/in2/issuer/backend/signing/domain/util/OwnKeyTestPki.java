@@ -223,6 +223,23 @@ public final class OwnKeyTestPki {
         }
     }
 
+    /** P-256 leaf issued by the root whose organizationIdentifier shares a multi-valued RDN with its CN. */
+    public Leaf leafWithOrganizationIdentifierInAMultiValuedRdn(String organizationIdentifier) {
+        try {
+            KeyPair keyPair = generateEc();
+            X500Name subject = new X500NameBuilder(BCStyle.INSTANCE)
+                    .addRDN(BCStyle.C, "ES")
+                    .addRDN(BCStyle.O, "ORGANIZACION MULTIVALOR (ficticio)")
+                    .addMultiValuedRDN(new org.bouncycastle.asn1.ASN1ObjectIdentifier[]{
+                            BCStyle.CN, BCStyle.ORGANIZATION_IDENTIFIER}, new String[]{"Sello de pruebas", organizationIdentifier})
+                    .build();
+            return new Leaf(issue(subject, rootKeyPair, name("Raiz de pruebas"), keyPair.getPublic(),
+                    "2024-01-01T00:00:00Z", "2099-01-01T00:00:00Z"), keyPair);
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not issue the leaf", e);
+        }
+    }
+
     /** P-256 leaf issued by the root whose subject carries two organizationIdentifier attributes. */
     public Leaf leafWithTwoOrganizationIdentifiers(String first, String second, boolean sameRdn) {
         try {
