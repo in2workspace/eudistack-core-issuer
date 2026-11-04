@@ -132,44 +132,48 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
     public Mono<IssuanceAuthorization> authorizeIssuance(String processId, String credentialConfigurationId, String credentialType,
                                                          String requestedOrganization, JsonNode payload) {
         return callerProvider.current()
-                .flatMap(caller -> requestTenant().flatMap(tenant -> Mono.defer(() -> {
-                    AuthorizationMatrix matrix = matrixProvider.current();
-                    Trace trace = new Trace(ISSUE_OWN, caller, tenant)
-                            .with("processId", processId)
-                            .with("credentialConfigurationId", credentialConfigurationId);
-                    requireTenantMatch(caller, tenant, trace);
-                    RecognizedCaller recognized = recognize(matrix, caller, tenant);
-                    trace.recognized(recognized, recognizingPower(matrix, recognized));
+                .flatMap(caller -> requestTenant().flatMap(tenant -> Mono.defer(() -> decideIssuance(
+                        processId, credentialConfigurationId, credentialType, requestedOrganization, payload, caller, tenant))));
+    }
 
-                    String organization = requestedOrganization == null || requestedOrganization.isBlank()
-                            ? caller.organizationIdentifier() : requestedOrganization;
-                    trace.with("organization", organization);
+    private Mono<IssuanceAuthorization> decideIssuance(String processId, String credentialConfigurationId, String credentialType,
+                                                       String requestedOrganization, JsonNode payload, Caller caller, String tenant) {
+        AuthorizationMatrix matrix = matrixProvider.current();
+        Trace trace = new Trace(ISSUE_OWN, caller, tenant)
+                .with("processId", processId)
+                .with("credentialConfigurationId", credentialConfigurationId);
+        requireTenantMatch(caller, tenant, trace);
+        RecognizedCaller recognized = recognize(matrix, caller, tenant);
+        trace.recognized(recognized, recognizingPower(matrix, recognized));
 
-                    if (hasPowerWithConflictingAlias(payload)) {
-                        deny(trace, POWER_ALIAS_CONFLICT);
-                        return Mono.error(new PayloadValidationException("A power names a field twice with different values",
-                                List.of(new PayloadValidationException.Violation("$.power",
-                                        "a field and its tmf_ alias must have the same value"))));
-                    }
+        String organization = requestedOrganization == null || requestedOrganization.isBlank()
+                ? caller.organizationIdentifier() : requestedOrganization;
+        trace.with("organization", organization);
 
-                    List<String> actionIds = issuanceActions(matrix, List.of(credentialConfigurationId, String.valueOf(credentialType)),
-                            organization, caller, payload, tenant);
-                    try {
-                        for (String actionId : actionIds) {
-                            trace.action(actionId);
-                            evaluate(matrix.action(actionId), actionId, recognized, trace);
-                        }
-                    } catch (LearIssuancePolicyException denied) {
-                        return Mono.error(denied);
-                    }
-                    trace.action(String.join(",", actionIds));
+        if (hasPowerWithConflictingAlias(payload)) {
+            deny(trace, POWER_ALIAS_CONFLICT);
+            return Mono.error(new PayloadValidationException("A power names a field twice with different values",
+                    List.of(new PayloadValidationException.Violation("$.power",
+                            "a field and its tmf_ alias must have the same value"))));
+        }
 
-                    return requireTypeEnabled(credentialConfigurationId, trace)
-                            .then(Mono.fromSupplier(() -> {
-                                permit(trace);
-                                return new IssuanceAuthorization(recognized, organization, actionIds);
-                            }));
-                })));
+        List<String> actionIds = issuanceActions(matrix, List.of(credentialConfigurationId, String.valueOf(credentialType)),
+                organization, caller, payload, tenant);
+        try {
+            for (String actionId : actionIds) {
+                trace.action(actionId);
+                evaluate(matrix.action(actionId), actionId, recognized, trace);
+            }
+        } catch (LearIssuancePolicyException denied) {
+            return Mono.error(denied);
+        }
+        trace.action(String.join(",", actionIds));
+
+        return requireTypeEnabled(credentialConfigurationId, trace)
+                .then(Mono.fromSupplier(() -> {
+                    permit(trace);
+                    return new IssuanceAuthorization(recognized, organization, actionIds);
+                }));
     }
 
     /**
