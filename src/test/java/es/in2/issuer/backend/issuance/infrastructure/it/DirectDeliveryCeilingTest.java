@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import es.in2.issuer.backend.issuance.application.workflow.CredentialOfferRenewalWorkflow;
 import es.in2.issuer.backend.issuance.application.workflow.impl.IssuanceWorkflowImpl;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.issuance.infrastructure.config.properties.IssuanceProperties;
@@ -143,7 +144,8 @@ class DirectDeliveryCeilingTest {
                 mock(PowerAuthorizationService.class),
                 mock(RevocationWorkflow.class),
                 urlResolver,
-                new IssuanceHttpEnvelopeMapper()
+                new IssuanceHttpEnvelopeMapper(),
+                mock(CredentialOfferRenewalWorkflow.class)
         );
 
         // Stands in for TenantDomainWebFilter (which resolves the tenant against tenant_registry --

@@ -9,6 +9,8 @@ import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.UUID;
+
 import java.time.Instant;
 
 public interface IssuanceService {
@@ -35,6 +37,9 @@ public interface IssuanceService {
     Mono<Void> updateIssuanceStatusToRevoked(Issuance issuance);
 
     Mono<Issuance> getIssuanceById(String issuanceId);
+
+    /** The issuance if it belongs to the organization; empty if it does not exist or belongs to another. */
+    Mono<Issuance> getIssuanceByIdAndOrganization(UUID issuanceId, String organizationIdentifier);
 
     Mono<Issuance> getIssuanceByCredentialOfferRefreshToken(String credentialOfferRefreshToken);
 
