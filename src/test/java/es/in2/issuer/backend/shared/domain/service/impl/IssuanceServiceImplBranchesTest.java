@@ -5,7 +5,8 @@ import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateExc
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
-import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
+import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
+import es.in2.issuer.backend.support.TestAuthorizationDecisions;
 import es.in2.issuer.backend.shared.domain.model.dto.IssuanceList;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
@@ -211,7 +212,7 @@ class IssuanceServiceImplBranchesTest {
     @Test
     void getIssuanceDetail_asPlatformSysAdmin_searchesAcrossTenants() {
         // Arrange
-        AuthorizationContext ctx = new AuthorizationContext("ORG", UserRole.SYSADMIN, true, "PLATFORM");
+        AuthorizationDecision ctx = TestAuthorizationDecisions.query("ORG", UserRole.SYSADMIN, true);
         when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("acme", "globex")));
         when(issuancePort.findByIssuanceId(ISSUANCE_UUID))
                 .thenReturn(Mono.just(issuance(CredentialStatusEnum.VALID, "{\"id\":\"urn:1\"}")));
@@ -228,7 +229,7 @@ class IssuanceServiceImplBranchesTest {
     @Test
     void getAllIssuancesVisibleFor_asPlatformSysAdmin_listsNonPlatformTenantsSortedByUpdated() {
         // Arrange
-        AuthorizationContext ctx = new AuthorizationContext("ORG", UserRole.SYSADMIN, true, "PLATFORM");
+        AuthorizationDecision ctx = TestAuthorizationDecisions.query("ORG", UserRole.SYSADMIN, true);
         Instant older = Instant.parse("2025-01-01T00:00:00Z");
         Instant newer = Instant.parse("2026-01-01T00:00:00Z");
         when(tenantRegistryService.getActiveTenantSchemas())
@@ -250,7 +251,7 @@ class IssuanceServiceImplBranchesTest {
 
     @Test
     void getAllIssuancesVisibleFor_asPlatformSysAdminWithInvalidJson_errors() {
-        AuthorizationContext ctx = new AuthorizationContext("ORG", UserRole.SYSADMIN, true, "PLATFORM");
+        AuthorizationDecision ctx = TestAuthorizationDecisions.query("ORG", UserRole.SYSADMIN, true);
         when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("acme")));
         when(issuancePort.findAllOrderByUpdatedDesc())
                 .thenReturn(Flux.just(issuance(CredentialStatusEnum.DRAFT, "{not json")));
@@ -287,20 +288,18 @@ class IssuanceServiceImplBranchesTest {
         String credential = "{\"credentialSubject\":{\"mandate\":{\"mandator\":{\"organization\":\"ACME Corp\"}}}}";
         String orgIdPath = "credentialSubject.mandate.mandator.organizationIdentifier";
         return Stream.of(
-                Arguments.of(Named.of("strategy none", profile("none", orgIdPath)), credential, SYS_TENANT),
-                Arguments.of(Named.of("mandator organization", profile("field", orgIdPath)), credential, "ACME Corp"),
-                Arguments.of(Named.of("mandator without organization", profile("field", orgIdPath)),
+                Arguments.of(Named.of("type without mandator", profile(null)), credential, SYS_TENANT),
+                Arguments.of(Named.of("mandator organization", profile(orgIdPath)), credential, "ACME Corp"),
+                Arguments.of(Named.of("mandator without organization", profile(orgIdPath)),
                         "{\"credentialSubject\":{\"mandate\":{\"mandator\":{}}}}", SYS_TENANT),
-                Arguments.of(Named.of("mandator path missing", profile("field", orgIdPath)),
+                Arguments.of(Named.of("mandator path missing", profile(orgIdPath)),
                         "{\"credentialSubject\":{}}", SYS_TENANT),
-                Arguments.of(Named.of("no validation", CredentialProfile.builder()
-                        .organizationExtraction(new CredentialProfile.OrganizationExtraction("field", "x")).build()),
+                Arguments.of(Named.of("no validation", CredentialProfile.builder().build()),
                         credential, SYS_TENANT),
                 Arguments.of(Named.of("validation without org path", CredentialProfile.builder()
-                        .organizationExtraction(new CredentialProfile.OrganizationExtraction("field", "x"))
                         .validation(new CredentialProfile.Validation(null)).build()),
                         credential, SYS_TENANT),
-                Arguments.of(Named.of("top-level org path", profile("field", "organizationIdentifier")),
+                Arguments.of(Named.of("top-level org path", profile("organizationIdentifier")),
                         credential, SYS_TENANT));
     }
 
@@ -327,7 +326,7 @@ class IssuanceServiceImplBranchesTest {
         when(issuancePort.findByIssuanceId(ISSUANCE_UUID))
                 .thenReturn(Mono.just(issuance(CredentialStatusEnum.DRAFT, "{not json")));
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID))
-                .thenReturn(profile("field", "credentialSubject.mandate.mandator.organizationIdentifier"));
+                .thenReturn(profile("credentialSubject.mandate.mandator.organizationIdentifier"));
 
         StepVerifier.create(service.findCredentialOfferEmailInfoByIssuanceId(ISSUANCE_ID))
                 .expectErrorSatisfies(e -> assertThat(e)
@@ -383,9 +382,8 @@ class IssuanceServiceImplBranchesTest {
         return issuance;
     }
 
-    private static CredentialProfile profile(String strategy, String mandatorOrgIdPath) {
+    private static CredentialProfile profile(String mandatorOrgIdPath) {
         return CredentialProfile.builder()
-                .organizationExtraction(new CredentialProfile.OrganizationExtraction(strategy, "x"))
                 .validation(new CredentialProfile.Validation(mandatorOrgIdPath))
                 .build();
     }

@@ -225,22 +225,22 @@ class CredentialCatalogControllerTest {
     }
 
     /**
-     * AD-16 / R-13: {@code UserRole} has exactly three values today, which is what makes
-     * {@code canReadCredentialCatalog()}'s explicit role check vacuously true. This test
-     * exists to go red the moment a fourth value is added, forcing a conscious decision
-     * about whether it can read the catalog instead of it inheriting access silently.
+     * AD-16 / R-13: every role but {@code USER} may read the catalog. The size check goes red the
+     * moment a fifth value is added, forcing a conscious decision about whether it can read the
+     * catalog instead of it inheriting access silently. EUD-253 point 6: {@code USER} -- an
+     * attestation of the tenant without administration powers -- cannot.
      */
     @Test
-    void canReadCredentialCatalog_allThreeRolesPass_exhaustivenessTripwire() {
-        assertThat(UserRole.values()).hasSize(3);
+    void canReadCredentialCatalog_everyAdministrationRolePasses_userDoesNot_exhaustivenessTripwire() {
+        assertThat(UserRole.values()).hasSize(4);
 
         for (UserRole role : UserRole.values()) {
             AuthorizationContext ctx =
                     new AuthorizationContext("org-1", role, false, "tenant");
 
             assertThat(ctx.canReadCredentialCatalog())
-                    .as("role %s must pass canReadCredentialCatalog()", role)
-                    .isTrue();
+                    .as("role %s on canReadCredentialCatalog()", role)
+                    .isEqualTo(role != UserRole.USER);
         }
     }
 

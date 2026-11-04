@@ -12,8 +12,8 @@ import es.in2.issuer.backend.issuance.infrastructure.controller.IssuanceExceptio
 import es.in2.issuer.backend.issuance.infrastructure.controller.IssuanceHttpEnvelopeMapper;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.application.workflow.CredentialSignerWorkflow;
-import es.in2.issuer.backend.shared.domain.policy.service.IssuancePdpService;
-import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
+import es.in2.issuer.backend.shared.domain.policy.IssuanceAuthorization;
+import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.CredentialIssuedLogger;
 import es.in2.issuer.backend.shared.domain.service.DeliveryEligibilityResolver;
@@ -52,7 +52,7 @@ import static org.mockito.Mockito.when;
  * point is exercising {@link SchemaDeliveryCeiling} and {@link CredentialProfileRegistry} for real,
  * loaded from the classpath profile fixture, exactly as {@link IssuanceWorkflowImpl} wires them in
  * production. Everything the ceiling check runs <em>before</em> -- {@link PayloadSchemaValidator},
- * {@link IssuancePdpService} -- and everything a rejected request must never reach -- signing, status
+ * {@link PowerAuthorizationService} -- and everything a rejected request must never reach -- signing, status
  * list, persistence, the Wallet offer trigger -- are mocked, because those are the actual I/O
  * boundaries {@link IssuanceWorkflowImpl} injects.
  */
@@ -73,7 +73,7 @@ class DirectDeliveryCeilingTest {
             .build();
 
     private PayloadSchemaValidator payloadSchemaValidator;
-    private IssuancePdpService issuancePdpService;
+    private PowerAuthorizationService powerAuthorizationService;
     private IssuanceService issuanceService;
     private CredentialOfferService credentialOfferService;
     private CredentialSignerWorkflow credentialSignerWorkflow;
@@ -89,7 +89,7 @@ class DirectDeliveryCeilingTest {
         SchemaDeliveryCeiling schemaDeliveryCeiling = new SchemaDeliveryCeiling(credentialProfileRegistry);
 
         payloadSchemaValidator = mock(PayloadSchemaValidator.class);
-        issuancePdpService = mock(IssuancePdpService.class);
+        powerAuthorizationService = mock(PowerAuthorizationService.class);
         IssuancePayloadNormalizer issuancePayloadNormalizer = mock(IssuancePayloadNormalizer.class);
         issuanceService = mock(IssuanceService.class);
         credentialOfferService = mock(CredentialOfferService.class);
@@ -111,13 +111,14 @@ class DirectDeliveryCeilingTest {
         // SchemaDeliveryCeiling at all. Real objects have nothing to say here -- they are the
         // I/O boundaries this test stubs, not the rule under test.
         when(payloadSchemaValidator.validate(any(), any())).thenReturn(Mono.empty());
-        when(issuancePdpService.authorize(any(), any(), any())).thenReturn(Mono.empty());
+        when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(new IssuanceAuthorization(null, "ORG", java.util.List.of("E1"))));
         when(issuancePayloadNormalizer.normalize(any(), any())).thenAnswer(invocation -> invocation.getArgument(1));
 
         IssuanceWorkflowImpl issuanceWorkflow = new IssuanceWorkflowImpl(
                 issuanceService,
                 credentialOfferService,
-                issuancePdpService,
+                powerAuthorizationService,
                 issuancePayloadNormalizer,
                 payloadSchemaValidator,
                 credentialProfileRegistry,
@@ -139,7 +140,7 @@ class DirectDeliveryCeilingTest {
         IssuanceController controller = new IssuanceController(
                 issuanceWorkflow,
                 mock(IssuanceService.class),
-                mock(AccessTokenService.class),
+                mock(PowerAuthorizationService.class),
                 mock(RevocationWorkflow.class),
                 urlResolver,
                 new IssuanceHttpEnvelopeMapper()

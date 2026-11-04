@@ -169,21 +169,6 @@ public class SharedExceptionHandler {
         );
     }
 
-    @ExceptionHandler(NoCredentialFoundException.class)
-    @ResponseStatus(HttpStatus.NOT_FOUND)
-    public Mono<GlobalErrorMessage> handleNoCredentialFoundException(
-            NoCredentialFoundException ex,
-            ServerHttpRequest request
-    ) {
-        return errors.handleWith(
-                ex, request,
-                GlobalErrorTypes.CREDENTIAL_NOT_FOUND.getCode(),
-                "Credential not found",
-                HttpStatus.NOT_FOUND,
-                "No credential found."
-        );
-    }
-
     @ExceptionHandler(PreAuthorizationCodeGetException.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public Mono<GlobalErrorMessage> handlePreAuthorizationCodeGetException(
@@ -329,14 +314,15 @@ public class SharedExceptionHandler {
     }
 
     // Same 403 contract as InsufficientPermissionException, plus the stable `reason` code so the
-    // issuance UI can tell the operator which business rule rejected the request (I-03).
+    // issuance UI can tell the operator which business rule rejected the request (I-03). The detail
+    // is fixed: the exception message names matrix actions and powers, which stay in the log (§9.1).
     @ExceptionHandler(LearIssuancePolicyException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public Mono<GlobalErrorMessage> handleLearIssuancePolicyException(
             LearIssuancePolicyException ex,
             ServerHttpRequest request
     ) {
-        return errors.handleWith(
+        return errors.handleSafe(
                 ex, request,
                 GlobalErrorTypes.INSUFFICIENT_PERMISSION.getCode(),
                 "Insufficient permission",
