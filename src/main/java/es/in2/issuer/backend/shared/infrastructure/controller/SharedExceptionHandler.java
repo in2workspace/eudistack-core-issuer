@@ -169,21 +169,6 @@ public class SharedExceptionHandler {
         );
     }
 
-    @ExceptionHandler(NoCredentialFoundException.class)
-    @ResponseStatus(HttpStatus.NOT_FOUND)
-    public Mono<GlobalErrorMessage> handleNoCredentialFoundException(
-            NoCredentialFoundException ex,
-            ServerHttpRequest request
-    ) {
-        return errors.handleWith(
-                ex, request,
-                GlobalErrorTypes.CREDENTIAL_NOT_FOUND.getCode(),
-                "Credential not found",
-                HttpStatus.NOT_FOUND,
-                "No credential found."
-        );
-    }
-
     @ExceptionHandler(PreAuthorizationCodeGetException.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public Mono<GlobalErrorMessage> handlePreAuthorizationCodeGetException(

@@ -295,26 +295,6 @@ class SharedExceptionHandlerTest {
         verify(errors).handleWith(ex, request, type, title, st, fallback);
     }
 
-    // -------------------- handleNoCredentialFoundException --------------------
-
-    @Test
-    void handleNoCredentialFoundException() {
-        var ex = new NoCredentialFoundException("nothing here");
-        var type = GlobalErrorTypes.CREDENTIAL_NOT_FOUND.getCode();
-        var title = "Credential not found";
-        var st = HttpStatus.NOT_FOUND;
-        var fallback = "No credential found.";
-        var expected = new GlobalErrorMessage(type, title, st.value(), "nothing here", UUID.randomUUID().toString());
-
-        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
-
-        StepVerifier.create(handler.handleNoCredentialFoundException(ex, request))
-                .assertNext(gem -> assertGem(gem, type, title, st, "nothing here"))
-                .verifyComplete();
-
-        verify(errors).handleWith(ex, request, type, title, st, fallback);
-    }
-
     // -------------------- handlePreAuthorizationCodeGetException --------------------
 
     @Test
