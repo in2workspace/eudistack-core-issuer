@@ -1,7 +1,6 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter;
 
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
-import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
@@ -13,7 +12,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-import java.util.List;
 
 /**
  * The only provider of the QTSP modality. It reads the CSC operation of the tenant's configuration
@@ -31,12 +29,6 @@ public class CscQtspSigningProvider implements SigningProvider {
     @Override
     public SigningModality modality() {
         return SigningModality.QTSP;
-    }
-
-    /** The chain comes from the QTSP ({@code credentials/info}) while signing, so it is not known before. */
-    @Override
-    public Mono<List<String>> resolveChain(ActiveSigningConfig config) {
-        return Mono.empty();
     }
 
     @Override

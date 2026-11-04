@@ -45,23 +45,6 @@ public final class SigningCertificateChecks {
         }
     }
 
-    /**
-     * {@code true} if subject equals issuer and the signature verifies with the certificate's own key.
-     * Matching names alone prove nothing: anyone can issue a certificate that names itself as issuer.
-     */
-    public static boolean isSelfSigned(X509Certificate certificate) {
-        requireCertificate(certificate);
-        if (!certificate.getSubjectX500Principal().equals(certificate.getIssuerX500Principal())) {
-            return false;
-        }
-        try {
-            certificate.verify(certificate.getPublicKey());
-            return true;
-        } catch (GeneralSecurityException _) {
-            return false;
-        }
-    }
-
     /** {@code true} if {@code at} falls inside the validity window, both bounds inclusive. */
     public static boolean isValidAt(X509Certificate certificate, Instant at) {
         requireCertificate(certificate);

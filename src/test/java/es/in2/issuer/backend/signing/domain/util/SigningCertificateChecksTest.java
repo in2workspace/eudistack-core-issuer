@@ -28,26 +28,6 @@ class SigningCertificateChecksTest {
     }
 
     @Test
-    void isSelfSigned_selfSignedCertificate_returnsTrue() {
-        assertThat(SigningCertificateChecks.isSelfSigned(pki.selfSignedLeaf().certificate())).isTrue();
-    }
-
-    @Test
-    void isSelfSigned_rootCertificate_returnsTrue() {
-        assertThat(SigningCertificateChecks.isSelfSigned(pki.rootCertificate())).isTrue();
-    }
-
-    @Test
-    void isSelfSigned_certificateIssuedByAnotherCa_returnsFalse() {
-        assertThat(SigningCertificateChecks.isSelfSigned(pki.validP256Leaf().certificate())).isFalse();
-    }
-
-    @Test
-    void isSelfSigned_sameSubjectAndIssuerButForeignSignature_returnsFalse() {
-        assertThat(SigningCertificateChecks.isSelfSigned(pki.forgedSelfIssuedCertificate())).isFalse();
-    }
-
-    @Test
     void isValidAt_insideTheWindow_returnsTrue() {
         assertThat(SigningCertificateChecks.isValidAt(
                 pki.expiredLeaf().certificate(), Instant.parse("2025-01-01T12:00:00Z"))).isTrue();
@@ -80,8 +60,6 @@ class SigningCertificateChecksTest {
         Instant now = Instant.now();
 
         assertThatThrownBy(() -> SigningCertificateChecks.isP256(null))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> SigningCertificateChecks.isSelfSigned(null))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> SigningCertificateChecks.isValidAt(null, now))
                 .isInstanceOf(IllegalArgumentException.class);

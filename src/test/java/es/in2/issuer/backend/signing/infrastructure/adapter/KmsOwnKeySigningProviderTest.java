@@ -9,7 +9,6 @@ import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.signing.domain.exception.CertificateCheckException;
 import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
-import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.CertificateCheck;
 import es.in2.issuer.backend.signing.domain.model.JadesProfile;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
@@ -307,17 +306,6 @@ class KmsOwnKeySigningProviderTest {
     @Test
     void modality_isOwnKey() {
         assertThat(provider.modality()).isEqualTo(SigningModality.OWN_KEY);
-    }
-
-    @Test
-    void resolveChain_returnsTheStoredChainWithoutCallingKms() {
-        OwnKeySigningConfig config = configFor(PKI.validP256Leaf());
-
-        StepVerifier.create(provider.resolveChain(ActiveSigningConfig.ownKey(config)))
-                .expectNext(config.certificateChain())
-                .verifyComplete();
-
-        assertThat(kms.signCalls).hasValue(0);
     }
 
     @Test

@@ -5,7 +5,6 @@ import es.in2.issuer.backend.signing.domain.exception.CertificateCheckException;
 import es.in2.issuer.backend.signing.domain.exception.HashGenerationException;
 import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
-import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.CertificateCheck;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
@@ -68,12 +67,6 @@ public class KmsOwnKeySigningProvider implements SigningProvider {
     @Override
     public SigningModality modality() {
         return SigningModality.OWN_KEY;
-    }
-
-    /** The chain of the configuration, read with it; no network call. */
-    @Override
-    public Mono<List<String>> resolveChain(ActiveSigningConfig config) {
-        return config.ownKey() == null ? Mono.empty() : Mono.just(config.ownKey().certificateChain());
     }
 
     @Override

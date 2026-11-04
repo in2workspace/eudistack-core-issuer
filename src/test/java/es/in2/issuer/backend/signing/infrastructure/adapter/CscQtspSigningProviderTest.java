@@ -1,7 +1,6 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter;
 
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
-import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
@@ -39,12 +38,6 @@ class CscQtspSigningProviderTest {
     @Test
     void modality_isQtsp() {
         assertThat(provider.modality()).isEqualTo(SigningModality.QTSP);
-    }
-
-    @Test
-    void resolveChain_isEmpty_becauseTheQtspGivesTheChainWhileSigning() {
-        StepVerifier.create(provider.resolveChain(ActiveSigningConfig.qtsp(cfgWithOperation("sign-hash"))))
-                .verifyComplete();
     }
 
     @Test
