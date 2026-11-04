@@ -23,7 +23,6 @@ import es.in2.issuer.backend.signing.domain.util.Es256SignatureVerifier;
 import es.in2.issuer.backend.signing.domain.util.JwsSignatureEncoder;
 import es.in2.issuer.backend.signing.domain.util.SigningCertificateChecks;
 import es.in2.issuer.backend.signing.domain.util.StoredCertificateInfo;
-import es.in2.issuer.backend.signing.infrastructure.csc.CertificateQualificationUtils;
 import es.in2.issuer.backend.signing.infrastructure.kms.KmsKeyRefs;
 import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningProperties;
 import lombok.RequiredArgsConstructor;
@@ -134,8 +133,9 @@ public class KmsOwnKeySigningProvider implements SigningProvider {
                     "The stored certificate chain does not link or holds an invalid intermediate certificate"));
         }
 
-        CertificateInfo certInfo = StoredCertificateInfo.from(config,
-                CertificateQualificationUtils.isQualifiedSeal(config.certificateChain()));
+        // Never a qualified seal, whatever the certificate declares: KMS is not a QSCD, so an own-key
+        // signature is at most advanced (EUD-251 PRD §1). The certificate's own qualification is audited.
+        CertificateInfo certInfo = StoredCertificateInfo.from(config, false);
         String headerJson = jadesHeaderBuilderService.buildHeader(
                 certInfo, cscSigningProperties.signatureProfile(), request.typ());
         String signingInput = Base64UrlUtils.encodeUtf8(headerJson) + "." + Base64UrlUtils.encodeUtf8(request.data());

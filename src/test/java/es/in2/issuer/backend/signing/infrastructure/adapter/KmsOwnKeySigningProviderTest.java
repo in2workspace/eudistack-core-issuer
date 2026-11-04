@@ -181,6 +181,26 @@ class KmsOwnKeySigningProviderTest {
     }
 
     @Test
+    void sign_certificateDeclaringQscd_isNotLoggedAsAQualifiedSeal() {
+        var leaf = PKI.leafWithPolicy("0.4.0.194112.1.4");
+        var signer = providerWith(new FakeKms(leaf.keyPair()), NOW);
+        Logger headerLogger = (Logger) LoggerFactory.getLogger(JadesHeaderBuilderServiceImpl.class);
+        ListAppender<ILoggingEvent> headerLogs = new ListAppender<>();
+        headerLogs.start();
+        headerLogger.addAppender(headerLogs);
+        try {
+            StepVerifier.create(signInTenant(signer, withOwnKey(jades(null), configFor(leaf))))
+                    .expectNextCount(1)
+                    .verifyComplete();
+        } finally {
+            headerLogger.detachAppender(headerLogs);
+        }
+        assertThat(headerLogs.list).map(ILoggingEvent::getFormattedMessage)
+                .contains("Seal level: AdESeal (FR-11/FR-12)")
+                .noneMatch(message -> message.contains("QSeal"));
+    }
+
+    @Test
     void sign_doesNotNeedTheUserToken_nullOrPopulatedContextBehavesTheSame() {
         var config = configFor(PKI.validP256Leaf());
         var context = new SigningContext("user-token-that-must-not-be-used", "issuance", "a@b.c");

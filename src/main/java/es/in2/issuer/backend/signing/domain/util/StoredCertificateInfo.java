@@ -33,8 +33,8 @@ public final class StoredCertificateInfo {
 
     /**
      * @param config        own-key configuration holding the chain, leaf first
-     * @param qualifiedSeal whether the leaf is a qualified seal; the caller decides because the
-     *                      detection lives in infrastructure
+     * @param qualifiedSeal whether the signature is a qualified seal; the caller decides, because it
+     *                      depends on where the key is held and not only on the certificate
      * @throws SigningException {@code CERTIFICATE_INVALID} if the leaf cannot be parsed
      */
     public static CertificateInfo from(OwnKeySigningConfig config, boolean qualifiedSeal) {
