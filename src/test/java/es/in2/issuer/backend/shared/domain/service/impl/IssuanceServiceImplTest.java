@@ -7,7 +7,7 @@ import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateExc
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
-import es.in2.issuer.backend.shared.domain.exception.NoCredentialFoundException;
+import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
@@ -16,6 +16,8 @@ import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
+import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
+import es.in2.issuer.backend.support.TestAuthorizationDecisions;
 import es.in2.issuer.backend.shared.domain.model.port.IssuerProperties;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
@@ -383,7 +385,7 @@ class IssuanceServiceImplTest {
 
         // Act
         Mono<CredentialDetails> detail = issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
-                new AuthorizationContext("org-123", UserRole.LEAR, false, "multi-org"), issuanceId.toString());
+                TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false), issuanceId.toString());
 
         // Assert
         StepVerifier.create(detail).expectNextCount(1).verifyComplete();
@@ -403,10 +405,10 @@ class IssuanceServiceImplTest {
 
         // Act
         Mono<CredentialDetails> detail = issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
-                new AuthorizationContext("org-123", UserRole.LEAR, false, "multi-org"), issuanceId.toString());
+                TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false), issuanceId.toString());
 
         // Assert
-        StepVerifier.create(detail).expectError(NoCredentialFoundException.class).verify();
+        StepVerifier.create(detail).expectError(IssuanceNotFoundException.class).verify();
         AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
         assertEquals(AuditResult.DENIED, entry.result());
         assertEquals("IssuanceNotFound", entry.reason());
@@ -416,10 +418,10 @@ class IssuanceServiceImplTest {
     void getIssuanceDetail_malformedId_stagesNothingBecauseThereIsNoProcessToPointAt() {
         // Arrange & Act
         Mono<CredentialDetails> detail = issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
-                new AuthorizationContext("org-123", UserRole.LEAR, false, "multi-org"), "not-a-uuid");
+                TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false), "not-a-uuid");
 
         // Assert
-        StepVerifier.create(detail).expectError(NoCredentialFoundException.class).verify();
+        StepVerifier.create(detail).expectError(IssuanceNotFoundException.class).verify();
         assertTrue(auditTrail.all().isEmpty());
     }
 
@@ -439,7 +441,7 @@ class IssuanceServiceImplTest {
 
         // Act
         Mono<IssuanceList> list = issuanceService.getAllIssuancesVisibleFor(
-                new AuthorizationContext("org-123", UserRole.LEAR, false, "multi-org"));
+                TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false));
 
         // Assert
         StepVerifier.create(list).expectNextCount(1).verifyComplete();
@@ -475,7 +477,7 @@ class IssuanceServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.LEAR, false, "multi-org"), issuanceId);
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query(organizationIdentifier, UserRole.LEAR, false), issuanceId);
 
         // Then
         StepVerifier.create(result)
@@ -516,7 +518,7 @@ class IssuanceServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.SYSADMIN, false, "multi_org"), issuanceId);
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query(organizationIdentifier, UserRole.SYSADMIN, false), issuanceId);
 
         // Then
         StepVerifier.create(result)
@@ -543,13 +545,13 @@ class IssuanceServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.LEAR, false, "multi_org"), issuanceId);
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query(organizationIdentifier, UserRole.LEAR, false), issuanceId);
 
         // Then
         StepVerifier.create(result)
                 .expectErrorSatisfies(err -> {
-                    assertInstanceOf(NoCredentialFoundException.class, err);
-                    assertTrue(err.getMessage().contains(issuanceId));
+                    assertInstanceOf(IssuanceNotFoundException.class, err);
+                    assertFalse(err.getMessage().contains(issuanceId));
                 })
                 .verify();
     }
@@ -565,11 +567,11 @@ class IssuanceServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.SYSADMIN, false, "multi_org"), issuanceId);
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query(organizationIdentifier, UserRole.SYSADMIN, false), issuanceId);
 
         // Then
         StepVerifier.create(result)
-                .expectError(NoCredentialFoundException.class)
+                .expectError(IssuanceNotFoundException.class)
                 .verify();
     }
 
@@ -577,12 +579,12 @@ class IssuanceServiceImplTest {
     void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldErrorAsNotFound_whenIdIsMalformed() {
         // When
         Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext("org-123", UserRole.LEAR, false, "multi_org"), "not-a-uuid");
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false), "not-a-uuid");
 
         // Then
         StepVerifier.create(result)
                 .expectErrorSatisfies(err -> {
-                    assertInstanceOf(NoCredentialFoundException.class, err);
+                    assertInstanceOf(IssuanceNotFoundException.class, err);
                     assertFalse(err.getMessage().contains("not-a-uuid"));
                 })
                 .verify();
@@ -608,7 +610,7 @@ class IssuanceServiceImplTest {
 
         // When
         Mono<CredentialDetails> result = issuanceService
-                .getIssuanceDetailByIssuanceIdAndOrganizationId(new AuthorizationContext(organizationIdentifier, UserRole.LEAR, false, "multi_org"), issuanceId);
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query(organizationIdentifier, UserRole.LEAR, false), issuanceId);
 
         // Then
         StepVerifier.create(result)
@@ -726,7 +728,7 @@ class IssuanceServiceImplTest {
         }
 
         // When
-        Mono<IssuanceList> mono = issuanceService.getAllIssuancesVisibleFor(new AuthorizationContext(adminOrg, UserRole.SYSADMIN, false, "multi_org"));
+        Mono<IssuanceList> mono = issuanceService.getAllIssuancesVisibleFor(TestAuthorizationDecisions.query(adminOrg, UserRole.SYSADMIN, false));
 
         // Then
         StepVerifier.create(mono)
@@ -795,7 +797,7 @@ class IssuanceServiceImplTest {
                 .when(spyService).getAllIssuanceSummariesByOrganizationId(orgId);
 
         // When
-        Mono<IssuanceList> mono = spyService.getAllIssuancesVisibleFor(new AuthorizationContext(orgId, UserRole.LEAR, false, "multi_org"));
+        Mono<IssuanceList> mono = spyService.getAllIssuancesVisibleFor(TestAuthorizationDecisions.query(orgId, UserRole.LEAR, false));
 
         // Then
         StepVerifier.create(mono)
@@ -820,7 +822,7 @@ class IssuanceServiceImplTest {
                 .thenReturn(Flux.empty());
 
         // When
-        Mono<IssuanceList> mono = issuanceService.getAllIssuancesVisibleFor(new AuthorizationContext(ADMIN_ORG_ID, UserRole.SYSADMIN, false, "multi_org"));
+        Mono<IssuanceList> mono = issuanceService.getAllIssuancesVisibleFor(TestAuthorizationDecisions.query(ADMIN_ORG_ID, UserRole.SYSADMIN, false));
 
         // Then
         StepVerifier.create(mono)
@@ -969,7 +971,6 @@ class IssuanceServiceImplTest {
         CredentialProfile labelProfile = CredentialProfile.builder()
                 .credentialConfigurationId("gx.labelcredential.w3c.1")
                 .format("jwt_vc_json")
-                .organizationExtraction(null)
                 .build();
         when(credentialProfileRegistry.getByConfigurationId("gx.labelcredential.w3c.1"))
                 .thenReturn(labelProfile);
@@ -1126,7 +1127,7 @@ class IssuanceServiceImplTest {
         }
 
         // When
-        AuthorizationContext ctx = new AuthorizationContext(tenantAdminOrg, UserRole.TENANT_ADMIN, false, "multi_org");
+        AuthorizationDecision ctx = TestAuthorizationDecisions.query(tenantAdminOrg, UserRole.TENANT_ADMIN, false);
         Mono<IssuanceList> mono = issuanceService.getAllIssuancesVisibleFor(ctx);
 
         // Then
@@ -1232,7 +1233,7 @@ class IssuanceServiceImplTest {
         when(objectMapper.readTree(dataSet)).thenReturn(JSON.readTree(dataSet));
 
         Mono<CredentialDetails> result = issuanceService.getIssuanceDetailByIssuanceIdAndOrganizationId(
-                new AuthorizationContext(ADMIN_ORG_ID, UserRole.SYSADMIN, true, "multi_org"), issuance.getIssuanceId().toString());
+                TestAuthorizationDecisions.query(ADMIN_ORG_ID, UserRole.SYSADMIN, true), issuance.getIssuanceId().toString());
 
         StepVerifier.create(result)
                 .assertNext(details -> assertEquals(issuance.getIssuanceId(), details.issuanceId()))
@@ -1416,7 +1417,7 @@ class IssuanceServiceImplTest {
         when(objectMapper.readTree("{}")).thenReturn(JSON.readTree("{}"));
 
         Mono<IssuanceList> result = issuanceService.getAllIssuancesVisibleFor(
-                new AuthorizationContext(ADMIN_ORG_ID, UserRole.SYSADMIN, true, "multi_org"));
+                TestAuthorizationDecisions.query(ADMIN_ORG_ID, UserRole.SYSADMIN, true));
 
         StepVerifier.create(result)
                 .assertNext(list -> {
@@ -1441,7 +1442,7 @@ class IssuanceServiceImplTest {
         when(objectMapper.readTree("{}")).thenReturn(JSON.readTree("{}"));
 
         StepVerifier.create(issuanceService.getAllIssuancesVisibleFor(
-                        new AuthorizationContext(ADMIN_ORG_ID, UserRole.SYSADMIN, true, "multi_org")))
+                        TestAuthorizationDecisions.query(ADMIN_ORG_ID, UserRole.SYSADMIN, true)))
                 .assertNext(list -> assertEquals(2, list.issuances().size()))
                 .verifyComplete();
     }
@@ -1455,7 +1456,7 @@ class IssuanceServiceImplTest {
         when(objectMapper.readTree("{")).thenThrow(new JsonParseException(null, "unexpected end"));
 
         StepVerifier.create(issuanceService.getAllIssuancesVisibleFor(
-                        new AuthorizationContext(ADMIN_ORG_ID, UserRole.SYSADMIN, true, "multi_org")))
+                        TestAuthorizationDecisions.query(ADMIN_ORG_ID, UserRole.SYSADMIN, true)))
                 .expectError(ParseCredentialJsonException.class)
                 .verify();
     }
@@ -1485,13 +1486,12 @@ class IssuanceServiceImplTest {
     }
 
     @Test
-    void findCredentialOfferEmailInfoByIssuanceId_shouldUseTheSysTenant_whenTheStrategyIsNone() {
+    void findCredentialOfferEmailInfoByIssuanceId_shouldUseTheSysTenant_whenTheTypeHasNoMandator() {
         Issuance issuance = issuanceWithStatus(CredentialStatusEnum.DRAFT);
         issuance.setCredentialType("doctorid.sd.1");
         issuance.setEmail("owner@example.com");
         when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
         when(credentialProfileRegistry.getByConfigurationId("doctorid.sd.1")).thenReturn(CredentialProfile.builder()
-                .organizationExtraction(CredentialProfile.OrganizationExtraction.builder().strategy("none").build())
                 .build());
         when(appConfig.getSysTenant()).thenReturn(SYS_TENANT);
 
@@ -1508,10 +1508,10 @@ class IssuanceServiceImplTest {
         issuance.setCredentialDataSet(dataSet);
         when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
         when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4")).thenReturn(CredentialProfile.builder()
-                .organizationExtraction(CredentialProfile.OrganizationExtraction.builder().strategy("mandator").build())
                 .validation(validation)
                 .build());
-        when(objectMapper.readTree(dataSet)).thenReturn(JSON.readTree(dataSet));
+        // Only parsed when the type has a mandator path to read the organization name from.
+        lenient().when(objectMapper.readTree(dataSet)).thenReturn(JSON.readTree(dataSet));
         return issuanceService.findCredentialOfferEmailInfoByIssuanceId(issuance.getIssuanceId().toString());
     }
 
@@ -1556,7 +1556,7 @@ class IssuanceServiceImplTest {
         issuance.setCredentialDataSet("{");
         when(issuancePort.findByIssuanceId(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
         when(credentialProfileRegistry.getByConfigurationId("learcredential.employee.w3c.4")).thenReturn(CredentialProfile.builder()
-                .organizationExtraction(CredentialProfile.OrganizationExtraction.builder().strategy("mandator").build())
+                .validation(new CredentialProfile.Validation("credentialSubject.mandate.mandator.organizationIdentifier"))
                 .build());
         when(objectMapper.readTree("{")).thenThrow(new JsonParseException(null, "unexpected end"));
 

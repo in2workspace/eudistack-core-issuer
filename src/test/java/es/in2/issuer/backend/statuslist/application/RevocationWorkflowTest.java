@@ -2,7 +2,6 @@ package es.in2.issuer.backend.statuslist.application;
 
 import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
-import es.in2.issuer.backend.shared.domain.exception.UnauthorizedRoleException;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
@@ -12,8 +11,14 @@ import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
-import es.in2.issuer.backend.shared.domain.policy.service.StatusListPdpService;
+import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
+import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
+import es.in2.issuer.backend.shared.domain.policy.Caller;
+import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
+import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
+import es.in2.issuer.backend.support.TestAuthorizationDecisions;
+import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.statuslist.domain.spi.StatusListProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,7 +56,12 @@ class RevocationWorkflowTest {
     private AccessTokenService accessTokenService;
 
     @Mock
-    private StatusListPdpService statusListPdpService;
+    private CallerProvider callerProvider;
+
+    @Mock
+    private PowerAuthorizationService powerAuthorizationService;
+
+    private static final Caller CALLER = new Caller("VATES-A15456585", java.util.List.of(), "sandbox", null, "jti");
 
     @Mock
     private IssuanceService issuanceService;
@@ -86,6 +96,7 @@ class RevocationWorkflowTest {
         mockProcedure.setEmail("to@example.com");
         mockProcedure.setOrganizationIdentifier("VATES-A15456585");
         mockProcedure.setSubject("Jane Doe");
+        mockProcedure.setCredentialStatus(CredentialStatusEnum.VALID);
         lenient().when(transactionalOperator.transactional(any(Mono.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
     }
@@ -93,7 +104,7 @@ class RevocationWorkflowTest {
     private void arrangeRevocationThatPassesValidation() {
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
-        when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure)).thenReturn(Mono.empty());
+        permitRevocation();
     }
 
     @Test
@@ -124,7 +135,6 @@ class RevocationWorkflowTest {
     void revokeSystem_WalletNotification_ShouldStageRevocationWithOriginWalletNotificationAndNoReason() {
         // Arrange
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
-        when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure)).thenReturn(Mono.empty());
         when(statusListProvider.revoke(ISSUANCE_ID, null, "https://issuer.example.com")).thenReturn(Mono.empty());
         when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure)).thenReturn(Mono.empty());
         when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
@@ -146,7 +156,6 @@ class RevocationWorkflowTest {
     void revokeSystem_RevocationInstructionQueue_ShouldStageNothingBecauseTheCatalogueHasNoOriginForIt() {
         // Arrange
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
-        when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure)).thenReturn(Mono.empty());
         when(statusListProvider.revoke(ISSUANCE_ID, null, "https://issuer.example.com")).thenReturn(Mono.empty());
         when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure)).thenReturn(Mono.empty());
         when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
@@ -167,6 +176,9 @@ class RevocationWorkflowTest {
         // Arrange
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.empty());
+        when(callerProvider.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
+        when(powerAuthorizationService.authorize(PowerAuthorizationService.REVOKE, CALLER, null, ISSUANCE_ID))
+                .thenReturn(Mono.just(TestAuthorizationDecisions.query("VATES-A15456585", UserRole.LEAR, false)));
 
         // Act
         Mono<Void> revoked = revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "mistake", "https://issuer.example.com");
@@ -184,7 +196,7 @@ class RevocationWorkflowTest {
     void revoke_ProcessAlreadyRevoked_ShouldStageDeniedAlreadyRevokedWithHolder() {
         // Arrange
         mockProcedure.setCredentialStatus(CredentialStatusEnum.REVOKED);
-        arrangeRevocationThatPassesValidationWith(new InvalidStatusException("already revoked"));
+        arrangeRevocationThatPassesValidation();
 
         // Act
         Mono<Void> revoked = revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "again", "https://issuer.example.com");
@@ -200,7 +212,7 @@ class RevocationWorkflowTest {
     void revoke_ProcessNotInValidStatus_ShouldStageDeniedNotRevocable() {
         // Arrange
         mockProcedure.setCredentialStatus(CredentialStatusEnum.DRAFT);
-        arrangeRevocationThatPassesValidationWith(new InvalidStatusException("draft"));
+        arrangeRevocationThatPassesValidation();
 
         // Act
         Mono<Void> revoked = revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "reason", "https://issuer.example.com");
@@ -211,15 +223,15 @@ class RevocationWorkflowTest {
     }
 
     @Test
-    void revoke_RequesterWithoutTheRole_ShouldStageDeniedPolicyDenied() {
+    void revoke_RequesterOfAnotherTenant_ShouldStageDeniedPolicyDenied() {
         // Arrange
-        arrangeRevocationThatPassesValidationWith(new UnauthorizedRoleException("no role"));
+        arrangeRevocationWhereAuthorizationFails(new TenantMismatchException("tenant mismatch"));
 
         // Act
         Mono<Void> revoked = revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "reason", "https://issuer.example.com");
 
         // Assert
-        StepVerifier.create(revoked).expectError(UnauthorizedRoleException.class).verify();
+        StepVerifier.create(revoked).expectError(TenantMismatchException.class).verify();
         assertEquals("PolicyDenied", auditTrail.stagedInNewTransaction().getFirst().reason());
     }
 
@@ -247,7 +259,7 @@ class RevocationWorkflowTest {
     @Test
     void revoke_FailureWithoutCatalogueReason_ShouldStageNothingAndKeepTheError() {
         // Arrange
-        arrangeRevocationThatPassesValidationWith(new RuntimeException("Validation failed"));
+        arrangeRevocationWhereAuthorizationFails(new RuntimeException("Validation failed"));
 
         // Act
         Mono<Void> revoked = revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "reason", "https://issuer.example.com");
@@ -257,18 +269,42 @@ class RevocationWorkflowTest {
         assertTrue(auditTrail.all().isEmpty());
     }
 
-    private void arrangeRevocationThatPassesValidationWith(RuntimeException validationError) {
+    private void arrangeRevocationWhereAuthorizationFails(RuntimeException authorizationError) {
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
-        when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure))
-                .thenReturn(Mono.error(validationError));
+        when(callerProvider.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
+        when(powerAuthorizationService.authorize(eq(PowerAuthorizationService.REVOKE), eq(CALLER), eq("VATES-A15456585"), any()))
+                .thenReturn(Mono.error(authorizationError));
+    }
+
+    private void permitRevocation() {
+        when(callerProvider.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
+        when(powerAuthorizationService.authorize(eq(PowerAuthorizationService.REVOKE), eq(CALLER), eq("VATES-A15456585"), any()))
+                .thenReturn(Mono.just(TestAuthorizationDecisions.query("VATES-A15456585", UserRole.LEAR, false)));
+    }
+
+    /** A process stored without organization (pre EUD-272) must not read as "no resource" to the decision point. */
+    @Test
+    void revoke_processWithoutOrganization_isDecidedAsBelongingToNoOrganization() {
+        mockProcedure.setOrganizationIdentifier(null);
+        when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(callerProvider.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
+        when(powerAuthorizationService.authorize(eq(PowerAuthorizationService.REVOKE), eq(CALLER), eq(""), any()))
+                .thenReturn(Mono.error(new IssuanceNotFoundException("No issuance found")));
+
+        StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com"))
+                .expectError(IssuanceNotFoundException.class)
+                .verify();
+
+        verifyNoInteractions(statusListProvider);
     }
 
     @Test
     void revoke_ShouldSucceed() {
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
-        when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure)).thenReturn(Mono.empty());
+        permitRevocation();
         when(statusListProvider.revoke(ISSUANCE_ID, CLEAN_TOKEN, "https://issuer.example.com")).thenReturn(Mono.empty());
         when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure)).thenReturn(Mono.empty());
         when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
@@ -309,20 +345,41 @@ class RevocationWorkflowTest {
     void revoke_WithNonExistentIssuance_ShouldThrowIssuanceNotFoundException() {
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.empty());
+        when(callerProvider.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
+        when(powerAuthorizationService.authorize(PowerAuthorizationService.REVOKE, CALLER, null, ISSUANCE_ID))
+                .thenReturn(Mono.just(TestAuthorizationDecisions.query("VATES-A15456585", UserRole.LEAR, false)));
 
         StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com"))
-                .expectError(IssuanceNotFoundException.class)
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(IssuanceNotFoundException.class)
+                        .hasMessage("No issuance found for the given id"))
                 .verify();
 
-        verifyNoInteractions(statusListPdpService, statusListProvider);
+        verifyNoInteractions(statusListProvider);
+    }
+
+    /** A caller who may not revoke is denied whether or not the id exists: the answer does not reveal it. */
+    @Test
+    void revoke_withoutThePower_nonExistentIssuance_isDeniedNotNotFound() {
+        when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.empty());
+        when(callerProvider.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
+        when(powerAuthorizationService.authorize(PowerAuthorizationService.REVOKE, CALLER, null, ISSUANCE_ID))
+                .thenReturn(Mono.error(new LearIssuancePolicyException(LearIssuancePolicyException.Reason.OPERATOR_LACKS_ONBOARDING, "denied")));
+
+        StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com"))
+                .expectError(LearIssuancePolicyException.class)
+                .verify();
+
+        verifyNoInteractions(statusListProvider);
     }
 
     @Test
     void revoke_WithValidationFailure_ShouldPropagateError() {
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
-        when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure))
-                .thenReturn(Mono.error(new RuntimeException("Validation failed")));
+        when(callerProvider.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
+        when(powerAuthorizationService.authorize(any(), any(), any(), any())).thenReturn(Mono.error(new RuntimeException("Validation failed")));
 
         StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com"))
                 .expectError(RuntimeException.class)
@@ -332,7 +389,6 @@ class RevocationWorkflowTest {
     @Test
     void revokeSystem_ShouldSucceed() {
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
-        when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure)).thenReturn(Mono.empty());
         when(statusListProvider.revoke(ISSUANCE_ID, null, "https://issuer.example.com")).thenReturn(Mono.empty());
         when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure)).thenReturn(Mono.empty());
         when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
@@ -342,7 +398,7 @@ class RevocationWorkflowTest {
         StepVerifier.create(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, null, SYSTEM_ACTOR, "https://issuer.example.com"))
                 .verifyComplete();
 
-        verify(statusListPdpService).validateRevokeCredentialSystem(PROCESS_ID, mockProcedure);
+        verifyNoInteractions(powerAuthorizationService);
         verify(statusListProvider).revoke(ISSUANCE_ID, null, "https://issuer.example.com");
         verifyNoInteractions(accessTokenService);
     }
@@ -374,11 +430,10 @@ class RevocationWorkflowTest {
     @Test
     void revokeSystem_WithValidationFailure_ShouldPropagateError() {
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
-        when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure))
-                .thenReturn(Mono.error(new RuntimeException("System validation failed")));
+        mockProcedure.setCredentialStatus(CredentialStatusEnum.REVOKED);
 
         StepVerifier.create(revocationWorkflow.revokeSystem(PROCESS_ID, ISSUANCE_ID, null, SYSTEM_ACTOR, "https://issuer.example.com"))
-                .expectError(RuntimeException.class)
+                .expectError(InvalidStatusException.class)
                 .verify();
     }
 
@@ -386,7 +441,6 @@ class RevocationWorkflowTest {
     @Test
     void revokeSystem_usesExplicitActor_neverUnknown() {
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
-        when(statusListPdpService.validateRevokeCredentialSystem(PROCESS_ID, mockProcedure)).thenReturn(Mono.empty());
         when(statusListProvider.revoke(ISSUANCE_ID, null, "https://issuer.example.com")).thenReturn(Mono.empty());
         when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure)).thenReturn(Mono.empty());
         when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
@@ -407,7 +461,7 @@ class RevocationWorkflowTest {
     private void mockHappyPath() {
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
-        when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure)).thenReturn(Mono.empty());
+        permitRevocation();
         when(statusListProvider.revoke(ISSUANCE_ID, CLEAN_TOKEN, "https://issuer.example.com")).thenReturn(Mono.empty());
         when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure)).thenReturn(Mono.empty());
         when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
@@ -477,8 +531,8 @@ class RevocationWorkflowTest {
     void revoke_invalidStatus_emitsFailedAuditWithCategorizedErrorType() {
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
-        when(statusListPdpService.validateRevokeCredential(PROCESS_ID, CLEAN_TOKEN, mockProcedure))
-                .thenReturn(Mono.error(new InvalidStatusException("Invalid status: REVOKED")));
+        permitRevocation();
+        mockProcedure.setCredentialStatus(CredentialStatusEnum.REVOKED);
 
         StepVerifier.create(
                 revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com")
@@ -498,6 +552,9 @@ class RevocationWorkflowTest {
     void revoke_nonExistentIssuance_emitsAttemptedAndFailedAudit() {
         when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
         when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.empty());
+        when(callerProvider.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
+        when(powerAuthorizationService.authorize(PowerAuthorizationService.REVOKE, CALLER, null, ISSUANCE_ID))
+                .thenReturn(Mono.just(TestAuthorizationDecisions.query("VATES-A15456585", UserRole.LEAR, false)));
 
         StepVerifier.create(
                 revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com")
@@ -521,5 +578,40 @@ class RevocationWorkflowTest {
         ).verifyComplete();
 
         verify(issuanceService).updateIssuanceStatusToRevoked(mockProcedure);
+    }
+
+    /** EUD-272 AC: a resource of another organization reads as not found and leaves its reason in the trace. */
+    @SuppressWarnings("unchecked")
+    @Test
+    void revoke_outOfScope_failsAsIssuanceNotFound_andAuditsIt() {
+        when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(callerProvider.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
+        when(powerAuthorizationService.authorize(any(), any(), any(), any()))
+                .thenReturn(Mono.error(new IssuanceNotFoundException("No issuance found for issuanceId: " + ISSUANCE_ID)));
+
+        StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com"))
+                .expectError(IssuanceNotFoundException.class)
+                .verify();
+
+        verify(auditService).auditFailure(eq("credential.revoke.failed"), any(), eq("issuance_not_found"), any(Map.class));
+        verifyNoInteractions(statusListProvider);
+    }
+
+    @Test
+    void revoke_deniedByPowers_neverChecksStatusNorRevokes() {
+        mockProcedure.setCredentialStatus(CredentialStatusEnum.REVOKED);
+        when(accessTokenService.getCleanBearerToken(BEARER_TOKEN)).thenReturn(Mono.just(CLEAN_TOKEN));
+        when(issuanceService.getIssuanceById(ISSUANCE_ID)).thenReturn(Mono.just(mockProcedure));
+        when(callerProvider.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
+        when(powerAuthorizationService.authorize(any(), any(), any(), any()))
+                .thenReturn(Mono.error(new LearIssuancePolicyException(
+                        LearIssuancePolicyException.Reason.OPERATOR_LACKS_ONBOARDING, "no power")));
+
+        StepVerifier.create(revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, null, "https://issuer.example.com"))
+                .expectError(LearIssuancePolicyException.class)
+                .verify();
+
+        verifyNoInteractions(statusListProvider);
     }
 }
