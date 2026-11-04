@@ -132,6 +132,16 @@ public abstract class PostgresIntegrationBase {
      */
     protected String mintUserAccessToken(String tenantClaim, String organizationIdentifier,
                                          List<Map<String, Object>> powers) {
+        return mintUserAccessToken(tenantClaim, organizationIdentifier, powers, null);
+    }
+
+    /**
+     * {@link #mintUserAccessToken(String, String, List)} with the {@code credential_type} claim the
+     * Verifier puts in a portal token (e.g. {@code learcredential.employee.sd.1}), which the policy
+     * context ({@code PolicyContextFactory}) requires. {@code null} leaves the claim out.
+     */
+    protected String mintUserAccessToken(String tenantClaim, String organizationIdentifier,
+                                         List<Map<String, Object>> powers, String credentialType) {
         long now = Instant.now().getEpochSecond();
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("iss", "http://localhost:" + port + "/issuer");
@@ -142,6 +152,9 @@ public abstract class PostgresIntegrationBase {
         mandator.put("organizationIdentifier", organizationIdentifier);
         payload.set("power", objectMapper.valueToTree(powers));
         payload.put("tenant", tenantClaim);
+        if (credentialType != null) {
+            payload.put("credential_type", credentialType);
+        }
         return jwtService.issueJWT(payload.toString());
     }
 
