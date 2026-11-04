@@ -2,6 +2,8 @@ package es.in2.issuer.backend.statuslist.infrastructure.messaging;
 
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
+import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.statuslist.domain.exception.InvalidRevocationInstructionException;
 import es.in2.issuer.backend.statuslist.domain.exception.OptimisticUpdateException;
 import es.in2.issuer.backend.statuslist.domain.exception.RevocationInstructionInProgressException;
@@ -12,6 +14,8 @@ import es.in2.issuer.backend.statuslist.domain.exception.TenantBindingMismatchEx
 import es.in2.issuer.backend.statuslist.domain.exception.UnknownTenantException;
 import io.r2dbc.spi.R2dbcTimeoutException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.util.concurrent.TimeoutException;
 
@@ -83,6 +87,22 @@ class RevocationInstructionErrorClassifierTest {
     @Test
     void isRetryable_processingTimeout_isRetryable() {
         assertThat(classifier.isRetryable(new TimeoutException("30s exceeded"))).isTrue();
+    }
+
+    // ---------------------------------------------------------------- EUD-251 design §9.4: signing reasons
+
+    @ParameterizedTest
+    @EnumSource(value = SigningFailureReason.class,
+            names = {"NO_CONFIGURATION", "KEY_UNUSABLE", "UNSUPPORTED_ALGORITHM", "CERTIFICATE_INVALID", "INVALID_RESPONSE"})
+    void isRetryable_permanentSigningReasonInTheCauseChain_isPermanent(SigningFailureReason reason) {
+        var wrapped = new RemoteSignatureException("signing failed", new SigningException(reason, "cause"));
+        assertThat(classifier.isRetryable(wrapped)).isFalse();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SigningFailureReason.class, names = {"PROVIDER_UNAVAILABLE", "OTHER"})
+    void isRetryable_transientOrUnclassifiedSigningReason_isRetryable(SigningFailureReason reason) {
+        assertThat(classifier.isRetryable(new SigningException(reason, "cause"))).isTrue();
     }
 
     // ---------------------------------------------------------------- default: unclassified -> retryable
