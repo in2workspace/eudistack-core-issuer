@@ -1,8 +1,12 @@
 package es.in2.issuer.backend.signing.domain.util;
 
+import es.in2.issuer.backend.signing.domain.exception.CertificateCheckException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.model.CertificateCheck;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.security.MessageDigest;
 import java.security.cert.X509Certificate;
@@ -71,6 +75,20 @@ class OwnKeyCertificatesTest {
 
         assertThat(leaf.getIssuerX500Principal().toString()).contains(OwnKeyTestPki.ORGANIZATION_IDENTIFIER);
         assertThat(OwnKeyCertificates.subjectOrganizationIdentifier(leaf)).isEmpty();
+    }
+
+    /** The first one would otherwise win, and a verifier reading the other would attribute it to another organization. */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void subjectOrganizationIdentifier_twoInTheSubject_isRejected(boolean sameRdn) {
+        var leaf = PKI.leafWithTwoOrganizationIdentifiers(OwnKeyTestPki.ORGANIZATION_IDENTIFIER, "VATES-B60645900",
+                sameRdn).certificate();
+
+        assertThatThrownBy(() -> OwnKeyCertificates.subjectOrganizationIdentifier(leaf))
+                .isInstanceOfSatisfying(CertificateCheckException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(SigningFailureReason.CERTIFICATE_INVALID);
+                    assertThat(e.getCheck()).isEqualTo(CertificateCheck.DUPLICATED_ORGANIZATION_IDENTIFIER);
+                });
     }
 
     @Test

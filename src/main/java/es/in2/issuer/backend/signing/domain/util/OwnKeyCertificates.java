@@ -5,6 +5,9 @@ import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.CertificateCheck;
 
 import javax.naming.InvalidNameException;
+import javax.naming.NamingEnumeration;
+import javax.naming.NamingException;
+import javax.naming.directory.Attribute;
 import javax.naming.ldap.LdapName;
 import javax.naming.ldap.Rdn;
 import javax.security.auth.x500.X500Principal;
@@ -74,16 +77,25 @@ public final class OwnKeyCertificates {
 
     /**
      * The {@code organizationIdentifier} (2.5.4.97) of the subject of the certificate, and only of the
-     * subject: never of its issuer nor of another certificate of the chain.
+     * subject: never of its issuer nor of another certificate of the chain. Only a single-valued RDN counts,
+     * as before; one inside a multi-valued RDN is not read.
+     *
+     * @throws CertificateCheckException {@code DUPLICATED_ORGANIZATION_IDENTIFIER} if the subject holds more
+     *                                   than one, multi-valued RDNs included: the organization would be ambiguous
      */
     public static Optional<String> subjectOrganizationIdentifier(X509Certificate certificate) {
         // With a keyword for the OID the value is written as a string; without it, RFC 2253 writes it in hex.
         String name = certificate.getSubjectX500Principal()
                 .getName(X500Principal.RFC2253, Map.of(ORGANIZATION_IDENTIFIER_OID, ORGANIZATION_IDENTIFIER));
         try {
-            for (Rdn rdn : new LdapName(name).getRdns()) {
-                if (ORGANIZATION_IDENTIFIER.equalsIgnoreCase(rdn.getType()) && rdn.getValue() instanceof String value
-                        && !value.isBlank()) {
+            List<Rdn> rdns = new LdapName(name).getRdns();
+            if (organizationIdentifierCount(rdns) > 1) {
+                throw new CertificateCheckException(CertificateCheck.DUPLICATED_ORGANIZATION_IDENTIFIER,
+                        "The subject of the own-key certificate holds more than one organizationIdentifier");
+            }
+            for (Rdn rdn : rdns) {
+                if (rdn.size() == 1 && ORGANIZATION_IDENTIFIER.equalsIgnoreCase(rdn.getType())
+                        && rdn.getValue() instanceof String value && !value.isBlank()) {
                     return Optional.of(value);
                 }
             }
@@ -91,6 +103,25 @@ public final class OwnKeyCertificates {
         } catch (InvalidNameException e) {
             return Optional.empty();
         }
+    }
+
+    private static int organizationIdentifierCount(List<Rdn> rdns) {
+        int count = 0;
+        for (Rdn rdn : rdns) {
+            try {
+                NamingEnumeration<? extends Attribute> attributes = rdn.toAttributes().getAll();
+                while (attributes.hasMore()) {
+                    Attribute attribute = attributes.next();
+                    if (ORGANIZATION_IDENTIFIER.equalsIgnoreCase(attribute.getID())) {
+                        count += attribute.size();
+                    }
+                }
+            } catch (NamingException e) {
+                throw new CertificateCheckException(CertificateCheck.UNPARSABLE,
+                        "The subject of the own-key certificate cannot be read", e);
+            }
+        }
+        return count;
     }
 
     /**

@@ -1,5 +1,8 @@
 package es.in2.issuer.backend.signing.domain.service.impl;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import es.in2.issuer.backend.shared.domain.exception.TenantConfigMissingException;
 import es.in2.issuer.backend.shared.domain.service.TenantConfigService;
 import es.in2.issuer.backend.signing.domain.exception.CertificateCheckException;
@@ -9,8 +12,10 @@ import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyCertificatePort;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyCertificates;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -32,12 +37,25 @@ class OwnKeySigningConfigLoaderImplTest {
     private final OwnKeyCertificatePort port = mock(OwnKeyCertificatePort.class);
     private final TenantConfigService tenantConfig = mock(TenantConfigService.class);
     private OwnKeySigningConfigLoaderImpl loader;
+    private final Logger loaderLogger = (Logger) LoggerFactory.getLogger(OwnKeySigningConfigLoaderImpl.class);
+    private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
 
     @BeforeEach
     void setUp() {
         loader = new OwnKeySigningConfigLoaderImpl(providerOf(port), tenantConfig);
         lenient().when(tenantConfig.getStringOrThrow("admin_organization_id"))
                 .thenReturn(Mono.just(OwnKeyTestPki.ORGANIZATION_IDENTIFIER));
+        logs.start();
+        loaderLogger.addAppender(logs);
+    }
+
+    @AfterEach
+    void detachAppender() {
+        loaderLogger.detachAppender(logs);
+    }
+
+    private java.util.List<String> logMessages() {
+        return logs.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
     }
 
     @SuppressWarnings("unchecked")
@@ -87,6 +105,19 @@ class OwnKeySigningConfigLoaderImplTest {
         StepVerifier.create(loader.load(TENANT))
                 .expectErrorSatisfies(e -> assertReason(e, SigningFailureReason.NO_CONFIGURATION))
                 .verify();
+        assertThat(logMessages()).contains("OWN_KEY_CERTIFICATE_MISSING tenant=" + TENANT);
+    }
+
+    @Test
+    void load_certificateWithTwoOrganizationIdentifiers_isCertificateInvalid() throws Exception {
+        var leaf = PKI.leafWithTwoOrganizationIdentifiers(OwnKeyTestPki.ORGANIZATION_IDENTIFIER, "VATES-B60645900",
+                false).certificate();
+        when(port.findCertificateChainPem(TENANT)).thenReturn(Mono.just(pem(leaf)));
+
+        StepVerifier.create(loader.load(TENANT))
+                .expectErrorSatisfies(e -> assertCheck(e, SigningFailureReason.CERTIFICATE_INVALID,
+                        CertificateCheck.DUPLICATED_ORGANIZATION_IDENTIFIER))
+                .verify();
     }
 
     @Test
@@ -97,6 +128,8 @@ class OwnKeySigningConfigLoaderImplTest {
         StepVerifier.create(loader.load(TENANT))
                 .expectErrorSatisfies(e -> assertCheck(e, SigningFailureReason.NO_CONFIGURATION, CertificateCheck.ORGANIZATION_MISMATCH))
                 .verify();
+        assertThat(logMessages()).contains("CERTIFICATE_TENANT_MISMATCH tenant=" + TENANT
+                + " expected=" + OwnKeyTestPki.ORGANIZATION_IDENTIFIER + " certificate=VATES-B60645900");
     }
 
     @Test

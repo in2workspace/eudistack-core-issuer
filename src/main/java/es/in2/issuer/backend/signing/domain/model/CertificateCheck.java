@@ -19,6 +19,8 @@ public enum CertificateCheck {
     /** A certificate is not issued by the next one, or an intermediate is not a valid CA. */
     CHAIN_INVALID,
     NO_ORGANIZATION_IDENTIFIER,
+    /** The subject of the leaf holds more than one organizationIdentifier: which organization it is would be ambiguous. */
+    DUPLICATED_ORGANIZATION_IDENTIFIER,
     /** The leaf belongs to another organization than the tenant's. */
     ORGANIZATION_MISMATCH;
 

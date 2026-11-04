@@ -223,6 +223,27 @@ public final class OwnKeyTestPki {
         }
     }
 
+    /** P-256 leaf issued by the root whose subject carries two organizationIdentifier attributes. */
+    public Leaf leafWithTwoOrganizationIdentifiers(String first, String second, boolean sameRdn) {
+        try {
+            KeyPair keyPair = generateEc();
+            X500NameBuilder subject = new X500NameBuilder(BCStyle.INSTANCE)
+                    .addRDN(BCStyle.C, "ES")
+                    .addRDN(BCStyle.O, "ORGANIZACION DUPLICADA (ficticio)");
+            if (sameRdn) {
+                subject.addMultiValuedRDN(new org.bouncycastle.asn1.ASN1ObjectIdentifier[]{
+                        BCStyle.ORGANIZATION_IDENTIFIER, BCStyle.ORGANIZATION_IDENTIFIER}, new String[]{first, second});
+            } else {
+                subject.addRDN(BCStyle.ORGANIZATION_IDENTIFIER, first).addRDN(BCStyle.ORGANIZATION_IDENTIFIER, second);
+            }
+            subject.addRDN(BCStyle.CN, "Sello de pruebas");
+            return new Leaf(issue(subject.build(), rootKeyPair, name("Raiz de pruebas"), keyPair.getPublic(),
+                    "2024-01-01T00:00:00Z", "2099-01-01T00:00:00Z"), keyPair);
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not issue the leaf", e);
+        }
+    }
+
     /** A leaf issued by a certificate that is not a CA (basicConstraints cA=false); the chain is leaf and issuer. */
     public Chain chainWithNonCaIssuer() {
         try {
