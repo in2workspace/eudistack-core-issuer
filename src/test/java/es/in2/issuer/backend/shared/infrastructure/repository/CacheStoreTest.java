@@ -116,4 +116,13 @@ class CacheStoreTest {
                 .expectError(IllegalStateException.class)
                 .verify();
     }
+
+    @Test
+    void CacheStore_replace_emitsThePreviousValueAndStoresTheNewOne() {
+        CacheStore<String> realStore = new CacheStore<>(1, TimeUnit.MINUTES);
+
+        StepVerifier.create(realStore.replace("key", "first")).verifyComplete();
+        StepVerifier.create(realStore.replace("key", "second")).expectNext("first").verifyComplete();
+        StepVerifier.create(realStore.get("key")).expectNext("second").verifyComplete();
+    }
 }

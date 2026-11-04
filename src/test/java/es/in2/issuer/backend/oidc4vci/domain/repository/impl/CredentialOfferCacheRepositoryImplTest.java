@@ -59,6 +59,26 @@ class CredentialOfferCacheRepositoryImplTest {
     }
 
     @Test
+    void CredentialOfferCacheRepository_invalidateCredentialOffer_marksTheOfferConsumed() {
+        CredentialOfferData valid = CredentialOfferData.builder().expiresAt(NOW.plusSeconds(60)).build();
+        when(cacheStore.get(NONCE)).thenReturn(Mono.just(valid));
+        when(cacheStore.add(eq(NONCE), any())).thenReturn(Mono.just(NONCE));
+
+        StepVerifier.create(repository.invalidateCredentialOffer(NONCE)).verifyComplete();
+
+        verify(cacheStore).add(NONCE, valid.markConsumed());
+    }
+
+    @Test
+    void CredentialOfferCacheRepository_invalidateCredentialOffer_unknownNonceIsANoOp() {
+        when(cacheStore.get(NONCE)).thenReturn(Mono.empty());
+
+        StepVerifier.create(repository.invalidateCredentialOffer(NONCE)).verifyComplete();
+
+        verify(cacheStore, never()).add(anyString(), any());
+    }
+
+    @Test
     void CredentialOfferCacheRepository_findCredentialOfferById_validOfferIsReturnedAndMarkedConsumed() {
         CredentialOfferData valid = CredentialOfferData.builder().expiresAt(NOW.plusSeconds(60)).build();
         when(cacheStore.get(NONCE)).thenReturn(Mono.just(valid));

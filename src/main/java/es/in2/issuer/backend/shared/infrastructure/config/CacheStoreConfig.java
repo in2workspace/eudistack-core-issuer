@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.shared.infrastructure.config;
 
+import es.in2.issuer.backend.oidc4vci.domain.model.ActiveCredentialOffer;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.PushedAuthorizationRequest;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferData;
@@ -40,6 +41,12 @@ public class CacheStoreConfig {
     public TransientStore<CredentialOfferData> cacheStoreForCredentialOffer() {
         // Physical TTL outlives the logical one (CredentialOfferData.expiresAt) so expired offers
         // stay recognisable for the retention window; expiry itself is decided in the domain.
+        return new CacheStore<>(cacheConfig.getCacheRetentionForCredentialOffer(), TimeUnit.MINUTES);
+    }
+
+    @Bean
+    public TransientStore<ActiveCredentialOffer> activeCredentialOfferCacheStore() {
+        // Lives as long as the offer it points to, which outlives its grant.
         return new CacheStore<>(cacheConfig.getCacheRetentionForCredentialOffer(), TimeUnit.MINUTES);
     }
 

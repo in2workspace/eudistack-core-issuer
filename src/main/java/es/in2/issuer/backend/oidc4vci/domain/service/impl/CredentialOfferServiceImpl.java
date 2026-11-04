@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.oidc4vci.domain.service.impl;
 
+import es.in2.issuer.backend.oidc4vci.domain.model.ActiveCredentialOffer;
 import es.in2.issuer.backend.oidc4vci.domain.repository.CredentialOfferCacheRepository;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.oidc4vci.domain.service.PreAuthorizedCodeService;
@@ -39,6 +40,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
 
     private final PreAuthorizedCodeService preAuthorizedCodeService;
     private final TransientStore<String> issuerStateCacheStore;
+    private final TransientStore<ActiveCredentialOffer> activeCredentialOfferCacheStore;
     private final CredentialOfferCacheRepository credentialOfferCacheRepository;
     private final EmailService emailService;
     private final IssuanceService issuanceService;
@@ -67,10 +69,44 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                             .txCode(grantResult.txCode)
                             .build();
 
-                    return credentialOfferCacheRepository.saveCredentialOffer(data);
+                    return credentialOfferCacheRepository.saveCredentialOffer(data)
+                            .map(nonce -> new ActiveCredentialOffer(
+                                    nonce, grantResult.preAuthorizedCode, grantResult.issuerState));
                 })
-                .flatMap(nonce -> buildCredentialOfferUri(publicIssuerBaseUrl, nonce)
-                        .flatMap(uri -> deliverOffer(uri, issuanceId, credentialOfferRefreshToken, delivery)));
+                .flatMap(newOffer -> buildCredentialOfferUri(publicIssuerBaseUrl, newOffer.nonce())
+                        .flatMap(uri -> deliverOffer(uri, issuanceId, credentialOfferRefreshToken, delivery))
+                        .flatMap(result -> settleOffer(issuanceId, newOffer, result).thenReturn(result))
+                        .onErrorResume(ex -> invalidate(newOffer).then(Mono.error(ex))));
+    }
+
+    /**
+     * One issuance has one usable offer (EUD-295). An offer that reached the holder through at
+     * least one channel becomes the current one and retires the previous offer with its grant; an
+     * offer that reached nobody is retired itself, so a failed renewal leaves the previous one usable.
+     * A URI returned while the email failed counts as delivered: that is the issuance with
+     * {@code email,ui} whose email bounced (FR-11), and its URI must keep working.
+     */
+    private Mono<Void> settleOffer(String issuanceId, ActiveCredentialOffer newOffer, CredentialOfferResult result) {
+        boolean delivered = result.credentialOfferUri() != null || result.emailError() == null;
+        if (!delivered) {
+            log.info("Credential offer for issuance={} was not delivered; discarding it", issuanceId);
+            return invalidate(newOffer);
+        }
+        return activeCredentialOfferCacheStore.replace(issuanceId, newOffer)
+                .doOnNext(previous -> log.info("Retiring previous credential offer for issuance={}", issuanceId))
+                .flatMap(this::invalidate);
+    }
+
+    private Mono<Void> invalidate(ActiveCredentialOffer offer) {
+        Mono<Void> grant;
+        if (offer.preAuthorizedCode() != null) {
+            grant = preAuthorizedCodeService.revokePreAuthorizedCode(offer.preAuthorizedCode());
+        } else if (offer.issuerState() != null) {
+            grant = issuerStateCacheStore.delete(offer.issuerState());
+        } else {
+            grant = Mono.empty();
+        }
+        return Mono.when(credentialOfferCacheRepository.invalidateCredentialOffer(offer.nonce()), grant);
     }
 
     private Mono<CredentialOfferResult> deliverOffer(String credentialOfferUri, String issuanceId,
@@ -151,7 +187,8 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                 .map(frontendUrl -> frontendUrl + "/credential-offer-refresh/" + credentialOfferRefreshToken);
     }
 
-    private record GrantResult(CredentialOfferGrants grants, String txCode) {}
+    private record GrantResult(CredentialOfferGrants grants, String txCode,
+                               String preAuthorizedCode, String issuerState) {}
 
     private Mono<GrantResult> generateGrant(String issuanceId, String grantType) {
         if (GRANT_TYPE_PRE_AUTHORIZED_CODE.equals(grantType)) {
@@ -176,7 +213,8 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                             .preAuthorizedCode(preAuthGrant)
                             .build();
 
-                    return new GrantResult(grants, preAuthResponse.txCodeValue());
+                    return new GrantResult(grants, preAuthResponse.txCodeValue(),
+                            preAuthResponse.preAuthorizedCode(), null);
                 });
     }
 
@@ -193,7 +231,7 @@ public class CredentialOfferServiceImpl implements CredentialOfferService {
                             .authorizationCode(authCodeGrant)
                             .build();
 
-                    return new GrantResult(grants, null);
+                    return new GrantResult(grants, null, null, issuerState);
                 });
     }
 

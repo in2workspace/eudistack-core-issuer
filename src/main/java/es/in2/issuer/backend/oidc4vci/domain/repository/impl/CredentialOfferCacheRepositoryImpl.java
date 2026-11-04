@@ -35,6 +35,13 @@ public class CredentialOfferCacheRepositoryImpl implements CredentialOfferCacheR
         return generateCustomNonce().flatMap(nonce -> cacheStore.add(nonce, withExpiry));
     }
 
+    @Override
+    public Mono<Void> invalidateCredentialOffer(String id) {
+        return cacheStore.get(id)
+                .flatMap(credentialOfferData -> cacheStore.add(id, credentialOfferData.markConsumed()))
+                .then();
+    }
+
     /**
      * Redeems a credential offer: returns it once and marks it as consumed. The entry is kept
      * (not deleted) so that later lookups within the store's retention window can tell an
