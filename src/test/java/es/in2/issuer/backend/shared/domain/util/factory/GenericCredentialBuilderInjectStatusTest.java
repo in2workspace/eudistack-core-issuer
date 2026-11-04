@@ -19,8 +19,7 @@ class GenericCredentialBuilderInjectStatusTest {
     void setUp() {
         builder = new GenericCredentialBuilder(
                 objectMapper,
-                mock(IssuerFactory.class),
-                mock(es.in2.issuer.backend.shared.domain.service.AccessTokenService.class)
+                mock(IssuerFactory.class)
         );
     }
 
