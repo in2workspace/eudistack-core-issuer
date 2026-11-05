@@ -39,7 +39,9 @@ class OwnKeyCertificatePropertiesTest {
 
     @Test
     void nonPositiveTimeout_isRejected() {
-        assertThatThrownBy(() -> new OwnKeyCertificateProperties(URI.create("s3://b"), null, null, Duration.ZERO))
+        URI location = URI.create("s3://b");
+
+        assertThatThrownBy(() -> new OwnKeyCertificateProperties(location, null, null, Duration.ZERO))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

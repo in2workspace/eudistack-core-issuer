@@ -98,7 +98,7 @@ public final class OwnKeyCertificates {
                     .map(String.class::cast)
                     .filter(value -> !value.isBlank())
                     .findFirst();
-        } catch (InvalidNameException e) {
+        } catch (InvalidNameException _) {
             return Optional.empty();
         }
     }

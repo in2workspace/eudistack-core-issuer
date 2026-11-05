@@ -12,7 +12,6 @@ import java.security.MessageDigest;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
 import java.util.HexFormat;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -47,8 +46,11 @@ class OwnKeyCertificatesTest {
 
     @Test
     void parsePemChain_notAPem_isCertificateInvalid() {
-        assertThatThrownBy(() -> OwnKeyCertificates.parsePemChain("-----BEGIN CERTIFICATE-----\nnot base64\n"
-                + "-----END CERTIFICATE-----\n"))
+        assertThatThrownBy(() -> OwnKeyCertificates.parsePemChain("""
+                -----BEGIN CERTIFICATE-----
+                not base64
+                -----END CERTIFICATE-----
+                """))
                 .isInstanceOfSatisfying(SigningException.class,
                         e -> assertThat(e.getReason()).isEqualTo(SigningFailureReason.CERTIFICATE_INVALID));
     }
@@ -121,6 +123,6 @@ class OwnKeyCertificatesTest {
         X509Certificate renewed = PKI.certificateFor(leaf.keyPair().getPublic());
 
         assertThat(OwnKeyCertificates.keyAlias(renewed)).isEqualTo(OwnKeyCertificates.keyAlias(leaf.certificate()));
-        assertThat(List.of(renewed.getSerialNumber())).doesNotContain(leaf.certificate().getSerialNumber());
+        assertThat(renewed.getSerialNumber()).isNotEqualTo(leaf.certificate().getSerialNumber());
     }
 }

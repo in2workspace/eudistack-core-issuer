@@ -2,6 +2,7 @@ package es.in2.issuer.backend.signing.infrastructure.properties;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.util.StringUtils;
 
 import java.net.URI;
 import java.time.Duration;
@@ -39,6 +40,6 @@ public record OwnKeyCertificateProperties(
     /** The prefix without leading or trailing slashes; empty when the certificates are at the root of the bucket. */
     public String prefix() {
         String path = location.getPath() == null ? "" : location.getPath();
-        return path.replaceAll("^/+|/+$", "");
+        return StringUtils.trimTrailingCharacter(StringUtils.trimLeadingCharacter(path, '/'), '/');
     }
 }

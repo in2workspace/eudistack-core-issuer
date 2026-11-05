@@ -137,7 +137,9 @@ class TenantSigningConfigModalityMigrationIT extends PostgresIntegrationBase {
     void ownKeyRow_withQtspProvider_isRejected() {
         String schema = migratedSchemaWithOneActiveRow("tsc-ownkeyqtsp");
 
-        assertThatThrownBy(() -> exec(ownKeyInsert(schema, "withdrawn").replace("'aws-kms'", "'digitel'")))
+        String insert = ownKeyInsert(schema, "withdrawn").replace("'aws-kms'", "'digitel'");
+
+        assertThatThrownBy(() -> exec(insert))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("chk_tenant_signing_config_provider_modality");
     }
