@@ -53,6 +53,8 @@ public class CatalogEntryValidator {
     private static final String DUPLICATED = "is duplicated";
     private static final String AT_LEAST_ONE = "must be at least 1";
     private static final String VALIDITY_DEFAULT_DAYS = "validity.default_days";
+    private static final String VALIDITY_MAX_DAYS = "validity.max_days";
+    private static final String SUBJECT_FIELDS = "subject.fields";
 
     /*
      * Size limits (B2 and W4 of the EUD-323 review, SEC-11 and SEC-27). openapi.yaml (5b56f42d) sets none, so
@@ -178,11 +180,11 @@ public class CatalogEntryValidator {
             out.add(new Violation("validity.requester_can_set_dates", REQUIRED));
         }
         if (validity.maxDays() != null && validity.maxDays() < 1) {
-            out.add(new Violation("validity.max_days", AT_LEAST_ONE));
+            out.add(new Violation(VALIDITY_MAX_DAYS, AT_LEAST_ONE));
         } else if (validity.maxDays() != null && validity.maxDays() > MAX_DAYS) {
-            out.add(new Violation("validity.max_days", AT_MOST_MAX_DAYS));
+            out.add(new Violation(VALIDITY_MAX_DAYS, AT_MOST_MAX_DAYS));
         } else if (Boolean.TRUE.equals(validity.requesterCanSetDates()) && validity.maxDays() == null) {
-            out.add(new Violation("validity.max_days", "is required when requester_can_set_dates is true"));
+            out.add(new Violation(VALIDITY_MAX_DAYS, "is required when requester_can_set_dates is true"));
         }
     }
 
@@ -192,18 +194,18 @@ public class CatalogEntryValidator {
         }
         unknownFields(subject.unknownFields(), "subject.", out);
         if (subject.fields() == null) {
-            out.add(new Violation("subject.fields", REQUIRED));
+            out.add(new Violation(SUBJECT_FIELDS, REQUIRED));
         } else if (subject.fields().isEmpty()) {
-            out.add(new Violation("subject.fields", "must have at least one path"));
+            out.add(new Violation(SUBJECT_FIELDS, "must have at least one path"));
         } else if (subject.fields().size() > MAX_SUBJECT_FIELDS) {
-            out.add(new Violation("subject.fields", "must have at most " + MAX_SUBJECT_FIELDS + " paths"));
+            out.add(new Violation(SUBJECT_FIELDS, atMost(MAX_SUBJECT_FIELDS, "paths")));
         } else {
             Set<List<String>> seen = new HashSet<>();
             for (int i = 0; i < subject.fields().size(); i++) {
                 List<String> path = subject.fields().get(i);
-                validatePath(path, "subject.fields[" + i + "]", out);
+                validatePath(path, subjectField(i), out);
                 if (path != null && !seen.add(path)) {
-                    out.add(new Violation("subject.fields[" + i + "]", DUPLICATED));
+                    out.add(new Violation(subjectField(i), DUPLICATED));
                 }
             }
         }
@@ -216,7 +218,7 @@ public class CatalogEntryValidator {
             return;
         }
         if (separator.length() > MAX_SEPARATOR_LENGTH) {
-            out.add(new Violation("subject.separator", "must have at most " + MAX_SEPARATOR_LENGTH + " characters"));
+            out.add(new Violation("subject.separator", atMost(MAX_SEPARATOR_LENGTH, "characters")));
         } else if (separator.chars().anyMatch(Character::isISOControl)) {
             out.add(new Violation("subject.separator", "must not contain control characters"));
         }
@@ -227,7 +229,7 @@ public class CatalogEntryValidator {
             return;
         }
         if (identifiers.size() > MAX_SEARCH_IDENTIFIERS) {
-            out.add(new Violation("search_identifiers", "must have at most " + MAX_SEARCH_IDENTIFIERS + " identifiers"));
+            out.add(new Violation("search_identifiers", atMost(MAX_SEARCH_IDENTIFIERS, "identifiers")));
             return;
         }
         for (int i = 0; i < identifiers.size(); i++) {
@@ -329,7 +331,7 @@ public class CatalogEntryValidator {
         if (entry.subject() != null) {
             for (int i = 0; i < entry.subject().fields().size(); i++) {
                 if (!attributes.contains(entry.subject().fields().get(i))) {
-                    violations.add(new Violation("subject.fields[" + i + "]", "is not in the schema"));
+                    violations.add(new Violation(subjectField(i), "is not in the schema"));
                 }
             }
         }
@@ -367,5 +369,13 @@ public class CatalogEntryValidator {
         if (!shape.isEmpty()) {
             throw CatalogConfigurationException.badRequest(shape);
         }
+    }
+
+    private static String subjectField(int index) {
+        return SUBJECT_FIELDS + "[" + index + "]";
+    }
+
+    private static String atMost(int limit, String unit) {
+        return "must have at most " + limit + " " + unit;
     }
 }
