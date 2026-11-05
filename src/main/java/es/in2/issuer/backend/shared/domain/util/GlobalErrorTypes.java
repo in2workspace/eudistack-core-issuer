@@ -56,6 +56,8 @@ public enum GlobalErrorTypes {
     INVALID_CREDENTIAL_STATUS_TRANSITION("invalid_credential_status_transition"),
     INVALID_DELIVERY_CONFIG("invalid_delivery_config"),
     INVALID_REQUEST("invalid_request"),
+    // The code the public API guides document for a malformed request (EUD-307).
+    BAD_REQUEST("BAD_REQUEST"),
     DELIVERY_MODE_NOT_ELIGIBLE("delivery_mode_not_eligible"),
     INVALID_HOLDER_KEY("invalid_holder_key"),
     UNKNOWN_CREDENTIAL_CONFIGURATION("unknown_credential_configuration"),
