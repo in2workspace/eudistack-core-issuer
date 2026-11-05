@@ -8,10 +8,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-import java.security.MessageDigest;
+import java.math.BigInteger;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
-import java.util.HexFormat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -108,21 +107,27 @@ class OwnKeyCertificatesTest {
     }
 
     @Test
-    void keyAlias_isTheLowercaseHexSha256OfTheSubjectPublicKeyInfo() throws Exception {
-        var leaf = PKI.validP256Leaf();
-        String expected = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(leaf.publicKeyDer()));
+    void keyAlias_isTheSerialNumberInUppercaseHexWithoutLeadingZeros() {
+        var leaf = PKI.leafWithSerialNumber(new BigInteger("0a1b2c3d4e5f60718293a4b5c6d7e8f9", 16)).certificate();
 
-        String alias = OwnKeyCertificates.keyAlias(leaf.certificate());
-
-        assertThat(alias).isEqualTo("alias/own-key-" + expected).matches("alias/own-key-[0-9a-f]{64}");
+        assertThat(OwnKeyCertificates.keyAlias(leaf)).isEqualTo("alias/A1B2C3D4E5F60718293A4B5C6D7E8F9");
     }
 
     @Test
-    void keyAlias_sameKeyInAnotherCertificate_isTheSame() {
+    void keyAlias_sameKeyInAnotherCertificate_isAnotherAlias() {
         var leaf = PKI.validP256Leaf();
         X509Certificate renewed = PKI.certificateFor(leaf.keyPair().getPublic());
 
-        assertThat(OwnKeyCertificates.keyAlias(renewed)).isEqualTo(OwnKeyCertificates.keyAlias(leaf.certificate()));
-        assertThat(renewed.getSerialNumber()).isNotEqualTo(leaf.certificate().getSerialNumber());
+        assertThat(OwnKeyCertificates.keyAlias(renewed)).isNotEqualTo(OwnKeyCertificates.keyAlias(leaf.certificate()));
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0, -1})
+    void keyAlias_nonPositiveSerialNumber_isRejected(long serialNumber) {
+        var leaf = PKI.leafWithSerialNumber(BigInteger.valueOf(serialNumber)).certificate();
+
+        assertThatThrownBy(() -> OwnKeyCertificates.keyAlias(leaf))
+                .isInstanceOfSatisfying(CertificateCheckException.class,
+                        e -> assertThat(e.getCheck()).isEqualTo(CertificateCheck.NON_POSITIVE_SERIAL_NUMBER));
     }
 }

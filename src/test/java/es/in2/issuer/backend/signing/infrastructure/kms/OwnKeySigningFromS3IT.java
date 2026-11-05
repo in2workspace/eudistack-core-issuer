@@ -137,7 +137,7 @@ class OwnKeySigningFromS3IT {
                 .block(Duration.ofSeconds(30));
 
         assertThat(config).isNotNull();
-        assertThat(config.kmsKeyRef()).startsWith("alias/own-key-");
+        assertThat(config.kmsKeyRef()).isEqualTo(OwnKeyCertificates.keyAlias(certificate));
         assertThat(result).isNotNull();
         assertThat(SignedJWT.parse(result.data()).verify(new ECDSAVerifier(kmsPublicKey))).isTrue();
     }

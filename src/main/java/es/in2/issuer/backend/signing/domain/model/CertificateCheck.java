@@ -22,7 +22,9 @@ public enum CertificateCheck {
     /** The subject of the leaf holds more than one organizationIdentifier: which organization it is would be ambiguous. */
     DUPLICATED_ORGANIZATION_IDENTIFIER,
     /** The leaf belongs to another organization than the tenant's. */
-    ORGANIZATION_MISMATCH;
+    ORGANIZATION_MISMATCH,
+    /** The serial number of the leaf, which names its KMS key, is zero or negative. */
+    NON_POSITIVE_SERIAL_NUMBER;
 
     public String auditValue() {
         return name().toLowerCase(Locale.ROOT);

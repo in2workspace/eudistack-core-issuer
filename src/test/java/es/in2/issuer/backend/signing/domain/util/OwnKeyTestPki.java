@@ -102,6 +102,17 @@ public final class OwnKeyTestPki {
         }
     }
 
+    /** P-256 leaf issued by the root with the given serial number, which may be zero or negative. */
+    public Leaf leafWithSerialNumber(BigInteger serialNumber) {
+        try {
+            KeyPair keyPair = generateEc();
+            return new Leaf(issue(serialNumber, name("Sello de pruebas"), rootKeyPair, name("Raiz de pruebas"),
+                    keyPair.getPublic(), "2024-01-01T00:00:00Z", "2099-01-01T00:00:00Z", null, null, null), keyPair);
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not issue the leaf", e);
+        }
+    }
+
     /** P-384 leaf issued by the root. */
     public Leaf p384Leaf() {
         return p384Leaf;
@@ -354,9 +365,17 @@ public final class OwnKeyTestPki {
                                          java.security.PublicKey subjectKey, String notBefore, String notAfter,
                                          BasicConstraints basicConstraints, KeyUsage keyUsage, ExtensionAdder extra)
             throws Exception {
+        return issue(BigInteger.valueOf(System.nanoTime()), subject, signer, issuer, subjectKey, notBefore, notAfter,
+                basicConstraints, keyUsage, extra);
+    }
+
+    private static X509Certificate issue(BigInteger serialNumber, X500Name subject, KeyPair signer, X500Name issuer,
+                                         java.security.PublicKey subjectKey, String notBefore, String notAfter,
+                                         BasicConstraints basicConstraints, KeyUsage keyUsage, ExtensionAdder extra)
+            throws Exception {
         var builder = new JcaX509v3CertificateBuilder(
                 issuer,
-                BigInteger.valueOf(System.nanoTime()),
+                serialNumber,
                 Date.from(Instant.parse(notBefore)),
                 Date.from(Instant.parse(notAfter)),
                 subject,

@@ -12,18 +12,17 @@ import javax.naming.ldap.LdapName;
 import javax.naming.ldap.Rdn;
 import javax.security.auth.x500.X500Principal;
 import java.io.ByteArrayInputStream;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -33,8 +32,8 @@ import java.util.Optional;
  */
 public final class OwnKeyCertificates {
 
-    /** Prefix of every own-key alias; the runtime role of the Issuer is meant to sign only with these aliases. */
-    public static final String ALIAS_PREFIX = "alias/own-key-";
+    /** Prefix of every own-key alias: only the one KMS requires, as the onboarding tool of infra names them. */
+    public static final String ALIAS_PREFIX = "alias/";
 
     private static final String ORGANIZATION_IDENTIFIER_OID = "2.5.4.97";
     private static final String ORGANIZATION_IDENTIFIER = "organizationIdentifier";
@@ -126,17 +125,21 @@ public final class OwnKeyCertificates {
     }
 
     /**
-     * The alias of the KMS key of the certificate: {@value #ALIAS_PREFIX} followed by the SHA-256 of the
-     * DER SubjectPublicKeyInfo of the certificate, in lowercase hexadecimal. It depends only on the key, so
-     * a certificate renewed with the same key keeps its alias.
+     * The alias of the KMS key of the certificate, as the onboarding tool of infra names it: {@value #ALIAS_PREFIX}
+     * followed by the serial number of the certificate in uppercase hexadecimal, without leading zeros nor
+     * separators ({@code BigInteger.toString(16)}). A certificate renewed with the same key has another serial
+     * number, so infra names the key again before it publishes the new certificate.
+     *
+     * @throws CertificateCheckException {@code NON_POSITIVE_SERIAL_NUMBER} if the serial number is zero or
+     *                                   negative (RFC 5280 §4.1.2.2 requires a positive one)
      */
     public static String keyAlias(X509Certificate certificate) {
-        try {
-            byte[] spkiSha256 = MessageDigest.getInstance("SHA-256").digest(certificate.getPublicKey().getEncoded());
-            return ALIAS_PREFIX + HexFormat.of().formatHex(spkiSha256);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("The JDK does not provide SHA-256", e);
+        BigInteger serialNumber = certificate.getSerialNumber();
+        if (serialNumber.signum() <= 0) {
+            throw new CertificateCheckException(CertificateCheck.NON_POSITIVE_SERIAL_NUMBER,
+                    "The serial number of the own-key certificate is not positive");
         }
+        return ALIAS_PREFIX + serialNumber.toString(16).toUpperCase(Locale.ROOT);
     }
 
     private static SigningException invalid(String message, Throwable cause) {
