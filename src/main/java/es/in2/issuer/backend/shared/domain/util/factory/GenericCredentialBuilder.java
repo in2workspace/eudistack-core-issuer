@@ -20,6 +20,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -75,6 +76,36 @@ public class GenericCredentialBuilder {
                 .validFrom(Timestamp.from(parseInstant(validFrom)))
                 .validUntil(Timestamp.from(parseInstant(validUntil)))
                 .build());
+    }
+
+    /**
+     * The payload a stored credential data set was built from, the inverse of
+     * {@link #buildCredential}: the mandate, or the subject for the {@code direct} strategy, under
+     * {@code credentialSubject} (W3C) or at the top level (flat SD-JWT). Empty when the data set is
+     * not one built for the profile, so who decides on it can fail closed.
+     */
+    public Optional<JsonNode> extractPayload(CredentialProfile profile, String credentialDataSet) {
+        if (credentialDataSet == null || credentialDataSet.isBlank()) {
+            return Optional.empty();
+        }
+        JsonNode credential;
+        try {
+            credential = objectMapper.readTree(credentialDataSet);
+        } catch (Exception e) {
+            log.warn("Stored credential data set is not JSON: {}", e.getMessage());
+            return Optional.empty();
+        }
+        if (credential == null || !credential.isObject()) {
+            return Optional.empty();
+        }
+        JsonNode root = DC_SD_JWT.equals(profile.format()) && profile.sdJwt() != null
+                ? credential
+                : credential.get("credentialSubject");
+        if (root == null) {
+            return Optional.empty();
+        }
+        JsonNode payload = "direct".equals(profile.credentialSubjectStrategy()) ? root : root.get("mandate");
+        return payload != null && payload.isObject() ? Optional.of(payload) : Optional.empty();
     }
 
     /**

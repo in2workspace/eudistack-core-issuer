@@ -1,6 +1,10 @@
 package es.in2.issuer.backend.issuance.infrastructure.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import es.in2.issuer.backend.oidc4vci.domain.model.ActiveCredentialOffer;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferData;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
@@ -69,8 +73,10 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
     private static final String OPERATOR_ORG = "operator-org-for-renewal-it";
     private static final String OTHER_ORG = "other-org-for-renewal-it";
     private static final String CONFIG_ID = "learcredential.employee.w3c.4";
+    private static final String LABEL_CONFIG_ID = "gx.labelcredential.w3c.2";
     private static final String PRE_AUTHORIZED = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
     private static final String HOLDER = "holder@example.com";
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     // Powers as the action matrix of EUD-272 recognizes them: the tenant administrator by
     // organization · <tenant> · Onboarding · Execute, an organization administrator by domain · <tenant> · ...
     private static final Map<String, Object> TENANT_ADMIN =
@@ -104,6 +110,9 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
                 ThreadLocalRandom.current().nextInt(1, 255), ThreadLocalRandom.current().nextInt(1, 255));
         seedTenantConfig(TENANT);
         seedTenantConfig(OTHER_TENANT);
+        // A renewal is decided as issuing the process again: its type must be enabled (FR-07).
+        enableType(TENANT, CONFIG_ID);
+        enableType(TENANT, LABEL_CONFIG_ID);
         lenient().when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), any(), any()))
                 .thenReturn(Mono.empty());
         lenient().when(emailService.sendTxCodeNotification(anyString(), anyString())).thenReturn(Mono.empty());
@@ -337,7 +346,7 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
     }
 
     /**
-     * Who may renew is who may issue (E1/E2): Certification · Attest only issues product
+     * Who may renew is who may issue the process: Certification · Attest only issues product
      * certifications (E6), and a power of another domain is no power in this tenant (review S1).
      */
     @Test
@@ -351,6 +360,34 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
                 HttpStatus.FORBIDDEN, "insufficient_permission");
 
         openOffer(offer).expectStatus().isOk();
+    }
+
+    /**
+     * S1 of the review, round 3: a draft carrying a power the caller may not grant (the tenant
+     * administrator's, E4) is not offered again to an organization administrator of its own
+     * organization; the platform administrator, who may grant it, renews it.
+     */
+    @Test
+    void renew_draftWithAPowerTheCallerMayNotGrant_is403AndTheOfferStillWorks() {
+        UUID id = seedIssuance(TENANT, OPERATOR_ORG, "DRAFT", "ui", "authorization_code", CONFIG_ID,
+                learDataSet(TENANT_ADMIN));
+        String sysAdmin = mintUserAccessToken(TENANT, ADMIN_ORG, List.of(SYSADMIN));
+        String offer = offerUri(renew(sysAdmin, id).expectStatus().isOk());
+
+        expectProblem(renew(operatorToken(), id), HttpStatus.FORBIDDEN, "insufficient_permission");
+
+        openOffer(offer).expectStatus().isOk();
+    }
+
+    /** Decision 1 of the review, round 2: a product certification is renewed with E6, not E1. */
+    @Test
+    void renew_productCertification_isRenewedWithCertificationAttestOnly() {
+        UUID id = seedIssuance(TENANT, OPERATOR_ORG, "DRAFT", "ui", "authorization_code", LABEL_CONFIG_ID,
+                learDataSet());
+        String certifier = mintUserAccessToken(TENANT, OPERATOR_ORG, List.of(CERTIFY));
+
+        renew(certifier, id).expectStatus().isOk();
+        expectProblem(renew(operatorToken(), id), HttpStatus.FORBIDDEN, "insufficient_permission");
     }
 
     /** ES-05. */
@@ -533,14 +570,21 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
     }
 
     private UUID seedIssuance(String tenant, String organization, String status, String delivery, String grantType) {
+        return seedIssuance(tenant, organization, status, delivery, grantType, CONFIG_ID, learDataSet());
+    }
+
+    /** The data set as the builder stores it for the IT profiles (W3C, payload under credentialSubject.mandate). */
+    private UUID seedIssuance(String tenant, String organization, String status, String delivery, String grantType,
+                              String type, String dataSet) {
         UUID id = UUID.randomUUID();
         databaseClient.sql("INSERT INTO \"" + tenant + SCHEMA_SUFFIX + "\".issuance "
                         + "(issuance_id, credential_format, credential_data_set, credential_status, credential_type, "
                         + "organization_identifier, email, delivery, grant_type, credential_offer_refresh_token) "
-                        + "VALUES (:id, 'dc+sd-jwt', '{}', :status, :type, :org, :email, :delivery, :grant, :refresh)")
+                        + "VALUES (:id, 'jwt_vc_json', :dataSet, :status, :type, :org, :email, :delivery, :grant, :refresh)")
                 .bind("id", id)
+                .bind("dataSet", dataSet)
                 .bind("status", status)
-                .bind("type", CONFIG_ID)
+                .bind("type", type)
                 .bind("org", organization)
                 .bind("email", HOLDER)
                 .bind("delivery", delivery)
@@ -572,6 +616,27 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
                 .bind("org", organization)
                 .map(row -> row.get(0, Long.class))
                 .one().block();
+    }
+
+    @SafeVarargs
+    private static String learDataSet(Map<String, Object>... granted) {
+        ObjectNode credential = JsonNodeFactory.instance.objectNode();
+        ObjectNode mandate = credential.putObject("credentialSubject").putObject("mandate");
+        mandate.putObject("mandator").put("organizationIdentifier", OPERATOR_ORG);
+        mandate.putObject("mandatee").put("email", HOLDER);
+        ArrayNode powers = mandate.putArray("power");
+        for (Map<String, Object> power : granted) {
+            powers.add(OBJECT_MAPPER.valueToTree(power));
+        }
+        return credential.toString();
+    }
+
+    private void enableType(String tenant, String configurationId) {
+        databaseClient.sql("INSERT INTO \"" + tenant + SCHEMA_SUFFIX + "\".tenant_credential_profile "
+                        + "(credential_configuration_id, enabled) VALUES (:configId, true) "
+                        + "ON CONFLICT (credential_configuration_id) DO UPDATE SET enabled = true")
+                .bind("configId", configurationId)
+                .then().block();
     }
 
     private void seedTenantConfig(String tenant) {

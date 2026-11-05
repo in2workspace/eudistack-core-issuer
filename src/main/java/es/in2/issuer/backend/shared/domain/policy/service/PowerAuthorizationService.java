@@ -70,4 +70,23 @@ public interface PowerAuthorizationService {
      */
     Mono<IssuanceAuthorization> authorizeIssuance(String processId, String credentialConfigurationId, String credentialType,
                                                   String requestedOrganization, JsonNode payload);
+
+    /**
+     * Decides a reissue of a stored process -- a new credential offer of a draft (EUD-295) -- with
+     * the actions of {@link #authorizeIssuance} on the organization stored with it: E1 or E6 for its
+     * type, E2 when that organization is not the caller's, the grant rule of every power its content
+     * carries in {@code payload.power} and the type enabled in the tenant.
+     *
+     * <p>Unlike an issuance, a caller who may issue but is denied E2 finds the process out of scope
+     * and it fails as {@code IssuanceNotFoundException}, so another organization's process is not
+     * disclosed (and its content is not decided). Any other denial is a {@code LearIssuancePolicyException}.
+     *
+     * @param processId                 the stored process, the resource of the decision
+     * @param credentialConfigurationId the type the process was issued with
+     * @param credentialType            its {@code credential_definition.type}
+     * @param resourceOrganization      organization stored with the process (blank when it has none)
+     * @param payload                   the content the process was issued with
+     */
+    Mono<IssuanceAuthorization> authorizeReissue(Caller caller, String processId, String credentialConfigurationId,
+                                                 String credentialType, String resourceOrganization, JsonNode payload);
 }

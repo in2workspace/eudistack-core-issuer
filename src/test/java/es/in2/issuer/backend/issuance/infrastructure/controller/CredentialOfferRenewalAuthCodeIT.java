@@ -73,6 +73,12 @@ class CredentialOfferRenewalAuthCodeIT extends PostgresIntegrationBase {
         clientIp = "10.%d.%d.%d".formatted(ThreadLocalRandom.current().nextInt(1, 255),
                 ThreadLocalRandom.current().nextInt(1, 255), ThreadLocalRandom.current().nextInt(1, 255));
         upsertConfig("issuer.frontend_url", "https://frontend.example.com/issuer");
+        // A renewal is decided as issuing the process again: its type must be enabled (FR-07).
+        databaseClient.sql("INSERT INTO \"" + TENANT + SCHEMA_SUFFIX + "\".tenant_credential_profile "
+                        + "(credential_configuration_id, enabled) VALUES (:configId, true) "
+                        + "ON CONFLICT (credential_configuration_id) DO UPDATE SET enabled = true")
+                .bind("configId", CONFIG_ID)
+                .then().block();
         lenient().when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), any(), any()))
                 .thenReturn(Mono.empty());
     }
@@ -192,9 +198,12 @@ class CredentialOfferRenewalAuthCodeIT extends PostgresIntegrationBase {
         databaseClient.sql("INSERT INTO \"" + TENANT + SCHEMA_SUFFIX + "\".issuance "
                         + "(issuance_id, credential_format, credential_data_set, credential_status, credential_type, "
                         + "organization_identifier, email, delivery, grant_type, credential_offer_refresh_token) "
-                        + "VALUES (:id, 'dc+sd-jwt', '{}', 'DRAFT', :type, :org, 'holder@example.com', 'ui', "
+                        + "VALUES (:id, 'jwt_vc_json', :dataSet, 'DRAFT', :type, :org, 'holder@example.com', 'ui', "
                         + "'authorization_code', :refresh)")
                 .bind("id", id)
+                // As the builder stores a W3C LEAR without powers to grant: the payload under credentialSubject.mandate.
+                .bind("dataSet", "{\"credentialSubject\":{\"mandate\":{\"mandator\":{\"organizationIdentifier\":\""
+                        + OPERATOR_ORG + "\"},\"power\":[]}}}")
                 .bind("type", CONFIG_ID)
                 .bind("org", OPERATOR_ORG)
                 .bind("refresh", UUID.randomUUID().toString())

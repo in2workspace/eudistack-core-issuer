@@ -2,6 +2,7 @@ package es.in2.issuer.backend.issuance.application.workflow.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.issuance.domain.exception.OfferNotRenewableException;
+import es.in2.issuer.backend.issuance.domain.exception.RenewalContentNotDecidableException;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalDeliveryFailedException;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalInvalidIssuanceIdException;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalIssuanceNotFoundException;
@@ -9,7 +10,9 @@ import es.in2.issuer.backend.issuance.domain.exception.RenewalPermissionDeniedEx
 import es.in2.issuer.backend.issuance.domain.exception.RenewalTenantMismatchException;
 import es.in2.issuer.backend.issuance.domain.model.CredentialOfferRenewal;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
+import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException.Reason;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferResult;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
@@ -21,7 +24,10 @@ import es.in2.issuer.backend.shared.domain.policy.service.impl.PowerAuthorizatio
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
+import es.in2.issuer.backend.shared.domain.spi.CredentialProfileCatalog;
+import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.FileAuthorizationMatrixProvider;
+import es.in2.issuer.backend.statuslist.domain.util.factory.IssuerFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -48,7 +54,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * The renewal against the real decision point of EUD-272 and the bundled action matrix: who may
- * renew is who may issue in the issuance's organization (E1, or E2 for another organization).
+ * renew is who may issue the stored process again -- E1 or E6 for its type, E2 for another
+ * organization, the grant rule of every power its content carries and the type enabled.
  */
 class CredentialOfferRenewalWorkflowImplTest {
 
@@ -60,6 +67,9 @@ class CredentialOfferRenewalWorkflowImplTest {
     private static final String OTHER_ORG = "VATES-A11111111";
     private static final String OFFER_URI = "openid-credential-offer://?credential_offer_uri=new";
     private static final String ATTESTATION = "urn:uuid:attestation-of-the-caller";
+    private static final String LEAR_TYPE = "learcredential.employee.sd.1";
+    private static final String LABEL_TYPE = "gx.labelcredential.w3c.2";
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final Power PLATFORM_ADMIN = power("organization", "EUDISTACK", "System", "Administration");
     private static final Power TENANT_ADMIN = power("organization", TENANT, "Onboarding", "Execute");
@@ -72,6 +82,7 @@ class CredentialOfferRenewalWorkflowImplTest {
     private CredentialOfferService credentialOfferService;
     private AuditService auditService;
     private AuditService decisionAuditService;
+    private TenantCredentialProfileService profiles;
     private CredentialOfferRenewalWorkflowImpl workflow;
 
     @BeforeEach
@@ -81,13 +92,14 @@ class CredentialOfferRenewalWorkflowImplTest {
         credentialOfferService = mock(CredentialOfferService.class);
         auditService = mock(AuditService.class);
         decisionAuditService = mock(AuditService.class);
-        TenantCredentialProfileService profiles = mock(TenantCredentialProfileService.class);
+        profiles = mock(TenantCredentialProfileService.class);
         when(profiles.isProfileAllowed(anyString())).thenReturn(Mono.just(true));
         PowerAuthorizationService decisionPoint = new PowerAuthorizationServiceImpl(
                 new FileAuthorizationMatrixProvider("", mock(AuditService.class)),
-                callerProvider, profiles, decisionAuditService, new ObjectMapper());
-        workflow = new CredentialOfferRenewalWorkflowImpl(callerProvider, decisionPoint, issuanceService,
-                credentialOfferService, auditService);
+                callerProvider, profiles, decisionAuditService, MAPPER);
+        CredentialProfileCatalog catalog = Map.of(LEAR_TYPE, LEAR_PROFILE, LABEL_TYPE, LABEL_PROFILE)::get;
+        workflow = new CredentialOfferRenewalWorkflowImpl(callerProvider, decisionPoint, issuanceService, catalog,
+                new GenericCredentialBuilder(MAPPER, mock(IssuerFactory.class)), credentialOfferService, auditService);
     }
 
     // ── Successful renewals ───────────────────────────────────────────────────────────────
@@ -187,7 +199,7 @@ class CredentialOfferRenewalWorkflowImplTest {
                 .verifyComplete();
 
         verify(decisionAuditService).auditSuccess(eq("authorization.permit"), anyString(), eq("action"),
-                eq(PowerAuthorizationService.ISSUE_ON_BEHALF), argThat(details -> OTHER_ORG.equals(details.get("resourceOrganization"))));
+                eq("E1,E2"), argThat(details -> OTHER_ORG.equals(details.get("resourceOrganization"))));
     }
 
     /** Inside a tenant the platform administrator acts as its administrator, traced as a security action. */
@@ -202,8 +214,112 @@ class CredentialOfferRenewalWorkflowImplTest {
                 .verifyComplete();
 
         verify(decisionAuditService).auditSuccess(eq("authorization.permit"), anyString(), eq("action"),
-                eq(PowerAuthorizationService.ISSUE_ON_BEHALF), argThat(details -> "platform_admin".equals(details.get("userType"))
+                eq("E1,E2"), argThat(details -> "platform_admin".equals(details.get("userType"))
                         && Boolean.TRUE.equals(details.get("securityAction"))));
+    }
+
+    // ── Decided as issuing the stored process (EUD-295 review round 3, B1) ───────────────────
+
+    /** S1: a draft carrying a power the caller may not grant is not offered again to it. */
+    @Test
+    void renew_draftWithAPowerTheCallerMayNotGrant_isPermissionDenied() {
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("ui", ORG, LEAR_TYPE, learDataSet(TENANT_ADMIN)));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalPermissionDeniedException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+        verify(decisionAuditService).auditFailure(eq("authorization.deny"), anyString(),
+                eq(Reason.TENANT_ADMIN_DELEGATION_REQUIRES_PLATFORM_ADMIN.getCode()), any());
+    }
+
+    @Test
+    void renew_draftWithAPowerTheCallerMayGrant_isRenewed() {
+        givenCaller(PLATFORM_ADMIN);
+        givenIssuance(draft("ui", ORG, LEAR_TYPE, learDataSet(TENANT_ADMIN)));
+        givenOfferDelivered("ui", OFFER_URI, null);
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectNext(new CredentialOfferRenewal(DeliveryMode.UI, OFFER_URI))
+                .verifyComplete();
+    }
+
+    /** Decision 1 of the round-2 review: a product certification is renewed with E6. */
+    @Test
+    void renew_productCertificationWithOnlyCertificationAttest_isRenewed() {
+        givenCaller(CERTIFY);
+        givenIssuance(draft("ui", ORG, LABEL_TYPE, labelDataSet()));
+        givenOfferDelivered("ui", OFFER_URI, null);
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectNext(new CredentialOfferRenewal(DeliveryMode.UI, OFFER_URI))
+                .verifyComplete();
+    }
+
+    @Test
+    void renew_productCertificationWithoutCertificationAttest_isPermissionDenied() {
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("ui", ORG, LABEL_TYPE, labelDataSet()));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalPermissionDeniedException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+    }
+
+    /** FR-07: a type no longer enabled in the tenant is not offered again. */
+    @Test
+    void renew_typeNoLongerEnabled_isPermissionDenied() {
+        when(profiles.isProfileAllowed(LEAR_TYPE)).thenReturn(Mono.just(false));
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("ui", ORG));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalPermissionDeniedException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+    }
+
+    /** Fail closed: content that cannot be read cannot be decided, and the denial is audited here. */
+    @Test
+    void renew_unreadableContent_isPermissionDeniedAndAudited() {
+        givenCaller(TENANT_ADMIN);
+        givenIssuance(draft("ui", ORG, LEAR_TYPE, "not json"));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalContentNotDecidableException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+        verify(auditService).auditFailure(eq(CredentialOfferRenewalWorkflowImpl.EVENT_FAILED), eq(ATTESTATION),
+                eq("content_not_decidable"), any());
+    }
+
+    @Test
+    void renew_typeWithoutProfile_isPermissionDenied() {
+        givenCaller(TENANT_ADMIN);
+        givenIssuance(draft("ui", ORG, "unknown.type.1", learDataSet()));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalContentNotDecidableException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+    }
+
+    /** Who may only certify products may issue: a nonexistent id is not found for it, not forbidden. */
+    @Test
+    void renew_nonexistentWithOnlyCertificationAttest_isNotFound() {
+        givenCaller(CERTIFY);
+        when(issuanceService.getIssuanceById(ID.toString())).thenReturn(Mono.empty());
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalIssuanceNotFoundException.class)
+                .verify();
     }
 
     // ── Who may not renew (EUD-295 review, S1) ────────────────────────────────────────────
@@ -297,7 +413,8 @@ class CredentialOfferRenewalWorkflowImplTest {
                 .verify();
 
         verifyNoInteractions(credentialOfferService);
-        verify(decisionAuditService).auditFailure(eq("authorization.deny"), anyString(), eq("resource_out_of_scope"), any());
+        verify(decisionAuditService).auditFailure(eq("authorization.deny"), anyString(),
+                eq(Reason.ON_BEHALF_REQUIRES_TENANT_ADMIN.getCode()), any());
     }
 
     /** An issuance stored without an organization (before EUD-272) belongs to none. */
@@ -594,15 +711,57 @@ class CredentialOfferRenewalWorkflowImplTest {
     }
 
     private static Issuance draft(String delivery, String organization) {
+        return draft(delivery, organization, LEAR_TYPE, learDataSet());
+    }
+
+    private static Issuance draft(String delivery, String organization, String type, String dataSet) {
         return Issuance.builder()
                 .issuanceId(ID)
                 .credentialStatus(CredentialStatusEnum.DRAFT)
                 .organizationIdentifier(organization)
-                .credentialType("learcredential.employee.sd.1")
+                .credentialType(type)
+                .credentialDataSet(dataSet)
                 .email("holder@example.com")
                 .delivery(delivery)
                 .grantType("authorization_code")
                 .credentialOfferRefreshToken("refresh-token")
                 .build();
+    }
+
+    private static final CredentialProfile LEAR_PROFILE = CredentialProfile.builder()
+            .credentialConfigurationId(LEAR_TYPE)
+            .format("dc+sd-jwt")
+            .sdJwt(CredentialProfile.SdJwtConfig.builder().vct("urn:test:employee").build())
+            .credentialSubjectStrategy("mandate")
+            .build();
+
+    private static final CredentialProfile LABEL_PROFILE = CredentialProfile.builder()
+            .credentialConfigurationId(LABEL_TYPE)
+            .format("jwt_vc_json")
+            .credentialDefinition(CredentialProfile.CredentialDefinition.builder()
+                    .type(List.of("gx:LabelCredential", "VerifiableCredential"))
+                    .build())
+            .credentialSubjectStrategy("direct")
+            .build();
+
+    /** A flat SD-JWT LEAR as the builder stores it: the payload under {@code mandate}. */
+    private static String learDataSet(Power... granted) {
+        var credential = MAPPER.createObjectNode().put("vct", "urn:test:employee");
+        var mandate = credential.putObject("mandate");
+        mandate.putObject("mandator").put("organizationIdentifier", ORG);
+        mandate.putObject("mandatee").put("firstName", "Ana");
+        var powers = mandate.putArray("power");
+        for (Power power : granted) {
+            powers.add(MAPPER.valueToTree(power));
+        }
+        return credential.toString();
+    }
+
+    /** A W3C product certification as the builder stores it: the payload as {@code credentialSubject}. */
+    private static String labelDataSet() {
+        var credential = MAPPER.createObjectNode();
+        credential.putArray("type").add("gx:LabelCredential").add("VerifiableCredential");
+        credential.putObject("credentialSubject").put("id", "urn:uuid:product-1");
+        return credential.toString();
     }
 }

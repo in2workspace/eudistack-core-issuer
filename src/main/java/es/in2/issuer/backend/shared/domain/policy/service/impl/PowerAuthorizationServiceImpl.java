@@ -176,6 +176,55 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
                 }));
     }
 
+    @Override
+    public Mono<IssuanceAuthorization> authorizeReissue(Caller caller, String processId, String credentialConfigurationId,
+                                                        String credentialType, String resourceOrganization, JsonNode payload) {
+        return requestTenant().flatMap(tenant -> Mono.defer(() -> decideReissue(
+                caller, processId, credentialConfigurationId, credentialType, resourceOrganization, payload, tenant)));
+    }
+
+    /**
+     * The actions of {@link #decideIssuance} in the order {@link #issuanceActions} gives them -- base,
+     * E2, grants -- so a caller who may not issue at all is denied before the scope is looked at, and
+     * the content of another organization's process is decided only for who may issue there.
+     */
+    private Mono<IssuanceAuthorization> decideReissue(Caller caller, String processId, String credentialConfigurationId,
+                                                      String credentialType, String resourceOrganization, JsonNode payload,
+                                                      String tenant) {
+        AuthorizationMatrix matrix = matrixProvider.current();
+        String organization = Objects.requireNonNullElse(resourceOrganization, "");
+        Trace trace = new Trace(ISSUE_OWN, caller, tenant)
+                .with("reissue", true)
+                .with("resourceOrganization", organization)
+                .with("resourceId", processId)
+                .with("credentialConfigurationId", credentialConfigurationId);
+        requireTenantMatch(caller, tenant, trace);
+        RecognizedCaller recognized = recognize(matrix, caller, tenant);
+        trace.recognized(recognized, recognizingPower(matrix, recognized));
+
+        // The stored content passed the alias check when it was issued; each power has one reading.
+        List<String> actionIds = issuanceActions(matrix, List.of(credentialConfigurationId, String.valueOf(credentialType)),
+                organization, caller, payload, tenant);
+        for (String actionId : actionIds) {
+            trace.action(actionId);
+            try {
+                evaluate(matrix.action(actionId), actionId, recognized, trace);
+            } catch (LearIssuancePolicyException denied) {
+                // E2 denied to who may issue for its own organization: out of scope, read as not found.
+                return Mono.error(ISSUE_ON_BEHALF.equals(actionId)
+                        ? new IssuanceNotFoundException("No issuance found for the given id")
+                        : denied);
+            }
+        }
+        trace.action(String.join(",", actionIds));
+
+        return requireTypeEnabled(credentialConfigurationId, trace)
+                .then(Mono.fromSupplier(() -> {
+                    permit(trace);
+                    return new IssuanceAuthorization(recognized, organization, actionIds);
+                }));
+    }
+
     /**
      * The actions an issuance needs: the base one for its type (E6 for product certifications, E1
      * otherwise), E2 when it is for another organization, and one grant action per power it carries.

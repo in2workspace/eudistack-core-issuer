@@ -2,6 +2,7 @@ package es.in2.issuer.backend.issuance.application.workflow.impl;
 
 import es.in2.issuer.backend.issuance.application.workflow.CredentialOfferRenewalWorkflow;
 import es.in2.issuer.backend.issuance.domain.exception.OfferNotRenewableException;
+import es.in2.issuer.backend.issuance.domain.exception.RenewalContentNotDecidableException;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalDeliveryFailedException;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalInvalidIssuanceIdException;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalIssuanceNotFoundException;
@@ -12,16 +13,19 @@ import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
 import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
+import com.fasterxml.jackson.databind.JsonNode;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferResult;
+import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
-import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
 import es.in2.issuer.backend.shared.domain.policy.Caller;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.spi.CredentialProfileCatalog;
+import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.domain.util.IssuanceIds;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
@@ -32,15 +36,16 @@ import reactor.core.publisher.Mono;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.AUTHORIZATION_CODE;
 
 /**
  * Checks run in the order of the acceptance contract (EUD-295 ac.md): tenant of the token, id
- * format, permission and scope -- decided by the decision point of EUD-272 as an issuance (E1, or
- * E2 for another organization) on the organization stored with the issuance -- and last status and
- * delivery mode. Authentication and the volume limit are decided earlier by the web filters.
+ * format, permission and scope -- decided by the decision point of EUD-272 as issuing the stored
+ * process again (base action for its type, E2 for another organization, grant rules for its
+ * content, type enabled) -- and last status and delivery mode. Authentication and the volume limit are decided earlier by the web filters.
  */
 @Slf4j
 @Service
@@ -60,6 +65,8 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
     private final CallerProvider callerProvider;
     private final PowerAuthorizationService powerAuthorizationService;
     private final IssuanceService issuanceService;
+    private final CredentialProfileCatalog credentialProfileCatalog;
+    private final GenericCredentialBuilder credentialBuilder;
     private final CredentialOfferService credentialOfferService;
     private final AuditService auditService;
 
@@ -101,17 +108,16 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
     // ── Authorization: the single point of the renewal ─────────────────────────────────────────
 
     /**
-     * Who may renew is who may issue in the issuance's organization: E1 on the caller's own
-     * organization, E2 on another of the tenant. Who may not issue at all gets 403 whether or not
-     * the issuance exists (an id that is not in the tenant is decided without a resource, like
-     * EUD-272's lifecycle actions); an issuance out of scope answers like one that does not exist.
+     * Who may renew is who may issue the stored process again (decision 1 of the EUD-295 review,
+     * round 3): the same actions as issuing it, on the organization stored with it. Who may not issue
+     * at all gets 403 whether or not the issuance exists; an issuance out of scope answers like one
+     * that does not exist (AC-06, AC-11).
      */
     private Mono<Issuance> findAuthorizedIssuance(Caller caller, UUID id) {
         String resourceId = id.toString();
         return issuanceService.getIssuanceById(resourceId)
-                .flatMap(issuance -> authorizeOn(caller, issuance, resourceId).thenReturn(issuance))
-                .switchIfEmpty(Mono.defer(() -> powerAuthorizationService
-                        .authorize(PowerAuthorizationService.ISSUE_OWN, caller, null, resourceId)
+                .flatMap(issuance -> authorizeReissue(caller, issuance, resourceId).thenReturn(issuance))
+                .switchIfEmpty(Mono.defer(() -> authorizeWithoutResource(caller, resourceId)
                         .then(Mono.error(new RenewalIssuanceNotFoundException(NOT_FOUND_DETAIL)))))
                 .onErrorMap(LearIssuancePolicyException.class,
                         ex -> new RenewalPermissionDeniedException("The requester may not renew credential offers"))
@@ -122,20 +128,36 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
     }
 
     /**
-     * E1 when the issuance is of the caller's organization, E2 otherwise. A caller denied E2 is told
-     * apart by E1 on the same issuance: one who may issue only for its own organization finds it out
-     * of scope (404, AC-06); one who may not issue at all is denied (403, AC-11). An issuance stored
-     * without an organization (before EUD-272) belongs to none, as in the lifecycle actions.
+     * An id that is not in the tenant has no type to decide on: who may issue anything -- E1, or E6
+     * for product certifications -- learns it does not exist; anyone else is denied (AC-11).
      */
-    private Mono<AuthorizationDecision> authorizeOn(Caller caller, Issuance issuance, String resourceId) {
-        String organization = Objects.requireNonNullElse(issuance.getOrganizationIdentifier(), "");
-        if (organization.equals(caller.organizationIdentifier())) {
-            return powerAuthorizationService.authorize(PowerAuthorizationService.ISSUE_OWN, caller, organization, resourceId);
+    private Mono<Void> authorizeWithoutResource(Caller caller, String resourceId) {
+        return powerAuthorizationService.authorize(PowerAuthorizationService.ISSUE_OWN, caller, null, resourceId)
+                .onErrorResume(LearIssuancePolicyException.class, notE1 -> powerAuthorizationService.authorize(
+                        PowerAuthorizationService.ISSUE_PRODUCT_CERTIFICATION, caller, null, resourceId))
+                .then();
+    }
+
+    /**
+     * Decides the stored process as an issuance of its type and content. A process whose type is no
+     * longer known or whose content cannot be read is denied: what it would grant cannot be decided
+     * (fail closed, EUD-295 tasks.md note 9). The decision point never sees it, so the renewal audits it.
+     */
+    private Mono<Void> authorizeReissue(Caller caller, Issuance issuance, String resourceId) {
+        String configurationId = issuance.getCredentialType();
+        CredentialProfile profile = configurationId != null
+                ? credentialProfileCatalog.getByConfigurationId(configurationId) : null;
+        Optional<JsonNode> payload = profile != null
+                ? credentialBuilder.extractPayload(profile, issuance.getCredentialDataSet()) : Optional.empty();
+        if (payload.isEmpty()) {
+            log.warn("Credential offer renewal denied: issuance={} type={} has no readable content to decide on",
+                    resourceId, configurationId);
+            return Mono.error(new RenewalContentNotDecidableException("The stored content cannot be decided"));
         }
-        return powerAuthorizationService.authorize(PowerAuthorizationService.ISSUE_ON_BEHALF, caller, organization, resourceId)
-                .onErrorResume(LearIssuancePolicyException.class, onBehalfDenied -> powerAuthorizationService
-                        .authorize(PowerAuthorizationService.ISSUE_OWN, caller, organization, resourceId)
-                        .then(Mono.error(new IssuanceNotFoundException(NOT_FOUND_DETAIL))));
+        String organization = Objects.requireNonNullElse(issuance.getOrganizationIdentifier(), "");
+        return powerAuthorizationService.authorizeReissue(caller, resourceId, configurationId,
+                        profile.credentialType(), organization, payload.get())
+                .then();
     }
 
     // ── Status and delivery mode ────────────────────────────────────────────────────────────
@@ -219,6 +241,7 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
                 case RenewalInvalidIssuanceIdException _ -> "invalid_issuance_id";
                 case RenewalIssuanceNotFoundException _ -> "issuance_not_found";
                 case OfferNotRenewableException _ -> "offer_not_renewable";
+                case RenewalContentNotDecidableException _ -> "content_not_decidable";
                 case RenewalDeliveryFailedException _ -> "delivery_failed";
                 case RenewalPermissionDeniedException _, RenewalTenantMismatchException _ -> null;
                 default -> "unexpected_error";

@@ -635,6 +635,101 @@ class PowerAuthorizationServiceImplTest {
         }
     }
 
+    // --- EUD-295: a reissue of a stored process is decided as issuing it ---
+
+    @Nested
+    class Reissue {
+
+        private Mono<IssuanceAuthorization> reissue(Caller caller, String configurationId, String type,
+                                                    String storedOrganization, JsonNode payload) {
+            return inTenant(service.authorizeReissue(caller, "issuance-1", configurationId, type, storedOrganization,
+                    payload), TENANT);
+        }
+
+        @Test
+        void PowerAuthorizationService_authorizeReissue_organizationAdminReissuesAProcessOfItsOrganization() {
+            StepVerifier.create(reissue(caller(ORG, TENANT, ORG_ADMIN), "config-id", EMPLOYEE_TYPE, ORG, payloadGranting()))
+                    .assertNext(a -> assertThat(a.actionIds()).containsExactly("E1"))
+                    .verifyComplete();
+            assertThat(lastPermitDetails()).containsEntry("reissue", true)
+                    .containsEntry("resourceId", "issuance-1")
+                    .containsEntry("resourceOrganization", ORG);
+        }
+
+        /** S1 of the EUD-295 review: a power the caller may not grant is denied, as in an issuance. */
+        @Test
+        void PowerAuthorizationService_authorizeReissue_aPowerTheCallerMayNotGrantIsDenied() {
+            expectReason(reissue(caller(ORG, TENANT, ORG_ADMIN), "config-id", EMPLOYEE_TYPE, ORG, payloadGranting(TENANT_ADMIN)),
+                    Reason.TENANT_ADMIN_DELEGATION_REQUIRES_PLATFORM_ADMIN);
+        }
+
+        @Test
+        void PowerAuthorizationService_authorizeReissue_aPowerTheCallerMayGrantIsPermitted() {
+            StepVerifier.create(reissue(caller(ORG, TENANT, PLATFORM_ADMIN), "config-id", EMPLOYEE_TYPE, ORG,
+                            payloadGranting(TENANT_ADMIN)))
+                    .assertNext(a -> assertThat(a.actionIds()).contains("E4"))
+                    .verifyComplete();
+        }
+
+        /** Decision 1 of the round-2 review: a product certification is E6, not E1. */
+        @Test
+        void PowerAuthorizationService_authorizeReissue_productCertificationNeedsE6() {
+            StepVerifier.create(reissue(caller(ORG, TENANT, CERTIFY), "gx.labelcredential.w3c.2", LABEL_TYPE, ORG,
+                            objectMapper.createObjectNode()))
+                    .assertNext(a -> assertThat(a.actionIds()).containsExactly("E6"))
+                    .verifyComplete();
+            expectReason(reissue(caller(ORG, TENANT, ORG_ADMIN), "gx.labelcredential.w3c.2", LABEL_TYPE, ORG,
+                    objectMapper.createObjectNode()), Reason.CERTIFICATION_POWER_REQUIRED);
+        }
+
+        /** AC-06: who may issue only for its own organization finds another's process as not found. */
+        @Test
+        void PowerAuthorizationService_authorizeReissue_anotherOrganizationWithoutE2IsNotFound() {
+            StepVerifier.create(reissue(caller(ORG, TENANT, ORG_ADMIN), "config-id", EMPLOYEE_TYPE, OTHER_ORG,
+                            payloadGranting(TENANT_ADMIN)))
+                    .expectError(IssuanceNotFoundException.class)
+                    .verify();
+        }
+
+        /** AC-11: who may not issue at all is denied before the scope is looked at. */
+        @Test
+        void PowerAuthorizationService_authorizeReissue_userWithoutPowersIsDeniedAlsoOnAnotherOrganization() {
+            expectReason(reissue(caller(ORG, TENANT), "config-id", EMPLOYEE_TYPE, OTHER_ORG, payloadGranting()),
+                    Reason.OPERATOR_LACKS_ONBOARDING);
+        }
+
+        @Test
+        void PowerAuthorizationService_authorizeReissue_tenantAdminReissuesInAnotherOrganizationAsE2() {
+            StepVerifier.create(reissue(caller(ORG, TENANT, TENANT_ADMIN), "config-id", EMPLOYEE_TYPE, OTHER_ORG,
+                            payloadGranting()))
+                    .assertNext(a -> assertThat(a.actionIds()).containsExactly("E1", "E2"))
+                    .verifyComplete();
+        }
+
+        /** FR-07: a type no longer enabled in the tenant is not offered again. */
+        @Test
+        void PowerAuthorizationService_authorizeReissue_typeNotEnabledInTheTenantIsDenied() {
+            when(tenantCredentialProfileService.isProfileAllowed("config-id")).thenReturn(Mono.just(false));
+
+            expectReason(reissue(caller(ORG, TENANT, ORG_ADMIN), "config-id", EMPLOYEE_TYPE, ORG, payloadGranting()),
+                    Reason.CREDENTIAL_TYPE_NOT_ENABLED);
+        }
+
+        @Test
+        void PowerAuthorizationService_authorizeReissue_tokenOfAnotherTenantIsDenied() {
+            StepVerifier.create(reissue(caller(ORG, OTHER_TENANT, TENANT_ADMIN), "config-id", EMPLOYEE_TYPE, ORG,
+                            payloadGranting()))
+                    .expectError(TenantMismatchException.class)
+                    .verify();
+        }
+
+        @Test
+        void PowerAuthorizationService_authorizeReissue_platformAdminFromThePlatformTenantCannotReissue() {
+            expectReason(inTenant(service.authorizeReissue(caller(ORG, "platform", PLATFORM_ADMIN), "issuance-1",
+                    "config-id", EMPLOYEE_TYPE, ORG, payloadGranting()), "platform"), Reason.PLATFORM_TENANT_READ_ONLY);
+        }
+    }
+
     // --- FR-13: the trace of every decision ---
 
     /** AC-14: every decision, permitted or denied, is audited with who, power, resource, result and reason. */
