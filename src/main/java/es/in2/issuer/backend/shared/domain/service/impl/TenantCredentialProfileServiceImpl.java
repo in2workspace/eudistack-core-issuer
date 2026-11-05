@@ -18,6 +18,7 @@ import es.in2.issuer.backend.shared.domain.service.CatalogEntryFiller;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.shared.domain.spi.CatalogEntryPort;
+import es.in2.issuer.backend.shared.domain.spi.CredentialProfileCatalog;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -51,7 +52,10 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
 
     private final CatalogEntryPort catalogEntryPort;
     private final CatalogEntryFiller catalogEntryFiller;
+    /** Pre-existing dependency on the concrete registry (TDG-6), only for {@code getAllProfiles}. */
     private final CredentialProfileRegistry registry;
+    /** The port, for every other lookup of the credential types (W2 of the EUD-323 review). */
+    private final CredentialProfileCatalog profileCatalog;
     private final SchemaDeliveryCeiling schemaDeliveryCeiling;
     private final TransactionalOperator transactionalOperator;
     private final CatalogEntryChangeAuditor changeAuditor;
@@ -61,12 +65,14 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
             CatalogEntryPort catalogEntryPort,
             CatalogEntryFiller catalogEntryFiller,
             CredentialProfileRegistry registry,
+            CredentialProfileCatalog profileCatalog,
             SchemaDeliveryCeiling schemaDeliveryCeiling,
             TransactionalOperator transactionalOperator,
             CatalogEntryChangeAuditor changeAuditor) {
         this.catalogEntryPort = catalogEntryPort;
         this.catalogEntryFiller = catalogEntryFiller;
         this.registry = registry;
+        this.profileCatalog = profileCatalog;
         this.schemaDeliveryCeiling = schemaDeliveryCeiling;
         this.transactionalOperator = transactionalOperator;
         this.changeAuditor = changeAuditor;
@@ -206,8 +212,8 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
 
     /** A new entry for a type that had none: its type file's values, and the ceiling when no modes are declared. */
     private Mono<CatalogEntryChange> insertEnabled(String credentialConfigurationId, Set<DeliveryMode> declaredModes) {
-        if (!registry.bindingTypeOf(credentialConfigurationId).isSupported()) {
-            return Mono.error(new UnsupportedBindingTypeException(registry.schemaUriOf(credentialConfigurationId)));
+        if (!profileCatalog.bindingTypeOf(credentialConfigurationId).isSupported()) {
+            return Mono.error(new UnsupportedBindingTypeException(profileCatalog.schemaUriOf(credentialConfigurationId)));
         }
         CatalogEntry entry = catalogEntryFiller.fill(new CatalogEntry(credentialConfigurationId, null, true,
                 declaredModes, null, null, List.of(), 0, null, null));
@@ -230,7 +236,7 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
     private CatalogEntry withResolvedSchemaUri(CatalogEntry entry) {
         return entry.schemaUri() != null
                 ? entry
-                : entry.withSchemaUri(registry.schemaUriOf(entry.credentialConfigurationId()));
+                : entry.withSchemaUri(profileCatalog.schemaUriOf(entry.credentialConfigurationId()));
     }
 
     private Set<DeliveryMode> storedOrCeilingModes(CatalogEntry stored) {

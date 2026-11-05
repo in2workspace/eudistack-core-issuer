@@ -13,11 +13,13 @@ import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
 import es.in2.issuer.backend.shared.domain.policy.service.CatalogPdpService;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
+import es.in2.issuer.backend.shared.domain.service.CatalogEntryChangeAuditor;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.shared.domain.service.TenantRegistryService;
 import es.in2.issuer.backend.shared.infrastructure.config.tenantconfig.TenantCustomDomainsLoader;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -78,6 +80,14 @@ class CredentialCatalogControllerTest {
 
     @MockitoBean
     private TenantCustomDomainsLoader tenantCustomDomainsLoader;
+
+    @MockitoBean
+    private CatalogEntryChangeAuditor changeAuditor;
+
+    @BeforeEach
+    void stubTheAuditor() {
+        when(changeAuditor.auditDenied(any(), any(), anyString())).thenReturn(Mono.empty());
+    }
 
     @Test
     void getCatalog_asTenantAdmin_returns200WithEntries() {
@@ -347,6 +357,8 @@ class CredentialCatalogControllerTest {
                 .jsonPath("$.type").isEqualTo("insufficient_permission");
 
         verify(tenantCredentialProfileService, never()).updateCatalog(any(), any());
+        // AC-07 / W5 of the EUD-323 review: the denied write is audited, as by the entry paths.
+        verify(changeAuditor).auditDenied(null, null, CatalogEntryChangeAuditor.POLICY_DENIED);
     }
 
     /** AC-11, like the new API: the PDP decides before the body is read, so a malformed body is not a 400 for an operator. */
@@ -442,7 +454,32 @@ class CredentialCatalogControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("{\"enabledConfigurationIds\":[\"nope\"]}")
                 .exchange()
-                .expectStatus().isBadRequest();
+                .expectStatus().isBadRequest()
+                .expectBody()
+                // W6 of the EUD-323 review: the detail does not repeat the request, violations do.
+                .jsonPath("$.detail").isEqualTo("The request names a credential configuration that is not loaded")
+                .jsonPath("$.violations[0].field").isEqualTo("enabledConfigurationIds")
+                .jsonPath("$.violations[0].message").isEqualTo("Unknown credential configuration id(s): [nope]");
+    }
+
+    /** W6 of the EUD-323 review: the parser's message about the modes sent goes to violations, not to detail. */
+    @Test
+    void updateCatalog_unparseableDeliveryMode_keepsTheRequestOutOfTheDetail() {
+        when(catalogPdpService.authorizeWrite(anyString())).thenReturn(Mono.just(admin()));
+
+        webTestClient.mutateWith(csrf())
+                .put()
+                .uri(CREDENTIAL_CATALOG_PATH)
+                .header("Authorization", "Bearer token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"enabledConfigurationIds\":[\"learcredential.employee.w3c.4\"],"
+                        + "\"deliveryModesByConfigurationId\":{\"learcredential.employee.w3c.4\":[\"<script>\"]}}")
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("invalid_delivery_config")
+                .jsonPath("$.detail").isEqualTo("The delivery configuration of the request is not valid")
+                .jsonPath("$.violations[0].field").isEqualTo("deliveryModesByConfigurationId");
     }
 
     /**

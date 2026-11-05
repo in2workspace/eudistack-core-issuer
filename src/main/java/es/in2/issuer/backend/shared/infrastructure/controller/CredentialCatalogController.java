@@ -1,11 +1,14 @@
 package es.in2.issuer.backend.shared.infrastructure.controller;
 
+import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidDeliveryConfigException;
+import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
 import es.in2.issuer.backend.shared.domain.model.dto.UpdateCredentialCatalogRequest;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.policy.service.CatalogPdpService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
+import es.in2.issuer.backend.shared.domain.service.CatalogEntryChangeAuditor;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -80,6 +83,7 @@ public class CredentialCatalogController {
     private final CatalogPdpService catalogPdpService;
     private final TenantCredentialProfileService tenantCredentialProfileService;
     private final AuditService auditService;
+    private final CatalogEntryChangeAuditor changeAuditor;
 
     @GetMapping
     @ResponseStatus(HttpStatus.OK)
@@ -101,6 +105,11 @@ public class CredentialCatalogController {
             ServerHttpResponse response) {
         markDeprecated(httpRequest, response);
         return catalogPdpService.authorizeWrite(authorizationHeader)
+                // AC-07 / W5 of the EUD-323 review: a denied write leaves the same CatalogEntryChanged as by
+                // the entry paths. The alias replaces the whole catalog, so no operation or entry is known.
+                .onErrorResume(e -> e instanceof InsufficientPermissionException || e instanceof TenantMismatchException,
+                        e -> changeAuditor.auditDenied(null, null, CatalogEntryChangeAuditor.POLICY_DENIED)
+                                .then(Mono.error(e)))
                 .flatMap(ctx -> body.flatMap(request -> Mono.deferContextual(reactorCtx -> {
                     String tenant = reactorCtx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, SYSTEM_TENANT);
                     return tenantCredentialProfileService.updateCatalog(

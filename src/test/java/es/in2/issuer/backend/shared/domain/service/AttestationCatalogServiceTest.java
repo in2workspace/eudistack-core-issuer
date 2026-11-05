@@ -280,8 +280,8 @@ class AttestationCatalogServiceTest {
         CatalogEntry seeded = new CatalogEntry(DOCTORID, null, true, null, null, null, List.of(), 0,
                 Instant.now(), Instant.now());
         when(port.findById(DOCTORID)).thenReturn(Mono.just(seeded));
-        when(port.updateIfVersion(any(), anyLong())).thenAnswer(inv ->
-                Mono.just(Optional.of(stored(inv.getArgument(0), 1))));
+        when(port.fillIfVersion(any(), anyLong())).thenAnswer(inv ->
+                Mono.just(Optional.of(stored(inv.getArgument(0), 0))));
 
         StepVerifier.create(inTenant(service.get(DOCTORID)))
                 .assertNext(entry -> {
@@ -291,12 +291,14 @@ class AttestationCatalogServiceTest {
                     assertThat(entry.validity()).isEqualTo(new CatalogEntry.Validity(36500, false, null));
                     assertThat(entry.subject().fields())
                             .containsExactly(ClaimPath.of("givenName"), ClaimPath.of("familyName"));
-                    assertThat(entry.version()).isEqualTo(1);
+                    // W3 of the EUD-323 review: completing the row keeps its version and so its ETag.
+                    assertThat(entry.version()).isZero();
                 })
                 .verifyComplete();
 
         ArgumentCaptor<CatalogEntry> written = ArgumentCaptor.forClass(CatalogEntry.class);
-        verify(port).updateIfVersion(written.capture(), eq(0L));
+        verify(port).fillIfVersion(written.capture(), eq(0L));
+        verify(port, never()).updateIfVersion(any(), anyLong());
         assertThat(written.getValue().isFilled()).isTrue();
     }
 
@@ -305,7 +307,7 @@ class AttestationCatalogServiceTest {
         CatalogEntry seeded = new CatalogEntry(DOCTORID, null, true, null, null, null, List.of(), 0,
                 Instant.now(), Instant.now());
         when(port.findById(DOCTORID)).thenReturn(Mono.just(seeded)).thenReturn(Mono.just(filledDoctorId(1)));
-        when(port.updateIfVersion(any(), anyLong())).thenReturn(Mono.just(Optional.empty()));
+        when(port.fillIfVersion(any(), anyLong())).thenReturn(Mono.just(Optional.empty()));
 
         StepVerifier.create(inTenant(service.get(DOCTORID)))
                 .assertNext(entry -> assertThat(entry.version()).isEqualTo(1))

@@ -75,19 +75,23 @@ class CredentialCatalogHttpAuthorizationIT extends PostgresIntegrationBase {
     @Test
     void operator_attemptsWrite_returns403WithoutReachingTheService() {
         String token = mintOperatorAccessToken(TENANT_A, OPERATOR_ORG_ID);
+        Map<String, Boolean> before = rowsOf(TENANT_A);
 
         webTestClient()
                 .put().uri(CREDENTIAL_CATALOG_PATH)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .header(X_TENANT_HEADER, TENANT_A)
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"enabledConfigurationIds\":[\"" + CONFIG_ID + "\"]}")
+                .bodyValue("{\"enabledConfigurationIds\":[\"" + SECOND_CONFIG_ID + "\"]}")
                 .exchange()
                 .expectStatus().isForbidden()
                 .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody()
                 .jsonPath("$.type").isEqualTo("insufficient_permission")
                 .jsonPath("$.instance").isEqualTo("/issuer" + CREDENTIAL_CATALOG_PATH);
+
+        // AC-06 (W7 of the EUD-323 review): the catalog does not change.
+        assertThat(rowsOf(TENANT_A)).isEqualTo(before);
     }
 
     /** AC-11 for the alias as well: the PDP answers before the body is looked at. */

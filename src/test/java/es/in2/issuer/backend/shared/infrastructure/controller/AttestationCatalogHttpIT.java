@@ -235,6 +235,30 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                 .jsonPath("$.type").isEqualTo("precondition_required");
     }
 
+    /** EC-02 (ac.md): the identifier names belong to the tenant, not to an entry; two entries may share one. */
+    @Test
+    void create_twoEntriesWithAnIdentifierOfTheSameNameOnDifferentAttributes_storesBoth() {
+        String admin = administratorToken(TENANT_A);
+        post(admin, CONTRACT_EXAMPLE).expectStatus().isCreated();
+
+        post(admin, """
+                {
+                  "schema_uri": "https://registry.eudistack.net/schemas/learcredential.employee.sd.1",
+                  "enabled": true,
+                  "delivery_modes": ["email"],
+                  "validity": { "default_days": 365, "requester_can_set_dates": false },
+                  "subject": { "fields": [["mandate", "mandatee", "email"]] },
+                  "search_identifiers": [ { "name": "colegiado", "field": ["mandate", "mandatee", "employeeId"] } ]
+                }""").expectStatus().isCreated();
+
+        get(admin, DOCTORID_PATH).expectStatus().isOk().expectBody()
+                .jsonPath("$.search_identifiers[0].name").isEqualTo("colegiado")
+                .jsonPath("$.search_identifiers[0].field[0]").isEqualTo("personal_administrative_number");
+        get(admin, CATALOG + "/learcredential.employee.sd.1").expectStatus().isOk().expectBody()
+                .jsonPath("$.search_identifiers[0].name").isEqualTo("colegiado")
+                .jsonPath("$.search_identifiers[0].field[2]").isEqualTo("employeeId");
+    }
+
     @Test
     void create_theSameSchemaTwice_isConflict() {
         String admin = administratorToken(TENANT_A);
@@ -282,7 +306,9 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                 .jsonPath("$.subject.fields[1][0]").isEqualTo("familyName")
                 .jsonPath("$.search_identifiers.length()").isEqualTo(0)
                 .returnResult().getResponseHeaders().getETag();
-        assertThat(eTag).isNotNull();
+        // W3 of the EUD-323 review: completing the row on read is not a change, its ETag stays.
+        assertThat(eTag).isEqualTo("\"0\"");
+        get(admin, DOCTORID_PATH).expectStatus().isOk().expectHeader().valueEquals(HttpHeaders.ETAG, "\"0\"");
 
         // Replace with the contract's data, using the ETag read just now.
         put(admin, DOCTORID_PATH, eTag, CONTRACT_CONFIGURATION.replace("36500", "50"))
@@ -447,7 +473,10 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
 
     @Test
     void operator_writeIsInsufficientPermissionEvenWithAMalformedBodyOrAnInvalidConfiguration() {
+        post(administratorToken(TENANT_A), CONTRACT_EXAMPLE).expectStatus().isCreated();
         String operator = mintOperatorAccessToken(TENANT_A, OPERATOR_ORG_ID);
+        EntityExchangeResult<byte[]> before = get(operator, DOCTORID_PATH).expectStatus().isOk()
+                .expectBody().returnResult();
 
         for (String body : List.of("{this is not json", "{\"enabled\": true, \"delivery_modes\": []}")) {
             post(operator, body)
@@ -467,6 +496,12 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                 .expectBody()
                 .consumeWith(conformsTo("Problem"))
                 .jsonPath("$.type").isEqualTo("insufficient_permission");
+
+        // AC-06: the entry does not change (W7 of the EUD-323 review).
+        EntityExchangeResult<byte[]> after = get(operator, DOCTORID_PATH).expectStatus().isOk()
+                .expectBody().returnResult();
+        assertThat(after.getResponseHeaders().getETag()).isEqualTo(before.getResponseHeaders().getETag());
+        assertThat(bodyOf(after)).isEqualTo(bodyOf(before));
     }
 
     @Test

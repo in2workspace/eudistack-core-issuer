@@ -218,7 +218,8 @@ public class AttestationCatalogService {
         if (filled.equals(entry)) {
             return Mono.just(entry);
         }
-        return catalogEntryPort.updateIfVersion(filled, entry.version())
+        // W3 of the EUD-323 review: the version (and so the ETag) stays, the read already showed these values.
+        return catalogEntryPort.fillIfVersion(filled, entry.version())
                 .flatMap(updated -> updated.map(Mono::just)
                         .orElseGet(() -> catalogEntryPort.findById(entry.credentialConfigurationId())))
                 .doOnNext(stored -> log.info("Catalog entry '{}' completed from its credential type file",

@@ -79,10 +79,10 @@ class CatalogEntryR2dbcAdapterIT extends PostgresIntegrationBase {
         assertThat(stored.searchIdentifiers()).isEmpty();
     }
 
-    /** The contract gives {@code subject.separator} no maximum length (V16). */
+    /** A separator at the limit (16 characters, V17) round-trips whole. */
     @Test
-    void insert_ofASubjectWithALongSeparator_roundTripsItWhole() {
-        String separator = " - ".repeat(40);
+    void insert_ofASubjectWithASeparatorAtTheLimit_roundTripsItWhole() {
+        String separator = " - ".repeat(5) + "|";
         CatalogEntry entry = new CatalogEntry(DOCTORID, DOCTORID_URI, true, Set.of(DeliveryMode.EMAIL),
                 new CatalogEntry.Validity(365, false, null),
                 new CatalogEntry.Subject(List.of(ClaimPath.of("givenName"), ClaimPath.of("familyName")), separator),
@@ -90,7 +90,7 @@ class CatalogEntryR2dbcAdapterIT extends PostgresIntegrationBase {
 
         CatalogEntry stored = inTenant(port.insert(entry)).block();
 
-        assertThat(stored.subject().separator()).isEqualTo(separator).hasSize(120);
+        assertThat(stored.subject().separator()).isEqualTo(separator).hasSize(16);
         assertThat(inTenant(port.findById(DOCTORID)).block().subject().separator()).isEqualTo(separator);
     }
 
@@ -176,6 +176,21 @@ class CatalogEntryR2dbcAdapterIT extends PostgresIntegrationBase {
     @Test
     void updateIfVersion_ofAnUnknownEntry_isEmpty() {
         assertThat(inTenant(port.updateIfVersion(doctorId(), 0)).block()).isEmpty();
+    }
+
+    /** W3 of the EUD-323 review: a completion keeps the version, and loses to a change made first. */
+    @Test
+    void fillIfVersion_keepsTheVersion_andIsEmptyForAnotherVersion() {
+        CatalogEntry stored = inTenant(port.insert(doctorId())).block();
+
+        CatalogEntry filled = inTenant(port.fillIfVersion(doctorId().withEnabled(false), stored.version()))
+                .block().orElseThrow();
+        assertThat(filled.version()).isEqualTo(stored.version());
+        assertThat(filled.enabled()).isFalse();
+
+        CatalogEntry changed = inTenant(port.updateIfVersion(doctorId(), stored.version())).block().orElseThrow();
+        assertThat(inTenant(port.fillIfVersion(doctorId().withEnabled(false), stored.version())).block()).isEmpty();
+        assertThat(inTenant(port.findById(DOCTORID)).block().version()).isEqualTo(changed.version());
     }
 
     @Test

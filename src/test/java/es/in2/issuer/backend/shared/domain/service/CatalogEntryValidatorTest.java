@@ -22,6 +22,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.function.UnaryOperator;
@@ -91,17 +92,6 @@ class CatalogEntryValidatorTest {
                 new SubjectInput(List.of(List.of("givenName")), null, null))));
 
         assertThat(entry.subject().separator()).isEqualTo(" ");
-    }
-
-    /** The contract gives {@code subject.separator} no maximum length. */
-    @Test
-    void validateForCreate_withALongSeparator_keepsItWhole() {
-        String separator = " - ".repeat(40);
-
-        CatalogEntry entry = validator.validateForCreate(create(DOCTORID_URI, doctorId().withSubject(
-                new SubjectInput(List.of(List.of("givenName"), List.of("familyName")), separator, null))));
-
-        assertThat(entry.subject().separator()).isEqualTo(separator).hasSize(120);
     }
 
     @Test
@@ -292,7 +282,41 @@ class CatalogEntryValidatorTest {
                 Arguments.of("identifier with an empty path (minItems)", (UnaryOperator<Input>) in -> in.withIdentifiers(List.of(
                         new SearchIdentifierInput("colegiado", List.of(), null))), List.of("search_identifiers[0].field")),
                 Arguments.of("identifier without a path", (UnaryOperator<Input>) in -> in.withIdentifiers(List.of(
-                        new SearchIdentifierInput("colegiado", null, null))), List.of("search_identifiers[0].field")));
+                        new SearchIdentifierInput("colegiado", null, null))), List.of("search_identifiers[0].field")),
+                // B2 and W4 of the EUD-323 review: size limits.
+                Arguments.of("separator longer than 16", (UnaryOperator<Input>) in -> in.withSubject(
+                        new SubjectInput(List.of(List.of("givenName")), "-".repeat(17), null)),
+                        List.of("subject.separator")),
+                Arguments.of("separator with a control character", (UnaryOperator<Input>) in -> in.withSubject(
+                        new SubjectInput(List.of(List.of("givenName")), "\n", null)), List.of("subject.separator")),
+                Arguments.of("subject with more than 10 paths", (UnaryOperator<Input>) in -> in.withSubject(
+                        new SubjectInput(Collections.nCopies(11, List.of("givenName")), " ", null)),
+                        List.of("subject.fields")),
+                Arguments.of("subject with a repeated path", (UnaryOperator<Input>) in -> in.withSubject(
+                        new SubjectInput(List.of(List.of("givenName"), List.of("familyName"), List.of("givenName")),
+                                " ", null)), List.of("subject.fields[2]")),
+                Arguments.of("more than 10 search identifiers", (UnaryOperator<Input>) in -> in.withIdentifiers(
+                        Collections.nCopies(11, identifier("colegiado", "personal_administrative_number"))),
+                        List.of("search_identifiers")),
+                Arguments.of("default_days above 36500", (UnaryOperator<Input>) in -> in.withValidity(
+                        new ValidityInput(36501, false, null, null)), List.of("validity.default_days")),
+                Arguments.of("max_days above 36500", (UnaryOperator<Input>) in -> in.withValidity(
+                        new ValidityInput(365, true, 36501, null)), List.of("validity.max_days")));
+    }
+
+    /** The limits themselves are accepted: 16 characters, 10 paths, 10 identifiers, 36500 days. */
+    @Test
+    void validateForCreate_atTheSizeLimits_acceptsTheEntry() {
+        Input atLimits = doctorId()
+                .withValidity(new ValidityInput(36500, true, 36500, null))
+                .withSubject(new SubjectInput(List.of(List.of("givenName"), List.of("familyName")), "-".repeat(16), null))
+                .withIdentifiers(Collections.nCopies(10, identifier("colegiado", "personal_administrative_number")));
+
+        CatalogEntry entry = validator.validateForCreate(create(DOCTORID_URI, atLimits));
+
+        assertThat(entry.subject().separator()).hasSize(16);
+        assertThat(entry.searchIdentifiers()).hasSize(10);
+        assertThat(entry.validity().maxDays()).isEqualTo(36500);
     }
 
     @ParameterizedTest(name = "{0}")

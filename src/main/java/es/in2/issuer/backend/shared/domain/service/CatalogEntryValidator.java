@@ -54,6 +54,20 @@ public class CatalogEntryValidator {
     private static final String AT_LEAST_ONE = "must be at least 1";
     private static final String VALIDITY_DEFAULT_DAYS = "validity.default_days";
 
+    /*
+     * Size limits (B2 and W4 of the EUD-323 review, SEC-11 and SEC-27). openapi.yaml (5b56f42d) sets none, so
+     * these are a documented workaround until its owner adds them as maxLength, maxItems and maximum: without
+     * them one tenant administrator could make every issuance of a type build a string of about 1 GB in the
+     * JVM all tenants share. Enforced in the database too (V17). They are shape violations (BAD_REQUEST)
+     * because the contract has no code of its own for them, like the delivery-mode ceiling (D8).
+     */
+    static final int MAX_SEPARATOR_LENGTH = 16;
+    static final int MAX_SUBJECT_FIELDS = 10;
+    static final int MAX_SEARCH_IDENTIFIERS = 10;
+    /** One hundred years: what DoctorID needs (36500), and an end date that is still RFC 3339. */
+    static final int MAX_DAYS = 36500;
+    private static final String AT_MOST_MAX_DAYS = "must be at most " + MAX_DAYS;
+
     private final CredentialProfileCatalog credentialProfileCatalog;
     private final SchemaDeliveryCeiling schemaDeliveryCeiling;
 
@@ -157,12 +171,16 @@ public class CatalogEntryValidator {
             out.add(new Violation(VALIDITY_DEFAULT_DAYS, REQUIRED));
         } else if (validity.defaultDays() < 1) {
             out.add(new Violation(VALIDITY_DEFAULT_DAYS, AT_LEAST_ONE));
+        } else if (validity.defaultDays() > MAX_DAYS) {
+            out.add(new Violation(VALIDITY_DEFAULT_DAYS, AT_MOST_MAX_DAYS));
         }
         if (validity.requesterCanSetDates() == null) {
             out.add(new Violation("validity.requester_can_set_dates", REQUIRED));
         }
         if (validity.maxDays() != null && validity.maxDays() < 1) {
             out.add(new Violation("validity.max_days", AT_LEAST_ONE));
+        } else if (validity.maxDays() != null && validity.maxDays() > MAX_DAYS) {
+            out.add(new Violation("validity.max_days", AT_MOST_MAX_DAYS));
         } else if (Boolean.TRUE.equals(validity.requesterCanSetDates()) && validity.maxDays() == null) {
             out.add(new Violation("validity.max_days", "is required when requester_can_set_dates is true"));
         }
@@ -177,15 +195,39 @@ public class CatalogEntryValidator {
             out.add(new Violation("subject.fields", REQUIRED));
         } else if (subject.fields().isEmpty()) {
             out.add(new Violation("subject.fields", "must have at least one path"));
+        } else if (subject.fields().size() > MAX_SUBJECT_FIELDS) {
+            out.add(new Violation("subject.fields", "must have at most " + MAX_SUBJECT_FIELDS + " paths"));
         } else {
+            Set<List<String>> seen = new HashSet<>();
             for (int i = 0; i < subject.fields().size(); i++) {
-                validatePath(subject.fields().get(i), "subject.fields[" + i + "]", out);
+                List<String> path = subject.fields().get(i);
+                validatePath(path, "subject.fields[" + i + "]", out);
+                if (path != null && !seen.add(path)) {
+                    out.add(new Violation("subject.fields[" + i + "]", DUPLICATED));
+                }
             }
+        }
+        validateSeparator(subject.separator(), out);
+    }
+
+    /** At most {@value #MAX_SEPARATOR_LENGTH} characters and no control characters, as V15 first had it. */
+    private static void validateSeparator(String separator, List<Violation> out) {
+        if (separator == null) {
+            return;
+        }
+        if (separator.length() > MAX_SEPARATOR_LENGTH) {
+            out.add(new Violation("subject.separator", "must have at most " + MAX_SEPARATOR_LENGTH + " characters"));
+        } else if (separator.chars().anyMatch(Character::isISOControl)) {
+            out.add(new Violation("subject.separator", "must not contain control characters"));
         }
     }
 
     private void validateSearchIdentifiers(List<SearchIdentifierInput> identifiers, List<Violation> out) {
         if (identifiers == null) {
+            return;
+        }
+        if (identifiers.size() > MAX_SEARCH_IDENTIFIERS) {
+            out.add(new Violation("search_identifiers", "must have at most " + MAX_SEARCH_IDENTIFIERS + " identifiers"));
             return;
         }
         for (int i = 0; i < identifiers.size(); i++) {

@@ -96,6 +96,16 @@ public class CatalogEntryR2dbcAdapter implements CatalogEntryPort {
 
     @Override
     public Mono<Optional<CatalogEntry>> updateIfVersion(CatalogEntry entry, long expectedVersion) {
+        return update(entry, expectedVersion, "version + 1");
+    }
+
+    @Override
+    public Mono<Optional<CatalogEntry>> fillIfVersion(CatalogEntry filled, long expectedVersion) {
+        return update(filled, expectedVersion, "version");
+    }
+
+    /** {@code newVersion} is one of two SQL literals of this class, never input. */
+    private Mono<Optional<CatalogEntry>> update(CatalogEntry entry, long expectedVersion, String newVersion) {
         DatabaseClient.GenericExecuteSpec spec = databaseClient.sql("""
                 UPDATE tenant_credential_profile
                    SET schema_uri               = COALESCE(schema_uri, :schemaUri),
@@ -107,10 +117,10 @@ public class CatalogEntryR2dbcAdapter implements CatalogEntryPort {
                        subject_fields           = CAST(:subjectFields AS jsonb),
                        subject_separator        = :subjectSeparator,
                        search_identifiers       = CAST(:searchIdentifiers AS jsonb),
-                       version                  = version + 1,
+                       version                  = %s,
                        updated_at               = now()
                  WHERE credential_configuration_id = :id AND version = :expectedVersion
-                RETURNING\s""" + COLUMNS)
+                RETURNING\s""".formatted(newVersion) + COLUMNS)
                 .bind("id", entry.credentialConfigurationId())
                 .bind("expectedVersion", expectedVersion);
         return bindConfiguration(spec, entry)

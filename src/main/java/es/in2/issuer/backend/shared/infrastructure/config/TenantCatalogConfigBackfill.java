@@ -82,8 +82,9 @@ public class TenantCatalogConfigBackfill implements ApplicationRunner {
             }
             return Mono.just(0);
         }
-        // Guarded by the version: if a PUT or a read-time fill got there first, theirs stands.
-        return catalogEntryPort.updateIfVersion(filled, entry.version())
+        // Guarded by the version: if a PUT or a read-time fill got there first, theirs stands. The version is
+        // kept (W3 of the EUD-323 review): completing a row is not a change of the catalog.
+        return catalogEntryPort.fillIfVersion(filled, entry.version())
                 .map(updated -> updated.isPresent() ? 1 : 0);
     }
 }

@@ -67,7 +67,8 @@ class TenantCatalogConfigBackfillIT extends PostgresIntegrationBase {
         assertThat(doctorId.deliveryModes()).containsExactlyInAnyOrder(DeliveryMode.EMAIL, DeliveryMode.UI);
         assertThat(doctorId.validity()).isEqualTo(new CatalogEntry.Validity(36500, false, null));
         assertThat(doctorId.subject().fields()).containsExactly(ClaimPath.of("givenName"), ClaimPath.of("familyName"));
-        assertThat(doctorId.version()).isEqualTo(1);
+        // W3 of the EUD-323 review: completing a row from its type file is not a change, its version stays.
+        assertThat(doctorId.version()).isZero();
 
         CatalogEntry lear = entry(TENANT_A, "learcredential.employee.sd.1");
         assertThat(lear.schemaUri()).isNull();

@@ -21,9 +21,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Proves {@code V15__Add_entry_config_to_tenant_credential_profile.sql} and
- * {@code V16__Widen_subject_separator_of_tenant_credential_profile.sql} against a real Postgres:
+ * {@code V16__Widen_subject_separator_of_tenant_credential_profile.sql} and
+ * {@code V17__Limit_subject_and_search_identifiers_of_tenant_credential_profile.sql} against a real Postgres:
  * the new columns, the validity and delivery-mode {@code CHECK}s (D14), the unique index on
- * {@code schema_uri} and the unlimited {@code subject_separator}. Each test migrates its own unregistered tenant schema, so it neither
+ * {@code schema_uri}, the separator V16 widened and the size limits V17 puts back (B2 and W4 of the
+ * EUD-323 review). Each test migrates its own unregistered tenant schema, so it neither
  * depends on nor disturbs the schemas the application migrated at start-up.
  */
 class TenantCatalogMigrationIT extends PostgresIntegrationBase {
@@ -73,9 +75,9 @@ class TenantCatalogMigrationIT extends PostgresIntegrationBase {
     }
 
     @Test
-    void migration_makesTheSubjectSeparatorUnlimitedText() {
+    void migrationV16_makesTheSubjectSeparatorUnlimitedText() {
         String tenant = "catalog-separator";
-        migrate(tenant, null);
+        migrate(tenant, "16");
         String separator = " | ".repeat(100);
 
         databaseClient.sql("INSERT INTO " + table(tenant) + " (credential_configuration_id, subject_separator) "
@@ -91,7 +93,7 @@ class TenantCatalogMigrationIT extends PostgresIntegrationBase {
     }
 
     @Test
-    void migration_fromV15_widensTheSeparatorAndKeepsTheOnesAlreadyStored() {
+    void migrationV16_fromV15_widensTheSeparatorAndKeepsTheOnesAlreadyStored() {
         String tenant = "catalog-separator-from-v15";
         migrate(tenant, "15");
         databaseClient.sql("INSERT INTO " + table(tenant) + " (credential_configuration_id, subject_separator) "
@@ -103,12 +105,80 @@ class TenantCatalogMigrationIT extends PostgresIntegrationBase {
                 .isInstanceOf(DataAccessException.class)
                 .hasMessageContaining("subject_separator");
 
-        migrate(tenant, null);
+        migrate(tenant, "16");
 
         assertThat(databaseClient.sql("SELECT subject_separator FROM " + table(tenant)).fetch().one().block())
                 .containsEntry("subject_separator", " - ");
         databaseClient.sql("UPDATE " + table(tenant) + " SET subject_separator = '" + "x".repeat(17) + "'")
                 .then().block();
+    }
+
+    // ---- V17: size limits (B2 and W4 of the EUD-323 review) -----------------------------
+
+    @Test
+    void migrationV17_fromV16_limitsTheSeparatorAgainAndKeepsTheOnesAlreadyStored() {
+        String tenant = "catalog-separator-from-v16";
+        migrate(tenant, "16");
+        databaseClient.sql("INSERT INTO " + table(tenant) + " (credential_configuration_id, subject_separator) "
+                        + "VALUES ('doctorid.sd.1', ' - ')")
+                .then().block();
+
+        migrate(tenant, null);
+
+        assertThat(databaseClient.sql("SELECT subject_separator FROM " + table(tenant)).fetch().one().block())
+                .containsEntry("subject_separator", " - ");
+        Mono<Void> tooLong = databaseClient.sql("UPDATE " + table(tenant) + " SET subject_separator = '"
+                + "x".repeat(17) + "'").then();
+        assertThatThrownBy(tooLong::block)
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("subject_separator");
+    }
+
+    @Test
+    void subjectSeparatorCheck_rejectsAControlCharacter() {
+        String tenant = "catalog-separator-control";
+        migrate(tenant, null);
+
+        Mono<Void> insert = databaseClient.sql("INSERT INTO " + table(tenant)
+                + " (credential_configuration_id, subject_separator) VALUES ('doctorid.sd.1', E'\\n')").then();
+        assertThatThrownBy(insert::block)
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_tcp_subject_separator");
+    }
+
+    @Test
+    void subjectFieldsCheck_rejectsMoreThanTenPaths() {
+        String tenant = "catalog-subject-fields";
+        migrate(tenant, null);
+
+        insertJsonb(tenant, "subject_fields", 10);
+        assertThatThrownBy(() -> insertJsonb(tenant, "subject_fields", 11))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_tcp_subject_fields");
+    }
+
+    @Test
+    void searchIdentifiersCheck_rejectsMoreThanTenIdentifiers() {
+        String tenant = "catalog-search-identifiers";
+        migrate(tenant, null);
+
+        insertJsonb(tenant, "search_identifiers", 10);
+        assertThatThrownBy(() -> insertJsonb(tenant, "search_identifiers", 11))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_tcp_search_identifiers");
+    }
+
+    @Test
+    void validityCheck_rejectsMoreThan36500Days() {
+        String tenant = "catalog-validity-upper";
+        migrate(tenant, null);
+
+        assertThatThrownBy(() -> insertValidity(tenant, "36501", "false", "NULL"))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_tcp_validity_upper_bound");
+        assertThatThrownBy(() -> insertValidity(tenant, "365", "true", "36501"))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_tcp_validity_upper_bound");
     }
 
     @Test
@@ -252,6 +322,14 @@ class TenantCatalogMigrationIT extends PostgresIntegrationBase {
         databaseClient.sql("INSERT INTO " + table(tenant) + " (credential_configuration_id, validity_default_days, "
                         + "validity_requester_dates, validity_max_days) VALUES ('doctorid.sd.1', " + defaultDays + ", "
                         + requesterDates + ", " + maxDays + ")")
+                .then().block();
+    }
+
+    /** A row whose {@code column} holds a JSON array of {@code size} elements; each insert uses its own id. */
+    private void insertJsonb(String tenant, String column, int size) {
+        String elements = String.join(",", java.util.Collections.nCopies(size, "[\"givenName\"]"));
+        databaseClient.sql("INSERT INTO " + table(tenant) + " (credential_configuration_id, " + column + ") "
+                        + "VALUES ('type." + size + "', CAST('[" + elements + "]' AS jsonb))")
                 .then().block();
     }
 

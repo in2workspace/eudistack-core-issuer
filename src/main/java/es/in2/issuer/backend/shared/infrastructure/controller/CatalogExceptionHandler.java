@@ -194,18 +194,27 @@ public class CatalogExceptionHandler {
                 "Credential catalog not configured", HttpStatus.NOT_FOUND, ex.getMessage(), null);
     }
 
+    /**
+     * W6 of the EUD-323 review (SEC-21): the {@code detail} is a fixed text and what the request sent (the ids,
+     * the modes and the parser's message) goes only to {@code violations}, as for the entry paths.
+     */
     @ExceptionHandler(UnknownCredentialConfigurationException.class)
     public Mono<ResponseEntity<GlobalErrorMessage>> handleUnknownCredentialConfiguration(
             UnknownCredentialConfigurationException ex, ServerHttpRequest request) {
         return problem(ex, request, GlobalErrorTypes.UNKNOWN_CREDENTIAL_CONFIGURATION.getCode(),
-                "Unknown credential configuration", HttpStatus.BAD_REQUEST, ex.getMessage(), null);
+                "Unknown credential configuration", HttpStatus.BAD_REQUEST,
+                "The request names a credential configuration that is not loaded",
+                List.of(new FieldViolation("enabledConfigurationIds", ex.getMessage())));
     }
 
+    /** As {@link #handleUnknownCredentialConfiguration}: fixed {@code detail}, the specifics in {@code violations}. */
     @ExceptionHandler(InvalidDeliveryConfigException.class)
     public Mono<ResponseEntity<GlobalErrorMessage>> handleInvalidDeliveryConfig(
             InvalidDeliveryConfigException ex, ServerHttpRequest request) {
         return problem(ex, request, GlobalErrorTypes.INVALID_DELIVERY_CONFIG.getCode(),
-                "Invalid delivery configuration", HttpStatus.BAD_REQUEST, ex.getMessage(), null);
+                "Invalid delivery configuration", HttpStatus.BAD_REQUEST,
+                "The delivery configuration of the request is not valid",
+                List.of(new FieldViolation("deliveryModesByConfigurationId", ex.getMessage())));
     }
 
     /**

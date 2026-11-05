@@ -72,7 +72,7 @@ class TenantCredentialProfileServiceImplTest {
     @BeforeEach
     void setUp() {
         service = new TenantCredentialProfileServiceImpl(catalogEntryPort,
-                new CatalogEntryFiller(registry, schemaDeliveryCeiling), registry, schemaDeliveryCeiling,
+                new CatalogEntryFiller(registry, schemaDeliveryCeiling), registry, registry, schemaDeliveryCeiling,
                 transactionalOperator, changeAuditor);
         when(changeAuditor.auditAll(any())).thenReturn(Mono.empty());
         // Pass-through transaction: return the wrapped Mono unchanged.

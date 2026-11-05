@@ -34,4 +34,13 @@ public interface CatalogEntryPort {
      * has another version: the caller tells the two apart with {@link #findById}.
      */
     Mono<Optional<CatalogEntry>> updateIfVersion(CatalogEntry entry, long expectedVersion);
+
+    /**
+     * Stores the completion of an entry not configured yet (D13) from its credential type file, only if its
+     * version is still {@code expectedVersion}, and <em>keeps</em> that version. The completion only stores
+     * what every read already shows for the row, so it is not a change of the catalog: its {@code ETag}
+     * stays valid, and a concurrent change of an administrator made with it does not turn into a 412
+     * (W3 of the EUD-323 review). Empty when the entry does not exist or has another version.
+     */
+    Mono<Optional<CatalogEntry>> fillIfVersion(CatalogEntry filled, long expectedVersion);
 }

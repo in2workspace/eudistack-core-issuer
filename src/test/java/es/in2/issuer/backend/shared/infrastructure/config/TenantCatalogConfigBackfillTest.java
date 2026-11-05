@@ -56,13 +56,13 @@ class TenantCatalogConfigBackfillTest {
     void backfillTenant_writesTheFilledEntryGuardedByTheStoredVersion() {
         CatalogEntry seeded = unfilled("doctorid.sd.1", 7);
         when(catalogEntryPort.findAll()).thenReturn(Flux.just(seeded));
-        when(catalogEntryPort.updateIfVersion(any(), anyLong())).thenReturn(Mono.just(Optional.of(seeded)));
+        when(catalogEntryPort.fillIfVersion(any(), anyLong())).thenReturn(Mono.just(Optional.of(seeded)));
 
         Integer filled = backfill.backfillTenant("e2e-tenant-a").block();
 
         assertThat(filled).isEqualTo(1);
         ArgumentCaptor<CatalogEntry> written = ArgumentCaptor.forClass(CatalogEntry.class);
-        verify(catalogEntryPort).updateIfVersion(written.capture(), eq(7L));
+        verify(catalogEntryPort).fillIfVersion(written.capture(), eq(7L));
         assertThat(written.getValue().validity()).isNotNull();
         assertThat(written.getValue().deliveryModes()).isNotEmpty();
     }
@@ -75,7 +75,7 @@ class TenantCatalogConfigBackfillTest {
         Integer count = backfill.backfillTenant("e2e-tenant-a").block();
 
         assertThat(count).isZero();
-        verify(catalogEntryPort, never()).updateIfVersion(any(), anyLong());
+        verify(catalogEntryPort, never()).fillIfVersion(any(), anyLong());
     }
 
     @Test
@@ -85,13 +85,13 @@ class TenantCatalogConfigBackfillTest {
         Integer count = backfill.backfillTenant("e2e-tenant-a").block();
 
         assertThat(count).isZero();
-        verify(catalogEntryPort, never()).updateIfVersion(any(), anyLong());
+        verify(catalogEntryPort, never()).fillIfVersion(any(), anyLong());
     }
 
     @Test
     void backfillTenant_doesNotCountAnEntryThatChangedConcurrently() {
         when(catalogEntryPort.findAll()).thenReturn(Flux.just(unfilled("doctorid.sd.1", 0)));
-        when(catalogEntryPort.updateIfVersion(any(), anyLong())).thenReturn(Mono.just(Optional.empty()));
+        when(catalogEntryPort.fillIfVersion(any(), anyLong())).thenReturn(Mono.just(Optional.empty()));
 
         assertThat(backfill.backfillTenant("e2e-tenant-a").block()).isZero();
     }
@@ -114,7 +114,7 @@ class TenantCatalogConfigBackfillTest {
     void backfillAllTenants_addsUpTheEntriesFilledInEveryTenant() {
         when(tenantRegistryService.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("tenant-a", "tenant-b")));
         when(catalogEntryPort.findAll()).thenReturn(Flux.just(unfilled("doctorid.sd.1", 0)));
-        when(catalogEntryPort.updateIfVersion(any(), anyLong())).thenReturn(Mono.just(Optional.of(unfilled("x", 1))));
+        when(catalogEntryPort.fillIfVersion(any(), anyLong())).thenReturn(Mono.just(Optional.of(unfilled("x", 1))));
 
         assertThat(backfill.backfillAllTenants().block()).isEqualTo(2);
     }
@@ -126,7 +126,7 @@ class TenantCatalogConfigBackfillTest {
                 "broken".equals(ctx.get(TENANT_DOMAIN_CONTEXT_KEY))
                         ? Flux.error(new IllegalStateException("schema missing"))
                         : Flux.just(unfilled("doctorid.sd.1", 0))));
-        when(catalogEntryPort.updateIfVersion(any(), anyLong())).thenReturn(Mono.just(Optional.of(unfilled("x", 1))));
+        when(catalogEntryPort.fillIfVersion(any(), anyLong())).thenReturn(Mono.just(Optional.of(unfilled("x", 1))));
 
         assertThat(backfill.backfillAllTenants().block()).isEqualTo(1);
     }
