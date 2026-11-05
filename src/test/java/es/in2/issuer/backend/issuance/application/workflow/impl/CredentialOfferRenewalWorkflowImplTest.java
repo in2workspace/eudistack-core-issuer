@@ -48,6 +48,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -429,7 +430,9 @@ class CredentialOfferRenewalWorkflowImplTest {
                 .verify();
 
         verifyNoInteractions(credentialOfferService);
-        verify(decisionAuditService).auditFailure(eq("authorization.deny"), anyString(), eq("platform_tenant_read_only"), any());
+        // Decided without the stored type, E1 and then E6, each denied with its reason (N2 of the review).
+        verify(decisionAuditService, times(2)).auditFailure(eq("authorization.deny"), anyString(),
+                eq("platform_tenant_read_only"), any());
     }
 
     // ── Scope: out of scope reads as not found ────────────────────────────────────────────
@@ -447,6 +450,68 @@ class CredentialOfferRenewalWorkflowImplTest {
         verifyNoInteractions(credentialOfferService);
         verify(decisionAuditService).auditFailure(eq("authorization.deny"), anyString(),
                 eq(Reason.ON_BEHALF_REQUIRES_TENANT_ADMIN.getCode()), any());
+    }
+
+    /**
+     * N1 of the review, round 4: out of scope reads as not found whatever the process stores. Who may
+     * issue but not in another organization learns neither that the id exists nor the class of its type.
+     */
+    @Test
+    void renew_organizationAdminOnAProductCertificationOfAnotherOrganization_isNotFound() {
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("ui", OTHER_ORG, LABEL_TYPE, labelDataSet()));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalIssuanceNotFoundException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+    }
+
+    @Test
+    void renew_certifierOnALearDraftOfAnotherOrganization_isNotFound() {
+        givenCaller(CERTIFY);
+        givenIssuance(draft("ui", OTHER_ORG));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalIssuanceNotFoundException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+    }
+
+    @Test
+    void renew_organizationAdminOnUnreadableContentOfAnotherOrganization_isNotFoundAndNotAuditedAsUndecidable() {
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("ui", OTHER_ORG, LEAR_TYPE, "not json"));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalIssuanceNotFoundException.class)
+                .verify();
+
+        verify(auditService, never()).auditFailure(eq(CredentialOfferRenewalWorkflowImpl.EVENT_FAILED), anyString(),
+                eq("content_not_decidable"), any());
+    }
+
+    @Test
+    void renew_organizationAdminOnADraftOfAnotherOrganizationWithAPowerItMayNotGrant_isNotFound() {
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("ui", OTHER_ORG, LEAR_TYPE, learDataSet(TENANT_ADMIN)));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalIssuanceNotFoundException.class)
+                .verify();
+    }
+
+    /** In scope, the stored content is decided: a tenant administrator on unreadable content gets 403. */
+    @Test
+    void renew_tenantAdminOnUnreadableContentOfAnotherOrganization_isContentNotDecidable() {
+        givenCaller(TENANT_ADMIN);
+        givenIssuance(draft("ui", OTHER_ORG, LEAR_TYPE, "not json"));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalContentNotDecidableException.class)
+                .verify();
     }
 
     /** An issuance stored without an organization (before EUD-272) belongs to none. */
@@ -626,7 +691,8 @@ class CredentialOfferRenewalWorkflowImplTest {
                 .expectError(RenewalPermissionDeniedException.class)
                 .verify();
 
-        verify(decisionAuditService).auditFailure(eq("authorization.deny"), eq(ATTESTATION), anyString(), any());
+        // E1 and then E6, decided without the stored type: one deny each (N2 of the review).
+        verify(decisionAuditService, times(2)).auditFailure(eq("authorization.deny"), eq(ATTESTATION), anyString(), any());
         verifyNoInteractions(auditService);
     }
 

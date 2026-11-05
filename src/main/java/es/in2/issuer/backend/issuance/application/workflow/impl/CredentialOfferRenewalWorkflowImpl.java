@@ -110,15 +110,21 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
 
     /**
      * Who may renew is who may issue the stored process again (decision 1 of the EUD-295 review,
-     * round 3): the same actions as issuing it, on the organization stored with it. Who may not issue
-     * at all gets 403 whether or not the issuance exists; an issuance out of scope answers like one
-     * that does not exist (AC-06, AC-11).
+     * round 3): the same actions as issuing it, on the organization stored with it. Decided in the
+     * order of the contract ("Permiso y ámbito", amended after N1 of round 4) so that what is
+     * observable outside the scope never depends on what the process stores, as in the revocation
+     * of EUD-272: may issue anything (403), exists (404), E2 for another organization (404), and
+     * only then its content, base action, grants and type (403).
      */
     private Mono<Issuance> findAuthorizedIssuance(Caller caller, UUID id) {
         String resourceId = id.toString();
         return issuanceService.getIssuanceById(resourceId)
-                .flatMap(issuance -> authorizeReissue(caller, issuance, resourceId).thenReturn(issuance))
-                .switchIfEmpty(Mono.defer(() -> authorizeWithoutResource(caller, resourceId)
+                // The resource is not named here: it is found, and E2 and the reissue trace it.
+                .flatMap(issuance -> authorizeAnyIssuance(caller, null)
+                        .then(Mono.defer(() -> requireInScope(caller, issuance, resourceId)))
+                        .then(Mono.defer(() -> authorizeReissue(caller, issuance, resourceId)))
+                        .thenReturn(issuance))
+                .switchIfEmpty(Mono.defer(() -> authorizeAnyIssuance(caller, resourceId)
                         .then(Mono.error(new RenewalIssuanceNotFoundException(NOT_FOUND_DETAIL)))))
                 .onErrorMap(LearIssuancePolicyException.class,
                         ex -> new RenewalPermissionDeniedException("The requester may not renew credential offers"))
@@ -132,10 +138,11 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
     }
 
     /**
-     * An id that is not in the tenant has no type to decide on: who may issue anything -- E1, or E6
-     * for product certifications -- learns it does not exist; anyone else is denied (AC-11).
+     * Who may issue anything -- E1, or E6 for product certifications -- without a resource: anyone
+     * else is denied whether or not the issuance exists (AC-11). With the id of an issuance that is
+     * not in the tenant, the decision point traces the probe as not found (FR-13).
      */
-    private Mono<Void> authorizeWithoutResource(Caller caller, String resourceId) {
+    private Mono<Void> authorizeAnyIssuance(Caller caller, String resourceId) {
         return powerAuthorizationService.authorize(PowerAuthorizationService.ISSUE_OWN, caller, null, resourceId)
                 .onErrorResume(LearIssuancePolicyException.class, notE1 -> powerAuthorizationService.authorize(
                         PowerAuthorizationService.ISSUE_PRODUCT_CERTIFICATION, caller, null, resourceId))
@@ -143,9 +150,27 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
     }
 
     /**
-     * Decides the stored process as an issuance of its type and content. A process whose type is no
-     * longer known or whose content cannot be read is denied: what it would grant cannot be decided
-     * (fail closed, EUD-295 tasks.md note 9). The decision point never sees it, so the renewal audits it.
+     * An issuance of another organization is out of scope for who may not issue there (E2): it reads
+     * as one that does not exist (AC-06), before its type or content is looked at, so the answer says
+     * nothing of what it stores (N1 of the EUD-295 review, round 4).
+     */
+    private Mono<Void> requireInScope(Caller caller, Issuance issuance, String resourceId) {
+        String organization = Objects.requireNonNullElse(issuance.getOrganizationIdentifier(), "");
+        if (organization.equals(caller.organizationIdentifier())) {
+            return Mono.empty();
+        }
+        return powerAuthorizationService.authorize(PowerAuthorizationService.ISSUE_ON_BEHALF, caller,
+                        organization, resourceId)
+                .onErrorMap(LearIssuancePolicyException.class,
+                        outOfScope -> new RenewalIssuanceNotFoundException(NOT_FOUND_DETAIL))
+                .then();
+    }
+
+    /**
+     * Decides the stored process, already in scope, as an issuance of its type and content. A process
+     * whose type is no longer known or whose content cannot be read is denied: what it would grant
+     * cannot be decided (fail closed, EUD-295 tasks.md note 9). The decision point never sees it, so
+     * the renewal audits it.
      */
     private Mono<Void> authorizeReissue(Caller caller, Issuance issuance, String resourceId) {
         String configurationId = issuance.getCredentialType();

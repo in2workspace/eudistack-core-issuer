@@ -184,10 +184,11 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
     }
 
     /**
-     * The actions of {@link #decideIssuance} in the order {@link #issuanceActions} gives them -- base,
-     * E2, grants -- so a caller who may not issue at all is denied before the scope is looked at, and
-     * the content of another organization's process is decided only for who may issue there; then
-     * the alias check of {@link #decideIssuance} and the type.
+     * The actions of {@link #decideIssuance} on a stored process -- base, E2, grants -- then the alias
+     * check of {@link #decideIssuance} and the type. The caller decides first, without the stored type
+     * or content, whether it may issue anything and whether it has scope (E2) on the process, so a
+     * denial here only reaches who may issue in its organization (EUD-295 ac.md, "Permiso y ámbito").
+     * A denied E2 still reads as not found, in case a caller does not check the scope first.
      */
     private Mono<IssuanceAuthorization> decideReissue(Caller caller, String processId, String credentialConfigurationId,
                                                       String credentialType, String resourceOrganization, JsonNode payload,
