@@ -17,6 +17,7 @@ import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -90,6 +91,54 @@ class IdempotencyFilterTest {
         assertEquals(MediaType.APPLICATION_JSON, second.getResponse().getHeaders().getContentType());
         assertEquals(1, invocations.get());
         verify(issuanceMetrics).recordIdempotencyCacheHit();
+    }
+
+    @Test
+    void requestUnderTheContextPath_isCachedAndReplaysStatusBodyAndLocation() {
+        String key = "idem-key-context-path";
+        AtomicInteger invocations = new AtomicInteger();
+        String location = "https://issuer.example.com/issuer" + ISSUANCES_PATH + "/abc";
+        WebFilterChain chain = exchange -> {
+            exchange.getResponse().getHeaders().setLocation(URI.create(location));
+            return writingChain(invocations).filter(exchange);
+        };
+
+        MockServerWebExchange first = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/issuer" + ISSUANCES_PATH)
+                        .contextPath("/issuer")
+                        .header(IDEMPOTENCY_HEADER, key)
+                        .build());
+        StepVerifier.create(filter.filter(first, chain)).verifyComplete();
+
+        MockServerWebExchange second = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/issuer" + ISSUANCES_PATH)
+                        .contextPath("/issuer")
+                        .header(IDEMPOTENCY_HEADER, key)
+                        .build());
+        StepVerifier.create(filter.filter(second, chain)).verifyComplete();
+
+        assertEquals(1, invocations.get());
+        assertEquals(HttpStatus.OK, second.getResponse().getStatusCode());
+        assertEquals(BODY, readBody(second));
+        assertEquals(location, second.getResponse().getHeaders().getFirst("Location"));
+        verify(issuanceMetrics).recordIdempotencyCacheHit();
+    }
+
+    @Test
+    void getWithTheKey_isNotCached() {
+        AtomicInteger invocations = new AtomicInteger();
+        WebFilterChain chain = writingChain(invocations);
+
+        for (int i = 0; i < 2; i++) {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.get(ISSUANCES_PATH)
+                            .header(IDEMPOTENCY_HEADER, "idem-key-get")
+                            .build());
+            StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+        }
+
+        assertEquals(2, invocations.get());
+        verify(issuanceMetrics, never()).recordIdempotencyCacheHit();
     }
 
     @Test

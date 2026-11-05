@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
@@ -49,8 +50,10 @@ public class IdempotencyFilter implements WebFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        String path = exchange.getRequest().getPath().value();
-        if (!ISSUANCES_PATH.equals(path)) {
+        // The path within the application: the request path carries the context path
+        // (spring.webflux.base-path, /issuer), which ISSUANCES_PATH does not.
+        String path = exchange.getRequest().getPath().pathWithinApplication().value();
+        if (!HttpMethod.POST.equals(exchange.getRequest().getMethod()) || !ISSUANCES_PATH.equals(path)) {
             return chain.filter(exchange);
         }
 
