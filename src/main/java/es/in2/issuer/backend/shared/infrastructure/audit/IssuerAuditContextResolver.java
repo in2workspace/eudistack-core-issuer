@@ -66,10 +66,19 @@ public class IssuerAuditContextResolver implements ReactiveAuditContextResolver 
         if (client != null && !client.isBlank()) {
             return AuditActor.system(client);
         }
-        boolean named = principalName != null && !principalName.isBlank() && !ANONYMOUS_PRINCIPAL.equals(principalName);
+        return AuditActor.person(personIdOf(principalName, token), null, token.getClaimAsString(EMAIL_CLAIM));
+    }
+
+    /** The principal when the authentication named the caller, else the token subject, else a fixed id. */
+    private static String personIdOf(String principalName, Jwt token) {
+        if (principalName != null && !principalName.isBlank() && !ANONYMOUS_PRINCIPAL.equals(principalName)) {
+            return principalName;
+        }
         String subject = token.getSubject();
-        String id = named ? principalName : subject != null && !subject.isBlank() ? subject : UNIDENTIFIED_PERSON;
-        return AuditActor.person(id, null, token.getClaimAsString(EMAIL_CLAIM));
+        if (subject != null && !subject.isBlank()) {
+            return subject;
+        }
+        return UNIDENTIFIED_PERSON;
     }
 
     /** The organization is optional evidence: a token without one is still a valid caller. */
