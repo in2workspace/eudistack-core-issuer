@@ -7,6 +7,10 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * Replaces Boot's OTLP/HTTP meter registry with one that exports over gRPC. Only when the export
+ * is on: otherwise Boot creates no {@link OtlpConfig} and nothing is exported.
+ */
 @Configuration
 @ConditionalOnProperty(name = "management.otlp.metrics.export.enabled", havingValue = "true")
 public class OtlpGrpcMetricsConfig {
