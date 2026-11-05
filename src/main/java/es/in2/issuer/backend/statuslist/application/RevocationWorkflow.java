@@ -59,6 +59,7 @@ public class RevocationWorkflow {
     private static final String UNKNOWN_ACTOR = "unknown";
     private static final String ANONYMOUS_ACTOR = "anonymous";
     private static final String ACTION_REVOKE_ISSUANCE = "revokeIssuance";
+    private static final String DETAIL_WORKFLOW_ACTION = "workflowAction";
     private static final String ERROR_TYPE_BAD_REQUEST = "BAD_REQUEST";
 
     /**
@@ -360,7 +361,7 @@ public class RevocationWorkflow {
             Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
                     ANONYMOUS_ACTOR, null, safeId, reason, "failure", errorType));
             details.put("processId", UUID.randomUUID().toString());
-            details.put("workflowAction", ACTION_REVOKE_ISSUANCE);
+            details.put(DETAIL_WORKFLOW_ACTION, ACTION_REVOKE_ISSUANCE);
             details.put("clientAddress", RevocationAuditDetails.sanitize(clientAddress, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH));
             auditService.auditFailure(EVENT_FAILED, ANONYMOUS_ACTOR, errorType, details);
         } catch (Exception e) {
@@ -426,7 +427,7 @@ public class RevocationWorkflow {
             Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
                     actor, orgId, issuanceId, reason, "attempted", null));
             details.put("processId", processId);
-            details.put("workflowAction", action);
+            details.put(DETAIL_WORKFLOW_ACTION, action);
             details.putAll(auditContext);
             auditService.auditAttempted(EVENT_ATTEMPTED, actor, "credential", issuanceId, details);
         } catch (Exception e) {
@@ -442,7 +443,7 @@ public class RevocationWorkflow {
             Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
                     actor, orgId, issuanceId, reason, "success", null));
             details.put("processId", processId);
-            details.put("workflowAction", action);
+            details.put(DETAIL_WORKFLOW_ACTION, action);
             details.putAll(auditContext);
             auditService.auditSuccess(EVENT_SUCCESS, actor, "credential", issuanceId, details);
         } catch (Exception e) {
@@ -459,7 +460,7 @@ public class RevocationWorkflow {
             Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
                     actor, orgId, issuanceId, reason, "failure", errorType));
             details.put("processId", processId);
-            details.put("workflowAction", action);
+            details.put(DETAIL_WORKFLOW_ACTION, action);
             details.putAll(auditContext);
             auditService.auditFailure(EVENT_FAILED, actor, errorType, details);
         } catch (Exception e) {

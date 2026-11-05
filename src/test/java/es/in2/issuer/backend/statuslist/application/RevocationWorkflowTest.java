@@ -23,7 +23,6 @@ import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.EmailService;
 import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
-import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.policy.Caller;
 import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
 import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
@@ -567,7 +566,7 @@ class RevocationWorkflowTest {
 
     @Test
     void traceUnauthenticated_aFailingAuditNeverPropagates() {
-        org.mockito.Mockito.doThrow(new RuntimeException("audit down")).when(auditService).auditFailure(any(), any(), any(), any());
+        doThrow(new RuntimeException("audit down")).when(auditService).auditFailure(any(), any(), any(), any());
 
         org.junit.jupiter.api.Assertions.assertDoesNotThrow(() ->
                 revocationWorkflow.traceUnauthenticated(UUID_ID, null, "invalid_token", ""));

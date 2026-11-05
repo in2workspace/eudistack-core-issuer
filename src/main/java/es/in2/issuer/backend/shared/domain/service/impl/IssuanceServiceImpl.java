@@ -9,7 +9,6 @@ import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
-import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.MalformedIssuanceIdException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
