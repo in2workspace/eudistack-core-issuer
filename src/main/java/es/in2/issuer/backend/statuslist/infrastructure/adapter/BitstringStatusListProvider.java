@@ -2,6 +2,7 @@ package es.in2.issuer.backend.statuslist.infrastructure.adapter;
 
 
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
+import es.in2.issuer.backend.statuslist.application.RevocationAuditDetails;
 import es.in2.issuer.backend.statuslist.domain.util.factory.IssuerFactory;
 import es.in2.issuer.backend.statuslist.domain.exception.*;
 import es.in2.issuer.backend.statuslist.domain.factory.BitstringStatusListCredentialFactory;
@@ -145,22 +146,25 @@ public class BitstringStatusListProvider implements StatusListProvider {
         requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
         requireNonNullParam(statusChange, "statusChange");
 
-        log.debug("method=revoke step=START issuanceId={}", issuanceId);
+        // The id reaches this method from the routes as the client sent it (CodeQL java/log-injection).
+        String safeIssuanceId = RevocationAuditDetails.quoteIfNeeded(issuanceId, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH);
+
+        log.debug("method=revoke step=START issuanceId={}", safeIssuanceId);
 
         return statusListIndexRepository.findByIssuanceId(UUID.fromString(issuanceId))
                 .switchIfEmpty(Mono.error(new StatusListIndexNotFoundException(issuanceId)))
                 .flatMap(listIndex -> {
                     log.debug(
                             "method=revoke step=indexResolved issuanceId={} statusListId={} idx={}",
-                            issuanceId, listIndex.statusListId(), listIndex.idx()
+                            safeIssuanceId, listIndex.statusListId(), listIndex.idx()
                     );
                     return revokeWithRetry(listIndex.statusListId(), listIndex.idx(), token, publicIssuerBaseUrl, statusChange);
                 })
                 .doOnSuccess(v ->
-                        log.debug("method=revoke step=END issuanceId={}", issuanceId)
+                        log.debug("method=revoke step=END issuanceId={}", safeIssuanceId)
                 )
                 .doOnError(e ->
-                        log.warn("method=revoke step=ERROR issuanceId={} error={}", issuanceId, e.getClass().getSimpleName())
+                        log.warn("method=revoke step=ERROR issuanceId={} error={}", safeIssuanceId, e.getClass().getSimpleName())
                 );
     }
 

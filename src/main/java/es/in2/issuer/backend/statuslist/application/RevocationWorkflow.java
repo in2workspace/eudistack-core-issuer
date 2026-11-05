@@ -432,7 +432,7 @@ public class RevocationWorkflow {
             auditService.auditAttempted(EVENT_ATTEMPTED, actor, "credential", issuanceId, details);
         } catch (Exception e) {
             log.warn("processId={} action={} step=auditAttemptedFailed issuanceId={} error={}",
-                    processId, action, issuanceId, e.toString());
+                    processId, action, RevocationAuditDetails.quoteIfNeeded(issuanceId, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH), e.toString());
         }
     }
 
@@ -448,7 +448,7 @@ public class RevocationWorkflow {
             auditService.auditSuccess(EVENT_SUCCESS, actor, "credential", issuanceId, details);
         } catch (Exception e) {
             log.warn("processId={} action={} step=auditSuccessFailed issuanceId={} error={}",
-                    processId, action, issuanceId, e.toString());
+                    processId, action, RevocationAuditDetails.quoteIfNeeded(issuanceId, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH), e.toString());
         }
     }
 
@@ -465,7 +465,7 @@ public class RevocationWorkflow {
             auditService.auditFailure(EVENT_FAILED, actor, errorType, details);
         } catch (Exception e) {
             log.warn("processId={} action={} step=auditFailureFailed issuanceId={} error={}",
-                    processId, action, issuanceId, e.toString());
+                    processId, action, RevocationAuditDetails.quoteIfNeeded(issuanceId, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH), e.toString());
         }
     }
 
