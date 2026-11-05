@@ -53,15 +53,15 @@ import static org.mockito.Mockito.lenient;
 class CredentialOfferRenewalAuthCodeIT extends PostgresIntegrationBase {
 
     private static final String TENANT = "e2e-tenant-a";
-    private static final String ADMIN_ORG = "admin-org-for-renewal-auth-code-it";
     private static final String OPERATOR_ORG = "operator-org-for-renewal-auth-code-it";
     private static final String CONFIG_ID = "learcredential.employee.w3c.4";
     private static final String AUTHORIZATION_CODE = "authorization_code";
     private static final String CLIENT_ID = "https://wallet.example/it";
     private static final String REDIRECT_URI = "https://wallet.example/callback";
 
-    private static final Map<String, Object> ONBOARDING_EXECUTE =
-            Map.of("type", "domain", "domain", "DOME", "function", "Onboarding", "action", List.of("Execute"));
+    /** An organization administrator, as the action matrix of EUD-272 recognizes it. */
+    private static final Map<String, Object> ORG_ADMIN =
+            Map.of("type", "domain", "domain", TENANT, "function", "Onboarding", "action", List.of("Execute"));
 
     @MockitoBean
     private EmailService emailService;
@@ -72,7 +72,6 @@ class CredentialOfferRenewalAuthCodeIT extends PostgresIntegrationBase {
     void setUp() {
         clientIp = "10.%d.%d.%d".formatted(ThreadLocalRandom.current().nextInt(1, 255),
                 ThreadLocalRandom.current().nextInt(1, 255), ThreadLocalRandom.current().nextInt(1, 255));
-        upsertConfig("admin_organization_id", ADMIN_ORG);
         upsertConfig("issuer.frontend_url", "https://frontend.example.com/issuer");
         lenient().when(emailService.sendCredentialOfferEmail(anyString(), anyString(), anyString(), any(), any()))
                 .thenReturn(Mono.empty());
@@ -81,7 +80,7 @@ class CredentialOfferRenewalAuthCodeIT extends PostgresIntegrationBase {
     @Test
     void renew_authorizationCode_voidsThePreviousIssuerStateAndTheNewOneGetsAToken() {
         UUID id = seedDraftIssuance();
-        String operator = mintUserAccessToken(TENANT, OPERATOR_ORG, List.of(ONBOARDING_EXECUTE), CONFIG_ID);
+        String operator = mintUserAccessToken(TENANT, OPERATOR_ORG, List.of(ORG_ADMIN));
 
         String previousState = issuerState(openOffer(renew(operator, id)));
         // The wallet started with the previous offer before the renewal...

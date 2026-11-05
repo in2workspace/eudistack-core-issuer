@@ -71,13 +71,18 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
     private static final String CONFIG_ID = "learcredential.employee.w3c.4";
     private static final String PRE_AUTHORIZED = "urn:ietf:params:oauth:grant-type:pre-authorized_code";
     private static final String HOLDER = "holder@example.com";
-    /** The credential of a portal user, as the Verifier states it in the access token (the LEAR profile the IT registry loads). */
-    private static final String PORTAL_CREDENTIAL_TYPE = "learcredential.employee.w3c.4";
-
-    private static final Map<String, Object> ONBOARDING_EXECUTE =
+    // Powers as the action matrix of EUD-272 recognizes them: the tenant administrator by
+    // organization · <tenant> · Onboarding · Execute, an organization administrator by domain · <tenant> · ...
+    private static final Map<String, Object> TENANT_ADMIN =
+            Map.of("type", "organization", "domain", TENANT, "function", "Onboarding", "action", List.of("Execute"));
+    private static final Map<String, Object> ORG_ADMIN =
+            Map.of("type", "domain", "domain", TENANT, "function", "Onboarding", "action", List.of("Execute"));
+    private static final Map<String, Object> ORG_ADMIN_OF_ANOTHER_DOMAIN =
             Map.of("type", "domain", "domain", "DOME", "function", "Onboarding", "action", List.of("Execute"));
+    private static final Map<String, Object> CERTIFY =
+            Map.of("type", "domain", "domain", TENANT, "function", "Certification", "action", List.of("Attest"));
     private static final Map<String, Object> PRODUCT_OFFERING =
-            Map.of("type", "domain", "domain", "DOME", "function", "ProductOffering", "action", List.of("Create"));
+            Map.of("type", "domain", "domain", TENANT, "function", "ProductOffering", "action", List.of("Create"));
     private static final Map<String, Object> SYSADMIN =
             Map.of("type", "organization", "domain", "EUDISTACK", "function", "System", "action", List.of("Administration"));
 
@@ -245,7 +250,7 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
     void renew_tenantAdmin_renewsAnotherOrganizationsIssuance() {
         UUID id = seedIssuance(TENANT, OTHER_ORG, "DRAFT", "ui", "authorization_code");
 
-        renew(mintUserAccessToken(TENANT, ADMIN_ORG, List.of(ONBOARDING_EXECUTE), PORTAL_CREDENTIAL_TYPE), id).expectStatus().isOk();
+        renew(tenantAdminToken(), id).expectStatus().isOk();
     }
 
     /**
@@ -319,7 +324,7 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
     /** AC-11 / NFR-1: who may not issue gets 403, whether or not the issuance exists, and the offer still works. */
     @Test
     void renew_withoutIssuingPower_is403EvenForANonexistentIssuance() {
-        String viewer = mintUserAccessToken(TENANT, OPERATOR_ORG, List.of(PRODUCT_OFFERING), PORTAL_CREDENTIAL_TYPE);
+        String viewer = mintUserAccessToken(TENANT, OPERATOR_ORG, List.of(PRODUCT_OFFERING));
         UUID own = seedIssuance(TENANT, OPERATOR_ORG, "DRAFT", "ui", "authorization_code");
         UUID otherOrgs = seedIssuance(TENANT, OTHER_ORG, "DRAFT", "ui", "authorization_code");
         String ownOffer = offerUri(renew(operatorToken(), own).expectStatus().isOk());
@@ -331,19 +336,27 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
         openOffer(ownOffer).expectStatus().isOk();
     }
 
-    /** W5: a genuine token without credential_type gets the contract's 403, not the shared API's 400. */
+    /**
+     * Who may renew is who may issue (E1/E2): Certification · Attest only issues product
+     * certifications (E6), and a power of another domain is no power in this tenant (review S1).
+     */
     @Test
-    void renew_tokenWithoutCredentialType_is403InsufficientPermission() {
+    void renew_onlyCertificationAttestOrAPowerOfAnotherDomain_is403AndTheOfferStillWorks() {
         UUID id = seedIssuance(TENANT, OPERATOR_ORG, "DRAFT", "ui", "authorization_code");
-        String withoutCredentialType = mintUserAccessToken(TENANT, OPERATOR_ORG, List.of(ONBOARDING_EXECUTE), null);
+        String offer = offerUri(renew(operatorToken(), id).expectStatus().isOk());
 
-        expectProblem(renew(withoutCredentialType, id), HttpStatus.FORBIDDEN, "insufficient_permission");
+        expectProblem(renew(mintUserAccessToken(TENANT, OPERATOR_ORG, List.of(CERTIFY)), id),
+                HttpStatus.FORBIDDEN, "insufficient_permission");
+        expectProblem(renew(mintUserAccessToken(TENANT, OPERATOR_ORG, List.of(ORG_ADMIN_OF_ANOTHER_DOMAIN)), id),
+                HttpStatus.FORBIDDEN, "insufficient_permission");
+
+        openOffer(offer).expectStatus().isOk();
     }
 
     /** ES-05. */
     @Test
     void renew_tokenOfAnotherTenant_is403TenantMismatch() {
-        String sysAdminOfOtherTenant = mintUserAccessToken(OTHER_TENANT, ADMIN_ORG, List.of(SYSADMIN), PORTAL_CREDENTIAL_TYPE);
+        String sysAdminOfOtherTenant = mintUserAccessToken(OTHER_TENANT, ADMIN_ORG, List.of(SYSADMIN));
 
         expectProblem(renew(sysAdminOfOtherTenant, UUID.randomUUID()), HttpStatus.FORBIDDEN, "tenant_mismatch");
     }
@@ -422,11 +435,11 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
     // ── Helpers ──────────────────────────────────────────────────────────────────────────
 
     private String operatorToken() {
-        return mintUserAccessToken(TENANT, OPERATOR_ORG, List.of(ONBOARDING_EXECUTE), PORTAL_CREDENTIAL_TYPE);
+        return mintUserAccessToken(TENANT, OPERATOR_ORG, List.of(ORG_ADMIN));
     }
 
     private String tenantAdminToken() {
-        return mintUserAccessToken(TENANT, ADMIN_ORG, List.of(ONBOARDING_EXECUTE), PORTAL_CREDENTIAL_TYPE);
+        return mintUserAccessToken(TENANT, ADMIN_ORG, List.of(TENANT_ADMIN));
     }
 
     private static void expectUnauthorized(WebTestClient.ResponseSpec response) {
@@ -562,7 +575,6 @@ class CredentialOfferRenewalIT extends PostgresIntegrationBase {
     }
 
     private void seedTenantConfig(String tenant) {
-        upsertConfig(tenant, "admin_organization_id", ADMIN_ORG);
         upsertConfig(tenant, "issuer.frontend_url", "https://frontend.example.com/issuer");
     }
 

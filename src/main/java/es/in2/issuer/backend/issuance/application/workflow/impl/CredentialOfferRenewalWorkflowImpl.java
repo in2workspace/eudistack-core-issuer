@@ -9,183 +9,133 @@ import es.in2.issuer.backend.issuance.domain.exception.RenewalPermissionDeniedEx
 import es.in2.issuer.backend.issuance.domain.exception.RenewalTenantMismatchException;
 import es.in2.issuer.backend.issuance.domain.model.CredentialOfferRenewal;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
-import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialFormatException;
-import es.in2.issuer.backend.shared.domain.exception.JWTClaimMissingException;
+import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
+import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
 import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
-import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferResult;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
-import es.in2.issuer.backend.shared.domain.policy.PolicyContext;
-import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
-import es.in2.issuer.backend.shared.domain.policy.rules.RequireTenantMatchRule;
-import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
+import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
+import es.in2.issuer.backend.shared.domain.policy.AuthorizationDecision;
+import es.in2.issuer.backend.shared.domain.policy.Caller;
+import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.util.IssuanceIds;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.ReactiveSecurityContextHolder;
-import org.springframework.security.core.context.SecurityContext;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.AUTHORIZATION_CODE;
-import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 /**
  * Checks run in the order of the acceptance contract (EUD-295 ac.md): tenant of the token, id
- * format, permission (decided before loading the issuance, so who may not issue gets 403 whether
- * or not the issuance exists), existence and scope, and last status and delivery mode.
- * Authentication and the volume limit are decided earlier by the web filters.
+ * format, permission and scope -- decided by the decision point of EUD-272 as an issuance (E1, or
+ * E2 for another organization) on the organization stored with the issuance -- and last status and
+ * delivery mode. Authentication and the volume limit are decided earlier by the web filters.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewalWorkflow {
 
-    private static final String FN_ONBOARDING = "Onboarding";
-    private static final String ACT_EXECUTE = "Execute";
-    private static final String FN_CERTIFICATION = "Certification";
-    private static final String ACT_ATTEST = "Attest";
-    private static final String BASIS_PLATFORM_ADMIN = "platform_admin";
-
-    // Audit events (conv-quality-security-gates §3.4, ENS op.exp.8), named like the revocation's.
-    static final String EVENT_PERMITTED = "credential.offer.renew.permitted";
-    static final String EVENT_DENIED = "credential.offer.renew.denied";
+    // Audit events of the outcome (conv-quality-security-gates §3.4, ENS op.exp.8). The permission
+    // decision, permitted or denied, is traced by the decision point (authorization.permit/deny).
     static final String EVENT_RENEWED = "credential.offer.renewed";
     static final String EVENT_FAILED = "credential.offer.renew.failed";
-    static final String DENY_TENANT_MISMATCH = "tenant_mismatch";
-    static final String DENY_NO_CREDENTIAL_TYPE = "no_credential_type";
-    static final String DENY_MISSING_POWER = "missing_power";
-    static final String DENY_READ_ONLY = "read_only";
+    static final String EVENT_CANCELLED = "credential.offer.renew.cancelled";
     private static final String RESOURCE_TYPE = "issuance";
-    private static final String UNKNOWN_ACTOR = "unknown";
+    /** Resource id audited for a path id that is not an issuance id, as the decision point traces it. */
+    static final String MALFORMED_ID = "<malformed>";
+    private static final String NOT_FOUND_DETAIL = "Issuance not found";
 
-    private final AccessTokenService accessTokenService;
-    private final PolicyContextFactory policyContextFactory;
+    private final CallerProvider callerProvider;
+    private final PowerAuthorizationService powerAuthorizationService;
     private final IssuanceService issuanceService;
     private final CredentialOfferService credentialOfferService;
     private final AuditService auditService;
 
     @Override
     @Observed(name = "issuance.renew-offer", contextualName = "renew-credential-offer")
-    public Mono<CredentialOfferRenewal> renewCredentialOffer(String authorizationHeader, String issuanceId,
-                                                             String publicIssuerBaseUrl) {
-        return resolveActor().flatMap(actor -> {
-            RenewalAudit audit = new RenewalAudit(actor, issuanceId);
-            return resolveRequester(authorizationHeader, audit)
-                    .flatMap(requester -> requireTenantMatch(requester, audit))
-                    .flatMap(requester -> parseIssuanceId(issuanceId)
-                            .flatMap(id -> authorizeRenewal(requester, audit)
-                                    .flatMap(ctx -> findIssuanceInScope(ctx, id))))
+    public Mono<CredentialOfferRenewal> renewCredentialOffer(String issuanceId, String publicIssuerBaseUrl) {
+        return callerProvider.current().flatMap(caller -> {
+            RenewalAudit audit = new RenewalAudit(caller, issuanceId);
+            return requireTenantMatch(caller)
+                    .then(Mono.defer(() -> parseIssuanceId(issuanceId)))
+                    .flatMap(id -> findAuthorizedIssuance(caller, id))
                     .flatMap(this::requireRenewable)
                     .flatMap(renewable -> deliverNewOffer(renewable, publicIssuerBaseUrl))
-                    .doOnSuccess(audit::renewed)
-                    .doOnError(audit::failed);
-        });
-    }
-
-    /** What the access token says about the requester: role and scope, and powers and tenant. */
-    private record Requester(AuthorizationContext authorization, PolicyContext policy) {}
-
-    /**
-     * A genuine token that does not say which credential the requester holds ({@code credential_type}
-     * missing, or a type without a profile) cannot be authorized: 403 {@code insufficient_permission}
-     * of the contract, not the shared API's 400 (EUD-295 review W5).
-     */
-    private Mono<Requester> resolveRequester(String authorizationHeader, RenewalAudit audit) {
-        return Mono.deferContextual(reactorCtx -> {
-            String tenantDomain = reactorCtx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null);
-            Mono<PolicyContext> policy = accessTokenService.getCleanBearerToken(authorizationHeader)
-                    .flatMap(token -> policyContextFactory.fromTokenSimple(token, tenantDomain))
-                    .onErrorMap(ex -> ex instanceof JWTClaimMissingException
-                                    || ex instanceof InvalidCredentialFormatException,
-                            ex -> {
-                                log.info("Credential offer renewal denied: the token has no usable credential type");
-                                audit.denied(DENY_NO_CREDENTIAL_TYPE);
-                                return new RenewalPermissionDeniedException(
-                                        "The token does not say which credential the requester holds");
-                            });
-            return accessTokenService.getAuthorizationContext(authorizationHeader)
-                    .doOnNext(audit::requester)
-                    .zipWith(policy, Requester::new);
+                    .doOnNext(audit::renewed)
+                    .doOnError(audit::failed)
+                    .doOnCancel(audit::cancelled);
         });
     }
 
     /**
-     * The token must be for the tenant of the request, as when issuing ({@link RequireTenantMatchRule}).
-     * Decided here, not by a filter: in this issuer each endpoint applies it.
+     * The token must be for the tenant of the request (FR-02 of EUD-253), decided -- and traced --
+     * by the decision point before anything else, as the order of the contract fixes.
      */
-    private Mono<Requester> requireTenantMatch(Requester requester, RenewalAudit audit) {
-        return new RequireTenantMatchRule().evaluate(requester.policy(), null)
+    private Mono<Void> requireTenantMatch(Caller caller) {
+        return powerAuthorizationService.recognize(caller)
                 .onErrorMap(TenantMismatchException.class, ex -> {
                     log.info("Credential offer renewal rejected: {}", ex.getMessage());
-                    audit.denied(DENY_TENANT_MISMATCH);
                     return new RenewalTenantMismatchException("The token is for another tenant");
                 })
-                .thenReturn(requester);
+                .then();
     }
 
-    private Mono<UUID> parseIssuanceId(String issuanceId) {
-        try {
-            return Mono.just(UUID.fromString(issuanceId));
-        } catch (IllegalArgumentException _) {
-            return Mono.error(new RenewalInvalidIssuanceIdException("The issuance id is not a UUID"));
-        }
+    private static Mono<UUID> parseIssuanceId(String issuanceId) {
+        return IssuanceIds.parse(issuanceId)
+                .map(Mono::just)
+                .orElseGet(() -> Mono.error(new RenewalInvalidIssuanceIdException("The issuance id is not a UUID")));
     }
 
-    // ── Authorization: the single point EUD-272 replaces ─────────────────────────────────────
-    // TODO(EUD-272): replace both steps with PowerAuthorizationService.authorize(E1|E2, organization
-    // of the issuance, id) -- the exact power for the attestation type, on its organization.
+    // ── Authorization: the single point of the renewal ─────────────────────────────────────────
 
     /**
-     * Permission, without the resource: the requester may issue today (platform administrator, or
-     * {@code Onboarding/Execute} or {@code Certification/Attest}) and may write (not the platform's
-     * read-only view).
+     * Who may renew is who may issue in the issuance's organization: E1 on the caller's own
+     * organization, E2 on another of the tenant. Who may not issue at all gets 403 whether or not
+     * the issuance exists (an id that is not in the tenant is decided without a resource, like
+     * EUD-272's lifecycle actions); an issuance out of scope answers like one that does not exist.
      */
-    private Mono<AuthorizationContext> authorizeRenewal(Requester requester, RenewalAudit audit) {
-        AuthorizationContext ctx = requester.authorization();
-        String basis = permissionBasis(ctx, requester.policy());
-        if (!ctx.canWrite() || basis == null) {
-            log.info("Credential offer renewal denied: role={}, canWrite={}, mayIssue={}",
-                    ctx.role(), ctx.canWrite(), basis != null);
-            audit.denied(ctx.canWrite() ? DENY_MISSING_POWER : DENY_READ_ONLY);
-            return Mono.error(new RenewalPermissionDeniedException("The requester may not renew credential offers"));
-        }
-        audit.permitted(basis);
-        return Mono.just(ctx);
-    }
-
-    /** What lets the requester issue today, as the audit records it; {@code null} if nothing does. */
-    private static String permissionBasis(AuthorizationContext ctx, PolicyContext policyContext) {
-        if (ctx.isSysAdmin()) {
-            return BASIS_PLATFORM_ADMIN;
-        }
-        if (policyContext.hasPower(FN_ONBOARDING, ACT_EXECUTE)) {
-            return FN_ONBOARDING + "/" + ACT_EXECUTE;
-        }
-        if (policyContext.hasPower(FN_CERTIFICATION, ACT_ATTEST)) {
-            return FN_CERTIFICATION + "/" + ACT_ATTEST;
-        }
-        return null;
+    private Mono<Issuance> findAuthorizedIssuance(Caller caller, UUID id) {
+        String resourceId = id.toString();
+        return issuanceService.getIssuanceById(resourceId)
+                .flatMap(issuance -> authorizeOn(caller, issuance, resourceId).thenReturn(issuance))
+                .switchIfEmpty(Mono.defer(() -> powerAuthorizationService
+                        .authorize(PowerAuthorizationService.ISSUE_OWN, caller, null, resourceId)
+                        .then(Mono.error(new RenewalIssuanceNotFoundException(NOT_FOUND_DETAIL)))))
+                .onErrorMap(LearIssuancePolicyException.class,
+                        ex -> new RenewalPermissionDeniedException("The requester may not renew credential offers"))
+                .onErrorMap(IssuanceNotFoundException.class,
+                        ex -> new RenewalIssuanceNotFoundException(NOT_FOUND_DETAIL))
+                .onErrorMap(TenantMismatchException.class,
+                        ex -> new RenewalTenantMismatchException("The token is for another tenant"));
     }
 
     /**
-     * Scope, as {@code GET /api/v1/issuances/{id}}: a tenant administrator, the whole tenant; anyone
-     * else, their organization. Out of scope answers exactly like an issuance that does not exist.
+     * E1 when the issuance is of the caller's organization, E2 otherwise. A caller denied E2 is told
+     * apart by E1 on the same issuance: one who may issue only for its own organization finds it out
+     * of scope (404, AC-06); one who may not issue at all is denied (403, AC-11). An issuance stored
+     * without an organization (before EUD-272) belongs to none, as in the lifecycle actions.
      */
-    private Mono<Issuance> findIssuanceInScope(AuthorizationContext ctx, UUID id) {
-        Mono<Issuance> issuance = ctx.isTenantAdmin()
-                ? issuanceService.getIssuanceById(id.toString())
-                : issuanceService.getIssuanceByIdAndOrganization(id, ctx.organizationIdentifier());
-        return issuance.switchIfEmpty(Mono.error(new RenewalIssuanceNotFoundException("Issuance not found")));
+    private Mono<AuthorizationDecision> authorizeOn(Caller caller, Issuance issuance, String resourceId) {
+        String organization = Objects.requireNonNullElse(issuance.getOrganizationIdentifier(), "");
+        if (organization.equals(caller.organizationIdentifier())) {
+            return powerAuthorizationService.authorize(PowerAuthorizationService.ISSUE_OWN, caller, organization, resourceId);
+        }
+        return powerAuthorizationService.authorize(PowerAuthorizationService.ISSUE_ON_BEHALF, caller, organization, resourceId)
+                .onErrorResume(LearIssuancePolicyException.class, onBehalfDenied -> powerAuthorizationService
+                        .authorize(PowerAuthorizationService.ISSUE_OWN, caller, organization, resourceId)
+                        .then(Mono.error(new IssuanceNotFoundException(NOT_FOUND_DETAIL))));
     }
 
     // ── Status and delivery mode ────────────────────────────────────────────────────────────
@@ -239,52 +189,31 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
 
     // ── Audit ───────────────────────────────────────────────────────────────────────────────
 
-    /** The authenticated principal, as the revocation records it. */
-    private static Mono<String> resolveActor() {
-        return ReactiveSecurityContextHolder.getContext()
-                .map(SecurityContext::getAuthentication)
-                .filter(auth -> auth != null && auth.isAuthenticated() && auth.getName() != null)
-                .map(Authentication::getName)
-                .defaultIfEmpty(UNKNOWN_ACTOR);
-    }
-
     /**
-     * The audit trail of one renewal: every permission decision (permitted, or denied with its
-     * reason) and the outcome, with the actor, their organization and role, and the issuance. Best
-     * effort: a failure of the audit channel is logged and never fails the renewal.
+     * The outcome of one renewal: renewed with its mode, failed with its reason, or cancelled by the
+     * client. The caller is identified as the decision point traces it -- its attestation, or the
+     * access token -- never by the mandatee's email (conv-quality-security-gates §10.3). Best effort:
+     * a failure of the audit channel is logged and never fails the renewal.
      */
     private final class RenewalAudit {
 
         private final String actor;
-        private final String issuanceId;
-        private AuthorizationContext requester;
+        private final String callerOrganization;
+        private final String resourceId;
 
-        private RenewalAudit(String actor, String issuanceId) {
-            this.actor = actor;
-            this.issuanceId = issuanceId;
-        }
-
-        void requester(AuthorizationContext ctx) {
-            this.requester = ctx;
-        }
-
-        void permitted(String basis) {
-            Map<String, Object> details = details();
-            details.put("basis", basis);
-            safely(() -> auditService.auditSuccess(EVENT_PERMITTED, actor, RESOURCE_TYPE, issuanceId, details));
-        }
-
-        void denied(String reason) {
-            safely(() -> auditService.auditFailure(EVENT_DENIED, actor, reason, details()));
+        private RenewalAudit(Caller caller, String issuanceId) {
+            this.actor = actorOf(caller);
+            this.callerOrganization = caller.organizationIdentifier();
+            this.resourceId = IssuanceIds.parse(issuanceId).map(UUID::toString).orElse(MALFORMED_ID);
         }
 
         void renewed(CredentialOfferRenewal renewal) {
             Map<String, Object> details = details();
             details.put("mode", renewal.mode().value);
-            safely(() -> auditService.auditSuccess(EVENT_RENEWED, actor, RESOURCE_TYPE, issuanceId, details));
+            safely(() -> auditService.auditSuccess(EVENT_RENEWED, actor, RESOURCE_TYPE, resourceId, details));
         }
 
-        /** The outcome of a renewal that was not denied; denials are audited where they are decided. */
+        /** Denials are traced by the decision point, with their reason; the rest of the failures here. */
         void failed(Throwable error) {
             String reason = switch (error) {
                 case RenewalInvalidIssuanceIdException _ -> "invalid_issuance_id";
@@ -299,12 +228,16 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
             }
         }
 
+        /** The client went away: the new offer is voided unless it already became the current one. */
+        void cancelled() {
+            safely(() -> auditService.auditFailure(EVENT_CANCELLED, actor, "cancelled", details()));
+        }
+
         private Map<String, Object> details() {
             Map<String, Object> details = new LinkedHashMap<>();
-            details.put("issuanceId", issuanceId);
-            if (requester != null) {
-                details.put("organizationIdentifier", requester.organizationIdentifier());
-                details.put("role", String.valueOf(requester.role()));
+            details.put("resourceId", resourceId);
+            if (callerOrganization != null) {
+                details.put("callerOrganization", callerOrganization);
             }
             return details;
         }
@@ -313,8 +246,16 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
             try {
                 audit.run();
             } catch (RuntimeException e) {
-                log.warn("Credential offer renewal audit failed for issuance={}: {}", issuanceId, e.toString());
+                log.warn("Credential offer renewal audit failed for issuance={}: {}", resourceId, e.toString());
             }
         }
+    }
+
+    /** Who acted, as the decision point records it: the attestation, else the access token. */
+    private static String actorOf(Caller caller) {
+        if (caller.attestationId() != null) {
+            return caller.attestationId();
+        }
+        return caller.tokenId() != null ? caller.tokenId() : caller.organizationIdentifier();
     }
 }

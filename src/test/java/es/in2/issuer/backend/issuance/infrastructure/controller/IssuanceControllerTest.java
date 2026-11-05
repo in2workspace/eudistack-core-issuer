@@ -922,7 +922,7 @@ class IssuanceControllerTest {
     void renewCredentialOffer_ui_returns200WithTheNewOfferUri() {
         String uri = "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fissuer.example.com%2Fnew";
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(credentialOfferRenewalWorkflow.renewCredentialOffer(BEARER_TOKEN, RENEWAL_ID, PUBLIC_ISSUER_BASE_URL))
+        when(credentialOfferRenewalWorkflow.renewCredentialOffer(RENEWAL_ID, PUBLIC_ISSUER_BASE_URL))
                 .thenReturn(Mono.just(new CredentialOfferRenewal(DeliveryMode.UI, uri)));
 
         webTestClient.mutateWith(csrf())
@@ -942,7 +942,7 @@ class IssuanceControllerTest {
     @Test
     void renewCredentialOffer_email_returns200WithoutBody() {
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(credentialOfferRenewalWorkflow.renewCredentialOffer(BEARER_TOKEN, RENEWAL_ID, PUBLIC_ISSUER_BASE_URL))
+        when(credentialOfferRenewalWorkflow.renewCredentialOffer(RENEWAL_ID, PUBLIC_ISSUER_BASE_URL))
                 .thenReturn(Mono.just(new CredentialOfferRenewal(DeliveryMode.EMAIL, null)));
 
         webTestClient.mutateWith(csrf())
@@ -959,7 +959,7 @@ class IssuanceControllerTest {
     void renewCredentialOffer_notRenewable_returns409ProblemJson() {
         delegateProblemsToTheRealFactory();
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(credentialOfferRenewalWorkflow.renewCredentialOffer(anyString(), anyString(), anyString()))
+        when(credentialOfferRenewalWorkflow.renewCredentialOffer(anyString(), anyString()))
                 .thenReturn(Mono.error(new OfferNotRenewableException("REVOKED")));
 
         webTestClient.mutateWith(csrf())
@@ -978,7 +978,7 @@ class IssuanceControllerTest {
     void renewCredentialOffer_deliveryFailed_returns503ProblemJsonWithRetryAfter() {
         delegateProblemsToTheRealFactory();
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
-        when(credentialOfferRenewalWorkflow.renewCredentialOffer(anyString(), anyString(), anyString()))
+        when(credentialOfferRenewalWorkflow.renewCredentialOffer(anyString(), anyString()))
                 .thenReturn(Mono.error(new RenewalDeliveryFailedException("smtp")));
 
         webTestClient.mutateWith(csrf())

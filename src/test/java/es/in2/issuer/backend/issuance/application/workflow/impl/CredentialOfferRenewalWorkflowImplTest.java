@@ -1,5 +1,6 @@
 package es.in2.issuer.backend.issuance.application.workflow.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.issuance.domain.exception.OfferNotRenewableException;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalDeliveryFailedException;
 import es.in2.issuer.backend.issuance.domain.exception.RenewalInvalidIssuanceIdException;
@@ -8,37 +9,30 @@ import es.in2.issuer.backend.issuance.domain.exception.RenewalPermissionDeniedEx
 import es.in2.issuer.backend.issuance.domain.exception.RenewalTenantMismatchException;
 import es.in2.issuer.backend.issuance.domain.model.CredentialOfferRenewal;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
-import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialFormatException;
-import es.in2.issuer.backend.shared.domain.exception.JWTClaimMissingException;
-import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferResult;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.lear.Power;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
-import es.in2.issuer.backend.shared.domain.model.enums.UserRole;
-import es.in2.issuer.backend.shared.domain.policy.PolicyContext;
-import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
-import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
+import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
+import es.in2.issuer.backend.shared.domain.policy.Caller;
+import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
+import es.in2.issuer.backend.shared.domain.policy.service.impl.PowerAuthorizationServiceImpl;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
+import es.in2.issuer.backend.shared.infrastructure.config.FileAuthorizationMatrixProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.junit.jupiter.params.provider.MethodSource;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.security.authentication.TestingAuthenticationToken;
-import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
+import reactor.test.publisher.PublisherProbe;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Stream;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.mockito.ArgumentMatchers.any;
@@ -46,64 +40,76 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-@ExtendWith(MockitoExtension.class)
+/**
+ * The renewal against the real decision point of EUD-272 and the bundled action matrix: who may
+ * renew is who may issue in the issuance's organization (E1, or E2 for another organization).
+ */
 class CredentialOfferRenewalWorkflowImplTest {
 
-    private static final String AUTH = "Bearer token";
     private static final String TENANT = "sandbox";
+    private static final String OTHER_TENANT = "kpmg";
     private static final String BASE_URL = "https://issuer.example.com";
     private static final UUID ID = UUID.fromString("0b6f1d2e-8c4a-4b1f-9e2d-7a5c3f8e1b90");
     private static final String ORG = "VATES-B99999999";
+    private static final String OTHER_ORG = "VATES-A11111111";
     private static final String OFFER_URI = "openid-credential-offer://?credential_offer_uri=new";
-    private static final Power ONBOARDING_EXECUTE = new Power("Execute", "DOME", "Onboarding", "Domain");
-    private static final Power CERTIFICATION_ATTEST = new Power(List.of("Attest"), "DOME", "Certification", "Domain");
-    private static final Power PRODUCT_OFFERING = new Power("Create", "DOME", "ProductOffering", "Domain");
+    private static final String ATTESTATION = "urn:uuid:attestation-of-the-caller";
 
-    @Mock
-    private AccessTokenService accessTokenService;
-    @Mock
-    private PolicyContextFactory policyContextFactory;
-    @Mock
+    private static final Power PLATFORM_ADMIN = power("organization", "EUDISTACK", "System", "Administration");
+    private static final Power TENANT_ADMIN = power("organization", TENANT, "Onboarding", "Execute");
+    private static final Power ORG_ADMIN = power("domain", TENANT, "Onboarding", "Execute");
+    private static final Power CERTIFY = power("domain", TENANT, "Certification", "Attest");
+    private static final Power ORG_ADMIN_OF_ANOTHER_DOMAIN = power("domain", "DOME", "Onboarding", "Execute");
+
+    private CallerProvider callerProvider;
     private IssuanceService issuanceService;
-    @Mock
     private CredentialOfferService credentialOfferService;
-    @Mock
     private AuditService auditService;
-
-    @InjectMocks
+    private AuditService decisionAuditService;
     private CredentialOfferRenewalWorkflowImpl workflow;
 
     @BeforeEach
-    void stubToken() {
-        lenient().when(accessTokenService.getCleanBearerToken(AUTH)).thenReturn(Mono.just("token"));
+    void setUp() {
+        callerProvider = mock(CallerProvider.class);
+        issuanceService = mock(IssuanceService.class);
+        credentialOfferService = mock(CredentialOfferService.class);
+        auditService = mock(AuditService.class);
+        decisionAuditService = mock(AuditService.class);
+        TenantCredentialProfileService profiles = mock(TenantCredentialProfileService.class);
+        when(profiles.isProfileAllowed(anyString())).thenReturn(Mono.just(true));
+        PowerAuthorizationService decisionPoint = new PowerAuthorizationServiceImpl(
+                new FileAuthorizationMatrixProvider("", mock(AuditService.class)),
+                callerProvider, profiles, decisionAuditService, new ObjectMapper());
+        workflow = new CredentialOfferRenewalWorkflowImpl(callerProvider, decisionPoint, issuanceService,
+                credentialOfferService, auditService);
     }
 
     // ── Successful renewals ───────────────────────────────────────────────────────────────
 
     @Test
     void renew_ui_returnsTheNewOfferUri() {
-        givenRequester(UserRole.LEAR, false, ONBOARDING_EXECUTE);
-        givenIssuanceOfOrganization(draft("ui"));
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("ui", ORG));
         givenOfferDelivered("ui", OFFER_URI, null);
 
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(ID.toString()))
                 .expectNext(new CredentialOfferRenewal(DeliveryMode.UI, OFFER_URI))
                 .verifyComplete();
     }
 
     @Test
     void renew_email_returnsNoUri() {
-        givenRequester(UserRole.LEAR, false, ONBOARDING_EXECUTE);
-        givenIssuanceOfOrganization(draft("email"));
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("email", ORG));
         givenOfferDelivered("email", null, null);
 
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(ID.toString()))
                 .expectNext(new CredentialOfferRenewal(DeliveryMode.EMAIL, null))
                 .verifyComplete();
     }
@@ -111,24 +117,24 @@ class CredentialOfferRenewalWorkflowImplTest {
     /** EC-01: with email,ui stored, a single ui offer and no email. */
     @Test
     void renew_emailAndUi_deliversOnlyWithUi() {
-        givenRequester(UserRole.LEAR, false, ONBOARDING_EXECUTE);
-        givenIssuanceOfOrganization(draft("email,ui"));
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("email,ui", ORG));
         givenOfferDelivered("ui", OFFER_URI, null);
 
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(ID.toString()))
                 .expectNext(new CredentialOfferRenewal(DeliveryMode.UI, OFFER_URI))
                 .verifyComplete();
     }
 
     @Test
     void renew_keepsTheGrantAndRefreshTokenOfTheIssuance() {
-        givenRequester(UserRole.LEAR, false, ONBOARDING_EXECUTE);
-        Issuance issuance = draft("ui");
+        givenCaller(ORG_ADMIN);
+        Issuance issuance = draft("ui", ORG);
         issuance.setGrantType("urn:ietf:params:oauth:grant-type:pre-authorized_code");
-        givenIssuanceOfOrganization(issuance);
+        givenIssuance(issuance);
         givenOfferDelivered("ui", OFFER_URI, null);
 
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(ID.toString()))
                 .expectNextCount(1)
                 .verifyComplete();
 
@@ -139,13 +145,13 @@ class CredentialOfferRenewalWorkflowImplTest {
 
     @Test
     void renew_withoutStoredGrant_usesAuthorizationCode() {
-        givenRequester(UserRole.LEAR, false, ONBOARDING_EXECUTE);
-        Issuance issuance = draft("ui");
+        givenCaller(ORG_ADMIN);
+        Issuance issuance = draft("ui", ORG);
         issuance.setGrantType(null);
-        givenIssuanceOfOrganization(issuance);
+        givenIssuance(issuance);
         givenOfferDelivered("ui", OFFER_URI, null);
 
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(ID.toString()))
                 .expectNextCount(1)
                 .verifyComplete();
 
@@ -153,145 +159,233 @@ class CredentialOfferRenewalWorkflowImplTest {
                 eq("authorization_code"), anyString(), anyString(), anyString(), anyString());
     }
 
+    /** E1: an issuance of the caller's own organization. */
     @Test
-    void renew_withCertificationAttest_isAllowed() {
-        givenRequester(UserRole.LEAR, false, CERTIFICATION_ATTEST);
-        givenIssuanceOfOrganization(draft("ui"));
+    void renew_issuanceOfTheCallersOrganization_isDecidedAsE1OnIt() {
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("ui", ORG));
         givenOfferDelivered("ui", OFFER_URI, null);
 
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
-                .expectNextCount(1)
-                .verifyComplete();
-    }
-
-    /** AC-07: a tenant administrator renews in any organization of the tenant. */
-    @Test
-    void renew_tenantAdmin_findsTheIssuanceInTheWholeTenant() {
-        givenRequester(UserRole.TENANT_ADMIN, false, ONBOARDING_EXECUTE);
-        when(issuanceService.getIssuanceById(ID.toString())).thenReturn(Mono.just(draft("ui")));
-        givenOfferDelivered("ui", OFFER_URI, null);
-
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(ID.toString()))
                 .expectNextCount(1)
                 .verifyComplete();
 
-        verify(issuanceService, never()).getIssuanceByIdAndOrganization(any(), anyString());
+        verify(decisionAuditService).auditSuccess(eq("authorization.permit"), eq(ATTESTATION), eq("action"),
+                eq(PowerAuthorizationService.ISSUE_OWN), argThat(details -> ORG.equals(details.get("resourceOrganization"))
+                        && ID.toString().equals(details.get("resourceId"))));
     }
 
-    /** The platform administrator needs no power, as when issuing. */
+    /** AC-07: a tenant administrator renews in another organization of the tenant, decided as E2. */
     @Test
-    void renew_sysAdminWithoutPowers_isAllowed() {
-        givenRequester(UserRole.SYSADMIN, false);
-        when(issuanceService.getIssuanceById(ID.toString())).thenReturn(Mono.just(draft("ui")));
+    void renew_tenantAdmin_renewsInAnotherOrganizationAsE2() {
+        givenCaller(TENANT_ADMIN);
+        givenIssuance(draft("ui", OTHER_ORG));
         givenOfferDelivered("ui", OFFER_URI, null);
 
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(ID.toString()))
                 .expectNextCount(1)
                 .verifyComplete();
+
+        verify(decisionAuditService).auditSuccess(eq("authorization.permit"), anyString(), eq("action"),
+                eq(PowerAuthorizationService.ISSUE_ON_BEHALF), argThat(details -> OTHER_ORG.equals(details.get("resourceOrganization"))));
     }
 
-    // ── Order of the checks: id, permission, scope, status ────────────────────────────────
+    /** Inside a tenant the platform administrator acts as its administrator, traced as a security action. */
+    @Test
+    void renew_platformAdmin_isDecidedAndTracedAsATenantAdmin() {
+        givenCaller(PLATFORM_ADMIN);
+        givenIssuance(draft("ui", OTHER_ORG));
+        givenOfferDelivered("ui", OFFER_URI, null);
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        verify(decisionAuditService).auditSuccess(eq("authorization.permit"), anyString(), eq("action"),
+                eq(PowerAuthorizationService.ISSUE_ON_BEHALF), argThat(details -> "platform_admin".equals(details.get("userType"))
+                        && Boolean.TRUE.equals(details.get("securityAction"))));
+    }
+
+    // ── Who may not renew (EUD-295 review, S1) ────────────────────────────────────────────
+
+    /** AC-11: a user of the issuance's organization without the power to issue gets 403. */
+    @Test
+    void renew_userWithoutPowers_isPermissionDenied() {
+        givenCaller();
+        givenIssuance(draft("ui", ORG));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalPermissionDeniedException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+    }
+
+    /** Certification · Attest is E6 (product certifications), not E1: it does not let renew a LEAR draft. */
+    @Test
+    void renew_onlyCertificationAttest_isPermissionDenied() {
+        givenCaller(CERTIFY);
+        givenIssuance(draft("ui", ORG));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalPermissionDeniedException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+    }
+
+    /** A power never leaves its domain: Onboarding · Execute of another domain is no power in this tenant. */
+    @Test
+    void renew_onboardingOfAnotherDomain_isPermissionDenied() {
+        givenCaller(ORG_ADMIN_OF_ANOTHER_DOMAIN);
+        givenIssuance(draft("ui", ORG));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalPermissionDeniedException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+    }
+
+    /** AC-11: the same 403 for a UUID that does not exist and for another organization's issuance. */
+    @Test
+    void renew_userWithoutPowers_isPermissionDeniedAlsoForANonexistentId() {
+        givenCaller();
+        when(issuanceService.getIssuanceById(ID.toString())).thenReturn(Mono.empty());
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalPermissionDeniedException.class)
+                .verify();
+    }
+
+    @Test
+    void renew_userWithoutPowers_isPermissionDeniedAlsoForAnotherOrganization() {
+        givenCaller();
+        givenIssuance(draft("ui", OTHER_ORG));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalPermissionDeniedException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+    }
+
+    /** ES-04: from the platform tenant the platform administrator only reads. */
+    @Test
+    void renew_platformAdminFromThePlatformTenant_isPermissionDenied() {
+        givenCallerOfTenant("platform", PLATFORM_ADMIN);
+        givenIssuance(draft("ui", ORG));
+
+        StepVerifier.create(renew(ID.toString(), "platform"))
+                .expectError(RenewalPermissionDeniedException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+        verify(decisionAuditService).auditFailure(eq("authorization.deny"), anyString(), eq("platform_tenant_read_only"), any());
+    }
+
+    // ── Scope: out of scope reads as not found ────────────────────────────────────────────
+
+    /** AC-06: an organization administrator finds another organization's issuance as not found. */
+    @Test
+    void renew_organizationAdminOnAnotherOrganization_isNotFound() {
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("ui", OTHER_ORG));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalIssuanceNotFoundException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+        verify(decisionAuditService).auditFailure(eq("authorization.deny"), anyString(), eq("resource_out_of_scope"), any());
+    }
+
+    /** An issuance stored without an organization (before EUD-272) belongs to none. */
+    @Test
+    void renew_organizationAdminOnAnIssuanceWithoutOrganization_isNotFound() {
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("ui", null));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalIssuanceNotFoundException.class)
+                .verify();
+    }
+
+    /** ES-02: a UUID that is not in the tenant, decided without a resource and then not found. */
+    @Test
+    void renew_nonexistent_isNotFoundAndTracedAsNotFound() {
+        givenCaller(ORG_ADMIN);
+        when(issuanceService.getIssuanceById(ID.toString())).thenReturn(Mono.empty());
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalIssuanceNotFoundException.class)
+                .verify();
+
+        verify(decisionAuditService).auditSuccess(eq("authorization.permit"), anyString(), eq("action"),
+                eq(PowerAuthorizationService.ISSUE_OWN), argThat(details -> Boolean.FALSE.equals(details.get("resourceFound"))));
+        verifyNoInteractions(credentialOfferService);
+    }
+
+    // ── Order of the checks: tenant, id, permission, scope, status ────────────────────────
 
     /** ES-05: a token for another tenant is rejected first, even with a malformed id. */
     @Test
     void renew_tokenOfAnotherTenant_isTenantMismatchBeforeTheId() {
-        givenRequesterOfTenant("kpmg", UserRole.SYSADMIN, false);
+        givenCallerOfTenant(OTHER_TENANT, TENANT_ADMIN);
 
-        StepVerifier.create(renew(AUTH, "abc", BASE_URL))
+        StepVerifier.create(renew("abc"))
                 .expectError(RenewalTenantMismatchException.class)
                 .verify();
 
         verifyNoInteractions(issuanceService, credentialOfferService);
-    }
-
-    /** W5: a token without credential_type, or with a type that has no profile, cannot be authorized. */
-    @ParameterizedTest
-    @MethodSource("tokensWithoutAUsableCredentialType")
-    void renew_tokenWithoutAUsableCredentialType_isPermissionDenied(RuntimeException fromTheToken) {
-        when(accessTokenService.getAuthorizationContext(AUTH))
-                .thenReturn(Mono.just(new AuthorizationContext(ORG, UserRole.LEAR, false, "multi_org")));
-        when(policyContextFactory.fromTokenSimple("token", TENANT)).thenReturn(Mono.error(fromTheToken));
-
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
-                .expectError(RenewalPermissionDeniedException.class)
-                .verify();
-
-        verifyNoInteractions(issuanceService, credentialOfferService);
-    }
-
-    static Stream<RuntimeException> tokensWithoutAUsableCredentialType() {
-        return Stream.of(new JWTClaimMissingException("credential_type"),
-                new InvalidCredentialFormatException("No profile found for credential type: unknown"));
+        verify(decisionAuditService).auditFailure(eq("authorization.deny"), anyString(), eq("tenant_mismatch"), any());
     }
 
     @Test
     void renew_tokenWithoutTenant_isTenantMismatch() {
-        givenRequesterOfTenant(null, UserRole.LEAR, false, ONBOARDING_EXECUTE);
+        givenCallerOfTenant(null, ORG_ADMIN);
 
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(ID.toString()))
                 .expectError(RenewalTenantMismatchException.class)
                 .verify();
+
+        verifyNoInteractions(issuanceService);
     }
 
-    /** ES-01, and before the permission: who may not issue still gets 400 for a malformed id. */
+    /** ES-01, before the permission: who may not issue still gets 400 for a malformed id. */
     @Test
     void renew_idNotUuid_isInvalidIdBeforeThePermission() {
-        givenRequester(UserRole.LEAR, false, PRODUCT_OFFERING);
+        givenCaller();
 
-        StepVerifier.create(renew(AUTH, "abc", BASE_URL))
+        StepVerifier.create(renew("abc"))
                 .expectError(RenewalInvalidIssuanceIdException.class)
                 .verify();
 
         verifyNoInteractions(issuanceService, credentialOfferService);
     }
 
-    /** AC-11: who may not issue gets 403 without the issuance being looked up. */
+    /** A shortened form that UUID.fromString accepts is not an issuance id either (EUD-307). */
     @Test
-    void renew_withoutIssuingPower_isPermissionDeniedBeforeLookingUpTheIssuance() {
-        givenRequester(UserRole.LEAR, false, PRODUCT_OFFERING);
+    void renew_nonCanonicalUuid_isInvalidId() {
+        givenCaller(ORG_ADMIN);
 
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
-                .expectError(RenewalPermissionDeniedException.class)
+        StepVerifier.create(renew("1-1-1-1-1"))
+                .expectError(RenewalInvalidIssuanceIdException.class)
                 .verify();
 
-        verifyNoInteractions(issuanceService, credentialOfferService);
-    }
-
-    /** ES-04: the platform's read-only view may not renew. */
-    @Test
-    void renew_readOnly_isPermissionDenied() {
-        givenRequester(UserRole.SYSADMIN, true);
-
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
-                .expectError(RenewalPermissionDeniedException.class)
-                .verify();
-
-        verifyNoInteractions(issuanceService, credentialOfferService);
-    }
-
-    /** AC-06 / ES-02: out of scope and nonexistent are the same 404. */
-    @Test
-    void renew_outOfScopeOrNonexistent_isNotFound() {
-        givenRequester(UserRole.LEAR, false, ONBOARDING_EXECUTE);
-        when(issuanceService.getIssuanceByIdAndOrganization(ID, ORG)).thenReturn(Mono.empty());
-
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
-                .expectError(RenewalIssuanceNotFoundException.class)
-                .verify();
-
-        verifyNoInteractions(credentialOfferService);
+        verifyNoInteractions(issuanceService);
     }
 
     /** AC-03: no other status than DRAFT has an offer to renew. */
     @ParameterizedTest
     @EnumSource(value = CredentialStatusEnum.class, names = "DRAFT", mode = EnumSource.Mode.EXCLUDE)
     void renew_notDraft_isNotRenewable(CredentialStatusEnum status) {
-        givenRequester(UserRole.LEAR, false, ONBOARDING_EXECUTE);
-        Issuance issuance = draft("ui");
+        givenCaller(ORG_ADMIN);
+        Issuance issuance = draft("ui", ORG);
         issuance.setCredentialStatus(status);
-        givenIssuanceOfOrganization(issuance);
+        givenIssuance(issuance);
 
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(ID.toString()))
                 .expectError(OfferNotRenewableException.class)
                 .verify();
 
@@ -301,10 +395,10 @@ class CredentialOfferRenewalWorkflowImplTest {
     /** AC-04. */
     @Test
     void renew_direct_isNotRenewable() {
-        givenRequester(UserRole.LEAR, false, ONBOARDING_EXECUTE);
-        givenIssuanceOfOrganization(draft("direct"));
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("direct", ORG));
 
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(ID.toString()))
                 .expectError(OfferNotRenewableException.class)
                 .verify();
 
@@ -316,157 +410,178 @@ class CredentialOfferRenewalWorkflowImplTest {
     /** ES-06. */
     @Test
     void renew_emailFails_isDeliveryFailed() {
-        givenRequester(UserRole.LEAR, false, ONBOARDING_EXECUTE);
-        givenIssuanceOfOrganization(draft("email"));
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("email", ORG));
         givenOfferDelivered("email", null, "Error during communication with the mail server");
 
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(ID.toString()))
                 .expectError(RenewalDeliveryFailedException.class)
                 .verify();
     }
 
     @Test
     void renew_offerCreationFails_isDeliveryFailed() {
-        givenRequester(UserRole.LEAR, false, ONBOARDING_EXECUTE);
-        givenIssuanceOfOrganization(draft("ui"));
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("ui", ORG));
         when(credentialOfferService.createAndDeliverCredentialOffer(anyString(), anyString(), anyString(),
                 anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.error(new IllegalStateException("cache down")));
 
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(ID.toString()))
                 .expectError(RenewalDeliveryFailedException.class)
                 .verify();
     }
 
-    // ── Audit (conv-quality-security-gates §3.4) ──────────────────────────────────────────
+    // ── Audit of the outcome (conv-quality-security-gates §3.4) ───────────────────────────
 
+    /** W2: the actor is the caller's attestation, as the decision point traces it, never an email. */
     @Test
-    void renew_success_auditsThePermissionWithItsBasisAndTheRenewalWithTheActor() {
-        givenRequester(UserRole.LEAR, false, CERTIFICATION_ATTEST);
-        givenIssuanceOfOrganization(draft("ui"));
+    void renew_success_auditsTheRenewalWithTheCallersAttestation() {
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("ui", ORG));
         givenOfferDelivered("ui", OFFER_URI, null);
 
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL)
-                        .contextWrite(ReactiveSecurityContextHolder.withAuthentication(
-                                new TestingAuthenticationToken("operator-sub", null, "ROLE_USER"))))
+        StepVerifier.create(renew(ID.toString()))
                 .expectNextCount(1)
                 .verifyComplete();
 
-        verify(auditService).auditSuccess(eq(CredentialOfferRenewalWorkflowImpl.EVENT_PERMITTED), eq("operator-sub"),
-                eq("issuance"), eq(ID.toString()), argThat(details ->
-                        "Certification/Attest".equals(details.get("basis"))
-                                && ORG.equals(details.get("organizationIdentifier"))
-                                && "LEAR".equals(details.get("role"))));
-        verify(auditService).auditSuccess(eq(CredentialOfferRenewalWorkflowImpl.EVENT_RENEWED), eq("operator-sub"),
-                eq("issuance"), eq(ID.toString()), argThat(details -> "ui".equals(details.get("mode"))));
+        verify(auditService).auditSuccess(eq(CredentialOfferRenewalWorkflowImpl.EVENT_RENEWED), eq(ATTESTATION),
+                eq("issuance"), eq(ID.toString()), argThat(details -> "ui".equals(details.get("mode"))
+                        && ORG.equals(details.get("callerOrganization"))
+                        && ID.toString().equals(details.get("resourceId"))));
         verify(auditService, never()).auditFailure(anyString(), any(), anyString(), any());
     }
 
     @Test
-    void renew_withoutIssuingPower_auditsTheDenialWithItsReason() {
-        givenRequester(UserRole.LEAR, false, PRODUCT_OFFERING);
+    void renew_withoutAttestationId_auditsTheTokenId() {
+        when(callerProvider.current()).thenReturn(Mono.just(
+                new Caller(ORG, List.of(ORG_ADMIN), TENANT, "learcredential.employee.w3c.4", "jti-1")));
+        givenIssuance(draft("ui", ORG));
+        givenOfferDelivered("ui", OFFER_URI, null);
 
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(ID.toString()))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        verify(auditService).auditSuccess(eq(CredentialOfferRenewalWorkflowImpl.EVENT_RENEWED), eq("jti-1"),
+                anyString(), anyString(), any());
+    }
+
+    /** Denials are traced by the decision point only: no outcome event of the renewal duplicates them. */
+    @Test
+    void renew_denied_isTracedByTheDecisionPointOnly() {
+        givenCaller();
+        givenIssuance(draft("ui", ORG));
+
+        StepVerifier.create(renew(ID.toString()))
                 .expectError(RenewalPermissionDeniedException.class)
                 .verify();
 
-        verify(auditService).auditFailure(eq(CredentialOfferRenewalWorkflowImpl.EVENT_DENIED), eq("unknown"),
-                eq(CredentialOfferRenewalWorkflowImpl.DENY_MISSING_POWER),
-                argThat(details -> ORG.equals(details.get("organizationIdentifier"))));
-        verify(auditService, never()).auditSuccess(anyString(), any(), anyString(), any(), any());
-        verify(auditService, never()).auditFailure(eq(CredentialOfferRenewalWorkflowImpl.EVENT_FAILED), any(), any(), any());
+        verify(decisionAuditService).auditFailure(eq("authorization.deny"), eq(ATTESTATION), anyString(), any());
+        verifyNoInteractions(auditService);
     }
 
     @Test
-    void renew_readOnly_auditsTheDenialAsReadOnly() {
-        givenRequester(UserRole.SYSADMIN, true);
+    void renew_notFound_auditsTheFailedOutcome() {
+        givenCaller(ORG_ADMIN);
+        when(issuanceService.getIssuanceById(ID.toString())).thenReturn(Mono.empty());
 
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
-                .expectError(RenewalPermissionDeniedException.class)
-                .verify();
-
-        verify(auditService).auditFailure(eq(CredentialOfferRenewalWorkflowImpl.EVENT_DENIED), anyString(),
-                eq(CredentialOfferRenewalWorkflowImpl.DENY_READ_ONLY), any());
-    }
-
-    @Test
-    void renew_tokenOfAnotherTenant_auditsTheDenialAsTenantMismatch() {
-        givenRequesterOfTenant("kpmg", UserRole.SYSADMIN, false);
-
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
-                .expectError(RenewalTenantMismatchException.class)
-                .verify();
-
-        verify(auditService).auditFailure(eq(CredentialOfferRenewalWorkflowImpl.EVENT_DENIED), anyString(),
-                eq(CredentialOfferRenewalWorkflowImpl.DENY_TENANT_MISMATCH), any());
-    }
-
-    @Test
-    void renew_tokenWithoutCredentialType_auditsTheDenial() {
-        when(accessTokenService.getAuthorizationContext(AUTH))
-                .thenReturn(Mono.just(new AuthorizationContext(ORG, UserRole.LEAR, false, "multi_org")));
-        when(policyContextFactory.fromTokenSimple("token", TENANT))
-                .thenReturn(Mono.error(new JWTClaimMissingException("credential_type")));
-
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
-                .expectError(RenewalPermissionDeniedException.class)
-                .verify();
-
-        verify(auditService).auditFailure(eq(CredentialOfferRenewalWorkflowImpl.EVENT_DENIED), anyString(),
-                eq(CredentialOfferRenewalWorkflowImpl.DENY_NO_CREDENTIAL_TYPE), any());
-    }
-
-    @Test
-    void renew_notFound_auditsThePermissionAndTheFailedOutcome() {
-        givenRequester(UserRole.LEAR, false, ONBOARDING_EXECUTE);
-        when(issuanceService.getIssuanceByIdAndOrganization(ID, ORG)).thenReturn(Mono.empty());
-
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(ID.toString()))
                 .expectError(RenewalIssuanceNotFoundException.class)
                 .verify();
 
-        verify(auditService).auditSuccess(eq(CredentialOfferRenewalWorkflowImpl.EVENT_PERMITTED), anyString(),
-                eq("issuance"), eq(ID.toString()), argThat(details -> "Onboarding/Execute".equals(details.get("basis"))));
-        verify(auditService).auditFailure(eq(CredentialOfferRenewalWorkflowImpl.EVENT_FAILED), anyString(),
+        verify(auditService).auditFailure(eq(CredentialOfferRenewalWorkflowImpl.EVENT_FAILED), eq(ATTESTATION),
                 eq("issuance_not_found"), any());
+    }
+
+    /** N5: a malformed id is audited as such, never as the string the client sent. */
+    @Test
+    void renew_malformedId_auditsItAsMalformed() {
+        givenCaller(ORG_ADMIN);
+
+        StepVerifier.create(renew("<script>"))
+                .expectError(RenewalInvalidIssuanceIdException.class)
+                .verify();
+
+        verify(auditService).auditFailure(eq(CredentialOfferRenewalWorkflowImpl.EVENT_FAILED), anyString(),
+                eq("invalid_issuance_id"), argThat((Map<String, Object> details) ->
+                        CredentialOfferRenewalWorkflowImpl.MALFORMED_ID.equals(details.get("resourceId"))));
+    }
+
+    @Test
+    void renew_deliveryFails_auditsTheFailedOutcome() {
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("email", ORG));
+        givenOfferDelivered("email", null, "smtp down");
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalDeliveryFailedException.class)
+                .verify();
+
+        verify(auditService).auditFailure(eq(CredentialOfferRenewalWorkflowImpl.EVENT_FAILED), anyString(),
+                eq("delivery_failed"), any());
+    }
+
+    /** N4: a renewal the client cancels leaves an outcome event. */
+    @Test
+    void renew_cancelled_auditsTheCancellation() {
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("ui", ORG));
+        PublisherProbe<CredentialOfferResult> delivery = PublisherProbe.of(Mono.never());
+        when(credentialOfferService.createAndDeliverCredentialOffer(anyString(), anyString(), anyString(),
+                anyString(), anyString(), anyString(), anyString())).thenReturn(delivery.mono());
+
+        StepVerifier.create(renew(ID.toString()))
+                .thenAwait()
+                .thenCancel()
+                .verify();
+
+        verify(auditService).auditFailure(eq(CredentialOfferRenewalWorkflowImpl.EVENT_CANCELLED), eq(ATTESTATION),
+                eq("cancelled"), any());
+        delivery.assertWasCancelled();
     }
 
     @Test
     void renew_auditChannelFails_theRenewalStillSucceeds() {
-        givenRequester(UserRole.SYSADMIN, false);
-        when(issuanceService.getIssuanceById(ID.toString())).thenReturn(Mono.just(draft("ui")));
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("ui", ORG));
         givenOfferDelivered("ui", OFFER_URI, null);
         doThrow(new IllegalStateException("audit down"))
                 .when(auditService).auditSuccess(anyString(), any(), anyString(), any(), any());
 
-        StepVerifier.create(renew(AUTH, ID.toString(), BASE_URL))
+        StepVerifier.create(renew(ID.toString()))
                 .expectNext(new CredentialOfferRenewal(DeliveryMode.UI, OFFER_URI))
                 .verifyComplete();
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────────────
 
+    private Mono<CredentialOfferRenewal> renew(String issuanceId) {
+        return renew(issuanceId, TENANT);
+    }
+
     /** As TenantDomainWebFilter does: the request's tenant travels in the Reactor context. */
-    private Mono<CredentialOfferRenewal> renew(String authorizationHeader, String issuanceId, String baseUrl) {
-        return workflow.renewCredentialOffer(authorizationHeader, issuanceId, baseUrl)
-                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT));
+    private Mono<CredentialOfferRenewal> renew(String issuanceId, String requestTenant) {
+        return workflow.renewCredentialOffer(issuanceId, BASE_URL)
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, requestTenant));
     }
 
-    private void givenRequester(UserRole role, boolean readOnly, Power... powers) {
-        givenRequesterOfTenant(TENANT, role, readOnly, powers);
+    private static Power power(String type, String domain, String function, String action) {
+        return new Power(List.of(action), domain, function, type);
     }
 
-    /** The request's tenant is always {@link #TENANT}; the token's is {@code tokenTenant}. */
-    private void givenRequesterOfTenant(String tokenTenant, UserRole role, boolean readOnly, Power... powers) {
-        when(accessTokenService.getAuthorizationContext(AUTH))
-                .thenReturn(Mono.just(new AuthorizationContext(ORG, role, readOnly, "multi_org")));
-        when(policyContextFactory.fromTokenSimple("token", TENANT))
-                .thenReturn(Mono.just(new PolicyContext(ORG, List.of(powers), null, null, null,
-                        role == UserRole.SYSADMIN, role == UserRole.TENANT_ADMIN, TENANT, tokenTenant, "multi_org")));
+    private void givenCaller(Power... powers) {
+        givenCallerOfTenant(TENANT, powers);
     }
 
-    private void givenIssuanceOfOrganization(Issuance issuance) {
-        when(issuanceService.getIssuanceByIdAndOrganization(ID, ORG)).thenReturn(Mono.just(issuance));
+    /** A caller of {@link #ORG} whose token was issued for {@code tokenTenant}. */
+    private void givenCallerOfTenant(String tokenTenant, Power... powers) {
+        when(callerProvider.current()).thenReturn(Mono.just(new Caller(ORG, List.of(powers), tokenTenant,
+                "learcredential.employee.w3c.4", "jti-1", ATTESTATION)));
+    }
+
+    private void givenIssuance(Issuance issuance) {
+        when(issuanceService.getIssuanceById(ID.toString())).thenReturn(Mono.just(issuance));
     }
 
     private void givenOfferDelivered(String mode, String uri, String emailError) {
@@ -478,11 +593,11 @@ class CredentialOfferRenewalWorkflowImplTest {
                         .build()));
     }
 
-    private static Issuance draft(String delivery) {
+    private static Issuance draft(String delivery, String organization) {
         return Issuance.builder()
                 .issuanceId(ID)
                 .credentialStatus(CredentialStatusEnum.DRAFT)
-                .organizationIdentifier(ORG)
+                .organizationIdentifier(organization)
                 .credentialType("learcredential.employee.sd.1")
                 .email("holder@example.com")
                 .delivery(delivery)

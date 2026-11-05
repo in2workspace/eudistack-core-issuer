@@ -7,10 +7,9 @@ import reactor.core.publisher.Mono;
 public interface CredentialOfferRenewalWorkflow {
 
     /**
-     * Creates a new offer for the issuance, delivers it with the issuance's delivery mode and voids
+     * Creates a new offer for the issuance of the current request's caller, delivers it with the issuance's delivery mode and voids
      * the previous one. Fails with one of the renewal exceptions of
      * {@code es.in2.issuer.backend.issuance.domain.exception}.
      */
-    Mono<CredentialOfferRenewal> renewCredentialOffer(String authorizationHeader, String issuanceId,
-                                                      String publicIssuerBaseUrl);
+    Mono<CredentialOfferRenewal> renewCredentialOffer(String issuanceId, String publicIssuerBaseUrl);
 }

@@ -129,11 +129,10 @@ public class IssuanceController {
     /** {@code renewCredentialOffer} (EUD-295). Its errors are application/problem+json (IssuanceExceptionHandler). */
     @PostMapping(value = "/{id}/credential-offer", produces = MediaType.APPLICATION_JSON_VALUE)
     public Mono<ResponseEntity<IssuanceHttpResponse>> renewCredentialOffer(
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
             @PathVariable("id") String id,
             ServerWebExchange exchange) {
         String publicIssuerBaseUrl = urlResolver.publicIssuerBaseUrl(exchange);
-        return credentialOfferRenewalWorkflow.renewCredentialOffer(authorizationHeader, id, publicIssuerBaseUrl)
+        return credentialOfferRenewalWorkflow.renewCredentialOffer(id, publicIssuerBaseUrl)
                 .map(renewal -> ResponseEntity.ok()
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(httpEnvelopeMapper.toRenewalResponse(renewal)));
