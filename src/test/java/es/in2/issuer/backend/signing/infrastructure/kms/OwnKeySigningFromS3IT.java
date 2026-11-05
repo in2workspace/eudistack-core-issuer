@@ -80,9 +80,9 @@ class OwnKeySigningFromS3IT {
 
     @BeforeAll
     static void setUpClients() {
-        kmsProperties = new KmsSigningProperties(true, LOCALSTACK.getRegion(), LOCALSTACK.getEndpoint(),
-                Duration.ofSeconds(10), 3, Duration.ofMillis(50), Duration.ofMillis(200), Duration.ofSeconds(45));
-        kms = KmsSigningConfig.clientBuilder(kmsProperties).credentialsProvider(CREDENTIALS).build();
+        kmsProperties = new KmsSigningProperties(LOCALSTACK.getEndpoint());
+        kms = KmsSigningConfig.clientBuilder(kmsProperties).region(Region.of(LOCALSTACK.getRegion()))
+                .credentialsProvider(CREDENTIALS).build();
         s3 = S3AsyncClient.builder().region(Region.of(LOCALSTACK.getRegion())).endpointOverride(LOCALSTACK.getEndpoint())
                 .forcePathStyle(true).credentialsProvider(CREDENTIALS).build();
         s3.createBucket(CreateBucketRequest.builder().bucket(BUCKET).build()).join();
@@ -117,16 +117,15 @@ class OwnKeySigningFromS3IT {
                 AsyncRequestBody.fromString(pem)).join();
 
         OwnKeyCertificatePort certificates = new S3OwnKeyCertificateAdapter(s3, new OwnKeyCertificateProperties(
-                "arn:aws:s3:::" + BUCKET + "/issuer", LOCALSTACK.getRegion(), LOCALSTACK.getEndpoint(),
-                Duration.ofSeconds(10)));
+                "arn:aws:s3:::" + BUCKET + "/issuer", LOCALSTACK.getEndpoint()));
         TenantConfigService tenantConfig = mock(TenantConfigService.class);
         when(tenantConfig.getStringOrThrow("admin_organization_id"))
                 .thenReturn(Mono.just(OwnKeyTestPki.ORGANIZATION_IDENTIFIER));
         OwnKeySigningConfig config = new OwnKeySigningConfigLoaderImpl(providerOf(certificates), tenantConfig)
                 .load(TENANT).block(Duration.ofSeconds(30));
 
-        KmsSigningPort adapter = new KmsSigningAdapter(kms, kmsProperties);
-        var provider = new KmsOwnKeySigningProvider(providerOf(adapter),
+        KmsSigningPort adapter = new KmsSigningAdapter(() -> kms);
+        var provider = new KmsOwnKeySigningProvider(adapter,
                 new JadesHeaderBuilderServiceImpl(new ObjectMapper()),
                 new HashGeneratorServiceImpl(),
                 new CscSigningProperties(JadesProfile.JADES_B_T),

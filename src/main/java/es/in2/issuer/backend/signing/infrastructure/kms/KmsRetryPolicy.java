@@ -2,7 +2,6 @@ package es.in2.issuer.backend.signing.infrastructure.kms;
 
 import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
-import es.in2.issuer.backend.signing.infrastructure.properties.KmsSigningProperties;
 import lombok.extern.slf4j.Slf4j;
 import reactor.util.retry.Retry;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
@@ -67,10 +66,10 @@ public final class KmsRetryPolicy {
      * retryable failures only. When retries run out the result is a
      * {@link KmsSigningException} with {@code PROVIDER_UNAVAILABLE}.
      */
-    public static Retry retrySpec(KmsSigningProperties properties, String operation, String keyRef) {
-        int maxRetries = properties.maxRetries();
-        return Retry.backoff(maxRetries, properties.initialBackoff())
-                .maxBackoff(properties.maxBackoff())
+    public static Retry retrySpec(KmsSigningTiming timing, String operation, String keyRef) {
+        int maxRetries = timing.maxRetries();
+        return Retry.backoff(maxRetries, timing.initialBackoff())
+                .maxBackoff(timing.maxBackoff())
                 .jitter(0.5)
                 .filter(KmsRetryPolicy::isRetryable)
                 .doBeforeRetry(rs -> log.warn(

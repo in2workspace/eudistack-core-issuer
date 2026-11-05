@@ -27,7 +27,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.ObjectProvider;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -110,10 +109,7 @@ class KmsOwnKeySigningProviderTest {
     }
 
     private static KmsOwnKeySigningProvider providerWith(KmsSigningPort port, Clock clock) {
-        @SuppressWarnings("unchecked")
-        ObjectProvider<KmsSigningPort> kmsProvider = mock(ObjectProvider.class);
-        when(kmsProvider.getIfAvailable()).thenReturn(port);
-        return new KmsOwnKeySigningProvider(kmsProvider,
+        return new KmsOwnKeySigningProvider(port,
                 new JadesHeaderBuilderServiceImpl(new ObjectMapper()),
                 new HashGeneratorServiceImpl(),
                 new CscSigningProperties(JadesProfile.JADES_B_T),
@@ -289,18 +285,6 @@ class KmsOwnKeySigningProviderTest {
                     .expectErrorSatisfies(e -> assertThat(e).isSameAs(failure))
                     .verify();
         }
-    }
-
-    @Test
-    void sign_kmsNotEnabled_failsWithKeyUnusable() {
-        provider = providerWith(null, NOW);
-
-        StepVerifier.create(signInTenant(provider, withOwnKey(jades(null), configFor(PKI.validP256Leaf()))))
-                .expectErrorSatisfies(e -> {
-                    assertReason(e, SigningFailureReason.KEY_UNUSABLE);
-                    assertThat(e.getMessage()).isEqualTo("KMS signing is not enabled on this issuer");
-                })
-                .verify();
     }
 
     @Test

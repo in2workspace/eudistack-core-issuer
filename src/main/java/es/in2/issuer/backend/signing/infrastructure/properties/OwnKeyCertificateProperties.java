@@ -1,11 +1,8 @@
 package es.in2.issuer.backend.signing.infrastructure.properties;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.boot.context.properties.bind.DefaultValue;
 
 import java.net.URI;
-import java.time.Duration;
-import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -14,23 +11,18 @@ import java.util.regex.Pattern;
  * {@code arn:aws:s3:::<bucket>[/<prefix>]} ({@code S3_CERTIFICATE_ARN}, as infra provisions it): the certificate
  * of a tenant is the object {@code <prefix>/<tenant>/latest/cert.pem}. A blank value is no value. Without it the
  * Issuer reads no certificate and own-key tenants cannot sign. {@code endpoint} is only for emulators such as
- * LocalStack. {@code timeout} bounds one read, retries of the SDK included.
+ * LocalStack. The region comes from the SDK default chain ({@code AWS_REGION}, which ECS sets) and the read
+ * timeout is fixed ({@code OwnKeyCertificateConfig}).
  */
 @ConfigurationProperties(prefix = "issuer.signing.certificates")
 public record OwnKeyCertificateProperties(
         String arn,
-        String region,
-        URI endpoint,
-        @DefaultValue("10s") Duration timeout
+        URI endpoint
 ) {
     /** An S3 ARN has neither region nor account; the partition ({@code aws}, {@code aws-cn}…) is not checked. */
     private static final Pattern S3_ARN = Pattern.compile("^arn:[a-z0-9-]+:s3:::([^/:]+)(/.*)?$");
 
     public OwnKeyCertificateProperties {
-        Objects.requireNonNull(timeout, "issuer.signing.certificates.timeout is required");
-        if (timeout.isZero() || timeout.isNegative()) {
-            throw new IllegalArgumentException("issuer.signing.certificates.timeout must be positive");
-        }
         if (arn != null && arn.isBlank()) {
             arn = null;
         }

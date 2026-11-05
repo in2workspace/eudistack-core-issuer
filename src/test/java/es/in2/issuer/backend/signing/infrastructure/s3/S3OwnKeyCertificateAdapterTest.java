@@ -37,7 +37,7 @@ class S3OwnKeyCertificateAdapterTest {
 
     private S3OwnKeyCertificateAdapter adapterAt(String arn) {
         return new S3OwnKeyCertificateAdapter(client,
-                new OwnKeyCertificateProperties(arn, "eu-west-1", null, Duration.ofSeconds(10)));
+                new OwnKeyCertificateProperties(arn, null));
     }
 
     @SuppressWarnings("unchecked")

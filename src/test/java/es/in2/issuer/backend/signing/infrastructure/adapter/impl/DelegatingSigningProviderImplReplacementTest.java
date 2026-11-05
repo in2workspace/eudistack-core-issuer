@@ -25,7 +25,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -66,8 +65,7 @@ class DelegatingSigningProviderImplReplacementTest {
 
     @BeforeEach
     void setUp() {
-        configService = new TenantSigningConfigServiceImpl(repository, new ObjectMapper(), ownKeyLoader,
-                Duration.ofMinutes(5));
+        configService = new TenantSigningConfigServiceImpl(repository, new ObjectMapper(), ownKeyLoader);
         signingProvider = new DelegatingSigningProviderImpl(configService, signingProviderResolver, signingAuditor);
 
         // The cache holds the old key; infra has already published the certificate of its replacement.

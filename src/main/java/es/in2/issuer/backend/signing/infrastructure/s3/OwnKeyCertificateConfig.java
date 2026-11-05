@@ -5,13 +5,15 @@ import es.in2.issuer.backend.signing.infrastructure.properties.OwnKeyCertificate
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3AsyncClientBuilder;
 
+import java.time.Duration;
+
 /**
  * S3 beans of the own-key certificates, created only when {@code issuer.signing.certificates.arn}
- * ({@code S3_CERTIFICATE_ARN}) is set and not blank. Credentials come from the SDK default chain (the runtime role on ECS).
+ * ({@code S3_CERTIFICATE_ARN}) is set and not blank. Region and credentials come from the SDK default chain (on ECS,
+ * {@code AWS_REGION} and the runtime role).
  */
 @Configuration
 // Not @ConditionalOnProperty: application.yml maps S3_CERTIFICATE_ARN with an empty default, and an empty
@@ -19,18 +21,18 @@ import software.amazon.awssdk.services.s3.S3AsyncClientBuilder;
 @ConditionalOnExpression("!'${issuer.signing.certificates.arn:}'.isBlank()")
 public class OwnKeyCertificateConfig {
 
+    /** Bound of one read, retries of the SDK included. Fixed, like the KMS timeouts. */
+    static final Duration READ_TIMEOUT = Duration.ofSeconds(10);
+
     @Bean(destroyMethod = "close")
     S3AsyncClient ownKeyCertificateS3Client(OwnKeyCertificateProperties properties) {
         return clientBuilder(properties).build();
     }
 
-    /** Region, endpoint and the timeout of one read; credentials are left to the caller. */
+    /** Endpoint and the timeout of one read; region and credentials are left to the SDK or the caller. */
     static S3AsyncClientBuilder clientBuilder(OwnKeyCertificateProperties properties) {
         S3AsyncClientBuilder builder = S3AsyncClient.builder()
-                .overrideConfiguration(c -> c.apiCallTimeout(properties.timeout()));
-        if (properties.region() != null && !properties.region().isBlank()) {
-            builder.region(Region.of(properties.region()));
-        }
+                .overrideConfiguration(c -> c.apiCallTimeout(READ_TIMEOUT));
         if (properties.endpoint() != null) {
             // Emulators such as LocalStack do not resolve bucket names as subdomains.
             builder.endpointOverride(properties.endpoint()).forcePathStyle(true);

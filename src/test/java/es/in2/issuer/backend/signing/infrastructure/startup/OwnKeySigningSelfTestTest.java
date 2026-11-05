@@ -18,8 +18,6 @@ import es.in2.issuer.backend.signing.infrastructure.adapter.SigningAuditor;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
 import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
-import es.in2.issuer.backend.signing.infrastructure.properties.KmsSigningProperties;
-import es.in2.issuer.backend.signing.infrastructure.properties.SigningSelfTestProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,8 +54,6 @@ class OwnKeySigningSelfTestTest {
     private final TenantSigningConfigService configService = mock(TenantSigningConfigService.class);
     private final KmsOwnKeySigningProvider kmsProvider = mock(KmsOwnKeySigningProvider.class);
     private final SigningAuditor auditor = mock(SigningAuditor.class);
-    private final KmsSigningProperties kmsProperties = new KmsSigningProperties(false, null, null,
-            Duration.ofSeconds(10), 3, Duration.ofSeconds(1), Duration.ofSeconds(5), Duration.ofSeconds(45));
     private final Logger logger = (Logger) LoggerFactory.getLogger(OwnKeySigningSelfTest.class);
     private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
 
@@ -76,13 +72,12 @@ class OwnKeySigningSelfTestTest {
     private static final OwnKeyTestPki PKI = new OwnKeyTestPki();
     private static final Clock NOW = Clock.fixed(Instant.parse("2026-06-01T00:00:00Z"), ZoneOffset.UTC);
 
-    private OwnKeySigningSelfTest selfTest(boolean enabled) {
-        return selfTest(new SigningSelfTestProperties(enabled, Duration.ofSeconds(5), Duration.ofDays(30)), NOW);
+    private OwnKeySigningSelfTest selfTest() {
+        return selfTest(NOW, Duration.ofSeconds(5));
     }
 
-    private OwnKeySigningSelfTest selfTest(SigningSelfTestProperties properties, Clock clock) {
-        return new OwnKeySigningSelfTest(registry, configService, kmsProvider, auditor, properties, kmsProperties,
-                clock);
+    private OwnKeySigningSelfTest selfTest(Clock clock, Duration tenantTimeout) {
+        return new OwnKeySigningSelfTest(registry, configService, kmsProvider, auditor, clock, tenantTimeout);
     }
 
     private static OwnKeySigningConfig ownKey() {
@@ -125,7 +120,7 @@ class OwnKeySigningSelfTestTest {
                             : Mono.just(new SigningResult(SigningType.JADES, "jws-value"));
                 }));
 
-        StepVerifier.create(selfTest(true).run()).verifyComplete();
+        StepVerifier.create(selfTest().run()).verifyComplete();
 
         assertThat(probed).containsExactlyInAnyOrder("good", "bad");
         assertThat(messages(Level.INFO)).containsExactly("own-key signing self-test passed tenant=good");
@@ -153,7 +148,7 @@ class OwnKeySigningSelfTestTest {
         configsByTenant(Map.of("t", ActiveSigningConfig.ownKey(ownKey())));
         when(kmsProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "x")));
 
-        StepVerifier.create(selfTest(true).run()).verifyComplete();
+        StepVerifier.create(selfTest().run()).verifyComplete();
 
         var captor = ArgumentCaptor.forClass(SigningRequest.class);
         verify(kmsProvider).sign(captor.capture());
@@ -168,7 +163,7 @@ class OwnKeySigningSelfTestTest {
         when(registry.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("q")));
         configsByTenant(Map.of("q", qtsp()));
 
-        StepVerifier.create(selfTest(true).run()).verifyComplete();
+        StepVerifier.create(selfTest().run()).verifyComplete();
 
         verifyNoInteractions(kmsProvider, auditor);
         assertThat(logs.list).isEmpty();
@@ -178,7 +173,7 @@ class OwnKeySigningSelfTestTest {
     void run_tenantListingFails_completesWithoutError() {
         when(registry.getActiveTenantSchemas()).thenReturn(Mono.error(new IllegalStateException("db down")));
 
-        StepVerifier.create(selfTest(true).run()).verifyComplete();
+        StepVerifier.create(selfTest().run()).verifyComplete();
 
         assertThat(messages(Level.WARN)).hasSize(1);
     }
@@ -187,7 +182,7 @@ class OwnKeySigningSelfTestTest {
     void run_tenantListingThrowsSynchronously_completesWithoutError() {
         when(registry.getActiveTenantSchemas()).thenThrow(new IllegalStateException("boom"));
 
-        StepVerifier.create(selfTest(true).run()).verifyComplete();
+        StepVerifier.create(selfTest().run()).verifyComplete();
     }
 
     @Test
@@ -200,7 +195,7 @@ class OwnKeySigningSelfTestTest {
                         : Mono.just(ActiveSigningConfig.ownKey(ownKey()))));
         when(kmsProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "x")));
 
-        StepVerifier.create(selfTest(true).run()).verifyComplete();
+        StepVerifier.create(selfTest().run()).verifyComplete();
 
         assertThat(messages(Level.WARN))
                 .containsExactly("own-key signing self-test failed tenant=broken reason=NO_CONFIGURATION");
@@ -212,7 +207,7 @@ class OwnKeySigningSelfTestTest {
         when(registry.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("slow")));
         configsByTenant(Map.of("slow", ActiveSigningConfig.ownKey(ownKey())));
         when(kmsProvider.sign(any())).thenReturn(Mono.never());
-        var slowSelfTest = selfTest(new SigningSelfTestProperties(true, Duration.ofMillis(50), Duration.ofDays(30)), NOW);
+        var slowSelfTest = selfTest(NOW, Duration.ofMillis(50));
 
         StepVerifier.create(slowSelfTest.run()).verifyComplete();
 
@@ -224,38 +219,17 @@ class OwnKeySigningSelfTestTest {
     }
 
     @Test
-    void tenantTimeout_unset_coversTheWorstKmsCallWithItsRetries() {
-        var derived = selfTest(new SigningSelfTestProperties(true, null, Duration.ofDays(30)), NOW);
-
+    void constants_tenantTimeoutCoversTheWorstKmsCall_andTheWarningIsThirtyDays() {
         // 4 attempts of 10 s and 3 waits of at most 5 s, capped by the 45 s deadline, plus the 5 s margin.
-        assertThat(kmsProperties.worstCaseSigningDuration()).isEqualTo(Duration.ofSeconds(45));
-        assertThat(derived.tenantTimeout()).isEqualTo(Duration.ofSeconds(50));
-        assertThat(selfTest(true).tenantTimeout()).isEqualTo(Duration.ofSeconds(5));
+        assertThat(OwnKeySigningSelfTest.TENANT_TIMEOUT).isEqualTo(Duration.ofSeconds(50));
+        assertThat(OwnKeySigningSelfTest.CERTIFICATE_EXPIRY_WARNING).isEqualTo(Duration.ofDays(30));
     }
 
     @Test
     void onApplicationReady_everyDependencyFailing_neverThrows() {
         when(registry.getActiveTenantSchemas()).thenThrow(new IllegalStateException("boom"));
 
-        assertDoesNotThrow(() -> selfTest(true).onApplicationReady());
-    }
-
-    @Test
-    void onApplicationReady_disabled_runsNothing() {
-        selfTest(false).onApplicationReady();
-
-        verifyNoInteractions(registry, configService, kmsProvider, auditor);
-    }
-
-    @Test
-    void properties_nonPositiveTimeout_isRejected() {
-        Duration validWarning = Duration.ofDays(30);
-        Duration negativeWarning = Duration.ofDays(-1);
-
-        assertThrows(IllegalArgumentException.class,
-                () -> new SigningSelfTestProperties(true, Duration.ZERO, validWarning));
-        assertThrows(IllegalArgumentException.class,
-                () -> new SigningSelfTestProperties(true, null, negativeWarning));
+        assertDoesNotThrow(() -> selfTest().onApplicationReady());
     }
 
     @Test
@@ -265,7 +239,7 @@ class OwnKeySigningSelfTestTest {
         when(kmsProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "x")));
         doThrow(new IllegalStateException("audit down")).when(auditor).success(any(), any());
 
-        StepVerifier.create(selfTest(true).run()).verifyComplete();
+        StepVerifier.create(selfTest().run()).verifyComplete();
     }
 
     @Test
@@ -273,7 +247,7 @@ class OwnKeySigningSelfTestTest {
         when(registry.getActiveTenantSchemas()).thenReturn(Mono.just(List.of("empty", "q")));
         configsByTenant(Map.of("q", qtsp()));
 
-        StepVerifier.create(selfTest(true).run()).verifyComplete();
+        StepVerifier.create(selfTest().run()).verifyComplete();
 
         assertThat(messages(Level.WARN))
                 .containsExactly("signing self-test: no active signing configuration tenant=empty");
@@ -295,8 +269,7 @@ class OwnKeySigningSelfTestTest {
         when(kmsProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "x")));
         var twelveDaysBefore = Clock.fixed(Instant.parse("2098-12-20T00:00:00Z"), ZoneOffset.UTC);
 
-        StepVerifier.create(selfTest(new SigningSelfTestProperties(true, Duration.ofSeconds(5), Duration.ofDays(30)),
-                twelveDaysBefore).run()).verifyComplete();
+        StepVerifier.create(selfTest(twelveDaysBefore, Duration.ofSeconds(5)).run()).verifyComplete();
 
         assertThat(messages(Level.WARN)).containsExactly(
                 "own-key signing certificate expires soon tenant=cgcom notAfter=2099-01-01T00:00:00Z daysLeft=12");
@@ -309,7 +282,7 @@ class OwnKeySigningSelfTestTest {
         configsByTenant(Map.of("cgcom", ActiveSigningConfig.ownKey(ownKey())));
         when(kmsProvider.sign(any())).thenReturn(Mono.just(new SigningResult(SigningType.JADES, "x")));
 
-        StepVerifier.create(selfTest(true).run()).verifyComplete();
+        StepVerifier.create(selfTest().run()).verifyComplete();
 
         assertThat(messages(Level.WARN)).isEmpty();
     }

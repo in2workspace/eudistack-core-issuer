@@ -33,8 +33,7 @@ class OwnKeyCertificateConfigTest {
 
     @Test
     void context_withArn_createsTheCertificatePort() {
-        runner.withPropertyValues("issuer.signing.certificates.arn=arn:aws:s3:::certs-bucket/issuer",
-                        "issuer.signing.certificates.region=eu-west-1")
+        runner.withPropertyValues("issuer.signing.certificates.arn=arn:aws:s3:::certs-bucket/issuer")
                 .run(context -> assertThat(context).hasSingleBean(OwnKeyCertificatePort.class));
     }
 }

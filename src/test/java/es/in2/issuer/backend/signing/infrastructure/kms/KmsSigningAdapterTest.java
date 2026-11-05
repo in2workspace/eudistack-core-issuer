@@ -2,7 +2,6 @@ package es.in2.issuer.backend.signing.infrastructure.kms;
 
 import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
-import es.in2.issuer.backend.signing.infrastructure.properties.KmsSigningProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -10,6 +9,7 @@ import reactor.test.StepVerifier;
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.core.SdkBytes;
+import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.services.kms.KmsAsyncClient;
 import software.amazon.awssdk.services.kms.model.DisabledException;
 import software.amazon.awssdk.services.kms.model.KmsInvalidStateException;
@@ -22,6 +22,8 @@ import software.amazon.awssdk.services.kms.model.SigningAlgorithmSpec;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -43,13 +45,54 @@ class KmsSigningAdapterTest {
     @BeforeEach
     void setUp() {
         client = mock(KmsAsyncClient.class);
-        adapter = new KmsSigningAdapter(client, properties(Duration.ofSeconds(45)));
+        adapter = new KmsSigningAdapter(() -> client);
     }
 
-    /** The default settings, with the given deadline. */
-    private static KmsSigningProperties properties(Duration deadline) {
-        return new KmsSigningProperties(true, "eu-west-1", null, Duration.ofSeconds(10), 3,
-                Duration.ofMillis(200), Duration.ofSeconds(5), deadline);
+    /** The default timing, with the given deadline. */
+    private static KmsSigningTiming timing(Duration deadline) {
+        KmsSigningTiming defaults = KmsSigningTiming.DEFAULT;
+        return new KmsSigningTiming(defaults.callTimeout(), defaults.maxRetries(), defaults.initialBackoff(),
+                defaults.maxBackoff(), deadline);
+    }
+
+    @Test
+    void sign_clientBuiltOnce_acrossSignatures() {
+        AtomicInteger builds = new AtomicInteger();
+        adapter = new KmsSigningAdapter(() -> {
+            builds.incrementAndGet();
+            return client;
+        });
+        when(client.sign(any(SignRequest.class))).thenAnswer(inv -> CompletableFuture.completedFuture(signResponse()));
+
+        StepVerifier.create(adapter.sign(KEY_REF, DIGEST)).expectNextCount(1).verifyComplete();
+        StepVerifier.create(adapter.sign(KEY_REF, DIGEST)).expectNextCount(1).verifyComplete();
+
+        assertThat(builds).hasValue(1);
+    }
+
+    @Test
+    void sign_clientCannotBeBuilt_failsKeyUnusable_andTheNextSignatureTriesAgain() {
+        AtomicInteger builds = new AtomicInteger();
+        Supplier<KmsAsyncClient> noRegion = () -> {
+            if (builds.incrementAndGet() == 1) {
+                throw new IllegalStateException("bean creation failed",
+                        SdkClientException.create("Unable to load region from any of the providers in the chain"));
+            }
+            return client;
+        };
+        adapter = new KmsSigningAdapter(noRegion);
+        when(client.sign(any(SignRequest.class))).thenReturn(CompletableFuture.completedFuture(signResponse()));
+
+        StepVerifier.create(adapter.sign(KEY_REF, DIGEST))
+                .expectErrorSatisfies(ex -> {
+                    assertReason(ex, SigningFailureReason.KEY_UNUSABLE);
+                    assertThat(ex).hasMessage("KMS client could not be created: SdkClientException");
+                })
+                .verify();
+        StepVerifier.create(adapter.sign(KEY_REF, DIGEST)).expectNextCount(1).verifyComplete();
+
+        assertThat(builds).hasValue(2);
+        verify(client, times(1)).sign(any(SignRequest.class));
     }
 
     @Test
@@ -151,7 +194,7 @@ class KmsSigningAdapterTest {
 
     @Test
     void sign_attemptsLastingPastTheDeadline_failProviderUnavailableAtTheDeadline() {
-        adapter = new KmsSigningAdapter(client, properties(Duration.ofSeconds(25)));
+        adapter = new KmsSigningAdapter(() -> client, timing(Duration.ofSeconds(25)));
         when(client.sign(any(SignRequest.class))).thenAnswer(inv -> new CompletableFuture<SignResponse>());
 
         // Attempts start at 0 s, about 10.2 s and about 20.6 s; the deadline cuts the third one at 25 s.

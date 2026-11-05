@@ -9,6 +9,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 import reactor.test.StepVerifier;
+import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.async.AsyncRequestBody;
@@ -41,8 +42,9 @@ class S3OwnKeyCertificateAdapterIT {
     @BeforeAll
     static void setUp() {
         var properties = new OwnKeyCertificateProperties("arn:aws:s3:::" + BUCKET + "/issuer",
-                LOCALSTACK.getRegion(), LOCALSTACK.getEndpoint(), Duration.ofSeconds(10));
+                LOCALSTACK.getEndpoint());
         client = OwnKeyCertificateConfig.clientBuilder(properties)
+                .region(Region.of(LOCALSTACK.getRegion()))
                 .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create("test", "test")))
                 .build();
         adapter = new S3OwnKeyCertificateAdapter(client, properties);

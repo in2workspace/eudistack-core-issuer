@@ -50,8 +50,7 @@ class TenantSigningConfigServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new TenantSigningConfigServiceImpl(repository, new ObjectMapper(), ownKeyLoader,
-                Duration.ofSeconds(30), ticker);
+        service = new TenantSigningConfigServiceImpl(repository, new ObjectMapper(), ownKeyLoader, ticker);
     }
 
     private static TenantSigningConfig qtspRow() {
@@ -162,7 +161,7 @@ class TenantSigningConfigServiceImplTest {
         when(repository.findFirstByStatusOrderByCreatedAtDesc("active")).thenReturn(Mono.just(qtspRow()));
 
         StepVerifier.create(load("t1")).expectNextCount(1).verifyComplete();
-        nanos.addAndGet(Duration.ofSeconds(29).toNanos());
+        nanos.addAndGet(TenantSigningConfigServiceImpl.CACHE_TTL.minusSeconds(1).toNanos());
         StepVerifier.create(load("t1")).expectNextCount(1).verifyComplete();
 
         verify(repository, times(1)).findFirstByStatusOrderByCreatedAtDesc("active");
@@ -175,7 +174,7 @@ class TenantSigningConfigServiceImplTest {
                 .thenReturn(Mono.just(qtspRow("cred-2")));
 
         StepVerifier.create(load("t1")).expectNextCount(1).verifyComplete();
-        nanos.addAndGet(Duration.ofSeconds(31).toNanos());
+        nanos.addAndGet(TenantSigningConfigServiceImpl.CACHE_TTL.plusSeconds(1).toNanos());
 
         StepVerifier.create(load("t1"))
                 .assertNext(config -> assertThat(config.qtsp().credentialId()).isEqualTo("cred-2"))
@@ -194,18 +193,8 @@ class TenantSigningConfigServiceImplTest {
     }
 
     @Test
-    void cacheTtl_defaultIs5Minutes_andNonPositiveIsRejected() throws NoSuchMethodException {
-        var ttl = TenantSigningConfigServiceImpl.class.getConstructor(
-                        TenantSigningConfigRepository.class, ObjectMapper.class, OwnKeySigningConfigLoader.class,
-                        Duration.class)
-                .getParameters()[3].getAnnotation(org.springframework.beans.factory.annotation.Value.class);
-        assertThat(ttl.value()).isEqualTo("${issuer.signing.config-cache-ttl:5m}");
-        assertThat(org.springframework.boot.convert.ApplicationConversionService.getSharedInstance()
-                .convert("5m", Duration.class)).isEqualTo(Duration.ofMinutes(5));
-        ObjectMapper objectMapper = new ObjectMapper();
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new TenantSigningConfigServiceImpl(
-                        repository, objectMapper, ownKeyLoader, Duration.ZERO, ticker))
-                .isInstanceOf(IllegalArgumentException.class);
+    void cacheTtl_isFiveMinutes() {
+        assertThat(TenantSigningConfigServiceImpl.CACHE_TTL).isEqualTo(Duration.ofMinutes(5));
     }
 
     @Test
@@ -244,7 +233,7 @@ class TenantSigningConfigServiceImplTest {
 
         Mono<List<ActiveSigningConfig>> twoReads = SigningConfigScope.run(() -> service.getActiveSigningConfig()
                 .flatMap(first -> {
-                    nanos.addAndGet(Duration.ofSeconds(31).toNanos());
+                    nanos.addAndGet(TenantSigningConfigServiceImpl.CACHE_TTL.plusSeconds(1).toNanos());
                     return service.getActiveSigningConfig().map(second -> List.of(first, second));
                 }));
 

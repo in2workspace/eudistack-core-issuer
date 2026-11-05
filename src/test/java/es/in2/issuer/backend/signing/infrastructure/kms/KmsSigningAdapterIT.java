@@ -14,6 +14,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 import reactor.test.StepVerifier;
+import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.services.kms.KmsAsyncClient;
@@ -57,10 +58,9 @@ class KmsSigningAdapterIT {
 
     @BeforeAll
     static void setUpClient() {
-        properties = new KmsSigningProperties(true, LOCALSTACK.getRegion(), LOCALSTACK.getEndpoint(),
-                Duration.ofSeconds(10), 3, Duration.ofMillis(50), Duration.ofMillis(200),
-                Duration.ofSeconds(45));
+        properties = new KmsSigningProperties(LOCALSTACK.getEndpoint());
         plainClient = KmsSigningConfig.clientBuilder(properties)
+                .region(Region.of(LOCALSTACK.getRegion()))
                 .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create("test", "test")))
                 .build();
     }
@@ -73,7 +73,7 @@ class KmsSigningAdapterIT {
     @Test
     void sign_digestWithNativeP256Key_signatureVerifiesWithPublicKeyAndConvertsToJose() throws Exception {
         String keyId = createP256Key();
-        KmsSigningAdapter adapter = new KmsSigningAdapter(plainClient, properties);
+        KmsSigningAdapter adapter = new KmsSigningAdapter(() -> plainClient);
         byte[] message = "header.payload".getBytes(StandardCharsets.UTF_8);
         byte[] digest = MessageDigest.getInstance("SHA-256").digest(message);
 
@@ -100,7 +100,7 @@ class KmsSigningAdapterIT {
         String keyId = createP256Key();
         plainClient.disableKey(DisableKeyRequest.builder().keyId(keyId).build()).get();
         KmsAsyncClient countingClient = mock(KmsAsyncClient.class, AdditionalAnswers.delegatesTo(plainClient));
-        KmsSigningAdapter adapter = new KmsSigningAdapter(countingClient, properties);
+        KmsSigningAdapter adapter = new KmsSigningAdapter(() -> countingClient);
 
         StepVerifier.create(adapter.sign(keyId, new byte[32]))
                 .expectErrorSatisfies(ex -> {

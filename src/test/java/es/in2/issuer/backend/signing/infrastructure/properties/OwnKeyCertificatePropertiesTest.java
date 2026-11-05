@@ -4,8 +4,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-import java.time.Duration;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -13,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class OwnKeyCertificatePropertiesTest {
 
     private static OwnKeyCertificateProperties at(String arn) {
-        return new OwnKeyCertificateProperties(arn, null, null, Duration.ofSeconds(10));
+        return new OwnKeyCertificateProperties(arn, null);
     }
 
     @Test
@@ -67,9 +65,4 @@ class OwnKeyCertificatePropertiesTest {
         assertThatThrownBy(() -> at(arn)).isInstanceOf(IllegalArgumentException.class);
     }
 
-    @Test
-    void nonPositiveTimeout_isRejected() {
-        assertThatThrownBy(() -> new OwnKeyCertificateProperties("arn:aws:s3:::b", null, null, Duration.ZERO))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
 }

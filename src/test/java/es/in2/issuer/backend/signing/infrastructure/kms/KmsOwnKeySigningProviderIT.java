@@ -22,6 +22,7 @@ import org.testcontainers.containers.localstack.LocalStackContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.services.kms.KmsAsyncClient;
@@ -62,10 +63,9 @@ class KmsOwnKeySigningProviderIT {
 
     @BeforeAll
     static void setUpClient() {
-        properties = new KmsSigningProperties(true, LOCALSTACK.getRegion(), LOCALSTACK.getEndpoint(),
-                Duration.ofSeconds(10), 3, Duration.ofMillis(50), Duration.ofMillis(200),
-                Duration.ofSeconds(45));
+        properties = new KmsSigningProperties(LOCALSTACK.getEndpoint());
         client = KmsSigningConfig.clientBuilder(properties)
+                .region(Region.of(LOCALSTACK.getRegion()))
                 .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create("test", "test")))
                 .build();
     }
@@ -82,7 +82,7 @@ class KmsOwnKeySigningProviderIT {
                         .keyUsage(KeyUsageType.SIGN_VERIFY)
                         .build())
                 .get().keyMetadata().keyId();
-        KmsSigningPort adapter = new KmsSigningAdapter(client, properties);
+        KmsSigningPort adapter = new KmsSigningAdapter(() -> client);
         byte[] spki = client.getPublicKey(GetPublicKeyRequest.builder().keyId(keyId).build())
                 .get().publicKey().asByteArray();
         ECPublicKey kmsPublicKey = (ECPublicKey) KeyFactory.getInstance("EC").generatePublic(new X509EncodedKeySpec(spki));
@@ -90,10 +90,7 @@ class KmsOwnKeySigningProviderIT {
         var config = new OwnKeySigningConfig(keyId, "ES256",
                 List.of(Base64.getEncoder().encodeToString(certificate.getEncoded())));
 
-        @SuppressWarnings("unchecked")
-        ObjectProvider<KmsSigningPort> port = mock(ObjectProvider.class);
-        when(port.getIfAvailable()).thenReturn(adapter);
-        var provider = new KmsOwnKeySigningProvider(port,
+        var provider = new KmsOwnKeySigningProvider(adapter,
                 new JadesHeaderBuilderServiceImpl(new ObjectMapper()),
                 new HashGeneratorServiceImpl(),
                 new CscSigningProperties(JadesProfile.JADES_B_T),

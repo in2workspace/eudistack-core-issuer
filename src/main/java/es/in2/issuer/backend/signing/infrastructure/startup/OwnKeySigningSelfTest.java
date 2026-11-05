@@ -13,10 +13,9 @@ import es.in2.issuer.backend.signing.domain.util.StoredCertificateInfo;
 import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
 import es.in2.issuer.backend.signing.infrastructure.adapter.KmsOwnKeySigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningAuditor;
-import es.in2.issuer.backend.signing.infrastructure.properties.KmsSigningProperties;
-import es.in2.issuer.backend.signing.infrastructure.properties.SigningSelfTestProperties;
-import lombok.RequiredArgsConstructor;
+import es.in2.issuer.backend.signing.infrastructure.kms.KmsSigningTiming;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -38,19 +37,18 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  *
  * <p>It is purely informative and never prevents or delays startup: it runs on a bounded
  * scheduler after {@link ApplicationReadyEvent}, each tenant has a timeout, and every error is
- * swallowed. Unless configured, the timeout covers the worst case of a KMS call with all its
- * retries, so a slow KMS is reported as {@code PROVIDER_UNAVAILABLE} and not cut short. QTSP
+ * swallowed. The timeout covers the worst case of a KMS call with all its retries, so a slow KMS is
+ * reported as {@code PROVIDER_UNAVAILABLE} and not cut short. QTSP
  * tenants are skipped: no QTSP is called at startup. A tenant without an active configuration, of
  * either modality, is reported as {@code NO_CONFIGURATION}: it cannot issue anything. The probe goes
  * through {@link KmsOwnKeySigningProvider}, which verifies the signature against the certificate.
  * The probe payload and the signature are never logged. Each own-key tenant's outcome is also
  * recorded in the audit trail (event {@code signing.self_test}). A signing certificate that expires
- * within {@code certificateExpiryWarning} is logged as a warning: from its expiry the issuer refuses
- * to sign with it.
+ * within {@link #CERTIFICATE_EXPIRY_WARNING} is logged as a warning: from its expiry the issuer refuses
+ * to sign with it. Timeout and warning window are fixed.
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class OwnKeySigningSelfTest {
 
     static final String PROBE_PAYLOAD = "{\"probe\":\"eud-289-startup-self-test\"}";
@@ -58,21 +56,45 @@ public class OwnKeySigningSelfTest {
     private static final int TENANT_CONCURRENCY = 4;
     /** On top of the worst KMS signing time: reading the configuration and verifying the signature. */
     private static final Duration TIMEOUT_MARGIN = Duration.ofSeconds(5);
+    static final Duration TENANT_TIMEOUT =
+            KmsSigningTiming.DEFAULT.worstCaseSigningDuration().plus(TIMEOUT_MARGIN);
+    /** Time left before the certificate expires from which the renewal warning is logged. */
+    static final Duration CERTIFICATE_EXPIRY_WARNING = Duration.ofDays(30);
 
     private final TenantRegistryService tenantRegistryService;
     private final TenantSigningConfigService tenantSigningConfigService;
     private final KmsOwnKeySigningProvider kmsOwnKeySigningProvider;
     private final SigningAuditor signingAuditor;
-    private final SigningSelfTestProperties properties;
-    private final KmsSigningProperties kmsSigningProperties;
     private final Clock clock;
+    private final Duration tenantTimeout;
+
+    @Autowired
+    public OwnKeySigningSelfTest(TenantRegistryService tenantRegistryService,
+                                 TenantSigningConfigService tenantSigningConfigService,
+                                 KmsOwnKeySigningProvider kmsOwnKeySigningProvider,
+                                 SigningAuditor signingAuditor,
+                                 Clock clock) {
+        this(tenantRegistryService, tenantSigningConfigService, kmsOwnKeySigningProvider, signingAuditor, clock,
+                TENANT_TIMEOUT);
+    }
+
+    /** For tests: another timeout per tenant. */
+    OwnKeySigningSelfTest(TenantRegistryService tenantRegistryService,
+                          TenantSigningConfigService tenantSigningConfigService,
+                          KmsOwnKeySigningProvider kmsOwnKeySigningProvider,
+                          SigningAuditor signingAuditor,
+                          Clock clock,
+                          Duration tenantTimeout) {
+        this.tenantRegistryService = tenantRegistryService;
+        this.tenantSigningConfigService = tenantSigningConfigService;
+        this.kmsOwnKeySigningProvider = kmsOwnKeySigningProvider;
+        this.signingAuditor = signingAuditor;
+        this.clock = clock;
+        this.tenantTimeout = tenantTimeout;
+    }
 
     @EventListener(ApplicationReadyEvent.class)
     public void onApplicationReady() {
-        if (!properties.enabled()) {
-            log.info("own-key signing self-test disabled");
-            return;
-        }
         try {
             run().subscribeOn(Schedulers.boundedElastic()).subscribe(null, e -> { });
         } catch (RuntimeException e) {
@@ -109,7 +131,7 @@ public class OwnKeySigningSelfTest {
                 })
                 .filter(config -> config.modality() == SigningModality.OWN_KEY)
                 .flatMap(config -> probe(config).doOnNext(result -> warnIfExpiringSoon(tenant, config)))
-                .timeout(tenantTimeout(), Mono.error(() -> new SigningException(
+                .timeout(tenantTimeout, Mono.error(() -> new SigningException(
                         SigningFailureReason.PROVIDER_UNAVAILABLE, "own-key signing self-test timed out")))
                 .doOnNext(result -> {
                     log.info("own-key signing self-test passed tenant={}", tenant);
@@ -127,11 +149,6 @@ public class OwnKeySigningSelfTest {
                 .then();
     }
 
-    Duration tenantTimeout() {
-        return properties.tenantTimeout() != null ? properties.tenantTimeout()
-                : kmsSigningProperties.worstCaseSigningDuration().plus(TIMEOUT_MARGIN);
-    }
-
     private Mono<SigningResult> probe(ActiveSigningConfig config) {
         SigningRequest request = SigningRequest.builder()
                 .type(SigningType.JADES)
@@ -145,7 +162,7 @@ public class OwnKeySigningSelfTest {
     private void warnIfExpiringSoon(String tenant, ActiveSigningConfig config) {
         Instant notAfter = StoredCertificateInfo.leaf(config.ownKey()).getNotAfter().toInstant();
         Duration left = Duration.between(clock.instant(), notAfter);
-        if (left.compareTo(properties.certificateExpiryWarning()) <= 0) {
+        if (left.compareTo(CERTIFICATE_EXPIRY_WARNING) <= 0) {
             log.warn("own-key signing certificate expires soon tenant={} notAfter={} daysLeft={}",
                     tenant, notAfter, left.toDays());
         }

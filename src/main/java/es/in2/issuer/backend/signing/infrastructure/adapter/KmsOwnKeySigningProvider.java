@@ -27,7 +27,6 @@ import es.in2.issuer.backend.signing.infrastructure.kms.KmsKeyRefs;
 import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -58,8 +57,7 @@ public class KmsOwnKeySigningProvider implements SigningProvider {
 
     private static final String UNKNOWN_TENANT = "unknown";
 
-    /** The port exists only when {@code issuer.signing.kms.enabled=true}. */
-    private final ObjectProvider<KmsSigningPort> kmsSigningPort;
+    private final KmsSigningPort kmsSigningPort;
     private final JadesHeaderBuilderService jadesHeaderBuilderService;
     private final HashGeneratorService hashGeneratorService;
     private final CscSigningProperties cscSigningProperties;
@@ -91,12 +89,6 @@ public class KmsOwnKeySigningProvider implements SigningProvider {
             return Mono.error(new SigningException(SigningFailureReason.UNSUPPORTED_ALGORITHM,
                     "Own-key signing only supports ES256"));
         }
-        KmsSigningPort port = kmsSigningPort.getIfAvailable();
-        if (port == null) {
-            return Mono.error(new SigningException(SigningFailureReason.KEY_UNUSABLE,
-                    "KMS signing is not enabled on this issuer"));
-        }
-
         List<X509Certificate> chain = StoredCertificateInfo.chain(config);
         X509Certificate leaf = chain.getFirst();
         Instant now = clock.instant();
@@ -135,7 +127,7 @@ public class KmsOwnKeySigningProvider implements SigningProvider {
         String signingInput = Base64UrlUtils.encodeUtf8(headerJson) + "." + Base64UrlUtils.encodeUtf8(request.data());
         byte[] digest = sha256(signingInput);
 
-        return port.sign(config.kmsKeyRef(), digest)
+        return kmsSigningPort.sign(config.kmsKeyRef(), digest)
                 .map(der -> toVerifiedJws(tenant, config, leaf, signingInput, der))
                 .map(jws -> new SigningResult(SigningType.JADES, jws));
     }
