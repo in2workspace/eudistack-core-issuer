@@ -28,11 +28,11 @@ public class IssuerFactory {
         log.debug("IssuerFactory: createDetailedIssuer");
         return tenantSigningConfigService.getActiveSigningConfig()
                 .switchIfEmpty(Mono.error(new SigningException(SigningFailureReason.NO_CONFIGURATION,
-                        "No remote signature configuration available for this tenant. " +
+                        "No active signing configuration available for this tenant. " +
                         "Seed tenant_signing_config for the active tenant.")))
                 .flatMap(this::resolveIssuer)
                 .doOnError(err ->
-                        log.error("Error during remote issuer creation: {}", err.getMessage(), err)
+                        log.error("Error during issuer creation: {}", err.getMessage(), err)
                 );
     }
 

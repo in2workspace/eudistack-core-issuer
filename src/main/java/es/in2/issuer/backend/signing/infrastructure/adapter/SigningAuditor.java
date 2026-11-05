@@ -27,7 +27,8 @@ import java.util.Map;
  * or {@code passed}; whether the certificate is qualified; and the trust validation, which reads
  * {@code not_performed} until EUD-264 validates the chain against the European trust lists.
  *
- * <p>Out of scope here: audit of configuration changes (alta, sustitución, retirada, alta rechazada).
+ * <p>Out of scope here: audit of the key and certificate lifecycle (creation, replacement, withdrawal), done
+ * by infra, and of changes of modality in {@code tenant_signing_config}.
  * Those operations are performed outside the Issuer, so the Issuer cannot record them.
  *
  * <p>Best-effort: a failure of the audit channel is logged and never reaches the signing flow.

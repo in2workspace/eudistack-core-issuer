@@ -32,7 +32,7 @@ import java.util.Optional;
  */
 public final class OwnKeyCertificates {
 
-    /** Prefix of every own-key alias: only the one KMS requires, as the onboarding tool of infra names them. */
+    /** Prefix of every own-key alias: only the one KMS requires, as agreed with infra (EUD-251 design AD-19). */
     public static final String ALIAS_PREFIX = "alias/";
 
     private static final String ORGANIZATION_IDENTIFIER_OID = "2.5.4.97";
@@ -125,7 +125,7 @@ public final class OwnKeyCertificates {
     }
 
     /**
-     * The alias of the KMS key of the certificate, as the onboarding tool of infra names it: {@value #ALIAS_PREFIX}
+     * The alias of the KMS key of the certificate, as agreed with infra (EUD-251 design AD-19): {@value #ALIAS_PREFIX}
      * followed by the serial number of the certificate in uppercase hexadecimal, without leading zeros nor
      * separators ({@code BigInteger.toString(16)}). A certificate renewed with the same key has another serial
      * number, so infra names the key again before it publishes the new certificate.

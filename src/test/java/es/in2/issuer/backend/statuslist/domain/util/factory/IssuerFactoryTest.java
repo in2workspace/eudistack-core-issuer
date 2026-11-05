@@ -132,7 +132,7 @@ class IssuerFactoryTest {
         StepVerifier.create(issuerFactory.createDetailedIssuer())
                 .expectErrorSatisfies(err -> {
                     assertInstanceOf(SigningException.class, err);
-                    assertTrue(err.getMessage().contains("No remote signature configuration"));
+                    assertTrue(err.getMessage().contains("No active signing configuration"));
                     assertEquals(es.in2.issuer.backend.signing.domain.model.SigningFailureReason.NO_CONFIGURATION,
                             ((SigningException) err).getReason());
                 })

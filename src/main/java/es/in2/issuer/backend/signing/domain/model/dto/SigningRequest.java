@@ -7,7 +7,7 @@ import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDt
 import lombok.Builder;
 
 /**
- * Signing request carried along the QTSP client chain.
+ * Signing request handed to the provider of the tenant's signing modality (QTSP or own key).
  * {@code remoteSignature} is the tenant-resolved QTSP configuration
  * ({@link RemoteSignatureDto}) — set by {@link
  * DelegatingSigningProviderImpl}

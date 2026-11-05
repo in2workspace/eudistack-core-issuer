@@ -34,7 +34,7 @@ public class TenantSigningConfigServiceImpl implements TenantSigningConfigServic
 
     private static final String ACTIVE_STATUS = "active";
     // EUD-251 design AD-5: during the TTL an instance can keep using a replaced or withdrawn
-    // configuration. Accepted deviation, see the design §16.
+    // configuration. Deviation from the PRD proposed in the design §16, pending the PO.
     static final Duration CACHE_TTL = Duration.ofMinutes(5);
 
     private final TenantSigningConfigRepository repository;

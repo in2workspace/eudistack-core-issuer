@@ -127,7 +127,7 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
         return new SigningException(
                 SigningFailureReason.NO_CONFIGURATION,
                 """
-                        No remote signature configuration available for this tenant.
+                        No active signing configuration available for this tenant.
                         Seed tenant_signing_config for the active tenant.
                         """
         );

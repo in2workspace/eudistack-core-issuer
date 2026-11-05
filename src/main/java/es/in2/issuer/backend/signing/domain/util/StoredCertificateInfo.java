@@ -68,7 +68,7 @@ public final class StoredCertificateInfo {
                     .generateCertificate(new ByteArrayInputStream(der));
         } catch (GeneralSecurityException | IllegalArgumentException e) {
             throw new CertificateCheckException(CertificateCheck.UNPARSABLE,
-                    "The stored signing certificate cannot be parsed", e);
+                    "The own-key certificate cannot be parsed", e);
         }
     }
 }

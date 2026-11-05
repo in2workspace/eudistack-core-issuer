@@ -114,7 +114,7 @@ class DelegatingSigningProviderImplTest {
         StepVerifier.create(delegatingSigningProvider.sign(jadesRequest()))
                 .expectErrorSatisfies(ex -> {
                     assertInstanceOf(SigningException.class, ex);
-                    assertTrue(ex.getMessage().contains("No remote signature configuration"));
+                    assertTrue(ex.getMessage().contains("No active signing configuration"));
                     assertEquals(SigningFailureReason.NO_CONFIGURATION, ((SigningException) ex).getReason());
                 })
                 .verify();

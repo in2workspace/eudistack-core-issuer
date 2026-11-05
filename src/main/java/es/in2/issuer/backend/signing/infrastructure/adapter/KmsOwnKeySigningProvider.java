@@ -98,25 +98,25 @@ public class KmsOwnKeySigningProvider implements SigningProvider {
         if (!SigningCertificateChecks.isValidAt(leaf, now)) {
             return now.isBefore(leaf.getNotBefore().toInstant())
                     ? Mono.error(new CertificateCheckException(CertificateCheck.NOT_YET_VALID,
-                            "The stored signing certificate is not yet valid"))
+                            "The own-key certificate is not yet valid"))
                     : Mono.error(new CertificateCheckException(CertificateCheck.EXPIRED,
-                            "The stored signing certificate is expired"));
+                            "The own-key certificate is expired"));
         }
         if (SigningCurve.of(leaf).isEmpty()) {
             return Mono.error(new CertificateCheckException(CertificateCheck.NOT_P256,
-                    "The stored signing certificate does not hold a key on a supported curve (P-256)"));
+                    "The own-key certificate does not hold a key on a supported curve (P-256)"));
         }
         if (!SigningCertificateChecks.isEndEntity(leaf)) {
             return Mono.error(new CertificateCheckException(CertificateCheck.CA_CERTIFICATE,
-                    "The stored signing certificate is a CA certificate"));
+                    "The own-key certificate is a CA certificate"));
         }
         if (!SigningCertificateChecks.allowsSigning(leaf)) {
             return Mono.error(new CertificateCheckException(CertificateCheck.SIGNING_NOT_ALLOWED,
-                    "The key usage of the stored signing certificate does not allow signing"));
+                    "The key usage of the own-key certificate does not allow signing"));
         }
         if (!SigningCertificateChecks.isLinkedChain(chain, now)) {
             return Mono.error(new CertificateCheckException(CertificateCheck.CHAIN_INVALID,
-                    "The stored certificate chain does not link or holds an invalid intermediate certificate"));
+                    "The own-key certificate chain does not link or holds an invalid intermediate certificate"));
         }
 
         // Never a qualified seal, whatever the certificate declares: KMS is not a QSCD, so an own-key
@@ -159,6 +159,6 @@ public class KmsOwnKeySigningProvider implements SigningProvider {
     private KmsSigningException invalidSignature(String tenant, OwnKeySigningConfig config) {
         log.error("invalid KMS signature tenant={} keyRef={}", tenant, KmsKeyRefs.forLog(config.kmsKeyRef()));
         return new KmsSigningException(SigningFailureReason.INVALID_RESPONSE,
-                "The signature returned by KMS does not verify with the stored certificate");
+                "The signature returned by KMS does not verify with the own-key certificate");
     }
 }

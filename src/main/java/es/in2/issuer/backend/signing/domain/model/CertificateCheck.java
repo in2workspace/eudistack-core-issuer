@@ -7,7 +7,7 @@ import java.util.Locale;
  * (EUD-251 FR-14). Local checks only: trust validation of the chain is EUD-264.
  */
 public enum CertificateCheck {
-    /** The PEM chain or a stored certificate cannot be parsed or encoded, or holds no certificate. */
+    /** The PEM chain or one of its certificates cannot be parsed or encoded, or the chain holds no certificate. */
     UNPARSABLE,
     NOT_YET_VALID,
     EXPIRED,
