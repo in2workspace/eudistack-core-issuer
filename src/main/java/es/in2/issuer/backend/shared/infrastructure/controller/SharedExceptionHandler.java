@@ -466,6 +466,24 @@ public class SharedExceptionHandler {
         );
     }
 
+    // EUD-307: the public guides answer a {id} that is not a UUID with 400 BAD_REQUEST -- the type they
+    // document for a malformed request, and the one a failed request validation already carries --
+    // never a 404, which would read as "no such process".
+    @ExceptionHandler(MalformedIssuanceIdException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleMalformedIssuanceIdException(
+            MalformedIssuanceIdException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.BAD_REQUEST.getCode(),
+                HttpStatus.BAD_REQUEST.getReasonPhrase(),
+                HttpStatus.BAD_REQUEST,
+                "The issuance id is not a UUID"
+        );
+    }
+
     @ExceptionHandler(TenantMismatchException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public Mono<GlobalErrorMessage> handleTenantMismatchException(
