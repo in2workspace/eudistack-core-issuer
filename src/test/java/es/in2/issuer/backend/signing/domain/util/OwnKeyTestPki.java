@@ -54,7 +54,6 @@ public final class OwnKeyTestPki {
     private final Leaf p384Leaf;
     private final Leaf expiredLeaf;
     private final Leaf selfSignedLeaf;
-    private final KeyPair unrelatedP256KeyPair;
 
     public OwnKeyTestPki() {
         try {
@@ -70,7 +69,6 @@ public final class OwnKeyTestPki {
                     issue(name("Hoja autofirmada"), selfSignedKeyPair, name("Hoja autofirmada"),
                             selfSignedKeyPair.getPublic(), "2024-01-01T00:00:00Z", "2099-01-01T00:00:00Z"),
                     selfSignedKeyPair);
-            unrelatedP256KeyPair = generateEc();
         } catch (Exception e) {
             throw new IllegalStateException("Could not build the test PKI", e);
         }
@@ -126,11 +124,6 @@ public final class OwnKeyTestPki {
     /** P-256 certificate that names itself as issuer and is signed with its own key. */
     public Leaf selfSignedLeaf() {
         return selfSignedLeaf;
-    }
-
-    /** SPKI DER of a P-256 key that does not belong to {@link #validP256Leaf()}. */
-    public byte[] unrelatedPublicKeyDer() {
-        return unrelatedP256KeyPair.getPublic().getEncoded();
     }
 
     /** A leaf whose issuer name matches the root but whose signature was made by another key. */

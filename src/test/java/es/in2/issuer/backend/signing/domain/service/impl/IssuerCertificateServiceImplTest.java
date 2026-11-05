@@ -186,7 +186,7 @@ class IssuerCertificateServiceImplTest {
     @Test
     void resolveOwnKeyDetailedIssuer_organizationIdentifierOnlyInTheIssuerOfTheLeaf_fails() throws Exception {
         var leaf = new OwnKeyTestPki().leafWithOrganizationIdentifierOnlyInItsIssuer().certificate();
-        var config = new OwnKeySigningConfig("alias/own-key-abc", "ES256",
+        var config = new OwnKeySigningConfig("alias/82BEF63F7A725FDD01E2F1A0E3577DD8", "ES256",
                 List.of(Base64.getEncoder().encodeToString(leaf.getEncoded())));
 
         StepVerifier.create(issuerCertificateService.resolveOwnKeyDetailedIssuer(config))

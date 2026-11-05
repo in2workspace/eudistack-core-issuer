@@ -43,8 +43,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class DelegatingSigningProviderImplReplacementTest {
 
-    private static final String OLD_KEY = "alias/own-key-old";
-    private static final String NEW_KEY = "alias/own-key-new";
+    private static final String OLD_KEY = "alias/1A2B3C4D5E6F";
+    private static final String NEW_KEY = "alias/7F8E9D0C1B2A";
 
     @Mock
     private TenantSigningConfigRepository repository;

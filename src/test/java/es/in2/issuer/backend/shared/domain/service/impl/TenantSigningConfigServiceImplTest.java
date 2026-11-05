@@ -108,7 +108,7 @@ class TenantSigningConfigServiceImplTest {
 
     @Test
     void getActiveSigningConfig_ownKeyRow_isBuiltFromTheCertificateOfTheTenant() {
-        var ownKey = new OwnKeySigningConfig("alias/own-key-abc", "ES256", List.of("MIIB-leaf"));
+        var ownKey = new OwnKeySigningConfig("alias/82BEF63F7A725FDD01E2F1A0E3577DD8", "ES256", List.of("MIIB-leaf"));
         when(repository.findFirstByStatusOrderByCreatedAtDesc("active")).thenReturn(Mono.just(ownKeyRow()));
         when(ownKeyLoader.load("t1")).thenReturn(Mono.just(ownKey));
 
@@ -124,7 +124,7 @@ class TenantSigningConfigServiceImplTest {
     @Test
     void getActiveSigningConfig_ownKeyCertificateUnusable_failsAndNothingIsCached() {
         var failure = new SigningException(SigningFailureReason.NO_CONFIGURATION, "no certificate");
-        var ownKey = new OwnKeySigningConfig("alias/own-key-abc", "ES256", List.of("MIIB-leaf"));
+        var ownKey = new OwnKeySigningConfig("alias/82BEF63F7A725FDD01E2F1A0E3577DD8", "ES256", List.of("MIIB-leaf"));
         when(repository.findFirstByStatusOrderByCreatedAtDesc("active")).thenReturn(Mono.just(ownKeyRow()));
         when(ownKeyLoader.load("t1")).thenReturn(Mono.error(failure)).thenReturn(Mono.just(ownKey));
 
