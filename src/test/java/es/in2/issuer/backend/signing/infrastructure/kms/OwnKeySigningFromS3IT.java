@@ -43,7 +43,6 @@ import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
-import java.net.URI;
 import java.security.KeyFactory;
 import java.security.interfaces.ECPublicKey;
 import java.security.spec.X509EncodedKeySpec;
@@ -118,7 +117,7 @@ class OwnKeySigningFromS3IT {
                 AsyncRequestBody.fromString(pem)).join();
 
         OwnKeyCertificatePort certificates = new S3OwnKeyCertificateAdapter(s3, new OwnKeyCertificateProperties(
-                URI.create("s3://" + BUCKET + "/issuer"), LOCALSTACK.getRegion(), LOCALSTACK.getEndpoint(),
+                "arn:aws:s3:::" + BUCKET + "/issuer", LOCALSTACK.getRegion(), LOCALSTACK.getEndpoint(),
                 Duration.ofSeconds(10)));
         TenantConfigService tenantConfig = mock(TenantConfigService.class);
         when(tenantConfig.getStringOrThrow("admin_organization_id"))

@@ -18,7 +18,6 @@ import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -36,9 +35,9 @@ class S3OwnKeyCertificateAdapterTest {
 
     private final S3AsyncClient client = mock(S3AsyncClient.class);
 
-    private S3OwnKeyCertificateAdapter adapterAt(String location) {
+    private S3OwnKeyCertificateAdapter adapterAt(String arn) {
         return new S3OwnKeyCertificateAdapter(client,
-                new OwnKeyCertificateProperties(URI.create(location), "eu-west-1", null, Duration.ofSeconds(10)));
+                new OwnKeyCertificateProperties(arn, "eu-west-1", null, Duration.ofSeconds(10)));
     }
 
     @SuppressWarnings("unchecked")
@@ -56,7 +55,7 @@ class S3OwnKeyCertificateAdapterTest {
         answer(CompletableFuture.completedFuture(ResponseBytes.fromByteArray(GetObjectResponse.builder().build(),
                 PEM.getBytes(StandardCharsets.US_ASCII))));
 
-        StepVerifier.create(adapterAt("s3://certs-bucket/issuer/own-key/").findCertificateChainPem("cgcom"))
+        StepVerifier.create(adapterAt("arn:aws:s3:::certs-bucket/issuer/own-key").findCertificateChainPem("cgcom"))
                 .expectNext(PEM)
                 .verifyComplete();
 
@@ -68,22 +67,22 @@ class S3OwnKeyCertificateAdapterTest {
 
     @Test
     void objectKey_withoutPrefix_isTheTenantFolder() {
-        assertThat(adapterAt("s3://certs-bucket").objectKey("cgcom")).isEqualTo("cgcom/latest/cert.pem");
-        assertThat(adapterAt("s3://certs-bucket/").objectKey("cgcom")).isEqualTo("cgcom/latest/cert.pem");
+        assertThat(adapterAt("arn:aws:s3:::certs-bucket").objectKey("cgcom")).isEqualTo("cgcom/latest/cert.pem");
+        assertThat(adapterAt("arn:aws:s3:::certs-bucket/").objectKey("cgcom")).isEqualTo("cgcom/latest/cert.pem");
     }
 
     @Test
     void findCertificateChainPem_missingObject_isEmpty() {
         answer(failed(NoSuchKeyException.builder().message("missing").build()));
 
-        StepVerifier.create(adapterAt("s3://certs-bucket/p").findCertificateChainPem("cgcom")).verifyComplete();
+        StepVerifier.create(adapterAt("arn:aws:s3:::certs-bucket/p").findCertificateChainPem("cgcom")).verifyComplete();
     }
 
     @Test
     void findCertificateChainPem_accessDenied_isNoConfiguration() {
         answer(failed(S3Exception.builder().statusCode(403).message("denied").build()));
 
-        StepVerifier.create(adapterAt("s3://certs-bucket/p").findCertificateChainPem("cgcom"))
+        StepVerifier.create(adapterAt("arn:aws:s3:::certs-bucket/p").findCertificateChainPem("cgcom"))
                 .expectErrorSatisfies(e -> assertThat(e).isInstanceOfSatisfying(SigningException.class,
                         s -> assertThat(s.getReason()).isEqualTo(SigningFailureReason.NO_CONFIGURATION)))
                 .verify();
@@ -93,7 +92,7 @@ class S3OwnKeyCertificateAdapterTest {
     void findCertificateChainPem_otherFailure_isProviderUnavailable() {
         answer(failed(SdkClientException.create("timeout")));
 
-        StepVerifier.create(adapterAt("s3://certs-bucket/p").findCertificateChainPem("cgcom"))
+        StepVerifier.create(adapterAt("arn:aws:s3:::certs-bucket/p").findCertificateChainPem("cgcom"))
                 .expectErrorSatisfies(e -> assertThat(e).isInstanceOfSatisfying(SigningException.class,
                         s -> assertThat(s.getReason()).isEqualTo(SigningFailureReason.PROVIDER_UNAVAILABLE)))
                 .verify();
@@ -103,7 +102,7 @@ class S3OwnKeyCertificateAdapterTest {
     @NullSource
     @ValueSource(strings = {"", "../kpmg", "cgcom/../kpmg", "CGCOM", "unknown tenant"})
     void findCertificateChainPem_tenantThatCannotNameAFolder_isNoConfigurationWithoutReading(String tenant) {
-        StepVerifier.create(adapterAt("s3://certs-bucket/p").findCertificateChainPem(tenant))
+        StepVerifier.create(adapterAt("arn:aws:s3:::certs-bucket/p").findCertificateChainPem(tenant))
                 .expectErrorSatisfies(e -> assertThat(e).isInstanceOfSatisfying(SigningException.class,
                         s -> assertThat(s.getReason()).isEqualTo(SigningFailureReason.NO_CONFIGURATION)))
                 .verify();

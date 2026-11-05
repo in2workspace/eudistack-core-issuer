@@ -33,7 +33,7 @@ public class OwnKeySigningConfigLoaderImpl implements OwnKeySigningConfigLoader 
 
     static final String TENANT_ORGANIZATION_KEY = "admin_organization_id";
 
-    /** The port exists only when {@code issuer.signing.certificates.location} is set. */
+    /** The port exists only when {@code issuer.signing.certificates.arn} is set. */
     private final ObjectProvider<OwnKeyCertificatePort> certificatePort;
     private final TenantConfigService tenantConfigService;
 

@@ -256,6 +256,11 @@ issuance:
 # exercised. spring.rabbitmq.* (see the main `spring:` block above) is only consulted
 # when enabled=true.
 issuer:
+  signing:
+    certificates:
+      # EUD-289: S3 ARN of the bucket or prefix of the own-key certificates, arn:aws:s3:::<bucket>[/<prefix>].
+      # The certificate of a tenant is <prefix>/<tenant>/latest/cert.pem. Empty: no own-key certificate is read.
+      arn: ${S3_CERTIFICATE_ARN:}
   messaging:
     revocation:
       enabled: ${ISSUER_MESSAGING_REVOCATION_ENABLED:false}

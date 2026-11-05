@@ -4,7 +4,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-import java.net.URI;
 import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -13,35 +12,64 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class OwnKeyCertificatePropertiesTest {
 
-    private static OwnKeyCertificateProperties at(String location) {
-        return new OwnKeyCertificateProperties(location == null ? null : URI.create(location), null, null,
-                Duration.ofSeconds(10));
+    private static OwnKeyCertificateProperties at(String arn) {
+        return new OwnKeyCertificateProperties(arn, null, null, Duration.ofSeconds(10));
     }
 
     @Test
-    void s3Location_givesTheBucketAndThePrefixWithoutSlashes() {
-        var properties = at("s3://certs-bucket//issuer/own-key/");
+    void prefixArn_givesTheBucketAndThePrefixWithoutSlashes() {
+        var properties = at("arn:aws:s3:::certs-bucket/issuer/own-key");
 
         assertThat(properties.bucket()).isEqualTo("certs-bucket");
         assertThat(properties.prefix()).isEqualTo("issuer/own-key");
     }
 
     @Test
-    void noLocation_isAccepted() {
-        assertThatCode(() -> at(null)).doesNotThrowAnyException();
+    void bucketArn_givesAnEmptyPrefix() {
+        var properties = at("arn:aws:s3:::certs-bucket");
+
+        assertThat(properties.bucket()).isEqualTo("certs-bucket");
+        assertThat(properties.prefix()).isEmpty();
+    }
+
+    @Test
+    void arnOfAnotherPartition_isAccepted() {
+        assertThat(at("arn:aws-cn:s3:::certs-bucket/issuer").bucket()).isEqualTo("certs-bucket");
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"https://certs-bucket/issuer", "certs-bucket/issuer", "s3:///issuer"})
-    void locationThatIsNotAnS3Bucket_isRejected(String location) {
-        assertThatThrownBy(() -> at(location)).isInstanceOf(IllegalArgumentException.class);
+    @ValueSource(strings = {"", "  "})
+    void blankArn_isNoArn(String arn) {
+        assertThat(at(arn).arn()).isNull();
+    }
+
+    @Test
+    void noArn_isAccepted() {
+        assertThatCode(() -> at(null)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void noArn_hasNoBucket() {
+        var properties = at(null);
+
+        assertThatThrownBy(properties::bucket).isInstanceOf(IllegalStateException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "s3://certs-bucket/issuer",
+            "certs-bucket/issuer",
+            "arn:aws:s3:::",
+            "arn:aws:s3:::/issuer",
+            "arn:aws:s3:eu-west-1:123456789012:certs-bucket/issuer",
+            "arn:aws:kms:::certs-bucket/issuer"})
+    void valueThatIsNotTheArnOfABucket_isRejected(String arn) {
+        assertThatThrownBy(() -> at(arn)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void nonPositiveTimeout_isRejected() {
-        URI location = URI.create("s3://b");
-
-        assertThatThrownBy(() -> new OwnKeyCertificateProperties(location, null, null, Duration.ZERO))
+        assertThatThrownBy(() -> new OwnKeyCertificateProperties("arn:aws:s3:::b", null, null, Duration.ZERO))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

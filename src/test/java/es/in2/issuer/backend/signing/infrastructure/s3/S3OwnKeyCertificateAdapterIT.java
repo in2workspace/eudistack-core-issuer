@@ -16,7 +16,6 @@ import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
-import java.net.URI;
 import java.time.Duration;
 
 /**
@@ -41,7 +40,7 @@ class S3OwnKeyCertificateAdapterIT {
 
     @BeforeAll
     static void setUp() {
-        var properties = new OwnKeyCertificateProperties(URI.create("s3://" + BUCKET + "/issuer"),
+        var properties = new OwnKeyCertificateProperties("arn:aws:s3:::" + BUCKET + "/issuer",
                 LOCALSTACK.getRegion(), LOCALSTACK.getEndpoint(), Duration.ofSeconds(10));
         client = OwnKeyCertificateConfig.clientBuilder(properties)
                 .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create("test", "test")))

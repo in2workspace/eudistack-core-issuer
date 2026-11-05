@@ -2,7 +2,7 @@ package es.in2.issuer.backend.signing.infrastructure.s3;
 
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyCertificatePort;
 import es.in2.issuer.backend.signing.infrastructure.properties.OwnKeyCertificateProperties;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.regions.Region;
@@ -10,11 +10,13 @@ import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3AsyncClientBuilder;
 
 /**
- * S3 beans of the own-key certificates, created only when {@code issuer.signing.certificates.location}
- * is set. Credentials come from the SDK default chain (the runtime role on ECS).
+ * S3 beans of the own-key certificates, created only when {@code issuer.signing.certificates.arn}
+ * ({@code S3_CERTIFICATE_ARN}) is set and not blank. Credentials come from the SDK default chain (the runtime role on ECS).
  */
 @Configuration
-@ConditionalOnProperty(prefix = "issuer.signing.certificates", name = "location")
+// Not @ConditionalOnProperty: application.yml maps S3_CERTIFICATE_ARN with an empty default, and an empty
+// value would still match it.
+@ConditionalOnExpression("!'${issuer.signing.certificates.arn:}'.isBlank()")
 public class OwnKeyCertificateConfig {
 
     @Bean(destroyMethod = "close")
