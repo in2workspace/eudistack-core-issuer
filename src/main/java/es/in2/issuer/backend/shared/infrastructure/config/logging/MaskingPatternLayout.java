@@ -16,6 +16,10 @@ public class MaskingPatternLayout extends PatternLayout {
 
     static final String REPLACEMENT = "***";
 
+    /** Longest message kept. A longer one costs more in every output and is rarely readable. */
+    static final int MAX_MESSAGE_LENGTH = 16_384;
+    static final String TRUNCATED = "[truncated]";
+
     private static final List<Map.Entry<Pattern, String>> MASKS = List.of(
             new AbstractMap.SimpleImmutableEntry<>(
                     // %40 is the URL-encoded @: query strings reach the DEBUG logs encoded. The
@@ -24,9 +28,11 @@ public class MaskingPatternLayout extends PatternLayout {
                     Pattern.compile("[a-zA-Z0-9._%+\\-]{1,64}(?:@|%40)[a-zA-Z0-9.\\-]{1,253}\\.[a-zA-Z]{2,63}"),
                     REPLACEMENT),
             // The signature may be empty: an unsigned token (alg=none) is still a token. What
-            // follows ~ in an SD-JWT is the disclosed claims in Base64 and the key binding JWT
+            // follows ~ in an SD-JWT is the disclosed claims in Base64 and the key binding JWT. It
+            // only starts at a token boundary, which may be a URL-encoded character, and = only ends
+            // a segment as padding: otherwise a long run of eyJ or =eyJ scans to the end from each one
             new AbstractMap.SimpleImmutableEntry<>(
-                    Pattern.compile("eyJ[a-zA-Z0-9_\\-=]+\\.[a-zA-Z0-9_\\-=]+\\.[a-zA-Z0-9_\\-=]*(?:~[a-zA-Z0-9_\\-.~]*)?"),
+                    Pattern.compile("(?:(?<![a-zA-Z0-9_\\-])|(?<=%[0-9a-fA-F]{2}))eyJ[a-zA-Z0-9_\\-]++={0,2}+\\.[a-zA-Z0-9_\\-]++={0,2}+\\.[a-zA-Z0-9_\\-]*+={0,2}+(?:~[a-zA-Z0-9_\\-.~]*+)?"),
                     REPLACEMENT),
             new AbstractMap.SimpleImmutableEntry<>(
                     Pattern.compile("(?i)((?:Bearer|Basic)\\s+)\\S+"),
@@ -42,7 +48,7 @@ public class MaskingPatternLayout extends PatternLayout {
             // are not either
             new AbstractMap.SimpleImmutableEntry<>(
                     Pattern.compile(
-                            "(?i)(?<!\\w)(\"code\"\\s*:\\s*\"?|code\\s*=\\s*)(?=[^\"&\\s,}]*\\d)[^\"&\\s,}]+"),
+                            "(?i)(?<!\\w)(\"code\"\\s*:\\s*\"?|code\\s*=\\s*)(?=[^\"&\\s,}]{0,256}\\d)[^\"&\\s,}]+"),
                     "$1" + REPLACEMENT)
     );
 
@@ -56,7 +62,36 @@ public class MaskingPatternLayout extends PatternLayout {
 
     @Override
     public String doLayout(ILoggingEvent event) {
-        return mask(super.doLayout(event));
+        return mask(super.doLayout(new TruncatedMessageEvent(event)));
+    }
+
+    // Applied before masking, on the message only: the stack trace of the line stays whole. It cuts at
+    // the last separator, since half a JWT or email no longer matches any rule and would go out in clear.
+    static String truncate(final String message) {
+        if (message == null || message.length() <= MAX_MESSAGE_LENGTH) {
+            return message;
+        }
+        int end = MAX_MESSAGE_LENGTH;
+        while (end > 0 && !isSeparator(message.charAt(end - 1))) {
+            end--;
+        }
+        return message.substring(0, end) + TRUNCATED;
+    }
+
+    private static boolean isSeparator(char character) {
+        return Character.isWhitespace(character) || character == '&' || character == ',';
+    }
+
+    private static final class TruncatedMessageEvent extends DelegatingLoggingEvent {
+
+        private TruncatedMessageEvent(ILoggingEvent delegate) {
+            super(delegate);
+        }
+
+        @Override
+        public String getFormattedMessage() {
+            return truncate(super.getFormattedMessage());
+        }
     }
 
     // Shared with MaskingOpenTelemetryAppender, which reads the raw event and bypasses doLayout
