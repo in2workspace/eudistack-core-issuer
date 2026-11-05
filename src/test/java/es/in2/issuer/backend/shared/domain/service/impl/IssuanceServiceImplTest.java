@@ -8,6 +8,7 @@ import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
+import es.in2.issuer.backend.shared.domain.exception.MalformedIssuanceIdException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
@@ -421,7 +422,7 @@ class IssuanceServiceImplTest {
                 TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false), "not-a-uuid");
 
         // Assert
-        StepVerifier.create(detail).expectError(IssuanceNotFoundException.class).verify();
+        StepVerifier.create(detail).expectError(MalformedIssuanceIdException.class).verify();
         assertTrue(auditTrail.all().isEmpty());
     }
 
@@ -575,8 +576,22 @@ class IssuanceServiceImplTest {
                 .verify();
     }
 
+    /** EUD-307: UUID.fromString accepts "1-1-1-1-1"; only the canonical form is an issuance id. */
     @Test
-    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldErrorAsNotFound_whenIdIsMalformed() {
+    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldErrorAsBadRequest_whenIdIsNotCanonical() {
+        // When
+        Mono<CredentialDetails> result = issuanceService
+                .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false), "1-1-1-1-1");
+
+        // Then
+        StepVerifier.create(result)
+                .expectError(MalformedIssuanceIdException.class)
+                .verify();
+        verifyNoInteractions(issuancePort);
+    }
+
+    @Test
+    void getIssuanceDetailByIssuanceIdAndOrganizationId_shouldErrorAsBadRequest_whenIdIsMalformed() {
         // When
         Mono<CredentialDetails> result = issuanceService
                 .getIssuanceDetailByIssuanceIdAndOrganizationId(TestAuthorizationDecisions.query("org-123", UserRole.LEAR, false), "not-a-uuid");
@@ -584,7 +599,7 @@ class IssuanceServiceImplTest {
         // Then
         StepVerifier.create(result)
                 .expectErrorSatisfies(err -> {
-                    assertInstanceOf(IssuanceNotFoundException.class, err);
+                    assertInstanceOf(MalformedIssuanceIdException.class, err);
                     assertFalse(err.getMessage().contains("not-a-uuid"));
                 })
                 .verify();
