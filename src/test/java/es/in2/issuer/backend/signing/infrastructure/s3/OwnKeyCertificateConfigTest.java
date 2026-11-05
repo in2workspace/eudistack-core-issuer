@@ -31,9 +31,14 @@ class OwnKeyCertificateConfigTest {
                 .run(context -> assertThat(context).doesNotHaveBean(OwnKeyCertificatePort.class));
     }
 
+    /**
+     * The client takes its region from the SDK default chain (on ECS, {@code AWS_REGION}); the test gives it one
+     * through that chain, so it does not depend on the AWS profile of the machine that runs it.
+     */
     @Test
     void context_withArn_createsTheCertificatePort() {
-        runner.withPropertyValues("issuer.signing.certificates.arn=arn:aws:s3:::certs-bucket/issuer")
+        runner.withSystemProperties("aws.region=eu-west-1")
+                .withPropertyValues("issuer.signing.certificates.arn=arn:aws:s3:::certs-bucket/issuer")
                 .run(context -> assertThat(context).hasSingleBean(OwnKeyCertificatePort.class));
     }
 }
