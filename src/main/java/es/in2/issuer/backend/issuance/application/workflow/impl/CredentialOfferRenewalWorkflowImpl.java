@@ -12,6 +12,7 @@ import es.in2.issuer.backend.issuance.domain.model.CredentialOfferRenewal;
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
+import es.in2.issuer.backend.shared.domain.exception.PayloadValidationException;
 import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
 import com.fasterxml.jackson.databind.JsonNode;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferResult;
@@ -121,6 +122,9 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
                         .then(Mono.error(new RenewalIssuanceNotFoundException(NOT_FOUND_DETAIL)))))
                 .onErrorMap(LearIssuancePolicyException.class,
                         ex -> new RenewalPermissionDeniedException("The requester may not renew credential offers"))
+                // Stored content that could not be issued today (a power alias conflict, W2): denied, already traced.
+                .onErrorMap(PayloadValidationException.class,
+                        ex -> new RenewalPermissionDeniedException("The stored content may not be issued again"))
                 .onErrorMap(IssuanceNotFoundException.class,
                         ex -> new RenewalIssuanceNotFoundException(NOT_FOUND_DETAIL))
                 .onErrorMap(TenantMismatchException.class,

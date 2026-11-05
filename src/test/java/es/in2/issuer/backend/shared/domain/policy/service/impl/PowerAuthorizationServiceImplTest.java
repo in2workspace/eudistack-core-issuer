@@ -706,6 +706,21 @@ class PowerAuthorizationServiceImplTest {
                     .verifyComplete();
         }
 
+        /** W2 of the EUD-295 review: stored content with two readings of a power is not reissued, as it is not issued. */
+        @Test
+        void PowerAuthorizationService_authorizeReissue_aPowerWhoseFieldAndAliasDifferIsRejected() throws Exception {
+            ObjectNode payload = objectMapper.createObjectNode();
+            payload.putArray("power").add(objectMapper.readTree(
+                    "{\"type\":\"organization\",\"domain\":\"sandbox\",\"function\":\"Onboarding\",\"tmf_function\":\"Nope\",\"action\":[\"Execute\"]}"));
+
+            StepVerifier.create(reissue(caller(ORG, TENANT, PLATFORM_ADMIN), "config-id", EMPLOYEE_TYPE, ORG, payload))
+                    .expectError(PayloadValidationException.class)
+                    .verify();
+            assertThat(lastDenyDetails(PowerAuthorizationServiceImpl.POWER_ALIAS_CONFLICT))
+                    .containsEntry("reissue", true)
+                    .containsEntry("resourceId", "issuance-1");
+        }
+
         /** FR-07: a type no longer enabled in the tenant is not offered again. */
         @Test
         void PowerAuthorizationService_authorizeReissue_typeNotEnabledInTheTenantIsDenied() {

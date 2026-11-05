@@ -186,7 +186,8 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
     /**
      * The actions of {@link #decideIssuance} in the order {@link #issuanceActions} gives them -- base,
      * E2, grants -- so a caller who may not issue at all is denied before the scope is looked at, and
-     * the content of another organization's process is decided only for who may issue there.
+     * the content of another organization's process is decided only for who may issue there; then
+     * the alias check of {@link #decideIssuance} and the type.
      */
     private Mono<IssuanceAuthorization> decideReissue(Caller caller, String processId, String credentialConfigurationId,
                                                       String credentialType, String resourceOrganization, JsonNode payload,
@@ -202,7 +203,6 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
         RecognizedCaller recognized = recognize(matrix, caller, tenant);
         trace.recognized(recognized, recognizingPower(matrix, recognized));
 
-        // The stored content passed the alias check when it was issued; each power has one reading.
         List<String> actionIds = issuanceActions(matrix, List.of(credentialConfigurationId, String.valueOf(credentialType)),
                 organization, caller, payload, tenant);
         for (String actionId : actionIds) {
@@ -217,6 +217,15 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
             }
         }
         trace.action(String.join(",", actionIds));
+        // A Draft created before EUD-272 may carry a power whose field and tmf_ alias differ: it could not
+        // be issued today, so it is not reissued either. Checked once the scope is decided, so a process out
+        // of scope still answers as not found (EUD-295 review W2).
+        if (hasPowerWithConflictingAlias(payload)) {
+            deny(trace, POWER_ALIAS_CONFLICT);
+            return Mono.error(new PayloadValidationException("A power names a field twice with different values",
+                    List.of(new PayloadValidationException.Violation("$.power",
+                            "a field and its tmf_ alias must have the same value"))));
+        }
 
         return requireTypeEnabled(credentialConfigurationId, trace)
                 .then(Mono.fromSupplier(() -> {
@@ -289,8 +298,9 @@ public class PowerAuthorizationServiceImpl implements PowerAuthorizationService 
     }
 
     /**
-     * The powers the attestation grants. A power with a field and its {@code tmf_} alias that differ was
-     * rejected before this, so each power has one reading, the one its consumers get.
+     * The powers the attestation grants, each with the reading its consumers get. A power whose field and
+     * {@code tmf_} alias differ has two readings: an issuance rejects it before this, a reissue once its
+     * scope is decided, so neither goes ahead on the reading this gives.
      */
     private List<Power> grantedPowers(JsonNode payload) {
         JsonNode powers = payload != null ? payload.path("power") : null;

@@ -75,6 +75,9 @@ class CredentialOfferRenewalWorkflowImplTest {
     private static final Power TENANT_ADMIN = power("organization", TENANT, "Onboarding", "Execute");
     private static final Power ORG_ADMIN = power("domain", TENANT, "Onboarding", "Execute");
     private static final Power CERTIFY = power("domain", TENANT, "Certification", "Attest");
+    /** Read as the organization administrator power, its alias says certify: two readings (W2). */
+    private static final String CONFLICTING_ALIAS_POWER = "{\"type\":\"domain\",\"domain\":\"" + TENANT
+            + "\",\"function\":\"Onboarding\",\"tmf_function\":\"Certification\",\"action\":[\"Execute\"]}";
     private static final Power ORG_ADMIN_OF_ANOTHER_DOMAIN = power("domain", "DOME", "Onboarding", "Execute");
 
     private CallerProvider callerProvider;
@@ -268,6 +271,35 @@ class CredentialOfferRenewalWorkflowImplTest {
                 .verify();
 
         verifyNoInteractions(credentialOfferService);
+    }
+
+    /** W2: a draft from before EUD-272 whose power names a field and its alias differently could not be issued today. */
+    @Test
+    void renew_draftWithAPowerWhoseFieldAndAliasDiffer_isPermissionDenied() {
+        givenCaller(TENANT_ADMIN);
+        givenIssuance(draft("ui", ORG, LEAR_TYPE, learDataSetWithRawPower(CONFLICTING_ALIAS_POWER)));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalPermissionDeniedException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+        verify(decisionAuditService).auditFailure(eq("authorization.deny"), anyString(),
+                eq("power_alias_conflict"), any());
+    }
+
+    /** W2 keeps AC-06: the same draft of another organization is still not found to who may not issue there. */
+    @Test
+    void renew_draftOfAnotherOrganizationWithAPowerWhoseFieldAndAliasDiffer_isNotFound() {
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("ui", OTHER_ORG, LEAR_TYPE, learDataSetWithRawPower(CONFLICTING_ALIAS_POWER)));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalIssuanceNotFoundException.class)
+                .verify();
+
+        verify(decisionAuditService, never()).auditFailure(eq("authorization.deny"), anyString(),
+                eq("power_alias_conflict"), any());
     }
 
     /** FR-07: a type no longer enabled in the tenant is not offered again. */
@@ -753,6 +785,19 @@ class CredentialOfferRenewalWorkflowImplTest {
         var powers = mandate.putArray("power");
         for (Power power : granted) {
             powers.add(MAPPER.valueToTree(power));
+        }
+        return credential.toString();
+    }
+
+    private static String learDataSetWithRawPower(String rawPower) {
+        var credential = MAPPER.createObjectNode().put("vct", "urn:test:employee");
+        var mandate = credential.putObject("mandate");
+        mandate.putObject("mandator").put("organizationIdentifier", ORG);
+        mandate.putObject("mandatee").put("firstName", "Ana");
+        try {
+            mandate.putArray("power").add(MAPPER.readTree(rawPower));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalArgumentException(e);
         }
         return credential.toString();
     }
