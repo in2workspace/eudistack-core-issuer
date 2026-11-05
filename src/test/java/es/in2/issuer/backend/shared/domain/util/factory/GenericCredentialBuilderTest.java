@@ -546,6 +546,18 @@ class GenericCredentialBuilderTest {
         assertThat(genericCredentialBuilder.extractPayload(employeeProfile(), directDataSet)).isEmpty();
     }
 
+    /** W1 of the EUD-295 review: a mandate read as direct would hide its powers, so it is not decidable. */
+    @Test
+    void GenericCredentialBuilder_extractPayload_mandateDataSetReadAsDirectIsEmpty() {
+        String w3cMandate = genericCredentialBuilder.buildCredential(employeeProfile(), learPayload())
+                .block().credentialDataSet();
+        String sdJwtMandate = genericCredentialBuilder.buildCredential(sdJwtProfile("mandate"), learPayload())
+                .block().credentialDataSet();
+
+        assertThat(genericCredentialBuilder.extractPayload(directW3cProfile(), w3cMandate)).isEmpty();
+        assertThat(genericCredentialBuilder.extractPayload(sdJwtProfile("direct"), sdJwtMandate)).isEmpty();
+    }
+
     @Test
     void GenericCredentialBuilder_extractPayload_unreadableDataSetIsEmpty() {
         assertThat(genericCredentialBuilder.extractPayload(employeeProfile(), "not json")).isEmpty();

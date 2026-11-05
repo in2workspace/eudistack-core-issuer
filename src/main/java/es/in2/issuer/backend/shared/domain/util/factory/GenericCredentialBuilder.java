@@ -104,7 +104,13 @@ public class GenericCredentialBuilder {
         if (root == null) {
             return Optional.empty();
         }
-        JsonNode payload = "direct".equals(profile.credentialSubjectStrategy()) ? root : root.get("mandate");
+        boolean direct = "direct".equals(profile.credentialSubjectStrategy());
+        if (direct && root.has("mandate")) {
+            // Built as a mandate, read as direct (the profile's strategy changed): its powers would go
+            // unseen, so it is not decidable rather than a subject without powers (EUD-295 review W1).
+            return Optional.empty();
+        }
+        JsonNode payload = direct ? root : root.get("mandate");
         return payload != null && payload.isObject() ? Optional.of(payload) : Optional.empty();
     }
 
