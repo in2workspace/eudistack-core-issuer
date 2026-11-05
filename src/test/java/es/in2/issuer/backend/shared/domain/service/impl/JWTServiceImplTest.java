@@ -321,67 +321,6 @@ class JWTServiceImplTest {
         assertEquals("top@example.com", email.get());
     }
 
-    // ---- mandatee email: the two shapes of the verifier's access token -------------------------------------
-
-    @Test
-    void extractMandateeEmail_readsTheW3cCredential() {
-        Map<String, Object> claims = Map.of(
-                "sub", "did:key:zDnaeW3c",
-                "vc", Map.of("credentialSubject", Map.of("mandate", Map.of(
-                        "mandatee", Map.of("email", "w3c@example.com")))));
-
-        assertEquals(Optional.of("w3c@example.com"), jwtService.extractMandateeEmail(jwtWith(claims)));
-    }
-
-    /** The verifier's LEAR SD-JWT token: no credentialSubject, the mandate at the root of vc. */
-    @Test
-    void extractMandateeEmail_readsTheSdJwtCredential() {
-        Map<String, Object> claims = Map.of(
-                "sub", "sd-jwt@example.com",
-                "mandatee", Map.of("email", "sd-jwt@example.com"),
-                "vc", Map.of(
-                        "vct", "learcredential.employee.sd.1",
-                        "mandate", Map.of("mandatee", Map.of("email", "sd-jwt@example.com"))));
-
-        assertEquals(Optional.of("sd-jwt@example.com"), jwtService.extractMandateeEmail(jwtWith(claims)));
-    }
-
-    @Test
-    void extractMandateeEmail_prefersTheCredentialOverTheRootClaims() {
-        Map<String, Object> claims = Map.of(
-                "sub", "sub@example.com",
-                "email", "top@example.com",
-                "mandatee", Map.of("email", "root@example.com"),
-                "vc", Map.of("mandate", Map.of("mandatee", Map.of("email", "vc@example.com"))));
-
-        assertEquals(Optional.of("vc@example.com"), jwtService.extractMandateeEmail(jwtWith(claims)));
-    }
-
-    @Test
-    void extractMandateeEmail_fallsBackToTheRootMandatee() {
-        Map<String, Object> claims = Map.of(
-                "sub", "sub@example.com",
-                "email", "top@example.com",
-                "mandatee", Map.of("email", "root@example.com"));
-
-        assertEquals(Optional.of("root@example.com"), jwtService.extractMandateeEmail(jwtWith(claims)));
-    }
-
-    @Test
-    void extractMandateeEmail_fallsBackToAnEmailSubject() {
-        assertEquals(Optional.of("sub@example.com"),
-                jwtService.extractMandateeEmail(jwtWith(Map.of("sub", "sub@example.com"))));
-    }
-
-    @Test
-    void extractMandateeEmail_ignoresASubjectThatIsNotAnEmail() {
-        assertEquals(Optional.empty(), jwtService.extractMandateeEmail(jwtWith(Map.of("sub", "did:key:zDnae"))));
-    }
-
-    private static Jwt jwtWith(Map<String, Object> claims) {
-        return new Jwt("token", Instant.now(), Instant.now().plusSeconds(3600), Map.of("alg", "ES256"), claims);
-    }
-
     @Test
     void resolvePrincipal_returnsAnonymous_whenNoEmailsAndSubjectBlank() {
         Map<String, Object> claims = new HashMap<>();

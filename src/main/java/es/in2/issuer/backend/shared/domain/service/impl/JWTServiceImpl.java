@@ -51,8 +51,6 @@ import java.util.Optional;
 public class JWTServiceImpl implements JWTService {
 
     private static final String DID_KEY_PREFIX = "did:key:";
-    private static final String MANDATE = "mandate";
-    private static final String MANDATEE = "mandatee";
 
     private final ObjectMapper objectMapper;
     private final CryptoComponent cryptoComponent;
@@ -317,12 +315,6 @@ public class JWTServiceImpl implements JWTService {
                 .orElse("anonymous");
     }
 
-    /**
-     * The mandatee's email, looked up in this order: the W3C credential
-     * ({@code vc.credentialSubject.mandate.mandatee}), the SD-JWT credential ({@code vc.mandate.mandatee}),
-     * a {@code mandatee} claim at the root of the token, and, as a last resort, the top-level {@code email}
-     * and a {@code sub} that is an email address (the verifier's SD-JWT access tokens carry it there).
-     */
     @Override
     public Optional<String> extractMandateeEmail(Jwt jwt) {
         log.debug("Extracting email from JWT");
@@ -330,26 +322,29 @@ public class JWTServiceImpl implements JWTService {
 
         // Resolve VC from either 'vc' (object) or 'vc_json' (stringified JSON)
         Map<String, Object> vc = resolveVc(claims);
-        Map<String, Object> w3cMandate = asMap(asMap(vc.get("credentialSubject")).get(MANDATE));
-        Map<String, Object> sdJwtMandate = asMap(vc.get(MANDATE));
 
-        return emailOf(asMap(w3cMandate.get(MANDATEE)))
-                .or(() -> emailOf(asMap(sdJwtMandate.get(MANDATEE))))
-                .or(() -> emailOf(asMap(claims.get(MANDATEE))))
-                .or(() -> emailOf(claims))
-                .or(() -> Optional.ofNullable(claims.get("sub"))
-                        .filter(String.class::isInstance)
-                        .map(String.class::cast)
-                        .filter(sub -> sub.contains("@")));
-    }
-
-    /** The {@code email} (or {@code emailAddress}) of a claim set, when it is a non-blank string. */
-    private static Optional<String> emailOf(Map<String, Object> holder) {
-        Object email = holder.get("email");
+        Map<String, Object> cs = asMap(vc.get("credentialSubject"));
+        Map<String, Object> mandate = asMap(cs.get("mandate"));
+        Map<String, Object> mandatee = asMap(mandate.get("mandatee"));
+        Object email = mandatee.get("email");
         if (email == null) {
-            email = holder.get("emailAddress");
+            email = mandatee.get("emailAddress");
         }
-        return email instanceof String s && !s.isBlank() ? Optional.of(s) : Optional.empty();
+
+        if (email instanceof String s) {
+            return Optional.of(s);
+        }
+
+        // Fallback: top-level "email" (in the ID token)
+        Object topEmail = claims.get("email");
+        if (topEmail == null) {
+            topEmail = claims.get("emailAddress");
+        }
+        if (topEmail instanceof String s2) {
+            return Optional.of(s2);
+        }
+
+        return Optional.empty();
     }
 
     /** Extract VC as a Map from either 'vc' or 'vc_json' (string). */

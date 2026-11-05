@@ -156,6 +156,24 @@ class CatalogEntryChangeAuditorTest {
                 eq("attestation-catalog"), eq(TENANT), any());
     }
 
+    /** A token without a mandatee email (a machine's, whose {@code sub} is a DID) keeps the principal. */
+    @Test
+    void audit_withATokenWithoutMandateeEmail_recordsThePrincipal() {
+        Jwt accessToken = new Jwt("token", Instant.now(), Instant.now().plusSeconds(3600), Map.of("alg", "ES256"),
+                Map.of("sub", "did:key:zMachine", "vc", Map.of("vct", "learcredential.machine.sd.1")));
+        JWTServiceImpl jwtService = new JWTServiceImpl(new ObjectMapper(), mock(CryptoComponent.class));
+        JwtAuthenticationToken authentication =
+                new JwtAuthenticationToken(accessToken, List.of(), jwtService.resolvePrincipal(accessToken));
+
+        StepVerifier.create(auditor.audit(CatalogEntryChange.created(entry(true, 0)))
+                        .contextWrite(ReactiveSecurityContextHolder.withAuthentication(authentication))
+                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
+                .verifyComplete();
+
+        verify(auditService).auditSuccess(eq("CatalogEntryChanged"), eq("anonymous"), eq(ORGANIZATION),
+                eq("attestation-catalog"), eq(TENANT), any());
+    }
+
     // ---- denied writes ---------------------------------------------------------
 
     @Test

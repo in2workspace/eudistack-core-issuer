@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
@@ -45,6 +46,14 @@ public class CatalogEntryChangeAuditor {
     static final String EVENT = "CatalogEntryChanged";
     static final String RESOURCE_TYPE = "attestation-catalog";
     static final String UNKNOWN = "unknown";
+    /** What {@code JWTService#resolvePrincipal} answers when the token carries no email it can read. */
+    static final String ANONYMOUS_PRINCIPAL = "anonymous";
+
+    private static final String VC = "vc";
+    private static final String MANDATE = "mandate";
+    private static final String MANDATEE = "mandatee";
+    private static final String EMAIL = "email";
+    private static final String EMAIL_ADDRESS = "emailAddress";
 
     /** The caller is not allowed to write the catalog. */
     public static final String POLICY_DENIED = "PolicyDenied";
@@ -119,11 +128,31 @@ public class CatalogEntryChangeAuditor {
         return ReactiveSecurityContextHolder.getContext()
                 .map(SecurityContext::getAuthentication)
                 .filter(auth -> auth != null && auth.isAuthenticated() && auth.getName() != null)
-                .map(Authentication::getName)
+                .map(CatalogEntryChangeAuditor::personOf)
                 .switchIfEmpty(Mono.defer(() -> {
                     log.warn("Catalog audit: the person is not resolvable from the security context");
                     return Mono.just(UNKNOWN);
                 }));
+    }
+
+    /**
+     * The principal of the request or, when it is {@value #ANONYMOUS_PRINCIPAL}, the mandatee's email of an
+     * SD-JWT access token ({@code vc.mandate.mandatee}). The portal calls with the verifier's SD-JWT access
+     * token and no ID token, and the principal only reads the W3C shape; the lookup is done here so that
+     * the principal of the rest of the issuer stays as it is (AC-12 is about the catalog only).
+     */
+    private static String personOf(Authentication authentication) {
+        String name = authentication.getName();
+        if (!ANONYMOUS_PRINCIPAL.equals(name) || !(authentication.getPrincipal() instanceof Jwt jwt)) {
+            return name;
+        }
+        Map<?, ?> mandatee = asMap(asMap(asMap(jwt.getClaims().get(VC)).get(MANDATE)).get(MANDATEE));
+        Object email = mandatee.get(EMAIL) != null ? mandatee.get(EMAIL) : mandatee.get(EMAIL_ADDRESS);
+        return email instanceof String s && !s.isBlank() ? s : name;
+    }
+
+    private static Map<?, ?> asMap(Object value) {
+        return value instanceof Map<?, ?> map ? map : Map.of();
     }
 
     private Mono<String> resolveOrganization() {
