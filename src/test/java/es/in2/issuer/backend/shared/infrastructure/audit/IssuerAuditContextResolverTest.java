@@ -89,6 +89,18 @@ class IssuerAuditContextResolverTest {
     }
 
     @Test
+    void resolve_personWithoutEmailPrincipalOrSubject_isAnUnidentifiedPersonInsteadOfFailing() {
+        // Arrange
+        Authentication user = authentication(Map.of("iss", "verifier"), "anonymous");
+        when(accessTokenService.getOrganizationId("Bearer token")).thenReturn(Mono.empty());
+
+        // Act & Assert
+        StepVerifier.create(resolve(user))
+                .assertNext(context -> assertEquals("unidentified", context.actor().id()))
+                .verifyComplete();
+    }
+
+    @Test
     void resolve_tokenWithoutOrganization_stillResolvesTheCaller() {
         // Arrange
         Authentication user = authentication(Map.of("sub", "user-1"), "jane");

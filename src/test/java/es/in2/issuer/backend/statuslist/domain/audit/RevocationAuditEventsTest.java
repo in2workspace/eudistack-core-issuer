@@ -69,6 +69,16 @@ class RevocationAuditEventsTest {
             // Assert
             assertEquals("line1 line2 tab", entry.details().get("revocation_reason"));
         }
+
+        @Test
+        void applied_reasonWithAJwtShapedValue_replacesItSoTheStarterDoesNotRejectTheEvent() {
+            // Arrange & Act
+            AuditEntry entry = RevocationAuditEvents.applied(ISSUANCE_ID, Origin.REQUEST,
+                    "see eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl please", HOLDER);
+
+            // Assert
+            assertEquals("see [redacted] please", entry.details().get("revocation_reason"));
+        }
     }
 
     @Nested

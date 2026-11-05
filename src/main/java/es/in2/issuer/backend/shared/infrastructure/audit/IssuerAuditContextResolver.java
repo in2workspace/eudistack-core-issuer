@@ -34,6 +34,8 @@ public class IssuerAuditContextResolver implements ReactiveAuditContextResolver 
     private static final String EMAIL_CLAIM = "email";
     /** What the authentication manager names a caller whose token carries no mandatee email. */
     private static final String ANONYMOUS_PRINCIPAL = "anonymous";
+    /** Actor id of a person whose token names neither a mandatee email nor a subject. */
+    private static final String UNIDENTIFIED_PERSON = "unidentified";
 
     private final AccessTokenService accessTokenService;
 
@@ -65,7 +67,8 @@ public class IssuerAuditContextResolver implements ReactiveAuditContextResolver 
             return AuditActor.system(client);
         }
         boolean named = principalName != null && !principalName.isBlank() && !ANONYMOUS_PRINCIPAL.equals(principalName);
-        String id = named ? principalName : token.getSubject();
+        String subject = token.getSubject();
+        String id = named ? principalName : subject != null && !subject.isBlank() ? subject : UNIDENTIFIED_PERSON;
         return AuditActor.person(id, null, token.getClaimAsString(EMAIL_CLAIM));
     }
 

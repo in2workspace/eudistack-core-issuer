@@ -7,6 +7,7 @@ import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.Holde
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * Builds the {@code Revocation} entry of a revocation. There is one per request, with its final result:
@@ -30,6 +31,14 @@ public final class RevocationAuditEvents {
 
     /** Longest {@code revocation_reason} the catalogue accepts. */
     public static final int MAX_REASON_LENGTH = 280;
+
+    /**
+     * A compact JWS or JWE typed into the free-text reason. The audit starter rejects such a value and the
+     * revocation would roll back with its event, so it is replaced before the event is built.
+     */
+    private static final Pattern JWT_SHAPED =
+            Pattern.compile("(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]*\\.[A-Za-z0-9_-]*");
+    private static final String REDACTED = "[redacted]";
 
     private RevocationAuditEvents() {
     }
@@ -57,7 +66,7 @@ public final class RevocationAuditEvents {
         if (reason == null) {
             return null;
         }
-        String withoutControlCharacters = reason.replaceAll("\\p{Cntrl}", " ").strip();
+        String withoutControlCharacters = JWT_SHAPED.matcher(reason.replaceAll("\\p{Cntrl}", " ")).replaceAll(REDACTED).strip();
         return withoutControlCharacters.length() > MAX_REASON_LENGTH
                 ? withoutControlCharacters.substring(0, MAX_REASON_LENGTH)
                 : withoutControlCharacters;
