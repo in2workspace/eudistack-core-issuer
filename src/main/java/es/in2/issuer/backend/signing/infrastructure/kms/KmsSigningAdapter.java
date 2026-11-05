@@ -13,6 +13,7 @@ import software.amazon.awssdk.services.kms.model.SignRequest;
 import software.amazon.awssdk.services.kms.model.SignResponse;
 import software.amazon.awssdk.services.kms.model.SigningAlgorithmSpec;
 
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 /**
@@ -32,7 +33,7 @@ public class KmsSigningAdapter implements KmsSigningPort {
 
     private final Supplier<KmsAsyncClient> clientFactory;
     private final KmsSigningTiming timing;
-    private volatile KmsAsyncClient client;
+    private final AtomicReference<KmsAsyncClient> client = new AtomicReference<>();
 
     public KmsSigningAdapter(Supplier<KmsAsyncClient> clientFactory) {
         this(clientFactory, KmsSigningTiming.DEFAULT);
@@ -51,13 +52,26 @@ public class KmsSigningAdapter implements KmsSigningPort {
     }
 
     private Mono<KmsAsyncClient> client() {
-        KmsAsyncClient built = client;
+        KmsAsyncClient built = client.get();
         if (built != null) {
             return Mono.just(built);
         }
-        return Mono.fromCallable(() -> client = clientFactory.get())
+        return Mono.fromCallable(this::buildClient)
                 .subscribeOn(Schedulers.boundedElastic())
                 .onErrorMap(KmsSigningAdapter::clientUnavailable);
+    }
+
+    /** Two first signatures may build a client each: the first one kept wins and the other is closed. */
+    private KmsAsyncClient buildClient() {
+        KmsAsyncClient fresh = clientFactory.get();
+        KmsAsyncClient kept = client.compareAndExchange(null, fresh);
+        if (kept == null) {
+            return fresh;
+        }
+        if (kept != fresh && fresh != null) {
+            fresh.close();
+        }
+        return kept;
     }
 
     private Mono<byte[]> sign(KmsAsyncClient kms, String keyRef, byte[] sha256Digest) {

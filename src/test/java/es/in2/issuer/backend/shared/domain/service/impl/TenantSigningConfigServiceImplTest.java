@@ -21,7 +21,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -194,7 +193,7 @@ class TenantSigningConfigServiceImplTest {
 
     @Test
     void cacheTtl_isFiveMinutes() {
-        assertThat(TenantSigningConfigServiceImpl.CACHE_TTL).isEqualTo(Duration.ofMinutes(5));
+        assertThat(TenantSigningConfigServiceImpl.CACHE_TTL.toMinutes()).isEqualTo(5);
     }
 
     @Test

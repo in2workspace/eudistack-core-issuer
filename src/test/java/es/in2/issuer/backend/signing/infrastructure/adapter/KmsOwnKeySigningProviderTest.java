@@ -43,8 +43,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class KmsOwnKeySigningProviderTest {
 

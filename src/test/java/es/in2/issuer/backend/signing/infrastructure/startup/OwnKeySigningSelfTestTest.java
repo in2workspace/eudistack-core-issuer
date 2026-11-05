@@ -39,7 +39,6 @@ import java.util.Set;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -221,8 +220,8 @@ class OwnKeySigningSelfTestTest {
     @Test
     void constants_tenantTimeoutCoversTheWorstKmsCall_andTheWarningIsThirtyDays() {
         // 4 attempts of 10 s and 3 waits of at most 5 s, capped by the 45 s deadline, plus the 5 s margin.
-        assertThat(OwnKeySigningSelfTest.TENANT_TIMEOUT).isEqualTo(Duration.ofSeconds(50));
-        assertThat(OwnKeySigningSelfTest.CERTIFICATE_EXPIRY_WARNING).isEqualTo(Duration.ofDays(30));
+        assertThat(OwnKeySigningSelfTest.TENANT_TIMEOUT.toSeconds()).isEqualTo(50);
+        assertThat(OwnKeySigningSelfTest.CERTIFICATE_EXPIRY_WARNING.toDays()).isEqualTo(30);
     }
 
     @Test

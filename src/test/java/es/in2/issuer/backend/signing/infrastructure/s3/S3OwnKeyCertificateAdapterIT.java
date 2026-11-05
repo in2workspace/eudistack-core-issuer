@@ -17,7 +17,6 @@ import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
-import java.time.Duration;
 
 /**
  * The certificate read against LocalStack S3, with the client the Issuer builds. LocalStack proves the
