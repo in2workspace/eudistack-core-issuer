@@ -90,6 +90,18 @@ public final class OwnKeyTestPki {
         return rsaLeaf;
     }
 
+    /** Leaf issued by the root on brainpoolP256r1: a 256-bit curve that is not P-256. */
+    public Leaf brainpoolP256Leaf() {
+        try {
+            KeyPairGenerator generator = KeyPairGenerator.getInstance("EC",
+                    new org.bouncycastle.jce.provider.BouncyCastleProvider());
+            generator.initialize(new java.security.spec.ECGenParameterSpec("brainpoolP256r1"));
+            return leafSignedByRoot(generator.generateKeyPair(), "2024-01-01T00:00:00Z", "2099-01-01T00:00:00Z");
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not issue the leaf", e);
+        }
+    }
+
     /** P-384 leaf issued by the root. */
     public Leaf p384Leaf() {
         return p384Leaf;

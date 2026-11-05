@@ -1,11 +1,9 @@
 package es.in2.issuer.backend.signing.domain.util;
 
-import java.security.AlgorithmParameters;
+import es.in2.issuer.backend.signing.domain.model.SigningCurve;
+
 import java.security.GeneralSecurityException;
 import java.security.cert.X509Certificate;
-import java.security.interfaces.ECPublicKey;
-import java.security.spec.ECGenParameterSpec;
-import java.security.spec.ECParameterSpec;
 import java.time.Instant;
 import java.util.List;
 
@@ -15,7 +13,6 @@ import java.util.List;
  */
 public final class SigningCertificateChecks {
 
-    private static final ECParameterSpec SECP256R1 = secp256r1();
     private static final int DIGITAL_SIGNATURE = 0;
     private static final int NON_REPUDIATION = 1;
 
@@ -23,26 +20,7 @@ public final class SigningCertificateChecks {
 
     /** {@code true} if the certificate holds an EC key on P-256; RSA and other curves are {@code false}. */
     public static boolean isP256(X509Certificate certificate) {
-        requireCertificate(certificate);
-        return certificate.getPublicKey() instanceof ECPublicKey publicKey && isSecp256r1(publicKey.getParams());
-    }
-
-    /** ECParameterSpec has no equals(), so the curve, generator, order and cofactor are compared one by one. */
-    private static boolean isSecp256r1(ECParameterSpec params) {
-        return SECP256R1.getCurve().equals(params.getCurve())
-                && SECP256R1.getGenerator().equals(params.getGenerator())
-                && SECP256R1.getOrder().equals(params.getOrder())
-                && SECP256R1.getCofactor() == params.getCofactor();
-    }
-
-    private static ECParameterSpec secp256r1() {
-        try {
-            AlgorithmParameters parameters = AlgorithmParameters.getInstance("EC");
-            parameters.init(new ECGenParameterSpec("secp256r1"));
-            return parameters.getParameterSpec(ECParameterSpec.class);
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("The JDK does not provide secp256r1", e);
-        }
+        return SigningCurve.of(certificate).filter(SigningCurve.P_256::equals).isPresent();
     }
 
     /** {@code true} if {@code at} falls inside the validity window, both bounds inclusive. */

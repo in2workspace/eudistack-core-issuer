@@ -7,6 +7,7 @@ import es.in2.issuer.backend.signing.domain.exception.KmsSigningException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.CertificateCheck;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
+import es.in2.issuer.backend.signing.domain.model.SigningCurve;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningModality;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
@@ -109,9 +110,9 @@ public class KmsOwnKeySigningProvider implements SigningProvider {
                     : Mono.error(new CertificateCheckException(CertificateCheck.EXPIRED,
                             "The stored signing certificate is expired"));
         }
-        if (!SigningCertificateChecks.isP256(leaf)) {
+        if (SigningCurve.of(leaf).isEmpty()) {
             return Mono.error(new CertificateCheckException(CertificateCheck.NOT_P256,
-                    "The stored signing certificate is not a P-256 certificate"));
+                    "The stored signing certificate does not hold a key on a supported curve (P-256)"));
         }
         if (!SigningCertificateChecks.isEndEntity(leaf)) {
             return Mono.error(new CertificateCheckException(CertificateCheck.CA_CERTIFICATE,

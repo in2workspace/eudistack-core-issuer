@@ -6,11 +6,11 @@ import es.in2.issuer.backend.signing.domain.exception.CertificateCheckException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.domain.model.CertificateCheck;
 import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
+import es.in2.issuer.backend.signing.domain.model.SigningCurve;
 import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.service.OwnKeySigningConfigLoader;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyCertificatePort;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyCertificates;
-import es.in2.issuer.backend.signing.domain.util.SigningCertificateChecks;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -76,9 +76,10 @@ public class OwnKeySigningConfigLoaderImpl implements OwnKeySigningConfigLoader 
                     CertificateCheck.ORGANIZATION_MISMATCH, "The own-key certificate belongs to another organization",
                     null);
         }
-        if (!SigningCertificateChecks.isP256(leaf)) {
+        // SigningCurve lists the curves an own key may use: only P-256 for now.
+        if (SigningCurve.of(leaf).isEmpty()) {
             throw new CertificateCheckException(CertificateCheck.NOT_P256,
-                    "The own-key certificate does not hold a P-256 key");
+                    "The own-key certificate does not hold a key on a supported curve (P-256)");
         }
         return new OwnKeySigningConfig(OwnKeyCertificates.keyAlias(leaf), OwnKeySigningConfig.ES256,
                 OwnKeyCertificates.toX5c(chain));
