@@ -9,7 +9,6 @@ import es.in2.issuer.backend.shared.domain.model.catalog.ClaimPath;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialBuildResult;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
-import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.CatalogEntryFiller;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
@@ -18,7 +17,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
-import reactor.core.publisher.Mono;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -28,7 +26,6 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 /**
  * {@link GenericCredentialBuilder} taking the validity and the subject from the tenant's catalog entry
@@ -50,9 +47,8 @@ class GenericCredentialBuilderEntryConfigTest {
     private final CredentialProfileRegistry registry = new CredentialProfileRegistry(
             OBJECT_MAPPER, new PathMatchingResourcePatternResolver(), "classpath:catalog-profiles");
     private final CatalogEntryFiller filler = new CatalogEntryFiller(registry, new SchemaDeliveryCeiling(registry));
-    private final AccessTokenService accessTokenService = mock(AccessTokenService.class);
     private final GenericCredentialBuilder builder =
-            new GenericCredentialBuilder(OBJECT_MAPPER, mock(IssuerFactory.class), accessTokenService);
+            new GenericCredentialBuilder(OBJECT_MAPPER, mock(IssuerFactory.class));
 
     // --- validity ---
 
@@ -189,7 +185,6 @@ class GenericCredentialBuilderEntryConfigTest {
 
     @Test
     void buildCredential_gaiaXLabel_appliesTheLastSegmentDelimiterOfTheTypeFile() {
-        when(accessTokenService.getOrganizationIdFromCurrentSession()).thenReturn(Mono.just("ORG"));
         JsonNode payload = OBJECT_MAPPER.createObjectNode().set("credentialSubject",
                 OBJECT_MAPPER.createObjectNode().put("id", "did:elsi:VATES-B12345678"));
 

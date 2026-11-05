@@ -28,7 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Here the bearer token is a real, ES256-signed JWT minted via
  * {@link PostgresIntegrationBase#mintOperatorAccessToken} -- the same signing key
  * {@code CustomAuthenticationManager} verifies against, so this exercises the actual
- * authentication filter and {@code AccessTokenServiceImpl.resolveRole}, not a
+ * authentication filter and the recognition of the action matrix (EUD-272), not a
  * hand-crafted token injected past them.
  *
  * <p>Uses the pre-registered {@code e2e-tenant-a}/{@code e2e-tenant-b} schemas (not a
@@ -37,9 +37,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * -- unlike {@code TenantDeliveryModesMigrationIT}, which drives Flyway directly below the
  * HTTP layer -- an unregistered schema does not work here. Shares these two schemas with
  * {@code CredentialCatalogTransactionalIT}, which only ever calls the domain service
- * directly and never touches {@code tenant_config}/{@code admin_organization_id}, so this
- * class's own seeding cannot affect its assertions; both classes reset the catalog's
- * enabled set explicitly before each test, so execution order does not matter either.
+ * directly; both classes reset the catalog's enabled set explicitly before each test, so
+ * execution order does not matter.
  */
 class CredentialCatalogHttpAuthorizationIT extends PostgresIntegrationBase {
 
@@ -52,8 +51,6 @@ class CredentialCatalogHttpAuthorizationIT extends PostgresIntegrationBase {
 
     @BeforeEach
     void seedTenants() {
-        seedAdminOrganizationId(TENANT_A);
-        seedAdminOrganizationId(TENANT_B);
         emptyCatalog(TENANT_A);
         seedEnabledProfile(TENANT_A);
     }
@@ -183,10 +180,10 @@ class CredentialCatalogHttpAuthorizationIT extends PostgresIntegrationBase {
                 .expectStatus().isOk();
     }
 
-    /** The administrator organization with Onboarding/Execute over another domain is not the
-     *  tenant's administrator for the catalog write (D15): the power must carry the tenant's domain. */
+    /** An organization-type Onboarding/Execute over another domain is not the tenant's administrator
+     *  (K2): the power must carry the tenant's domain. */
     @Test
-    void adminOrganizationWithPowerOnAnotherDomain_writes_returns403InsufficientPermission() {
+    void tenantAdministratorPowerOnAnotherDomain_writes_returns403InsufficientPermission() {
         String token = mintAdminAccessToken(TENANT_A, TENANT_B);
 
         putCatalog(token, TENANT_A)
@@ -214,6 +211,19 @@ class CredentialCatalogHttpAuthorizationIT extends PostgresIntegrationBase {
                 .get().uri(CREDENTIAL_CATALOG_PATH)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .header(X_TENANT_HEADER, TENANT_B)
+                .exchange()
+                .expectStatus().isForbidden();
+    }
+
+    /** EUD-253 point 6: an attestation of the tenant without administration powers is not an operator. */
+    @Test
+    void userWithoutPowers_cannotReadTheCatalog() {
+        String token = mintUserAccessToken(TENANT_A, OPERATOR_ORG_ID, java.util.List.of());
+
+        webTestClient()
+                .get().uri(CREDENTIAL_CATALOG_PATH)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .header(X_TENANT_HEADER, TENANT_A)
                 .exchange()
                 .expectStatus().isForbidden();
     }
@@ -254,15 +264,6 @@ class CredentialCatalogHttpAuthorizationIT extends PostgresIntegrationBase {
                 .map((row, metadata) -> Map.entry(
                         row.get("credential_configuration_id", String.class), row.get("enabled", Boolean.class)))
                 .all().collectMap(Map.Entry::getKey, Map.Entry::getValue).block();
-    }
-
-    private void seedAdminOrganizationId(String tenant) {
-        String schema = tenant + SCHEMA_SUFFIX;
-        databaseClient.sql("INSERT INTO \"" + schema + "\".tenant_config (config_key, config_value) "
-                        + "VALUES ('admin_organization_id', :value) "
-                        + "ON CONFLICT (config_key) DO UPDATE SET config_value = EXCLUDED.config_value")
-                .bind("value", ADMIN_ORG_ID)
-                .then().block();
     }
 
     private void seedEnabledProfile(String tenant) {

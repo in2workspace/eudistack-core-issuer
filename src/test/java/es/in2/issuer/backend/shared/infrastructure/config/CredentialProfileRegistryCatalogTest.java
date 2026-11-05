@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import es.in2.issuer.backend.shared.domain.model.catalog.ClaimPath;
 import es.in2.issuer.backend.shared.domain.model.enums.BindingType;
+import es.in2.issuer.backend.shared.domain.service.SubjectPathConverter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -40,6 +41,10 @@ class CredentialProfileRegistryCatalogTest {
 
     private final CredentialProfileRegistry registry = new CredentialProfileRegistry(
             OBJECT_MAPPER, new PathMatchingResourcePatternResolver(), "classpath:catalog-profiles");
+
+    /** The legacy W3C types deployed with the issuer, read where they live (EUD-266 review, point 1). */
+    private static final CredentialProfileRegistry LEGACY = new CredentialProfileRegistry(
+            OBJECT_MAPPER, new PathMatchingResourcePatternResolver(), "file:dev-tools/credentials/profiles/legacy");
 
     // ---- bindingTypeOf ---------------------------------------------------------
 
@@ -236,6 +241,29 @@ class CredentialProfileRegistryCatalogTest {
                 ClaimPath.of("credentialSubject", "gx:compliantCredentials"))
                 .allMatch(path -> path.segments().getFirst().equals("credentialSubject"))
                 .doesNotContain(ClaimPath.of("credentialStatus", "id"), ClaimPath.of("issuer"));
+    }
+
+    /** The legacy W3C types describe the credential under a top-level {@code vc}, not under {@code properties}. */
+    @ParameterizedTest
+    @ValueSource(strings = {"learcredential.employee.w3c.2", "learcredential.employee.w3c.3",
+            "learcredential.machine.w3c.1", "learcredential.machine.w3c.2"})
+    void attributePaths_ofALegacyW3cType_areThoseUnderItsVcCredentialSubject(String ccid) {
+        List<ClaimPath> paths = LEGACY.attributePaths(ccid);
+
+        assertThat(paths).isNotEmpty()
+                .contains(ClaimPath.of("credentialSubject", "mandate", "mandatee", "id"))
+                .allMatch(path -> path.segments().getFirst().equals("credentialSubject"));
+    }
+
+    /** The subject the backfill stores for a legacy entry is in its schema, so a GET then an unchanged PUT validates. */
+    @ParameterizedTest
+    @ValueSource(strings = {"learcredential.employee.w3c.2", "learcredential.employee.w3c.3",
+            "learcredential.machine.w3c.1", "learcredential.machine.w3c.2"})
+    void attributePaths_ofALegacyW3cType_containTheSubjectTheBackfillStores(String ccid) {
+        List<ClaimPath> subject = SubjectPathConverter.toClaimPaths(LEGACY.getByConfigurationId(ccid));
+
+        assertThat(subject).isNotEmpty();
+        assertThat(LEGACY.attributePaths(ccid)).containsAll(subject);
     }
 
     @Test

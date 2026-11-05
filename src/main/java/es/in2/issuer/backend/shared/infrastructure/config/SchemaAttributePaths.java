@@ -14,12 +14,15 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.DC_SD_JWT;
  * {@code properties}, is a leaf. SD-JWT schemas describe only the data, so every path counts. W3C
  * schemas describe the whole credential, so only the paths under {@code credentialSubject} count:
  * the envelope ({@code issuer}, {@code credentialStatus}, {@code validFrom}, ...) is not part of
- * what a catalog entry can point at.
+ * what a catalog entry can point at. The legacy W3C types ({@code learcredential.employee.w3c.2/3},
+ * {@code learcredential.machine.w3c.1/2}) describe the credential under a top-level {@code vc}
+ * instead of {@code properties}; their {@code credentialSubject} is read from there.
  */
 final class SchemaAttributePaths {
 
     private static final String CREDENTIAL_SUBJECT = "credentialSubject";
     private static final String PROPERTIES = "properties";
+    private static final String LEGACY_VC = "vc";
 
     private SchemaAttributePaths() {
     }
@@ -28,7 +31,11 @@ final class SchemaAttributePaths {
         JsonNode properties = rawProfile.path(PROPERTIES);
         List<String> prefix = List.of();
         if (!DC_SD_JWT.equals(format)) {
-            properties = properties.path(CREDENTIAL_SUBJECT).path(PROPERTIES);
+            JsonNode credentialSubject = properties.path(CREDENTIAL_SUBJECT);
+            if (credentialSubject.isMissingNode()) {
+                credentialSubject = rawProfile.path(LEGACY_VC).path(CREDENTIAL_SUBJECT);
+            }
+            properties = credentialSubject.path(PROPERTIES);
             prefix = List.of(CREDENTIAL_SUBJECT);
         }
         List<ClaimPath> paths = new ArrayList<>();

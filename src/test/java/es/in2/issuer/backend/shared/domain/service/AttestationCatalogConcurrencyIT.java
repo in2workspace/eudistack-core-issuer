@@ -9,7 +9,6 @@ import es.in2.issuer.backend.shared.domain.model.catalog.CatalogConfigurationInp
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntryETag;
 import es.in2.issuer.backend.shared.domain.model.catalog.CreateCatalogEntryCommand;
-import es.in2.issuer.backend.shared.domain.policy.rules.RequireCredentialProfileAllowedForTenantRule;
 import es.in2.issuer.backend.support.PostgresIntegrationBase;
 import es.in2.issuer.backend.support.TenantSchemaMigrations;
 import org.junit.jupiter.api.BeforeAll;
@@ -20,7 +19,6 @@ import org.springframework.boot.autoconfigure.flyway.FlywayProperties;
 import org.springframework.boot.autoconfigure.r2dbc.R2dbcProperties;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Signal;
 import reactor.core.scheduler.Schedulers;
@@ -57,7 +55,6 @@ class AttestationCatalogConcurrencyIT extends PostgresIntegrationBase {
     @Autowired private AttestationCatalogService service;
     @Autowired private TenantCredentialProfileService tenantCredentialProfileService;
     @Autowired private CredentialIssuerMetadataService metadataService;
-    @Autowired private RequireCredentialProfileAllowedForTenantRule credentialProfileAllowedRule;
 
     @BeforeAll
     static void migrateTenantSchema(@Autowired FlywayProperties flywayProperties,
@@ -143,11 +140,8 @@ class AttestationCatalogConcurrencyIT extends PostgresIntegrationBase {
 
         assertThat(disabled.enabled()).isFalse();
         assertThat(advertisedConfigurations()).doesNotContain(DOCTORID);
+        // What issuance checks (PowerAuthorizationService, credential_type_not_enabled).
         assertThat(isAllowedToIssue(DOCTORID)).isFalse();
-        Mono<Void> issuanceCheck = inTenant(credentialProfileAllowedRule.evaluate(null, DOCTORID));
-        assertThatThrownBy(issuanceCheck::block)
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("is not enabled for this tenant");
         assertThat(inTenant(service.list(true).collectList()).block()).isEmpty();
         assertThat(inTenant(service.get(DOCTORID)).block().enabled()).as("the entry is kept").isFalse();
     }

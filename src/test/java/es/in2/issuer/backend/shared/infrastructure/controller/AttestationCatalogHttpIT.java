@@ -86,8 +86,6 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
 
     @BeforeEach
     void setUp() {
-        seedAdminOrganizationId(TENANT_A);
-        seedAdminOrganizationId(TENANT_B);
         emptyCatalog(TENANT_A);
         auditAppender = new ListAppender<>();
         auditAppender.start();
@@ -425,6 +423,28 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
         get(operator, DOCTORID_PATH).expectStatus().isOk();
     }
 
+    /** EUD-272: the power alone makes the tenant administrator, whatever organization holds it. */
+    @Test
+    void anotherOrganizationWithTheTenantAdministratorPower_changesTheCatalog() {
+        String administrator = mintUserAccessToken(TENANT_A, OPERATOR_ORG_ID, List.of(Map.of(
+                "type", "organization", "domain", TENANT_A, "function", "Onboarding", "action", List.of("Execute"))));
+
+        post(administrator, CONTRACT_EXAMPLE).expectStatus().isCreated();
+    }
+
+    /** EUD-253 AC-06: the domain-type power is an organization administrator's, even in the organization
+     *  that used to administer the tenant, and it does not change the catalog. */
+    @Test
+    void organizationAdministratorOfTheFormerAdministratorOrganization_writeIsInsufficientPermission() {
+        String organizationAdministrator = mintOperatorAccessToken(TENANT_A, ADMIN_ORG_ID);
+
+        post(organizationAdministrator, CONTRACT_EXAMPLE)
+                .expectStatus().isForbidden()
+                .expectBody()
+                .consumeWith(conformsTo("Problem"))
+                .jsonPath("$.type").isEqualTo("insufficient_permission");
+    }
+
     @Test
     void operator_writeIsInsufficientPermissionEvenWithAMalformedBodyOrAnInvalidConfiguration() {
         String operator = mintOperatorAccessToken(TENANT_A, OPERATOR_ORG_ID);
@@ -525,7 +545,7 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
         };
     }
 
-    /** The tenant's administrator: administrator organization with Onboarding/Execute over the tenant's domain. */
+    /** The tenant's administrator: {@code organization · <tenant> · Onboarding · Execute} (EUD-272). */
     private String administratorToken(String tenant) {
         return administratorToken(tenant, null);
     }
@@ -568,14 +588,6 @@ class AttestationCatalogHttpIT extends PostgresIntegrationBase {
                 .map(ILoggingEvent::getFormattedMessage)
                 .filter(message -> message.startsWith("event=CatalogEntryChanged "))
                 .toList();
-    }
-
-    private void seedAdminOrganizationId(String tenant) {
-        databaseClient.sql("INSERT INTO \"" + tenant + SCHEMA_SUFFIX + "\".tenant_config (config_key, config_value) "
-                        + "VALUES ('admin_organization_id', :value) "
-                        + "ON CONFLICT (config_key) DO UPDATE SET config_value = EXCLUDED.config_value")
-                .bind("value", ADMIN_ORG_ID)
-                .then().block();
     }
 
     private void seedEntryWithOnlyItsId(String tenant, String credentialConfigurationId) {

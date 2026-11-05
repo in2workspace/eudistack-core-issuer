@@ -18,7 +18,6 @@ public enum GlobalErrorTypes {
     SAD_ERROR("sad_error"),
     NO_SUCH_ELEMENT("no_such_element"),
     PARSE_ERROR("parse_error"),
-    CREDENTIAL_NOT_FOUND("credential_not_found"),
     PRE_AUTHORIZATION_CODE_GET("pre_authorization_code_get_error"),
     CREDENTIAL_OFFER_NOT_FOUND("credential_offer_not_found"),
     CREDENTIAL_OFFER_GONE("credential_offer_gone"),

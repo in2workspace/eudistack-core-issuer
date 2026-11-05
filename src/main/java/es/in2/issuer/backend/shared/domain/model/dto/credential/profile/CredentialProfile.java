@@ -34,18 +34,15 @@ public record CredentialProfile(
         @JsonProperty("credential_signing_alg_values_supported") Set<String> credentialSigningAlgValuesSupported,
         @JsonProperty("proof_types_supported") Map<String, ProofTypeConfig> proofTypesSupported,
         @JsonProperty("credential_metadata") CredentialMetadata credentialMetadata,
-        @Deprecated(since = "3.12.0", forRemoval = true) @JsonProperty("validity_days") int validityDays, // NOSONAR java:S1133 - removal is out of EUD-266 (catalog tech debt, points 2, 4, 6, 7 and 8)
+        @Deprecated(since = "3.13.0", forRemoval = true) @JsonProperty("validity_days") int validityDays, // NOSONAR java:S1133 - removal is out of EUD-266 (catalog tech debt, points 2, 4, 6, 7 and 8)
         @JsonProperty("issuer_type") IssuerType issuerType,
         @JsonProperty("cnf_required") boolean cnfRequired,
         @JsonProperty("binding_type") String bindingType,
         @JsonProperty("description") String description,
-        @Deprecated(since = "3.12.0", forRemoval = true) @JsonProperty("subject_extraction") SubjectExtraction subjectExtraction, // NOSONAR java:S1133 - removal is out of EUD-266 (catalog tech debt, points 2, 4, 6, 7 and 8)
-        @JsonProperty("organization_extraction") OrganizationExtraction organizationExtraction,
+        @Deprecated(since = "3.13.0", forRemoval = true) @JsonProperty("subject_extraction") SubjectExtraction subjectExtraction, // NOSONAR java:S1133 - removal is out of EUD-266 (catalog tech debt, points 2, 4, 6, 7 and 8)
         @JsonProperty("sd_jwt") SdJwtConfig sdJwt,
         @JsonProperty("credential_subject_strategy") String credentialSubjectStrategy,
         @JsonProperty("json_schema") String jsonSchema,
-        @JsonProperty("policy_extraction") PolicyExtraction policyExtraction,
-        @JsonProperty("issuance_policy") IssuancePolicy issuancePolicy,
         @JsonProperty("token_claims_mapping") TokenClaimsMapping tokenClaimsMapping,
         @JsonProperty("validation") Validation validation
 ) {
@@ -108,12 +105,6 @@ public record CredentialProfile(
     ) {}
 
     @Builder
-    public record OrganizationExtraction(
-            @JsonProperty("strategy") String strategy,
-            @JsonProperty("field") String field
-    ) {}
-
-    @Builder
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record SdJwtConfig(
             @JsonProperty("vct") String vct,
@@ -123,25 +114,8 @@ public record CredentialProfile(
 
     @Builder
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record PolicyExtraction(
-            @JsonProperty("powers_path") String powersPath,
-            @JsonProperty("mandator_path") String mandatorPath,
-            @JsonProperty("org_id_field") String orgIdField
-    ) {}
-
-    @Builder
-    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Validation(
             @JsonProperty("mandator_org_id_path") String mandatorOrgIdPath
-    ) {}
-
-    @Builder
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record IssuancePolicy(
-            @JsonProperty("policy_group") String policyGroup,
-            @JsonProperty("required_emitter_config_ids") List<String> requiredEmitterConfigIds,
-            @JsonProperty("rules") List<String> rules,
-            @JsonProperty("delegation_function") String delegationFunction
     ) {}
 
     @Builder

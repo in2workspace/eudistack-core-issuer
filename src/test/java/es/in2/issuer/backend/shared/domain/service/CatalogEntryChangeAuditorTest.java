@@ -6,6 +6,8 @@ import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntryChange;
 import es.in2.issuer.backend.shared.domain.model.catalog.ClaimPath;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
+import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
+import es.in2.issuer.backend.shared.domain.policy.Caller;
 import es.in2.issuer.backend.shared.domain.service.impl.JWTServiceImpl;
 import es.in2.issuer.backend.shared.infrastructure.crypto.CryptoComponent;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,14 +56,14 @@ class CatalogEntryChangeAuditorTest {
     private static final String DOCTORID = "doctorid.sd.1";
 
     @Mock private AuditService auditService;
-    @Mock private AccessTokenService accessTokenService;
+    @Mock private CallerProvider callerProvider;
 
     private CatalogEntryChangeAuditor auditor;
 
     @BeforeEach
     void setUp() {
-        auditor = new CatalogEntryChangeAuditor(auditService, accessTokenService);
-        when(accessTokenService.getOrganizationIdFromCurrentSession()).thenReturn(Mono.just(ORGANIZATION));
+        auditor = new CatalogEntryChangeAuditor(auditService, callerProvider);
+        when(callerProvider.current()).thenReturn(Mono.just(new Caller(ORGANIZATION, List.of(), TENANT, null, null)));
     }
 
     /** AC-12: the event says which person did it, and the organization goes next to it, not in the details. */
@@ -201,14 +203,14 @@ class CatalogEntryChangeAuditorTest {
 
         verify(auditService, times(2)).auditSuccess(anyString(), eq(PERSON), eq(ORGANIZATION), anyString(), eq(TENANT),
                 any());
-        verify(accessTokenService, times(1)).getOrganizationIdFromCurrentSession();
+        verify(callerProvider, times(1)).current();
     }
 
     @Test
     void auditAll_withNoChanges_doesNothing() {
         StepVerifier.create(auditor.auditAll(List.of())).verifyComplete();
 
-        verifyNoInteractions(auditService, accessTokenService);
+        verifyNoInteractions(auditService, callerProvider);
     }
 
     @Test
@@ -222,7 +224,7 @@ class CatalogEntryChangeAuditorTest {
 
     @Test
     void audit_withAnOrganizationThatCannotBeResolved_isStillRecorded() {
-        when(accessTokenService.getOrganizationIdFromCurrentSession()).thenReturn(Mono.error(new InvalidTokenException()));
+        when(callerProvider.current()).thenReturn(Mono.error(new InvalidTokenException()));
 
         StepVerifier.create(asPersonInTenant(auditor.audit(CatalogEntryChange.created(entry(true, 0))))).verifyComplete();
 

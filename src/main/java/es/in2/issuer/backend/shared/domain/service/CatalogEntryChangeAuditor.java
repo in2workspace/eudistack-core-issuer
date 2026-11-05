@@ -1,6 +1,8 @@
 package es.in2.issuer.backend.shared.domain.service;
 
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntryChange;
+import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
+import es.in2.issuer.backend.shared.domain.policy.Caller;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
@@ -50,7 +52,7 @@ public class CatalogEntryChangeAuditor {
     public static final String INVALID_CONFIGURATION = "InvalidConfiguration";
 
     private final AuditService auditService;
-    private final AccessTokenService accessTokenService;
+    private final CallerProvider callerProvider;
 
     public Mono<Void> audit(CatalogEntryChange change) {
         return auditAll(List.of(change));
@@ -125,7 +127,8 @@ public class CatalogEntryChangeAuditor {
     }
 
     private Mono<String> resolveOrganization() {
-        return accessTokenService.getOrganizationIdFromCurrentSession()
+        return callerProvider.current()
+                .map(Caller::organizationIdentifier)
                 .onErrorResume(e -> {
                     log.warn("Catalog audit: the organization is not resolvable from the access token");
                     return Mono.empty();

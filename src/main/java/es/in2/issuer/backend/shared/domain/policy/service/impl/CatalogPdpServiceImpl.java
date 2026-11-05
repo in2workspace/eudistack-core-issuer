@@ -1,12 +1,11 @@
 package es.in2.issuer.backend.shared.domain.policy.service.impl;
 
 import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
+import es.in2.issuer.backend.shared.domain.exception.LearIssuancePolicyException;
 import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
 import es.in2.issuer.backend.shared.domain.model.dto.AuthorizationContext;
-import es.in2.issuer.backend.shared.domain.policy.PolicyContext;
-import es.in2.issuer.backend.shared.domain.policy.PolicyContextFactory;
-import es.in2.issuer.backend.shared.domain.policy.rules.RequireTenantMatchRule;
 import es.in2.issuer.backend.shared.domain.policy.service.CatalogPdpService;
+import es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import lombok.RequiredArgsConstructor;
@@ -16,18 +15,16 @@ import reactor.core.publisher.Mono;
 
 import java.util.Map;
 
+import static es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService.CHANGE_CATALOG;
 import static es.in2.issuer.backend.shared.domain.util.Constants.SYSTEM_TENANT;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
 /**
  * Reads of the catalog are open to every role that can read it ({@link AuthorizationContext#canReadCredentialCatalog()})
- * of the token's own tenant. Writes to the catalog belong to the tenant's administrator: the administrator organization
- * ({@code admin_organization_id}) holding Onboarding/Execute over the tenant's domain
- * ({@link PolicyContext#tenantAdmin()}), or a SysAdmin. A SysAdmin on the {@code platform}
- * tenant only has a read-only view, so {@link AuthorizationContext#canWrite()} must hold too.
- *
- * <p>Deliberately not {@code RequirePowerRule}: it does not check the administrator
- * organization and denies with {@code unauthorized_role}, which the catalog contract does not use.
+ * of the token's own tenant. Writes are action {@code K2} of the authorization matrix, decided by
+ * {@link PowerAuthorizationService}: the tenant administrator ({@code organization · <tenant> · Onboarding · Execute})
+ * or the platform administrator acting as one, never from the {@code platform} tenant, which only reads. The
+ * decision is traced as {@code authorization.permit} or {@code authorization.deny}.
  */
 @Slf4j
 @Service
@@ -38,12 +35,11 @@ public class CatalogPdpServiceImpl implements CatalogPdpService {
 
     private static final String AUDIT_EVENT_AUTHZ_DENY = "authorization.deny";
     private static final String AUDIT_EVENT_TENANT_BREACH = "tenant_isolation_breach";
-    private static final String ACTION_WRITE_CATALOG = "write_catalog";
     private static final String ACTION_READ_CATALOG = "read_catalog";
     static final String READ_DENY_DETAIL = "Tenant administrator, SysAdmin or operator role required";
 
     private final AccessTokenService accessTokenService;
-    private final PolicyContextFactory policyContextFactory;
+    private final PowerAuthorizationService powerAuthorizationService;
     private final AuditService auditService;
 
     @Override
@@ -51,9 +47,8 @@ public class CatalogPdpServiceImpl implements CatalogPdpService {
         return accessTokenService.getAuthorizationContext(authorizationHeader)
                 .flatMap(authCtx -> {
                     if (!authCtx.canReadCredentialCatalog()) {
-                        // Unreachable today: UserRole has exactly three values and all of them can read
-                        // (see AuthorizationContext#canReadCredentialCatalog). Audited so the denial of a
-                        // future fourth role is not silently invisible.
+                        // USER (EUD-253 point 6): an attestation of the tenant without administration
+                        // powers. Audited like any other denial.
                         return Mono.deferContextual(reactorCtx -> {
                             auditService.auditFailure(AUDIT_EVENT_AUTHZ_DENY, authCtx.organizationIdentifier(),
                                     "role_not_permitted",
@@ -84,37 +79,15 @@ public class CatalogPdpServiceImpl implements CatalogPdpService {
         });
     }
 
+    /**
+     * {@code K2}. A token of another tenant fails as {@code TenantMismatchException}; any other denial (a role the
+     * matrix does not allow, the read-only {@code platform} tenant) as {@code InsufficientPermissionException}, the
+     * {@code insufficient_permission} of the catalog contract.
+     */
     @Override
     public Mono<AuthorizationContext> authorizeWrite(String authorizationHeader) {
-        return Mono.deferContextual(reactorCtx -> {
-            String tenantDomain = reactorCtx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, null);
-            return accessTokenService.getAuthorizationContext(authorizationHeader)
-                    .flatMap(authCtx -> accessTokenService.getCleanBearerToken(authorizationHeader)
-                            .flatMap(token -> policyContextFactory.fromManagementToken(token, tenantDomain))
-                            .flatMap(policyCtx -> decide(authCtx, policyCtx)));
-        });
-    }
-
-    private Mono<AuthorizationContext> decide(AuthorizationContext authCtx, PolicyContext policyCtx) {
-        // Tenant first: a token of another tenant never resolves as administrator here (its power
-        // carries the other tenant's domain), so checking the role first would hide the mismatch.
-        return new RequireTenantMatchRule().evaluate(policyCtx, null)
-                .doOnError(TenantMismatchException.class, e -> auditService.auditFailure(
-                        AUDIT_EVENT_TENANT_BREACH, authCtx.organizationIdentifier(), "token_tenant_mismatch",
-                        Map.of("tokenTenant", String.valueOf(policyCtx.tokenTenant()),
-                                "resolvedTenant", String.valueOf(policyCtx.tenantDomain()))))
-                .then(Mono.defer(() -> requireAdministratorWithWriteAccess(authCtx, policyCtx)));
-    }
-
-    private Mono<AuthorizationContext> requireAdministratorWithWriteAccess(AuthorizationContext authCtx,
-                                                                         PolicyContext policyCtx) {
-        boolean administrator = policyCtx.sysAdmin() || policyCtx.tenantAdmin();
-        if (!administrator || !authCtx.canWrite()) {
-            auditService.auditFailure(AUDIT_EVENT_AUTHZ_DENY, authCtx.organizationIdentifier(),
-                    "role_not_permitted",
-                    Map.of("tenant", String.valueOf(policyCtx.tenantDomain()), "action", ACTION_WRITE_CATALOG));
-            return Mono.error(new InsufficientPermissionException(DENY_DETAIL));
-        }
-        return Mono.just(authCtx);
+        return powerAuthorizationService.authorize(CHANGE_CATALOG, null, null)
+                .onErrorMap(LearIssuancePolicyException.class, e -> new InsufficientPermissionException(DENY_DETAIL))
+                .then(Mono.defer(() -> accessTokenService.getAuthorizationContext(authorizationHeader)));
     }
 }

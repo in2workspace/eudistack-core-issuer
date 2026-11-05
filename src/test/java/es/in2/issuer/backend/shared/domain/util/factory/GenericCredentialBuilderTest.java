@@ -7,7 +7,6 @@ import es.in2.issuer.backend.shared.domain.model.dto.CredentialBuildResult;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.DetailedIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
-import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,9 +35,6 @@ class GenericCredentialBuilderTest {
     @Mock
     private IssuerFactory issuerFactory;
 
-    @Mock
-    private AccessTokenService accessTokenService;
-
     @InjectMocks
     private GenericCredentialBuilder genericCredentialBuilder;
 
@@ -52,7 +48,6 @@ class GenericCredentialBuilderTest {
         StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .assertNext(result -> {
                     assertThat(result.subject()).isEqualTo("John Doe");
-                    assertThat(result.organizationIdentifier()).isEqualTo("VATES-B12345678");
                     assertThat(result.validFrom()).isNotNull();
                     assertThat(result.validUntil()).isNotNull();
 
@@ -65,19 +60,6 @@ class GenericCredentialBuilderTest {
                     assertThat(result.credentialDataSet()).contains("\"validFrom\"");
                     assertThat(result.credentialDataSet()).contains("\"validUntil\"");
                 })
-                .verifyComplete();
-    }
-
-    @Test
-    void buildCredential_shouldUseSessionOrganizationExtraction() {
-        CredentialProfile profile = labelProfile();
-        JsonNode payload = objectMapper.createObjectNode();
-
-        when(accessTokenService.getOrganizationIdFromCurrentSession()).thenReturn(Mono.just("SESSION-ORG-ID"));
-
-        StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload, null))
-                .assertNext(result ->
-                        assertThat(result.organizationIdentifier()).isEqualTo("SESSION-ORG-ID"))
                 .verifyComplete();
     }
 
@@ -363,7 +345,6 @@ class GenericCredentialBuilderTest {
                         assertThat(resultCredentialSubject.get("email").asText()).isEqualTo("jane@example.com");
 
                         assertThat(resultCredentialSubject.has("mandate")).isFalse();
-                        assertThat(result.organizationIdentifier()).isEqualTo("VATES-DIRECT123");
                         assertThat(result.subject()).isEqualTo("Jane Doe");
                     } catch (Exception e) {
                         throw new AssertionError(e);
@@ -397,8 +378,6 @@ class GenericCredentialBuilderTest {
                         assertThat(credentialSubject.get("email").asText()).isEqualTo("alice@example.com");
                         assertThat(credentialSubject.get("mandator").get("organizationIdentifier").asText())
                                 .isEqualTo("VATES-ALICE123");
-
-                        assertThat(result.organizationIdentifier()).isEqualTo("VATES-ALICE123");
                         assertThat(result.subject()).isEqualTo("Alice Smith");
                     } catch (Exception e) {
                         throw new AssertionError(e);
@@ -507,10 +486,6 @@ class GenericCredentialBuilderTest {
                         .fields(List.of("firstName", "lastName"))
                         .separator(" ")
                         .build())
-                .organizationExtraction(CredentialProfile.OrganizationExtraction.builder()
-                        .strategy("field")
-                        .field("mandator.organizationIdentifier")
-                        .build())
                 .build();
     }
 
@@ -535,10 +510,6 @@ class GenericCredentialBuilderTest {
                         .fields(List.of("credentialSubject.firstName", "credentialSubject.lastName"))
                         .separator(" ")
                         .build())
-                .organizationExtraction(CredentialProfile.OrganizationExtraction.builder()
-                        .strategy("field")
-                        .field("mandator.organizationIdentifier")
-                        .build())
                 .build();
     }
 
@@ -560,10 +531,6 @@ class GenericCredentialBuilderTest {
                         .strategy("concat")
                         .fields(List.of("mandate.mandatee.firstName", "mandate.mandatee.lastName"))
                         .separator(" ")
-                        .build())
-                .organizationExtraction(CredentialProfile.OrganizationExtraction.builder()
-                        .strategy("field")
-                        .field("mandate.mandator.organizationIdentifier")
                         .build())
                 .build();
     }
@@ -590,10 +557,6 @@ class GenericCredentialBuilderTest {
                         .fields(List.of("mandate.mandatee.firstName", "mandate.mandatee.lastName"))
                         .separator(" ")
                         .build())
-                .organizationExtraction(CredentialProfile.OrganizationExtraction.builder()
-                        .strategy("field")
-                        .field("mandate.mandator.organizationIdentifier")
-                        .build())
                 .build();
     }
 
@@ -611,10 +574,6 @@ class GenericCredentialBuilderTest {
                 .subjectExtraction(CredentialProfile.SubjectExtraction.builder()
                         .strategy("field")
                         .fields(List.of("mandate.mandatee.domain"))
-                        .build())
-                .organizationExtraction(CredentialProfile.OrganizationExtraction.builder()
-                        .strategy("field")
-                        .field("mandate.mandator.organizationIdentifier")
                         .build())
                 .build();
     }
@@ -636,9 +595,6 @@ class GenericCredentialBuilderTest {
                         .fields(List.of("credentialSubject.id"))
                         .lastSegmentDelimiter(":")
                         .build())
-                .organizationExtraction(CredentialProfile.OrganizationExtraction.builder()
-                        .strategy("session")
-                        .build())
                 .build();
     }
 
@@ -653,12 +609,9 @@ class GenericCredentialBuilderTest {
         payload.put("validFrom", "2024-08-22T00:00:00Z");
         payload.put("validUntil", "2025-10-22T00:00:00Z");
 
-        when(accessTokenService.getOrganizationIdFromCurrentSession()).thenReturn(Mono.just("VATES-B12345678"));
-
         StepVerifier.create(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .assertNext(result -> {
                     assertThat(result.subject()).isEqualTo("44419ccd-6e93-4a8f-8825-25bd4b9f67EE");
-                    assertThat(result.organizationIdentifier()).isEqualTo("VATES-B12345678");
                 })
                 .verifyComplete();
     }
