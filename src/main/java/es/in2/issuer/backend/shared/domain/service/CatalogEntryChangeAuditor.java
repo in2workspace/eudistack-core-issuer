@@ -5,10 +5,6 @@ import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
 import es.in2.issuer.backend.shared.domain.policy.Caller;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.ReactiveSecurityContextHolder;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
@@ -27,12 +23,12 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  * One event per committed change; and one {@code Denied} event, with its reason, for a write the catalog
  * refused ({@link #POLICY_DENIED}, {@link #INVALID_CONFIGURATION}).
  *
- * <p>"Who" is the person behind the request, the principal of the reactive security context (as
- * {@code RevocationWorkflow} resolves its actor), and not the administrator organization. The organization
+ * <p>"Who" is the person behind the request, as the verified access token names it, and not the
+ * administrator organization. The organization
  * is recorded next to the person and not in the details, as the canonical {@code organization} of the EUD-244
  * audit record: the details carry only the fields the catalogue declares, and without the organization nothing
  * would say whom the person acted for (the email is masked in the logs).
- * Both are read from the security context of the request, so the callers only hand over what happened and
+ * Both are read from the verified access token of the request through {@link CallerProvider}, so the callers only hand over what happened and
  * call this once the transaction has committed.
  *
  * <p>Best-effort: the change is already committed and cannot be undone, so a failure to resolve the
@@ -46,15 +42,6 @@ public class CatalogEntryChangeAuditor {
     static final String EVENT = "CatalogEntryChanged";
     static final String RESOURCE_TYPE = "attestation-catalog";
     static final String UNKNOWN = "unknown";
-    /** What {@code JWTService#resolvePrincipal} answers when the token carries no email it can read. */
-    static final String ANONYMOUS_PRINCIPAL = "anonymous";
-
-    private static final String VC = "vc";
-    private static final String MANDATE = "mandate";
-    private static final String MANDATEE = "mandatee";
-    private static final String EMAIL = "email";
-    private static final String EMAIL_ADDRESS = "emailAddress";
-
     /** The caller is not allowed to write the catalog. */
     public static final String POLICY_DENIED = "PolicyDenied";
     /** The write was rejected for a business reason: the configuration is not valid for the schema. */
@@ -124,35 +111,18 @@ public class CatalogEntryChangeAuditor {
         return details;
     }
 
+    /**
+     * The person behind the request, as its verified access token names it ({@link CallerProvider#currentPerson}),
+     * never the principal name: that one comes from the {@code X-ID-Token} when the request carries one, and the
+     * issuer does not verify its signature, so it could name somebody else (B1 of the EUD-323 review).
+     */
     private Mono<String> resolveActor() {
-        return ReactiveSecurityContextHolder.getContext()
-                .map(SecurityContext::getAuthentication)
-                .filter(auth -> auth != null && auth.isAuthenticated() && auth.getName() != null)
-                .map(CatalogEntryChangeAuditor::personOf)
+        return callerProvider.currentPerson()
+                .onErrorResume(e -> Mono.empty())
                 .switchIfEmpty(Mono.defer(() -> {
-                    log.warn("Catalog audit: the person is not resolvable from the security context");
+                    log.warn("Catalog audit: the person is not resolvable from the access token");
                     return Mono.just(UNKNOWN);
                 }));
-    }
-
-    /**
-     * The principal of the request or, when it is {@value #ANONYMOUS_PRINCIPAL}, the mandatee's email of an
-     * SD-JWT access token ({@code vc.mandate.mandatee}). The portal calls with the verifier's SD-JWT access
-     * token and no ID token, and the principal only reads the W3C shape; the lookup is done here so that
-     * the principal of the rest of the issuer stays as it is (AC-12 is about the catalog only).
-     */
-    private static String personOf(Authentication authentication) {
-        String name = authentication.getName();
-        if (!ANONYMOUS_PRINCIPAL.equals(name) || !(authentication.getPrincipal() instanceof Jwt jwt)) {
-            return name;
-        }
-        Map<?, ?> mandatee = asMap(asMap(asMap(jwt.getClaims().get(VC)).get(MANDATE)).get(MANDATEE));
-        Object email = mandatee.get(EMAIL) != null ? mandatee.get(EMAIL) : mandatee.get(EMAIL_ADDRESS);
-        return email instanceof String s && !s.isBlank() ? s : name;
-    }
-
-    private static Map<?, ?> asMap(Object value) {
-        return value instanceof Map<?, ?> map ? map : Map.of();
     }
 
     private Mono<String> resolveOrganization() {

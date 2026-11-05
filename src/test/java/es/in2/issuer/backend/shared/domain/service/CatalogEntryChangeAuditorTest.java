@@ -1,6 +1,5 @@
 package es.in2.issuer.backend.shared.domain.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.InvalidTokenException;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
 import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntryChange;
@@ -8,8 +7,6 @@ import es.in2.issuer.backend.shared.domain.model.catalog.ClaimPath;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.model.port.CallerProvider;
 import es.in2.issuer.backend.shared.domain.policy.Caller;
-import es.in2.issuer.backend.shared.domain.service.impl.JWTServiceImpl;
-import es.in2.issuer.backend.shared.infrastructure.crypto.CryptoComponent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,8 +17,6 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
-import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import reactor.util.context.Context;
@@ -39,7 +34,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -64,6 +58,7 @@ class CatalogEntryChangeAuditorTest {
     void setUp() {
         auditor = new CatalogEntryChangeAuditor(auditService, callerProvider);
         when(callerProvider.current()).thenReturn(Mono.just(new Caller(ORGANIZATION, List.of(), TENANT, null, null)));
+        when(callerProvider.currentPerson()).thenReturn(Mono.just(PERSON));
     }
 
     /** AC-12: the event says which person did it, and the organization goes next to it, not in the details. */
@@ -129,49 +124,23 @@ class CatalogEntryChangeAuditorTest {
     }
 
     /**
-     * AC-12 with the token the portal really sends: the verifier's LEAR SD-JWT access token, with no ID token.
-     * The security context is built as {@code CustomAuthenticationManager} builds it, so the person comes from
-     * {@link JWTServiceImpl#resolvePrincipal} and not from a hand-made principal.
+     * B1 (EUD-323 review): the principal name can come from an unverified {@code X-ID-Token}; the event names
+     * the person of the verified access token instead, for a change and for a denied write.
      */
     @Test
-    void audit_withTheVerifierSdJwtAccessToken_recordsTheMandateeEmail() {
-        Jwt accessToken = new Jwt("token", Instant.now(), Instant.now().plusSeconds(3600), Map.of("alg", "ES256"),
-                Map.of(
-                        "sub", PERSON,
-                        "mandatee", Map.of("email", PERSON),
-                        "vc", Map.of(
-                                "vct", "learcredential.employee.sd.1",
-                                "mandator", Map.of("organizationIdentifier", ORGANIZATION),
-                                "mandate", Map.of("mandatee", Map.of("email", PERSON)))));
-        JWTServiceImpl jwtService = new JWTServiceImpl(new ObjectMapper(), mock(CryptoComponent.class));
-        JwtAuthenticationToken authentication =
-                new JwtAuthenticationToken(accessToken, List.of(), jwtService.resolvePrincipal(accessToken));
-
+    void audit_withAForgedPrincipalName_recordsThePersonOfTheVerifiedAccessToken() {
         StepVerifier.create(auditor.audit(CatalogEntryChange.created(entry(true, 0)))
-                        .contextWrite(ReactiveSecurityContextHolder.withAuthentication(authentication))
+                        .then(auditor.auditDenied(null, null, CatalogEntryChangeAuditor.POLICY_DENIED))
+                        .contextWrite(ReactiveSecurityContextHolder.withAuthentication(
+                                UsernamePasswordAuthenticationToken.authenticated("someone.else@example.org",
+                                        "token", List.of())))
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
                 .verifyComplete();
 
-        verify(auditService).auditSuccess(eq("CatalogEntryChanged"), eq(PERSON), eq(ORGANIZATION),
-                eq("attestation-catalog"), eq(TENANT), any());
-    }
-
-    /** A token without a mandatee email (a machine's, whose {@code sub} is a DID) keeps the principal. */
-    @Test
-    void audit_withATokenWithoutMandateeEmail_recordsThePrincipal() {
-        Jwt accessToken = new Jwt("token", Instant.now(), Instant.now().plusSeconds(3600), Map.of("alg", "ES256"),
-                Map.of("sub", "did:key:zMachine", "vc", Map.of("vct", "learcredential.machine.sd.1")));
-        JWTServiceImpl jwtService = new JWTServiceImpl(new ObjectMapper(), mock(CryptoComponent.class));
-        JwtAuthenticationToken authentication =
-                new JwtAuthenticationToken(accessToken, List.of(), jwtService.resolvePrincipal(accessToken));
-
-        StepVerifier.create(auditor.audit(CatalogEntryChange.created(entry(true, 0)))
-                        .contextWrite(ReactiveSecurityContextHolder.withAuthentication(authentication))
-                        .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
-                .verifyComplete();
-
-        verify(auditService).auditSuccess(eq("CatalogEntryChanged"), eq("anonymous"), eq(ORGANIZATION),
-                eq("attestation-catalog"), eq(TENANT), any());
+        verify(auditService).auditSuccess(anyString(), eq(PERSON), any(), anyString(), anyString(), any());
+        verify(auditService).auditFailure(anyString(), eq(PERSON), any(), anyString(), any());
+        verify(auditService, never()).auditSuccess(anyString(), eq("someone.else@example.org"), any(), anyString(),
+                anyString(), any());
     }
 
     // ---- denied writes ---------------------------------------------------------
@@ -222,6 +191,7 @@ class CatalogEntryChangeAuditorTest {
         verify(auditService, times(2)).auditSuccess(anyString(), eq(PERSON), eq(ORGANIZATION), anyString(), eq(TENANT),
                 any());
         verify(callerProvider, times(1)).current();
+        verify(callerProvider, times(1)).currentPerson();
     }
 
     @Test
@@ -233,11 +203,22 @@ class CatalogEntryChangeAuditorTest {
 
     @Test
     void audit_withoutAuthenticatedPerson_isStillRecordedAsUnknown() {
+        when(callerProvider.currentPerson()).thenReturn(Mono.empty());
+
         StepVerifier.create(auditor.audit(CatalogEntryChange.created(entry(true, 0)))
                         .contextWrite(Context.of(TENANT_DOMAIN_CONTEXT_KEY, TENANT)))
                 .verifyComplete();
 
         verify(auditService).auditSuccess(anyString(), eq("unknown"), any(), anyString(), eq(TENANT), any());
+    }
+
+    @Test
+    void audit_withAPersonThatCannotBeResolved_isStillRecordedAsUnknown() {
+        when(callerProvider.currentPerson()).thenReturn(Mono.error(new IllegalStateException("unreadable")));
+
+        StepVerifier.create(asPersonInTenant(auditor.audit(CatalogEntryChange.created(entry(true, 0))))).verifyComplete();
+
+        verify(auditService).auditSuccess(anyString(), eq("unknown"), eq(ORGANIZATION), anyString(), anyString(), any());
     }
 
     @Test
