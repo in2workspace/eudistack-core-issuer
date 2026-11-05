@@ -119,7 +119,8 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
     private Mono<Issuance> findAuthorizedIssuance(Caller caller, UUID id) {
         String resourceId = id.toString();
         return issuanceService.getIssuanceById(resourceId)
-                // The resource is not named here: it is found, and E2 and the reissue trace it.
+                // Not named to the decision point, which would trace it as not found: a denial here
+                // is audited with the id by the renewal itself (W1 of the EUD-295 review, round 5).
                 .flatMap(issuance -> authorizeAnyIssuance(caller, null)
                         .then(Mono.defer(() -> requireInScope(caller, issuance, resourceId)))
                         .then(Mono.defer(() -> authorizeReissue(caller, issuance, resourceId)))
@@ -264,7 +265,12 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
             safely(() -> auditService.auditSuccess(EVENT_RENEWED, actor, RESOURCE_TYPE, resourceId, details));
         }
 
-        /** Denials are traced by the decision point, with their reason; the rest of the failures here. */
+        /**
+         * Every failure but a token of another tenant, which the decision point traces before the id
+         * is read. A denial is also traced by the decision point with its reason; here it carries the
+         * id of the issuance, which the decision point does not see when E1 and E6 are denied
+         * without a resource (W1 of the EUD-295 review, round 5).
+         */
         void failed(Throwable error) {
             String reason = switch (error) {
                 case RenewalInvalidIssuanceIdException _ -> "invalid_issuance_id";
@@ -272,7 +278,8 @@ public class CredentialOfferRenewalWorkflowImpl implements CredentialOfferRenewa
                 case OfferNotRenewableException _ -> "offer_not_renewable";
                 case RenewalContentNotDecidableException _ -> "content_not_decidable";
                 case RenewalDeliveryFailedException _ -> "delivery_failed";
-                case RenewalPermissionDeniedException _, RenewalTenantMismatchException _ -> null;
+                case RenewalPermissionDeniedException _ -> "permission_denied";
+                case RenewalTenantMismatchException _ -> null;
                 default -> "unexpected_error";
             };
             if (reason != null) {

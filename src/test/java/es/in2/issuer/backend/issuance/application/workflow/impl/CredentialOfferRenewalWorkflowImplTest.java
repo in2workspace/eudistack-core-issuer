@@ -619,6 +619,66 @@ class CredentialOfferRenewalWorkflowImplTest {
         verifyNoInteractions(credentialOfferService);
     }
 
+    /**
+     * W2 of the review, round 5: status and mode (409) are decided after existence, scope and content
+     * (step 5 of "Orden de las comprobaciones"). Out of scope, a process that is no longer a draft or
+     * has no offer reads as not found, so the 409 says nothing of another organization's processes.
+     */
+    @ParameterizedTest
+    @EnumSource(value = CredentialStatusEnum.class, names = "DRAFT", mode = EnumSource.Mode.EXCLUDE)
+    void renew_notDraftOfAnotherOrganization_isNotFoundBeforeNotRenewable(CredentialStatusEnum status) {
+        givenCaller(ORG_ADMIN);
+        Issuance issuance = draft("ui", OTHER_ORG);
+        issuance.setCredentialStatus(status);
+        givenIssuance(issuance);
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalIssuanceNotFoundException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+    }
+
+    @Test
+    void renew_directOfAnotherOrganization_isNotFoundBeforeNotRenewable() {
+        givenCaller(ORG_ADMIN);
+        givenIssuance(draft("direct", OTHER_ORG));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalIssuanceNotFoundException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+    }
+
+    /** In scope, the content is decided before the status: unreadable content is 403, not 409. */
+    @Test
+    void renew_notDraftWithUnreadableContent_isContentNotDecidableBeforeNotRenewable() {
+        givenCaller(TENANT_ADMIN);
+        Issuance issuance = draft("ui", ORG, LEAR_TYPE, "not json");
+        issuance.setCredentialStatus(CredentialStatusEnum.VALID);
+        givenIssuance(issuance);
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalContentNotDecidableException.class)
+                .verify();
+
+        verifyNoInteractions(credentialOfferService);
+    }
+
+    /** Who may not issue is denied (403) before the status is looked at. */
+    @Test
+    void renew_userWithoutPowersOnANotDraft_isPermissionDeniedBeforeNotRenewable() {
+        givenCaller();
+        Issuance issuance = draft("ui", ORG);
+        issuance.setCredentialStatus(CredentialStatusEnum.VALID);
+        givenIssuance(issuance);
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalPermissionDeniedException.class)
+                .verify();
+    }
+
     // ── Delivery failures: 503 ─────────────────────────────────────────────────────────────
 
     /** ES-06. */
@@ -681,9 +741,12 @@ class CredentialOfferRenewalWorkflowImplTest {
                 anyString(), anyString(), any());
     }
 
-    /** Denials are traced by the decision point only: no outcome event of the renewal duplicates them. */
+    /**
+     * W1 of the review, round 5: E1 and E6 are decided without a resource, so the decision point does
+     * not trace which issuance was denied. The renewal audits the denial with the id of the issuance.
+     */
     @Test
-    void renew_denied_isTracedByTheDecisionPointOnly() {
+    void renew_deniedOnAnExistingIssuance_isAuditedWithItsId() {
         givenCaller();
         givenIssuance(draft("ui", ORG));
 
@@ -693,6 +756,34 @@ class CredentialOfferRenewalWorkflowImplTest {
 
         // E1 and then E6, decided without the stored type: one deny each (N2 of the review).
         verify(decisionAuditService, times(2)).auditFailure(eq("authorization.deny"), eq(ATTESTATION), anyString(), any());
+        verify(auditService).auditFailure(eq(CredentialOfferRenewalWorkflowImpl.EVENT_FAILED), eq(ATTESTATION),
+                eq("permission_denied"), argThat((Map<String, Object> details) ->
+                        ID.toString().equals(details.get("resourceId"))
+                                && ORG.equals(details.get("callerOrganization"))));
+    }
+
+    /** Content that cannot be decided keeps its own reason: it is not audited again as a plain denial. */
+    @Test
+    void renew_unreadableContent_isNotAuditedAsPermissionDenied() {
+        givenCaller(TENANT_ADMIN);
+        givenIssuance(draft("ui", ORG, LEAR_TYPE, "not json"));
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalContentNotDecidableException.class)
+                .verify();
+
+        verify(auditService, never()).auditFailure(anyString(), anyString(), eq("permission_denied"), any());
+    }
+
+    /** A token of another tenant is traced by the decision point before the id is read: no outcome here. */
+    @Test
+    void renew_tokenOfAnotherTenant_isNotAuditedByTheRenewal() {
+        givenCallerOfTenant(OTHER_TENANT, TENANT_ADMIN);
+
+        StepVerifier.create(renew(ID.toString()))
+                .expectError(RenewalTenantMismatchException.class)
+                .verify();
+
         verifyNoInteractions(auditService);
     }
 
