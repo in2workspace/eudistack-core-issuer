@@ -2,6 +2,7 @@ package es.in2.issuer.backend.shared.infrastructure.config.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
+import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -25,6 +26,9 @@ public class ProblemAuthenticationEntryPoint implements ServerAuthenticationEntr
     private final SecurityProblemResolver resolver;
     private final List<AuthenticationRejectionListener> rejectionListeners;
 
+    /** Path prefix, within the application, of the management API. */
+    private static final String MANAGEMENT_API_PREFIX = "/api/";
+
     @Override
     public Mono<Void> commence(ServerWebExchange exchange, AuthenticationException ex) {
         log.debug("ProblemAuthenticationEntryPoint.commence - inside");
@@ -44,6 +48,11 @@ public class ProblemAuthenticationEntryPoint implements ServerAuthenticationEntr
                 spec.status(),
                 spec.fallbackDetail()
         );
+        String path = exchange.getRequest().getPath().pathWithinApplication().value();
+        if (path.startsWith(MANAGEMENT_API_PREFIX)) {
+            // The management API contracts set instance to the request path (EUD-247 and the rest).
+            msg = new GlobalErrorMessage(msg.type(), msg.title(), msg.status(), msg.detail(), path, msg.violations());
+        }
 
         byte[] body;
         try {

@@ -52,7 +52,7 @@ class ProblemAuthenticationEntryPointTest {
         );
         when(resolver.resolve(same(ex), anyBoolean())).thenReturn(spec);
 
-        MockServerHttpRequest request = MockServerHttpRequest.get("/api/test").build();
+        MockServerHttpRequest request = MockServerHttpRequest.get("/oid4vci/test").build();
         MockServerWebExchange exchange = MockServerWebExchange.from(request);
 
         GlobalErrorMessage gem = new GlobalErrorMessage(
@@ -106,7 +106,7 @@ class ProblemAuthenticationEntryPointTest {
                 argThat(status -> status == spec.status()),
                 argThat(s -> s.equals(spec.fallbackDetail()))
         );
-        assertThat(reqCaptor.getValue().getPath().value()).isEqualTo("/api/test");
+        assertThat(reqCaptor.getValue().getPath().value()).isEqualTo("/oid4vci/test");
     }
 
     @Test
@@ -170,5 +170,24 @@ class ProblemAuthenticationEntryPointTest {
                 argThat(status -> status == spec.status()),
                 argThat(s -> s.equals(spec.fallbackDetail()))
         );
+    }
+
+    /** The contracts of the management API set instance to the request path, as the rest of their errors. */
+    @Test
+    void commence_managementApi_setsTheInstanceToTheRequestPath() throws Exception {
+        AuthenticationException ex = new BadCredentialsException("bad token");
+        ProblemSpec spec = new ProblemSpec("authentication_error", "Unauthorized", HttpStatus.UNAUTHORIZED, "Authentication failed");
+        when(resolver.resolve(same(ex), anyBoolean())).thenReturn(spec);
+        when(errorResponseFactory.handleWithNow(any(), any(), any(), any(), any(), any()))
+                .thenReturn(new GlobalErrorMessage("authentication_error", "Unauthorized", 401, "bad token", "a-random-uuid"));
+        ArgumentCaptor<GlobalErrorMessage> written = ArgumentCaptor.forClass(GlobalErrorMessage.class);
+        when(objectMapper.writeValueAsBytes(written.capture())).thenReturn("{}".getBytes(StandardCharsets.UTF_8));
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/v1/issuances/0b6f1d2e-8c4a-4b1f-9e2d-7a5c3f8e1b90/revocation").build());
+
+        StepVerifier.create(entryPoint.commence(exchange, ex)).verifyComplete();
+
+        assertThat(written.getValue().instance()).isEqualTo("/api/v1/issuances/0b6f1d2e-8c4a-4b1f-9e2d-7a5c3f8e1b90/revocation");
+        assertThat(written.getValue().type()).isEqualTo("authentication_error");
     }
 }
