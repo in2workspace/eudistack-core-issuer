@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (EUD-277)
+
+- **EUD-277 — `Location` on issuance creation.** `POST /api/v1/issuances` answers `200` and `207` with `Location: <public issuer URL>/api/v1/issuances/<id>` of the created process (absolute, because the API lives under `/issuer` and a relative reference would resolve without it). In a hybrid issuance (`direct` plus `ui` or `email`) it points to the OID4VCI process when that leg succeeded, and to the direct one otherwise. No `Location` on errors nor on the empty `202`. The JSON body does not change.
+
+### Fixed (EUD-277)
+
+- **EUD-277 — Idempotency of `POST /api/v1/issuances` never applied.** `IdempotencyFilter` compared the full request path (`/issuer/api/v1/issuances`, with the `spring.webflux.base-path`) with `/api/v1/issuances`, so it never acted and two requests with the same `X-Idempotency-Key` created two processes. It now compares the path within the application and acts only on `POST`; a repeated key replays the cached status, body and `Location`.
+
 ### Fixed (EUD-307)
 
 - **EUD-307 — The issuances API answers as the public guides say.** Built on EUD-272, which already requires `Onboarding · Execute` of the tenant for the listing, the detail, withdrawing and archiving (`403 insufficient_permission`), and issues product certifications with `delivery: direct` without `X-Id-Token`.
