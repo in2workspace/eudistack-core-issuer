@@ -11,9 +11,10 @@ import java.util.UUID;
 public interface TenantSigningConfigRepository extends ReactiveCrudRepository<TenantSigningConfig, UUID> {
 
     /**
-     * Returns the first (and expected only) signing config for the current tenant.
-     * The table lives in the tenant schema, resolved by search_path.
+     * Returns the newest signing config of the current tenant with the given status; the active
+     * one is {@code "active"} (at most one per tenant schema). The table lives in the tenant
+     * schema, resolved by search_path.
      */
-    Mono<TenantSigningConfig> findFirstByOrderByCreatedAtDesc();
+    Mono<TenantSigningConfig> findFirstByStatusOrderByCreatedAtDesc(String status);
 
 }
