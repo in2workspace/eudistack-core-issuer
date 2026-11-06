@@ -24,7 +24,7 @@ import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ISSUAN
 /**
  * Traces a revocation the security chain rejects with a 401 (EUD-247 AC-10: any request, accepted or
  * rejected). Nothing in such a request is verified, so the token is never read for an identity: the
- * trace names the requester as anonymous, with the address it came from and the reason it sent.
+ * trace names the requester as anonymous, with the address it declares and the reason it sent.
  */
 @Component
 @RequiredArgsConstructor
@@ -54,7 +54,7 @@ public class RevocationAuthenticationAuditor implements AuthenticationRejectionL
                 .map(Optional::of)
                 .defaultIfEmpty(Optional.empty())
                 .doOnNext(reason -> revocationWorkflow.traceUnauthenticated(
-                        issuanceId, reason.orElse(null), errorType, clientAddress(request)))
+                        issuanceId, reason.orElse(null), errorType, declaredClientAddress(request)))
                 .then();
     }
 
@@ -84,7 +84,12 @@ public class RevocationAuthenticationAuditor implements AuthenticationRejectionL
         }
     }
 
-    private static String clientAddress(ServerHttpRequest request) {
+    /**
+     * With {@code forward-headers-strategy: framework} this is the first value of {@code Forwarded} or
+     * {@code X-Forwarded-For}, which the client writes; the ALB only appends to the latter. It is traced
+     * as declared, never as evidence of where the request came from.
+     */
+    private static String declaredClientAddress(ServerHttpRequest request) {
         InetSocketAddress address = request.getRemoteAddress();
         if (address == null) {
             return "";

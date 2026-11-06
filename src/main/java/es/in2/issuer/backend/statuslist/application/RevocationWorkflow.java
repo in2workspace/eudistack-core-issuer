@@ -28,13 +28,11 @@ import es.in2.issuer.backend.statuslist.domain.spi.StatusListProvider;
 import io.micrometer.observation.annotation.Observed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.ReactiveSecurityContextHolder;
-import org.springframework.security.core.context.SecurityContext;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.text.ParseException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,8 +40,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
-import java.util.stream.Stream;
 
 import static es.in2.issuer.backend.statuslist.domain.util.Constants.REVOKED;
 import static es.in2.issuer.backend.statuslist.domain.util.Preconditions.requireNonNullParam;
@@ -63,7 +61,7 @@ public class RevocationWorkflow {
     private static final String ERROR_TYPE_BAD_REQUEST = "BAD_REQUEST";
 
     /**
-     * Who the token says the requester is, when the principal is not an email: the mandatee, by the email
+     * Who the token says the requester is, when it carries no W3C attestation: the mandatee, by the email
      * of a person (an SD-JWT attestation) or the DID of a system. {@code sub} comes after them because a
      * system's is the IP address its attestation declares, which does not identify it.
      */
@@ -107,16 +105,18 @@ public class RevocationWorkflow {
      * What differs between the entry points of a revocation.
      *
      * @param action       name of the workflow action in logs and audit
-     * @param validator    decides whether this process can be revoked by this caller
+     * @param decision     decides whether this caller may revoke this process (nothing for a system trigger)
+     * @param statusCheck  decides whether the process, in its current status, can be revoked
      * @param whenMissing  decided before answering that the process does not exist
      * @param markFailure  translates a failure marking the list and committing the process
      * @param auditContext extra fields of every audit event of this entry point
-     * @param traceHolder  whether the outcome events name the holder in clear (AC-13). Not for the
-     *                     system triggers, which EUD-247 leaves out and whose trace carries no
-     *                     personal data (EUD-225 AC-02)
+     * @param traceHolder  whether the outcome events name the holder in clear (AC-13), once the decision
+     *                     let the caller revoke. Not for the system triggers, which EUD-247 leaves out
+     *                     and whose trace carries no personal data (EUD-225 AC-02)
      */
     private record RevocationPath(String action,
-                                  RevocationValidator validator,
+                                  RevocationValidator decision,
+                                  Function<Issuance, Mono<Void>> statusCheck,
                                   Mono<Void> whenMissing,
                                   UnaryOperator<Throwable> markFailure,
                                   Map<String, Object> auditContext,
@@ -128,8 +128,8 @@ public class RevocationWorkflow {
     }
 
     /**
-     * Operator-triggered revocation (portal). The actor is resolved from the reactive
-     * security context and a caller token is required, cleaned, and propagated to signing.
+     * Operator-triggered revocation (portal). A caller token is required, cleaned, propagated to
+     * signing, and names the actor of the trace.
      */
     @Observed(name = "revocation.revoke", contextualName = "revocation-revoke")
     public Mono<Void> revoke(String processId, String bearerToken, String issuanceId, String reason, String publicIssuerBaseUrl) {
@@ -149,6 +149,7 @@ public class RevocationWorkflow {
                                         new RevocationPath(
                                                 "revokeCredential",
                                                 this::authorizeOperatorRevocation,
+                                                RevocationWorkflow::requireRevocable,
                                                 Mono.defer(() -> authorizeOperatorWithoutResource(token, issuanceId)),
                                                 UnaryOperator.identity(),
                                                 Map.of(),
@@ -185,8 +186,8 @@ public class RevocationWorkflow {
                                     publicIssuerBaseUrl,
                                     new RevocationPath(
                                             ACTION_REVOKE_ISSUANCE,
-                                            (pid, t, issuance) -> decideRevocation(t, issuance)
-                                                    .then(Mono.defer(() -> requireRevocable(issuanceId, issuance))),
+                                            (pid, t, issuance) -> decideRevocation(t, issuance),
+                                            issuance -> requireRevocable(issuanceId, issuance),
                                             Mono.defer(() -> authorizeOperatorWithoutResource(token, issuanceId)),
                                             error -> toContractFailure(issuanceId, error),
                                             auditContext,
@@ -276,7 +277,8 @@ public class RevocationWorkflow {
                 publicIssuerBaseUrl,
                 new RevocationPath(
                         "revokeSystemCredential",
-                        (pid, t, issuance) -> requireRevocable(issuance),
+                        (pid, t, issuance) -> Mono.empty(),
+                        RevocationWorkflow::requireRevocable,
                         Mono.empty(),
                         UnaryOperator.identity(),
                         tenantSource != null && !tenantSource.isBlank() ? Map.of("tenantSource", tenantSource) : Map.of(),
@@ -297,8 +299,7 @@ public class RevocationWorkflow {
      */
     private Mono<Void> authorizeOperatorRevocation(String processId, String token, Issuance issuance) {
         log.info("Process ID: {} - Validating 'revoke' action...", processId);
-        return decideRevocation(token, issuance)
-                .then(Mono.defer(() -> requireRevocable(issuance)));
+        return decideRevocation(token, issuance);
     }
 
     private Mono<Void> decideRevocation(String token, Issuance issuance) {
@@ -322,20 +323,11 @@ public class RevocationWorkflow {
         return Mono.error(new InvalidStatusException("Invalid status: " + issuance.getCredentialStatus()));
     }
 
-    private Mono<String> resolveActor() {
-        return ReactiveSecurityContextHolder.getContext()
-                .map(SecurityContext::getAuthentication)
-                .filter(auth -> auth != null && auth.isAuthenticated() && auth.getName() != null)
-                .map(Authentication::getName)
-                .switchIfEmpty(Mono.defer(() -> {
-                    log.warn("Revocation audit: operator identity not resolvable from security context");
-                    return Mono.just(UNKNOWN_ACTOR);
-                }));
-    }
-
     /**
-     * A principal is resolved only from an email in the token, so a system or an SD-JWT attestation
-     * arrives as {@code anonymous}: the mandatee in the token names them in the trace (AC-10).
+     * The actor comes from the access token, which the security chain verified, and never from the
+     * principal: the principal is read from an {@code X-ID-Token} whose signature nobody checks, so
+     * whoever sends one could name anybody (AC-10). The email of the mandatee of a W3C attestation
+     * goes first, then the mandatee of an SD-JWT attestation, by email or by the DID of a system.
      */
     private Mono<Requester> resolveRequester(String bearerToken, String token) {
         Mono<String> organization = accessTokenService.getOrganizationId(bearerToken)
@@ -345,24 +337,28 @@ public class RevocationWorkflow {
     }
 
     private Mono<String> resolveRequesterActor(String token) {
-        return resolveActor()
-                .map(actor -> ANONYMOUS_ACTOR.equals(actor) || UNKNOWN_ACTOR.equals(actor)
-                        ? actorFromToken(token).orElse(actor)
-                        : actor);
+        return Mono.fromSupplier(() -> actorFromToken(token).orElseGet(() -> {
+            log.warn("Revocation audit: requester not identifiable from the access token");
+            return UNKNOWN_ACTOR;
+        }));
     }
 
     /**
      * A request the security chain rejected (AC-10): nothing in it is verified, so the actor is anonymous
      * and the token is not read. The values come from whoever sent it, so they are sanitized here. Never fails.
+     *
+     * @param declaredClientAddress the address the request says it comes from, not evidence of where it
+     *                              came from: behind the proxies it is the first value of {@code Forwarded}
+     *                              or {@code X-Forwarded-For}, which the client chooses
      */
-    public void traceUnauthenticated(String issuanceId, String reason, String errorType, String clientAddress) {
+    public void traceUnauthenticated(String issuanceId, String reason, String errorType, String declaredClientAddress) {
         try {
             String safeId = RevocationAuditDetails.sanitize(issuanceId, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH);
             Map<String, Object> details = new LinkedHashMap<>(RevocationAuditDetails.toDetailsMap(
                     ANONYMOUS_ACTOR, null, safeId, reason, "failure", errorType));
             details.put("processId", UUID.randomUUID().toString());
             details.put(DETAIL_WORKFLOW_ACTION, ACTION_REVOKE_ISSUANCE);
-            details.put("clientAddress", RevocationAuditDetails.sanitize(clientAddress, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH));
+            details.put("declaredClientAddress", RevocationAuditDetails.sanitize(declaredClientAddress, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH));
             auditService.auditFailure(EVENT_FAILED, ANONYMOUS_ACTOR, errorType, details);
         } catch (Exception e) {
             log.warn("Revocation audit: rejected request not traced: {}", e.getClass().getSimpleName());
@@ -373,7 +369,11 @@ public class RevocationWorkflow {
         try {
             Map<String, Object> claims = jwtService.parseJWT(token).getJWTClaimsSet().getClaims();
             Map<?, ?> mandatee = claims.get(MANDATEE_CLAIM) instanceof Map<?, ?> map ? map : Map.of();
-            return Stream.concat(MANDATEE_FIELDS.stream().map(mandatee::get), REQUESTER_CLAIMS.stream().map(claims::get))
+            List<Object> candidates = new ArrayList<>();
+            candidates.add(jwtService.extractMandateeEmail(claims).orElse(null));
+            MANDATEE_FIELDS.forEach(field -> candidates.add(mandatee.get(field)));
+            REQUESTER_CLAIMS.forEach(claim -> candidates.add(claims.get(claim)));
+            return candidates.stream()
                     .filter(String.class::isInstance)
                     .map(String.class::cast)
                     .filter(value -> !value.isBlank())
@@ -518,6 +518,9 @@ public class RevocationWorkflow {
         String action = path.action();
         Map<String, Object> auditContext = path.auditContext();
         AtomicReference<Issuance> issuanceRef = new AtomicReference<>();
+        // Set once the decision lets the caller revoke: only then does the trace name the holder, so a
+        // caller who is denied (403, or 404 for another organization) leaves no personal data in the logs.
+        AtomicReference<Issuance> authorizedRef = new AtomicReference<>();
         // issuanceId is boundary-validated as a well-formed UUID on the contract route, the alias
         // (the DTO's @Pattern) and the queue (the mapper's UUID.fromString), but not on PATCH, and
         // this method's log statements are a shared sink for all of them. quoteIfNeeded
@@ -543,7 +546,9 @@ public class RevocationWorkflow {
                             .doOnNext(issuanceRef::set)
                             .flatMap(issuance -> {
                                 safeAuditAttempted(actor, issuance, issuanceId, reason, processId, action, auditContext);
-                                return path.validator().validate(processId, tokenValue, issuance)
+                                return path.decision().validate(processId, tokenValue, issuance)
+                                        .then(Mono.fromRunnable(() -> authorizedRef.set(issuance)))
+                                        .then(Mono.defer(() -> path.statusCheck().apply(issuance)))
                                         .doOnSuccess(v -> log.info(
                                                 "processId={} action={} step=validationPassed issuanceId={}",
                                                 processId, action, safeIssuanceId
@@ -587,7 +592,7 @@ public class RevocationWorkflow {
                             processId, action, safeIssuanceId);
                     // Post-commit: the revocation is already consumed at this point, so a logging
                     // failure inside safeAuditSuccess must never surface as an error here (ES-04).
-                    safeAuditSuccess(actor, issuanceRef.get(), issuanceId, reason, processId, action, outcomeContext(path, issuanceRef.get()));
+                    safeAuditSuccess(actor, issuanceRef.get(), issuanceId, reason, processId, action, outcomeContext(path, authorizedRef.get()));
                 })
                 .doOnError(e -> {
                     // The JDK repeats a malformed id in the message of UUID.fromString.
@@ -596,7 +601,7 @@ public class RevocationWorkflow {
                             processId, action, safeIssuanceId,
                             RevocationAuditDetails.quoteIfNeeded(e.toString(), RevocationAuditDetails.MAX_LOG_VALUE_LENGTH)
                     );
-                    safeAuditFailure(actor, issuanceRef.get(), issuanceId, reason, processId, action, e, outcomeContext(path, issuanceRef.get()));
+                    safeAuditFailure(actor, issuanceRef.get(), issuanceId, reason, processId, action, e, outcomeContext(path, authorizedRef.get()));
                 });
     }
 }

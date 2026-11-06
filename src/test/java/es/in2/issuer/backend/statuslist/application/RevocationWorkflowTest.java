@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
+import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
@@ -48,6 +49,7 @@ import reactor.test.StepVerifier;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -321,11 +323,27 @@ class RevocationWorkflowTest {
                 .thenReturn(Mono.empty());
     }
 
+    /** The access token was verified; the claims stubbed here are its W3C attestation. */
+    private void accessTokenNamesMandatee(String email) throws Exception {
+        SignedJWT jwt = mock(SignedJWT.class);
+        JWTClaimsSet claims = new JWTClaimsSet.Builder().subject("127.0.0.1")
+                .claim("vc", Map.of("credentialSubject", Map.of("mandate", Map.of("mandatee", Map.of("email", email)))))
+                .build();
+        when(jwt.getJWTClaimsSet()).thenReturn(claims);
+        when(jwtService.parseJWT(CLEAN_TOKEN)).thenReturn(jwt);
+        when(jwtService.extractMandateeEmail(claims.getClaims())).thenReturn(Optional.of(email));
+    }
+
+    /**
+     * The principal comes from an X-ID-Token whose signature nobody checks: one naming somebody else
+     * must not change the actor, which only the verified access token names (AC-10).
+     */
     @SuppressWarnings("unchecked")
     @Test
-    void revoke_success_emitsAttemptedThenEnrichedSuccessAudit() {
+    void revoke_success_emitsAttemptedThenEnrichedSuccessAudit_withTheActorOfTheAccessToken() throws Exception {
         mockHappyPath();
-        var auth = new UsernamePasswordAuthenticationToken("alice@example.com", "n/a", List.of());
+        accessTokenNamesMandatee("alice@example.com");
+        var auth = new UsernamePasswordAuthenticationToken("forged@example.com", "n/a", List.of());
 
         StepVerifier.create(
                 revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "Baja del empleado", "https://issuer.example.com")
@@ -363,7 +381,7 @@ class RevocationWorkflowTest {
     // ---------------------------------------------------------------- EC-02 (unknown actor)
 
     @Test
-    void revoke_noSecurityContext_usesUnknownActorAndStillSucceeds() {
+    void revoke_tokenWithoutIdentity_usesUnknownActorAndStillSucceeds() {
         mockHappyPath();
 
         StepVerifier.create(
@@ -560,7 +578,7 @@ class RevocationWorkflowTest {
                 .containsEntry("actor", "anonymous")
                 .containsEntry("reason", "motivoforged=2")
                 .containsEntry("resourceId", "idforged=1")
-                .containsEntry("clientAddress", "203.0.113.7")
+                .containsEntry("declaredClientAddress", "203.0.113.7")
                 .containsEntry("errorType", "invalid_token");
     }
 
@@ -587,6 +605,54 @@ class RevocationWorkflowTest {
                 .verifyComplete();
 
         verify(auditService).auditSuccess(eq("credential.revoked"), eq("did:key:system"), eq("credential"), eq(UUID_ID), any());
+    }
+
+    @Test
+    void revokeIssuance_forgedPrincipal_tracesTheMandateeOfTheAccessToken() throws Exception {
+        mockProcedure.setCredentialStatus(CredentialStatusEnum.VALID);
+        mockContractPathUpToStatus();
+        mockMarkAndNotify();
+        accessTokenNamesMandatee("alice@example.com");
+
+        StepVerifier.create(revokeIssuance(REASON)
+                        .contextWrite(ReactiveSecurityContextHolder.withAuthentication(
+                                new UsernamePasswordAuthenticationToken("forged@example.com", "n/a", List.of()))))
+                .verifyComplete();
+
+        verify(auditService).auditAttempted(eq("credential.revoke.attempted"), eq("alice@example.com"), any(), any(), any());
+        verify(auditService).auditSuccess(eq("credential.revoked"), eq("alice@example.com"), eq("credential"), eq(UUID_ID), any());
+        verify(auditService, never()).auditSuccess(any(), eq("forged@example.com"), any(), any(), any());
+    }
+
+    /** A caller who is denied learns nothing, and leaves no holder data in the shared logs either (AC-13). */
+    @Test
+    void revokeIssuance_denied_tracesTheFailureWithoutTheHolder() {
+        mockProcedure.setSubject("Ana Holder");
+        mockProcedure.setCredentialDataSet("{\"document_number\":\"12345678Z\"}");
+        mockRequester();
+        when(issuanceService.getIssuanceById(UUID_ID)).thenReturn(Mono.just(mockProcedure));
+        when(callerProvider.fromToken(CLEAN_TOKEN)).thenReturn(Mono.just(CALLER));
+        when(powerAuthorizationService.authorize(eq(PowerAuthorizationService.REVOKE), eq(CALLER), eq("VATES-A15456585"), any()))
+                .thenReturn(Mono.error(new InsufficientPermissionException("no power")));
+
+        StepVerifier.create(revokeIssuance(REASON)).expectError(InsufficientPermissionException.class).verify();
+
+        assertThat(capturedFailureDetails("insufficient_permission"))
+                .doesNotContainKeys("holderName", "holderEmail", "holderDocument");
+    }
+
+    /** A caller who may revoke but meets a revoked attestation is told so, and the trace names the holder. */
+    @Test
+    void revokeIssuance_allowedButNotRevocable_tracesTheHolder() {
+        mockProcedure.setCredentialStatus(CredentialStatusEnum.REVOKED);
+        mockProcedure.setSubject("Ana Holder");
+        mockContractPathUpToStatus();
+
+        StepVerifier.create(revokeIssuance(REASON)).expectError(AlreadyRevokedException.class).verify();
+
+        assertThat(capturedFailureDetails("already_revoked"))
+                .containsEntry("holderName", "Ana Holder")
+                .containsEntry("holderEmail", "to@example.com");
     }
 
     @Test
