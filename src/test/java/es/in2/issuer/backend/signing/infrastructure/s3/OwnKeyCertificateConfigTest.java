@@ -31,6 +31,29 @@ class OwnKeyCertificateConfigTest {
                 .run(context -> assertThat(context).doesNotHaveBean(OwnKeyCertificatePort.class));
     }
 
+    @Test
+    void context_whitespaceArn_createsNoCertificatePort() {
+        runner.withPropertyValues("issuer.signing.certificates.arn=   ")
+                .run(context -> assertThat(context).doesNotHaveBean(OwnKeyCertificatePort.class));
+    }
+
+    /**
+     * The value of S3_CERTIFICATE_ARN is never evaluated as an expression: one that would run code inside a
+     * SpEL condition only fails the ARN validation.
+     */
+    @Test
+    void context_arnCraftedAsAnExpression_isNotEvaluated() {
+        String property = "eud289.ownkey.condition.evaluated";
+        String crafted = "x'.isBlank() or T(java.lang.System).setProperty('" + property
+                + "','yes') != null or ''.isBlank";
+        System.clearProperty(property);
+
+        runner.withPropertyValues("issuer.signing.certificates.arn=" + crafted)
+                .run(context -> assertThat(context).hasFailed());
+
+        assertThat(System.getProperty(property)).isNull();
+    }
+
     /**
      * The client takes its region from the SDK default chain (on ECS, {@code AWS_REGION}); the test gives it one
      * through that chain, so it does not depend on the AWS profile of the machine that runs it.

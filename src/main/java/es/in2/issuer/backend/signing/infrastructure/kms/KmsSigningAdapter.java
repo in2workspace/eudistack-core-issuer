@@ -22,9 +22,13 @@ import java.util.function.Supplier;
  * ({@link KmsRetryPolicy}, {@link KmsSigningTiming}).
  *
  * <p>The client is obtained on the first signature, on a scheduler that may block: building it resolves the
- * region, and without one the SDK may query the instance metadata endpoint until it times out. A client that
- * cannot be built fails the signature with {@code KEY_UNUSABLE}, without retries, and the next signature
- * tries again.
+ * region, and without one the SDK may query the instance metadata endpoint. The build is bounded by the
+ * per-attempt timeout. A client that cannot be built in time fails the signature with
+ * {@code PROVIDER_UNAVAILABLE}, without retries, and the next signature tries again: it is not a problem of
+ * the tenant's key, so it neither reloads the tenant's configuration nor sends a revocation to the DLQ.
+ *
+ * <p>The client factory must return a shared instance (the {@code @Lazy} singleton of {@link KmsSigningConfig}):
+ * two first signatures may both call it, and the adapter never closes what it returns.
  */
 @Slf4j
 public class KmsSigningAdapter implements KmsSigningPort {
@@ -46,9 +50,10 @@ public class KmsSigningAdapter implements KmsSigningPort {
 
     @Override
     public Mono<byte[]> sign(String keyRef, byte[] sha256Digest) {
+        // A client that cannot be built is logged once, by clientUnavailable, and does not go through failure().
         return client()
-                .flatMap(kms -> sign(kms, keyRef, sha256Digest))
-                .onErrorMap(ex -> failure(OP_SIGN, keyRef, ex));
+                .flatMap(kms -> sign(kms, keyRef, sha256Digest)
+                        .onErrorMap(ex -> failure(OP_SIGN, keyRef, ex)));
     }
 
     private Mono<KmsAsyncClient> client() {
@@ -58,20 +63,15 @@ public class KmsSigningAdapter implements KmsSigningPort {
         }
         return Mono.fromCallable(this::buildClient)
                 .subscribeOn(Schedulers.boundedElastic())
+                .timeout(timing.callTimeout())
                 .onErrorMap(KmsSigningAdapter::clientUnavailable);
     }
 
-    /** Two first signatures may build a client each: the first one kept wins and the other is closed. */
+    /** The factory returns the shared client, so two first signatures that both call it keep the same one. */
     private KmsAsyncClient buildClient() {
-        KmsAsyncClient fresh = clientFactory.get();
-        KmsAsyncClient kept = client.compareAndExchange(null, fresh);
-        if (kept == null) {
-            return fresh;
-        }
-        if (kept != fresh && fresh != null) {
-            fresh.close();
-        }
-        return kept;
+        KmsAsyncClient built = clientFactory.get();
+        client.set(built);
+        return built;
     }
 
     private Mono<byte[]> sign(KmsAsyncClient kms, String keyRef, byte[] sha256Digest) {
@@ -89,17 +89,19 @@ public class KmsSigningAdapter implements KmsSigningPort {
     }
 
     /**
-     * The client could not be built, typically because no region is configured. Not transient: the
-     * configuration has to change. The root cause is logged by type and message, which carry no key ARN.
+     * The client could not be built in time, typically because no region is configured. KMS was not reached,
+     * so the failure is {@code PROVIDER_UNAVAILABLE}: the key of the tenant is not at fault. The root cause is
+     * logged by type only: its message may carry the endpoint or other configuration.
      */
     private static KmsSigningException clientUnavailable(Throwable error) {
         Throwable root = error;
         while (root.getCause() != null && root.getCause() != root) {
             root = root.getCause();
         }
-        log.error("KMS client could not be created: {}: {}", root.getClass().getSimpleName(), root.getMessage());
-        return new KmsSigningException(SigningFailureReason.KEY_UNUSABLE,
-                "KMS client could not be created: " + root.getClass().getSimpleName());
+        String cause = root.getClass().getSimpleName();
+        log.error("KMS client could not be created: {}", cause);
+        return new KmsSigningException(SigningFailureReason.PROVIDER_UNAVAILABLE,
+                "KMS client could not be created: " + cause);
     }
 
     private byte[] validSignature(SignResponse response) {

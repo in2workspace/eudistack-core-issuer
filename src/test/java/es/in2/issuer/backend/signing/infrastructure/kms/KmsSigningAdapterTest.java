@@ -22,6 +22,7 @@ import software.amazon.awssdk.services.kms.model.SigningAlgorithmSpec;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
@@ -71,7 +72,7 @@ class KmsSigningAdapterTest {
     }
 
     @Test
-    void sign_clientCannotBeBuilt_failsKeyUnusable_andTheNextSignatureTriesAgain() {
+    void sign_clientCannotBeBuilt_failsProviderUnavailable_andTheNextSignatureTriesAgain() {
         AtomicInteger builds = new AtomicInteger();
         Supplier<KmsAsyncClient> noRegion = () -> {
             if (builds.incrementAndGet() == 1) {
@@ -85,7 +86,7 @@ class KmsSigningAdapterTest {
 
         StepVerifier.create(adapter.sign(KEY_REF, DIGEST))
                 .expectErrorSatisfies(ex -> {
-                    assertReason(ex, SigningFailureReason.KEY_UNUSABLE);
+                    assertReason(ex, SigningFailureReason.PROVIDER_UNAVAILABLE);
                     assertThat(ex).hasMessage("KMS client could not be created: SdkClientException");
                 })
                 .verify();
@@ -93,6 +94,35 @@ class KmsSigningAdapterTest {
 
         assertThat(builds).hasValue(2);
         verify(client, times(1)).sign(any(SignRequest.class));
+    }
+
+    /** Without a region the SDK may wait on the instance metadata endpoint: the build has the attempt timeout. */
+    @Test
+    void sign_clientBuildHangs_failsProviderUnavailableAtTheAttemptTimeout() {
+        CountDownLatch release = new CountDownLatch(1);
+        KmsSigningTiming defaults = KmsSigningTiming.DEFAULT;
+        KmsSigningTiming shortAttempt = new KmsSigningTiming(Duration.ofMillis(200), defaults.maxRetries(),
+                defaults.initialBackoff(), defaults.maxBackoff(), defaults.deadline());
+        adapter = new KmsSigningAdapter(() -> {
+            try {
+                release.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return client;
+        }, shortAttempt);
+
+        try {
+            StepVerifier.create(adapter.sign(KEY_REF, DIGEST))
+                    .expectErrorSatisfies(ex -> {
+                        assertReason(ex, SigningFailureReason.PROVIDER_UNAVAILABLE);
+                        assertThat(ex).hasMessage("KMS client could not be created: TimeoutException");
+                    })
+                    .verify(Duration.ofSeconds(5));
+        } finally {
+            release.countDown();
+        }
+        verify(client, times(0)).sign(any(SignRequest.class));
     }
 
     @Test

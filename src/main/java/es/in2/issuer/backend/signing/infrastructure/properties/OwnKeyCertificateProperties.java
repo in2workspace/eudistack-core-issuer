@@ -19,8 +19,12 @@ public record OwnKeyCertificateProperties(
         String arn,
         URI endpoint
 ) {
-    /** An S3 ARN has neither region nor account; the partition ({@code aws}, {@code aws-cn}…) is not checked. */
-    private static final Pattern S3_ARN = Pattern.compile("^arn:[a-z0-9-]+:s3:::([^/:]+)(/.*)?$");
+    /**
+     * An S3 ARN has neither region nor account; the partition ({@code aws}, {@code aws-cn}…) is not checked.
+     * The prefix may not hold {@code *} or {@code ?}: an IAM resource pattern such as {@code bucket/*} is not a
+     * location.
+     */
+    private static final Pattern S3_ARN = Pattern.compile("^arn:[a-z0-9-]+:s3:::([^/:*?]+)(/[^*?]*)?$");
 
     public OwnKeyCertificateProperties {
         if (arn != null && arn.isBlank()) {

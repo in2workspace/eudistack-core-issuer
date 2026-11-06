@@ -15,7 +15,9 @@ import java.time.Duration;
 /**
  * KMS beans. The client is lazy: it is built by the first own-key signature (usually the startup
  * self-test), not at startup, because building it needs a region. Without one (local stack, tests,
- * deployments outside AWS) the issuer still starts and only own-key signing fails, with {@code KEY_UNUSABLE}.
+ * deployments outside AWS) the issuer still starts and only own-key signing fails, with
+ * {@code PROVIDER_UNAVAILABLE}. The S3 client of the certificates, in contrast, exists only when
+ * {@code S3_CERTIFICATE_ARN} is set and is built at startup ({@code OwnKeyCertificateConfig}).
  * Region and credentials come from the SDK default chain (on ECS, {@code AWS_REGION} and the runtime role).
  */
 @Configuration

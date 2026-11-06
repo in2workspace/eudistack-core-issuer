@@ -60,7 +60,11 @@ class OwnKeyCertificatePropertiesTest {
             "arn:aws:s3:::",
             "arn:aws:s3:::/issuer",
             "arn:aws:s3:eu-west-1:123456789012:certs-bucket/issuer",
-            "arn:aws:kms:::certs-bucket/issuer"})
+            "arn:aws:kms:::certs-bucket/issuer",
+            "arn:aws:s3:::certs-bucket/*",
+            "arn:aws:s3:::certs-bucket/issuer/*",
+            "arn:aws:s3:::certs-bucket/iss?er",
+            "arn:aws:s3:::certs-*"})
     void valueThatIsNotTheArnOfABucket_isRejected(String arn) {
         assertThatThrownBy(() -> at(arn)).isInstanceOf(IllegalArgumentException.class);
     }
