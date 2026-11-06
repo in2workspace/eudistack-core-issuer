@@ -336,9 +336,9 @@ class RevocationControllerIT {
         verify(emailService).sendCredentialStatusChangeNotification(eq(HOLDER_EMAIL), anyString(), eq(CREDENTIAL_CONFIG_ID), eq("REVOKED"));
         assertThat(auditMessages()).anySatisfy(message -> assertThat(message)
                 .contains("event=credential.revoked", "userId=did:key:requester", "organizationId=" + ORG,
-                        "requesterOrganizationId=" + ORG, "holderEmail=" + HOLDER_EMAIL, "holderDocument=E-77",
-                        "holderName=", "Ana Holder", REASON)
-                .doesNotContain(bearer, "mandatee"));
+                        "requesterOrganizationId=" + ORG, REASON)
+                // The holder goes to the encrypted audit store with EUD-244, not to these logs (AC-13).
+                .doesNotContain(bearer, "mandatee", "holderName", "Ana Holder", HOLDER_EMAIL, "E-77"));
     }
 
     // ---------------------------------------------------------------- AC-03

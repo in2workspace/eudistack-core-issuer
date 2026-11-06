@@ -15,8 +15,8 @@ import java.util.regex.Pattern;
  * Single point of PII/secret redaction (§10.3) for the attempted/success/failure events emitted
  * by {@link RevocationWorkflow} — never accepts an {@code Issuance} or raw exception, only the
  * primitive identifiers/strings that are safe to log, so a token or the attestation can't leak in.
- * The holder is the deliberate exception (EUD-247 AC-13, AD-6): {@link #holderFields} adds their
- * name, email and document in clear, protected by the encryption at rest of the audit store.
+ * The holder is not traced here: their name, email and document reach the encrypted audit store
+ * through the audit events of EUD-244, not these log events (EUD-247 AC-13).
  */
 public final class RevocationAuditDetails {
 
@@ -66,19 +66,6 @@ public final class RevocationAuditDetails {
             details.put("errorType", errorType);
         }
         return Map.copyOf(details);
-    }
-
-    /** The holder in clear (AC-13). A value the attestation does not have stays empty. */
-    public static Map<String, Object> holderFields(String name, String email, String document) {
-        Map<String, Object> fields = new LinkedHashMap<>();
-        fields.put("holderName", holderValue(name));
-        fields.put("holderEmail", holderValue(email));
-        fields.put("holderDocument", holderValue(document));
-        return fields;
-    }
-
-    private static String holderValue(String value) {
-        return value == null ? "" : sanitize(value, MAX_LOG_VALUE_LENGTH);
     }
 
     static String sanitizeReason(String reason) {

@@ -3,7 +3,6 @@ package es.in2.issuer.backend.statuslist.application;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
@@ -39,7 +38,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -84,9 +82,6 @@ class RevocationWorkflowTest {
 
     @Mock
     private JWTService jwtService;
-
-    @Spy
-    private ObjectMapper objectMapper = new ObjectMapper();
 
     @InjectMocks
     private RevocationWorkflow revocationWorkflow;
@@ -494,7 +489,7 @@ class RevocationWorkflowTest {
     }
 
     @Test
-    void revokeIssuance_valid_marksNotifiesWithoutReason_andTracesHolderInClear() {
+    void revokeIssuance_valid_marksNotifiesWithoutReason_andLeavesTheHolderOutOfTheTrace() {
         mockProcedure.setCredentialStatus(CredentialStatusEnum.VALID);
         mockProcedure.setSubject("Ana Holder");
         mockProcedure.setCredentialDataSet("{\"credentialSubject\":{\"mandate\":{\"mandatee\":{\"employeeId\":\"E-77\"}}}}");
@@ -510,21 +505,8 @@ class RevocationWorkflowTest {
                 .containsEntry("reason", REASON)
                 .containsEntry("organizationId", "VATES-A15456585")
                 .containsEntry("requesterOrganizationId", "VATES-REQUESTER")
-                .containsEntry("holderName", "Ana Holder")
-                .containsEntry("holderEmail", "to@example.com")
-                .containsEntry("holderDocument", "E-77");
-    }
-
-    @Test
-    void revokeIssuance_holderWithoutDocument_leavesItEmptyAndStillRevokes() {
-        mockProcedure.setCredentialStatus(CredentialStatusEnum.VALID);
-        mockProcedure.setCredentialDataSet("not json");
-        mockContractPathUpToStatus();
-        mockMarkAndNotify();
-
-        StepVerifier.create(revokeIssuance(REASON)).verifyComplete();
-
-        assertThat(capturedSuccessDetails()).containsEntry("holderDocument", "");
+                // The holder reaches the encrypted audit store through EUD-244, never these log events (AC-13).
+                .doesNotContainKeys("holderName", "holderEmail", "holderDocument");
     }
 
     /** A system's sub is the IP its attestation declares: the DID of its mandatee is what identifies it. */
@@ -624,7 +606,7 @@ class RevocationWorkflowTest {
         verify(auditService, never()).auditSuccess(any(), eq("forged@example.com"), any(), any(), any());
     }
 
-    /** A caller who is denied learns nothing, and leaves no holder data in the shared logs either (AC-13). */
+    /** A caller who is denied learns nothing, and leaves no holder data in the shared logs either. */
     @Test
     void revokeIssuance_denied_tracesTheFailureWithoutTheHolder() {
         mockProcedure.setSubject("Ana Holder");
@@ -639,20 +621,6 @@ class RevocationWorkflowTest {
 
         assertThat(capturedFailureDetails("insufficient_permission"))
                 .doesNotContainKeys("holderName", "holderEmail", "holderDocument");
-    }
-
-    /** A caller who may revoke but meets a revoked attestation is told so, and the trace names the holder. */
-    @Test
-    void revokeIssuance_allowedButNotRevocable_tracesTheHolder() {
-        mockProcedure.setCredentialStatus(CredentialStatusEnum.REVOKED);
-        mockProcedure.setSubject("Ana Holder");
-        mockContractPathUpToStatus();
-
-        StepVerifier.create(revokeIssuance(REASON)).expectError(AlreadyRevokedException.class).verify();
-
-        assertThat(capturedFailureDetails("already_revoked"))
-                .containsEntry("holderName", "Ana Holder")
-                .containsEntry("holderEmail", "to@example.com");
     }
 
     @Test
@@ -794,18 +762,6 @@ class RevocationWorkflowTest {
                 .thenReturn(Mono.error(new NullPointerException("bug")));
 
         StepVerifier.create(revokeIssuance(REASON)).expectError(NullPointerException.class).verify();
-    }
-
-    @Test
-    void revokeIssuance_nullDocumentField_keepsLookingForARealDocument() {
-        mockProcedure.setCredentialStatus(CredentialStatusEnum.VALID);
-        mockProcedure.setCredentialDataSet("{\"document_number\":null,\"mandate\":{\"mandatee\":{\"employeeId\":\"E1\"}}}");
-        mockContractPathUpToStatus();
-        mockMarkAndNotify();
-
-        StepVerifier.create(revokeIssuance(REASON)).verifyComplete();
-
-        assertThat(capturedSuccessDetails()).containsEntry("holderDocument", "E1");
     }
 
     @Test

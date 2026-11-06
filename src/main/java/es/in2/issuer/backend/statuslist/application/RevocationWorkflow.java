@@ -1,7 +1,5 @@
 package es.in2.issuer.backend.statuslist.application;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
 import es.in2.issuer.backend.shared.domain.exception.InsufficientPermissionException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
@@ -69,17 +67,6 @@ public class RevocationWorkflow {
     private static final List<String> MANDATEE_FIELDS = List.of("email", "id");
     private static final List<String> REQUESTER_CLAIMS = List.of("client_id", "sub", "azp", "jti");
 
-    /**
-     * Where each attestation type keeps the holder's document, in {@code credential_data_set}
-     * (AD-6). A type without any of them, like a machine attestation, leaves the field empty.
-     */
-    private static final List<String> HOLDER_DOCUMENT_POINTERS = List.of(
-            "/document_number",
-            "/personal_administrative_number",
-            "/mandate/mandatee/employeeId",
-            "/credentialSubject/mandate/mandatee/employeeId",
-            "/vc/credentialSubject/mandate/mandatee/employeeId");
-
     /** Actor of the system-triggered path fed by the OID4VCI credential_deleted notification. */
     public static final String ACTOR_OID4VCI_NOTIFICATION = "system:oid4vci-notification";
 
@@ -94,7 +81,6 @@ public class RevocationWorkflow {
     private final EmailService emailService;
     private final AuditService auditService;
     private final JWTService jwtService;
-    private final ObjectMapper objectMapper;
 
     private record RevocationContext(String token, Issuance issuance) { }
 
@@ -110,17 +96,13 @@ public class RevocationWorkflow {
      * @param whenMissing  decided before answering that the process does not exist
      * @param markFailure  translates a failure marking the list and committing the process
      * @param auditContext extra fields of every audit event of this entry point
-     * @param traceHolder  whether the outcome events name the holder in clear (AC-13), once the decision
-     *                     let the caller revoke. Not for the system triggers, which EUD-247 leaves out
-     *                     and whose trace carries no personal data (EUD-225 AC-02)
      */
     private record RevocationPath(String action,
                                   RevocationValidator decision,
                                   Function<Issuance, Mono<Void>> statusCheck,
                                   Mono<Void> whenMissing,
                                   UnaryOperator<Throwable> markFailure,
-                                  Map<String, Object> auditContext,
-                                  boolean traceHolder) { }
+                                  Map<String, Object> auditContext) { }
 
     @FunctionalInterface
     private interface RevocationValidator {
@@ -152,8 +134,7 @@ public class RevocationWorkflow {
                                                 RevocationWorkflow::requireRevocable,
                                                 Mono.defer(() -> authorizeOperatorWithoutResource(token, issuanceId)),
                                                 UnaryOperator.identity(),
-                                                Map.of(),
-                                                true
+                                                Map.of()
                                         )
                                 ))
                 );
@@ -190,8 +171,7 @@ public class RevocationWorkflow {
                                             issuance -> requireRevocable(issuanceId, issuance),
                                             Mono.defer(() -> authorizeOperatorWithoutResource(token, issuanceId)),
                                             error -> toContractFailure(issuanceId, error),
-                                            auditContext,
-                                            true
+                                            auditContext
                                     )
                             );
                         }));
@@ -281,8 +261,7 @@ public class RevocationWorkflow {
                         RevocationWorkflow::requireRevocable,
                         Mono.empty(),
                         UnaryOperator.identity(),
-                        tenantSource != null && !tenantSource.isBlank() ? Map.of("tenantSource", tenantSource) : Map.of(),
-                        false
+                        tenantSource != null && !tenantSource.isBlank() ? Map.of("tenantSource", tenantSource) : Map.of()
                 )
         );
     }
@@ -384,42 +363,6 @@ public class RevocationWorkflow {
         }
     }
 
-    private Map<String, Object> outcomeContext(RevocationPath path, Issuance issuance) {
-        if (!path.traceHolder() || issuance == null) {
-            return path.auditContext();
-        }
-        Map<String, Object> context = new LinkedHashMap<>(path.auditContext());
-        try {
-            context.putAll(RevocationAuditDetails.holderFields(issuance.getSubject(), issuance.getEmail(), holderDocument(issuance)));
-        } catch (RuntimeException e) {
-            // Runs after the commit: a problem describing the holder never undoes the answer (AC-12).
-            log.warn("Revocation audit: holder not readable for issuanceId={}: {}", issuance.getIssuanceId(), e.getClass().getSimpleName());
-        }
-        return context;
-    }
-
-    private String holderDocument(Issuance issuance) {
-        String dataSet = issuance.getCredentialDataSet();
-        if (dataSet == null || dataSet.isBlank()) {
-            return null;
-        }
-        try {
-            JsonNode credential = objectMapper.readTree(dataSet);
-            return HOLDER_DOCUMENT_POINTERS.stream()
-                    .map(credential::at)
-                    .filter(node -> node.isValueNode() && !node.isNull())
-                    .map(JsonNode::asText)
-                    .filter(value -> !value.isBlank())
-                    .findFirst()
-                    .orElse(null);
-        } catch (Exception e) {
-            // Never fails a revocation: the trace keeps the rest of the holder's data.
-            log.warn("Revocation audit: holder document not readable for issuanceId={}: {}",
-                    issuance.getIssuanceId(), e.getClass().getSimpleName());
-            return null;
-        }
-    }
-
     private void safeAuditAttempted(String actor, Issuance issuance, String issuanceId, String reason,
                                     String processId, String action, Map<String, Object> auditContext) {
         try {
@@ -518,9 +461,6 @@ public class RevocationWorkflow {
         String action = path.action();
         Map<String, Object> auditContext = path.auditContext();
         AtomicReference<Issuance> issuanceRef = new AtomicReference<>();
-        // Set once the decision lets the caller revoke: only then does the trace name the holder, so a
-        // caller who is denied (403, or 404 for another organization) leaves no personal data in the logs.
-        AtomicReference<Issuance> authorizedRef = new AtomicReference<>();
         // issuanceId is boundary-validated as a well-formed UUID on the contract route, the alias
         // (the DTO's @Pattern) and the queue (the mapper's UUID.fromString), but not on PATCH, and
         // this method's log statements are a shared sink for all of them. quoteIfNeeded
@@ -547,7 +487,6 @@ public class RevocationWorkflow {
                             .flatMap(issuance -> {
                                 safeAuditAttempted(actor, issuance, issuanceId, reason, processId, action, auditContext);
                                 return path.decision().validate(processId, tokenValue, issuance)
-                                        .then(Mono.fromRunnable(() -> authorizedRef.set(issuance)))
                                         .then(Mono.defer(() -> path.statusCheck().apply(issuance)))
                                         .doOnSuccess(v -> log.info(
                                                 "processId={} action={} step=validationPassed issuanceId={}",
@@ -592,7 +531,7 @@ public class RevocationWorkflow {
                             processId, action, safeIssuanceId);
                     // Post-commit: the revocation is already consumed at this point, so a logging
                     // failure inside safeAuditSuccess must never surface as an error here (ES-04).
-                    safeAuditSuccess(actor, issuanceRef.get(), issuanceId, reason, processId, action, outcomeContext(path, authorizedRef.get()));
+                    safeAuditSuccess(actor, issuanceRef.get(), issuanceId, reason, processId, action, auditContext);
                 })
                 .doOnError(e -> {
                     // The JDK repeats a malformed id in the message of UUID.fromString.
@@ -601,7 +540,7 @@ public class RevocationWorkflow {
                             processId, action, safeIssuanceId,
                             RevocationAuditDetails.quoteIfNeeded(e.toString(), RevocationAuditDetails.MAX_LOG_VALUE_LENGTH)
                     );
-                    safeAuditFailure(actor, issuanceRef.get(), issuanceId, reason, processId, action, e, outcomeContext(path, authorizedRef.get()));
+                    safeAuditFailure(actor, issuanceRef.get(), issuanceId, reason, processId, action, e, auditContext);
                 });
     }
 }
