@@ -1000,7 +1000,7 @@ class BitstringStatusListProviderTest {
         )).thenReturn(Mono.just(1));
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL, Mono.empty()))
                 .verifyComplete();
 
         verify(statusListIndexRepository).findByIssuanceId(procedureUuid);
@@ -1041,7 +1041,7 @@ class BitstringStatusListProviderTest {
         when(statusListRepository.updateSignedAndEncodedIfUnchanged(TEST_LIST_ID, "updatedEncodedList", "jwt", updatedAt))
                 .thenReturn(Mono.just(1));
 
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, null, TEST_ISSUER_URL))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, null, TEST_ISSUER_URL, Mono.empty()))
                 .verifyComplete();
 
         verify(statusListSigner).sign(anyMap(), isNull(), eq(TEST_LIST_ID), eq("vc+jwt"));
@@ -1056,7 +1056,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.empty());
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL, Mono.empty()))
                 .expectError(StatusListIndexNotFoundException.class)
                 .verify();
 
@@ -1084,7 +1084,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.empty());
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL, Mono.empty()))
                 .expectError(StatusListNotFoundException.class)
                 .verify();
 
@@ -1133,7 +1133,7 @@ class BitstringStatusListProviderTest {
                 .thenReturn(Mono.just(revokedRow));
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL, Mono.empty()))
                 .verifyComplete();
 
         verify(statusListIndexRepository).findByIssuanceId(procedureUuid);
@@ -1211,7 +1211,7 @@ class BitstringStatusListProviderTest {
         )).thenReturn(Mono.just(0), Mono.just(1));
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL, Mono.empty()))
                 .verifyComplete();
 
         verify(statusListRepository, times(2)).updateSignedAndEncodedIfUnchanged(
@@ -1225,7 +1225,7 @@ class BitstringStatusListProviderTest {
     @Test
     void revoke_shouldThrowException_whenProcedureIdIsInvalidUUID() {
         Mono<Void> mono = monoFromCall(() ->
-                bitstringStatusListProvider.revoke("invalid-uuid", TEST_TOKEN, TEST_ISSUER_URL)
+                bitstringStatusListProvider.revoke("invalid-uuid", TEST_TOKEN, TEST_ISSUER_URL, Mono.empty())
         );
 
         assertThatThrownBy(mono::block)
@@ -1303,7 +1303,7 @@ class BitstringStatusListProviderTest {
         )).thenReturn(Mono.just(0));
 
         // Act & Assert
-        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL, Mono.empty()))
                 .expectErrorMatches(e ->
                         e.getClass().getName().contains("RetryExhaustedException")
                                 && e.getCause() instanceof OptimisticUpdateException
@@ -1311,8 +1311,8 @@ class BitstringStatusListProviderTest {
                 .verify();
 
 
-        // maxAttempts=5 -> 5 invocations
-        verify(statusListRepository, times(5)).updateSignedAndEncodedIfUnchanged(
+        // maxAttempts=3 (SEC-25) -> 3 invocations, each with its own signature
+        verify(statusListRepository, times(3)).updateSignedAndEncodedIfUnchanged(
                 TEST_LIST_ID,
                 "updatedEncodedList",
                 "jwt",
@@ -1494,4 +1494,103 @@ class BitstringStatusListProviderTest {
         }
     }
 
+    // ---------------------------------------------------------------- EUD-271: atomic revocation
+
+    private void mockRevocationUpToTheList(Instant updatedAt, String encodedList) {
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
+                .thenReturn(Mono.just(new StatusListIndex(1L, TEST_LIST_ID, TEST_IDX, procedureUuid, Instant.now())));
+        when(statusListRepository.findById(TEST_LIST_ID)).thenReturn(Mono.just(new StatusList(
+                TEST_LIST_ID, "revocation", "bitstring_vc", encodedList, TEST_SIGNED_CREDENTIAL, updatedAt, updatedAt)));
+    }
+
+    private void mockSealing(Instant updatedAt) {
+        when(revocationService.applyRevocation(any(StatusListData.class), eq(TEST_IDX)))
+                .thenReturn(new StatusListData(TEST_LIST_ID, "revocation", "bitstring_vc", "updatedEncodedList",
+                        TEST_SIGNED_CREDENTIAL, updatedAt, updatedAt));
+        when(issuerFactory.createSimpleIssuer()).thenReturn(Mono.just(SimpleIssuer.builder().id(TEST_ISSUER_DID).build()));
+        when(statusListBuilder.buildUnsigned(anyString(), eq(TEST_ISSUER_DID), eq("revocation"), eq("updatedEncodedList")))
+                .thenReturn(Map.of("type", "StatusListCredential"));
+    }
+
+    @Test
+    void revoke_commitsTheListAndTheStatusChangeInOneTransaction() {
+        Instant updatedAt = Instant.parse("2026-01-01T00:00:00Z");
+        mockRevocationUpToTheList(updatedAt, new BitstringEncoder().createEmptyEncodedList(131072));
+        mockSealing(updatedAt);
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt"))).thenReturn(Mono.just("jwt"));
+        when(statusListRepository.updateSignedAndEncodedIfUnchanged(TEST_LIST_ID, "updatedEncodedList", "jwt", updatedAt))
+                .thenReturn(Mono.just(1));
+        reactor.test.publisher.PublisherProbe<Void> statusChange = reactor.test.publisher.PublisherProbe.empty();
+
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL, statusChange.mono()))
+                .verifyComplete();
+
+        statusChange.assertWasSubscribed();
+        verify(transactionalOperator).transactional(any(Mono.class));
+    }
+
+    @Test
+    void revoke_sealingFails_writesNothing() {
+        Instant updatedAt = Instant.parse("2026-01-01T00:00:00Z");
+        mockRevocationUpToTheList(updatedAt, new BitstringEncoder().createEmptyEncodedList(131072));
+        mockSealing(updatedAt);
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt")))
+                .thenReturn(Mono.error(new IllegalStateException("QTSP down")));
+        reactor.test.publisher.PublisherProbe<Void> statusChange = reactor.test.publisher.PublisherProbe.empty();
+
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL, statusChange.mono()))
+                .expectError(IllegalStateException.class)
+                .verify();
+
+        statusChange.assertWasNotSubscribed();
+        verify(statusListRepository, never()).updateSignedAndEncodedIfUnchanged(any(), any(), any(), any());
+    }
+
+    @Test
+    void revoke_listChangedUnderTheAttempt_doesNotApplyTheStatusChange_untilAnAttemptWins() {
+        Instant updatedAt = Instant.parse("2026-01-01T00:00:00Z");
+        mockRevocationUpToTheList(updatedAt, new BitstringEncoder().createEmptyEncodedList(131072));
+        mockSealing(updatedAt);
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt"))).thenReturn(Mono.just("jwt"));
+        when(statusListRepository.updateSignedAndEncodedIfUnchanged(TEST_LIST_ID, "updatedEncodedList", "jwt", updatedAt))
+                .thenReturn(Mono.just(0), Mono.just(1));
+        java.util.concurrent.atomic.AtomicInteger applied = new java.util.concurrent.atomic.AtomicInteger();
+
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL,
+                        Mono.fromRunnable(applied::incrementAndGet)))
+                .verifyComplete();
+
+        org.junit.jupiter.api.Assertions.assertEquals(1, applied.get());
+    }
+
+    @Test
+    void revoke_bitAlreadySet_appliesOnlyTheStatusChange_withoutSealingAgain() {
+        BitstringEncoder encoder = new BitstringEncoder();
+        String marked = encoder.setBit(encoder.createEmptyEncodedList(131072), TEST_IDX, true);
+        mockRevocationUpToTheList(Instant.parse("2026-01-01T00:00:00Z"), marked);
+        reactor.test.publisher.PublisherProbe<Void> statusChange = reactor.test.publisher.PublisherProbe.empty();
+
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL, statusChange.mono()))
+                .verifyComplete();
+
+        statusChange.assertWasSubscribed();
+        verifyNoInteractions(statusListSigner);
+        verify(statusListRepository, never()).updateSignedAndEncodedIfUnchanged(any(), any(), any(), any());
+    }
+
+    @Test
+    void revoke_emptySeal_failsInsteadOfReadingAsARevocation() {
+        Instant updatedAt = Instant.parse("2026-01-01T00:00:00Z");
+        mockRevocationUpToTheList(updatedAt, new BitstringEncoder().createEmptyEncodedList(131072));
+        mockSealing(updatedAt);
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt"))).thenReturn(Mono.empty());
+        reactor.test.publisher.PublisherProbe<Void> statusChange = reactor.test.publisher.PublisherProbe.empty();
+
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL, statusChange.mono()))
+                .expectError(es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException.class)
+                .verify();
+
+        statusChange.assertWasNotSubscribed();
+    }
 }

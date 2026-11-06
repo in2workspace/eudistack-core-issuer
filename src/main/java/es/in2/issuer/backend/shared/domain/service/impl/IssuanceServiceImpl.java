@@ -7,8 +7,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.shared.domain.exception.ConcurrentIssuanceUpdateException;
 import es.in2.issuer.backend.shared.domain.exception.FormatUnsupportedException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidCredentialStatusTransitionException;
-import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
 import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
+import es.in2.issuer.backend.shared.domain.exception.MissingCredentialTypeException;
 import es.in2.issuer.backend.shared.domain.exception.MalformedIssuanceIdException;
 import es.in2.issuer.backend.shared.domain.exception.ParseCredentialJsonException;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
@@ -227,12 +227,20 @@ public class IssuanceServiceImpl implements IssuanceService {
 
     @Override
     public Mono<Void> updateIssuanceStatusToRevoked(Issuance issuance) {
-        validateTransition(issuance.getCredentialStatus(), CredentialStatusEnum.REVOKED);
-        issuance.setCredentialStatus(CredentialStatusEnum.REVOKED);
-        return issuancePort.save(issuance)
+        // EUD-271: this runs inside the status list's transaction, which is attempted again when the
+        // list changed under it. It reads the current row instead of changing the caller's snapshot,
+        // which would no longer be VALID on the next attempt although the first one rolled back.
+        UUID issuanceId = issuance.getIssuanceId();
+        return issuancePort.findById(issuanceId)
+                .switchIfEmpty(Mono.error(() -> new IssuanceNotFoundException("No issuance found for the given id")))
+                .flatMap(current -> {
+                    validateTransition(current.getCredentialStatus(), CredentialStatusEnum.REVOKED);
+                    current.setCredentialStatus(CredentialStatusEnum.REVOKED);
+                    return issuancePort.save(current);
+                })
                 .doOnSuccess(result -> log.info(UPDATED_CREDENTIAL))
                 .onErrorResume(ConcurrentIssuanceUpdateException.class,
-                        e -> reconcileConcurrentRevoke(issuance.getIssuanceId(), e))
+                        e -> reconcileConcurrentRevoke(issuanceId, e))
                 .then();
     }
 
