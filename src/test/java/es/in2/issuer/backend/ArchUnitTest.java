@@ -39,7 +39,7 @@ class ArchUnitTest {
                     BASE_PACKAGE + ".shared.infrastructure.service.NoOpAuditTrailAdapter",
                     BASE_PACKAGE + ".shared.infrastructure.service.StarterAuditTrailAdapter",
                     BASE_PACKAGE + ".shared.infrastructure.audit.IssuerAuditContextResolver",
-                    BASE_PACKAGE + ".shared.infrastructure.audit.ConfiguredAuditAccessTokenProvider",
+                    BASE_PACKAGE + ".shared.infrastructure.audit.MachineAuditAccessTokenProvider",
                     BASE_PACKAGE + ".shared.infrastructure.config.health.SigningServiceHealthIndicator",
                     BASE_PACKAGE + ".shared.infrastructure.config.health.SmtpHealthIndicator",
                     BASE_PACKAGE + ".shared.infrastructure.config.health.VerifierHealthIndicator",
