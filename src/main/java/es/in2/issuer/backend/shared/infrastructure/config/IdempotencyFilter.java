@@ -125,10 +125,15 @@ public class IdempotencyFilter implements WebFilter {
                 })
                 .flatMap(scopedKey -> scopedKey.isEmpty()
                         ? chain.filter(exchange)
-                        : readBody(exchange).flatMap(body -> body.isEmpty()
-                                ? payloadTooLarge(exchange)
-                                : handle(exchange, chain, scopedKey.get(), keyFingerprint, body.get(),
-                                        sha256Hex(body.get()), deadline())));
+                        : handleBody(exchange, chain, scopedKey.get(), keyFingerprint));
+    }
+
+    private Mono<Void> handleBody(ServerWebExchange exchange, WebFilterChain chain, String scopedKey,
+                                  String keyFingerprint) {
+        return readBody(exchange).flatMap(body -> body.isEmpty()
+                ? payloadTooLarge(exchange)
+                : handle(exchange, chain,
+                        new Attempt(scopedKey, keyFingerprint, sha256Hex(body.get()), deadline()), body.get()));
     }
 
     /** The instant, on the {@link System#nanoTime()} clock, after which a waiter answers 409. */
@@ -149,27 +154,25 @@ public class IdempotencyFilter implements WebFilter {
                 .onErrorResume(DataBufferLimitException.class, ex -> Mono.just(Optional.empty()));
     }
 
-    private Mono<Void> handle(ServerWebExchange exchange, WebFilterChain chain, String scopedKey,
-                              String keyFingerprint, byte[] bodyBytes, String bodyHash,
-                              long deadlineNanos) {
-        CachedResponse cached = cache.getIfPresent(scopedKey);
+    private Mono<Void> handle(ServerWebExchange exchange, WebFilterChain chain, Attempt attempt, byte[] bodyBytes) {
+        CachedResponse cached = cache.getIfPresent(attempt.scopedKey());
         if (cached != null) {
-            return replayOrConflict(exchange, cached, bodyHash, keyFingerprint);
+            return replayOrConflict(exchange, cached, attempt.bodyHash(), attempt.keyFingerprint());
         }
 
-        InFlight mine = new InFlight(bodyHash);
-        InFlight existing = inFlight.putIfAbsent(scopedKey, mine);
+        InFlight mine = new InFlight(attempt.bodyHash());
+        InFlight existing = inFlight.putIfAbsent(attempt.scopedKey(), mine);
         if (existing != null) {
-            return waitFor(exchange, chain, existing, scopedKey, keyFingerprint, bodyBytes, bodyHash, deadlineNanos);
+            return waitFor(exchange, chain, existing, attempt, bodyBytes);
         }
 
         // The previous owner may have finished between the lookup above and the reservation.
-        cached = cache.getIfPresent(scopedKey);
+        cached = cache.getIfPresent(attempt.scopedKey());
         if (cached != null) {
-            release(scopedKey, mine, Optional.of(cached));
-            return replayOrConflict(exchange, cached, bodyHash, keyFingerprint);
+            release(attempt.scopedKey(), mine, Optional.of(cached));
+            return replayOrConflict(exchange, cached, attempt.bodyHash(), attempt.keyFingerprint());
         }
-        return execute(exchange, chain, scopedKey, mine, bodyBytes);
+        return execute(exchange, chain, attempt.scopedKey(), mine, bodyBytes);
     }
 
     private Mono<Void> execute(ServerWebExchange exchange, WebFilterChain chain, String scopedKey,
@@ -206,23 +209,23 @@ public class IdempotencyFilter implements WebFilter {
     }
 
     private Mono<Void> waitFor(ServerWebExchange exchange, WebFilterChain chain, InFlight existing,
-                               String scopedKey, String keyFingerprint, byte[] bodyBytes, String bodyHash,
-                               long deadlineNanos) {
-        if (!existing.bodyHash.equals(bodyHash)) {
-            return keyReused(exchange, keyFingerprint);
+                               Attempt attempt, byte[] bodyBytes) {
+        if (!existing.bodyHash.equals(attempt.bodyHash())) {
+            return keyReused(exchange, attempt.keyFingerprint());
         }
-        log.info("Idempotency key {} in flight, waiting for the first request", keyFingerprint);
+        log.info("Idempotency key {} in flight, waiting for the first request", attempt.keyFingerprint());
         // The deadline is fixed when the request arrives and travels through every re-entry, so the
         // total wait never exceeds the configured timeout.
-        Duration remaining = Duration.ofNanos(deadlineNanos - System.nanoTime());
+        Duration remaining = Duration.ofNanos(attempt.deadlineNanos() - System.nanoTime());
         if (remaining.isNegative() || remaining.isZero()) {
-            return inProgress(exchange, keyFingerprint);
+            return inProgress(exchange, attempt.keyFingerprint());
         }
         return existing.outcome.asMono()
-                .timeout(remaining, Mono.defer(() -> inProgress(exchange, keyFingerprint)).then(Mono.empty()))
+                .timeout(remaining,
+                        Mono.defer(() -> inProgress(exchange, attempt.keyFingerprint())).then(Mono.empty()))
                 .flatMap(outcome -> outcome.isPresent()
-                        ? replayOrConflict(exchange, outcome.get(), bodyHash, keyFingerprint)
-                        : handle(exchange, chain, scopedKey, keyFingerprint, bodyBytes, bodyHash, deadlineNanos));
+                        ? replayOrConflict(exchange, outcome.get(), attempt.bodyHash(), attempt.keyFingerprint())
+                        : handle(exchange, chain, attempt, bodyBytes));
     }
 
     private Mono<Void> replayOrConflict(ServerWebExchange exchange, CachedResponse cached, String bodyHash,
@@ -275,7 +278,7 @@ public class IdempotencyFilter implements WebFilter {
         try {
             byte[] bytes = objectMapper.writeValueAsBytes(body);
             return response.writeWith(Mono.just(response.bufferFactory().wrap(bytes)));
-        } catch (Exception ex) {
+        } catch (Exception _) {
             return response.setComplete();
         }
     }
@@ -325,6 +328,12 @@ public class IdempotencyFilter implements WebFilter {
     }
 
     /**
+     * One idempotent request through the filter: its scoped cache key, the key's fingerprint for the logs,
+     * the hash of its body and the instant (on {@link System#nanoTime()}) after which a waiter answers 409.
+     */
+    private record Attempt(String scopedKey, String keyFingerprint, String bodyHash, long deadlineNanos) {}
+
+    /**
      * A cached response. The body is compared by content and never printed: it may hold a credential
      * offer or a directly-delivered signed credential.
      */
@@ -333,12 +342,13 @@ public class IdempotencyFilter implements WebFilter {
 
         @Override
         public boolean equals(Object other) {
-            return other instanceof CachedResponse that
-                    && Objects.equals(bodyHash, that.bodyHash)
-                    && Objects.equals(status, that.status)
-                    && Objects.equals(locationHeader, that.locationHeader)
-                    && Arrays.equals(body, that.body)
-                    && Objects.equals(contentType, that.contentType);
+            return other instanceof CachedResponse(var thatHash, var thatStatus, var thatLocation, var thatBody,
+                                                   var thatContentType)
+                    && Objects.equals(bodyHash, thatHash)
+                    && Objects.equals(status, thatStatus)
+                    && Objects.equals(locationHeader, thatLocation)
+                    && Arrays.equals(body, thatBody)
+                    && Objects.equals(contentType, thatContentType);
         }
 
         @Override
