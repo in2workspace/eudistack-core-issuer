@@ -31,7 +31,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.HexFormat;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -322,6 +324,32 @@ public class IdempotencyFilter implements WebFilter {
         }
     }
 
+    /**
+     * A cached response. The body is compared by content and never printed: it may hold a credential
+     * offer or a directly-delivered signed credential.
+     */
     private record CachedResponse(String bodyHash, HttpStatusCode status, String locationHeader, byte[] body,
-                                  MediaType contentType) {}
+                                  MediaType contentType) {
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof CachedResponse that
+                    && Objects.equals(bodyHash, that.bodyHash)
+                    && Objects.equals(status, that.status)
+                    && Objects.equals(locationHeader, that.locationHeader)
+                    && Arrays.equals(body, that.body)
+                    && Objects.equals(contentType, that.contentType);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * Objects.hash(bodyHash, status, locationHeader, contentType) + Arrays.hashCode(body);
+        }
+
+        @Override
+        public String toString() {
+            return "CachedResponse[status=" + status + ", body=" + (body == null ? 0 : body.length)
+                    + " bytes, redacted]";
+        }
+    }
 }
