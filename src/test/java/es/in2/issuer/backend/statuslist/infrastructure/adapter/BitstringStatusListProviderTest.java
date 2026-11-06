@@ -1311,8 +1311,8 @@ class BitstringStatusListProviderTest {
                 .verify();
 
 
-        // maxAttempts=5 -> 5 invocations
-        verify(statusListRepository, times(5)).updateSignedAndEncodedIfUnchanged(
+        // maxAttempts=3 (SEC-25) -> 3 invocations, each with its own signature
+        verify(statusListRepository, times(3)).updateSignedAndEncodedIfUnchanged(
                 TEST_LIST_ID,
                 "updatedEncodedList",
                 "jwt",

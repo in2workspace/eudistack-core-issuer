@@ -1,5 +1,7 @@
 package es.in2.issuer.backend.statuslist.application;
 
+import es.in2.issuer.backend.statuslist.domain.util.LogSanitizer;
+
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -26,21 +28,15 @@ public final class RevocationAuditDetails {
     /** Default truncation budget for third-party values sanitized only for a log line
      *  or audit detail (not a dedicated field like {@code reason}, which uses its own
      *  {@link #MAX_REASON_LENGTH}). */
-    public static final int MAX_LOG_VALUE_LENGTH = 200;
+    public static final int MAX_LOG_VALUE_LENGTH = LogSanitizer.MAX_VALUE_LENGTH;
 
     /** Marker substituted for {@code declaredTenant} when it fails {@link #TENANT_NAME_PATTERN}
      *  (F15, EUD-225 {@code /verify}) — the raw value never reaches the audit detail map;
      *  {@code declaredTenantSha256} preserves forensic correlation instead. */
     public static final String DECLARED_TENANT_NON_CONFORMING_MARKER = "non-conforming";
 
-    // F9 (EUD-225 /verify): \p{Cntrl} is ASCII-only in Java (ranges \x00-\x1F, \x7F) and
-    // misses Unicode line/paragraph separators that some log viewers and frameworks still
-    // treat as line breaks (NEL U+0085, LS U+2028, PS U+2029) -- the exact class of
-    // character this sanitizer exists to strip. Exposed (not just used internally) so
-    // RevocationInstructionMessageMapper's messageId charset check shares the exact same
-    // definition instead of an independently-maintained copy that could drift out of sync.
-    public static final Pattern FORBIDDEN_LOG_CHARS = Pattern.compile("[\\p{Cntrl}\\u0085\\u2028\\u2029]");
-    private static final Pattern CONTROL_CHARS = FORBIDDEN_LOG_CHARS;
+    /** Kept for the callers of the revocation-instruction queue: the definition lives in {@link LogSanitizer}. */
+    public static final Pattern FORBIDDEN_LOG_CHARS = LogSanitizer.FORBIDDEN_LOG_CHARS;
 
     // Same criterion as TenantDomainWebFilter's tenant name pattern, bounded to a
     // reasonable length -- a legitimate tenant identifier already has to satisfy this, so
@@ -92,52 +88,14 @@ public final class RevocationAuditDetails {
         return sanitize(reason, MAX_REASON_LENGTH);
     }
 
-    /**
-     * Strips control characters (including {@code \n}/{@code \r}) and truncates to
-     * {@code maxLength}. Shared by every place third-party message content (a declared
-     * tenantId, a messageId, exception text) reaches a log line or an audit detail on the
-     * revocation-instruction queue path (F1, EUD-225 {@code /verify}): a raw newline there
-     * could forge a second {@code AUDIT} log line that a downstream parser mistakes for a
-     * real record. {@code null} is returned as-is — callers decide their own fallback.
-     */
+    /** See {@link LogSanitizer#sanitize}. */
     public static String sanitize(String value, int maxLength) {
-        if (value == null) {
-            return null;
-        }
-        // CONTROL_CHARS already covers \n and \r. The literal replacements are there because CodeQL
-        // java/log-injection only recognizes those as removing line breaks, not a compiled Pattern.
-        String withoutLineBreaks = value.trim().replace("\n", "").replace("\r", "");
-        String normalized = CONTROL_CHARS.matcher(withoutLineBreaks).replaceAll("");
-        // Counted in code points: a UTF-16 cut could split a surrogate pair and drop a character
-        // that the reason's limit of 280 characters admits.
-        if (normalized.codePointCount(0, normalized.length()) <= maxLength) {
-            return normalized;
-        }
-        return normalized.substring(0, normalized.offsetByCodePoints(0, maxLength));
+        return LogSanitizer.sanitize(value, maxLength);
     }
 
-    // Same trigger set as AuditServiceImpl's private formatValue -- a value with none of
-    // these stays bare (readable, backward compatible); one with any is quoted and escaped.
-    private static final Pattern NEEDS_QUOTING = Pattern.compile("[\"=\\p{Cntrl}\\u0085\\u2028\\u2029]");
-
-    /**
-     * CodeQL {@code java/log-injection} (EUD-225 PR review): {@link #sanitize(String, int)}
-     * strips control characters (the newline/second-log-line vector) but leaves {@code =}
-     * untouched, so it does not stop a value from forging extra {@code key=value} fields in a
-     * plain {@code log.info}/{@code log.debug} line the way {@code AuditServiceImpl.formatValue}
-     * already does for the AUDIT sink (see the note on {@link #declaredTenantAuditFields}
-     * above -- this is the same gap, for {@link RevocationWorkflow}'s own non-audit log
-     * statements instead of the audit detail map). Quotes and escapes exactly like that sink;
-     * bare for the overwhelming majority (well-formed UUIDs, actor identifiers) that need
-     * neither.
-     */
+    /** See {@link LogSanitizer#quoteIfNeeded}: for the plain log lines of {@link RevocationWorkflow}. */
     public static String quoteIfNeeded(String value, int maxLength) {
-        String truncated = sanitize(value, maxLength);
-        if (truncated == null || !NEEDS_QUOTING.matcher(truncated).find()) {
-            return truncated;
-        }
-        String escaped = truncated.replace("\\", "\\\\").replace("\"", "\\\"");
-        return "\"" + escaped + "\"";
+        return LogSanitizer.quoteIfNeeded(value, maxLength);
     }
 
     /**

@@ -2,7 +2,7 @@ package es.in2.issuer.backend.statuslist.infrastructure.adapter;
 
 
 import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
-import es.in2.issuer.backend.statuslist.application.RevocationAuditDetails;
+import es.in2.issuer.backend.statuslist.domain.util.LogSanitizer;
 import es.in2.issuer.backend.statuslist.domain.util.factory.IssuerFactory;
 import es.in2.issuer.backend.statuslist.domain.exception.*;
 import es.in2.issuer.backend.statuslist.domain.factory.BitstringStatusListCredentialFactory;
@@ -147,7 +147,7 @@ public class BitstringStatusListProvider implements StatusListProvider {
         requireNonNullParam(statusChange, "statusChange");
 
         // The id reaches this method from the routes as the client sent it (CodeQL java/log-injection).
-        String safeIssuanceId = RevocationAuditDetails.quoteIfNeeded(issuanceId, RevocationAuditDetails.MAX_LOG_VALUE_LENGTH);
+        String safeIssuanceId = LogSanitizer.quoteIfNeeded(issuanceId, LogSanitizer.MAX_VALUE_LENGTH);
 
         log.debug("method=revoke step=START issuanceId={}", safeIssuanceId);
 
@@ -173,11 +173,14 @@ public class BitstringStatusListProvider implements StatusListProvider {
     private Mono<Void> revokeWithRetry(Long statusListId, Integer idx, String token, String publicIssuerBaseUrl, Mono<Void> statusChange) {
         log.debug("method=revokeWithRetry step=START statusListId={} idx={}", statusListId, idx);
 
-        long maxAttempts = 5;
+        // Each attempt asks the QTSP for a new signature of the list: three at most, with exponential
+        // backoff and jitter so that revocations racing on the same list spread out (SEC-25).
+        long maxAttempts = 3;
 
         return Mono.defer(() -> revokeOnce(statusListId, idx, token, publicIssuerBaseUrl, statusChange))
                 .retryWhen(
                         Retry.backoff(maxAttempts - 1, Duration.ofMillis(50))
+                                .jitter(0.5)
                                 .filter(OptimisticUpdateException.class::isInstance)
                                 .doBeforeRetry(rs ->
                                         log.debug(

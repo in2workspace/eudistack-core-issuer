@@ -6,6 +6,7 @@ import es.in2.issuer.backend.shared.domain.exception.IssuanceNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.TenantMismatchException;
 import es.in2.issuer.backend.shared.domain.exception.TenantNotResolvedException;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
+import es.in2.issuer.backend.statuslist.domain.util.LogSanitizer;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.statuslist.domain.exception.AlreadyRevokedException;
 import es.in2.issuer.backend.statuslist.domain.exception.InvalidRevocationRequestException;
@@ -133,10 +134,12 @@ public class RevocationExceptionHandler {
             Exception ex, ServerHttpRequest request, HttpStatusCode status, String type, String title, String detail,
             List<GlobalErrorMessage.FieldViolation> violations) {
         String instance = request.getPath().pathWithinApplication().value();
+        // The path comes as the client sent it: a '"' or an '=' would break the key=value line.
+        String loggedPath = LogSanitizer.quoteIfNeeded(instance, LogSanitizer.MAX_VALUE_LENGTH);
         if (status.is5xxServerError()) {
-            log.error("path={} status={} type={}", instance, status.value(), type, ex);
+            log.error("path={} status={} type={}", loggedPath, status.value(), type, ex);
         } else {
-            log.info("path={} status={} type={} ex={}", instance, status.value(), type, ex.getClass().getSimpleName());
+            log.info("path={} status={} type={} ex={}", loggedPath, status.value(), type, ex.getClass().getSimpleName());
         }
         GlobalErrorMessage body = new GlobalErrorMessage(type, title, status.value(), detail, instance, violations);
         return Mono.just(ResponseEntity.status(status).contentType(MediaType.APPLICATION_PROBLEM_JSON).body(body));
