@@ -3,6 +3,7 @@ package es.in2.issuer.backend.statuslist.infrastructure.controller;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.ECDSASigner;
@@ -70,6 +71,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -83,6 +85,7 @@ import static org.mockito.Mockito.when;
 class RevocationControllerIT {
 
     private static final String TENANT = "revtenant";
+    private static final String PLATFORM = "platform";
     private static final String CREDENTIAL_CONFIG_ID = "learcredential.employee.w3c.4";
     private static final String ORG = "ORG-A";
     private static final String BASE_URL = "https://issuer.example.com";
@@ -110,9 +113,10 @@ class RevocationControllerIT {
                     """);
             stmt.execute("""
                     INSERT INTO public.tenant_registry (schema_name, display_name, tenant_type, status)
-                    VALUES ('%s', 'Revocation tenant', 'multi_org', 'active')
+                    VALUES ('%s', 'Revocation tenant', 'multi_org', 'active'),
+                           ('%s', 'Platform', 'multi_org', 'active')
                     ON CONFLICT (schema_name) DO NOTHING
-                    """.formatted(TENANT));
+                    """.formatted(TENANT, PLATFORM));
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to seed tenant_registry", e);
         }
@@ -172,11 +176,13 @@ class RevocationControllerIT {
         when(emailService.sendCredentialStatusChangeNotification(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(Mono.empty());
         try (Connection conn = jdbc(); Statement stmt = conn.createStatement()) {
-            stmt.execute("""
-                    INSERT INTO %s%s.tenant_config (config_key, config_value)
-                    VALUES ('admin_organization_id', 'ADMIN-ORG-NONE')
-                    ON CONFLICT (config_key) DO NOTHING
-                    """.formatted(TENANT, SCHEMA_SUFFIX));
+            for (String tenant : List.of(TENANT, PLATFORM)) {
+                stmt.execute("""
+                        INSERT INTO %s%s.tenant_config (config_key, config_value)
+                        VALUES ('admin_organization_id', 'ADMIN-ORG-NONE')
+                        ON CONFLICT (config_key) DO NOTHING
+                        """.formatted(tenant, SCHEMA_SUFFIX));
+            }
         }
         audit = new ListAppender<>();
         audit.start();
@@ -198,6 +204,10 @@ class RevocationControllerIT {
     // ---------------------------------------------------------------- fixtures
 
     private Issuance seed(CredentialStatusEnum status, String org) {
+        return seed(status, org, TENANT);
+    }
+
+    private Issuance seed(CredentialStatusEnum status, String org, String tenant) {
         Issuance issuance = Issuance.builder()
                 .credentialFormat("jwt_vc_json")
                 .credentialDataSet("{\"credentialSubject\":{\"mandate\":{\"mandatee\":{\"employeeId\":\"E-77\"}}}}")
@@ -208,7 +218,7 @@ class RevocationControllerIT {
                 .email(HOLDER_EMAIL)
                 .delivery("email")
                 .build();
-        return issuancePort.insert(issuance).contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT)).block();
+        return issuancePort.insert(issuance).contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, tenant)).block();
     }
 
     /** A Valid attestation with its position reserved in a list, through the real allocation path. */
@@ -242,7 +252,13 @@ class RevocationControllerIT {
     }
 
     private String token(String org, List<Map<String, Object>> powers) throws Exception {
-        JWTClaimsSet claims = new JWTClaimsSet.Builder()
+        return token(org, powers, TENANT, Map.of());
+    }
+
+    /** A token the Verifier signs, with {@code extra} claims on top of (or replacing) the usual ones. */
+    private String token(String org, List<Map<String, Object>> powers, String tokenTenant,
+                         Map<String, Object> extra) throws Exception {
+        JWTClaimsSet.Builder builder = new JWTClaimsSet.Builder()
                 .issuer(issuerOrigin + "/verifier")
                 .subject("did:key:requester")
                 .issueTime(new Date())
@@ -250,8 +266,9 @@ class RevocationControllerIT {
                 .claim("credential_type", CREDENTIAL_CONFIG_ID)
                 .claim("mandator", Map.of("organizationIdentifier", org))
                 .claim("power", powers)
-                .claim("tenant", TENANT)
-                .build();
+                .claim("tenant", tokenTenant);
+        extra.forEach(builder::claim);
+        JWTClaimsSet claims = builder.build();
         SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.ES256).keyID(signingKey.getKeyID()).build(), claims);
         jwt.sign(new ECDSASigner(signingKey));
         return jwt.serialize();
@@ -266,11 +283,18 @@ class RevocationControllerIT {
     }
 
     private WebTestClient.ResponseSpec revoke(String bearer, Object id, String jsonBody) {
+        return revoke(bearer, id, jsonBody, TENANT, null);
+    }
+
+    private WebTestClient.ResponseSpec revoke(String bearer, Object id, String jsonBody, String tenant, String idToken) {
         WebTestClient.RequestBodySpec spec = client.post()
                 .uri("/issuer" + path(id))
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer)
-                .header(X_TENANT_HEADER, TENANT)
+                .header(X_TENANT_HEADER, tenant)
                 .accept(MediaType.APPLICATION_JSON);
+        if (idToken != null) {
+            spec = spec.header("X-ID-Token", idToken);
+        }
         return jsonBody == null
                 ? spec.exchange()
                 : spec.contentType(MediaType.APPLICATION_JSON).bodyValue(jsonBody).exchange();
@@ -382,6 +406,80 @@ class RevocationControllerIT {
         expectProblem(revoke(weak, unknown, "{\"reason\":\"x\"}"), 403, "insufficient_permission", unknown);
     }
 
+    @Test
+    void revoke_fromAnotherTenant_isTenantMismatch_whetherOrNotTheIdExists() throws Exception {
+        Issuance issuance = seed(CredentialStatusEnum.VALID, ORG);
+        UUID unknown = UUID.randomUUID();
+        String foreignTenant = token(ORG, List.of(Map.of("function", "Onboarding", "action", "Execute", "domain", TENANT, "type", "organization")),
+                "othertenant", Map.of());
+
+        expectProblem(revoke(foreignTenant, issuance), 403, "tenant_mismatch", issuance.getIssuanceId());
+        expectProblem(revoke(foreignTenant, unknown, "{\"reason\":\"x\"}"), 403, "tenant_mismatch", unknown);
+
+        assertThat(status(issuance)).isEqualTo(CredentialStatusEnum.VALID);
+    }
+
+    /** The platform administrator only reads from the platform tenant: revoking is denied, also for an id that exists. */
+    @Test
+    void revoke_platformSysAdminFromThePlatformTenant_isForbidden() throws Exception {
+        Issuance issuance = seed(CredentialStatusEnum.VALID, ORG, PLATFORM);
+        UUID unknown = UUID.randomUUID();
+        String sysAdmin = token(ORG, List.of(Map.of("function", "System", "action", List.of("Administration"), "domain", "EUDISTACK", "type", "organization")),
+                PLATFORM, Map.of());
+
+        expectProblem(revoke(sysAdmin, issuance.getIssuanceId(), "{\"reason\":\"x\"}", PLATFORM, null),
+                403, "insufficient_permission", issuance.getIssuanceId());
+        expectProblem(revoke(sysAdmin, unknown, "{\"reason\":\"x\"}", PLATFORM, null), 403, "insufficient_permission", unknown);
+
+        CredentialStatusEnum stored = issuancePort.findByIssuanceId(issuance.getIssuanceId())
+                .contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, PLATFORM))
+                .map(Issuance::getCredentialStatus)
+                .block();
+        assertThat(stored).isEqualTo(CredentialStatusEnum.VALID);
+    }
+
+    // ---------------------------------------------------------------- AC-02, AC-10 (actor)
+
+    /** A system revokes like a person, and the trace names it by the DID of its mandatee, not by its sub (an IP). */
+    @Test
+    void revoke_bySystem_answersNoContent_andTracesItsDid() throws Exception {
+        Issuance issuance = seedValidInList();
+        String system = token(ORG, List.of(Map.of("function", "Onboarding", "action", "Execute", "domain", TENANT, "type", "organization")),
+                TENANT, Map.of("sub", "127.0.0.1", "mandatee", Map.of("id", "did:key:zSystem", "ipAddress", "127.0.0.1")));
+
+        revoke(system, issuance).expectStatus().isNoContent().expectBody().isEmpty();
+
+        assertThat(status(issuance)).isEqualTo(CredentialStatusEnum.REVOKED);
+        assertThat(bit(issuance)).isTrue();
+        verify(auditService).auditSuccess(eq("credential.revoked"), eq("did:key:zSystem"), eq("credential"),
+                eq(issuance.getIssuanceId().toString()), any());
+    }
+
+    /**
+     * The X-ID-Token is read without checking its signature: one naming somebody else must not change the
+     * actor, which only the verified access token names.
+     */
+    @Test
+    void revoke_withAForgedIdToken_tracesTheActorOfTheAccessToken() throws Exception {
+        Issuance issuance = seedValidInList();
+        String forgedIdToken = unsigned(Map.of("email", "victim@example.com", "sub", "victim@example.com"));
+
+        revoke(operator(), issuance.getIssuanceId(), "{\"reason\":\"" + REASON + "\"}", TENANT, forgedIdToken)
+                .expectStatus().isNoContent();
+
+        String id = issuance.getIssuanceId().toString();
+        verify(auditService).auditAttempted(eq("credential.revoke.attempted"), eq("did:key:requester"), eq("credential"), eq(id), any());
+        verify(auditService).auditSuccess(eq("credential.revoked"), eq("did:key:requester"), eq("credential"), eq(id), any());
+        verify(auditService, never()).auditSuccess(eq("credential.revoked"), eq("victim@example.com"), any(), any(), any());
+    }
+
+    private static String unsigned(Map<String, Object> claims) throws Exception {
+        Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
+        String header = encoder.encodeToString("{\"alg\":\"none\",\"typ\":\"JWT\"}".getBytes(StandardCharsets.UTF_8));
+        String payload = encoder.encodeToString(new ObjectMapper().writeValueAsBytes(claims));
+        return header + "." + payload + ".not-a-signature";
+    }
+
     // ---------------------------------------------------------------- AC-06
 
     @Test
@@ -424,12 +522,16 @@ class RevocationControllerIT {
                 .bodyValue("{\"reason\":\"x\"}")
                 .exchange()
                 .expectStatus().isUnauthorized()
-                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON);
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("authentication_error")
+                .jsonPath("$.status").isEqualTo(401)
+                .jsonPath("$.instance").isEqualTo(path(issuance.getIssuanceId()));
 
         org.mockito.ArgumentCaptor<java.util.Map<String, Object>> details = org.mockito.ArgumentCaptor.captor();
         verify(auditService).auditFailure(org.mockito.ArgumentMatchers.eq("credential.revoke.failed"),
                 org.mockito.ArgumentMatchers.eq("anonymous"), org.mockito.ArgumentMatchers.anyString(), details.capture());
-        assertThat(details.getValue()).containsKeys("resourceId", "reason", "clientAddress");
+        assertThat(details.getValue()).containsKeys("resourceId", "reason", "declaredClientAddress");
     }
 
     // ---------------------------------------------------------------- AC-08
