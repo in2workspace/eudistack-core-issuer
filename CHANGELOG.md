@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (EUD-277)
+
+- **EUD-277 — `Location` on issuance creation.** `POST /api/v1/issuances` answers `200` and `207` with `Location: <public issuer URL>/api/v1/issuances/<id>` of the created process (absolute, because the API lives under `/issuer` and a relative reference would resolve without it). In a hybrid issuance (`direct` plus `ui` or `email`) it points to the OID4VCI process when that leg succeeded, and to the direct one otherwise. No `Location` on errors nor on the empty `202`. The JSON body does not change.
+
+### Fixed (EUD-277)
+
+- **EUD-277 — Idempotency of `POST /api/v1/issuances` never applied.** `IdempotencyFilter` compared the full request path (`/issuer/api/v1/issuances`, with the `spring.webflux.base-path`) with `/api/v1/issuances`, so it never acted and two requests with the same `X-Idempotency-Key` created two processes. It now compares the path within the application and acts only on `POST`; a repeated key replays the cached status, body and `Location`.
+  - The cache entry is now scoped to tenant, organization and the caller's own subject (`sub`, or `client_id`) read from the authenticated SecurityContext, and stores a SHA-256 of the request body: the same key with a different body answers `422` (`idempotency_key_reused`) instead of replaying. A concurrent duplicate waits for the first request and gets the same response and `Location`; if the first does not end in a 2xx the waiter goes through the chain, and after `issuer.api.idempotency-wait-timeout` (default `30s`) it answers `409` (`idempotency_in_progress`, `Retry-After: 1`). The idempotency key is no longer logged, only the first 8 hex characters of its SHA-256.
+  - The idempotency filter reads the body up to `issuer.api.max-payload-size` (the same limit as `PayloadSizeLimitFilter`) and answers `413` as `application/problem+json` (`payload_too_large`) beyond it, also for bodies without `Content-Length`. The total wait of a duplicate never exceeds `issuer.api.idempotency-wait-timeout`, even when it goes through the chain again.
+
 ### Fixed (EUD-307)
 
 - **EUD-307 — The issuances API answers as the public guides say.** Built on EUD-272, which already requires `Onboarding · Execute` of the tenant for the listing, the detail, withdrawing and archiving (`403 insufficient_permission`), and issues product certifications with `delivery: direct` without `X-Id-Token`.

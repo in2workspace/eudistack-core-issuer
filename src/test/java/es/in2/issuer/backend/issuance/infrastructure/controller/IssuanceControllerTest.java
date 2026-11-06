@@ -41,8 +41,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.reactive.server.WebTestClient;
@@ -516,6 +518,133 @@ class IssuanceControllerTest {
                 .expectBody().isEmpty();
     }
 
+
+    private static final String ISSUANCE_ID = "6f1c1c1e-5a0b-4d52-9d58-1f3b6f0d2a11";
+    private static final String OTHER_ISSUANCE_ID = "0b9a7c3e-8d1f-4a6e-b2c4-5e7f9a1b3c5d";
+
+    private WebTestClient.ResponseSpec postIssuance(IssuanceResponse workflowResponse) throws JsonProcessingException {
+        IssuanceRequest request = buildIssuanceRequest();
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL)))
+                .thenReturn(Mono.just(workflowResponse));
+        return webTestClient.mutateWith(csrf())
+                .post()
+                .uri(ISSUANCES_PATH)
+                .header("Authorization", BEARER_TOKEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(objectMapper.writeValueAsString(request))
+                .exchange();
+    }
+
+    private static String expectedLocation(String id) {
+        return PUBLIC_ISSUER_BASE_URL + ISSUANCES_PATH + "/" + id;
+    }
+
+    @Test
+    void createIssuance_Email_ReturnsLocationOfTheCreatedProcess() throws JsonProcessingException {
+        postIssuance(IssuanceResponse.builder()
+                .credentialOfferUri("openid-credential-offer://x")
+                .deliveryResults(List.of(DeliveryResult.dispatched("email")))
+                .issuanceId(ISSUANCE_ID)
+                .build())
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.LOCATION, expectedLocation(ISSUANCE_ID));
+    }
+
+    @Test
+    void createIssuance_Ui_ReturnsLocationOfTheCreatedProcess() throws JsonProcessingException {
+        postIssuance(IssuanceResponse.builder()
+                .credentialOfferUri("openid-credential-offer://x")
+                .deliveryResults(List.of(DeliveryResult.dispatched("ui")))
+                .issuanceId(ISSUANCE_ID)
+                .build())
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.LOCATION, expectedLocation(ISSUANCE_ID));
+    }
+
+    @Test
+    void createIssuance_Direct_ReturnsLocationOfTheCreatedProcess() throws JsonProcessingException {
+        postIssuance(IssuanceResponse.builder()
+                .signedCredential("signed-jwt")
+                .deliveryResults(List.of(DeliveryResult.delivered("direct")))
+                .issuanceId(ISSUANCE_ID)
+                .build())
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.LOCATION, expectedLocation(ISSUANCE_ID));
+    }
+
+    /** The workflow carries the OID4VCI process id when both legs succeeded (EC-08); the controller only echoes it. */
+    @Test
+    void createIssuance_HybridDirectAndUi_ReturnsLocationOfTheCarriedProcess() throws JsonProcessingException {
+        postIssuance(IssuanceResponse.builder()
+                .signedCredential("signed-jwt")
+                .credentialOfferUri("openid-credential-offer://x")
+                .deliveryResults(List.of(DeliveryResult.delivered("direct"), DeliveryResult.dispatched("ui")))
+                .issuanceId(OTHER_ISSUANCE_ID)
+                .build())
+                .expectStatus().isOk()
+                .expectHeader().valueEquals(HttpHeaders.LOCATION, expectedLocation(OTHER_ISSUANCE_ID));
+    }
+
+    @Test
+    void createIssuance_MixedOutcome207_ReturnsLocationOfTheSucceededProcess() throws JsonProcessingException {
+        postIssuance(IssuanceResponse.builder()
+                .signedCredential("signed-jwt")
+                .deliveryResults(List.of(
+                        DeliveryResult.delivered("direct"),
+                        DeliveryResult.failed("ui", DeliveryErrorCode.WALLET_DELIVERY_TIMEOUT.value())))
+                .issuanceId(ISSUANCE_ID)
+                .build())
+                .expectStatus().isEqualTo(HttpStatus.MULTI_STATUS)
+                .expectHeader().valueEquals(HttpHeaders.LOCATION, expectedLocation(ISSUANCE_ID));
+    }
+
+    @Test
+    void createIssuance_AllChannelsFailed_ReturnsNoLocation() throws JsonProcessingException {
+        postIssuance(IssuanceResponse.builder()
+                .deliveryResults(List.of(DeliveryResult.failed("email", DeliveryErrorCode.DELIVERY_FAILED.value())))
+                .issuanceId(ISSUANCE_ID)
+                .build())
+                .expectStatus().is5xxServerError()
+                .expectHeader().doesNotExist(HttpHeaders.LOCATION);
+    }
+
+    @Test
+    void createIssuance_WorkflowError_ReturnsNoLocation() throws JsonProcessingException {
+        IssuanceRequest request = buildIssuanceRequest();
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL)))
+                .thenReturn(Mono.error(new ResponseStatusException(HttpStatus.CONFLICT)));
+
+        webTestClient.mutateWith(csrf())
+                .post()
+                .uri(ISSUANCES_PATH)
+                .header("Authorization", BEARER_TOKEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(objectMapper.writeValueAsString(request))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.CONFLICT)
+                .expectHeader().doesNotExist(HttpHeaders.LOCATION);
+    }
+
+    @Test
+    void createIssuance_EmptyOutcome202_ReturnsNoLocation() throws JsonProcessingException {
+        postIssuance(IssuanceResponse.builder().issuanceId(ISSUANCE_ID).build())
+                .expectStatus().isAccepted()
+                .expectHeader().doesNotExist(HttpHeaders.LOCATION);
+    }
+
+    @Test
+    void createIssuance_BodyDoesNotSerializeTheProcessId() throws JsonProcessingException {
+        postIssuance(IssuanceResponse.builder()
+                .signedCredential("signed-jwt")
+                .deliveryResults(List.of(DeliveryResult.delivered("direct")))
+                .issuanceId(ISSUANCE_ID)
+                .build())
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .value(body -> assertThat(body).doesNotContain(ISSUANCE_ID));
+    }
 
     @Test
     void getAllIssuances_ReturnsIssuanceList() {

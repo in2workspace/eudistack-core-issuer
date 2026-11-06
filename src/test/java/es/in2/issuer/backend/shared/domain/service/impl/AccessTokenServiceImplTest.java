@@ -171,6 +171,27 @@ class AccessTokenServiceImplTest {
 
 
     @Test
+    void getSubjectFromCurrentSession_returnsSubOrClientId_andErrorsWhenAbsent() {
+        Jwt withSub = Jwt.withTokenValue("t").header("alg", "none").claim("sub", "subject-1").build();
+        Jwt withClientId = Jwt.withTokenValue("t").header("alg", "none").claim("client_id", "client-1").build();
+        Jwt withNone = Jwt.withTokenValue("t").header("alg", "none").claim("other", "x").build();
+
+        try (MockedStatic<ReactiveSecurityContextHolder> mockedContextHolder = mockStatic(ReactiveSecurityContextHolder.class)) {
+            mockedContextHolder.when(ReactiveSecurityContextHolder::getContext)
+                    .thenReturn(Mono.just(new SecurityContextImpl(new JwtAuthenticationToken(withSub))))
+                    .thenReturn(Mono.just(new SecurityContextImpl(new JwtAuthenticationToken(withClientId))))
+                    .thenReturn(Mono.just(new SecurityContextImpl(new JwtAuthenticationToken(withNone))));
+
+            StepVerifier.create(accessTokenServiceImpl.getSubjectFromCurrentSession())
+                    .expectNext("subject-1").verifyComplete();
+            StepVerifier.create(accessTokenServiceImpl.getSubjectFromCurrentSession())
+                    .expectNext("client-1").verifyComplete();
+            StepVerifier.create(accessTokenServiceImpl.getSubjectFromCurrentSession())
+                    .expectError(InvalidTokenException.class).verify();
+        }
+    }
+
+    @Test
     void testGetOrganizationIdFromCurrentSession_EmptyToken() {
         try (MockedStatic<ReactiveSecurityContextHolder> mockedContextHolder = mockStatic(ReactiveSecurityContextHolder.class)) {
             mockedContextHolder.when(ReactiveSecurityContextHolder::getContext)

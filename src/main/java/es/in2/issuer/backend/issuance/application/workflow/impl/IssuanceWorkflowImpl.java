@@ -302,7 +302,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         Mono<DirectDeliveryOutcome> directOutcome = hasDirect
                 ? performDirectIssuance(processId, request, bearerToken, publicIssuerBaseUrl, delivery, cnf)
                 .map(r -> new DirectDeliveryOutcome(r.signedCredential(),
-                        DeliveryResult.delivered(DeliveryMode.DIRECT.value), null))
+                        DeliveryResult.delivered(DeliveryMode.DIRECT.value), null, r.issuanceId()))
                 .doOnSuccess(outcome -> {
                     if (outcome != null) {
                         credentialIssuedLogger.logIssued(request.credentialConfigurationId());
@@ -367,7 +367,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
             String publicIssuerBaseUrl, String oid4vciDelivery, Map<String, Object> cnf) {
 
         return performOid4VciIssuance(processId, request, publicIssuerBaseUrl, oid4vciDelivery, cnf)
-                .map(r -> WalletDeliveryOutcome.success(r.credentialOfferUri(), oid4vciDelivery, r.emailError()))
+                .map(r -> WalletDeliveryOutcome.success(
+                        r.credentialOfferUri(), oid4vciDelivery, r.emailError(), r.issuanceId()))
                 .timeout(Duration.ofSeconds(issuanceProperties.hybridWalletTimeoutSeconds()))
                 .onErrorResume(ex -> {
                     log.warn("ProcessId: {} - Wallet delivery failed (isolated): {}", processId, ex.toString());
@@ -403,10 +404,15 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         }
         results.addAll(wallet.deliveryResults());
 
+        // Location points to a process whose channel succeeded; the OID4VCI process wins over the
+        // direct one when both did (EUD-277 EC-08).
+        String issuanceId = wallet.issuanceId() != null ? wallet.issuanceId() : direct.issuanceId();
+
         return IssuanceResponse.builder()
                 .signedCredential(direct.signedCredential())
                 .credentialOfferUri(wallet.credentialOfferUri())
                 .deliveryResults(results.isEmpty() ? null : results)
+                .issuanceId(issuanceId)
                 .build();
     }
 
@@ -415,26 +421,28 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
      * rather than threw. Kept apart from {@link IssuanceResponse} because a reported email failure is
      * per-mode detail, not a field of the API response.
      */
-    private record Oid4VciLegResult(String credentialOfferUri, String emailError) {}
+    private record Oid4VciLegResult(String credentialOfferUri, String emailError, String issuanceId) {}
 
     /**
      * Internal outcome of the direct path (not exposed in the API). {@code error} is the failure the
      * leg was isolated from, kept so it can be re-raised when no other mode delivered.
      */
-    private record DirectDeliveryOutcome(String signedCredential, DeliveryResult deliveryResult, Throwable error) {
+    private record DirectDeliveryOutcome(String signedCredential, DeliveryResult deliveryResult, Throwable error,
+                                         String issuanceId) {
         static DirectDeliveryOutcome empty() {
-            return new DirectDeliveryOutcome(null, null, null);
+            return new DirectDeliveryOutcome(null, null, null, null);
         }
 
         static DirectDeliveryOutcome failed(String detail, Throwable error) {
-            return new DirectDeliveryOutcome(null, DeliveryResult.failed(DeliveryMode.DIRECT.value, detail), error);
+            return new DirectDeliveryOutcome(null, DeliveryResult.failed(DeliveryMode.DIRECT.value, detail), error, null);
         }
     }
 
     /** Internal outcome of the wallet path — supports multi-mode CSV (email,ui). */
-    private record WalletDeliveryOutcome(String credentialOfferUri, List<DeliveryResult> deliveryResults) {
+    private record WalletDeliveryOutcome(String credentialOfferUri, List<DeliveryResult> deliveryResults,
+                                         String issuanceId) {
         static WalletDeliveryOutcome empty() {
-            return new WalletDeliveryOutcome(null, List.of());
+            return new WalletDeliveryOutcome(null, List.of(), null);
         }
 
         /**
@@ -442,7 +450,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
          * on the {@code email} mode alone and leaves {@code ui} dispatched, with its URI in the
          * response. Before this, both modes were reported failed and the URI was dropped.
          */
-        static WalletDeliveryOutcome success(String uri, String oid4vciDelivery, String emailError) {
+        static WalletDeliveryOutcome success(String uri, String oid4vciDelivery, String emailError,
+                                             String issuanceId) {
             List<DeliveryResult> results = Arrays.stream(oid4vciDelivery.split(","))
                     .map(String::trim)
                     .filter(s -> !s.isEmpty())
@@ -450,7 +459,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                             ? DeliveryResult.failed(mode, emailError)
                             : DeliveryResult.dispatched(mode))
                     .toList();
-            return new WalletDeliveryOutcome(uri, results);
+            return new WalletDeliveryOutcome(uri, results, issuanceId);
         }
 
         static WalletDeliveryOutcome failed(String oid4vciDelivery, String error) {
@@ -459,7 +468,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                     .filter(s -> !s.isEmpty())
                     .map(mode -> DeliveryResult.failed(mode, error))
                     .toList();
-            return new WalletDeliveryOutcome(null, results);
+            return new WalletDeliveryOutcome(null, results, null);
         }
     }
 
@@ -522,6 +531,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                                         .onErrorMap(DeliveryStageFailure.wrapUnlessAlready(DeliveryErrorCode.PERSISTENCE_FAILED))
                                                                         .thenReturn(IssuanceResponse.builder()
                                                                                 .signedCredential(signedCredential)
+                                                                                .issuanceId(issuanceId.toString())
                                                                                 .build());
                                                             });
                                                 })
@@ -586,7 +596,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                             oid4vciDelivery, saved.getCredentialOfferRefreshToken(),
                                             publicIssuerBaseUrl)
                                     .map(offerResult -> new Oid4VciLegResult(
-                                            offerResult.credentialOfferUri(), offerResult.emailError()))
+                                            offerResult.credentialOfferUri(), offerResult.emailError(),
+                                            saved.getIssuanceId().toString()))
                             );
                 });
     }
