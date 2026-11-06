@@ -18,6 +18,7 @@ import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceResponse;
 import es.in2.issuer.backend.issuance.infrastructure.config.properties.IssuanceProperties;
 import es.in2.issuer.backend.shared.domain.service.DeliveryEligibilityResolver;
+import es.in2.issuer.backend.shared.domain.model.catalog.CatalogEntry;
 import es.in2.issuer.backend.shared.domain.model.dto.*;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
@@ -30,6 +31,7 @@ import es.in2.issuer.backend.shared.domain.service.HolderDidFallbackAuditor;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
 import es.in2.issuer.backend.shared.domain.service.IssuancePayloadNormalizer;
 import es.in2.issuer.backend.shared.domain.service.PayloadSchemaValidator;
+import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.shared.domain.util.factory.GenericCredentialBuilder;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.config.IssuanceMetrics;
@@ -106,6 +108,7 @@ class IssuanceWorkflowImplTest {
     @Mock private DeliveryEligibilityResolver deliveryEligibilityResolver;
     @Mock private SchemaDeliveryCeiling schemaDeliveryCeiling;
     @Mock private HolderDidFallbackAuditor holderDidFallbackAuditor;
+    @Mock private TenantCredentialProfileService tenantCredentialProfileService;
 
     @Spy
     private IssuanceProperties issuanceProperties =
@@ -116,6 +119,8 @@ class IssuanceWorkflowImplTest {
 
     @BeforeEach
     void setUpDeliveryEligibility() {
+        // No catalog entry by default: the builder falls back to the type file (D9).
+        lenient().when(tenantCredentialProfileService.findEnabledEntry(anyString())).thenReturn(Mono.empty());
         // Identity by default: the normalizer has its own tests; here only the tests about what the
         // workflow does with its result override it.
         lenient().when(issuancePayloadNormalizer.normalize(anyString(), any()))
@@ -159,7 +164,7 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance("p", CONFIG_ID, profile.credentialType(), "VATES-INDICATED", payload))
                 .thenReturn(Mono.just(new IssuanceAuthorization(null, "VATES-INDICATED", List.of("E1", "E2"))));
-        when(genericCredentialBuilder.buildCredential(profile, payload))
+        when(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
@@ -210,7 +215,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 issuanceId.toString(), CONFIG_ID, AUTHORIZATION_CODE,
@@ -236,6 +241,34 @@ class IssuanceWorkflowImplTest {
     }
 
     @Test
+    void issueCredential_withEnabledCatalogEntry_buildsTheCredentialWithThatEntry() {
+        JsonNode payload = new ObjectMapper().createObjectNode().put("name", "Test");
+        UUID issuanceId = UUID.randomUUID();
+        IssuanceRequest request = new IssuanceRequest(CONFIG_ID, payload, "email", EMAIL, null);
+        CredentialProfile profile = profileWithoutCnf();
+        CatalogEntry entry = new CatalogEntry(CONFIG_ID, null, true, Set.of(DeliveryMode.EMAIL),
+                new CatalogEntry.Validity(30, false, null), null, List.of(), 0, null, null);
+        Issuance savedIssuance = Issuance.builder().issuanceId(issuanceId).credentialOfferRefreshToken("refresh-token-1").build();
+
+        when(tenantCredentialProfileService.findEnabledEntry(CONFIG_ID)).thenReturn(Mono.just(entry));
+        when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
+        when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
+        when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
+        when(genericCredentialBuilder.buildCredential(profile, payload, entry))
+                .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
+        when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
+        when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
+        when(issuanceMetrics.startTimer()).thenReturn(Timer.start(new SimpleMeterRegistry()));
+
+        StepVerifier.create(withTenant(workflow.issueCredential("p", request, BEARER_TOKEN, BASE_URL)))
+                .assertNext(response -> assertNotNull(response.credentialOfferUri()))
+                .verifyComplete();
+
+        verify(genericCredentialBuilder).buildCredential(profile, payload, entry);
+    }
+
+    @Test
     void executeShouldRejectUnknownCredentialType() {
         IssuanceRequest request = new IssuanceRequest("UnknownType", new ObjectMapper().createObjectNode(), null, EMAIL, null);
         when(credentialProfileRegistry.getByConfigurationId("UnknownType")).thenReturn(null);
@@ -257,7 +290,7 @@ class IssuanceWorkflowImplTest {
 
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
@@ -285,7 +318,7 @@ class IssuanceWorkflowImplTest {
         when(payloadSchemaValidator.validate(CONFIG_ID, normalized)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(eq("p"), eq(CONFIG_ID), eq(profile.credentialType()),
                 isNull(), eq(normalized))).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, normalized))
+        when(genericCredentialBuilder.buildCredential(profile, normalized, null))
                 .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
@@ -303,7 +336,7 @@ class IssuanceWorkflowImplTest {
         verify(payloadSchemaValidator).validate(CONFIG_ID, normalized);
         verify(powerAuthorizationService).authorizeIssuance(eq("p"), eq(CONFIG_ID), eq(profile.credentialType()),
                 isNull(), eq(normalized));
-        verify(genericCredentialBuilder).buildCredential(profile, normalized);
+        verify(genericCredentialBuilder).buildCredential(profile, normalized, null);
     }
 
     @Test
@@ -320,7 +353,7 @@ class IssuanceWorkflowImplTest {
         when(issuancePayloadNormalizer.normalize(CONFIG_ID, received)).thenReturn(normalized);
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, normalized)).thenReturn(Mono.empty());
-        when(genericCredentialBuilder.buildCredential(profile, normalized))
+        when(genericCredentialBuilder.buildCredential(profile, normalized, null))
                 .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
@@ -335,7 +368,7 @@ class IssuanceWorkflowImplTest {
                 .verifyComplete();
 
         verify(payloadSchemaValidator).validate(CONFIG_ID, normalized);
-        verify(genericCredentialBuilder).buildCredential(profile, normalized);
+        verify(genericCredentialBuilder).buildCredential(profile, normalized, null);
     }
 
     @Test
@@ -410,7 +443,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         // The direct leg dies where it actually died in production: reserving the status list entry.
@@ -452,7 +485,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
@@ -489,7 +522,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
@@ -531,7 +564,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
@@ -565,7 +598,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(oid4vciIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult(
@@ -602,7 +635,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(eq(StatusPurpose.REVOCATION), any(StatusListFormat.class),
@@ -639,7 +672,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(eq(StatusPurpose.REVOCATION), any(StatusListFormat.class),
@@ -682,7 +715,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(eq(StatusPurpose.REVOCATION), any(StatusListFormat.class),
@@ -787,7 +820,7 @@ class IssuanceWorkflowImplTest {
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
         when(deliveryEligibilityResolver.resolveEligibleModes(EXEMPT_CONFIG_ID))
                 .thenReturn(Mono.just(DeliveryMode.parse("direct,email,ui")));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(eq(StatusPurpose.REVOCATION), any(StatusListFormat.class),
@@ -855,7 +888,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(EXEMPT_CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(EXEMPT_CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 issuanceId.toString(), EXEMPT_CONFIG_ID, "authorization_code",
@@ -959,7 +992,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload))
+        when(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
@@ -994,7 +1027,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload))
+        when(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
@@ -1025,7 +1058,7 @@ class IssuanceWorkflowImplTest {
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
         when(deliveryEligibilityResolver.resolveEligibleModes(EXEMPT_CONFIG_ID))
                 .thenReturn(Mono.just(DeliveryMode.parse("direct,email,ui")));
-        when(genericCredentialBuilder.buildCredential(profile, payload))
+        when(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
@@ -1066,7 +1099,7 @@ class IssuanceWorkflowImplTest {
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
         when(deliveryEligibilityResolver.resolveEligibleModes(EXEMPT_CONFIG_ID))
                 .thenReturn(Mono.just(DeliveryMode.parse("direct,email,ui")));
-        when(genericCredentialBuilder.buildCredential(profile, payload))
+        when(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
@@ -1098,7 +1131,7 @@ class IssuanceWorkflowImplTest {
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
         when(deliveryEligibilityResolver.resolveEligibleModes(EXEMPT_CONFIG_ID))
                 .thenReturn(Mono.just(DeliveryMode.parse("direct,email,ui")));
-        when(genericCredentialBuilder.buildCredential(profile, payload))
+        when(genericCredentialBuilder.buildCredential(profile, payload, null))
                 .thenReturn(Mono.just(buildResult(Instant.now().minusSeconds(100))));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
@@ -1241,7 +1274,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         // Direct flow mocks
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
@@ -1293,7 +1326,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 eq(issuanceId.toString()), eq(CONFIG_ID), any(), eq(EMAIL), eq("ui"), eq("rt-ui"), eq(BASE_URL)))
@@ -1328,7 +1361,7 @@ class IssuanceWorkflowImplTest {
 
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
@@ -1354,7 +1387,7 @@ class IssuanceWorkflowImplTest {
 
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
@@ -1418,7 +1451,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
@@ -1447,7 +1480,7 @@ class IssuanceWorkflowImplTest {
 
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
@@ -1473,7 +1506,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(eq(StatusPurpose.REVOCATION), any(StatusListFormat.class),
@@ -1511,7 +1544,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(eq(StatusPurpose.REVOCATION), eq(StatusListFormat.BITSTRING_VC),
@@ -1550,7 +1583,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(eq(StatusPurpose.REVOCATION), eq(StatusListFormat.TOKEN_JWT),
@@ -1583,7 +1616,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 any(), eq(CONFIG_ID), eq("urn:ietf:params:oauth:grant-type:pre-authorized_code"),
@@ -1618,7 +1651,7 @@ class IssuanceWorkflowImplTest {
 
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.just(new CredentialOfferResult("openid-credential-offer://offer-uri", null)));
@@ -1650,7 +1683,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(eq(StatusPurpose.REVOCATION), eq(StatusListFormat.TOKEN_JWT),
@@ -1688,7 +1721,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 any(), any(), any(), any(), any(), any(), any()))
@@ -1716,7 +1749,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
@@ -1763,7 +1796,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
@@ -1805,7 +1838,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
@@ -1844,7 +1877,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
@@ -1872,7 +1905,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
@@ -1926,7 +1959,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
@@ -1960,7 +1993,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(eq(StatusPurpose.REVOCATION), any(), anyString(), anyString(), eq(BASE_URL)))
@@ -1994,7 +2027,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
@@ -2027,7 +2060,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
@@ -2064,7 +2097,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
@@ -2123,7 +2156,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
@@ -2168,7 +2201,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 issuanceId.toString(), CONFIG_ID, AUTHORIZATION_CODE,
@@ -2200,7 +2233,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(genericCredentialBuilder.bindIssuer(eq(profile), anyString(), anyString(), eq(EMAIL)))
                 .thenReturn(Mono.just("enriched-data-set"));
         when(statusListWorkflow.allocateEntry(any(), any(), anyString(), anyString(), eq(BASE_URL)))
@@ -2275,7 +2308,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(EXEMPT_CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(EXEMPT_CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 eq(issuanceId.toString()), eq(EXEMPT_CONFIG_ID), anyString(),
@@ -2314,7 +2347,7 @@ class IssuanceWorkflowImplTest {
         when(credentialProfileRegistry.getByConfigurationId(CONFIG_ID)).thenReturn(profile);
         when(payloadSchemaValidator.validate(CONFIG_ID, payload)).thenReturn(Mono.empty());
         when(powerAuthorizationService.authorizeIssuance(any(), any(), any(), any(), any())).thenReturn(Mono.just(ISSUANCE_AUTHORIZATION));
-        when(genericCredentialBuilder.buildCredential(profile, payload)).thenReturn(Mono.just(buildResult));
+        when(genericCredentialBuilder.buildCredential(profile, payload, null)).thenReturn(Mono.just(buildResult));
         when(issuanceService.saveIssuance(any(Issuance.class))).thenReturn(Mono.just(savedIssuance));
         when(credentialOfferService.createAndDeliverCredentialOffer(
                 eq(issuanceId.toString()), eq(CONFIG_ID), anyString(),

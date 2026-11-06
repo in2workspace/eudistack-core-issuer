@@ -15,4 +15,12 @@ public interface CallerProvider {
 
     /** Caller of an access token (raw, without the {@code Bearer} prefix). */
     Mono<Caller> fromToken(String token);
+
+    /**
+     * The person (or system) behind the current request, as the verified access token names it: the
+     * mandatee's email of the attestation or, without one, the token's {@code sub}. Never read from the
+     * {@code X-ID-Token}, whose signature the issuer does not verify, so an audit trail built on it cannot
+     * name somebody else. Empty when the request has no verified access token or it names nobody.
+     */
+    Mono<String> currentPerson();
 }
