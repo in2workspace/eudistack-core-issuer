@@ -11,7 +11,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.util.StoredCertificateInfo;
 import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
-import es.in2.issuer.backend.signing.infrastructure.adapter.KmsOwnKeySigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.AwsKmsSigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningAuditor;
 import es.in2.issuer.backend.signing.infrastructure.kms.KmsSigningTiming;
 import lombok.extern.slf4j.Slf4j;
@@ -41,7 +41,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  * reported as {@code PROVIDER_UNAVAILABLE} and not cut short. QTSP
  * tenants are skipped: no QTSP is called at startup. A tenant without an active configuration, of
  * either modality, is reported as {@code NO_CONFIGURATION}: it cannot issue anything. The probe goes
- * through {@link KmsOwnKeySigningProvider}, which verifies the signature against the certificate.
+ * through {@link AwsKmsSigningProvider}, which verifies the signature against the certificate.
  * The probe payload and the signature are never logged. Each own-key tenant's outcome is also
  * recorded in the audit trail (event {@code signing.self_test}). A signing certificate that expires
  * within {@link #CERTIFICATE_EXPIRY_WARNING} is logged as a warning: from its expiry the issuer refuses
@@ -63,7 +63,7 @@ public class OwnKeySigningSelfTest {
 
     private final TenantRegistryService tenantRegistryService;
     private final TenantSigningConfigService tenantSigningConfigService;
-    private final KmsOwnKeySigningProvider kmsOwnKeySigningProvider;
+    private final AwsKmsSigningProvider awsKmsSigningProvider;
     private final SigningAuditor signingAuditor;
     private final Clock clock;
     private final Duration tenantTimeout;
@@ -71,23 +71,23 @@ public class OwnKeySigningSelfTest {
     @Autowired
     public OwnKeySigningSelfTest(TenantRegistryService tenantRegistryService,
                                  TenantSigningConfigService tenantSigningConfigService,
-                                 KmsOwnKeySigningProvider kmsOwnKeySigningProvider,
+                                 AwsKmsSigningProvider awsKmsSigningProvider,
                                  SigningAuditor signingAuditor,
                                  Clock clock) {
-        this(tenantRegistryService, tenantSigningConfigService, kmsOwnKeySigningProvider, signingAuditor, clock,
+        this(tenantRegistryService, tenantSigningConfigService, awsKmsSigningProvider, signingAuditor, clock,
                 TENANT_TIMEOUT);
     }
 
     /** For tests: another timeout per tenant. */
     OwnKeySigningSelfTest(TenantRegistryService tenantRegistryService,
                           TenantSigningConfigService tenantSigningConfigService,
-                          KmsOwnKeySigningProvider kmsOwnKeySigningProvider,
+                          AwsKmsSigningProvider awsKmsSigningProvider,
                           SigningAuditor signingAuditor,
                           Clock clock,
                           Duration tenantTimeout) {
         this.tenantRegistryService = tenantRegistryService;
         this.tenantSigningConfigService = tenantSigningConfigService;
-        this.kmsOwnKeySigningProvider = kmsOwnKeySigningProvider;
+        this.awsKmsSigningProvider = awsKmsSigningProvider;
         this.signingAuditor = signingAuditor;
         this.clock = clock;
         this.tenantTimeout = tenantTimeout;
@@ -156,7 +156,7 @@ public class OwnKeySigningSelfTest {
                 .typ(PROBE_TYP)
                 .ownKey(config.ownKey())
                 .build();
-        return kmsOwnKeySigningProvider.sign(request);
+        return awsKmsSigningProvider.sign(request);
     }
 
     private void warnIfExpiringSoon(String tenant, ActiveSigningConfig config) {

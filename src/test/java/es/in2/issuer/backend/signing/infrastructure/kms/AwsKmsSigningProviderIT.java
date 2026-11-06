@@ -11,7 +11,7 @@ import es.in2.issuer.backend.signing.domain.service.impl.HashGeneratorServiceImp
 import es.in2.issuer.backend.signing.domain.service.impl.JadesHeaderBuilderServiceImpl;
 import es.in2.issuer.backend.signing.domain.spi.KmsSigningPort;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
-import es.in2.issuer.backend.signing.infrastructure.adapter.KmsOwnKeySigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.AwsKmsSigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningProperties;
 import es.in2.issuer.backend.signing.infrastructure.properties.KmsSigningProperties;
 import org.junit.jupiter.api.AfterAll;
@@ -47,7 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * provider returns must verify with the KMS public key.
  */
 @Testcontainers
-class KmsOwnKeySigningProviderIT {
+class AwsKmsSigningProviderIT {
 
     private static final DockerImageName LOCALSTACK_IMAGE = DockerImageName.parse("localstack/localstack:4.14.0");
 
@@ -87,7 +87,7 @@ class KmsOwnKeySigningProviderIT {
         var config = new OwnKeySigningConfig(keyId, "ES256",
                 List.of(Base64.getEncoder().encodeToString(certificate.getEncoded())));
 
-        var provider = new KmsOwnKeySigningProvider(adapter,
+        var provider = new AwsKmsSigningProvider(adapter,
                 new JadesHeaderBuilderServiceImpl(new ObjectMapper()),
                 new HashGeneratorServiceImpl(),
                 new CscSigningProperties(JadesProfile.JADES_B_T),

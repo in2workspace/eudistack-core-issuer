@@ -13,7 +13,7 @@ import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
-import es.in2.issuer.backend.signing.infrastructure.adapter.KmsOwnKeySigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.AwsKmsSigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.adapter.SigningAuditor;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
 import es.in2.issuer.backend.signing.domain.util.SigningFailureReasons;
@@ -51,7 +51,7 @@ class OwnKeySigningSelfTestTest {
 
     private final TenantRegistryService registry = mock(TenantRegistryService.class);
     private final TenantSigningConfigService configService = mock(TenantSigningConfigService.class);
-    private final KmsOwnKeySigningProvider kmsProvider = mock(KmsOwnKeySigningProvider.class);
+    private final AwsKmsSigningProvider kmsProvider = mock(AwsKmsSigningProvider.class);
     private final SigningAuditor auditor = mock(SigningAuditor.class);
     private final Logger logger = (Logger) LoggerFactory.getLogger(OwnKeySigningSelfTest.class);
     private final ListAppender<ILoggingEvent> logs = new ListAppender<>();

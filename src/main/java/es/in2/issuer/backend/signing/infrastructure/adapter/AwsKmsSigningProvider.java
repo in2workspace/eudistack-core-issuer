@@ -53,7 +53,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class KmsOwnKeySigningProvider implements SigningProvider {
+public class AwsKmsSigningProvider implements SigningProvider {
 
     private static final String UNKNOWN_TENANT = "unknown";
 

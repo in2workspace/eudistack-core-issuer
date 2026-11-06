@@ -44,7 +44,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 import static org.assertj.core.api.Assertions.assertThat;
 
-class KmsOwnKeySigningProviderTest {
+class AwsKmsSigningProviderTest {
 
     private static final String KEY_REF = "arn:aws:kms:eu-west-1:111122223333:key/own-key";
     private static final Clock NOW = Clock.fixed(Instant.parse("2026-06-01T00:00:00Z"), ZoneOffset.UTC);
@@ -77,8 +77,8 @@ class KmsOwnKeySigningProviderTest {
     }
 
     private FakeKms kms;
-    private KmsOwnKeySigningProvider provider;
-    private final Logger providerLogger = (Logger) LoggerFactory.getLogger(KmsOwnKeySigningProvider.class);
+    private AwsKmsSigningProvider provider;
+    private final Logger providerLogger = (Logger) LoggerFactory.getLogger(AwsKmsSigningProvider.class);
     private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
 
     @BeforeEach
@@ -96,7 +96,7 @@ class KmsOwnKeySigningProviderTest {
 
     /** Signs as the request of tenant {@value #TENANT}: the tenant of the request comes from the Reactor context. */
     private static Mono<SigningResult> signInTenant(
-            KmsOwnKeySigningProvider provider, SigningRequest request) {
+            AwsKmsSigningProvider provider, SigningRequest request) {
         return provider.sign(request).contextWrite(ctx -> ctx.put(TENANT_DOMAIN_CONTEXT_KEY, TENANT));
     }
 
@@ -106,8 +106,8 @@ class KmsOwnKeySigningProviderTest {
                 .ownKey(config).build();
     }
 
-    private static KmsOwnKeySigningProvider providerWith(KmsSigningPort port, Clock clock) {
-        return new KmsOwnKeySigningProvider(port,
+    private static AwsKmsSigningProvider providerWith(KmsSigningPort port, Clock clock) {
+        return new AwsKmsSigningProvider(port,
                 new JadesHeaderBuilderServiceImpl(new ObjectMapper()),
                 new HashGeneratorServiceImpl(),
                 new CscSigningProperties(JadesProfile.JADES_B_T),

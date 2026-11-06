@@ -15,7 +15,7 @@ import es.in2.issuer.backend.signing.domain.spi.KmsSigningPort;
 import es.in2.issuer.backend.signing.domain.spi.OwnKeyCertificatePort;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyCertificates;
 import es.in2.issuer.backend.signing.domain.util.OwnKeyTestPki;
-import es.in2.issuer.backend.signing.infrastructure.adapter.KmsOwnKeySigningProvider;
+import es.in2.issuer.backend.signing.infrastructure.adapter.AwsKmsSigningProvider;
 import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningProperties;
 import es.in2.issuer.backend.signing.infrastructure.properties.KmsSigningProperties;
 import es.in2.issuer.backend.signing.infrastructure.properties.OwnKeyCertificateProperties;
@@ -125,7 +125,7 @@ class OwnKeySigningFromS3IT {
                 .load(TENANT).block(Duration.ofSeconds(30));
 
         KmsSigningPort adapter = new KmsSigningAdapter(() -> kms);
-        var provider = new KmsOwnKeySigningProvider(adapter,
+        var provider = new AwsKmsSigningProvider(adapter,
                 new JadesHeaderBuilderServiceImpl(new ObjectMapper()),
                 new HashGeneratorServiceImpl(),
                 new CscSigningProperties(JadesProfile.JADES_B_T),
