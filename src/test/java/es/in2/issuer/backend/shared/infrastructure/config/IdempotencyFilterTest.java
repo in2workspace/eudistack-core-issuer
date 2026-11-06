@@ -8,6 +8,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -23,17 +24,22 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
 import org.slf4j.LoggerFactory;
+import reactor.core.Disposable;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static es.in2.issuer.backend.shared.domain.util.EndpointsConstants.ISSUANCES_PATH;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.lenient;
@@ -68,7 +74,11 @@ class IdempotencyFilterTest {
     }
 
     private IdempotencyFilter newFilter(Duration waitTimeout) {
-        return new IdempotencyFilter(3600, waitTimeout, issuanceMetrics, accessTokenService,
+        return newFilter(waitTimeout, 262144);
+    }
+
+    private IdempotencyFilter newFilter(Duration waitTimeout, long maxPayloadBytes) {
+        return new IdempotencyFilter(3600, waitTimeout, maxPayloadBytes, issuanceMetrics, accessTokenService,
                 new ErrorResponseFactory(), new ObjectMapper());
     }
 
@@ -426,7 +436,7 @@ class IdempotencyFilterTest {
         assertEquals(HttpStatus.CONFLICT, second.getResponse().getStatusCode());
         assertEquals("1", second.getResponse().getHeaders().getFirst("Retry-After"));
         assertEquals(MediaType.APPLICATION_PROBLEM_JSON, second.getResponse().getHeaders().getContentType());
-        assertTrue(readBody(second).contains("\"type\":\"idempotency_request_in_progress\""));
+        assertTrue(readBody(second).contains("\"type\":\"idempotency_in_progress\""));
         assertEquals(1, invocations.get());
         gate.tryEmitEmpty();
         f1.get(5, TimeUnit.SECONDS);
@@ -446,5 +456,135 @@ class IdempotencyFilterTest {
         StepVerifier.create(filter.filter(second, chain)).verifyComplete();
 
         assertEquals(2, invocations.get());
+    }
+
+    /** Chain that reads the request body into {@code seen}; the first run waits for the gate. */
+    private WebFilterChain bodyReadingChain(AtomicInteger invocations, Sinks.Empty<Void> gate,
+                                            List<byte[]> seen, HttpStatus firstStatus) {
+        return exchange -> {
+            int n = invocations.incrementAndGet();
+            return DataBufferUtils.join(exchange.getRequest().getBody())
+                    .map(buffer -> {
+                        byte[] bytes = new byte[buffer.readableByteCount()];
+                        buffer.read(bytes);
+                        DataBufferUtils.release(buffer);
+                        return bytes;
+                    })
+                    .doOnNext(seen::add)
+                    .then(n == 1 ? gate.asMono() : Mono.<Void>empty())
+                    .then(Mono.defer(() -> {
+                        exchange.getResponse().setStatusCode(n == 1 ? firstStatus : HttpStatus.OK);
+                        return exchange.getResponse().setComplete();
+                    }));
+        };
+    }
+
+    private static MockServerWebExchange postChunked(String key, byte[]... chunks) {
+        DefaultDataBufferFactory factory = new DefaultDataBufferFactory();
+        Flux<DataBuffer> body = Flux.fromArray(chunks).map(factory::wrap);
+        return MockServerWebExchange.from(MockServerHttpRequest.post(ISSUANCES_PATH)
+                .header(IDEMPOTENCY_HEADER, key)
+                .body(body));
+    }
+
+    @Test
+    void theChainReadsTheOriginalBody_onTheFirstExecution() {
+        List<byte[]> seen = new CopyOnWriteArrayList<>();
+        Sinks.Empty<Void> openGate = Sinks.empty();
+        openGate.tryEmitEmpty();
+        WebFilterChain chain = bodyReadingChain(new AtomicInteger(), openGate, seen, HttpStatus.OK);
+        byte[] original = BODY.getBytes(StandardCharsets.UTF_8);
+
+        StepVerifier.create(filter.filter(
+                postChunked("key-body-first", original), chain)).verifyComplete();
+
+        assertEquals(1, seen.size());
+        assertArrayEquals(original, seen.get(0));
+    }
+
+    @Test
+    void theChainReadsTheOriginalBody_whenAWaiterReentersAfterTheFirstFailed() throws Exception {
+        AtomicInteger invocations = new AtomicInteger();
+        Sinks.Empty<Void> gate = Sinks.empty();
+        List<byte[]> seen = new CopyOnWriteArrayList<>();
+        WebFilterChain chain = bodyReadingChain(invocations, gate, seen, HttpStatus.INTERNAL_SERVER_ERROR);
+        byte[] original = BODY.getBytes(StandardCharsets.UTF_8);
+
+        CompletableFuture<Void> f1 = filter.filter(postChunked("key-body-reenter", original), chain).toFuture();
+        CompletableFuture<Void> f2 = filter.filter(postChunked("key-body-reenter", original), chain).toFuture();
+        gate.tryEmitEmpty();
+        f1.get(5, TimeUnit.SECONDS);
+        f2.get(5, TimeUnit.SECONDS);
+
+        assertEquals(2, invocations.get());
+        assertEquals(2, seen.size());
+        assertArrayEquals(original, seen.get(0));
+        assertArrayEquals(original, seen.get(1));
+    }
+
+    @Test
+    void bodyOverTheLimit_answers413ProblemJson_andDoesNotCallTheChain() {
+        filter = newFilter(Duration.ofSeconds(30), 16);
+        AtomicInteger invocations = new AtomicInteger();
+        WebFilterChain chain = writingChain(invocations);
+        // Two chunks and no Content-Length: only the filter's own limit can trigger.
+        MockServerWebExchange exchange = postChunked("key-too-large",
+                "0123456789".getBytes(StandardCharsets.UTF_8), "0123456789".getBytes(StandardCharsets.UTF_8));
+
+        StepVerifier.create(filter.filter(exchange, chain)).verifyComplete();
+
+        assertEquals(HttpStatus.PAYLOAD_TOO_LARGE, exchange.getResponse().getStatusCode());
+        assertEquals(MediaType.APPLICATION_PROBLEM_JSON, exchange.getResponse().getHeaders().getContentType());
+        assertTrue(readBody(exchange).contains("\"type\":\"payload_too_large\""));
+        assertEquals(0, invocations.get());
+    }
+
+    @Test
+    void cancellingTheFirstRequest_releasesTheReservation() throws Exception {
+        AtomicInteger invocations = new AtomicInteger();
+        Sinks.Empty<Void> gate = Sinks.empty();
+        WebFilterChain chain = gatedChain(invocations, gate, HttpStatus.OK);
+
+        Disposable first = filter.filter(post("key-cancel", BODY), chain).subscribe();
+        assertEquals(1, invocations.get());
+        first.dispose();
+
+        MockServerWebExchange second = post("key-cancel", BODY);
+        filter.filter(second, chain).toFuture().get(5, TimeUnit.SECONDS);
+
+        assertEquals(2, invocations.get());
+        assertEquals(HttpStatus.OK, second.getResponse().getStatusCode());
+    }
+
+    @Test
+    void theTotalWaitNeverExceedsTheTimeout_whenAWaiterReentersAndWaitsAgain() throws Exception {
+        filter = newFilter(Duration.ofMillis(600));
+        AtomicInteger invocations = new AtomicInteger();
+        Sinks.Empty<Void> firstGate = Sinks.empty();
+        // The 1st run fails after its gate; the 2nd run (the first waiter re-entering) never ends.
+        WebFilterChain chain = exchange -> {
+            int n = invocations.incrementAndGet();
+            if (n == 2) {
+                return Mono.never();
+            }
+            return firstGate.asMono().then(Mono.defer(() -> {
+                exchange.getResponse().setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
+                return exchange.getResponse().setComplete();
+            }));
+        };
+
+        long start = System.nanoTime();
+        CompletableFuture<Void> f1 = filter.filter(post("key-deadline", BODY), chain).toFuture();
+        filter.filter(post("key-deadline", BODY), chain).subscribe();
+        MockServerWebExchange third = post("key-deadline", BODY);
+        CompletableFuture<Void> f3 = filter.filter(third, chain).toFuture();
+        Mono.delay(Duration.ofMillis(400)).subscribe(t -> firstGate.tryEmitEmpty());
+        f1.get(5, TimeUnit.SECONDS);
+        f3.get(5, TimeUnit.SECONDS);
+        long elapsedMillis = Duration.ofNanos(System.nanoTime() - start).toMillis();
+
+        assertEquals(HttpStatus.CONFLICT, third.getResponse().getStatusCode());
+        // Without a shared deadline the third request would wait 400 ms + 600 ms again.
+        assertTrue(elapsedMillis < 900, "waited " + elapsedMillis + " ms");
     }
 }

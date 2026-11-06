@@ -19,7 +19,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequestDecorator;
 import org.springframework.http.server.reactive.ServerHttpResponseDecorator;
 import org.springframework.stereotype.Component;
-import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
@@ -53,27 +52,30 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.X_TENANT_HEADER
 public class IdempotencyFilter implements WebFilter {
 
     static final String KEY_REUSED_TYPE = "idempotency_key_reused";
-    static final String IN_PROGRESS_TYPE = "idempotency_request_in_progress";
+    static final String IN_PROGRESS_TYPE = "idempotency_in_progress";
+    static final String PAYLOAD_TOO_LARGE_TYPE = "payload_too_large";
 
     private static final String IDEMPOTENCY_HEADER = "X-Idempotency-Key";
-    private static final int MAX_BODY_BYTES = 1024 * 1024;
 
     private final IssuanceMetrics issuanceMetrics;
     private final AccessTokenService accessTokenService;
     private final ErrorResponseFactory errors;
     private final ObjectMapper objectMapper;
     private final Duration waitTimeout;
+    private final int maxBodyBytes;
     private final Cache<String, CachedResponse> cache;
     private final ConcurrentMap<String, InFlight> inFlight = new ConcurrentHashMap<>();
 
     public IdempotencyFilter(
             @Value("${issuer.api.idempotency-ttl-seconds:3600}") long ttlSeconds,
             @Value("${issuer.api.idempotency-wait-timeout:30s}") Duration waitTimeout,
+            @Value("${issuer.api.max-payload-size:262144}") long maxPayloadBytes,
             IssuanceMetrics issuanceMetrics,
             AccessTokenService accessTokenService,
             ErrorResponseFactory errors,
             ObjectMapper objectMapper) {
         this.waitTimeout = waitTimeout;
+        this.maxBodyBytes = (int) Math.min(maxPayloadBytes, Integer.MAX_VALUE);
         this.issuanceMetrics = issuanceMetrics;
         this.accessTokenService = accessTokenService;
         this.errors = errors;
@@ -121,25 +123,33 @@ public class IdempotencyFilter implements WebFilter {
                 })
                 .flatMap(scopedKey -> scopedKey.isEmpty()
                         ? chain.filter(exchange)
-                        : readBody(exchange).flatMap(bytes -> handle(
-                                exchange, chain, scopedKey.get(), keyFingerprint, bytes, sha256Hex(bytes))));
+                        : readBody(exchange).flatMap(body -> body.isEmpty()
+                                ? payloadTooLarge(exchange)
+                                : handle(exchange, chain, scopedKey.get(), keyFingerprint, body.get(),
+                                        sha256Hex(body.get()), deadline())));
     }
 
-    private Mono<byte[]> readBody(ServerWebExchange exchange) {
-        return DataBufferUtils.join(exchange.getRequest().getBody(), MAX_BODY_BYTES)
+    /** The instant, on the {@link System#nanoTime()} clock, after which a waiter answers 409. */
+    private long deadline() {
+        return System.nanoTime() + waitTimeout.toNanos();
+    }
+
+    /** The body bytes, or empty when the body exceeds the API payload limit. */
+    private Mono<Optional<byte[]>> readBody(ServerWebExchange exchange) {
+        return DataBufferUtils.join(exchange.getRequest().getBody(), maxBodyBytes)
                 .map(dataBuffer -> {
                     byte[] bytes = new byte[dataBuffer.readableByteCount()];
                     dataBuffer.read(bytes);
                     DataBufferUtils.release(dataBuffer);
-                    return bytes;
+                    return Optional.of(bytes);
                 })
-                .defaultIfEmpty(new byte[0])
-                .onErrorMap(DataBufferLimitException.class,
-                        ex -> new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE));
+                .defaultIfEmpty(Optional.of(new byte[0]))
+                .onErrorResume(DataBufferLimitException.class, ex -> Mono.just(Optional.empty()));
     }
 
     private Mono<Void> handle(ServerWebExchange exchange, WebFilterChain chain, String scopedKey,
-                              String keyFingerprint, byte[] bodyBytes, String bodyHash) {
+                              String keyFingerprint, byte[] bodyBytes, String bodyHash,
+                              long deadlineNanos) {
         CachedResponse cached = cache.getIfPresent(scopedKey);
         if (cached != null) {
             return replayOrConflict(exchange, cached, bodyHash, keyFingerprint);
@@ -148,7 +158,7 @@ public class IdempotencyFilter implements WebFilter {
         InFlight mine = new InFlight(bodyHash);
         InFlight existing = inFlight.putIfAbsent(scopedKey, mine);
         if (existing != null) {
-            return waitFor(exchange, chain, existing, scopedKey, keyFingerprint, bodyBytes, bodyHash);
+            return waitFor(exchange, chain, existing, scopedKey, keyFingerprint, bodyBytes, bodyHash, deadlineNanos);
         }
 
         // The previous owner may have finished between the lookup above and the reservation.
@@ -194,16 +204,23 @@ public class IdempotencyFilter implements WebFilter {
     }
 
     private Mono<Void> waitFor(ServerWebExchange exchange, WebFilterChain chain, InFlight existing,
-                               String scopedKey, String keyFingerprint, byte[] bodyBytes, String bodyHash) {
+                               String scopedKey, String keyFingerprint, byte[] bodyBytes, String bodyHash,
+                               long deadlineNanos) {
         if (!existing.bodyHash.equals(bodyHash)) {
             return keyReused(exchange, keyFingerprint);
         }
         log.info("Idempotency key {} in flight, waiting for the first request", keyFingerprint);
+        // The deadline is fixed when the request arrives and travels through every re-entry, so the
+        // total wait never exceeds the configured timeout.
+        Duration remaining = Duration.ofNanos(deadlineNanos - System.nanoTime());
+        if (remaining.isNegative() || remaining.isZero()) {
+            return inProgress(exchange, keyFingerprint);
+        }
         return existing.outcome.asMono()
-                .timeout(waitTimeout, Mono.defer(() -> inProgress(exchange, keyFingerprint)).then(Mono.empty()))
+                .timeout(remaining, Mono.defer(() -> inProgress(exchange, keyFingerprint)).then(Mono.empty()))
                 .flatMap(outcome -> outcome.isPresent()
                         ? replayOrConflict(exchange, outcome.get(), bodyHash, keyFingerprint)
-                        : handle(exchange, chain, scopedKey, keyFingerprint, bodyBytes, bodyHash));
+                        : handle(exchange, chain, scopedKey, keyFingerprint, bodyBytes, bodyHash, deadlineNanos));
     }
 
     private Mono<Void> replayOrConflict(ServerWebExchange exchange, CachedResponse cached, String bodyHash,
@@ -238,6 +255,12 @@ public class IdempotencyFilter implements WebFilter {
         exchange.getResponse().getHeaders().set("Retry-After", "1");
         return problem(exchange, HttpStatus.CONFLICT, IN_PROGRESS_TYPE, "Request in progress",
                 "A request with the same idempotency key is still being processed");
+    }
+
+    private Mono<Void> payloadTooLarge(ServerWebExchange exchange) {
+        log.warn("Issuance request body exceeds the payload limit of {} bytes", maxBodyBytes);
+        return problem(exchange, HttpStatus.PAYLOAD_TOO_LARGE, PAYLOAD_TOO_LARGE_TYPE, "Payload too large",
+                "The request body exceeds the maximum allowed size");
     }
 
     private Mono<Void> problem(ServerWebExchange exchange, HttpStatus status, String type, String title,
