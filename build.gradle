@@ -109,6 +109,9 @@ dependencies {
     implementation 'io.grpc:grpc-stub'
     implementation 'io.grpc:grpc-protobuf'
 
+    // --- Audit outbox (EUD-244) ---
+    implementation 'com.eudistack:auditoria-spring-boot-starter:0.1.0'
+
     // --- DevTools ---
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
     implementation 'org.jetbrains:annotations:26.1.0'

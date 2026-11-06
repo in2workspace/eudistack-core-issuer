@@ -6,3 +6,4 @@ public class ScratchTest {
     @Test
     public void test() {}
 }
+

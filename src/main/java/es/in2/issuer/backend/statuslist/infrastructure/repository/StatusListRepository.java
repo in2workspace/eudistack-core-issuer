@@ -30,6 +30,7 @@ public interface StatusListRepository extends ReactiveCrudRepository<StatusList,
            """)
     Mono<StatusList> findLatestByPurposeAndFormat(String purpose, String format);
 
+    @Modifying
     @Query("""
        UPDATE status_list
        SET encoded_list = :encodedList,

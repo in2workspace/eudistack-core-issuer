@@ -1,7 +1,12 @@
 package es.in2.issuer.backend.statuslist.infrastructure.adapter;
 
 
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.SimpleIssuer;
+import es.in2.issuer.backend.shared.domain.spi.RecordingAuditTrail;
+import es.in2.issuer.backend.signing.infrastructure.audit.SignatureAttemptRecorder;
 import es.in2.issuer.backend.statuslist.domain.util.factory.IssuerFactory;
 import es.in2.issuer.backend.statuslist.domain.exception.*;
 import es.in2.issuer.backend.statuslist.domain.factory.BitstringStatusListCredentialFactory;
@@ -25,6 +30,7 @@ import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
@@ -36,6 +42,8 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -69,6 +77,12 @@ class BitstringStatusListProviderTest {
 
     @Mock
     private TransactionalOperator transactionalOperator;
+
+    @Spy
+    private RecordingAuditTrail auditTrail = new RecordingAuditTrail();
+
+    @Spy
+    private SignatureAttemptRecorder signatureAttemptRecorder = new SignatureAttemptRecorder(auditTrail);
 
     @InjectMocks
     private BitstringStatusListProvider bitstringStatusListProvider;
@@ -286,6 +300,38 @@ class BitstringStatusListProviderTest {
         verify(statusListIndexRepository).countByStatusListId(TEST_LIST_ID);
         verify(statusListIndexReservationService).reserve(TEST_LIST_ID, TEST_ISSUANCE_ID);
         verify(statusListBuilder).buildStatusListEntry(expectedListUrl, 5, purpose);
+
+        AuditEntry reserved = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditEventType.STATUS_ENTRY_CHANGED, reserved.type());
+        assertEquals(AuditResult.SUCCESS, reserved.result());
+        assertEquals("Reserve", reserved.details().get("operation"));
+        assertEquals(expectedListUrl, reserved.details().get("list_uri"));
+        assertEquals(5, reserved.details().get("list_index"));
+    }
+
+    @Test
+    void allocateEntry_reservationFailsForAnotherReason_stagesFailureStatusListUnavailableAndKeepsTheError() {
+        // Arrange
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
+        StatusList existingList = new StatusList(TEST_LIST_ID, "revocation", "bitstring_vc", "encodedList",
+                TEST_SIGNED_CREDENTIAL, Instant.now(), Instant.now());
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid)).thenReturn(Mono.empty());
+        when(statusListRepository.findLatestByPurposeAndFormat("revocation", "bitstring_vc"))
+                .thenReturn(Mono.just(existingList));
+        when(statusListIndexRepository.countByStatusListId(TEST_LIST_ID)).thenReturn(Mono.just(100L));
+        when(statusListIndexReservationService.reserve(TEST_LIST_ID, TEST_ISSUANCE_ID))
+                .thenReturn(Mono.error(new IllegalStateException("database down")));
+
+        // Act
+        Mono<StatusListEntry> allocated = bitstringStatusListProvider.allocateEntry(
+                StatusPurpose.REVOCATION, StatusListFormat.BITSTRING_VC, TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL);
+
+        // Assert
+        StepVerifier.create(allocated).expectError(IllegalStateException.class).verify();
+        AuditEntry failed = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditResult.FAILURE, failed.result());
+        assertEquals("StatusListUnavailable", failed.reason());
+        assertEquals("Reserve", failed.details().get("operation"));
     }
 
     @Test
@@ -1007,6 +1053,53 @@ class BitstringStatusListProviderTest {
         verify(statusListRepository).findById(TEST_LIST_ID);
         verify(revocationService).applyRevocation(any(StatusListData.class), eq(TEST_IDX));
         verify(statusListRepository).updateSignedAndEncodedIfUnchanged(eq(TEST_LIST_ID), anyString(), anyString(), eq(updatedAt));
+
+        AuditEntry published = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditEventType.STATUS_LIST_PUBLISHED, published.type());
+        assertEquals(AuditResult.SUCCESS, published.result());
+        assertEquals(listUrl, published.details().get("list_uri"));
+        assertTrue(published.details().get("list_hash").toString().startsWith("sha256:"));
+        AuditEntry revoked = auditTrail.stagedInNewTransaction().get(1);
+        assertEquals(AuditEventType.STATUS_ENTRY_CHANGED, revoked.type());
+        assertEquals(AuditResult.SUCCESS, revoked.result());
+        assertEquals("Revoke", revoked.details().get("operation"));
+        assertEquals(listUrl, revoked.details().get("list_uri"));
+        assertEquals(TEST_IDX, revoked.details().get("list_index"));
+    }
+
+    @Test
+    void revoke_storingTheNewListFails_stagesPublicationFailedAndTheRevokeFailure() {
+        // Arrange
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
+        Instant updatedAt = Instant.parse("2026-01-01T00:00:00Z");
+        StatusList currentRow = new StatusList(TEST_LIST_ID, "revocation", "bitstring_vc",
+                new BitstringEncoder().createEmptyEncodedList(131072), TEST_SIGNED_CREDENTIAL, updatedAt, updatedAt);
+        String listUrl = TEST_ISSUER_URL + "/w3c/v1/credentials/status/" + TEST_LIST_ID;
+
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
+                .thenReturn(Mono.just(new StatusListIndex(1L, TEST_LIST_ID, TEST_IDX, procedureUuid, Instant.now())));
+        when(statusListRepository.findById(TEST_LIST_ID)).thenReturn(Mono.just(currentRow));
+        when(revocationService.applyRevocation(any(StatusListData.class), eq(TEST_IDX)))
+                .thenReturn(new StatusListData(TEST_LIST_ID, "revocation", "bitstring_vc", "updatedEncodedList",
+                        TEST_SIGNED_CREDENTIAL, updatedAt, updatedAt));
+        when(issuerFactory.createSimpleIssuer())
+                .thenReturn(Mono.just(SimpleIssuer.builder().id(TEST_ISSUER_DID).build()));
+        when(statusListBuilder.buildUnsigned(listUrl, TEST_ISSUER_DID, "revocation", "updatedEncodedList"))
+                .thenReturn(Map.of("type", "StatusListCredential"));
+        when(statusListSigner.sign(anyMap(), eq(TEST_TOKEN), eq(TEST_LIST_ID), eq("vc+jwt"))).thenReturn(Mono.just("jwt"));
+        when(statusListRepository.updateSignedAndEncodedIfUnchanged(TEST_LIST_ID, "updatedEncodedList", "jwt", updatedAt))
+                .thenReturn(Mono.error(new IllegalStateException("db down")));
+
+        // Act
+        StepVerifier.create(bitstringStatusListProvider.revoke(TEST_ISSUANCE_ID, TEST_TOKEN, TEST_ISSUER_URL))
+                .expectError(IllegalStateException.class)
+                .verify();
+
+        // Assert
+        AuditEntry publicationFailed = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditEventType.STATUS_LIST_PUBLISHED, publicationFailed.type());
+        assertEquals("PublicationFailed", publicationFailed.reason());
+        assertEquals("StatusListUnavailable", auditTrail.stagedInNewTransaction().get(1).reason());
     }
 
     @Test
@@ -1062,6 +1155,8 @@ class BitstringStatusListProviderTest {
 
         verify(statusListIndexRepository).findByIssuanceId(procedureUuid);
         verifyNoInteractions(statusListRepository);
+
+        assertTrue(auditTrail.all().isEmpty(), "a missing index is not an unavailable status list, and has no reason of its own");
     }
 
     @Test
@@ -1142,6 +1237,7 @@ class BitstringStatusListProviderTest {
         verifyNoInteractions(statusListSigner);
         verify(statusListRepository, never()).updateSignedAndEncodedIfUnchanged(anyLong(), anyString(), anyString(), any());
         verify(revocationService, never()).applyRevocation(any(), anyInt());
+        assertTrue(auditTrail.all().isEmpty(), "an already revoked position changes nothing, so it is not reported");
     }
 
     @Test
@@ -1362,6 +1458,14 @@ class BitstringStatusListProviderTest {
         verify(statusListRepository).save(any(StatusList.class));
         verify(statusListRepository).updateSignedCredential(TEST_LIST_ID, "signedJwt");
         verify(statusListRepository, never()).deleteById(anyLong());
+
+        AuditEntry created = auditTrail.staged().getFirst();
+        assertEquals(AuditEventType.STATUS_LIST_CREATED, created.type());
+        assertEquals(AuditResult.SUCCESS, created.result());
+        assertEquals("status-list:" + TEST_LIST_ID, created.resource());
+        assertEquals(listUrl, created.details().get("list_uri"));
+        assertEquals("BitstringStatusList", created.details().get("format"));
+        assertEquals(131_072, created.details().get("size"));
     }
 
     @Test
@@ -1405,6 +1509,18 @@ class BitstringStatusListProviderTest {
         verify(statusListRepository).save(any(StatusList.class));
         verify(statusListRepository).deleteById(TEST_LIST_ID);
         verify(statusListRepository, never()).updateSignedCredential(anyLong(), anyString());
+
+        AuditEntry creationFailed = auditTrail.stagedInNewTransaction().stream()
+                .filter(entry -> entry.type() == AuditEventType.STATUS_LIST_CREATED)
+                .findFirst().orElseThrow();
+        assertEquals(AuditResult.FAILURE, creationFailed.result());
+        assertEquals("SigningFailed", creationFailed.reason());
+        assertEquals(listUrl, creationFailed.details().get("list_uri"));
+        AuditEntry signatureFailed = auditTrail.stagedInNewTransaction().stream()
+                .filter(entry -> entry.type() == AuditEventType.SIGNATURE_REQUESTED)
+                .findFirst().orElseThrow();
+        assertEquals("StatusList", signatureFailed.details().get("signed_object"));
+        assertEquals("status-list:" + TEST_LIST_ID, signatureFailed.resource());
     }
 
     @Test
@@ -1452,14 +1568,55 @@ class BitstringStatusListProviderTest {
     }
 
     @Test
-    void releaseEntry_shouldDeleteTheIndexRowByIssuanceId() {
+    void releaseEntry_reservedEntry_deletesTheIndexRowAndStagesAReleaseOfThatPosition() {
+        // Arrange
         UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
-
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid))
+                .thenReturn(Mono.just(new StatusListIndex(1L, TEST_LIST_ID, 7, procedureUuid, Instant.now())));
+        when(statusListRepository.findById(TEST_LIST_ID)).thenReturn(Mono.just(statusListRow("bitstring_vc")));
         when(statusListIndexRepository.deleteByIssuanceId(procedureUuid)).thenReturn(Mono.empty());
 
-        StepVerifier.create(bitstringStatusListProvider.releaseEntry(TEST_ISSUANCE_ID)).verifyComplete();
+        // Act
+        StepVerifier.create(bitstringStatusListProvider.releaseEntry(TEST_ISSUANCE_ID, TEST_ISSUER_URL)).verifyComplete();
 
+        // Assert
         verify(statusListIndexRepository).deleteByIssuanceId(procedureUuid);
+        AuditEntry released = auditTrail.stagedInNewTransaction().getFirst();
+        assertEquals(AuditEventType.STATUS_ENTRY_CHANGED, released.type());
+        assertEquals(AuditResult.SUCCESS, released.result());
+        assertEquals("Release", released.details().get("operation"));
+        assertEquals(TEST_ISSUER_URL + "/w3c/v1/credentials/status/" + TEST_LIST_ID, released.details().get("list_uri"));
+        assertEquals(7, released.details().get("list_index"));
+    }
+
+    @Test
+    void releaseEntry_nothingReserved_stillDeletesAndStagesNothing() {
+        // Arrange
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid)).thenReturn(Mono.empty());
+        when(statusListIndexRepository.deleteByIssuanceId(procedureUuid)).thenReturn(Mono.empty());
+
+        // Act
+        StepVerifier.create(bitstringStatusListProvider.releaseEntry(TEST_ISSUANCE_ID, TEST_ISSUER_URL)).verifyComplete();
+
+        // Assert
+        verify(statusListIndexRepository).deleteByIssuanceId(procedureUuid);
+        assertTrue(auditTrail.all().isEmpty());
+    }
+
+    @Test
+    void releaseEntry_lookupOfTheReleasedPositionFails_stillDeletesTheRow() {
+        // Arrange
+        UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid)).thenReturn(Mono.error(new RuntimeException("read failed")));
+        when(statusListIndexRepository.deleteByIssuanceId(procedureUuid)).thenReturn(Mono.empty());
+
+        // Act
+        StepVerifier.create(bitstringStatusListProvider.releaseEntry(TEST_ISSUANCE_ID, TEST_ISSUER_URL)).verifyComplete();
+
+        // Assert
+        verify(statusListIndexRepository).deleteByIssuanceId(procedureUuid);
+        assertTrue(auditTrail.all().isEmpty());
     }
 
     @Test
@@ -1467,9 +1624,10 @@ class BitstringStatusListProviderTest {
         UUID procedureUuid = UUID.fromString(TEST_ISSUANCE_ID);
         RuntimeException dbError = new RuntimeException("connection reset");
 
+        when(statusListIndexRepository.findByIssuanceId(procedureUuid)).thenReturn(Mono.empty());
         when(statusListIndexRepository.deleteByIssuanceId(procedureUuid)).thenReturn(Mono.error(dbError));
 
-        StepVerifier.create(bitstringStatusListProvider.releaseEntry(TEST_ISSUANCE_ID))
+        StepVerifier.create(bitstringStatusListProvider.releaseEntry(TEST_ISSUANCE_ID, TEST_ISSUER_URL))
                 .expectErrorMatches(e -> e instanceof RuntimeException && "connection reset".equals(e.getMessage()))
                 .verify();
     }
@@ -1477,7 +1635,7 @@ class BitstringStatusListProviderTest {
     @Test
     void releaseEntry_shouldThrow_whenIssuanceIdIsNull() {
         Mono<Void> mono = monoFromCall(() ->
-                bitstringStatusListProvider.releaseEntry(null)
+                bitstringStatusListProvider.releaseEntry(null, TEST_ISSUER_URL)
         );
 
         assertThatThrownBy(mono::block)

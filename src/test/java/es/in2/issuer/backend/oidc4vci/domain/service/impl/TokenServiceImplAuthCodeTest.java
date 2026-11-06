@@ -5,6 +5,7 @@ import es.in2.issuer.backend.oidc4vci.domain.exception.OAuthTokenException;
 import es.in2.issuer.backend.oidc4vci.domain.model.AuthorizationCodeData;
 import es.in2.issuer.backend.oidc4vci.domain.model.ClientAttestationHeaders;
 import es.in2.issuer.backend.shared.domain.service.ClientAttestationValidationService;
+import es.in2.issuer.backend.shared.infrastructure.service.NoOpAuditTrailAdapter;
 import es.in2.issuer.backend.oidc4vci.domain.model.TokenRequest;
 import es.in2.issuer.backend.oidc4vci.domain.model.port.Oid4vciProfilePort;
 import es.in2.issuer.backend.oidc4vci.infrastructure.config.Oid4vciProfileProperties;
@@ -95,7 +96,8 @@ class TokenServiceImplAuthCodeTest {
                 issuanceMetrics,
                 issuerStateCacheStore,
                 apiClientAuthenticationService,
-                clientAttestationValidationService
+                clientAttestationValidationService,
+                new NoOpAuditTrailAdapter()
         );
     }
 

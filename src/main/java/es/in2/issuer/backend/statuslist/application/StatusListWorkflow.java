@@ -43,11 +43,12 @@ public class StatusListWorkflow {
     }
 
     @Observed(name = "statuslist.release-entry", contextualName = "statuslist-release-entry")
-    public Mono<Void> releaseEntry(String issuanceId) {
+    public Mono<Void> releaseEntry(String issuanceId, String publicIssuerBaseUrl) {
         log.info("action=releaseStatusListEntry status=started issuanceId={}", issuanceId);
         requireNonNullParam(issuanceId, "issuanceId");
+        requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
 
-        return statusListProvider.releaseEntry(issuanceId)
+        return statusListProvider.releaseEntry(issuanceId, publicIssuerBaseUrl)
                 .doOnSuccess(v -> log.info(
                         "action=releaseStatusListEntry status=completed issuanceId={}", issuanceId
                 ))

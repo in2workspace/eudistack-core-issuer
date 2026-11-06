@@ -1,6 +1,7 @@
 package es.in2.issuer.backend.signing.infrastructure.adapter.impl;
 
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
+import es.in2.issuer.backend.signing.domain.exception.NoActiveSigningConfigurationException;
 import es.in2.issuer.backend.signing.domain.exception.SigningException;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import es.in2.issuer.backend.signing.domain.model.dto.SigningRequest;
@@ -45,7 +46,7 @@ public class DelegatingSigningProviderImpl implements DelegatingSigningProvider 
 
         return tenantSigningConfigService.getRemoteSignature()
                 .switchIfEmpty(Mono.error(
-                        new SigningException(
+                        new NoActiveSigningConfigurationException(
                                 """
                                         No remote signature configuration available for this tenant.
                                         Seed tenant_signing_config for the active tenant.

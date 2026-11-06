@@ -5,11 +5,14 @@ import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialOfferExpiredExc
 import es.in2.issuer.backend.oidc4vci.domain.service.CredentialOfferService;
 import es.in2.issuer.backend.shared.domain.exception.CredentialOfferNotFoundException;
 import es.in2.issuer.backend.shared.domain.exception.EmailCommunicationException;
+import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents;
+import es.in2.issuer.backend.shared.domain.model.audit.IssuanceAuditEvents.OfferKind;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialOfferResult;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
 import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import io.micrometer.observation.annotation.Observed;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.AUTHORIZATION_CODE;
@@ -25,6 +28,7 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
 
     private final IssuanceService issuanceService;
     private final CredentialOfferService credentialOfferService;
+    private final AuditTrailPort auditTrail;
 
     @Override
     @Observed(name = "issuance.refresh-offer", contextualName = "refresh-credential-offer")
@@ -38,14 +42,20 @@ public class CredentialOfferRefreshWorkflowImpl implements CredentialOfferRefres
                     String grantType = issuance.getGrantType() != null
                             ? issuance.getGrantType()
                             : AUTHORIZATION_CODE;
-                    return credentialOfferService.createAndDeliverCredentialOffer(
-                            issuance.getIssuanceId().toString(),
-                            issuance.getCredentialType(),
-                            grantType,
-                            issuance.getEmail(),
-                            DeliveryMode.EMAIL.value,
-                            credentialOfferRefreshToken,
-                            publicIssuerBaseUrl);
+                    String issuanceId = issuance.getIssuanceId().toString();
+                    return auditTrail.asHolder(issuanceId,
+                            credentialOfferService.createAndDeliverCredentialOffer(
+                                            issuanceId,
+                                            issuance.getCredentialType(),
+                                            grantType,
+                                            issuance.getEmail(),
+                                            DeliveryMode.EMAIL.value,
+                                            credentialOfferRefreshToken,
+                                            publicIssuerBaseUrl)
+                                    .flatMap(result -> auditTrail.stageBestEffort(IssuanceAuditEvents.offerSent(
+                                                    issuanceId, OfferKind.REISSUED, issuance.getEmail(),
+                                                    result.offerExpiresAt(), result.emailError() == null))
+                                            .thenReturn(result)));
                 })
                 // This endpoint exists to re-send the email, so a reported email failure is a failure
                 // here -- unlike an issuance, which records it per mode and keeps the other modes.

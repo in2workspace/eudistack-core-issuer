@@ -6,12 +6,14 @@ import es.in2.issuer.backend.shared.domain.exception.CredentialCatalogNotConfigu
 import es.in2.issuer.backend.shared.domain.exception.CredentialConfigurationNotEnabledException;
 import es.in2.issuer.backend.shared.domain.exception.InvalidDeliveryConfigException;
 import es.in2.issuer.backend.shared.domain.exception.UnknownCredentialConfigurationException;
+import es.in2.issuer.backend.shared.domain.model.audit.CatalogAuditEvents;
 import es.in2.issuer.backend.shared.domain.model.dto.CredentialCatalogEntryDto;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.CredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.entities.TenantCredentialProfile;
 import es.in2.issuer.backend.shared.domain.model.enums.DeliveryMode;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
+import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import es.in2.issuer.backend.shared.infrastructure.config.CredentialProfileRegistry;
 import es.in2.issuer.backend.shared.infrastructure.repository.TenantCredentialProfileRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +30,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -44,17 +47,20 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
     private final CredentialProfileRegistry registry;
     private final SchemaDeliveryCeiling schemaDeliveryCeiling;
     private final TransactionalOperator transactionalOperator;
+    private final AuditTrailPort auditTrail;
     private final Cache<String, Map<String, Set<DeliveryMode>>> cache;
 
     public TenantCredentialProfileServiceImpl(
             TenantCredentialProfileRepository repository,
             CredentialProfileRegistry registry,
             SchemaDeliveryCeiling schemaDeliveryCeiling,
-            TransactionalOperator transactionalOperator) {
+            TransactionalOperator transactionalOperator,
+            AuditTrailPort auditTrail) {
         this.repository = repository;
         this.registry = registry;
         this.schemaDeliveryCeiling = schemaDeliveryCeiling;
         this.transactionalOperator = transactionalOperator;
+        this.auditTrail = auditTrail;
         this.cache = Caffeine.newBuilder()
                 .expireAfterWrite(CACHE_TTL)
                 .maximumSize(100)
@@ -126,13 +132,34 @@ public class TenantCredentialProfileServiceImpl implements TenantCredentialProfi
                             .then(repository.deleteAllByCredentialConfigurationIdNotIn(enabledConfigurationIds))
                             .then();
 
-            return transactionalOperator.transactional(write)
+            Mono<Void> replaceAndStageChanges = repository.findAllByEnabledTrue()
+                    .collectMap(TenantCredentialProfile::credentialConfigurationId,
+                            row -> Objects.toString(row.deliveryModes(), CatalogAuditEvents.NO_DECLARED_MODES))
+                    .flatMap(before -> write.then(Flux.fromIterable(CatalogAuditEvents.changes(
+                                    before, storedModesAfter(enabledConfigurationIds, deliveryModesByConfigurationId, before)))
+                            .concatMap(auditTrail::stage)
+                            .then()));
+
+            return transactionalOperator.transactional(replaceAndStageChanges)
                     .doOnSuccess(v -> {
                         cache.invalidate(tenant);
                         log.info("Credential catalog updated for tenant '{}': {} type(s) enabled",
                                 tenant, enabledConfigurationIds.size());
                     });
         }));
+    }
+
+    /**
+     * What the replacement leaves stored for each enabled configuration, in the form the table keeps it.
+     * A configuration whose modes are not declared keeps the ones it had.
+     */
+    private Map<String, String> storedModesAfter(Set<String> enabledConfigurationIds,
+                                                 Map<String, Set<DeliveryMode>> deliveryModesByConfigurationId,
+                                                 Map<String, String> before) {
+        return enabledConfigurationIds.stream().collect(Collectors.toMap(
+                id -> id,
+                id -> Objects.toString(canonicalModesOrNull(id, deliveryModesByConfigurationId),
+                        before.getOrDefault(id, CatalogAuditEvents.NO_DECLARED_MODES))));
     }
 
     private void validateUpdateRequest(Set<String> enabledConfigurationIds, Map<String, Set<DeliveryMode>> deliveryModesByConfigurationId) {
