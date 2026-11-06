@@ -106,7 +106,7 @@ class KmsSigningAdapterTest {
         adapter = new KmsSigningAdapter(() -> {
             try {
                 release.await();
-            } catch (InterruptedException e) {
+            } catch (InterruptedException _) {
                 Thread.currentThread().interrupt();
             }
             return client;
