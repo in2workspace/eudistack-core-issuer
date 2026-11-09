@@ -49,10 +49,10 @@ public class IssuanceExceptionHandler {
     ) {
         return errors.handleWith(
                 ex, request,
-                GlobalErrorTypes.INVALID_REQUEST.getCode(),
-                "Invalid request",
+                GlobalErrorTypes.INVALID_DELIVERY_MODE.getCode(),
+                "Invalid delivery mode",
                 HttpStatus.BAD_REQUEST,
-                "The delivery mode is missing, blank or unknown"
+                "delivery must be one of: email, ui, direct"
         );
     }
 

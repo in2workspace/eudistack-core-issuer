@@ -392,14 +392,29 @@ class IssuanceControllerTest {
      * {@link #createIssuance_InvalidDeliveryMode_Returns400()} below, which mocks a rejection that
      * happens one layer further in ({@code DeliveryMode.parse}, inside the workflow).
      */
+    /**
+     * EUD-268: a delivery other than exactly one of its three values -- control characters included -- is
+     * the contract's invalid_delivery_mode, decided by the workflow, not a BAD_REQUEST on its shape. The
+     * value is never logged, tagged nor echoed back (IssuanceWorkflowImplTest).
+     */
     @Test
-    void createIssuance_DeliveryContainsControlCharacters_Returns400WithoutInvokingWorkflow() throws JsonProcessingException {
+    void createIssuance_DeliveryNotOneOfItsValues_Returns400InvalidDeliveryMode() throws JsonProcessingException {
         IssuanceRequest request = IssuanceRequest.builder()
                 .credentialConfigurationId("test-schema")
                 .payload(objectMapper.createObjectNode().put("key", "value"))
                 .email("test@example.com")
                 .delivery("direct\r\nX-Forged-Header: 1")
                 .build();
+        String detail = "delivery must be one of: email, ui, direct";
+
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), any()))
+                .thenReturn(Mono.error(new InvalidDeliveryModeException(detail)));
+        when(errorResponseFactory.handleWith(any(), any(), eq("invalid_delivery_mode"), eq("Invalid delivery mode"),
+                eq(HttpStatus.BAD_REQUEST), anyString()))
+                .thenReturn(Mono.just(new GlobalErrorMessage(
+                        "invalid_delivery_mode", "Invalid delivery mode", HttpStatus.BAD_REQUEST.value(), detail,
+                        UUID.randomUUID().toString())));
 
         webTestClient.mutateWith(csrf())
                 .post()
@@ -408,9 +423,10 @@ class IssuanceControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(objectMapper.writeValueAsString(request))
                 .exchange()
-                .expectStatus().isBadRequest();
-
-        org.mockito.Mockito.verifyNoInteractions(issuanceWorkflow);
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("invalid_delivery_mode")
+                .jsonPath("$.detail").isEqualTo(detail);
     }
 
     /**
@@ -501,15 +517,15 @@ class IssuanceControllerTest {
     @Test
     void createIssuance_InvalidDeliveryMode_Returns400() throws JsonProcessingException {
         IssuanceRequest request = buildIssuanceRequest();
-        String detail = "Unknown delivery mode: foo";
+        String detail = "delivery must be one of: email, ui, direct";
 
         when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
         when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), any()))
                 .thenReturn(Mono.error(new InvalidDeliveryModeException(detail)));
-        when(errorResponseFactory.handleWith(any(), any(), eq("invalid_request"), eq("Invalid request"),
+        when(errorResponseFactory.handleWith(any(), any(), eq("invalid_delivery_mode"), eq("Invalid delivery mode"),
                 eq(HttpStatus.BAD_REQUEST), anyString()))
                 .thenReturn(Mono.just(new GlobalErrorMessage(
-                        "invalid_request", "Invalid request", HttpStatus.BAD_REQUEST.value(), detail,
+                        "invalid_delivery_mode", "Invalid delivery mode", HttpStatus.BAD_REQUEST.value(), detail,
                         UUID.randomUUID().toString())));
 
         webTestClient.mutateWith(csrf())
@@ -521,7 +537,7 @@ class IssuanceControllerTest {
                 .exchange()
                 .expectStatus().isBadRequest()
                 .expectBody()
-                .jsonPath("$.type").isEqualTo("invalid_request");
+                .jsonPath("$.type").isEqualTo("invalid_delivery_mode");
     }
 
     @Test

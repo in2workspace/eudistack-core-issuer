@@ -19,13 +19,9 @@ public record IssuanceRequest(
         @JsonProperty(value = "credential_configuration_id", required = true) String credentialConfigurationId,
         @NotNull(message = "payload is required")
         @JsonProperty(value = "payload", required = true) JsonNode payload,
-        // TD-06: bounded before it ever reaches DeliveryMode.parse or a log line -- the real values
-        // ("direct"/"email"/"ui", CSV, up to 3 of them) never come close to 64 chars; the pattern
-        // blocks CRLF/control-character injection (e.g. into IssuanceWorkflowImpl's log.error) without
-        // hardcoding the enum values here, so DeliveryMode.parse stays the single source of truth for
-        // which combinations are actually valid.
-        @Size(max = 64, message = "delivery must be at most 64 characters")
-        @Pattern(regexp = "^[a-zA-Z,\\s]*$", message = "delivery must only contain letters, commas and whitespace")
+        // EUD-254: exactly one of email, ui or direct (email when absent). Any other value -- a list of
+        // modes included -- is invalid_delivery_mode, not a BAD_REQUEST on its shape: the workflow checks
+        // it, and the value sent never reaches a log line or a metric tag.
         @JsonProperty("delivery") String delivery,
         @NotBlank(message = "email is required")
         @Email(message = "email must be a well-formed email address")

@@ -64,6 +64,9 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.*;
 public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
     private static final String DEFAULT_DELIVERY = "email";
+    /** Detail of {@code invalid_delivery_mode}: never echoes the value sent, which may be any string. */
+    static final String INVALID_DELIVERY_MESSAGE = "delivery must be one of: email, ui, direct";
+    private static final String INVALID_DELIVERY_LABEL = "invalid";
 
     private final IssuanceService issuanceService;
     private final CredentialOfferService credentialOfferService;
@@ -94,6 +97,8 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         var sample = issuanceMetrics.startTimer();
         String configId = request.credentialConfigurationId();
         String delivery = request.delivery() != null ? request.delivery() : DEFAULT_DELIVERY;
+        // Metrics and logs never carry the value the client sent: it is only checked later (EUD-254 §3).
+        String deliveryLabel = DeliveryMode.fromValue(delivery).map(mode -> mode.value).orElse(INVALID_DELIVERY_LABEL);
 
         return requireResolvedTenant()
                 .then(Mono.defer(() -> validateRequest(request)))
@@ -110,7 +115,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                     String tenant = ctx.hasKey(TENANT_DOMAIN_CONTEXT_KEY) ? ctx.get(TENANT_DOMAIN_CONTEXT_KEY) : null;
                     return flow
                             .doOnSuccess(r -> {
-                                issuanceMetrics.recordSuccess(sample, configId, delivery);
+                                issuanceMetrics.recordSuccess(sample, configId, deliveryLabel);
                                 // tenant is guaranteed resolved here (requireResolvedTenant already fail-closed
                                 // upstream); the blank check is defense-in-depth so a broken context never
                                 // fabricates a trace attributed to a default tenant (AC-05/ES-02).
@@ -119,10 +124,10 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                 }
                             })
                             .doOnError(e -> {
-                                issuanceMetrics.recordError(sample, configId, delivery);
+                                issuanceMetrics.recordError(sample, configId, deliveryLabel);
                                 log.error(
                                         "ProcessId: {} - Credential issuance failed for credentialConfigurationId={} delivery={}",
-                                        processId, configId, delivery, e);
+                                        processId, configId, deliveryLabel, e);
                                 if (tenant != null && !tenant.isBlank()) {
                                     auditDeliveryFailureBestEffort(tenant, processId);
                                 }
@@ -270,9 +275,9 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         final Set<DeliveryMode> modes;
         try {
-            modes = DeliveryMode.parse(delivery);
-        } catch (IllegalArgumentException ex) {
-            return Mono.error(new InvalidDeliveryModeException(ex.getMessage()));
+            modes = Set.of(requestedMode(delivery));
+        } catch (InvalidDeliveryModeException ex) {
+            return Mono.error(ex);
         }
 
         // Fast-path, no longer strictly necessary (the resolver below applies the same ceiling
@@ -711,25 +716,20 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     }
 
     private String keepOnlyOid4vciDeliveryModes(String delivery) {
-        final Set<DeliveryMode> modes;
-        try {
-            modes = DeliveryMode.parse(delivery);
-        } catch (IllegalArgumentException ex) {
-            throw new InvalidDeliveryModeException(ex.getMessage());
+        DeliveryMode mode = requestedMode(delivery);
+        if (!mode.isOid4vci) {
+            throw new InvalidDeliveryModeException("Bootstrap issuance requires the email or ui delivery mode");
         }
+        return mode.value;
+    }
 
-        String oid4vciDelivery = modes.stream()
-                .filter(m -> m.isOid4vci)
-                .map(m -> m.value)
-                .collect(Collectors.joining(","));
-
-        if (oid4vciDelivery.isBlank()) {
-            throw new InvalidDeliveryModeException(
-                    "Bootstrap issuance requires at least one OID4VCI delivery mode."
-            );
-        }
-
-        return oid4vciDelivery;
+    /**
+     * EUD-254: one delivery mode per request, exactly one of its three values. A list of modes, an
+     * unknown value, an empty one or one with spaces is {@code invalid_delivery_mode}.
+     */
+    private static DeliveryMode requestedMode(String delivery) {
+        return DeliveryMode.fromValue(delivery)
+                .orElseThrow(() -> new InvalidDeliveryModeException(INVALID_DELIVERY_MESSAGE));
     }
 
     /** The organization the process belongs to, as authorization (or bootstrap) set it on the request. */

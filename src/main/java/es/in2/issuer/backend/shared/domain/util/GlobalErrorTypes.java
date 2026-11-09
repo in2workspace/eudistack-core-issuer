@@ -60,6 +60,7 @@ public enum GlobalErrorTypes {
     DELIVERY_MODE_NOT_ELIGIBLE("delivery_mode_not_eligible"),
     INVALID_HOLDER_KEY("invalid_holder_key"),
     INVALID_GRANT_TYPE("invalid_grant_type"),
+    INVALID_DELIVERY_MODE("invalid_delivery_mode"),
     UNKNOWN_CREDENTIAL_CONFIGURATION("unknown_credential_configuration"),
     CREDENTIAL_CATALOG_NOT_CONFIGURED("credential_catalog_not_configured"),
     CREDENTIAL_CONFIGURATION_NOT_ENABLED("credential_configuration_not_enabled"),

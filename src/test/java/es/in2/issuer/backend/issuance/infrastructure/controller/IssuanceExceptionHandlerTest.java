@@ -124,10 +124,10 @@ class IssuanceExceptionHandlerTest {
     void handleInvalidDeliveryMode_usesExceptionMessage_whenPresent() {
         var ex = new InvalidDeliveryModeException("Unknown delivery mode: carrier-pigeon");
 
-        String type   = GlobalErrorTypes.INVALID_REQUEST.getCode();
-        String title  = "Invalid request";
+        String type   = GlobalErrorTypes.INVALID_DELIVERY_MODE.getCode();
+        String title  = "Invalid delivery mode";
         HttpStatus st = HttpStatus.BAD_REQUEST;
-        String fallback = "The delivery mode is missing, blank or unknown";
+        String fallback = "delivery must be one of: email, ui, direct";
 
         var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
         when(errors.handleWith(ex, request, type, title, st, fallback))
@@ -145,10 +145,10 @@ class IssuanceExceptionHandlerTest {
         var exNull  = new InvalidDeliveryModeException(null);
         var exBlank = new InvalidDeliveryModeException("");
 
-        String type   = GlobalErrorTypes.INVALID_REQUEST.getCode();
-        String title  = "Invalid request";
+        String type   = GlobalErrorTypes.INVALID_DELIVERY_MODE.getCode();
+        String title  = "Invalid delivery mode";
         HttpStatus st = HttpStatus.BAD_REQUEST;
-        String fallback = "The delivery mode is missing, blank or unknown";
+        String fallback = "delivery must be one of: email, ui, direct";
 
         var expectedNull  = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
         var expectedBlank = new GlobalErrorMessage(type, title, st.value(), fallback, UUID.randomUUID().toString());
