@@ -16,15 +16,16 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 /**
- * Records the {@code IssuanceCompleted} event of an attestation that has just been delivered. The event
- * goes in a transaction of its own and best effort: the attestation is already out, and a broken audit
- * channel must neither take it back nor fail the response.
+ * Records the {@code IssuanceCompleted} event of an attestation that is being delivered. The event is staged
+ * in the transaction that is already active, so it commits or rolls back with the write that marks the
+ * attestation as delivered (DT-002 RQ-01, EC-10): if the outbox insert fails, so does the delivery, and a
+ * restart cannot lose the event. The caller opens the transaction.
  *
  * <p>The event is only recorded when it can be complete. The signing certificate and algorithm come from
  * the header of the signed JWS, so a signature without one (a COSE one) is not reported, and the provider is
  * the organization of the tenant's signing certificate. That certificate was read, and cached, when the
  * credential was bound to its issuer, so the lookup is a cache hit; it still has no retries and a short
- * timeout, because it sits on the response path of a credential that is already signed.
+ * timeout. Only a failed lookup is skipped, with a warning: a failure to stage the event is never swallowed.
  */
 @Slf4j
 @Component
@@ -39,18 +40,22 @@ public class IssuanceCompletionRecorder {
 
     public Mono<Void> recordCompletion(String issuanceId, Completion completion, String signedCredential) {
         return Mono.defer(() -> JwsHeaderFingerprint.of(signedCredential)
-                .map(proof -> tenantSigningConfigService.getRemoteSignature()
-                        .flatMap(issuerCertificateService::resolveRemoteDetailedIssuer)
-                        .timeout(PROVIDER_LOOKUP_TIMEOUT)
-                        .map(issuer -> new Provider(issuer.organization(), issuer.organizationIdentifier()))
-                        .filter(Provider::isComplete)
-                        .flatMap(provider -> auditTrail.stageBestEffort(IssuanceAuditEvents.completed(
+                .map(proof -> providerOf(issuanceId)
+                        .flatMap(provider -> auditTrail.stage(IssuanceAuditEvents.completed(
                                 issuanceId, provider, completion, proof.algorithm(), proof.certificateHash(),
                                 JwsHeaderFingerprint.fingerprintOf(signedCredential.getBytes(StandardCharsets.UTF_8))))))
-                .orElseGet(Mono::empty)
+                .orElseGet(Mono::empty));
+    }
+
+    private Mono<Provider> providerOf(String issuanceId) {
+        return tenantSigningConfigService.getRemoteSignature()
+                .flatMap(issuerCertificateService::resolveRemoteDetailedIssuer)
+                .timeout(PROVIDER_LOOKUP_TIMEOUT)
+                .map(issuer -> new Provider(issuer.organization(), issuer.organizationIdentifier()))
+                .filter(Provider::isComplete)
                 .onErrorResume(error -> {
                     log.warn("issuanceId={} action=auditIssuanceCompleted status=skipped error={}", issuanceId, error.toString());
                     return Mono.empty();
-                }));
+                });
     }
 }

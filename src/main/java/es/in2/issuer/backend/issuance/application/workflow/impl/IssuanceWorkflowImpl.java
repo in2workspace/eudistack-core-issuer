@@ -552,16 +552,19 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                                         issuanceId, configId, credentialFormat,
                                                                         buildResult, enrichedWithStatus, organizationOf(request),
                                                                         request.email(), originalDelivery, finalStatus, cnf);
-                                                                return issuanceService.saveIssuance(issuance)
+                                                                // IssuanceCompleted commits with the issuance (RQ-01, EC-10): a failed
+                                                                // outbox insert rolls the issuance back and fails the delivery.
+                                                                return transactionalOperator.transactional(issuanceService.saveIssuance(issuance)
+                                                                                .flatMap(saved -> issuanceCompletionRecorder.recordCompletion(
+                                                                                                issuanceId.toString(),
+                                                                                                directCompletion(configId, request, buildResult),
+                                                                                                signedCredential)
+                                                                                        .thenReturn(saved)))
                                                                         .doOnSuccess(saved -> auditIssuanceCreatedBestEffort(processId, issuance))
                                                                         .doOnSuccess(saved -> log.debug(
                                                                                 "ProcessId: {} - Direct issuance saved: {} status={}",
                                                                                 processId, saved.getIssuanceId(), finalStatus))
                                                                         .onErrorMap(DeliveryStageFailure.wrapUnlessAlready(DeliveryErrorCode.PERSISTENCE_FAILED))
-                                                                        .then(Mono.defer(() -> issuanceCompletionRecorder.recordCompletion(
-                                                                                issuanceId.toString(),
-                                                                                directCompletion(configId, request, buildResult),
-                                                                                signedCredential)))
                                                                         .thenReturn(IssuanceResponse.builder()
                                                                                 .signedCredential(signedCredential)
                                                                                 .build());

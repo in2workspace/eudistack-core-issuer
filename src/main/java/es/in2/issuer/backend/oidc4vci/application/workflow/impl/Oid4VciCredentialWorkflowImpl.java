@@ -44,6 +44,7 @@ import io.micrometer.observation.annotation.Observed;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 
 import javax.naming.ConfigurationException;
@@ -82,6 +83,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
     private final AuditService auditService;
     private final AuditTrailPort auditTrail;
     private final IssuanceCompletionRecorder issuanceCompletionRecorder;
+    private final TransactionalOperator transactionalOperator;
 
     public Oid4VciCredentialWorkflowImpl(
             CredentialSignerWorkflow credentialSignerWorkflow,
@@ -97,7 +99,8 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
             HolderDidFallbackAuditor holderDidFallbackAuditor,
             AuditService auditService,
             AuditTrailPort auditTrail,
-            IssuanceCompletionRecorder issuanceCompletionRecorder
+            IssuanceCompletionRecorder issuanceCompletionRecorder,
+            TransactionalOperator transactionalOperator
     ) {
         this.credentialSignerWorkflow = credentialSignerWorkflow;
         this.proofValidationService = proofValidationService;
@@ -113,6 +116,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
         this.auditService = auditService;
         this.auditTrail = auditTrail;
         this.issuanceCompletionRecorder = issuanceCompletionRecorder;
+        this.transactionalOperator = transactionalOperator;
     }
 
     /**
@@ -408,14 +412,16 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
                     String notificationId = UUID.randomUUID().toString();
                     return notificationCacheStore.add(notificationId, issuanceId)
                             // Step 5b: Mark delivery attempt timestamp for timeout detection
-                            .then(issuanceService.getIssuanceById(issuanceId))
-                            .flatMap(issuance -> {
-                                issuance.setDeliveryAttemptedAt(Instant.now());
-                                return issuanceService.updateIssuance(issuance);
-                            })
-                            .then(Mono.defer(() -> firstDelivery
-                                    ? recordCompletion(proc, credentialFormat, signedCredential)
-                                    : Mono.<Void>empty()))
+                            // IssuanceCompleted commits with the write that marks the delivery (RQ-01, EC-10): a
+                            // failed outbox insert rolls the write back and the credential is not handed out.
+                            .then(transactionalOperator.transactional(issuanceService.getIssuanceById(issuanceId)
+                                    .flatMap(issuance -> {
+                                        issuance.setDeliveryAttemptedAt(Instant.now());
+                                        return issuanceService.updateIssuance(issuance);
+                                    })
+                                    .then(Mono.defer(() -> firstDelivery
+                                            ? recordCompletion(proc, credentialFormat, signedCredential)
+                                            : Mono.<Void>empty()))))
                             .thenReturn(CredentialResponse.builder()
                                     .credentials(List.of(CredentialResponse.Credential.builder()
                                             .credential(signedCredential)

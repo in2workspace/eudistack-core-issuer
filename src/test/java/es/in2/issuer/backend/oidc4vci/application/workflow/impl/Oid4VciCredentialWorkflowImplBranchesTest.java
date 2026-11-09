@@ -39,6 +39,7 @@ import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -114,7 +115,8 @@ class Oid4VciCredentialWorkflowImplBranchesTest {
                 credentialIssuerMetadataService, genericCredentialBuilder, credentialProfileRegistry,
                 statusListWorkflow, enrichmentCacheStore, notificationCacheStore, credentialIssuedLogger,
                 new HolderDidFallbackAuditor(auditService), auditService, new NoOpAuditTrailAdapter(),
-                new IssuanceCompletionRecorder(new NoOpAuditTrailAdapter(), tenantSigningConfigService, issuerCertificateService));
+                new IssuanceCompletionRecorder(new NoOpAuditTrailAdapter(), tenantSigningConfigService, issuerCertificateService),
+                passThroughTransactions());
         lenient().when(credentialIssuerMetadataService.getCredentialIssuerMetadata(PUBLIC_BASE_URL))
                 .thenReturn(Mono.just(metadataWithProofTypes(Map.of("jwt",
                         CredentialProfile.ProofTypeConfig.builder()
@@ -327,5 +329,13 @@ class Oid4VciCredentialWorkflowImplBranchesTest {
         Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
         return encoder.encodeToString(headerJson.getBytes(StandardCharsets.UTF_8)) + "."
                 + encoder.encodeToString("{}".getBytes(StandardCharsets.UTF_8)) + ".sig";
+    }
+
+    /** A transactional operator that runs the flow as it is: these tests do not exercise real transactions. */
+    private static TransactionalOperator passThroughTransactions() {
+        TransactionalOperator operator = org.mockito.Mockito.mock(TransactionalOperator.class);
+        org.mockito.Mockito.lenient().when(operator.transactional(org.mockito.ArgumentMatchers.<reactor.core.publisher.Mono<?>>any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        return operator;
     }
 }

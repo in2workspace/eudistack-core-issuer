@@ -57,6 +57,7 @@ import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -135,7 +136,8 @@ class Oid4VciCredentialWorkflowImplTest {
                 holderDidFallbackAuditor,
                 auditService,
                 auditTrail,
-                new IssuanceCompletionRecorder(auditTrail, signingConfigService, certificateService)
+                new IssuanceCompletionRecorder(auditTrail, signingConfigService, certificateService),
+                passThroughTransactions()
         );
 
         // Common mocks to avoid NPE when a test reaches further than expected
@@ -326,7 +328,7 @@ class Oid4VciCredentialWorkflowImplTest {
         StepVerifier.create(credentialRequestFor(issuance)).expectNextCount(1).verifyComplete();
 
         // Assert
-        AuditEntry completed = auditTrail.stagedInNewTransaction().getFirst();
+        AuditEntry completed = auditTrail.staged().getFirst();
         assertThat(completed.type()).isEqualTo(AuditEventType.ISSUANCE_COMPLETED);
         assertThat(completed.resource()).isEqualTo("issuance:" + ISSUANCE_ID);
         assertThat(completed.details())
@@ -1227,5 +1229,13 @@ class Oid4VciCredentialWorkflowImplTest {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /** A transactional operator that runs the flow as it is: these tests do not exercise real transactions. */
+    private static TransactionalOperator passThroughTransactions() {
+        TransactionalOperator operator = org.mockito.Mockito.mock(TransactionalOperator.class);
+        org.mockito.Mockito.lenient().when(operator.transactional(org.mockito.ArgumentMatchers.<reactor.core.publisher.Mono<?>>any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        return operator;
     }
 }

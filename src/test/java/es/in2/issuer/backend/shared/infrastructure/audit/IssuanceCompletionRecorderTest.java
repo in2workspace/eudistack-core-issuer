@@ -65,7 +65,7 @@ class IssuanceCompletionRecorderTest {
                 completion(new WalletInteraction("oid4vci", "authorization_code", "dc+sd-jwt")), signedJws())).verifyComplete();
 
         // Assert
-        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        AuditEntry entry = auditTrail.staged().getFirst();
         assertEquals(AuditEventType.ISSUANCE_COMPLETED, entry.type());
         assertEquals("issuance:" + ISSUANCE_ID, entry.resource());
         assertEquals("ACME SL", entry.details().get("provider_legal_name"));
@@ -83,7 +83,7 @@ class IssuanceCompletionRecorderTest {
         StepVerifier.create(recorder.recordCompletion(ISSUANCE_ID, completion(null), signedJws())).verifyComplete();
 
         // Assert
-        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        AuditEntry entry = auditTrail.staged().getFirst();
         assertFalse(entry.details().containsKey("wallet_interaction"));
         assertFalse(entry.details().containsKey("accepted_by_holder"));
     }
@@ -98,7 +98,7 @@ class IssuanceCompletionRecorderTest {
         StepVerifier.create(recorder.recordCompletion(ISSUANCE_ID, completion(null), signed)).verifyComplete();
 
         // Assert
-        AuditEntry entry = auditTrail.stagedInNewTransaction().getFirst();
+        AuditEntry entry = auditTrail.staged().getFirst();
         assertTrue(entry.details().get("signing_certificate").toString().startsWith("sha256:"));
         assertTrue(entry.details().get("attestation_hash").toString().startsWith("sha256:"));
         assertFalse(entry.details().toString().contains(signed));
@@ -139,13 +139,15 @@ class IssuanceCompletionRecorderTest {
     }
 
     @Test
-    void record_auditChannelDown_stillCompletes() {
+    void record_auditChannelDown_failsSoTheDeliveryRollsBackWithItsEvent() {
         // Arrange
         issuerIs("ACME SL", "VATES-A1");
         IssuanceCompletionRecorder brokenRecorder =
-                new IssuanceCompletionRecorder(new RecordingAuditTrail().failingOnNewTransaction(), signingConfigService, certificateService);
+                new IssuanceCompletionRecorder(new RecordingAuditTrail().failingOnStage(), signingConfigService, certificateService);
 
         // Act & Assert
-        StepVerifier.create(brokenRecorder.recordCompletion(ISSUANCE_ID, completion(null), signedJws())).verifyComplete();
+        StepVerifier.create(brokenRecorder.recordCompletion(ISSUANCE_ID, completion(null), signedJws()))
+                .expectError(IllegalStateException.class)
+                .verify();
     }
 }
