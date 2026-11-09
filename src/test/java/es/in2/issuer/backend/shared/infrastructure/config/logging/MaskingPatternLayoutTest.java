@@ -1,15 +1,21 @@
 package es.in2.issuer.backend.shared.infrastructure.config.logging;
 
+import ch.qos.logback.classic.spi.LoggingEvent;
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import java.time.Duration;
 
 import static es.in2.issuer.backend.shared.infrastructure.config.logging.MaskingPatternLayout.REPLACEMENT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertTimeout;
 
 class MaskingPatternLayoutTest {
 
@@ -474,18 +480,6 @@ class MaskingPatternLayoutTest {
     // ─── Regression: false-positive fixes ────────────────────────────────────
 
     @Test
-    void mask_KeyNameContainingSecretAsSubstring_NotMasked() {
-        // Arrange – "notsecret=value": the word boundary must prevent matching 'secret' mid-word
-        String input = "notsecret=sensitiveValue";
-
-        // Act
-        String result = MaskingPatternLayout.mask(input);
-
-        // Assert
-        assertThat(result).isEqualTo(input);
-    }
-
-    @Test
     void mask_PaddedJwtWithEqualsSign_MasksJwt() {
         // Arrange – base64url segments that include '=' padding characters
         String paddedJwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzIn0=.SflKxwRJSMeKKF2QT4fw==";
@@ -510,6 +504,195 @@ class MaskingPatternLayoutTest {
         // Assert
         assertThat(result).isEqualTo(notAJwt);
     }
+
+    @Test
+    void mask_AuthorizationCodeInQueryString_MasksCodeKeepingOtherParams() {
+        String result = MaskingPatternLayout.mask(
+                "grant_type=authorization_code&code=AUTH-CODE-123&redirect_uri=https://app.example.com/cb");
+
+        assertThat(result)
+                .isEqualTo("grant_type=authorization_code&code=" + REPLACEMENT + "&redirect_uri=https://app.example.com/cb");
+    }
+
+    @Test
+    void mask_CodeAsJsonField_MasksCode() {
+        assertThat(MaskingPatternLayout.mask("{\"code\":\"482913\"}")).doesNotContain("482913");
+    }
+
+    @Test
+    void mask_OtpAsKeyValue_MasksOtp() {
+        assertThat(MaskingPatternLayout.mask("Verifying otp=482913 for tenant sandbox"))
+                .isEqualTo("Verifying otp=" + REPLACEMENT + " for tenant sandbox");
+    }
+
+    @Test
+    void mask_CamelCaseRefreshToken_MasksToken() {
+        assertThat(MaskingPatternLayout.mask("{\"refreshToken\":\"rT_abc123\"}")).doesNotContain("rT_abc123");
+    }
+
+    @Test
+    void mask_Uuid_IsLeftUnchanged() {
+        String input = "Processing procedure 550e8400-e29b-41d4-a716-446655440000";
+
+        assertThat(MaskingPatternLayout.mask(input)).isEqualTo(input);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "error_code=expired_code",
+            "Failed to send a verification code: org.springframework.mail.MailSendException",
+            "Failed to resolve name. status=Status{code=UNAVAILABLE, description=Unable to resolve host}",
+            "{\"code\":\"invalid_request\"}",
+            "eyJ.onlyone"
+    })
+    void mask_LooksSensitiveButIsNot_ReturnsUnchanged(String input) {
+        assertThat(MaskingPatternLayout.mask(input)).isEqualTo(input);
+    }
+
+    @Test
+    void mask_UrlEncodedEmailInQueryString_MasksEmail() {
+        String input = "Securing GET /error?client_id=mask.test%40example.com"
+                + "&login_hint=john.doe%2Bfilter%40mail.company.org&response_type=code";
+
+        assertThat(MaskingPatternLayout.mask(input))
+                .isEqualTo("Securing GET /error?client_id=" + REPLACEMENT
+                        + "&login_hint=" + REPLACEMENT + "&response_type=code");
+    }
+
+    // ─── mask() – review findings ─────────────────────────────────────────────
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "wallet_access_token=s3cr3tValue",
+            "db_password=s3cr3tValue",
+            "\"db_password\":\"s3cr3tValue\"",
+            "keystorePassword=s3cr3tValue",
+            "jwtSecret=s3cr3tValue",
+            "AUDIT_QUERY_CURSOR_SECRET=s3cr3tValue",
+            "pre-authorized_code=s3cr3tValue",
+            "\"pre-authorized_code\":\"s3cr3tValue\"",
+            "preAuthorizedCode=s3cr3tValue",
+            "Offer[txCode=s3cr3tValue, length=6]",
+            "pin=s3cr3tValue",
+            "\"tx_pin\":\"s3cr3tValue\"",
+            "vp_token=s3cr3tValue",
+            "\"vp_token\":\"s3cr3tValue\"",
+            "Authorization: Basic s3cr3tValue",
+            "password=\"correct horse s3cr3tValue\""
+    })
+    void mask_SecretUnderAnyKeyForm_MasksTheWholeValue(String input) {
+        assertThat(MaskingPatternLayout.mask(input))
+                .contains(MaskingPatternLayout.REPLACEMENT)
+                .doesNotContain("s3cr3tValue");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "spin=keep",
+            "pin_length=6",
+            "totp_enabled=true",
+            "token_type=Bearer",
+            "error_code=expired_code",
+            "grant_type=urn:ietf:params:oauth:grant-type:pre-authorized_code&scope=openid"
+    })
+    void mask_KeyThatIsNotASecret_ReturnsUnchanged(String input) {
+        assertThat(MaskingPatternLayout.mask(input)).isEqualTo(input);
+    }
+
+    @Test
+    void mask_SdJwtWithDisclosuresAndKeyBinding_MasksEverySegment() {
+        String sdJwt = "eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln"
+                + "~WyJzYWx0IiwiZ2l2ZW5fbmFtZSIsIkpvaG4iXQ"
+                + "~eyJ0eXAiOiJrYitqd3QifQ.eyJub25jZSI6IngifQ.a2Jz";
+
+        assertThat(MaskingPatternLayout.mask(sdJwt)).isEqualTo(MaskingPatternLayout.REPLACEMENT);
+    }
+
+    @Test
+    void mask_SdJwtWithManyDisclosures_MasksWithoutOverflowingTheStack() {
+        String sdJwt = "eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln" + "~WyJzYWx0Il0".repeat(50_000);
+
+        assertThat(MaskingPatternLayout.mask(sdJwt)).isEqualTo(MaskingPatternLayout.REPLACEMENT);
+    }
+
+    @Test
+    void mask_JwtWithEmptySignatureSegment_MasksToken() {
+        assertThat(MaskingPatternLayout.mask("eyJhbGciOiJub25lIn0.eyJzdWIiOiJ4In0."))
+                .isEqualTo(MaskingPatternLayout.REPLACEMENT);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"a", "eyJ", "=eyJ", "code="})
+    void mask_LongRepetitionThatIsNotASecret_StaysLinear(String unit) {
+        String input = unit.repeat(200_000 / unit.length());
+
+        String result = assertTimeout(Duration.ofSeconds(15), () -> MaskingPatternLayout.mask(input));
+
+        assertThat(result).isEqualTo(input);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "id_token_hint=%s",
+            "client_assertion=%s",
+            "request=%s",
+            "id_token_hint%%3D%s",
+            "\"assertion\":\"%s\""
+    })
+    void mask_JwtAfterAnAssignmentOrQuote_MasksToken(String format) {
+        String jwt = "eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln";
+
+        assertThat(MaskingPatternLayout.mask(format.formatted(jwt)))
+                .contains(MaskingPatternLayout.REPLACEMENT)
+                .doesNotContain(jwt);
+    }
+
+    // ─── truncate() ───────────────────────────────────────────────────────────
+
+    @Test
+    void truncate_MessageWithinTheLimit_ReturnsItUnchanged() {
+        String message = "a".repeat(MaskingPatternLayout.MAX_MESSAGE_LENGTH);
+
+        assertThat(MaskingPatternLayout.truncate(message)).isEqualTo(message);
+        assertThat(MaskingPatternLayout.truncate(null)).isNull();
+    }
+
+    @Test
+    void truncate_LongMessage_CutsAtASeparatorAndMarksIt() {
+        String result = MaskingPatternLayout.truncate("word ".repeat(5_000));
+
+        assertThat(result).endsWith(" " + MaskingPatternLayout.TRUNCATED);
+        assertThat(result.length())
+                .isLessThanOrEqualTo(MaskingPatternLayout.MAX_MESSAGE_LENGTH + MaskingPatternLayout.TRUNCATED.length());
+    }
+
+    @Test
+    void truncate_SecretAcrossTheLimit_DropsItWhole() {
+        String padding = "a ".repeat((MaskingPatternLayout.MAX_MESSAGE_LENGTH - 50) / 2);
+        String jwt = "eyJhbGciOiJFUzI1NiJ9." + "x".repeat(100) + ".c2ln";
+
+        String result = MaskingPatternLayout.truncate(padding + jwt);
+
+        assertThat(result).isEqualTo(padding + MaskingPatternLayout.TRUNCATED);
+    }
+
+    @Test
+    void truncate_LongMessageWithoutSeparators_KeepsOnlyTheMark() {
+        assertThat(MaskingPatternLayout.truncate("a".repeat(20_000))).isEqualTo(MaskingPatternLayout.TRUNCATED);
+    }
+
+    @Test
+    void doLayout_LongMessageWithException_TruncatesTheMessageAndKeepsTheStackTrace() {
+        LoggerContext context = new LoggerContext();
+        MaskingPatternLayout patternLayout = new MaskingPatternLayout();
+        patternLayout.setContext(context);
+        patternLayout.setPattern("%m%n%ex");
+        patternLayout.start();
+        LoggingEvent event = new LoggingEvent(MaskingPatternLayoutTest.class.getName(), context.getLogger("test-logger"),
+                Level.ERROR, "word ".repeat(5_000), new IllegalStateException("failure"), null);
+
+        String line = patternLayout.doLayout(event);
+
+        assertThat(line).contains(MaskingPatternLayout.TRUNCATED, "java.lang.IllegalStateException: failure", "\tat ");
+    }
 }
-
-

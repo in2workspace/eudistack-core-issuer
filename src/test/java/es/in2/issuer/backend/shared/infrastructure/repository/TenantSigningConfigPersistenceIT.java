@@ -13,7 +13,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The active signing configuration is read from a real Postgres with the V15
+ * The active signing configuration is read from a real Postgres with the V18
  * schema (modality and status filter).
  */
 class TenantSigningConfigPersistenceIT extends PostgresIntegrationBase {

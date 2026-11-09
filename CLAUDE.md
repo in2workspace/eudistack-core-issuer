@@ -48,7 +48,7 @@ Strict rules in `../eudistack-platform-dev/.claude/rules/hexagonal-discipline.md
 
 ## Multi-tenancy
 
-- Tenant resolved from `X-Tenant-Id` header by `TenantDomainWebFilter` and stored under the `tenantDomain` key in the Reactor `Context` (never `ThreadLocal`).
+- Tenant resolved from the `X-Tenant` header by `TenantDomainWebFilter` and stored under the `tenantDomain` key in the Reactor `Context` (never `ThreadLocal`).
 - One PostgreSQL schema per tenant; `TenantAwareConnectionFactoryDecorator` issues `SET search_path TO <tenant><suffix>, public` when a connection is borrowed (no explicit reset on release — connections are short-lived and re-set per borrow).
 - See `../eudistack-platform-dev/.claude/rules/tenant-isolation.md`.
 

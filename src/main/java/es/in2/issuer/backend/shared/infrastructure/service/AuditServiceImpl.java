@@ -3,6 +3,7 @@ package es.in2.issuer.backend.shared.infrastructure.service;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryTrace;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -13,25 +14,39 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class AuditServiceImpl implements AuditService {
 
     private static final Logger AUDIT = LoggerFactory.getLogger("AUDIT");
-    private static final Logger LOG = LoggerFactory.getLogger(AuditServiceImpl.class);
+    private static final String MDC_EVENT = "audit.event";
+    private static final String MDC_OUTCOME = "audit.outcome";
+    private static final String MDC_USER_ID = "audit.userId";
+    private static final String MDC_ORGANIZATION = "audit.organization";
+    private static final String MDC_RESOURCE_TYPE = "audit.resourceType";
+    private static final String MDC_RESOURCE_ID = "audit.resourceId";
 
     @Override
     public void auditSuccess(String event, String userId, String resourceType, String resourceId,
                              Map<String, Object> details) {
-        try {
-            MDC.put("audit.event", event);
-            MDC.put("audit.outcome", "success");
-            if (userId != null) MDC.put("audit.userId", userId);
-            if (resourceType != null) MDC.put("audit.resourceType", resourceType);
-            if (resourceId != null) MDC.put("audit.resourceId", resourceId);
+        auditSuccess(event, userId, null, resourceType, resourceId, details);
+    }
 
-            AUDIT.info("event={} outcome=success userId={} resourceType={} resourceId={} {}",
+    @Override
+    public void auditSuccess(String event, String userId, String organization, String resourceType,
+                             String resourceId, Map<String, Object> details) {
+        try {
+            MDC.put(MDC_EVENT, event);
+            MDC.put(MDC_OUTCOME, "success");
+            if (userId != null) MDC.put(MDC_USER_ID, userId);
+            if (organization != null) MDC.put(MDC_ORGANIZATION, organization);
+            if (resourceType != null) MDC.put(MDC_RESOURCE_TYPE, resourceType);
+            if (resourceId != null) MDC.put(MDC_RESOURCE_ID, resourceId);
+
+            AUDIT.info("event={} outcome=success userId={}{} resourceType={} resourceId={} {}",
                     event,
                     formatValue(userId != null ? userId : "system"),
+                    organizationField(organization),
                     formatValue(resourceType != null ? resourceType : ""),
                     formatValue(resourceId != null ? resourceId : ""),
                     formatDetails(details));
@@ -43,14 +58,22 @@ public class AuditServiceImpl implements AuditService {
     @Override
     public void auditFailure(String event, String userId, String reason,
                              Map<String, Object> details) {
-        try {
-            MDC.put("audit.event", event);
-            MDC.put("audit.outcome", "failure");
-            if (userId != null) MDC.put("audit.userId", userId);
+        auditFailure(event, userId, null, reason, details);
+    }
 
-            AUDIT.warn("event={} outcome=failure userId={} reason={} {}",
+    @Override
+    public void auditFailure(String event, String userId, String organization, String reason,
+                             Map<String, Object> details) {
+        try {
+            MDC.put(MDC_EVENT, event);
+            MDC.put(MDC_OUTCOME, "failure");
+            if (userId != null) MDC.put(MDC_USER_ID, userId);
+            if (organization != null) MDC.put(MDC_ORGANIZATION, organization);
+
+            AUDIT.warn("event={} outcome=failure userId={}{} reason={} {}",
                     event,
                     formatValue(userId != null ? userId : "system"),
+                    organizationField(organization),
                     formatValue(reason != null ? reason : ""),
                     formatDetails(details));
         } finally {
@@ -58,15 +81,20 @@ public class AuditServiceImpl implements AuditService {
         }
     }
 
+    /** {@code " organization=<value>"}, or nothing for the events that carry no organization. */
+    private static String organizationField(String organization) {
+        return organization == null ? "" : " organization=" + formatValue(organization);
+    }
+
     @Override
     public void auditAttempted(String event, String userId, String resourceType, String resourceId,
                                Map<String, Object> details) {
         try {
-            MDC.put("audit.event", event);
-            MDC.put("audit.outcome", "attempted");
-            if (userId != null) MDC.put("audit.userId", userId);
-            if (resourceType != null) MDC.put("audit.resourceType", resourceType);
-            if (resourceId != null) MDC.put("audit.resourceId", resourceId);
+            MDC.put(MDC_EVENT, event);
+            MDC.put(MDC_OUTCOME, "attempted");
+            if (userId != null) MDC.put(MDC_USER_ID, userId);
+            if (resourceType != null) MDC.put(MDC_RESOURCE_TYPE, resourceType);
+            if (resourceId != null) MDC.put(MDC_RESOURCE_ID, resourceId);
 
             // R1 (EUD-225 /code-review, 2026-08-18): this used to wrap the placeholder in a
             // literal "details=\"{}\"" -- an outer quoting layer that does not compose with
@@ -92,7 +120,7 @@ public class AuditServiceImpl implements AuditService {
             boolean hasFailure = trace.hasFailure();
             String resultsField = formatResults(trace.results());
 
-            MDC.put("audit.event", DeliveryTrace.EVENT_NAME);
+            MDC.put(MDC_EVENT, DeliveryTrace.EVENT_NAME);
             MDC.put("tenant.id", trace.tenantId());
 
             if (hasFailure) {
@@ -105,7 +133,7 @@ public class AuditServiceImpl implements AuditService {
         } catch (RuntimeException e) {
             // Best-effort (ES-03/ES-04): the delivery already happened, a broken audit channel
             // must never surface as a failure of the caller. Log locally so the signal isn't lost.
-            LOG.warn("Failed to emit delivery audit trace for processId={}",
+            log.warn("Failed to emit delivery audit trace for processId={}",
                     trace != null ? trace.processId() : "unknown", e);
         } finally {
             clearAuditMdc();
@@ -123,11 +151,12 @@ public class AuditServiceImpl implements AuditService {
     }
 
     private void clearAuditMdc() {
-        MDC.remove("audit.event");
-        MDC.remove("audit.outcome");
-        MDC.remove("audit.userId");
-        MDC.remove("audit.resourceType");
-        MDC.remove("audit.resourceId");
+        MDC.remove(MDC_EVENT);
+        MDC.remove(MDC_OUTCOME);
+        MDC.remove(MDC_USER_ID);
+        MDC.remove(MDC_ORGANIZATION);
+        MDC.remove(MDC_RESOURCE_TYPE);
+        MDC.remove(MDC_RESOURCE_ID);
     }
 
     // F15 (EUD-225 /verify): escaped at this sink, not only by the caller -- AuditServiceImpl

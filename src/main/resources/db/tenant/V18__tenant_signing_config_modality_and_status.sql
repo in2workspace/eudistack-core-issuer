@@ -1,5 +1,5 @@
 -- =============================================================================
--- V15__tenant_signing_config_modality_and_status.sql
+-- V18__tenant_signing_config_modality_and_status.sql
 -- Adds the signing modality (QTSP or own key in AWS KMS) and the lifecycle
 -- status to tenant_signing_config.
 --

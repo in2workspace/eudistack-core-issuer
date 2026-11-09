@@ -15,6 +15,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -40,6 +41,35 @@ class AuditServiceImplTest {
         Logger auditLogger = (Logger) LoggerFactory.getLogger("AUDIT");
         auditLogger.detachAppender(auditAppender);
         auditAppender.stop();
+    }
+
+    @Test
+    void auditSuccess_withAnOrganization_recordsItNextToTheUserAndOutsideTheDetails() {
+        auditService.auditSuccess("CatalogEntryChanged", "jane", "VATES-A12345678", "attestation-catalog",
+                TENANT_ID, java.util.Map.of("operation", "Create"));
+
+        assertEquals(1, auditAppender.list.size());
+        ILoggingEvent event = auditAppender.list.get(0);
+        assertTrue(event.getFormattedMessage().contains("userId=jane organization=VATES-A12345678 resourceType="));
+        assertEquals("VATES-A12345678", event.getMDCPropertyMap().get("audit.organization"));
+    }
+
+    @Test
+    void auditSuccess_withoutAnOrganization_keepsTheLineAsBefore() {
+        auditService.auditSuccess("some.event", "jane", "issuance", "id-1", java.util.Map.of());
+
+        String message = auditAppender.list.get(0).getFormattedMessage();
+        assertTrue(message.contains("userId=jane resourceType=issuance resourceId=id-1"));
+        assertFalse(message.contains("organization="));
+    }
+
+    @Test
+    void auditFailure_withAnOrganization_recordsItNextToTheUser() {
+        auditService.auditFailure("CatalogEntryChanged", "jane", "VATES-A12345678", "PolicyDenied", java.util.Map.of());
+
+        ILoggingEvent event = auditAppender.list.get(0);
+        assertTrue(event.getFormattedMessage().contains("userId=jane organization=VATES-A12345678 reason=PolicyDenied"));
+        assertEquals("VATES-A12345678", event.getMDCPropertyMap().get("audit.organization"));
     }
 
     @Test
