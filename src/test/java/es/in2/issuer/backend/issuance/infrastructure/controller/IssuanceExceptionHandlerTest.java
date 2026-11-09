@@ -2,6 +2,7 @@ package es.in2.issuer.backend.issuance.infrastructure.controller;
 
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidGrantTypeException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidStatusException;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
@@ -93,6 +94,28 @@ class IssuanceExceptionHandlerTest {
 
         verify(errors).handleWith(exNull,  request, type, title, st, fallback);
         verify(errors).handleWith(exBlank, request, type, title, st, fallback);
+    }
+
+    // ------------------- InvalidGrantTypeException (EUD-268) -------------------
+
+    @Test
+    void handleInvalidGrantType_isA400WithTheContractCode() {
+        var ex = new InvalidGrantTypeException(
+                "grant_type must be one of: authorization_code, urn:ietf:params:oauth:grant-type:pre-authorized_code");
+
+        String type   = GlobalErrorTypes.INVALID_GRANT_TYPE.getCode();
+        String title  = "Invalid grant type";
+        HttpStatus st = HttpStatus.BAD_REQUEST;
+        String fallback = "grant_type must be one of: authorization_code, urn:ietf:params:oauth:grant-type:pre-authorized_code";
+
+        var expected = new GlobalErrorMessage(type, title, st.value(), ex.getMessage(), UUID.randomUUID().toString());
+        when(errors.handleWith(ex, request, type, title, st, fallback)).thenReturn(Mono.just(expected));
+
+        StepVerifier.create(handler.handleInvalidGrantType(ex, request))
+                .assertNext(gem -> assertGem(gem, "invalid_grant_type", title, st, ex.getMessage()))
+                .verifyComplete();
+
+        verify(errors).handleWith(ex, request, type, title, st, fallback);
     }
 
     // ------------------- InvalidDeliveryModeException (ES-01) -------------------

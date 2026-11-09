@@ -6,6 +6,7 @@ import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorRespons
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidGrantTypeException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidHolderKeyException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -73,6 +74,21 @@ public class IssuanceExceptionHandler {
                 "Delivery mode not eligible",
                 HttpStatus.CONFLICT,
                 "The declared delivery mode is not eligible for this credential type"
+        );
+    }
+
+    @ExceptionHandler(InvalidGrantTypeException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleInvalidGrantType(
+            InvalidGrantTypeException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleWith(
+                ex, request,
+                GlobalErrorTypes.INVALID_GRANT_TYPE.getCode(),
+                "Invalid grant type",
+                HttpStatus.BAD_REQUEST,
+                "grant_type must be one of: authorization_code, urn:ietf:params:oauth:grant-type:pre-authorized_code"
         );
     }
 

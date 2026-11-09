@@ -26,6 +26,7 @@ import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryTrace;
 import es.in2.issuer.backend.issuance.domain.model.HolderKey;
+import es.in2.issuer.backend.issuance.domain.model.OfferGrantType;
 import es.in2.issuer.backend.shared.domain.model.dto.credential.profile.HolderBindingExemption;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
@@ -225,6 +226,9 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         return resolveAndValidateDeliveryModes(configId, delivery)
                 .flatMap(modes -> {
+                    // EUD-254 §3: the grant is checked after the delivery mode and before the holder
+                    // key, whatever the mode -- the direct mode builds no offer and ignores a valid one.
+                    OfferGrantType.fromRequest(request.grantType());
                     // Scoped exception (AD-8): the machine LEARCredential types keep a cnf even though
                     // their schema declares no binding, sourced from the request holder_key. Not gated on
                     // the direct mode -- with proof_types_supported gone no key proof arrives through the
@@ -584,7 +588,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                                            Map<String, Object> cnf) {
         String configId = request.credentialConfigurationId();
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
-        String grantType = request.grantType() != null ? request.grantType() : AUTHORIZATION_CODE;
+        String grantType = OfferGrantType.fromRequest(request.grantType()).value();
 
         return buildCredential(profile, request)
                 .flatMap(buildResult -> {
