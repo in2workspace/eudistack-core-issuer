@@ -21,6 +21,7 @@ import reactor.core.publisher.Mono;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Builds the {@link Caller} from the access token. The verifier puts the mandate of the LEAR
@@ -38,6 +39,8 @@ import java.util.List;
 public class JwtCallerProvider implements CallerProvider {
 
     private static final String POWER_CLAIM = "power";
+    private static final String MANDATE = "mandate";
+    private static final String MANDATEE = "mandatee";
 
     private final ObjectMapper objectMapper;
     private final IssuerProperties issuerProperties;
@@ -50,6 +53,42 @@ public class JwtCallerProvider implements CallerProvider {
                 .map(auth -> ((JwtAuthenticationToken) auth).getToken().getTokenValue())
                 .switchIfEmpty(Mono.error(new InvalidTokenException("No authenticated caller")))
                 .flatMap(this::fromToken);
+    }
+
+    /**
+     * Read from the claims of the {@link JwtAuthenticationToken}, which {@code CustomAuthenticationManager}
+     * builds from the verified access token, and never from {@code Authentication#getName()}, which comes
+     * from the unverified {@code X-ID-Token} when the request carries one. The mandatee is looked up where
+     * each token shape puts it: W3C ({@code vc.credentialSubject.mandate.mandatee}), SD-JWT
+     * ({@code vc.mandate.mandatee}) and the flat claim of the verifier ({@code mandatee}).
+     */
+    @Override
+    public Mono<String> currentPerson() {
+        return ReactiveSecurityContextHolder.getContext()
+                .mapNotNull(ctx -> ctx.getAuthentication())
+                .filter(JwtAuthenticationToken.class::isInstance)
+                .mapNotNull(auth -> personOf(((JwtAuthenticationToken) auth).getToken().getClaims()));
+    }
+
+    /** Only the claims read here are converted: the others include {@code Instant}s ({@code iat}, {@code exp}). */
+    private String personOf(Map<String, Object> claims) {
+        JsonNode vc = objectMapper.valueToTree(claims.get("vc"));
+        JsonNode flatMandatee = objectMapper.valueToTree(claims.get(MANDATEE));
+        for (JsonNode mandatee : List.of(vc.path("credentialSubject").path(MANDATE).path(MANDATEE),
+                vc.path(MANDATE).path(MANDATEE), flatMandatee)) {
+            String email = nonBlank(text(mandatee.path("email")));
+            if (email == null) {
+                email = nonBlank(text(mandatee.path("emailAddress")));
+            }
+            if (email != null) {
+                return email;
+            }
+        }
+        return claims.get("sub") instanceof String sub ? nonBlank(sub) : null;
+    }
+
+    private static String nonBlank(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     @Override

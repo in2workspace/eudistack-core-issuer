@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+@SuppressWarnings("removal") // it still checks the deprecated validity_days and subject_extraction are loaded
 class CredentialProfileRegistryTest {
 
     // Mirrors the application mapper (IssuerApiApplication): a profile may carry members the
@@ -111,6 +112,7 @@ class CredentialProfileRegistryTest {
                 {
                   "credential_configuration_id": "learcredential.employee.w3c.4",
                   "credential_format": "jwt_vc_json",
+                  "validity_days": 365,
                   "credential_definition": {
                     "type": ["VerifiableCredential", "learcredential.employee.w3c.4"]
                   },

@@ -242,4 +242,58 @@ class JwtCallerProviderTest {
                 .expectError(InvalidTokenException.class)
                 .verify();
     }
+
+    // ---- currentPerson (B1 of the EUD-323 review) ---------------------------------
+
+    private static Jwt accessToken(Map<String, Object> claims) {
+        Jwt.Builder builder = Jwt.withTokenValue("token").header("alg", "ES256")
+                .issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(60));
+        claims.forEach(builder::claim);
+        return builder.build();
+    }
+
+    private StepVerifier.FirstStep<String> personOf(Jwt jwt, String principalName) {
+        return StepVerifier.create(provider.currentPerson().contextWrite(
+                ReactiveSecurityContextHolder.withAuthentication(
+                        new JwtAuthenticationToken(jwt, List.of(), principalName))));
+    }
+
+    /** The portal's LEAR SD-JWT access token: the mandatee sits under vc.mandate. */
+    @Test
+    void JwtCallerProvider_currentPerson_readsTheSdJwtMandateeEmail() {
+        Jwt jwt = accessToken(Map.of("sub", "did:key:zHolder",
+                "vc", Map.of("mandate", Map.of("mandatee", Map.of("email", "jane@example.org")))));
+
+        personOf(jwt, "anonymous").expectNext("jane@example.org").verifyComplete();
+    }
+
+    @Test
+    void JwtCallerProvider_currentPerson_readsTheW3cMandateeEmail() {
+        Jwt jwt = accessToken(Map.of("sub", "x", "vc", Map.of("credentialSubject",
+                Map.of("mandate", Map.of("mandatee", Map.of("emailAddress", "jane@example.org"))))));
+
+        personOf(jwt, "anonymous").expectNext("jane@example.org").verifyComplete();
+    }
+
+    /** The principal name may come from an unverified X-ID-Token: it is never what names the person. */
+    @Test
+    void JwtCallerProvider_currentPerson_ignoresThePrincipalName() {
+        Jwt jwt = accessToken(Map.of("sub", "x", "mandatee", Map.of("email", "jane@example.org")));
+
+        personOf(jwt, "someone.else@example.org").expectNext("jane@example.org").verifyComplete();
+    }
+
+    /** A machine's token has no mandatee email: its sub (a DID) identifies it. */
+    @Test
+    void JwtCallerProvider_currentPerson_withoutMandateeEmail_usesTheSubject() {
+        personOf(accessToken(Map.of("sub", "did:key:zMachine")), "anonymous")
+                .expectNext("did:key:zMachine").verifyComplete();
+    }
+
+    @Test
+    void JwtCallerProvider_currentPerson_withAnAuthenticationThatIsNotAJwt_isEmpty() {
+        StepVerifier.create(provider.currentPerson().contextWrite(ReactiveSecurityContextHolder.withAuthentication(
+                        new TestingAuthenticationToken("jane@example.org", "password"))))
+                .verifyComplete();
+    }
 }
