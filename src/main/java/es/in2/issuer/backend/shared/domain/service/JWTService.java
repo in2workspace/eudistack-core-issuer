@@ -28,4 +28,7 @@ public interface JWTService {
     String resolvePrincipal(Jwt jwt);
 
     Optional<String> extractMandateeEmail(Jwt jwt);
+
+    /** The same as {@link #extractMandateeEmail(Jwt)}, over the claims of a token already parsed. */
+    Optional<String> extractMandateeEmail(Map<String, Object> claims);
 }
