@@ -104,6 +104,33 @@ class TenantSigningConfigModalityMigrationIT extends PostgresIntegrationBase {
     }
 
     @Test
+    void migration_withOlderRowsWithoutProviderConfig_deletesThemAndKeepsTheRest() {
+        String schema = createSchemaAndMigrateTo("tsc-stale-nocfg", "14");
+        insertWithoutConfig(schema, ID_1, "2026-01-01T10:00:00Z");
+        insertLegacy(schema, ID_2, "2026-02-01T10:00:00Z");
+        insertLegacy(schema, ID_3, "2026-03-01T10:00:00Z");
+
+        migrateFully(schema);
+
+        assertThat(count(schema)).isEqualTo(2);
+        assertThat(scalar(schema, "SELECT count(*) FROM \"%s\".tenant_signing_config WHERE id = '" + ID_1 + "'"))
+                .isEqualTo("0");
+        assertThat(statusAndModality(schema, ID_3)).isEqualTo("active/qtsp");
+        assertThat(statusAndModality(schema, ID_2)).isEqualTo("withdrawn/qtsp");
+    }
+
+    @Test
+    void migration_withNewestRowWithoutProviderConfig_failsAndKeepsTheRows() {
+        String schema = createSchemaAndMigrateTo("tsc-newest-nocfg", "14");
+        insertLegacy(schema, ID_1, "2026-01-01T10:00:00Z");
+        insertWithoutConfig(schema, ID_2, "2026-02-01T10:00:00Z");
+
+        assertThatThrownBy(() -> migrateFully(schema))
+                .hasMessageContaining("chk_tenant_signing_config_qtsp_required");
+        assertThat(count(schema)).isEqualTo(2);
+    }
+
+    @Test
     void secondActiveRow_isRejectedByUniqueIndex() {
         String schema = migratedSchemaWithOneActiveRow("tsc-unique");
 
@@ -230,6 +257,11 @@ class TenantSigningConfigModalityMigrationIT extends PostgresIntegrationBase {
         exec("INSERT INTO \"" + schema + "\".tenant_signing_config "
                 + "(id, provider, provider_specific_config, created_at, updated_at) "
                 + "VALUES ('" + id + "', 'digitel', " + QTSP_CONFIG + ", '" + createdAt + "', '" + createdAt + "')");
+    }
+
+    private void insertWithoutConfig(String schema, String id, String createdAt) {
+        exec("INSERT INTO \"" + schema + "\".tenant_signing_config (id, provider, created_at, updated_at) "
+                + "VALUES ('" + id + "', 'csc-sign-hash', '" + createdAt + "', '" + createdAt + "')");
     }
 
     private void exec(String sql) {

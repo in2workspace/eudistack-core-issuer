@@ -5,8 +5,7 @@
 --
 -- * modality: 'qtsp' (remote CSC provider, current behaviour) or 'own_key'.
 --   For own_key rows `provider` holds 'aws-kms' (the column stays NOT NULL),
---   and only for them. A qtsp row needs provider_specific_config. Existing qtsp
---   rows without it make this migration fail: fix them before deploying.
+--   and only for them. A qtsp row needs provider_specific_config.
 -- * status: 'active' or 'withdrawn'. Rows are never deleted: a replaced or
 --   withdrawn configuration stays as history. At most one row is 'active'
 --   per tenant schema (partial unique index).
@@ -15,10 +14,28 @@
 -- older row (seeds run without a unique constraint and have left duplicates in
 -- some schemas) becomes withdrawn. This runs BEFORE the unique index is
 -- created, otherwise the index creation would fail on those schemas.
+--
+-- Older rows without provider_specific_config are deleted first. They predate
+-- V5, which dropped the remote_* columns that held their configuration: they
+-- cannot sign and cannot be reactivated, and the qtsp check below would
+-- reject them. Only rows that are not the newest of their schema are deleted:
+-- a newest row without configuration (a tenant that cannot sign today) still
+-- makes this migration fail, and has to be fixed before deploying.
 -- =============================================================================
 ALTER TABLE tenant_signing_config
     ADD COLUMN IF NOT EXISTS modality VARCHAR(20) NOT NULL DEFAULT 'qtsp',
     ADD COLUMN IF NOT EXISTS status   VARCHAR(20) NOT NULL DEFAULT 'active';
+
+-- Data migration: older rows left without configuration by V5 are deleted.
+DELETE FROM tenant_signing_config t
+USING (
+    SELECT id, ROW_NUMBER() OVER (ORDER BY created_at DESC, id DESC) AS rn
+    FROM tenant_signing_config
+) r
+WHERE t.id = r.id
+  AND r.rn > 1
+  AND t.modality = 'qtsp'
+  AND t.provider_specific_config IS NULL;
 
 -- Data migration: newest row stays active, older ones are withdrawn.
 UPDATE tenant_signing_config t
