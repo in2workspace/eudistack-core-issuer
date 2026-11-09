@@ -64,6 +64,13 @@ public class RevocationWorkflow {
     private static final String DETAIL_WORKFLOW_ACTION = "workflowAction";
     private static final String ERROR_TYPE_BAD_REQUEST = "BAD_REQUEST";
 
+    /** The reasons of the catalogue's {@code Revocation} event when a revocation is refused. */
+    private static final String REASON_ISSUANCE_NOT_FOUND = "IssuanceNotFound";
+    private static final String REASON_ALREADY_REVOKED = "AlreadyRevoked";
+    private static final String REASON_NOT_REVOCABLE = "NotRevocable";
+    private static final String REASON_POLICY_DENIED = "PolicyDenied";
+    private static final String REASON_STATUS_LIST_UNAVAILABLE = "StatusListUnavailable";
+
     /**
      * Who the token says the requester is, when it carries no W3C attestation: the mandatee, by the email
      * of a person (an SD-JWT attestation) or the DID of a system. {@code sub} comes after them because a
@@ -590,29 +597,29 @@ public class RevocationWorkflow {
 
     private Optional<String> catalogueReasonOf(Throwable error, Issuance issuance, boolean statusListFailed) {
         if (error instanceof IssuanceNotFoundException) {
-            return Optional.of("IssuanceNotFound");
+            return Optional.of(REASON_ISSUANCE_NOT_FOUND);
         }
         if (error instanceof AlreadyRevokedException) {
-            return Optional.of("AlreadyRevoked");
+            return Optional.of(REASON_ALREADY_REVOKED);
         }
         if (error instanceof NotRevocableException) {
-            return Optional.of("NotRevocable");
+            return Optional.of(REASON_NOT_REVOCABLE);
         }
         if (error instanceof InvalidCredentialStatusTransitionException transition) {
-            return Optional.of(transition.getFrom() == CredentialStatusEnum.REVOKED ? "AlreadyRevoked" : "NotRevocable");
+            return Optional.of(transition.getFrom() == CredentialStatusEnum.REVOKED ? REASON_ALREADY_REVOKED : REASON_NOT_REVOCABLE);
         }
         if (error instanceof InvalidStatusException) {
             boolean alreadyRevoked = issuance != null && issuance.getCredentialStatus() == CredentialStatusEnum.REVOKED;
-            return Optional.of(alreadyRevoked ? "AlreadyRevoked" : "NotRevocable");
+            return Optional.of(alreadyRevoked ? REASON_ALREADY_REVOKED : REASON_NOT_REVOCABLE);
         }
         if (error instanceof InsufficientPermissionException || error instanceof UnauthorizedRoleException
                 || error instanceof TenantMismatchException) {
-            return Optional.of("PolicyDenied");
+            return Optional.of(REASON_POLICY_DENIED);
         }
         if (error instanceof StatusListUnavailableException) {
-            return Optional.of("StatusListUnavailable");
+            return Optional.of(REASON_STATUS_LIST_UNAVAILABLE);
         }
-        return statusListFailed ? Optional.of("StatusListUnavailable") : Optional.empty();
+        return statusListFailed ? Optional.of(REASON_STATUS_LIST_UNAVAILABLE) : Optional.empty();
     }
 
     /** The holder is only reported once the process was resolved; an unknown process has none to give. */

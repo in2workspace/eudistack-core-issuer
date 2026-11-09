@@ -21,7 +21,6 @@ import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditEventType;
 import es.in2.issuer.backend.shared.domain.model.audit.AuditResult;
 import es.in2.issuer.backend.shared.domain.model.entities.Issuance;
-import es.in2.issuer.backend.shared.domain.model.enums.CredentialStatusEnum;
 import es.in2.issuer.backend.shared.domain.service.AccessTokenService;
 import es.in2.issuer.backend.shared.domain.service.AuditService;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;

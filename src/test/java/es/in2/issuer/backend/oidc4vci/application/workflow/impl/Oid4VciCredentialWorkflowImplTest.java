@@ -1233,8 +1233,8 @@ class Oid4VciCredentialWorkflowImplTest {
 
     /** A transactional operator that runs the flow as it is: these tests do not exercise real transactions. */
     private static TransactionalOperator passThroughTransactions() {
-        TransactionalOperator operator = org.mockito.Mockito.mock(TransactionalOperator.class);
-        org.mockito.Mockito.lenient().when(operator.transactional(org.mockito.ArgumentMatchers.<reactor.core.publisher.Mono<?>>any()))
+        TransactionalOperator operator = mock(TransactionalOperator.class);
+        lenient().when(operator.transactional(org.mockito.ArgumentMatchers.<reactor.core.publisher.Mono<?>>any()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         return operator;
     }
