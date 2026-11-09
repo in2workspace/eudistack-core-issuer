@@ -1048,6 +1048,7 @@ class IssuanceServiceImplTest {
         issuance.setIssuanceId(UUID.randomUUID());
         issuance.setCredentialStatus(CredentialStatusEnum.VALID);
 
+        when(issuancePort.findById(issuance.getIssuanceId())).thenReturn(Mono.just(issuance));
         when(issuancePort.save(issuance)).thenReturn(Mono.just(issuance));
 
         // When
@@ -1057,7 +1058,6 @@ class IssuanceServiceImplTest {
         StepVerifier.create(result).verifyComplete();
         assertEquals(CredentialStatusEnum.REVOKED, issuance.getCredentialStatus());
         verify(issuancePort, times(1)).save(issuance);
-        verify(issuancePort, never()).findById(any(UUID.class));
     }
 
     @Test
@@ -1078,7 +1078,7 @@ class IssuanceServiceImplTest {
 
         when(issuancePort.save(staleSnapshot))
                 .thenReturn(Mono.error(new ConcurrentIssuanceUpdateException(issuanceId, "save", new RuntimeException("stale version"))));
-        when(issuancePort.findById(issuanceId)).thenReturn(Mono.just(winnerCurrentRow));
+        when(issuancePort.findById(issuanceId)).thenReturn(Mono.just(staleSnapshot), Mono.just(winnerCurrentRow));
 
         // When
         Mono<Void> result = issuanceService.updateIssuanceStatusToRevoked(staleSnapshot);
@@ -1089,7 +1089,37 @@ class IssuanceServiceImplTest {
         StepVerifier.create(result)
                 .expectErrorMatches(InvalidCredentialStatusTransitionException.class::isInstance)
                 .verify();
-        verify(issuancePort, times(1)).findById(issuanceId);
+        verify(issuancePort, times(2)).findById(issuanceId);
+    }
+
+    /** It runs inside a transaction that is attempted again: a rolled-back attempt must not block the next one. */
+    @Test
+    void updateIssuanceStatusToRevoked_doesNotChangeTheCallersSnapshot_soAnotherAttemptStillApplies() {
+        Issuance snapshot = issuanceWithStatus(CredentialStatusEnum.VALID);
+        Issuance row = new Issuance();
+        row.setIssuanceId(snapshot.getIssuanceId());
+        row.setCredentialStatus(CredentialStatusEnum.VALID);
+        when(issuancePort.findById(snapshot.getIssuanceId())).thenReturn(Mono.just(row));
+        when(issuancePort.save(row)).thenReturn(Mono.just(row));
+
+        StepVerifier.create(issuanceService.updateIssuanceStatusToRevoked(snapshot)).verifyComplete();
+
+        assertEquals(CredentialStatusEnum.VALID, snapshot.getCredentialStatus());
+        assertEquals(CredentialStatusEnum.REVOKED, row.getCredentialStatus());
+    }
+
+    @Test
+    void updateIssuanceStatusToRevoked_failsWithItsOrigin_whenTheCurrentRowIsNoLongerValid() {
+        Issuance snapshot = issuanceWithStatus(CredentialStatusEnum.VALID);
+        Issuance row = issuanceWithStatus(CredentialStatusEnum.REVOKED);
+        when(issuancePort.findById(snapshot.getIssuanceId())).thenReturn(Mono.just(row));
+
+        StepVerifier.create(issuanceService.updateIssuanceStatusToRevoked(snapshot))
+                .expectErrorSatisfies(e -> assertEquals(CredentialStatusEnum.REVOKED,
+                        ((InvalidCredentialStatusTransitionException) e).getFrom()))
+                .verify();
+
+        verify(issuancePort, never()).save(any());
     }
 
     @Test
@@ -1108,7 +1138,7 @@ class IssuanceServiceImplTest {
         ConcurrentIssuanceUpdateException conflict =
                 new ConcurrentIssuanceUpdateException(issuanceId, "save", new RuntimeException("stale version"));
         when(issuancePort.save(staleSnapshot)).thenReturn(Mono.error(conflict));
-        when(issuancePort.findById(issuanceId)).thenReturn(Mono.just(unexpectedCurrentRow));
+        when(issuancePort.findById(issuanceId)).thenReturn(Mono.just(staleSnapshot), Mono.just(unexpectedCurrentRow));
 
         // When
         Mono<Void> result = issuanceService.updateIssuanceStatusToRevoked(staleSnapshot);
@@ -1294,7 +1324,7 @@ class IssuanceServiceImplTest {
         Issuance issuance = issuanceWithStatus(CredentialStatusEnum.VALID);
         ConcurrentIssuanceUpdateException conflict = staleVersion(issuance.getIssuanceId());
         when(issuancePort.save(issuance)).thenReturn(Mono.error(conflict));
-        when(issuancePort.findById(issuance.getIssuanceId())).thenReturn(Mono.empty());
+        when(issuancePort.findById(issuance.getIssuanceId())).thenReturn(Mono.just(issuance), Mono.empty());
 
         StepVerifier.create(issuanceService.updateIssuanceStatusToRevoked(issuance))
                 .expectErrorMatches(conflict::equals)

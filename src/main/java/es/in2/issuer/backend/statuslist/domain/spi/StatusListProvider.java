@@ -42,7 +42,11 @@ public interface StatusListProvider {
     Mono<String> getSignedStatusListCredential(Long listId, StatusListFormat expectedFormat);
 
     /**
-     * Revokes a credential by setting the corresponding bit to 1 in the Status List.
+     * Revokes a credential: sets its bit to 1 in the Status List and applies {@code statusChange},
+     * both in one transaction, so that the list and the issuance process cannot diverge (EUD-271).
+     * Sealing the list calls the QTSP, so it happens before the transaction and nothing is written
+     * if it fails. When the bit was already set (a divergence left by an older revocation), only
+     * {@code statusChange} runs.
      *
      * @param token               caller access token, propagated to signing for triggers with an
      *                            authenticated caller context (operator revocation). {@code null}
@@ -51,7 +55,9 @@ public interface StatusListProvider {
      * @param publicIssuerBaseUrl see {@link #allocateEntry}. Re-signing the list
      *                            after revocation requires the same public URL
      *                            the original list was issued against.
+     * @param statusChange        the write of the issuance process. Subscribed inside the transaction,
+     *                            once per attempt when the list changed under the previous one.
      */
-    Mono<Void> revoke(String issuanceId, String token, String publicIssuerBaseUrl);
+    Mono<Void> revoke(String issuanceId, String token, String publicIssuerBaseUrl, Mono<Void> statusChange);
 
 }

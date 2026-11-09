@@ -1,12 +1,14 @@
 package es.in2.issuer.backend.statuslist.infrastructure.adapter;
 
 
+import es.in2.issuer.backend.shared.domain.exception.RemoteSignatureException;
+import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.shared.domain.spi.AuditTrailPort;
 import es.in2.issuer.backend.signing.domain.audit.SigningAuditEvents.SignedObject;
 import es.in2.issuer.backend.signing.domain.util.JwsHeaderFingerprint;
 import es.in2.issuer.backend.signing.infrastructure.audit.SignatureAttemptRecorder;
-import es.in2.issuer.backend.shared.domain.model.audit.AuditEntry;
 import es.in2.issuer.backend.statuslist.domain.audit.StatusListAuditEvents;
+import es.in2.issuer.backend.statuslist.domain.util.LogSanitizer;
 import es.in2.issuer.backend.statuslist.domain.util.factory.IssuerFactory;
 import es.in2.issuer.backend.statuslist.domain.exception.*;
 import es.in2.issuer.backend.statuslist.domain.factory.BitstringStatusListCredentialFactory;
@@ -172,28 +174,30 @@ public class BitstringStatusListProvider implements StatusListProvider {
 
     @Override
     @Observed(name = "statuslist.provider.revoke", contextualName = "statuslist-provider-revoke")
-    public Mono<Void> revoke(String issuanceId, String token, String publicIssuerBaseUrl) {
+    public Mono<Void> revoke(String issuanceId, String token, String publicIssuerBaseUrl, Mono<Void> statusChange) {
         requireNonNullParam(issuanceId, ISSUANCE_ID_PARAM);
         requireNonNullParam(publicIssuerBaseUrl, "publicIssuerBaseUrl");
+        requireNonNullParam(statusChange, "statusChange");
 
-        log.debug("method=revoke step=START issuanceId={}", issuanceId);
+        // The id reaches this method from the routes as the client sent it (CodeQL java/log-injection).
+        String safeIssuanceId = LogSanitizer.quoteIfNeeded(issuanceId, LogSanitizer.MAX_VALUE_LENGTH);
+
+        log.debug("method=revoke step=START issuanceId={}", safeIssuanceId);
 
         Mono<Void> revocation = statusListIndexRepository.findByIssuanceId(UUID.fromString(issuanceId))
                 .switchIfEmpty(Mono.error(new StatusListIndexNotFoundException(issuanceId)))
                 .flatMap(listIndex -> {
                     log.debug(
                             "method=revoke step=indexResolved issuanceId={} statusListId={} idx={}",
-                            issuanceId, listIndex.statusListId(), listIndex.idx()
+                            safeIssuanceId, listIndex.statusListId(), listIndex.idx()
                     );
-                    return revokeWithRetry(listIndex.statusListId(), listIndex.idx(), token, publicIssuerBaseUrl)
-                            .flatMap(listUri -> auditTrail.stageBestEffort(
-                                    StatusListAuditEvents.revoked(issuanceId, listUri, listIndex.idx())));
+                    return revokeWithRetry(listIndex.statusListId(), listIndex.idx(), issuanceId, token, publicIssuerBaseUrl, statusChange);
                 })
                 .doOnSuccess(v ->
-                        log.debug("method=revoke step=END issuanceId={}", issuanceId)
+                        log.debug("method=revoke step=END issuanceId={}", safeIssuanceId)
                 )
                 .doOnError(e ->
-                        log.warn("method=revoke step=ERROR issuanceId={} error={}", issuanceId, e.getClass().getSimpleName())
+                        log.warn("method=revoke step=ERROR issuanceId={} error={}", safeIssuanceId, e.getClass().getSimpleName())
                 );
         return auditTrail.stageOnError(revocation, error -> error instanceof StatusListIndexNotFoundException
                 ? Optional.empty()
@@ -202,15 +206,18 @@ public class BitstringStatusListProvider implements StatusListProvider {
 
     // --- Revocation internals ---
 
-    /** Emits the URI of the list when the revocation was applied, and nothing when it was already revoked. */
-    private Mono<String> revokeWithRetry(Long statusListId, Integer idx, String token, String publicIssuerBaseUrl) {
+    private Mono<Void> revokeWithRetry(Long statusListId, Integer idx, String issuanceId, String token,
+                                       String publicIssuerBaseUrl, Mono<Void> statusChange) {
         log.debug("method=revokeWithRetry step=START statusListId={} idx={}", statusListId, idx);
 
-        long maxAttempts = 5;
+        // Each attempt asks the QTSP for a new signature of the list: three at most, with exponential
+        // backoff and jitter so that revocations racing on the same list spread out (SEC-25).
+        long maxAttempts = 3;
 
-        return Mono.defer(() -> revokeOnce(statusListId, idx, token, publicIssuerBaseUrl))
+        return Mono.defer(() -> revokeOnce(statusListId, idx, issuanceId, token, publicIssuerBaseUrl, statusChange))
                 .retryWhen(
                         Retry.backoff(maxAttempts - 1, Duration.ofMillis(50))
+                                .jitter(0.5)
                                 .filter(OptimisticUpdateException.class::isInstance)
                                 .doBeforeRetry(rs ->
                                         log.debug(
@@ -224,39 +231,17 @@ public class BitstringStatusListProvider implements StatusListProvider {
                 );
     }
 
-    private Mono<String> revokeOnce(Long statusListId, Integer idx, String token, String publicIssuerBaseUrl) {
+    private Mono<Void> revokeOnce(Long statusListId, Integer idx, String issuanceId, String token,
+                                  String publicIssuerBaseUrl, Mono<Void> statusChange) {
         log.debug("method=revokeOnce step=START statusListId={} idx={}", statusListId, idx);
 
-        return resolveRevocationCandidate(statusListId, idx)
+        return loadList(statusListId, idx)
                 .flatMap(row -> {
-                    StatusListData domainRow = toDomain(row);
-                    StatusListData updatedDomain = revocationService.applyRevocation(domainRow, idx);
-                    StatusList updatedRow = toEntity(updatedDomain);
-
-                    String listUri = buildListUrl(
-                            publicIssuerBaseUrl, statusListId, StatusListFormat.fromValue(row.format()));
-
-                    return getIssuerAndSignCredential(updatedRow, token, publicIssuerBaseUrl)
-                            .onErrorResume(error -> stagePublicationFailure(statusListId, listUri, REASON_SIGNING_FAILED)
-                                    .then(Mono.<String>error(error)))
-                            .flatMap(signedJwt -> statusListRepository.updateSignedAndEncodedIfUnchanged(
-                                            row.id(),
-                                            updatedRow.encodedList(),
-                                            signedJwt,
-                                            row.updatedAt())
-                                    .onErrorResume(error -> stagePublicationFailure(statusListId, listUri, REASON_PUBLICATION_FAILED)
-                                            .then(Mono.<Integer>error(error)))
-                                    .flatMap(rowsUpdated -> {
-                                        if (rowsUpdated == null || rowsUpdated == 0) {
-                                            return Mono.<String>error(new OptimisticUpdateException(
-                                                    "Optimistic lock failure for statusListId=" + statusListId
-                                            ));
-                                        }
-                                        return auditTrail.stageBestEffort(StatusListAuditEvents.published(
-                                                        statusListId, listUri,
-                                                        JwsHeaderFingerprint.fingerprintOf(signedJwt.getBytes(StandardCharsets.UTF_8))))
-                                                .thenReturn(listUri);
-                                    }));
+                    if (encoder.getBit(row.encodedList(), idx)) {
+                        log.debug("method=revokeOnce step=ALREADY_MARKED statusListId={} idx={}", statusListId, idx);
+                        return transactionalOperator.transactional(statusChange);
+                    }
+                    return sealAndCommit(row, idx, issuanceId, token, publicIssuerBaseUrl, statusChange);
                 })
                 .switchIfEmpty(Mono.defer(() -> {
                     log.debug("method=revokeOnce step=ALREADY_REVOKED statusListId={} idx={}", statusListId, idx);
@@ -270,6 +255,46 @@ public class BitstringStatusListProvider implements StatusListProvider {
     /** The list could not be signed again, or the new version could not be stored: the old one stays published. */
     private Mono<Void> stagePublicationFailure(Long statusListId, String listUri, String reason) {
         return auditTrail.stageBestEffort(StatusListAuditEvents.publicationFailed(statusListId, listUri, reason));
+    }
+
+    /**
+     * The seal is a call to the QTSP, so it stays outside the transaction: if it fails nothing has
+     * been written. The conditional update of the list, its audit events and {@code statusChange}
+     * commit together, or none does; a seal that loses the race is discarded with its transaction.
+     */
+    private Mono<Void> sealAndCommit(StatusList row, Integer idx, String issuanceId, String token,
+                                     String publicIssuerBaseUrl, Mono<Void> statusChange) {
+        StatusListData updatedDomain = revocationService.applyRevocation(toDomain(row), idx);
+        StatusList updatedRow = toEntity(updatedDomain);
+        String listUri = buildListUrl(publicIssuerBaseUrl, row.id(), StatusListFormat.fromValue(row.format()));
+
+        return getIssuerAndSignCredential(updatedRow, token, publicIssuerBaseUrl)
+                // Without this an empty seal would skip the transaction and still read as a revocation.
+                .switchIfEmpty(Mono.error(() -> new RemoteSignatureException(
+                        "No seal obtained for statusListId=" + row.id())))
+                .onErrorResume(error -> stagePublicationFailure(row.id(), listUri, REASON_SIGNING_FAILED)
+                        .then(Mono.<String>error(error)))
+                .flatMap(signedJwt -> transactionalOperator.transactional(
+                        statusListRepository.updateSignedAndEncodedIfUnchanged(
+                                        row.id(),
+                                        updatedRow.encodedList(),
+                                        signedJwt,
+                                        row.updatedAt()
+                                )
+                                .onErrorResume(error -> stagePublicationFailure(row.id(), listUri, REASON_PUBLICATION_FAILED)
+                                        .then(Mono.<Integer>error(error)))
+                                .flatMap(rowsUpdated -> {
+                                    if (rowsUpdated == null || rowsUpdated == 0) {
+                                        return Mono.<Void>error(new OptimisticUpdateException(
+                                                "Optimistic lock failure for statusListId=" + row.id()
+                                        ));
+                                    }
+                                    return auditTrail.stage(StatusListAuditEvents.published(row.id(), listUri,
+                                                    JwsHeaderFingerprint.fingerprintOf(signedJwt.getBytes(StandardCharsets.UTF_8))))
+                                            .then(auditTrail.stage(StatusListAuditEvents.revoked(issuanceId, listUri, idx)))
+                                            .then(statusChange);
+                                })
+                ));
     }
 
     // --- Allocation internals ---
@@ -478,20 +503,12 @@ public class BitstringStatusListProvider implements StatusListProvider {
         return baseUrl + base + "/" + listId;
     }
 
-    private Mono<StatusList> resolveRevocationCandidate(Long statusListId, Integer idx) {
+    private Mono<StatusList> loadList(Long statusListId, Integer idx) {
         requireNonNullParam(statusListId, "statusListId");
         requireNonNullParam(idx, "idx");
 
         return statusListRepository.findById(statusListId)
-                .switchIfEmpty(Mono.error(new StatusListNotFoundException(statusListId)))
-                .flatMap(row -> {
-                    boolean alreadyRevoked = encoder.getBit(row.encodedList(), idx);
-                    if (alreadyRevoked) {
-                        log.debug("action=revokeStatusList result=alreadyRevoked statusListId={} idx={}", statusListId, idx);
-                        return Mono.empty();
-                    }
-                    return Mono.just(row);
-                });
+                .switchIfEmpty(Mono.error(new StatusListNotFoundException(statusListId)));
     }
 
     private Mono<StatusListIndexData> reserveWithNewListFallback(

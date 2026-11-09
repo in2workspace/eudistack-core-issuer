@@ -30,6 +30,8 @@ public interface StatusListRepository extends ReactiveCrudRepository<StatusList,
            """)
     Mono<StatusList> findLatestByPurposeAndFormat(String purpose, String format);
 
+    // @Modifying is what makes this return the affected rows. Without it the update ran as a query
+    // with no result: the Mono completed empty, so a lost race was never detected (EUD-271).
     @Modifying
     @Query("""
        UPDATE status_list
