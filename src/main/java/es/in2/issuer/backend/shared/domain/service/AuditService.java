@@ -13,7 +13,19 @@ public interface AuditService {
     void auditSuccess(String event, String userId, String resourceType, String resourceId,
                       Map<String, Object> details);
 
+    /**
+     * {@link #auditSuccess(String, String, String, String, Map)} with the {@code organization} the operation
+     * belongs to, recorded next to the user and not inside {@code details}, as the canonical
+     * {@code organization} of the EUD-244 audit record. {@code null} leaves it out.
+     */
+    void auditSuccess(String event, String userId, String organization, String resourceType, String resourceId,
+                      Map<String, Object> details);
+
     void auditFailure(String event, String userId, String reason,
+                      Map<String, Object> details);
+
+    /** {@link #auditFailure(String, String, String, Map)} with the {@code organization}, as above. */
+    void auditFailure(String event, String userId, String organization, String reason,
                       Map<String, Object> details);
 
     void auditAttempted(String event, String userId, String resourceType, String resourceId,

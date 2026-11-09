@@ -64,7 +64,16 @@ public enum GlobalErrorTypes {
     CREDENTIAL_CATALOG_NOT_CONFIGURED("credential_catalog_not_configured"),
     CREDENTIAL_CONFIGURATION_NOT_ENABLED("credential_configuration_not_enabled"),
     OFFER_NOT_RENEWABLE("offer_not_renewable"),
-    RATE_LIMITED("rate_limited");
+    RATE_LIMITED("rate_limited"),
+    UNKNOWN_SCHEMA("unknown_schema"),
+    UNSUPPORTED_BINDING_TYPE("unsupported_binding_type"),
+    FIELD_NOT_IN_SCHEMA("field_not_in_schema"),
+    INVALID_VALIDITY("invalid_validity"),
+    NO_DELIVERY_MODE("no_delivery_mode"),
+    CATALOG_ENTRY_ALREADY_EXISTS("catalog_entry_already_exists"),
+    CATALOG_ENTRY_NOT_FOUND("catalog_entry_not_found"),
+    PRECONDITION_FAILED("precondition_failed"),
+    PRECONDITION_REQUIRED("precondition_required");
 
     private final String code;
 

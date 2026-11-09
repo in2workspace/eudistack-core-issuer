@@ -7,9 +7,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.security.core.Authentication;
@@ -278,6 +281,25 @@ class SecurityConfigTest {
             assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
         }
 
+        // EUD-266: the entry paths (/{id}) are not matched by the exact collection path, they need
+        // their own wildcard pattern in both the authentication and the security matchers.
+        @Test
+        void attestationCatalog_collection_shouldReturn401_whenNoAuth() {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(ATTESTATION_CATALOG_PATH).build()
+            );
+            assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"GET", "PUT", "PATCH"})
+        void attestationCatalog_entry_shouldReturn401_whenNoAuth(String method) {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.method(HttpMethod.valueOf(method), ATTESTATION_CATALOG_PATH + "/doctorid.sd.1").build()
+            );
+            assertEquals(HttpStatus.UNAUTHORIZED, executeFilter(exchange));
+        }
+
     }
 
     // ── Authenticated endpoints — 200 with valid Bearer token ───────────
@@ -317,6 +339,18 @@ class SecurityConfigTest {
         void oid4vciNotification_post_shouldReturn200_whenAuthenticated() {
             MockServerWebExchange exchange = MockServerWebExchange.from(
                     MockServerHttpRequest.post(OID4VCI_NOTIFICATION_PATH)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer good-token")
+                            .build()
+            );
+            assertEquals(HttpStatus.OK, executeFilter(exchange));
+            verify(customAuthenticationManager).authenticate(any());
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"GET", "PUT", "PATCH"})
+        void attestationCatalog_entry_shouldAuthenticate_whenBearerTokenIsSent(String method) {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.method(HttpMethod.valueOf(method), ATTESTATION_CATALOG_PATH + "/doctorid.sd.1")
                             .header(HttpHeaders.AUTHORIZATION, "Bearer good-token")
                             .build()
             );

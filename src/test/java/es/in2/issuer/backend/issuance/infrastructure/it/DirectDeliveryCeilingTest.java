@@ -21,6 +21,7 @@ import es.in2.issuer.backend.shared.domain.service.DeliveryEligibilityResolver;
 import es.in2.issuer.backend.shared.domain.service.HolderDidFallbackAuditor;
 import es.in2.issuer.backend.shared.domain.service.IssuancePayloadNormalizer;
 import es.in2.issuer.backend.shared.domain.service.IssuanceService;
+import es.in2.issuer.backend.shared.domain.service.TenantCredentialProfileService;
 import es.in2.issuer.backend.shared.domain.service.PayloadSchemaValidator;
 import es.in2.issuer.backend.shared.domain.service.SchemaDeliveryCeiling;
 import es.in2.issuer.backend.shared.domain.spi.UrlResolver;
@@ -132,7 +133,8 @@ class DirectDeliveryCeilingTest {
                 deliveryEligibilityResolver,
                 issuanceProperties,
                 schemaDeliveryCeiling,
-                holderDidFallbackAuditor
+                holderDidFallbackAuditor,
+                mock(TenantCredentialProfileService.class)
         );
 
         UrlResolver urlResolver = mock(UrlResolver.class);

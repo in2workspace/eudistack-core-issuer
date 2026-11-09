@@ -101,7 +101,10 @@ class CredentialOfferRenewalWorkflowImplTest {
         PowerAuthorizationService decisionPoint = new PowerAuthorizationServiceImpl(
                 new FileAuthorizationMatrixProvider("", mock(AuditService.class)),
                 callerProvider, profiles, decisionAuditService, MAPPER);
-        CredentialProfileCatalog catalog = Map.of(LEAR_TYPE, LEAR_PROFILE, LABEL_TYPE, LABEL_PROFILE)::get;
+        Map<String, CredentialProfile> loaded = Map.of(LEAR_TYPE, LEAR_PROFILE, LABEL_TYPE, LABEL_PROFILE);
+        CredentialProfileCatalog catalog = mock(CredentialProfileCatalog.class);
+        when(catalog.getByConfigurationId(anyString()))
+                .thenAnswer(invocation -> loaded.get(invocation.getArgument(0, String.class)));
         workflow = new CredentialOfferRenewalWorkflowImpl(callerProvider, decisionPoint, issuanceService, catalog,
                 new GenericCredentialBuilder(MAPPER, mock(IssuerFactory.class)), credentialOfferService, auditService);
     }

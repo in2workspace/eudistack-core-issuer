@@ -36,6 +36,7 @@ import java.util.stream.Stream;
 import java.util.Map;
 
 import static es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService.ARCHIVE;
+import static es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService.CHANGE_CATALOG;
 import static es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService.QUERY;
 import static es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService.QUERY_FROM_SYSTEM;
 import static es.in2.issuer.backend.shared.domain.policy.service.PowerAuthorizationService.REVOKE;
@@ -748,6 +749,52 @@ class PowerAuthorizationServiceImplTest {
     // --- FR-13: the trace of every decision ---
 
     /** AC-14: every decision, permitted or denied, is audited with who, power, resource, result and reason. */
+    // --- attestation catalogue (K2, EUD-266) ---
+
+    @Nested
+    class Catalog {
+
+        private Mono<AuthorizationDecision> changeCatalog(Caller caller, String tenant) {
+            return inTenant(service.authorize(CHANGE_CATALOG, caller, null, null), tenant);
+        }
+
+        /** The power alone makes the tenant administrator, whatever organization holds it. */
+        @Test
+        void PowerAuthorizationService_authorize_tenantAdminOfAnyOrganizationChangesTheCatalog() {
+            StepVerifier.create(changeCatalog(caller(OTHER_ORG, TENANT, TENANT_ADMIN), TENANT))
+                    .expectNextCount(1).verifyComplete();
+        }
+
+        @Test
+        void PowerAuthorizationService_authorize_platformAdminInsideATenantChangesTheCatalog() {
+            StepVerifier.create(changeCatalog(caller(ORG, TENANT, PLATFORM_ADMIN), TENANT))
+                    .expectNextCount(1).verifyComplete();
+        }
+
+        /** EUD-253 AC-06: the domain-type power of the governing organization does not change the catalogue. */
+        @Test
+        void PowerAuthorizationService_authorize_organizationAdminCannotChangeTheCatalog() {
+            expectReason(changeCatalog(caller(ORG, TENANT, ORG_ADMIN), TENANT), Reason.OPERATOR_LACKS_ONBOARDING);
+            lastDenyDetails("operator_lacks_onboarding");
+        }
+
+        @Test
+        void PowerAuthorizationService_authorize_userWithoutPowersCannotChangeTheCatalog() {
+            expectReason(changeCatalog(caller(ORG, TENANT, CERTIFY), TENANT), Reason.OPERATOR_LACKS_ONBOARDING);
+        }
+
+        @Test
+        void PowerAuthorizationService_authorize_platformAdminFromThePlatformTenantOnlyReadsTheCatalog() {
+            expectReason(changeCatalog(caller(ORG, "platform", PLATFORM_ADMIN), "platform"), Reason.PLATFORM_TENANT_READ_ONLY);
+        }
+
+        @Test
+        void PowerAuthorizationService_authorize_tenantAdminOfAnotherTenantIsATenantMismatch() {
+            StepVerifier.create(changeCatalog(caller(ORG, OTHER_TENANT, power("organization", OTHER_TENANT, "Onboarding", "Execute")), TENANT))
+                    .expectError(TenantMismatchException.class).verify();
+        }
+    }
+
     @Nested
     class Audit {
 

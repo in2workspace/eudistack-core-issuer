@@ -27,10 +27,11 @@ public interface PowerAuthorizationService {
     String QUERY_FROM_SYSTEM = "C2";
     String REVOKE = "R1";
     String ARCHIVE = "R2";
+    String CHANGE_CATALOG = "K2";
 
     /** The actions the issuer decides: a matrix without a rule for one of them is rejected. */
     List<String> ACTIONS_IN_USE = List.of(ISSUE_OWN, ISSUE_ON_BEHALF, ISSUE_PRODUCT_CERTIFICATION, WITHDRAW,
-            QUERY, QUERY_FROM_SYSTEM, REVOKE, ARCHIVE);
+            QUERY, QUERY_FROM_SYSTEM, REVOKE, ARCHIVE, CHANGE_CATALOG);
 
     /**
      * Resolves the user type of the caller in the request's tenant, for the callers that need the
