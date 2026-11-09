@@ -85,7 +85,7 @@ class IssuerAuditContextResolverTest {
         StepVerifier.create(resolve(user))
                 .assertNext(context -> {
                     assertEquals(ActorKind.PERSON, context.actor().kind());
-                    assertEquals("jane@example.com", context.actor().id());
+                    assertEquals("user-1", context.actor().id());
                     assertEquals("jane@example.com", context.actor().email());
                     assertEquals("VATES-A1", context.organization());
                 })

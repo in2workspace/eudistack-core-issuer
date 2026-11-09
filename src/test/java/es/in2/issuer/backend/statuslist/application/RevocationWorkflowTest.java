@@ -267,9 +267,6 @@ class RevocationWorkflowTest {
         arrangeRevocationThatPassesValidation();
         when(statusListProvider.revoke(eq(ISSUANCE_ID), eq(CLEAN_TOKEN), eq("https://issuer.example.com"), any()))
                 .thenReturn(Mono.error(new IllegalStateException("status list down")));
-        // The chain is assembled before it is subscribed, so these are built but never run.
-        when(issuanceService.updateIssuanceStatusToRevoked(mockProcedure)).thenReturn(Mono.empty());
-        when(issuanceService.extractCredentialId(mockProcedure)).thenReturn(Mono.just("cred-123"));
 
         // Act
         Mono<Void> revoked = revocationWorkflow.revoke(PROCESS_ID, BEARER_TOKEN, ISSUANCE_ID, "reason", "https://issuer.example.com");
