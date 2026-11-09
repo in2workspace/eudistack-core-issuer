@@ -78,12 +78,12 @@ class S3OwnKeyCertificateAdapterTest {
     }
 
     @Test
-    void findCertificateChainPem_accessDenied_isNoConfiguration() {
+    void findCertificateChainPem_accessDenied_isProviderUnavailable() {
         answer(failed(S3Exception.builder().statusCode(403).message("denied").build()));
 
         StepVerifier.create(adapterAt("arn:aws:s3:::certs-bucket/p").findCertificateChainPem("cgcom"))
                 .expectErrorSatisfies(e -> assertThat(e).isInstanceOfSatisfying(SigningException.class,
-                        s -> assertThat(s.getReason()).isEqualTo(SigningFailureReason.NO_CONFIGURATION)))
+                        s -> assertThat(s.getReason()).isEqualTo(SigningFailureReason.PROVIDER_UNAVAILABLE)))
                 .verify();
     }
 

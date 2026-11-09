@@ -70,9 +70,11 @@ public class S3OwnKeyCertificateAdapter implements OwnKeyCertificatePort {
     private SigningException failure(String tenant, String key, Throwable error) {
         Throwable cause = unwrap(error);
         if (cause instanceof S3Exception s3 && s3.statusCode() == FORBIDDEN) {
-            log.error("Own-key certificate not readable (missing object or missing s3:GetObject) tenant={} "
-                    + "bucket={} key={}", tenant, properties.bucket(), key);
-            return new SigningException(SigningFailureReason.NO_CONFIGURATION,
+            // A 403 is a missing object without s3:ListBucket, but also a denied GetObject or a wrong ARN:
+            // it is not taken as a permanent lack of configuration, so that the caller may retry.
+            log.error("Own-key certificate not readable (403: missing object without s3:ListBucket, or access "
+                    + "denied) tenant={} bucket={} key={}", tenant, properties.bucket(), key);
+            return new SigningException(SigningFailureReason.PROVIDER_UNAVAILABLE,
                     "The own-key certificate of the tenant cannot be read");
         }
         log.error("Own-key certificate read failed tenant={} bucket={} key={} error={}", tenant,
