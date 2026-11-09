@@ -84,6 +84,7 @@ abstract class DelegatingLoggingEvent implements ILoggingEvent {
     }
 
     @Override
+    @SuppressWarnings("deprecation")
     public Map<String, String> getMdc() {
         return delegate.getMdc();
     }

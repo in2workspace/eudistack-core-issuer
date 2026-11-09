@@ -70,9 +70,10 @@ class ArchUnitTest {
                     // Reactive transactions (EUD-72): @Configuration whose beans (ReactiveTransactionManager,
                     // TransactionalOperator) are consumed by injection, never by a direct class reference
                     BASE_PACKAGE + ".shared.infrastructure.config.R2dbcTransactionConfiguration",
-                    // Observability: dual gRPC export config, Spring-managed beans discovered via
-                    // component scanning / @ConditionalOnProperty (no direct class references)
-                    BASE_PACKAGE + ".shared.infrastructure.config.OtlpGrpcTracingConfig",
+                    // Observability: gRPC metrics export and reactive context propagation, Spring-managed
+                    // beans discovered via component scanning / @ConditionalOnProperty (no direct class references)
+                    BASE_PACKAGE + ".shared.infrastructure.config.ReactorContextPropagationConfig",
+                    BASE_PACKAGE + ".shared.infrastructure.observability.CustomObservationHandler",
                     BASE_PACKAGE + ".shared.infrastructure.config.OtlpGrpcMetricsConfig",
                     BASE_PACKAGE + ".shared.infrastructure.config.OtlpGrpcMetricsSender",
                     BASE_PACKAGE + ".shared.infrastructure.config.MicrometerMetricsConfig",
