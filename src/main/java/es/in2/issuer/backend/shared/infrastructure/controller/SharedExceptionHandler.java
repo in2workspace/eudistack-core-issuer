@@ -380,21 +380,6 @@ public class SharedExceptionHandler {
         );
     }
 
-    @ExceptionHandler(MissingIdTokenHeaderException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Mono<GlobalErrorMessage> handleMissingIdTokenHeaderException(
-            MissingIdTokenHeaderException ex,
-            ServerHttpRequest request
-    ) {
-        return errors.handleWith(
-                ex, request,
-                GlobalErrorTypes.MISSING_HEADER.getCode(),
-                "Missing header",
-                HttpStatus.BAD_REQUEST,
-                "The X-ID-TOKEN header is missing, this header is needed to issue a Verifiable Certification"
-        );
-    }
-
     @ExceptionHandler(SadException.class)
     @ResponseStatus(HttpStatus.BAD_GATEWAY)
     public Mono<GlobalErrorMessage> handleSadException(
