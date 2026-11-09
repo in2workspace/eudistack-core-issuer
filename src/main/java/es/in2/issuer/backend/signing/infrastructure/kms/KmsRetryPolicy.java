@@ -29,6 +29,10 @@ import java.util.concurrent.TimeoutException;
  * matches a known case decides. An {@code SdkClientException} is only treated as
  * connection-level when it wraps an {@link IOException}; other client-side failures
  * (for example missing credentials) are not retried.
+ *
+ * <p>An {@code AccessDeniedException} is a denial of the role, not a key that was replaced:
+ * it is {@code PROVIDER_UNAVAILABLE}, so that the caller may retry once the role is fixed,
+ * but it is not retried inside the call, where it would fail the same way.
  */
 @Slf4j
 public final class KmsRetryPolicy {
@@ -40,6 +44,7 @@ public final class KmsRetryPolicy {
 
     private enum Kind {
         TRANSIENT(SigningFailureReason.PROVIDER_UNAVAILABLE),
+        ACCESS_DENIED(SigningFailureReason.PROVIDER_UNAVAILABLE),
         KEY_UNUSABLE(SigningFailureReason.KEY_UNUSABLE),
         UNKNOWN(SigningFailureReason.OTHER);
 
@@ -155,11 +160,13 @@ public final class KmsRetryPolicy {
 
     private static Kind kindOfService(SdkServiceException service) {
         String errorCode = errorCode(service);
+        if (ERROR_ACCESS_DENIED.equals(errorCode)) {
+            return Kind.ACCESS_DENIED;
+        }
         if (service instanceof DisabledException
                 || service instanceof KmsInvalidStateException
                 || service instanceof NotFoundException
-                || service instanceof InvalidKeyUsageException
-                || ERROR_ACCESS_DENIED.equals(errorCode)) {
+                || service instanceof InvalidKeyUsageException) {
             return Kind.KEY_UNUSABLE;
         }
         if (service.isThrottlingException()

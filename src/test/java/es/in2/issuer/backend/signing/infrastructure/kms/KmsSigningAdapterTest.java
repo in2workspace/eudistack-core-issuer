@@ -177,7 +177,7 @@ class KmsSigningAdapterTest {
     }
 
     @Test
-    void sign_accessDenied_failsKeyUnusableWithoutRetryKeepingErrorCode() {
+    void sign_accessDenied_failsProviderUnavailableWithoutRetryKeepingErrorCode() {
         AwsServiceException denied = AwsServiceException.builder()
                 .statusCode(400)
                 .awsErrorDetails(AwsErrorDetails.builder().errorCode("AccessDeniedException").build())
@@ -187,7 +187,7 @@ class KmsSigningAdapterTest {
         StepVerifier.withVirtualTime(() -> adapter.sign(KEY_REF, DIGEST))
                 .thenAwait(WAIT_ALL_RETRIES)
                 .expectErrorSatisfies(ex -> {
-                    assertReason(ex, SigningFailureReason.KEY_UNUSABLE);
+                    assertReason(ex, SigningFailureReason.PROVIDER_UNAVAILABLE);
                     assertThat(ex).hasMessageContaining("AccessDeniedException");
                 })
                 .verify();

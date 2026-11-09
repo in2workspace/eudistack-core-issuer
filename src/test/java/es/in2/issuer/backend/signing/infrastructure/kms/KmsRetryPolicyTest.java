@@ -54,9 +54,9 @@ class KmsRetryPolicyTest {
                 Arguments.of("KmsInvalidStateException", KmsInvalidStateException.builder().message("x").build(), KEY_UNUSABLE, false),
                 Arguments.of("NotFoundException", NotFoundException.builder().message("x").build(), KEY_UNUSABLE, false),
                 Arguments.of("InvalidKeyUsageException", InvalidKeyUsageException.builder().message("x").build(), KEY_UNUSABLE, false),
-                Arguments.of("AccessDeniedException", serviceError(400, "AccessDeniedException"), KEY_UNUSABLE, false),
+                Arguments.of("AccessDeniedException", serviceError(400, "AccessDeniedException"), PROVIDER_UNAVAILABLE, false),
                 Arguments.of("AccessDenied behind CompletionException",
-                        new CompletionException(serviceError(400, "AccessDeniedException")), KEY_UNUSABLE, false),
+                        new CompletionException(serviceError(400, "AccessDeniedException")), PROVIDER_UNAVAILABLE, false),
                 Arguments.of("other 4xx service error", serviceError(400, "ValidationException"), OTHER, false),
                 Arguments.of("SdkClientException without I/O cause",
                         SdkClientException.builder().message("Unable to load credentials").build(), OTHER, false),
@@ -86,7 +86,7 @@ class KmsRetryPolicyTest {
     void toSigningException_accessDenied_keepsOriginalErrorCodeInMessage() {
         KmsSigningException ex = KmsRetryPolicy.toSigningException(serviceError(400, "AccessDeniedException"), "Sign");
 
-        assertThat(ex.getReason()).isEqualTo(KEY_UNUSABLE);
+        assertThat(ex.getReason()).isEqualTo(PROVIDER_UNAVAILABLE);
         assertThat(ex).hasMessageContaining("AccessDeniedException");
     }
 
