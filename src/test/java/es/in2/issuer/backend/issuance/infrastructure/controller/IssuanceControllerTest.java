@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import es.in2.issuer.backend.issuance.application.workflow.IssuanceWorkflow;
 import es.in2.issuer.backend.shared.domain.exception.DeliveryModeNotEligibleException;
 import es.in2.issuer.backend.issuance.domain.exception.InvalidDeliveryModeException;
+import es.in2.issuer.backend.issuance.domain.exception.InvalidGrantTypeException;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryErrorCode;
 import es.in2.issuer.backend.issuance.domain.model.DeliveryResult;
 import es.in2.issuer.backend.issuance.domain.model.dto.IssuanceRequest;
@@ -425,8 +426,13 @@ class IssuanceControllerTest {
         org.mockito.Mockito.verifyNoInteractions(issuanceWorkflow);
     }
 
+    /**
+     * EUD-268: a grant_type other than its two values -- control characters included -- is the
+     * contract's invalid_grant_type, decided by the workflow (OfferGrantType), not a BAD_REQUEST on its
+     * shape. The value is never logged nor echoed back (OfferGrantTypeTest).
+     */
     @Test
-    void createIssuance_GrantTypeContainsControlCharacters_Returns400WithoutInvokingWorkflow() throws JsonProcessingException {
+    void createIssuance_GrantTypeNotOneOfItsValues_Returns400InvalidGrantType() throws JsonProcessingException {
         IssuanceRequest request = IssuanceRequest.builder()
                 .credentialConfigurationId("test-schema")
                 .payload(objectMapper.createObjectNode().put("key", "value"))
@@ -434,6 +440,16 @@ class IssuanceControllerTest {
                 .delivery("email")
                 .grantType("authorization_code\r\nX-Forged-Header: 1")
                 .build();
+        String detail = "grant_type must be one of: authorization_code, urn:ietf:params:oauth:grant-type:pre-authorized_code";
+
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), any()))
+                .thenReturn(Mono.error(new InvalidGrantTypeException(detail)));
+        when(errorResponseFactory.handleWith(any(), any(), eq("invalid_grant_type"), eq("Invalid grant type"),
+                eq(HttpStatus.BAD_REQUEST), anyString()))
+                .thenReturn(Mono.just(new GlobalErrorMessage(
+                        "invalid_grant_type", "Invalid grant type", HttpStatus.BAD_REQUEST.value(), detail,
+                        UUID.randomUUID().toString())));
 
         webTestClient.mutateWith(csrf())
                 .post()
@@ -442,9 +458,10 @@ class IssuanceControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(objectMapper.writeValueAsString(request))
                 .exchange()
-                .expectStatus().isBadRequest();
-
-        org.mockito.Mockito.verifyNoInteractions(issuanceWorkflow);
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("invalid_grant_type")
+                .jsonPath("$.detail").isEqualTo(detail);
     }
 
     @Test

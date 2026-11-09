@@ -31,8 +31,8 @@ public record IssuanceRequest(
         @Email(message = "email must be a well-formed email address")
         @Size(max = 254, message = "email must be at most 254 characters")
         @JsonProperty("email") String email,
-        @Size(max = 64, message = "grant_type must be at most 64 characters")
-        @Pattern(regexp = "^[a-zA-Z0-9_:-]*$", message = "grant_type must only contain letters, digits, underscore, colon and hyphen")
+        // EUD-254: any value other than its two is invalid_grant_type, not a BAD_REQUEST on its shape --
+        // OfferGrantType checks it, and the value sent is never logged or echoed back.
         @JsonProperty("grant_type") String grantType,
         @JsonProperty("holder_key") JsonNode holderKey,
         // EUD-253 FR-07 / EUD-268: organization the attestation is issued for. Optional: absent, it is
