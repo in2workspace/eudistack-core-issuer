@@ -257,6 +257,40 @@ class IssuanceControllerTest {
                 .jsonPath("$.responses[0].body.signed_credential").doesNotExist();
     }
 
+    /**
+     * EUD-268 (EUD-254 §5): a product certification is requested like any other type. An X-Id-Token
+     * header is neither required nor read by the issuance: the request reaches the workflow unchanged.
+     */
+    @Test
+    void createIssuance_ProductCertificationWithAnXIdTokenHeader_IgnoresIt() throws JsonProcessingException {
+        IssuanceRequest request = IssuanceRequest.builder()
+                .credentialConfigurationId("gx.labelcredential.w3c.2")
+                .payload(objectMapper.createObjectNode().put("key", "value"))
+                .email("test@example.com")
+                .delivery("email")
+                .build();
+
+        when(urlResolver.publicIssuerBaseUrl(any())).thenReturn(PUBLIC_ISSUER_BASE_URL);
+        when(issuanceWorkflow.issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL)))
+                .thenReturn(Mono.just(IssuanceResponse.builder()
+                        .deliveryResults(List.of(DeliveryResult.dispatched("email")))
+                        .build()));
+
+        webTestClient.mutateWith(csrf())
+                .post()
+                .uri(ISSUANCES_PATH)
+                .header("Authorization", BEARER_TOKEN)
+                .header("X-Id-Token", "not.even.a-jwt")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(objectMapper.writeValueAsString(request))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.responses[0].channel").isEqualTo("email");
+
+        verify(issuanceWorkflow).issueCredential(anyString(), eq(request), eq(BEARER_TOKEN), eq(PUBLIC_ISSUER_BASE_URL));
+    }
+
     @Test
     void createIssuance_WhenSignedCredentialIsPresent_Returns200WithBody() throws JsonProcessingException {
         IssuanceRequest request = buildIssuanceRequest();

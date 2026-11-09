@@ -14,7 +14,6 @@ public enum GlobalErrorTypes {
     UNSUPPORTED_CREDENTIAL_FORMAT("unsupported_credential_format"),
     INVALID_CREDENTIAL_REQUEST("invalid_credential_request"),
     INSUFFICIENT_PERMISSION("insufficient_permission"),
-    MISSING_HEADER("missing_header"),
     SAD_ERROR("sad_error"),
     NO_SUCH_ELEMENT("no_such_element"),
     PARSE_ERROR("parse_error"),
