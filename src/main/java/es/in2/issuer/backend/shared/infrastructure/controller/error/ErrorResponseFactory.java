@@ -47,6 +47,18 @@ public class ErrorResponseFactory {
         return Mono.deferContextual(ctx -> asProblem(ctx, request, buildError(type, title, status, detail, ex, request, null)));
     }
 
+    /**
+     * {@link #handleSafe} with field violations: the detail is the one given, never the exception
+     * message -- a bind error's message carries the rejected values the client sent.
+     */
+    public Mono<GlobalErrorMessage> handleSafeWithViolations(
+            Exception ex, ServerHttpRequest request,
+            String type, String title, HttpStatus status, String detail,
+            List<GlobalErrorMessage.FieldViolation> violations
+    ) {
+        return Mono.deferContextual(ctx -> asProblem(ctx, request, buildError(type, title, status, detail, ex, request, violations)));
+    }
+
     public Mono<GlobalErrorMessage> handleWithViolations(
             Exception ex, ServerHttpRequest request,
             String type, String title, HttpStatus status, String fallbackDetail,

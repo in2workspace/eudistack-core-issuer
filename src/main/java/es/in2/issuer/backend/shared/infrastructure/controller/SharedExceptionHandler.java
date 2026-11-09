@@ -6,6 +6,7 @@ import es.in2.issuer.backend.oidc4vci.domain.exception.CredentialOfferNoLongerAv
 import es.in2.issuer.backend.shared.infrastructure.controller.error.GlobalErrorMessage;
 import es.in2.issuer.backend.shared.domain.util.GlobalErrorTypes;
 import es.in2.issuer.backend.shared.infrastructure.controller.error.ErrorResponseFactory;
+import es.in2.issuer.backend.shared.infrastructure.controller.error.RequestViolations;
 import es.in2.issuer.backend.signing.domain.exception.SigningResultParsingException;
 import es.in2.issuer.backend.statuslist.domain.exception.SignedStatusListCredentialNotAvailableException;
 import es.in2.issuer.backend.statuslist.domain.exception.StatusListNotFoundException;
@@ -18,10 +19,13 @@ import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.bind.support.WebExchangeBindException;
+import org.springframework.web.server.ServerWebInputException;
 import reactor.core.publisher.Mono;
 
 import javax.naming.OperationNotSupportedException;
 import java.text.ParseException;
+import java.util.List;
 import java.util.NoSuchElementException;
 
 @Slf4j
@@ -530,6 +534,47 @@ public class SharedExceptionHandler {
                 HttpStatus.BAD_REQUEST,
                 "The credential payload does not conform to the required schema",
                 violations
+        );
+    }
+
+    /**
+     * EUD-254: a field that fails Bean Validation is a BAD_REQUEST with one violation per field,
+     * named as the client sent it. The detail is fixed: the exception message carries the rejected values.
+     */
+    @ExceptionHandler(WebExchangeBindException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleWebExchangeBindException(
+            WebExchangeBindException ex,
+            ServerHttpRequest request
+    ) {
+        return errors.handleSafeWithViolations(
+                ex, request,
+                GlobalErrorTypes.BAD_REQUEST.getCode(),
+                HttpStatus.BAD_REQUEST.getReasonPhrase(),
+                HttpStatus.BAD_REQUEST,
+                "The request has fields that are not valid",
+                RequestViolations.of(ex)
+        );
+    }
+
+    /**
+     * EUD-254: a body that cannot be read is a BAD_REQUEST; when it is JSON and a field is missing or of
+     * the wrong type, the violation names that field. A body that is not JSON has no violations.
+     */
+    @ExceptionHandler(ServerWebInputException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Mono<GlobalErrorMessage> handleServerWebInputException(
+            ServerWebInputException ex,
+            ServerHttpRequest request
+    ) {
+        List<GlobalErrorMessage.FieldViolation> violations = RequestViolations.of(ex);
+        return errors.handleSafeWithViolations(
+                ex, request,
+                GlobalErrorTypes.BAD_REQUEST.getCode(),
+                HttpStatus.BAD_REQUEST.getReasonPhrase(),
+                HttpStatus.BAD_REQUEST,
+                ex.getReason() != null ? ex.getReason() : HttpStatus.BAD_REQUEST.getReasonPhrase(),
+                violations.isEmpty() ? null : violations
         );
     }
 
