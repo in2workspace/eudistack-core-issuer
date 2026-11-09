@@ -202,7 +202,7 @@ public class IssuanceServiceImpl implements IssuanceService {
                 .flatMap(issuance -> {
                     try {
                         return auditTrail.stageBestEffort(IssuanceAuditEvents.detailAccessed(
-                                        issuanceId, new Holder(null, issuance.getSubject(), issuance.getEmail())))
+                                        issuanceId, Holder.ofAttestation(issuance.getSubject(), issuance.getEmail(), issuance.getCredentialDataSet())))
                                 .thenReturn(CredentialDetails.builder()
                                         .issuanceId(issuance.getIssuanceId())
                                         .credentialConfigurationId(issuance.getCredentialType())

@@ -20,8 +20,8 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 
 /**
  * Tells the audit starter who is acting in a request: the tenant of the request and the caller of its
- * access token. The wallet's token names the issuance ({@code pid}) and is the holder; a machine token
- * names its client and is a system; any other is a person. A request without an authenticated caller has
+ * access token, never the authentication principal (see {@link AccessTokenActor}). The wallet's token names
+ * the issuance ({@code pid}) and is the holder; a machine token is a system; any other is a person. A request without an authenticated caller has
  * no context, so the steps of the holder's exchange that carry no token open one explicitly.
  */
 @Component
@@ -31,13 +31,13 @@ public class IssuerAuditContextResolver implements ReactiveAuditContextResolver 
 
     private static final String ISSUANCE_CLAIM = "pid";
     private static final String CLIENT_CLAIM = "client_id";
-    private static final String EMAIL_CLAIM = "email";
-    /** What the authentication manager names a caller whose token carries no mandatee email. */
-    private static final String ANONYMOUS_PRINCIPAL = "anonymous";
+    private static final String CREDENTIAL_TYPE_CLAIM = "credential_type";
+    private static final String MACHINE_CREDENTIAL_MARKER = ".machine.";
     /** Actor id of a person whose token names neither a mandatee email nor a subject. */
     private static final String UNIDENTIFIED_PERSON = "unidentified";
 
     private final AccessTokenService accessTokenService;
+    private final AccessTokenActor accessTokenActor;
 
     @Override
     public Mono<AuditContext> resolve(ServerWebExchange exchange, @Nullable Authentication authentication) {
@@ -47,7 +47,7 @@ public class IssuerAuditContextResolver implements ReactiveAuditContextResolver 
                 return Mono.empty();
             }
             Jwt token = jwtAuthentication.getToken();
-            AuditActor actor = actorOf(token, jwtAuthentication.getName());
+            AuditActor actor = actorOf(token);
             if (actor.kind() == ActorKind.HOLDER) {
                 return Mono.just(new AuditContext(tenant, null, null, actor));
             }
@@ -57,28 +57,24 @@ public class IssuerAuditContextResolver implements ReactiveAuditContextResolver 
         });
     }
 
-    private static AuditActor actorOf(Jwt token, String principalName) {
+    private AuditActor actorOf(Jwt token) {
         String issuanceId = token.getClaimAsString(ISSUANCE_CLAIM);
         if (issuanceId != null && !issuanceId.isBlank()) {
             return AuditActor.holder(issuanceId);
         }
-        String client = token.getClaimAsString(CLIENT_CLAIM);
-        if (client != null && !client.isBlank()) {
-            return AuditActor.system(client);
+        String id = accessTokenActor.idOf(token).orElse(UNIDENTIFIED_PERSON);
+        if (isSystem(token)) {
+            return AuditActor.system(id);
         }
-        return AuditActor.person(personIdOf(principalName, token), null, token.getClaimAsString(EMAIL_CLAIM));
+        return AuditActor.person(id, null, accessTokenActor.emailOf(token).orElse(null));
     }
 
-    /** The principal when the authentication named the caller, else the token subject, else a fixed id. */
-    private static String personIdOf(String principalName, Jwt token) {
-        if (principalName != null && !principalName.isBlank() && !ANONYMOUS_PRINCIPAL.equals(principalName)) {
-            return principalName;
-        }
-        String subject = token.getSubject();
-        if (subject != null && !subject.isBlank()) {
-            return subject;
-        }
-        return UNIDENTIFIED_PERSON;
+    /** A token with a client, or issued for a machine attestation, belongs to a system. */
+    private static boolean isSystem(Jwt token) {
+        String client = token.getClaimAsString(CLIENT_CLAIM);
+        String credentialType = token.getClaimAsString(CREDENTIAL_TYPE_CLAIM);
+        return (client != null && !client.isBlank())
+                || (credentialType != null && credentialType.contains(MACHINE_CREDENTIAL_MARKER));
     }
 
     /** The organization is optional evidence: a token without one is still a valid caller. */

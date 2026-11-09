@@ -468,7 +468,7 @@ public class Oid4VciCredentialWorkflowImpl implements Oid4VciCredentialWorkflow 
     }
 
     private static IssuanceAuditEvents.Holder holderOf(Issuance proc) {
-        return new IssuanceAuditEvents.Holder(null, proc.getSubject(), proc.getEmail());
+        return IssuanceAuditEvents.Holder.ofAttestation(proc.getSubject(), proc.getEmail(), proc.getCredentialDataSet());
     }
 
     private static String firstNonBlank(String... candidates) {

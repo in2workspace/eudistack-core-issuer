@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **EUD-244 — Audit events (catalogue 2.2.0)**: the Issuer states what happened through the `AuditTrailPort` and, when `auditoria.publisher.enabled=true`, hands it to the transactional audit outbox of `auditoria-spring-boot-starter`, which delivers it to the Audit API (`auditoria.dispatcher.enabled`). Both switches are off by default and the Issuer behaves as before. Covered: issuance requests and refusals, credential offers, the holder's token and credential exchange, wallet notifications, signing, status-list entries and publication, revocation, withdrawal and archiving, issuance queries, credential catalogue changes and calls to third parties.
 - **EUD-244 — Audit context**: the tenant, the actor (person, system or holder of the issuance named by the access token) and the organization are read from the request; the bootstrap issuance and the holder's steps without a bearer open their own context.
+- **EUD-244 — Actor and holder of the events**: the actor of a person's events is read from the verified access token and never from the authentication principal, which comes from an unverified `X-ID-Token`; the holder's document is read from the credential data set. Revocation events commit with the status list and the process (EUD-271).
 
 ### Changed (EUD-26)
 

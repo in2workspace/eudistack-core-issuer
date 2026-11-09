@@ -626,7 +626,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private static IssuanceAuditEvents.Completion directCompletion(String configId, IssuanceRequest request,
                                                                    CredentialBuildResult buildResult) {
         return new IssuanceAuditEvents.Completion(configId, DeliveryMode.DIRECT.value,
-                new Holder(null, buildResult.subject(), request.email()),
+                Holder.ofAttestation(buildResult.subject(), request.email(), buildResult.credentialDataSet()),
                 IssuedAttributeNames.of(buildResult.credentialDataSet()),
                 IssuanceAuditEvents.instantOf(buildResult.validFrom()), IssuanceAuditEvents.instantOf(buildResult.validUntil()), null);
     }
@@ -676,7 +676,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                 draft.getIssuanceId().toString(),
                 request.credentialConfigurationId(),
                 IssuanceAuditEvents.deliveryMethodOf(delivery),
-                new Holder(null, buildResult.subject(), request.email()),
+                Holder.ofAttestation(buildResult.subject(), request.email(), buildResult.credentialDataSet()),
                 credentialOfferService.newOfferExpiry());
         return transactionalOperator.transactional(
                 issuanceService.saveIssuance(draft)

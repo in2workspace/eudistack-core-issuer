@@ -617,6 +617,6 @@ public class RevocationWorkflow {
 
     /** The holder is only reported once the process was resolved; an unknown process has none to give. */
     private static Holder holderOf(Issuance issuance) {
-        return issuance == null ? null : new Holder(null, issuance.getSubject(), issuance.getEmail());
+        return issuance == null ? null : Holder.ofAttestation(issuance.getSubject(), issuance.getEmail(), issuance.getCredentialDataSet());
     }
 }

@@ -39,6 +39,11 @@ public final class IssuanceAuditEvents {
     /** The person an attestation is for, in clear, as the catalogue's {@code person} type. */
     public record Holder(String identifier, String name, String email) {
 
+        /** The holder of an attestation: its document comes from the credential data set (see {@link HolderDocument}). */
+        public static Holder ofAttestation(String name, String email, String credentialDataSet) {
+            return new Holder(HolderDocument.of(credentialDataSet).orElse(null), name, email);
+        }
+
         public Map<String, Object> toDetails() {
             Map<String, Object> details = new LinkedHashMap<>();
             details.put("identifier", identifier);
