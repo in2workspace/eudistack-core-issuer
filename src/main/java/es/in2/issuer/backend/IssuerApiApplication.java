@@ -10,7 +10,6 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import reactor.core.publisher.Hooks;
 
 @SpringBootApplication
 @ConfigurationPropertiesScan
@@ -25,9 +24,6 @@ public class IssuerApiApplication {
                     .build();
 
     public static void main(String[] args) {
-        // Bridge Reactor Context <-> ThreadLocal (SLF4J MDC) on every operator.
-        // Required for %X{tenantDomain} to appear in logback patterns inside reactive chains.
-        Hooks.enableAutomaticContextPropagation();
         SpringApplication.run(IssuerApiApplication.class, args);
     }
 
