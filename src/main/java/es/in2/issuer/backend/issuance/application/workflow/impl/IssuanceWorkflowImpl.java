@@ -46,6 +46,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -78,6 +79,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
     private final IssuanceProperties issuanceProperties;
     private final SchemaDeliveryCeiling schemaDeliveryCeiling;
     private final HolderDidFallbackAuditor holderDidFallbackAuditor;
+    private final TenantCredentialProfileService tenantCredentialProfileService;
 
     @Override
     @Observed(name = "issuance.issue-credential", contextualName = "issuance-issue-credential")
@@ -490,7 +492,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
 
         UUID issuanceId = UUID.randomUUID();
 
-        return genericCredentialBuilder.buildCredential(profile, request.payload())
+        return buildCredential(profile, request)
                 .flatMap(buildResult ->
                         genericCredentialBuilder.bindIssuer(profile, buildResult.credentialDataSet(),
                                         issuanceId.toString(), request.email())
@@ -573,7 +575,7 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
         CredentialProfile profile = credentialProfileRegistry.getByConfigurationId(configId);
         String grantType = request.grantType() != null ? request.grantType() : AUTHORIZATION_CODE;
 
-        return genericCredentialBuilder.buildCredential(profile, request.payload())
+        return buildCredential(profile, request)
                 .flatMap(buildResult -> {
                     UUID issuanceId = UUID.randomUUID();
                     // The cnf travels on the row, not in this request: the wallet legs sign in a
@@ -600,6 +602,19 @@ public class IssuanceWorkflowImpl implements IssuanceWorkflow {
                                             saved.getIssuanceId().toString()))
                             );
                 });
+    }
+
+    /**
+     * Builds the credential with the validity and subject of the tenant's catalog entry. A row not
+     * filled yet falls back to the type file (D9); an entry that is not enabled would have been
+     * rejected by the PDP already, so there is nothing else to fall back from.
+     */
+    private Mono<CredentialBuildResult> buildCredential(CredentialProfile profile, IssuanceRequest request) {
+        return tenantCredentialProfileService.findEnabledEntry(request.credentialConfigurationId())
+                .map(Optional::of)
+                .defaultIfEmpty(Optional.empty())
+                .flatMap(entry -> genericCredentialBuilder.buildCredential(
+                        profile, request.payload(), entry.orElse(null)));
     }
 
     private Issuance buildIssuanceEntity(

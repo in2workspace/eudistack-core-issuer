@@ -13,7 +13,7 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
  * context key {@code tenantDomain} with SLF4J {@link MDC}.
  *
  * <p>Combined with {@code Hooks.enableAutomaticContextPropagation()} (enabled
- * in {@code IssuerApiApplication.main}) and
+ * in {@link ReactorContextPropagationConfig}) and
  * {@code spring.reactor.context-propagation: auto}, this makes the MDC value
  * visible to logback patterns such as {@code %X{tenantDomain:-}} on every
  * operator execution across threads.

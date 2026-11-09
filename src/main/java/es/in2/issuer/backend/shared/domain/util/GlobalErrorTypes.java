@@ -40,6 +40,9 @@ public enum GlobalErrorTypes {
     INVALID_STATUS("invalid_status"),
     STATUS_LIST_NOT_FOUND("status_list_not_found"),
     STATUS_LIST_NOT_AVAILABLE("status_list_not_available"),
+    STATUS_LIST_UNAVAILABLE("status_list_unavailable"),
+    ALREADY_REVOKED("already_revoked"),
+    NOT_REVOCABLE("not_revocable"),
     INVALID_CREDENTIAL_FORMAT("invalid_credential_format"),
     DID_KEY_CREATION_ERROR("did_key_creation_error"),
     EC_KEY_CREATION_ERROR("ec_key_creation_error"),
@@ -59,7 +62,16 @@ public enum GlobalErrorTypes {
     INVALID_HOLDER_KEY("invalid_holder_key"),
     UNKNOWN_CREDENTIAL_CONFIGURATION("unknown_credential_configuration"),
     CREDENTIAL_CATALOG_NOT_CONFIGURED("credential_catalog_not_configured"),
-    CREDENTIAL_CONFIGURATION_NOT_ENABLED("credential_configuration_not_enabled");
+    CREDENTIAL_CONFIGURATION_NOT_ENABLED("credential_configuration_not_enabled"),
+    UNKNOWN_SCHEMA("unknown_schema"),
+    UNSUPPORTED_BINDING_TYPE("unsupported_binding_type"),
+    FIELD_NOT_IN_SCHEMA("field_not_in_schema"),
+    INVALID_VALIDITY("invalid_validity"),
+    NO_DELIVERY_MODE("no_delivery_mode"),
+    CATALOG_ENTRY_ALREADY_EXISTS("catalog_entry_already_exists"),
+    CATALOG_ENTRY_NOT_FOUND("catalog_entry_not_found"),
+    PRECONDITION_FAILED("precondition_failed"),
+    PRECONDITION_REQUIRED("precondition_required");
 
     private final String code;
 
