@@ -17,6 +17,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Console pattern**: the same as the other services, now with the service name and tenant. The `io.micrometer.registry.otlp` and `io.opentelemetry.exporter` loggers leave DEBUG, and `SpringApplicationProperties`, which only `MicrometerMetricsConfig` read, is removed.
 - **The service reports as `issuer-core`** (was `in2-issuer-backend`) in traces, metrics and logs, the name set by the observability convention: `spring.application.name` is now `${OTEL_SERVICE_NAME:issuer-core}`, the same pattern as the Verifier and the Wallet EBW. OpenObserve filters or dashboards on `in2-issuer-backend` must use the new name.
 
+### Added (EUD-271)
+
+- **EUD-271 (EUD-247) — `POST /api/v1/issuances/{id}/revocation`, the revocation contract for operators and systems.** The process is identified in the path and `reason` (1 to 280 characters, internal, never sent to the holder) in the body; `204` with no body. Rejections, all as `application/problem+json` with `instance` set to the request path and rejecting without changes:
+  - `400 BAD_REQUEST` with `violations` for an `id` that is not a UUID or a missing, blank or longer `reason`.
+  - `401 invalid_token` for a token without an organization. A token without `credential_type` is decided by its powers, as EUD-272 does for any caller.
+  - `403 insufficient_permission` / `tenant_mismatch`, also for an `id` that does not exist and for a SysAdmin on the `platform` tenant, whose view is read-only.
+  - `404 issuance_not_found` for a process that does not exist or is out of the caller's scope, with the same body.
+  - `409 already_revoked` for a revoked attestation, without repeating any effect, and `409 not_revocable` for any other non-Valid status or an attestation with no position in a status list.
+  - `503 status_list_unavailable` with `Retry-After: 5` when the list cannot be marked.
+
+### Changed (EUD-271)
+
+- **EUD-271 — The status list and the issuance process commit in one transaction.** The list is sealed first, outside the transaction, so a QTSP failure writes nothing; then the conditional update of the list and the move to `REVOKED` commit together or not at all, on every revocation path (new route, alias, `PATCH`, queue and OID4VCI notification). Of two simultaneous revocations one applies and the other gets `already_revoked`, and the holder gets one notice. A bit left set by an older divergence, with the process still `VALID`, is completed by the next revocation.
+- **EUD-271 — A lost race on a status list is detected.** `StatusListRepository.updateSignedAndEncodedIfUnchanged` lacked `@Modifying`, so it never returned the affected rows and the optimistic check on the list did not run: two simultaneous revocations of attestations of one list could lose a bit. The loser now retries against the current list, three attempts at most with exponential backoff and jitter (SEC-25), since each one asks the QTSP for a new signature.
+- **EUD-271 — The revocation audit identifies who revoked, not the holder.** The `credential.revoke.*` events go to the logs (stdout and OTLP), so they carry no holder name, email nor document: the holder reaches the encrypted audit store with the audit events of EUD-244 (PR #238), which complete AC-13. The route of the contract traces rejected requests, `requesterOrganizationId`, and identifies a system or an SD-JWT attestation by its token instead of `anonymous`. No token nor attestation content is logged.
+
+### Fixed (EUD-271)
+
+- **EUD-271 — The actor of a revocation comes only from the verified access token.** It came from the principal, which is read from an `X-ID-Token` whose signature is not checked, so a caller with a valid token could name somebody else as the actor. It is now the email of the mandatee of a W3C attestation, the `email` of the `mandatee` for a person of an SD-JWT attestation, or its `id` (the DID) for a system, whose `sub` is the IP address its attestation declares. It applies to the new route, the alias and `PATCH`, which traced such callers as `anonymous`.
+- **EUD-271 — A revocation rejected with a 401 leaves a trace (EUD-247 AC-10).** The security chain answers it before any controller, so it left none (or only `auth.failure`). `POST /api/v1/issuances/{id}/revocation` now records `credential.revoke.failed` with the id, the reason if the body has one (at most 8 KB are read), the error type and `declaredClientAddress`, the address the request declares (the first value of `Forwarded` or `X-Forwarded-For`, chosen by the client, so it is not evidence). Nothing in such a request is verified, so the actor is `anonymous` and the token is not read.
+- **EUD-271 — A 401 of the management API sets `instance` to the request path.** `ProblemAuthenticationEntryPoint` answered with a random UUID, while the contracts of `/api/**` (the revocation route among them) set the request path, as the other errors of the route do. Other paths keep the UUID.
+- **EUD-271 — A `reason` that is not a JSON string is rejected.** Jackson turned a number or a boolean into text, so `{"reason": 5}` revoked the attestation. It now answers `400 BAD_REQUEST` with the violation on `reason`.
+- **EUD-271 — A malformed id on `PATCH /api/v1/issuances/{id}` can no longer forge a log line.** With `status=REVOKED` the route does not check the shape of its id, and the JDK repeats it in the message of `UUID.fromString`, which reached the `status=failed` log line with its line breaks. The error text now goes through `quoteIfNeeded`, and `sanitize` removes line breaks in a form that CodeQL `java/log-injection` recognizes. Both live in `statuslist.domain.util.LogSanitizer`, so the status list adapter no longer imports the application layer; the error handler of the route quotes the request path the same way.
+
+### Deprecated (EUD-271)
+
+- **`POST /w3c/v1/credentials/status/revoke` is a deprecated alias** of the new route, with its current body and error codes, because the portal calls it without a reason. Each call logs `deprecated=true`.
+
 ### Fixed (EUD-307)
 
 - **EUD-307 — The issuances API answers as the public guides say.** Built on EUD-272, which already requires `Onboarding · Execute` of the tenant for the listing, the detail, withdrawing and archiving (`403 insufficient_permission`), and issues product certifications with `delivery: direct` without `X-Id-Token`.

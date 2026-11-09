@@ -317,8 +317,12 @@ public class JWTServiceImpl implements JWTService {
 
     @Override
     public Optional<String> extractMandateeEmail(Jwt jwt) {
+        return extractMandateeEmail(jwt.getClaims());
+    }
+
+    @Override
+    public Optional<String> extractMandateeEmail(Map<String, Object> claims) {
         log.debug("Extracting email from JWT");
-        Map<String, Object> claims = jwt.getClaims();
 
         // Resolve VC from either 'vc' (object) or 'vc_json' (stringified JSON)
         Map<String, Object> vc = resolveVc(claims);
