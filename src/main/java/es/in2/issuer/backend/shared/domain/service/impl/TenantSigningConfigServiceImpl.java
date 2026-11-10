@@ -1,19 +1,30 @@
 package es.in2.issuer.backend.shared.domain.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.fasterxml.jackson.databind.JsonNode;
+import com.github.benmanes.caffeine.cache.Ticker;
 import es.in2.issuer.backend.shared.domain.model.entities.TenantSigningConfig;
 import es.in2.issuer.backend.shared.domain.service.TenantSigningConfigService;
 import es.in2.issuer.backend.shared.infrastructure.repository.TenantSigningConfigRepository;
+import es.in2.issuer.backend.signing.domain.exception.SigningConfigurationChangedException;
+import es.in2.issuer.backend.signing.domain.exception.SigningException;
+import es.in2.issuer.backend.signing.domain.model.ActiveSigningConfig;
+import es.in2.issuer.backend.signing.domain.model.SigningFailureReason;
+import es.in2.issuer.backend.signing.domain.model.SigningModality;
+import es.in2.issuer.backend.signing.domain.service.OwnKeySigningConfigLoader;
+import es.in2.issuer.backend.signing.domain.util.SigningConfigScope;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
+import reactor.util.context.ContextView;
 
 import java.time.Duration;
+import java.util.Optional;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_CONTEXT_KEY;
 
@@ -21,38 +32,116 @@ import static es.in2.issuer.backend.shared.domain.util.Constants.TENANT_DOMAIN_C
 @Service
 public class TenantSigningConfigServiceImpl implements TenantSigningConfigService {
 
-    private static final Duration CACHE_TTL = Duration.ofMinutes(5);
+    private static final String ACTIVE_STATUS = "active";
+    // EUD-251 design AD-5: during the TTL an instance can keep using a replaced or withdrawn
+    // configuration. Deviation from the PRD proposed in the design §16, pending the PO.
+    static final Duration CACHE_TTL = Duration.ofMinutes(5);
 
     private final TenantSigningConfigRepository repository;
-    private final Cache<String, RemoteSignatureDto> signatureCache;
+    private final Cache<String, ActiveSigningConfig> configCache;
     private final ObjectMapper objectMapper;
+    private final OwnKeySigningConfigLoader ownKeySigningConfigLoader;
 
-    public TenantSigningConfigServiceImpl(TenantSigningConfigRepository repository, ObjectMapper objectMapper) {
+    @Autowired
+    public TenantSigningConfigServiceImpl(TenantSigningConfigRepository repository,
+                                          ObjectMapper objectMapper,
+                                          OwnKeySigningConfigLoader ownKeySigningConfigLoader) {
+        this(repository, objectMapper, ownKeySigningConfigLoader, Ticker.systemTicker());
+    }
+
+    TenantSigningConfigServiceImpl(TenantSigningConfigRepository repository,
+                                   ObjectMapper objectMapper,
+                                   OwnKeySigningConfigLoader ownKeySigningConfigLoader,
+                                   Ticker ticker) {
         this.repository = repository;
-        this.signatureCache = Caffeine.newBuilder()
+        this.configCache = Caffeine.newBuilder()
                 .expireAfterWrite(CACHE_TTL)
+                .ticker(ticker)
                 .maximumSize(50)
                 .build();
         this.objectMapper = objectMapper;
+        this.ownKeySigningConfigLoader = ownKeySigningConfigLoader;
     }
 
     @Override
-    public Mono<RemoteSignatureDto> getRemoteSignature() {
+    public Mono<ActiveSigningConfig> getActiveSigningConfig() {
         return Mono.deferContextual(ctx -> {
-            String tenant = ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "unknown");
+            String tenant = tenantOf(ctx);
+            Optional<SigningConfigScope.Pins> pins = SigningConfigScope.current(ctx);
 
-            RemoteSignatureDto cached = signatureCache.getIfPresent(tenant);
-            if (cached != null) {
-                return Mono.just(cached);
+            Optional<ActiveSigningConfig> pinned = pins.flatMap(p -> p.get(tenant));
+            if (pinned.isPresent()) {
+                return Mono.just(pinned.get());
             }
 
-            return repository.findFirstByOrderByCreatedAtDesc()
-                    .map(this::toRemoteSignatureDto)
-                    .doOnNext(dto -> {
-                        signatureCache.put(tenant, dto);
-                        log.debug("Loaded tenant signing config for '{}': provider at {}", tenant, dto.url());
-                    });
+            Mono<ActiveSigningConfig> config = cachedOrLoad(tenant);
+            return pins.map(p -> config.map(c -> p.pinIfAbsent(tenant, c))).orElse(config);
         });
+    }
+
+    /**
+     * Within a {@link SigningConfigScope}, a reload that finds another configuration than the one the
+     * request already used fails with {@link SigningConfigurationChangedException}, so the scope runs the
+     * request again instead of signing with a configuration its payload does not match.
+     */
+    @Override
+    public Mono<ActiveSigningConfig> reloadActiveSigningConfig() {
+        return Mono.deferContextual(ctx -> {
+            String tenant = tenantOf(ctx);
+            configCache.invalidate(tenant);
+
+            Optional<ActiveSigningConfig> pinned = SigningConfigScope.current(ctx).flatMap(p -> p.get(tenant));
+            if (pinned.isEmpty()) {
+                return getActiveSigningConfig();
+            }
+            return cachedOrLoad(tenant)
+                    .flatMap(fresh -> fresh.equals(pinned.get())
+                            ? Mono.just(fresh)
+                            : Mono.error(new SigningConfigurationChangedException()));
+        });
+    }
+
+    private static String tenantOf(ContextView ctx) {
+        return ctx.getOrDefault(TENANT_DOMAIN_CONTEXT_KEY, "unknown");
+    }
+
+    private Mono<ActiveSigningConfig> cachedOrLoad(String tenant) {
+        ActiveSigningConfig cached = configCache.getIfPresent(tenant);
+        if (cached != null) {
+            return Mono.just(cached);
+        }
+
+        return repository.findFirstByStatusOrderByCreatedAtDesc(ACTIVE_STATUS)
+                .flatMap(row -> toActiveSigningConfig(tenant, row))
+                .doOnNext(config -> {
+                    configCache.put(tenant, config);
+                    log.debug("Loaded active signing config for '{}': modality {}", tenant, config.modality());
+                });
+    }
+
+    private Mono<ActiveSigningConfig> toActiveSigningConfig(String tenant, TenantSigningConfig row) {
+        return switch (modalityOf(tenant, row)) {
+            case QTSP -> Mono.just(ActiveSigningConfig.qtsp(toRemoteSignatureDto(row)));
+            // The certificate of an own key and the alias of its key are not in the database: they come from
+            // the certificate infra publishes for the tenant.
+            case OWN_KEY -> ownKeySigningConfigLoader.load(tenant).map(ActiveSigningConfig::ownKey);
+        };
+    }
+
+    private static SigningModality modalityOf(String tenant, TenantSigningConfig row) {
+        if ("qtsp".equals(row.modality())) {
+            return SigningModality.QTSP;
+        }
+        if ("own_key".equals(row.modality())) {
+            return SigningModality.OWN_KEY;
+        }
+        log.error("Active signing config of tenant '{}' has an unknown modality", tenant);
+        throw invalidConfiguration();
+    }
+
+    private static SigningException invalidConfiguration() {
+        return new SigningException(SigningFailureReason.NO_CONFIGURATION,
+                "The active signing configuration of this tenant is invalid");
     }
 
     private RemoteSignatureDto toRemoteSignatureDto(TenantSigningConfig config) {

@@ -1,18 +1,21 @@
 package es.in2.issuer.backend.signing.domain.model.dto;
 
+import es.in2.issuer.backend.signing.domain.model.OwnKeySigningConfig;
 import es.in2.issuer.backend.signing.domain.model.SigningType;
 import es.in2.issuer.backend.signing.infrastructure.adapter.impl.DelegatingSigningProviderImpl;
 import es.in2.issuer.backend.signing.infrastructure.csc.config.RemoteSignatureDto;
 import lombok.Builder;
 
 /**
- * Signing request carried along the QTSP client chain.
+ * Signing request handed to the provider of the tenant's signing modality (QTSP or own key).
  * {@code remoteSignature} is the tenant-resolved QTSP configuration
  * ({@link RemoteSignatureDto}) — set by {@link
  * DelegatingSigningProviderImpl}
  * after reading from {@code tenant_signing_config}. All downstream components
  * (CscPortRouter, IssuerCertificateService, SignDocService)
  * read the tenant's QTSP config from this field instead of a global configuration.
+ * {@code ownKey} is the same for the own-key modality, built from the certificate infra publishes
+ * for the tenant: set by {@link DelegatingSigningProviderImpl} and read by the KMS provider.
  */
 @Builder
 public record SigningRequest(
@@ -20,5 +23,6 @@ public record SigningRequest(
         String data,
         SigningContext context,
         String typ,
-        RemoteSignatureDto remoteSignature
+        RemoteSignatureDto remoteSignature,
+        OwnKeySigningConfig ownKey
 ) {}

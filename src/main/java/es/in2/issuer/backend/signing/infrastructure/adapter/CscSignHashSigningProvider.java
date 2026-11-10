@@ -9,9 +9,7 @@ import es.in2.issuer.backend.signing.domain.model.dto.SigningResult;
 import es.in2.issuer.backend.signing.domain.service.IssuerCertificateService;
 import es.in2.issuer.backend.signing.domain.service.JadesHeaderBuilderService;
 import es.in2.issuer.backend.signing.domain.service.JwsSignHashService;
-import es.in2.issuer.backend.signing.domain.spi.SigningProvider;
 import es.in2.issuer.backend.signing.domain.spi.SigningRequestValidator;
-import es.in2.issuer.backend.signing.infrastructure.model.CscSignType;
 import es.in2.issuer.backend.signing.infrastructure.properties.CscSigningProperties;
 import es.in2.issuer.backend.signing.domain.spi.CscPort;
 import lombok.RequiredArgsConstructor;
@@ -21,10 +19,11 @@ import reactor.core.publisher.Mono;
 
 import static es.in2.issuer.backend.shared.domain.util.Constants.SIGNATURE_REMOTE_SCOPE_CREDENTIAL;
 
+/** CSC {@code signHash} path of the QTSP modality, called by {@link CscQtspSigningProvider}. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class CscSignHashSigningProvider implements SigningProvider {
+public class CscSignHashSigningProvider {
 
     private final CscPort cscPort;
     private final IssuerCertificateService issuerCertificateService;
@@ -32,12 +31,6 @@ public class CscSignHashSigningProvider implements SigningProvider {
     private final JadesHeaderBuilderService jadesHeaderBuilder;
     private final CscSigningProperties cscSigningProperties;
 
-    @Override
-    public CscSignType supportedProvider() {
-        return CscSignType.CSC_SIGN_HASH;
-    }
-
-    @Override
     public Mono<SigningResult> sign(SigningRequest request) {
         return Mono.defer(() -> {
             SigningRequestValidator.validate(request, false);
